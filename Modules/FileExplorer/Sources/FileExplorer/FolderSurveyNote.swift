@@ -10,7 +10,7 @@ import Sync
 /// This is where ``LensWorkspaceView``'s finished survey report went when it left row 2 of the
 /// header card. It used to be the widest tenant of that row (223pt on the Renames lens, measured),
 /// the only one the layout could shorten, and the only one that was not about the list on screen —
-/// it reports on *Update folder memory*, a Rescan-menu item, so it now sits above that item.
+/// it reports on *Refresh what’s learned*, a Rescan-menu item, so it now sits above that item.
 enum FolderSurveyNote {
 
     /// - Parameter report: the last survey's own account of itself.

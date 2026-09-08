@@ -43,7 +43,7 @@ extension FileSyncManager {
         /// case that left work undone says that too rather than reporting only what it managed.
         public var summary: String {
             guard changed || documentsRead > 0 || documentsUnavailable > 0 else {
-                return "Folder memory is up to date."
+                return "Everything learned here is up to date."
             }
             var parts = ["\(foldersChanged) folder\(foldersChanged == 1 ? "" : "s") changed"]
             parts.append("\(documentsRead) document\(documentsRead == 1 ? "" : "s") read")
@@ -76,7 +76,7 @@ extension FileSyncManager {
         // fingerprint over (or racing) the landing's own step-7 writes. One mutator at a time,
         // in both orders.
         guard !restructureLandingInProgress else {
-            Logger.shared.info("Folder memory update refused — a reorganisation is landing; "
+            Logger.shared.info("Refresh refused — a reorganisation is landing; "
                 + "run it again once the landing finishes")
             return .none
         }
@@ -87,7 +87,7 @@ extension FileSyncManager {
         // A survey with nothing to read cannot learn anything, and reporting "0 documents read" as
         // success would be indistinguishable from a tree that genuinely had not changed.
         guard let extractor = filingSnippetExtractor else {
-            Logger.shared.warning("No content extractor — the folder memory cannot be re-surveyed")
+            Logger.shared.warning("No content extractor — what was learned cannot be refreshed")
             return .none
         }
         // **The folder the artifacts were read from wins over the field inside them.**
@@ -117,7 +117,7 @@ extension FileSyncManager {
         if let taxonomy {
             walked = taxonomy
         } else {
-            // **The same ask-first the other whole-tree passes make.** "Update folder memory" is
+            // **The same ask-first the other whole-tree passes make.** "Refresh" is
             // one click in Organize, and the sidebar has made promoting `~` or a whole volume to
             // a source a one-click act too — this was the one Organize-reachable whole-tree walk
             // left unbounded after the four gates landed. Reuses `.filing`: the memory belongs to
@@ -130,7 +130,7 @@ extension FileSyncManager {
                 let preflight = LargeWalkPreflight(pass: .filing, rootPath: root.path,
                                                    probeLimit: probe.limit)
                 guard largeWalkConfirmer(preflight) else {
-                    Logger.shared.info("Folder memory: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not re-surveyed")
+                    Logger.shared.info("Refresh: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not re-surveyed")
                     return .none
                 }
                 tree = await Self.buildTree(url: root, sortOption: .name,
@@ -155,7 +155,7 @@ extension FileSyncManager {
         // The rename pass, the risky-name scan and the name normalizer have all carried this guard
         // since they were written. This one writes a file, and did not.
         if Self.isUnreadableRootMarker(walked, root: root) {
-            Logger.shared.warning("Folder memory: could not read \(root.lastPathComponent) — "
+            Logger.shared.warning("Refresh: could not read \(root.lastPathComponent) — "
                                   + "permission denied or unavailable. Nothing was re-surveyed, and "
                                   + "the memory already on disk was left exactly as it was.")
             return .none
@@ -192,7 +192,7 @@ extension FileSyncManager {
         if previousMemory == nil,
            FilingProfileStore.isPresentButUnreadable(
                at: FilingSurveyStore.memoryURL(id: profileId, in: directory)) {
-            Logger.shared.warning("Folder memory: filing-memory.json is on disk but could not be "
+            Logger.shared.warning("Refresh: filing-memory.json is on disk but could not be "
                                   + "read, so this pass would have written a rebuilt memory over a "
                                   + "file it never opened. Nothing was re-surveyed and both files "
                                   + "were left exactly as they are — move filing-memory.json aside "
@@ -203,7 +203,7 @@ extension FileSyncManager {
         let existing: FilingCorpus?
         switch FilingSurveyStore.corpusRead(id: profileId, in: directory) {
         case .unreadable:
-            Logger.shared.warning("Folder memory: filing-corpus.json is on disk but could not be "
+            Logger.shared.warning("Refresh: filing-corpus.json is on disk but could not be "
                                   + "read, so this pass would have started from an empty corpus and "
                                   + "written the result over what has been learned. Nothing was "
                                   + "re-surveyed and both files were left exactly as they are — "
@@ -294,7 +294,7 @@ extension FileSyncManager {
             }
         }
 
-        updateScan(\.filingSurveyLifecycle, epoch: epoch, status: "Rebuilding folder memory…")
+        updateScan(\.filingSurveyLifecycle, epoch: epoch, status: "Saving what was learned…")
         let merged = FilingSurvey.merge(corpus: corpus, tree: tree, read: read)
         let memory = FilingSurvey.buildMemory(corpus: merged, folderModified: tree.folders,
                                               profileId: profileId)
@@ -304,7 +304,7 @@ extension FileSyncManager {
                                                 previousMemory: previousMemory, id: profileId,
                                                 in: directory, root: root.path, now: now)
         } catch {
-            Logger.shared.error("Couldn't write the re-surveyed folder memory: \(error.localizedDescription)")
+            Logger.shared.error("Couldn't save what the re-survey learned: \(error.localizedDescription)")
             return .none
         }
         // The stamp moved even when nothing else did — that is §4.1's whole point: "last surveyed"
@@ -330,7 +330,7 @@ extension FileSyncManager {
                                         documentsDropped: max(0, dropped),
                                         documentsUnavailable: unavailable + evictedMidRead,
                                         foldersLearned: memory.folders.count, changed: wrote)
-        Logger.shared.info("Folder memory re-surveyed — \(report.summary) "
+        Logger.shared.info("Refresh finished — \(report.summary) "
                            + "\(report.foldersLearned) folder(s) now have learned content.")
         filingSurveyReport = report
         completeScan(\.filingSurveyLifecycle, root: root)

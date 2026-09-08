@@ -225,7 +225,7 @@ import Design
             defaults.removeObject(forKey: OrganizeLens.defaultsKey)
         }
         // Both callbacks are supplied because both gate a control this suite measures: the Rescan
-        // menu's "Update folder memory" item, and the "Refine with Claude…" invitation, which is
+        // menu’s "Refresh what’s learned" item, and the "Refine with Claude…" invitation, which is
         // withheld outright when there is no Settings to open.
         let subject = LensWorkspaceView(syncManager: manager, lens: .filing, providerName: "Projects",
                                scanTargetFolder: scanTarget, onFindDuplicates: {},
@@ -1345,7 +1345,7 @@ import Design
     @Test("The survey note says what the survey found")
     func theSurveyNoteSaysItsNumbers() {
         // **The meaning had to move with the pixels.** The whole reason this sentence exists is
-        // that "Update folder memory" usually changes nothing and would otherwise look like a menu
+        // that "Refresh what’s learned" usually changes nothing and would otherwise look like a menu
         // item that does nothing — so a move that dropped its numbers would be the original
         // complaint back by a different route. Pure, because a `Menu`'s content is not rendered
         // until it is opened: a mounted-header test can only reach this by reading source text,
@@ -1364,7 +1364,7 @@ import Design
         #expect(FolderSurveyNote.text(for: other) != note)
 
         // The quiet outcome is the common one and the reason the line exists at all.
-        #expect(FolderSurveyNote.text(for: .none).contains("Folder memory is up to date."))
+        #expect(FolderSurveyNote.text(for: .none).contains("Everything learned here is up to date."))
         // Singular, because a note that says "1 folders" is a note nobody proof-read.
         let one = FileSyncManager.FilingSurveyReport(
             foldersChanged: 1, documentsRead: 1, documentsRelocated: 0, documentsDropped: 0,

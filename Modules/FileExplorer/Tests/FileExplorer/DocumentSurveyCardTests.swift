@@ -154,7 +154,7 @@ import Testing
         for state: DocumentSurveyCardState in [.interrupted(done: 7558, total: 7558),
                                                .interrupted(done: 99, total: 10)] {
             let detail = DocumentSurveyCardText.detail(for: state)
-            #expect(detail.contains("still has to be written"),
+            #expect(detail.contains("still has to be saved"),
                     "the card does not say what is actually outstanding")
             #expect(!detail.contains("still to read"),
                     "the card offers to read documents when none are left")
@@ -200,7 +200,7 @@ import Testing
         #expect(detail.contains("2,306"), "the receipt does not say how much was learned")
         #expect(detail.contains("days ago"), "the receipt does not say when")
         #expect(detail.lowercased().contains("only what has changed"),
-                "the receipt does not say what updating costs, so Update reads as a re-run")
+                "the receipt does not say what refreshing costs, so Refresh reads as a full re-run")
         #expect(DocumentSurveyCardText.title(for: .settled(folders: 1, lastRead: nil))
                 == "Documents read")
     }

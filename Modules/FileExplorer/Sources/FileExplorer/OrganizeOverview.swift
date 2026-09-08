@@ -498,7 +498,7 @@ struct OrganizeOverview: View {
     /// The document survey's card, or nil where there is nothing to say about one (RD11).
     ///
     /// **Nil on a machine with no folder profile, and nil once the corpus covers the tree** — in
-    /// the second case the incremental *Update folder memory* is the right pass and it is a click,
+    /// the second case the incremental *Refresh what’s learned* is the right pass and it is a click,
     /// so offering three hours beside it would be offering the worse of two answers.
     var documentSurvey: DocumentSurveyCardState?
     var onStartDocumentSurvey: (() -> Void)?

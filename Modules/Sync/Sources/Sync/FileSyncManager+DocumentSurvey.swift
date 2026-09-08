@@ -115,8 +115,8 @@ extension FileSyncManager {
                     + "written over what has been learned. Nothing was surveyed — move that file "
                     + "aside to survey from scratch."
             case .alreadySurveyed:
-                return "These documents have been read already. Update folder memory reads only "
-                    + "what has changed since."
+                return "These documents have been read already. Refresh reads only what has "
+                    + "changed since."
             case .treeTooLargeAndDeclined: return "Not surveyed."
             case .checkpointUnreadable:
                 return "There is unfinished progress on disk that could not be read. Move "
@@ -124,7 +124,7 @@ extension FileSyncManager {
             case .checkpointIsForAnotherRun:
                 return "The unfinished progress on disk is for a different folder."
             case .couldNotWrite:
-                return "Every document was read, but the folder memory could not be written. "
+                return "Every document was read, but what was learned could not be saved. "
                     + "Nothing was lost — carrying on tries the write again without re-reading."
             }
         }
@@ -349,7 +349,7 @@ extension FileSyncManager {
                 stoppedAt: outcome.stoppedAt, plannedTotal: plan.total, changed: false))
         }
 
-        _ = updateScan(\.filingSurveyLifecycle, epoch: epoch, status: "Rebuilding folder memory…")
+        _ = updateScan(\.filingSurveyLifecycle, epoch: epoch, status: "Saving what was learned…")
 
         let tree = plan.tree
         let previousMemory = filingMemory

@@ -208,7 +208,7 @@ import SwiftUI
     /// **Restructure follows the folder survey**, which is its pass.
     ///
     /// It was hard-coded `false` — defensible while nothing read it, since Restructure runs no walk
-    /// of its own — and wrong the moment the row grew an "Update folder memory" button: the button
+    /// of its own — and wrong the moment the row grew a Refresh button: the button
     /// stayed live and the count stayed bold for the whole survey it had just started, while the
     /// menu item running the identical action is `.disabled` for exactly that period.
     @Test func restructureFollowsTheFolderSurvey() {

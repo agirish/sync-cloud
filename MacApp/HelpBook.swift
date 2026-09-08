@@ -405,7 +405,7 @@ enum HelpBook {
                   systemImage: "doc.text.magnifyingglass", article: Article(
                 intro: "Some of what Organize knows comes from opening your files and reading a little of them, rather than going on their names alone. All of that happens on this Mac, using the same parts of macOS that draw you a preview — and none of what it reads is sent anywhere.",
                 blocks: [
-                    .paragraph("Three things read a file rather than its name. To File reads a short piece of a loose file whose name says nothing on its own, so it can suggest somewhere to put it. Update folder memory, on Restructure's card, reads the first page of documents that are new or have changed since last time, so the app knows what each of your folders is for. Duplicates reads a document's text, which is how it tells two real copies apart from two files that merely share a name."),
+                    .paragraph("Three things read a file rather than its name. To File reads a short piece of a loose file whose name says nothing on its own, so it can suggest somewhere to put it. Refresh, on Organize's overview, reads the first page of documents that are new or have changed since last time, so the app keeps up with what your folders are for. Duplicates reads a document's text, which is how it tells two real copies apart from two files that merely share a name."),
                     .bullets([
                         "What can be opened — PDF, plain text and CSV, and JPEG or PNG images. Word, PowerPoint and Excel files are not read at all.",
                         "How much — a few hundred characters, from the first page. The reading stops as soon as it has enough, and no page after the first is opened for this.",

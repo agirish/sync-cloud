@@ -2485,7 +2485,7 @@ public struct LensWorkspaceView: View {
     /// button.
     ///
     /// The deciding fact is not the width, though. **It is the only thing on this row that is not
-    /// about the list you are looking at** — it is the receipt for *Update folder memory*, an item
+    /// about the list you are looking at** — it is the receipt for *Refresh what’s learned*, an item
     /// inside the Rescan menu, and on Renames it sits beside a rename backlog it has nothing to
     /// say about. So it now lives at the control it describes: see ``lastFolderSurveyNote``, which
     /// puts it above that menu item where it is read in the same gesture that would run it again.
@@ -2622,7 +2622,10 @@ public struct LensWorkspaceView: View {
                         Button {
                             onUpdateFolderMemory()
                         } label: {
-                            Label("Update folder memory", systemImage: "brain")
+                            // **The object stays here.** On a card the title above supplies it;
+                            // in a menu, beside "Ignore saved suggestions", a bare "Refresh" names
+                            // nothing. Same rule `rescanAccessibilityLabel` applies for VoiceOver.
+                            Label("Refresh what’s learned", systemImage: "brain")
                         }
                         .disabled(syncManager.filingSurveyLifecycle.isRunning)
                         .help("Learn what your folders have been given since the last survey, so folders "
@@ -3963,7 +3966,7 @@ public struct LensWorkspaceView: View {
             onOpenSurveyHelp: onOpenHelp.map { open in
                 { open(OrganizeHelpTopics.onDeviceReading) }
             },
-            // The receipt's Update IS `Update folder memory` — the same incremental pass, which
+            // The receipt's Refresh IS `Refresh what’s learned` — the same incremental pass, which
             // until now was only reachable from a dropdown inside To File's rescan button.
             onUpdateDocumentSurvey: onUpdateFolderMemory
         )
@@ -4297,7 +4300,7 @@ public struct LensWorkspaceView: View {
                                         .map(\.headline)),
                     // **The folder survey, which is this lens's pass.** Hard-coded `false` was
                     // right while nothing read it — Restructure runs no walk of its own — and wrong
-                    // the moment the row grew an "Update folder memory" button: that button stayed
+                    // the moment the row grew a Refresh button: that button stayed
                     // live and the count stayed bold for the whole survey it had just started,
                     // while the menu item running the identical action one row up is `.disabled`
                     // for exactly that period.

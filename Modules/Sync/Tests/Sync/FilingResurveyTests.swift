@@ -309,7 +309,7 @@ import Events
         // `last { hasPrefix }` can hand back a neighbour's line — observed once, reporting
         // "5 folders changed" against a report that learned 2 (flaky-tests mechanism 3).
         let line = Logger.shared.entries.last {
-            $0.message.hasPrefix("Folder memory re-surveyed") && $0.message.contains(report.summary)
+            $0.message.hasPrefix("Refresh finished") && $0.message.contains(report.summary)
         }
         let message = try #require(line?.message, "the survey logged no closing line for this run")
         #expect(message.contains("\(report.foldersLearned) folder(s) now have learned content"),

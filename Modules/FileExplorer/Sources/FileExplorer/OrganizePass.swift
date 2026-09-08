@@ -92,14 +92,25 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         // Restructure runs no walk of its own, so "rescan" would name something that does not
         // happen. Refreshing its answer means re-reading the folders — the same words the Rescan
         // menu uses for the same action, so the two places cannot read as two features.
-        case .folderMemory: return "Update folder memory"
+        // "Refresh", not "Update folder memory". The old name leaked house vocabulary into the one
+        // control most people would press, and it named the artifact rather than the point: what
+        // this restores is what every lens reasons FROM, so a name tied to folders, to memory or to
+        // documents was narrower than the thing itself.
+        case .folderMemory: return "Refresh"
         }
     }
 
     /// What VoiceOver reads for that control. A button is its own accessibility element, and a bare
-    /// "Rescan" beside five other rows does not say which one it belongs to.
+    /// verb beside five other rows does not say which one it belongs to.
+    ///
+    /// **Generalised from a `== "Rescan"` literal, which had one verb in it and was about to have
+    /// two.** The rule was never about that word — it is "a bare verb needs its object, a
+    /// self-standing phrase already has one" — and encoded as a string comparison it would have
+    /// silently passed a bare "Refresh" straight through to VoiceOver as an objectless button.
+    /// A word count says what was meant and cannot go stale on the next rename.
     func rescanAccessibilityLabel(for lens: OrganizeLens) -> String {
-        rescanTitle == "Rescan" ? "Rescan \(lens.title)" : rescanTitle
+        let isBareVerb = !rescanTitle.contains(" ")
+        return isBareVerb ? "\(rescanTitle) \(lens.title)" : rescanTitle
     }
 
     /// The pass that produces this lens's answer, or `nil` for Rules — which has none.
@@ -120,7 +131,7 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .file: return "The file pass hasn’t run here"
         case .duplicates: return "The duplicate pass hasn’t run here"
-        case .folderMemory: return "Folder memory hasn’t surveyed this tree"
+        case .folderMemory: return "The documents here haven’t been read"
         }
     }
 
@@ -163,7 +174,8 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .file: return "Run the file pass"
         case .duplicates: return "Find duplicates"
-        case .folderMemory: return "Update folder memory"
+        // The same words the document survey's offer card uses, so the two are one feature.
+        case .folderMemory: return "Read my documents"
         }
     }
 

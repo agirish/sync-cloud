@@ -107,9 +107,9 @@ public enum DocumentSurveyCardText {
             return pause == nil ? "Reading documents · \(counted)"
                                 : "Reading documents · paused at \(counted)"
         case .finishing(let done):
-            return "Read \(done.formatted()) documents · building folder memory"
+            return "Read \(done.formatted()) documents · learning from them"
         case .interrupted(let done, let total):
-            guard done < total else { return "Documents read — folder memory not written" }
+            guard done < total else { return "Documents read — not saved yet" }
             return "Reading documents — paused at \(done.formatted()) of \(total.formatted())"
         case .finished:
             return "Documents read"
@@ -152,8 +152,8 @@ public enum DocumentSurveyCardText {
             // the write. "0 still to read — carrying on opens only those" was the sentence that
             // produced, which reads as a bug rather than as the retry it is offering.
             guard left > 0 else {
-                return "Every document was read; the folder memory still has to be written. "
-                    + "Carrying on writes it without re-reading anything."
+                return "Every document was read; what was learned still has to be saved. "
+                    + "Carrying on saves it without re-reading anything."
             }
             return "Stopped when you quit. \(left.formatted()) still to read — carrying on opens "
                 + "only those."
@@ -169,7 +169,7 @@ public enum DocumentSurveyCardText {
             if let lastRead {
                 parts.append("read \(RestructureLens.surveyedPhrase(lastRead, now: Date()))")
             }
-            return parts.joined(separator: " · ") + ". Updating reads only what has changed since."
+            return parts.joined(separator: " · ") + ". Refreshing reads only what has changed since."
         case .finished(let summary, let unreadableTypes):
             guard unreadableTypes > 0 else { return summary }
             // **Named, not folded into the read count.** A summary that reports only what it
@@ -223,7 +223,7 @@ struct DocumentSurveyCard: View {
     /// Opens Help at *Reading your documents*. Same shape as `RestructureLens.helpPointer`, down to
     /// the glyph.
     var onOpenHelp: (() -> Void)?
-    /// Runs the incremental re-survey — the existing *Update folder memory* pass. nil hides the
+    /// Runs the incremental re-survey — the existing *Refresh what’s learned* pass. nil hides the
     /// verb, the same rule the other four follow.
     var onUpdate: (() -> Void)?
 
@@ -348,13 +348,13 @@ struct DocumentSurveyCard: View {
             // without throwing away the whole pass.
             EmptyView()
         case .settled:
-            // **Update, not "Read again".** This runs the incremental pass — new and changed
+            // **Refresh, not "Read again".** This runs the incremental pass — new and changed
             // documents only, seconds to minutes — which is the refresh anybody actually wants.
             // A full re-read is three hours and a genuinely different need (a suspect corpus,
             // changed extraction rules); offering it beside a thirty-second button would invite
             // the wrong click, so it is deliberately not here.
             if let onUpdate {
-                Button("Update", action: onUpdate)
+                Button("Refresh", action: onUpdate)
                     .buttonStyle(.plain)
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .foregroundStyle(accent)

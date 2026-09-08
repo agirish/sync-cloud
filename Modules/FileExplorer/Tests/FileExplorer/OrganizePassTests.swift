@@ -238,7 +238,7 @@ import SwiftUI
     /// It reads the folder survey; the honest verb is the survey's own, and it is the same wording
     /// the Rescan menu already uses for the same action so the two cannot read as two features.
     @Test func restructureRefreshesBySurveyingNotScanning() {
-        #expect(OrganizePass.folderMemory.rescanTitle == "Update folder memory")
+        #expect(OrganizePass.folderMemory.rescanTitle == "Refresh")
         #expect(OrganizePass.duplicates.rescanTitle == "Rescan")
     }
 
@@ -247,9 +247,36 @@ import SwiftUI
     @Test func theRescanControlNamesItsLens() {
         #expect(OrganizePass.duplicates.rescanAccessibilityLabel(for: .duplicates)
                 == "Rescan Duplicates")
-        // Already self-standing, so it is not padded into "Update folder memory Restructure".
+        // A bare verb, so the lens IS appended — which is the whole point of the rule, and what
+        // a `== "Rescan"` literal would have missed the moment a second short verb arrived.
         #expect(OrganizePass.folderMemory.rescanAccessibilityLabel(for: .restructure)
-                == "Update folder memory")
+                == "Refresh Restructure")
+    }
+
+    /// The Rescan menu's item keeps its object, where the card's button drops it.
+    ///
+    /// **The rename that produced "Refresh" had nothing pinning the menu.** Every suite stayed
+    /// green with the menu carrying any string at all, so the one place the object still has to
+    /// survive — a row beside "Ignore saved suggestions", with no card title above it to supply
+    /// the noun — was the one place the rename could have quietly turned into a bare verb.
+    ///
+    /// A source scan, because `Menu` content is not built until the menu is opened: a mounted
+    /// header renders nothing here to assert against.
+    @Test func theRescanMenuItemKeepsItsObject() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()                   // …/Tests/FileExplorer
+            .deletingLastPathComponent()                   // …/Tests
+            .deletingLastPathComponent()                   // …/FileExplorer (package)
+            .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        try #require(source.count > 5000,
+                     "LensWorkspaceView.swift could not be read — the scan below would be vacuous")
+
+        #expect(source.contains("Label(\"Refresh what\u{2019}s learned\", systemImage: \"brain\")"),
+                "the survey item in the Rescan menu no longer names what it refreshes")
+        // The typographic apostrophe, matching the two items either side of it.
+        #expect(!source.contains("Refresh what's learned"),
+                "the menu item uses an ASCII apostrophe")
     }
 
     // MARK: What the overview offers

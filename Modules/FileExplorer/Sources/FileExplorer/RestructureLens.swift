@@ -932,7 +932,7 @@ struct RestructureLens: View {
     /// profile with a derived one. A plan's own landing does the same at its step 6; saying so
     /// here is the difference between a sanctioned change and a surprise.
     static let refreshSurveyHelp =
-        "Re-reads the tree and rebuilds the folder memory, so the folders this scaffold created "
+        "Re-reads the tree and refreshes what has been learned, so the folders this scaffold created "
         + "are in it and this finding goes. It replaces the survey with a freshly derived one, "
         + "the same way applying a plan does."
 
@@ -1501,7 +1501,7 @@ struct RestructureLens: View {
                     symbol: "arrow.clockwise",
                     help: isRefreshing
                         ? "Re-reading the tree now — this takes a few seconds."
-                        : "Re-read the tree and rebuild the folder memory these findings come "
+                        : "Re-read the tree and refresh what these findings come "
                         + "from. Slower, and the only thing here that makes the answer current.",
                     action: $0,
                     isBusy: isRefreshing)
@@ -1570,7 +1570,7 @@ struct RestructureLens: View {
                         .disabled(isRefreshing)
                         .help(isRefreshing
                               ? "Re-reading the tree now — this takes a few seconds."
-                              : "Re-reads the tree and rebuilds the folder memory these findings "
+                              : "Re-reads the tree and refreshes what these findings "
                               + "come from. Slower, and the only thing here that makes the "
                               + "answer current.")
                 }
