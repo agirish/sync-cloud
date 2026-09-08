@@ -200,10 +200,29 @@ public actor DocumentSurveyRun {
                 return .checkpointIsForAnotherRun
             }
             read = checkpoint.read
-            // Clamped through `progress`, which already refuses an index the plan cannot hold —
-            // the file is on disk and can be hand-edited, and a crash on resume is a worse answer
-            // than a survey that believes it is finished.
-            nextIndex = checkpoint.progress.done
+            // **The index is only meaningful against the plan it was counted in.**
+            // `resumes(profileId:rootPath:salt:)` settles whose run this is; it says nothing about
+            // whether the tree still holds the same documents. Between sittings files are added,
+            // deleted and renamed, so `documentsToRead` returns a different list — and an index
+            // from the old list points at an unrelated document in the new one. Everything before
+            // it is then never visited, and the run still reports itself complete: work skipped,
+            // reported as done, which is the exact dishonesty this feature keeps guarding against.
+            //
+            // Keeping the READ is always right — those documents were read, whatever the plan says
+            // now — so a changed plan restarts the index and leans on the skip in `run()`, which
+            // costs one dictionary lookup per already-read document.
+            if checkpoint.plan == plan {
+                // Clamped through `progress`, which already refuses an index the plan cannot hold
+                // — the file is on disk and can be hand-edited, and a crash on resume is a worse
+                // answer than a survey that believes it is finished.
+                nextIndex = checkpoint.progress.done
+            } else {
+                Logger.shared.info("Document survey: the tree changed since this survey was "
+                                   + "interrupted (\(checkpoint.plan.count) documents then, "
+                                   + "\(plan.count) now). Keeping what was read and walking the "
+                                   + "new list, skipping anything already done.")
+                nextIndex = 0
+            }
             startedAt = checkpoint.startedAt
             // **Carried, because the summary claims to be honest about exactly this number.**
             // `read` was adopted and this was not, so a resumed survey reported every
@@ -253,6 +272,13 @@ public actor DocumentSurveyRun {
             while let reason = await effectivePause() {
                 if !wasPaused || lastPublishedPause != reason {
                     environment.publish(progressNow(phase: .paused(reason)))
+                    // **Logged here, once per reason, and nowhere else.** A pass that runs for
+                    // hours unattended is one whose log has to answer "why did it sit still all
+                    // night?", and `~/sync-cloud.log` is how this app is debugged. Once per
+                    // REASON rather than per poll: a pause that lasts eight hours is one line,
+                    // not 28,800.
+                    Logger.shared.info("Document survey: paused at \(nextIndex) of "
+                                       + "\(plan.count) — \(reason.sentence)")
                     lastPublishedPause = reason
                 }
                 wasPaused = true
@@ -267,11 +293,16 @@ public actor DocumentSurveyRun {
             // same failure as one that says reading under a survey that has stopped.
             if wasPaused {
                 lastPublishedPause = nil
+                Logger.shared.info("Document survey: reading again from \(nextIndex) of \(plan.count)")
                 environment.publish(progressNow(phase: .reading))
             }
 
             let path = plan[nextIndex]
-            await readOne(at: path)
+            // Already read in an earlier sitting. Cheap enough to ask on every document that it
+            // needs no separate fast path, and it is what makes a restarted index safe.
+            if read[path] == nil {
+                await readOne(at: path)
+            }
             nextIndex += 1
 
             if nextIndex % checkpointEvery == 0 { writeCheckpoint() }

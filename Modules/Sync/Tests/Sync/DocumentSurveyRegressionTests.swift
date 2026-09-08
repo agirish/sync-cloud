@@ -242,6 +242,89 @@ import Testing
         #expect(report.isComplete)
     }
 
+    // MARK: - 5. An index means nothing against a plan it was not counted in
+
+    /// **A resume across a changed tree skipped work and called itself complete.**
+    ///
+    /// `resumes(profileId:rootPath:salt:)` settles whose run a checkpoint is; it says nothing about
+    /// whether the tree still holds the same documents. Between sittings files are added, deleted
+    /// and renamed, so `documentsToRead` returns a different list — and the old index points at an
+    /// unrelated document in the new one, with everything before it never visited. The run then
+    /// reported itself complete having skipped documents it never opened.
+    ///
+    /// The read is always worth keeping; the index is not. So a changed plan restarts the index and
+    /// leans on the skip, and the assertion here is the one that matters: every document in the new
+    /// plan is read exactly once, across both sittings.
+    @Test func aChangedPlanRestartsTheIndexRatherThanTrustingIt() async throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        // The first sitting stopped at 4 of 10, under the plan as it was then.
+        let before = plan(10)
+        let alreadyRead = Dictionary(uniqueKeysWithValues: before.prefix(4).map {
+            ($0, FilingSurvey.document(fromPage1: page, stamp: .init(size: 1, modified: 2), salt: "abcd"))
+        })
+        try DocumentSurveyCheckpointStore.write(
+            DocumentSurveyCheckpoint(profileId: "p", rootPath: root.path, salt: "abcd",
+                                     plan: before, nextIndex: 4, read: alreadyRead,
+                                     startedAt: Date(), updatedAt: Date()),
+            id: "p", in: dir)
+
+        // The tree changed: three of the originals are gone and two are new.
+        let after = Array(before.dropFirst(3)) + ["F9/new-a.pdf", "F9/new-b.pdf"]
+        var stampMap = stamps(after)
+        for (k, v) in stamps(before) where stampMap[k] == nil { stampMap[k] = v }
+
+        final class Opened: @unchecked Sendable {
+            let lock = NSLock(); var paths: [String] = []
+            func note(_ p: String) { lock.withLock { paths.append(p) } }
+            var all: [String] { lock.withLock { paths } }
+        }
+        let opened = Opened()
+        let run = DocumentSurveyRun(
+            profileId: "p", root: root, salt: "abcd", plan: after, stamps: stampMap,
+            environment: .init(readDocument: { opened.note($0); return self.page }), directory: dir)
+        #expect(await run.adoptCheckpoint() == nil)
+        let report = await run.run()
+
+        // Nothing already read was opened again...
+        let readAgain = opened.all.filter { path in
+            alreadyRead.keys.contains { path.hasSuffix($0) }
+        }
+        #expect(readAgain.isEmpty, "a document read in the first sitting was opened a second time")
+
+        // ...and every document in the NEW plan is now in the corpus. This is the assertion that
+        // failed before: with the stale index, the first entries of the new plan were never visited.
+        for path in after {
+            #expect(report.read[path] != nil,
+                    """
+                    \(path) is in the plan and was never read — the run walked from a stale index \
+                    and reported itself complete anyway
+                    """)
+        }
+        #expect(report.isComplete)
+    }
+
+    /// An UNCHANGED plan still resumes by index — the cheap path is not lost to the fix above.
+    @Test func anUnchangedPlanStillResumesByIndex() async throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let paths = plan(10)
+        let alreadyRead = Dictionary(uniqueKeysWithValues: paths.prefix(4).map {
+            ($0, FilingSurvey.document(fromPage1: page, stamp: .init(size: 1, modified: 2), salt: "abcd"))
+        })
+        try DocumentSurveyCheckpointStore.write(
+            DocumentSurveyCheckpoint(profileId: "p", rootPath: root.path, salt: "abcd",
+                                     plan: paths, nextIndex: 4, read: alreadyRead,
+                                     startedAt: Date(), updatedAt: Date()),
+            id: "p", in: dir)
+        let run = DocumentSurveyRun(
+            profileId: "p", root: root, salt: "abcd", plan: paths, stamps: stamps(paths),
+            environment: .init(readDocument: { _ in self.page }), directory: dir)
+        #expect(await run.adoptCheckpoint() == nil)
+        #expect(await run.resumableProgress == (4, 10))
+    }
+
     /// A checkpoint written before the field existed still decodes — the default is a low count,
     /// not a decode failure that would cost the whole survey.
     @Test func aCheckpointWithoutTheFieldStillDecodes() throws {
