@@ -54,7 +54,15 @@ images are expected to differ across machines/OS versions because they bake in:
 - the display backing scale of the recording machine (2x Retina)
 - the system accent color, wherever a view resolves `Color.accentColor` / `controlAccentColor`
 - locale/timezone in formatted dates (fixture dates are frozen, but `DateFormatter` output
-  is still machine-locale dependent)
+  is still machine-locale dependent) — **and this one fires on a machine that never moved
+  hardware.** This Mac changed zone on 2026-09-05 and Dashboard's two `LogEntryRow` references
+  went red the next run: the frozen stamp read `05:00:00.000` in the reference and
+  `17:30:00.000` live, and in the compact row the wider run shoved the message line sideways, so
+  10% of the canvas differed at a perceptual precision of 0.46. That is indistinguishable from a
+  rendering regression at the failure message, and it was invisible to CI, which skips these
+  suites. **A view that formats a date needs its zone injected and pinned in the test, not left
+  on the machine's** — `DashboardSnapshotTests.pinnedZone` is the pattern. Freezing the `Date`
+  alone is not enough; the formatter is the other half.
 - inactive-window control rendering: the offscreen window is never key, so system controls
   (prominent buttons, progress bars) render in their gray inactive style — consistent
   offscreen, but not what a screenshot of the live app shows. `ActionBarButtonStyle` is the
@@ -70,5 +78,9 @@ let record mode regenerate). Never mix references recorded on different machines
 - fixed frame sizes only; never let content dictate an unstable size
 - freeze every `Date` input (`Date(timeIntervalSince1970:)`); if a view compares against "now",
   choose an offset whose display bucket is far wider than test latency (e.g. 15 min → "15m ago")
+- **and pin the zone that date is FORMATTED in** — inject it into the view rather than leaving
+  the formatter on `TimeZone.current`. Freezing the instant is only half of it; the string still
+  moves when the machine does. Give the view a `timeZone` property defaulting to `.current`
+  (`LogEntryRow` is the worked example) and pass a fixed zone from the test
 - nothing async in the tree: no QuickLook thumbnails, no network images
 - keep suites `@MainActor @Suite(.serialized)` — AppKit rendering is main-thread-only

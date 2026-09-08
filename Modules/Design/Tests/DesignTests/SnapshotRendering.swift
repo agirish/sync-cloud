@@ -21,7 +21,10 @@ import SwiftUI
 /// Determinism ground rules for callers (a flaky snapshot is worse than none):
 /// - fixed frame sizes only — never let the content dictate an unstable size
 /// - no live dates: freeze `Date` inputs, or pick values whose display bucket is far wider
-///   than the test's render latency
+///   than the test's render latency — and pin the ZONE the date is formatted in by injecting
+///   it, rather than leaving the view on `TimeZone.current`. A frozen `Date` is only half of
+///   it: the same instant renders a different string once the machine changes zone, which is
+///   what sank two Dashboard references on 2026-09-05 (see SNAPSHOTS.md)
 /// - nothing async (QuickLook thumbnails, network images) inside the snapshotted tree
 @MainActor
 func assertViewSnapshot<V: View>(
