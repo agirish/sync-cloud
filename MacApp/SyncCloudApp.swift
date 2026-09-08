@@ -1064,6 +1064,12 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // repeats.
         DisplayCycleTrace.arm()
 
+        // And the click side of the same question. `DisplayCycleTrace` says what the window spent;
+        // this says whether the user's click reached a row at all — the one thing no existing stamp
+        // can report, because every other one fires from inside a handler that a dead click never
+        // reaches. Same arming switch, same reason to be off by default: see `MouseDownProbe`.
+        MouseDownProbe.arm()
+
         // What the stored pane bar cannot show, recorded once per launch.
         //
         // Since `9db37173` a control taken off the bar is gone rather than demoted into ⋯, so a bar
