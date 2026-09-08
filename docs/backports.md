@@ -4379,3 +4379,45 @@ git show origin/main:$L  | grep -B1 -A1 'map(\\.headline)'  # a comment recordin
 it has the overview, it has the arm, and it has the defect verbatim. It has no kind taxonomy, so
 the summary this commit writes cannot be expressed there at all. Anyone who checks only for the
 defect will conclude the pick is owed and easy; it is neither.
+
+### 18. The column row's tap gesture, which ate roughly nine ⌘/⇧ clicks in ten — RECORDED, not owed (filed 2026-09-08)
+
+Fixed on `main` as `2e26a50f`. **All three maintenance lines carry the defect**, and the shape
+differs between them:
+
+| Line | `simultaneousGesture(TapGesture` on the column row | Carries |
+|---|---|---|
+| `v4.x` | 2 | the count-1 drill gesture (`743d8bde`) AND the count-2 ⌘-double-click (`668ccaa2`) |
+| `v3.x` | 1 | the count-1 drill gesture only — cut 2026-08-11, before `668ccaa2` |
+| `v2.x` | 1 | same as `v3.x` — cut 2026-08-01 |
+
+The tree row is clean on all three (0 hits), because `c04574f0` removed its gesture in July and
+that predates every cut.
+
+**What the user sees**: ⌘- and ⇧-click multi-select in a Columns pane barely works — measured at 3
+of 28, 5 of 43 and 1 of 8 clicks landing. Plain clicks look fine, which is why it reads as a
+modifier-key bug. The row's `TapGesture` claims the mouse-down and usually never completes, so the
+click never reaches `NSTableView` and the table selects nothing. A plain click survives because it
+has a second committer (the List's binding); a ⌘/⇧ click has only the table, which is the path being
+starved.
+
+**Not a clean cherry-pick, and the reason is worth writing down.** The fix deletes the gesture and
+leans entirely on `columnSelection`'s setter to navigate. That setter must already carry
+`navigation(for:depth:)` and its `DeferredColumnNavigation.isStillValid` staleness check, or
+removing the gesture leaves clicking a folder doing nothing at all. Check stage 2 before assuming:
+
+```sh
+git show origin/v3.x:Modules/FileExplorer/Sources/FileExplorer/PaneColumnsView.swift \
+  | grep -c 'DeferredColumnNavigation.isStillValid'      # 0 means the pick needs that first
+```
+
+Taking it also drops ⌘-double-click "Open in New Tab" on that line (it lived inside the gesture),
+which stays reachable via the row context menu and ⌘T — a product call, not a mechanical one.
+
+**How it was found, because the source misleads.** Three plausible causes were convicted by reading
+the code and then exonerated by measurement: a hit-testing decoration, the deselect recognizer's
+`delaysPrimaryMouseButtonEvents` default, and `PaneListSelectionStyler`. The discriminator is the
+mouse-UP — a click `NSTableView` handles has its up consumed by the table's tracking loop, so a
+dead click is one with a matched down/up pair. `MouseDownProbe` (`5c04a0ad`, gated on
+`paneScrollTraceEnabled`) is what reports it; anyone re-doing this on a maintenance line wants that
+commit first, or they will re-run the same three wrong answers.
