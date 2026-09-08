@@ -296,7 +296,10 @@ public struct SyncHistoryView: View {
 
 /// One row rendering a single `SyncHistoryRecord`: an action glyph, the action + direction +
 /// time, the source→destination paths, and the size — kept honest and readable.
-private struct SyncHistoryRow: View {
+///
+/// Internal rather than private — the same visibility `LogEntryRow` carries, and for the same
+/// reason: `timeFormatter()` below is a seam a test has to be able to reach.
+struct SyncHistoryRow: View {
     let record: SyncHistoryRecord
     /// List-density setting (H7), passed down by SyncHistoryView (which already reads the
     /// defaults key) instead of a per-row `@AppStorage` — one storage observer per window, not
@@ -427,19 +430,43 @@ private struct SyncHistoryRow: View {
         ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 
-    private static let timeFormatter: DateFormatter = {
+    private static let sharedFormatter: DateFormatter = {
         let formatter = DateFormatter()
         // Pinned locale + calendar (the Logger's own rule): an unpinned fixed-format
         // DateFormatter follows the system region, so a Buddhist-calendar region rendered
         // years like 2569 — disagreeing with the same window's ISO-8601 CSV/JSON export.
-        // The timezone deliberately stays local: this column is display, not interchange.
+        // The zone is NOT set here — `timeFormatter()` owns it, and owns it on every call.
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return formatter
     }()
 
-    private static func timeString(_ date: Date) -> String {
-        timeFormatter.string(from: date)
+    /// The one formatter this column stamps with, put back on the system zone before it is
+    /// handed out.
+    ///
+    /// **The zone is re-checked rather than captured**, the same rule and the same reason as
+    /// `LogEntryRow.formatter(_:)` and `RestructureLens.formatter(_:)`: this is one formatter
+    /// built once for the process, so it otherwise keeps whichever zone was current the first
+    /// time a row drew. Sync History is a window someone leaves open, and after a flight or a
+    /// Date & Time change every row in it would go on reading in the old zone for the rest of
+    /// the session — an hour or five and a half out, with nothing saying so. The compare is
+    /// cheap and the assignment only runs when the zone has actually moved. (DST is not this
+    /// question; a `TimeZone` handles its own transitions.)
+    ///
+    /// The zone stays local rather than being pinned to UTC: this column is display, not
+    /// interchange — the window's CSV/JSON export is the ISO-8601 half of that split.
+    ///
+    /// Internal, not private, so `theSyncHistoryStampFollowsTheSystemZone` can drive the refresh
+    /// branch directly — the alternative is moving `NSTimeZone.default`, which is process-wide
+    /// and would race every other suite in the run.
+    static func timeFormatter() -> DateFormatter {
+        let formatter = Self.sharedFormatter
+        if formatter.timeZone != TimeZone.current { formatter.timeZone = TimeZone.current }
+        return formatter
+    }
+
+    static func timeString(_ date: Date) -> String {
+        timeFormatter().string(from: date)
     }
 }
