@@ -111,6 +111,23 @@ genuinely cannot read "not started" as "finished". Both were mutation-tested by 
 item back into the redo params, and both fail without the sleep — in ~0.03s, where the sleeps had
 been charging half a second for the same verdict.
 
+**A 5-second deadline that needs 21 milliseconds, 2026-09-08.**
+`UndoQuitGuardTests.testUndoHandlerCountsOperationBeforeItsTaskRuns` polls
+`activeFileOperationsCount` — the right shape, per everything above — but behind a flat
+`ContinuousClock.now + .seconds(5)`. In a full 3411-test parallel run at load average ~12 the
+budget expired and the test failed on the FINAL `== 0` (line 34) reading `1`, **after 8.270 s**.
+That last assertion is the tell: a failure there means the loop burned its whole deadline, which is
+a statement about the machine, not about the counter. Alone on a quiet machine the same suite is
+green in **21-25 ms across three consecutive runs** — a 200x margin — and the whole package goes
+**14.2 s quiet against 33.6 s loaded**, which is the same 2.4x that turns 21 ms into more than five
+seconds.
+
+Recorded rather than fixed: the poll is already correct and only its safety net is too tight, so
+the fix is to widen the deadline or route it through the shared `waitUntil`, and that is a change to
+a test no batch here has touched. **Do not read a red on this one as a regression without running
+it alone first** — the discriminator in CLAUDE.md's release section applies verbatim, and the
+margin is wide enough that a genuine break could not hide inside it.
+
 **A pump that never pumps — `RunLoop.main.run(until:)` with no window in the process, 2026-08-21.**
 `MergeUndoGroupingAndGateTests` and `DuplicateBatchRedesignTests` each carried a
 `closeTheUndoEventGroup()` helper — `RunLoop.main.run(until: Date().addingTimeInterval(0.02))` —
