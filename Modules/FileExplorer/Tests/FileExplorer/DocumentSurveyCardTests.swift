@@ -143,11 +143,27 @@ import Testing
         #expect(!detail.contains("3 h"), "it is re-asking the original three-hour question")
     }
 
-    @Test func anInterruptedCardCannotReportANegativeRemainder() {
-        // A hand-edited checkpoint can claim more done than planned. Clamped rather than printing
-        // "-3 still to read".
-        let detail = DocumentSurveyCardText.detail(for: .interrupted(done: 99, total: 10))
-        #expect(detail.contains("0 still to read"))
+    /// **Nothing left to read is a different sentence, not a zero.**
+    ///
+    /// This test used to assert "0 still to read", which was the copy at the time and read as a
+    /// bug on screen — reached for real when the corpus write fails after a complete pass, where
+    /// the checkpoint is kept, the remainder is zero, and what is actually left is the write.
+    /// A hand-edited checkpoint claiming more done than planned lands in the same branch, which is
+    /// why the clamp is still asserted: what must never appear is a negative.
+    @Test func nothingLeftToReadSaysWhatIsActuallyLeft() {
+        for state: DocumentSurveyCardState in [.interrupted(done: 7558, total: 7558),
+                                               .interrupted(done: 99, total: 10)] {
+            let detail = DocumentSurveyCardText.detail(for: state)
+            #expect(detail.contains("still has to be written"),
+                    "the card does not say what is actually outstanding")
+            #expect(!detail.contains("still to read"),
+                    "the card offers to read documents when none are left")
+            // A NEGATIVE NUMBER, not a hyphen — the sentence legitimately says "re-reading".
+            #expect(detail.range(of: "-[0-9]", options: .regularExpression) == nil,
+                    "a negative remainder reached the copy")
+            #expect(!DocumentSurveyCardText.title(for: state).contains("paused at"),
+                    "a survey that read everything is described as paused part way")
+        }
     }
 
     // MARK: - Finished

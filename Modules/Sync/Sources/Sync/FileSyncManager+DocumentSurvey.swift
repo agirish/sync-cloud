@@ -89,6 +89,14 @@ extension FileSyncManager {
         case treeTooLargeAndDeclined
         case checkpointUnreadable
         case checkpointIsForAnotherRun
+        /// Every document was read and the artifacts could not be written.
+        ///
+        /// **Its own case because it was reported as a SUCCESS**, carrying a report whose summary
+        /// read "Stopped after reading 7,558 of 7,558 documents. Nothing has been lost — carrying
+        /// on reads only the rest." Every word of that is wrong here: nothing was left to read, and
+        /// what failed was the write. The checkpoint is kept, so trying again costs the write and
+        /// not the three hours.
+        case couldNotWrite
 
         public var sentence: String {
             switch self {
@@ -115,6 +123,9 @@ extension FileSyncManager {
                     + "survey-progress.json aside to start again."
             case .checkpointIsForAnotherRun:
                 return "The unfinished progress on disk is for a different folder."
+            case .couldNotWrite:
+                return "Every document was read, but the folder memory could not be written. "
+                    + "Nothing was lost — carrying on tries the write again without re-reading."
             }
         }
     }
@@ -290,11 +301,17 @@ extension FileSyncManager {
 
         // **Logged at every edge, because this runs for hours with nobody watching.**
         // `~/sync-cloud.log` is how this app is debugged, and a pass that wrote one line at the end
-        // would leave "it seemed to stop" with nothing to read. Start, every pause and its reason,
-        // and the stop all land here; the per-document reads deliberately do not, which would be
-        // 7,558 lines.
+        // would leave "it seemed to stop" with nothing to read. The start, the stop and the
+        // outcome land here; **the pauses are logged by `DocumentSurveyRun`**, which is where they
+        // happen — once per reason rather than per poll, so a pause lasting all night is one line.
+        // The per-document reads deliberately go unlogged, which would be 7,558 of them.
         Logger.shared.info("Document survey: starting — \(plan.total) document(s) to read under "
                            + "\(root.lastPathComponent)")
+        // **The previous run's receipt goes before this one starts.** It outranks every other card
+        // state that is not `running`, so a stale one left standing would show a finished survey's
+        // summary over a run that had just been interrupted — the same staleness the root check
+        // fixed, arriving through time rather than through scope.
+        documentSurveyReport = nil
         let epoch = beginScan(\.filingSurveyLifecycle, status: "Reading your documents…")
         defer { endScan(\.filingSurveyLifecycle) }
 
@@ -356,16 +373,13 @@ extension FileSyncManager {
                 return (memory, changed)
             }.value
         } catch {
-            Logger.shared.error("Couldn't write the surveyed folder memory: \(error.localizedDescription)")
+            Logger.shared.error("Document survey: every document was read and the artifacts could "
+                                + "not be written — \(error.localizedDescription). The checkpoint "
+                                + "is kept, so trying again costs the write and not the reading.")
             // The checkpoint is deliberately left: everything read is still on disk, so the next
             // run resumes rather than re-reading three hours of documents to reach the same failure.
             documentSurveyProgress = nil
-            return .success(DocumentSurveyReport(
-                rootPath: root.path,
-                documentsRead: outcome.documentsRead, documentsBlank: outcome.documentsBlank,
-                documentsUnavailable: outcome.documentsUnavailable,
-                foldersLearned: previousMemory?.folders.count ?? 0,
-                stoppedAt: plan.total, plannedTotal: plan.total, changed: false))
+            return .failure(.couldNotWrite)
         }
 
         // **Only now.** The checkpoint outlives the corpus write by design: a crash between the two

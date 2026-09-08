@@ -95,6 +95,7 @@ public enum DocumentSurveyCardText {
         case .finishing(let done):
             return "Read \(done.formatted()) documents · building folder memory"
         case .interrupted(let done, let total):
+            guard done < total else { return "Documents read — folder memory not written" }
             return "Reading documents — paused at \(done.formatted()) of \(total.formatted())"
         case .finished:
             return "Documents read"
@@ -130,6 +131,14 @@ public enum DocumentSurveyCardText {
                 + "nothing to do."
         case .interrupted(let done, let total):
             let left = max(0, total - done)
+            // **Everything read, nothing written.** Reached when the corpus write fails after a
+            // complete pass: the checkpoint is kept, so the remainder is zero and the work left is
+            // the write. "0 still to read — carrying on opens only those" was the sentence that
+            // produced, which reads as a bug rather than as the retry it is offering.
+            guard left > 0 else {
+                return "Every document was read; the folder memory still has to be written. "
+                    + "Carrying on writes it without re-reading anything."
+            }
             return "Stopped when you quit. \(left.formatted()) still to read — carrying on opens "
                 + "only those."
         case .finished(let summary, let unreadableTypes):
