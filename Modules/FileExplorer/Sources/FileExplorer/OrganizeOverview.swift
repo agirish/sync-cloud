@@ -611,10 +611,18 @@ struct OrganizeOverview: View {
                 ForEach(pendingPasses) { pass in
                     passCard(pass)
                 }
+                // **A lens no pass speaks for, in the state it spends most of its life in.**
+                // Storage before its first analysis used to be a line of tertiary text in the
+                // footer with a button on it; it is a card here, on the same rung as the pass
+                // offers, because it is the same kind of thing — a check that has not run and can
+                // be run from this screen.
+                ForEach(strandedCards) { section in
+                    strandedCard(section)
+                }
                 // `documentSurvey` counts here too: an "everything is clear" panel above a card
                 // offering three hours of reading is the screen contradicting itself.
                 if reporting.isEmpty && pendingPasses.isEmpty && receipts.isEmpty
-                    && documentSurvey == nil {
+                    && strandedCards.isEmpty && documentSurvey == nil {
                     allClearState
                 }
                 // **After the findings and the offers, before the footer.** A receipt is not work,
@@ -640,7 +648,7 @@ struct OrganizeOverview: View {
                     receiptCard(section)
                 }
                 if let inboxShortcut { inboxOffer(inboxShortcut) }
-                if !strandedUnscanned.isEmpty || !clean.isEmpty {
+                if !strandedLines.isEmpty || !clean.isEmpty {
                     footer
                 }
             }
@@ -654,22 +662,22 @@ struct OrganizeOverview: View {
     /// One quiet line, a verb and a dismissal — the whole of §5.6's "say it the month it happens"
     /// outside the lens.
     ///
-    /// Deliberately the plainest row on the surface: no tile, no tint, no count. It is news about
-    /// a year that has just started, and next January it is news again.
+    /// Deliberately not a card: it is news about a year that has just started, not a lens with an
+    /// answer, and next January it is news again. What it *does* share with the cards is the
+    /// column — same glyph tile, same inset, same text spine — so the page reads down one edge
+    /// rather than two. See ``OverviewQuietRow``.
     private func nudgeLine(_ nudge: BacklogNudge) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "calendar.badge.plus")
-                .scaledFont(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            Text(nudge.sentence)
-                .scaledFont(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("Set up…", action: nudge.setUp)
-                .buttonStyle(.link)
-                .scaledFont(.system(size: 12, weight: .medium))
-            Spacer(minLength: 0)
+        OverviewQuietRow(symbol: "calendar.badge.plus", accent: accent) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(nudge.sentence)
+                    .scaledFont(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Set up…", action: nudge.setUp)
+                    .buttonStyle(.link)
+                    .scaledFont(.system(size: 11.5, weight: .medium))
+            }
+        } trailing: {
             Button {
                 nudge.dismiss()
             } label: {
@@ -682,29 +690,37 @@ struct OrganizeOverview: View {
             .help("Dismisses it for this year. The same folders raise it again when a new year "
                   + "arrives with the same gap.")
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: Radius.well)
-            .fill(.quaternary.opacity(0.35)))
     }
 
     // MARK: The ledger
 
     /// The ledger as tiles: each fact its own quiet card, sized to its content — the former
-    /// full-width gray band left the numbers adrift on a metre of trailing emptiness. The checks
-    /// tile carries a per-lens meter (accent = reporting, quiet-filled = clean, empty = not run)
-    /// captioned with the run's composition, so the fraction reads visually without inventing a
-    /// number — and still no total across lenses, ever.
+    /// full-width gray band left the numbers adrift on a metre of trailing emptiness.
+    ///
+    /// **One builder for all three, and one height for all three.** They were two builders before,
+    /// and the checks tile's `.fixedSize()` let its meter push it a line taller than the tiles
+    /// beside it — three cards in a row, none of them agreeing where their bottom edge was. Now the
+    /// meter is a slot inside the shared tile and every tile is stretched to the tallest, so what
+    /// varies between them is the width their content asks for and nothing else.
     private var ledgerStrip: some View {
         HStack(alignment: .top, spacing: 8) {
             checksTile
             if let reclaimable = ledger.reclaimable {
-                ledgerTile(reclaimable, "reclaimable", emphasised: true)
+                ledgerTile(value: Text(reclaimable)
+                    .scaledFont(.system(size: 17, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(accent),
+                           caption: "reclaimable",
+                           label: "\(reclaimable) reclaimable") { EmptyView() }
             }
             if let folders = ledger.scopeFolders {
-                ledgerTile(folders.formatted(),
-                           folders == 1 ? "folder in scope" : "folders in scope",
-                           emphasised: false)
+                let caption = folders == 1 ? "folder in scope" : "folders in scope"
+                ledgerTile(value: Text(folders.formatted())
+                    .scaledFont(.system(size: 17, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.primary),
+                           caption: caption,
+                           label: "\(folders.formatted()) \(caption)") { EmptyView() }
             }
             Spacer(minLength: 0)
         }
@@ -713,17 +729,46 @@ struct OrganizeOverview: View {
     /// Meter segment geometry — shared with nothing, named so the render test can reason in it.
     static let meterSegmentSize = CGSize(width: 16, height: 4)
 
+    /// The floor every ledger tile is stretched to.
+    ///
+    /// A floor rather than a fixed height, so a text-size change still grows them; and a floor at
+    /// all so that a run of tiles whose contents differ in height still reads as one row of cards.
+    /// **Do not lower it below 60** without re-reading `theNudgeDoesNotTouchTheChecksLedger`, which
+    /// asserts on the top 74pt of the render and needs the nudge to stay out of that band.
+    static let ledgerTileMinHeight: CGFloat = 62
+
+    /// One ledger tile: a value, an optional meter, a caption. Every tile on the strip is this.
+    private func ledgerTile<Meter: View>(value: some View, caption: String, label: String,
+                                         @ViewBuilder meter: () -> Meter) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            value
+            meter()
+            Spacer(minLength: 4)
+            Text(caption)
+                .scaledFont(.system(size: 10.5))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(minHeight: Self.ledgerTileMinHeight, maxHeight: .infinity, alignment: .topLeading)
+        .lensCard()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label)
+    }
+
     private var checksTile: some View {
         let caption = Ledger.meterCaption(run: ledger.checksRun,
                                           reporting: ledger.checksReporting,
                                           clean: ledger.checksClean)
-        return VStack(alignment: .leading, spacing: 0) {
-            (Text("\(ledger.checksRun) ")
-                .fontWeight(.bold)
-             + Text("of \(ledger.checksTotal)")
-                .foregroundStyle(.secondary))
+        return ledgerTile(
+            value: (Text("\(ledger.checksRun) ").fontWeight(.bold)
+                    + Text("of \(ledger.checksTotal)").foregroundStyle(.secondary))
                 .scaledFont(.system(size: 17))
-                .monospacedDigit()
+                .monospacedDigit(),
+            caption: caption,
+            label: "\(ledger.checksRun) of \(ledger.checksTotal) checks have run, \(caption)") {
             HStack(spacing: 3) {
                 ForEach(0..<max(ledger.checksTotal, 0), id: \.self) { index in
                     RoundedRectangle(cornerRadius: 2)
@@ -732,19 +777,9 @@ struct OrganizeOverview: View {
                                height: Self.meterSegmentSize.height)
                 }
             }
-            .padding(.vertical, 5)
+            .padding(.top, 6)
             .accessibilityHidden(true)   // the caption + value say everything the meter draws
-            Text(caption)
-                .scaledFont(.system(size: 10))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
         }
-        .fixedSize()
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .lensCard()
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(ledger.checksRun) of \(ledger.checksTotal) checks have run, \(caption)")
     }
 
     /// Segment ink by position: reporting first, then clean, then not-run. The order carries no
@@ -754,26 +789,6 @@ struct OrganizeOverview: View {
         if index < ledger.checksReporting { return accent }
         if index < ledger.checksRun { return Color.primary.opacity(0.30) }
         return Color.primary.opacity(0.10)
-    }
-
-    private func ledgerTile(_ value: String, _ caption: String, emphasised: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(value)
-                .scaledFont(.system(size: 17, weight: .bold))
-                .monospacedDigit()
-                .foregroundStyle(emphasised ? accent : Color.primary)
-            Spacer(minLength: 0)
-            Text(caption)
-                .scaledFont(.system(size: 10))
-                .foregroundStyle(.secondary)
-        }
-        .fixedSize(horizontal: true, vertical: false)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxHeight: .infinity)
-        .lensCard()
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(value) \(caption)")
     }
 
     /// The offer's second line: the count when it is known, and the invitation alone when it is not.
@@ -791,15 +806,11 @@ struct OrganizeOverview: View {
     ///
     /// Placed after the findings and before the quiet footer: it is an offer about where to look
     /// next, not a finding, and putting it above the sections would give the inbox the prominence
-    /// the old hidden default gave it — which is the thing being undone.
+    /// the old hidden default gave it — which is the thing being undone. A quiet row rather than a
+    /// card for the same reason: it names no lens and has no answer.
     private func inboxOffer(_ shortcut: InboxShortcut) -> some View {
         Button(action: shortcut.apply) {
-            HStack(spacing: 8) {
-                Image(systemName: "tray")
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(accent)
-                    .frame(width: 21, height: 21)
-                    .background(RoundedRectangle(cornerRadius: Radius.chip).fill(accent.opacity(0.14)))
+            OverviewQuietRow(symbol: "tray", accent: accent, tinted: true) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Inbox (\(shortcut.name))")
                         .scaledFont(.system(size: 12.5, weight: .semibold))
@@ -807,14 +818,11 @@ struct OrganizeOverview: View {
                         .scaledFont(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 8)
+            } trailing: {
                 Image(systemName: "chevron.right")
                     .scaledFont(.system(size: 10, weight: .semibold))
                     .foregroundStyle(accent)
             }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: Radius.well).fill(.quaternary.opacity(0.35)))
             .contentShape(RoundedRectangle(cornerRadius: Radius.well))
         }
         .buttonStyle(.plain)
@@ -832,79 +840,6 @@ struct OrganizeOverview: View {
         }
     }
 
-    // MARK: A lens with a report
-
-    /// Storage's card: a receipt, not a to-do.
-    ///
-    /// **No accent stripe and no count pill**, which is the whole visual argument. Both of those
-    /// are how this screen says "here is work"; the stripe marks a findings card and the pill
-    /// carries the number you would act on. A card that borrowed them would promise a backlog for a
-    /// lens that has no verb touching a file — the misread the badge rule already refuses on the
-    /// rail, arriving through the overview instead.
-    ///
-    /// What it does carry is provenance. "Analyzed Tuesday · ~/Documents" is the thing a stale
-    /// report most needs to say about itself, and it is the honest alternative to pretending the
-    /// report has the same clock as the scans around it.
-    @ViewBuilder
-    private func receiptCard(_ section: OrganizeOverviewSection) -> some View {
-        if case .receipt(let headline, let detail) = section.state {
-            HStack(alignment: .top, spacing: 9) {
-                Image(systemName: section.lens.symbol)
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 21, height: 21)
-                    .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.4)))
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(section.lens.title)
-                            .scaledFont(.system(size: 12.5, weight: .semibold))
-                        Text(detail)
-                            .scaledFont(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(headline)
-                        .scaledFont(.system(size: 11.5))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                // **Two explicit controls, and no whole-card tap gesture.** The first draft made
-                // the card itself tappable, which was the only `onTapGesture` in this file and
-                // wrong twice: it puts an invisible target under the Re-analyze button, and it
-                // makes a card that looks inert behave like a link with no hover affordance to say
-                // so. Every other way in on this screen is a `Button`, and so are these.
-                //
-                // "Open Storage" without a count, unlike `findingsSection`'s "Open X — 12 ›". The
-                // count belongs on a backlog you are going to work through; here it would put the
-                // number in the one place the badge rule was careful to keep it out of.
-                Button("Open \(section.lens.title) ›") { onOpen(section.lens) }
-                    .buttonStyle(.plain)
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(accent)
-                    .chromeHover()
-                if let onBuildStorage {
-                    Button(isBuildingStorage ? "Analyzing…" : "Re-analyze", action: onBuildStorage)
-                        .buttonStyle(.plain)
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(isBuildingStorage ? AnyShapeStyle(.secondary) : AnyShapeStyle(accent))
-                        .chromeHover()
-                        .disabled(isBuildingStorage)
-                }
-            }
-            .padding(11)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: Radius.well).fill(.quaternary.opacity(0.35)))
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("\(section.lens.title), \(detail), \(headline)")
-        }
-    }
-
-    /// One reporting lens: what it is, how much of it there is, what it looks like, and the way in.
-    ///
-    /// The accent stripe down the leading edge is the only thing distinguishing this from a pass
-    /// card at a glance, and it is doing real work: findings and offers are both full-width cards
-    /// on this screen, and the difference between "here is an answer" and "here is something you
-    /// could run" should not rest on reading the heading.
     /// The unit run of a "\(count) unit" headline — "folders" of "79 folders" — or nil when the
     /// headline does not lead with this count, in which case the pill draws the whole string.
     /// Every current headline leads with its count; the fallback exists so a future headline
@@ -915,105 +850,155 @@ struct OrganizeOverview: View {
         return String(headline.dropFirst(prefix.count))
     }
 
+    /// One reporting lens: what it is, how much of it there is, what it looks like, and the way in.
+    ///
+    /// **The accent wash and the leading stripe are gone**, and their loss is the point of the
+    /// redesign rather than a casualty of it. They made one card in six look like it came from a
+    /// different app — a tinted slab with a coloured bar, among grey wells — to carry a signal that
+    /// the accent glyph tile and the accent count pill already carry twice over. What distinguishes
+    /// a finding from an offer now is the same thing that distinguishes it on the rail: ink on the
+    /// glyph and a number in a pill.
+    ///
+    /// **And the verbs moved into the heading**, beside every other card's verbs. They used to sit
+    /// under the examples, indented 30pt, which put this card's Refresh some 60pt below and 400pt
+    /// left of the document survey's Refresh — the same word, the same kind of act, in two places
+    /// that had nothing to do with each other.
     private func findingsSection(_ section: OrganizeOverviewSection, count: Int,
                                  headline: String, examples: [String]) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            RoundedRectangle(cornerRadius: 1.5)
-                .fill(accent)
-                .frame(width: 3)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 9) {
-                    Image(systemName: section.lens.symbol)
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(accent)
-                        .frame(width: 21, height: 21)
-                        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(accent.opacity(0.14)))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(section.lens.title)
-                            .scaledFont(.system(size: 12.5, weight: .semibold))
-                        Text(section.blurb)
-                            .scaledFont(.system(size: 11))
+        OverviewCard(
+            symbol: section.lens.symbol,
+            title: section.lens.title,
+            subtitle: section.blurb,
+            tone: .reporting,
+            accent: accent,
+            // The number below is last scan's while a rescan is in flight, and its own lens's
+            // readout is suppressed for exactly this reason — see
+            // `OrganizeLens.goesStaleDuringFilingScan`. Saying so beats redrawing a stale figure in
+            // confident bold.
+            status: section.isScanning
+                ? .working("rescanning")
+                : Self.headlineUnit(count: count, headline: headline)
+                    .map { .count(count, unit: $0) } ?? .text(headline),
+            actions: actions(for: section),
+            // **The small print prices the verb, and a card with no priced verb has none.** That is
+            // the rule the pass cards were already following without it being written down: "Free
+            // — and the slow one" sits under a card whose button hashes every file in scope. A
+            // findings card that offers a Refresh is making the same kind of ask, so it says the
+            // same kind of thing; one that offers only a way in is asking for nothing and stops at
+            // the heading rather than filling the slot for symmetry's sake.
+            note: findingsNote(section),
+            accessibilityLabel: "\(section.lens.title), \(headline)") {
+            if !examples.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(examples.prefix(Self.exampleLimit), id: \.self) { example in
+                        Text(example)
+                            .scaledFont(.system(size: 11.5, design: .monospaced))
                             .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 8)
-                    if section.isScanning {
-                        // The number below is last scan's, and its own lens's readout is suppressed
-                        // for exactly this reason — see `OrganizeLens.goesStaleDuringFilingScan`.
-                        // Saying so beats redrawing a stale figure in confident bold.
-                        HStack(spacing: 5) {
-                            InlineSpinner()
-                            Text("rescanning")
-                                .scaledFont(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                        .fixedSize()
-                    } else if let unit = Self.headlineUnit(count: count, headline: headline) {
-                        // The C1 mini pill — the same claim the rail badge makes, in the same
-                        // dress. Bare accent text floated at the far edge of a very wide card;
-                        // the wash anchors the number against the card between it and the title.
-                        Pill(.mini, tint: accent, count: count, label: unit)
-                    } else {
-                        Pill(.mini, tint: accent, text: headline)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
                 }
-                if !examples.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(examples.prefix(Self.exampleLimit), id: \.self) { example in
-                            Text(example)
-                                .scaledFont(.system(size: 11.5, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 30)
-                }
-                HStack(spacing: 12) {
-                    Button("Open \(section.lens.title) — \(count) ›") { onOpen(section.lens) }
-                        .buttonStyle(.plain)
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(accent)
-                        .chromeHover()
-                    rescanControl(for: section)
-                }
-                .padding(.leading, 30)
             }
-            .padding(.leading, 10)
-            .padding(.vertical, 10)
-            .padding(.trailing, 11)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Radius.well).fill(accent.opacity(0.07)))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.well))
     }
 
-    /// Re-runs the scan behind a lens that has already answered — **the answer to "the number is
-    /// stale and there is nothing here to refresh it".**
+    /// **Every verb a lens's card offers, in whatever state it is in — the one place the answer
+    /// lives.**
     ///
-    /// Before this, the only scan control on the overview beside the pass cards was row 2's Rescan,
-    /// which runs the *file* pass alone. So a lens whose pass had already run could be read but not
-    /// re-run, and Duplicates — the one pass whose answer ages fastest, because it is the one
-    /// nobody re-runs casually — had no way to be re-hashed from this screen at all.
-    ///
-    /// Offered only for a pass that answers this lens alone; see ``OrganizePass/answersOneLens``
-    /// for why the file pass is excluded rather than given three identical buttons.
-    @ViewBuilder
-    private func rescanControl(for section: OrganizeOverviewSection) -> some View {
-        if offersRescan(for: section), let pass = OrganizePass(producing: section.lens) {
-            Button(pass.rescanTitle) { onRun(pass) }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .chromeHover()
-                .help(pass.offerCost)
-                .accessibilityLabel(pass.rescanAccessibilityLabel(for: section.lens))
+    /// A dispatcher rather than three private builders the three card bodies each reach for
+    /// separately, because the rules worth asserting are *across* the states: at most one primary
+    /// per card, and a stranded lens gets a card exactly when this returns something. Both are
+    /// properties of the whole set, and a rule that has to be read off three call sites is a rule
+    /// the next state will forget.
+    func actions(for section: OrganizeOverviewSection) -> [OverviewCardAction] {
+        switch section.state {
+        case .findings(let count, _, _):
+            return section.isScanning ? [] : findingsActions(section, count: count)
+        case .receipt:
+            return receiptActions(section)
+        case .notScanned:
+            return section.isScanning ? [] : strandedActions(section)
+        case .clean:
+            // A clean lens takes no card at all — it is one entry on the footer's quiet line.
+            return []
         }
+    }
+
+    /// What re-asking costs, where this card offers to re-ask at all.
+    private func findingsNote(_ section: OrganizeOverviewSection) -> OverviewCardNote? {
+        guard offersRescan(for: section),
+              let pass = OrganizePass(producing: section.lens) else { return nil }
+        return OverviewCardNote(pass.offerCost)
+    }
+
+    /// A finding's verbs: the way in, and — where the pass answers this lens alone — the way to
+    /// ask again.
+    ///
+    /// **The way in is the primary**, because a card that has found something is a card whose point
+    /// is that you go and look. The count is not repeated in its title any more: the pill three
+    /// inches to its left already says 53, and "Open Restructure — 53 ›" said it twice while
+    /// being the one button on the screen whose width moved with the data.
+    private func findingsActions(_ section: OrganizeOverviewSection, count: Int)
+    -> [OverviewCardAction] {
+        var actions = [OverviewCardAction(title: "Open \(section.lens.title)", rank: .primary,
+                                          accessibilityLabel: "Open \(section.lens.title), \(count) found",
+                                          run: { onOpen(section.lens) })]
+        if offersRescan(for: section), let pass = OrganizePass(producing: section.lens) {
+            actions.append(OverviewCardAction(
+                title: pass.rescanTitle,
+                help: pass.offerCost,
+                accessibilityLabel: pass.rescanAccessibilityLabel(for: section.lens),
+                run: { onRun(pass) }))
+        }
+        return actions
+    }
+
+    // MARK: A lens with a report
+
+    /// Storage's card: a receipt, not a to-do.
+    ///
+    /// **No accent and no count pill**, which is the whole visual argument and the one part of the
+    /// old card worth keeping. Both are how this screen says "here is work"; a receipt that
+    /// borrowed them would promise a backlog for a lens that has no verb touching a file — the
+    /// misread the badge rule already refuses on the rail, arriving through the overview instead.
+    /// It is a card like every other card now, and it is quiet like every other card that is not
+    /// reporting; those two facts no longer have to be traded against each other.
+    ///
+    /// The provenance goes under the rule, where the pass cards put their cost: "Analyzed Tuesday ·
+    /// ~/Documents" is the thing a stale report most needs to say about itself, and it is small
+    /// print rather than a headline.
+    @ViewBuilder
+    private func receiptCard(_ section: OrganizeOverviewSection) -> some View {
+        if case .receipt(let headline, let detail) = section.state {
+            OverviewCard(
+                symbol: section.lens.symbol,
+                title: section.lens.title,
+                subtitle: headline,
+                accent: accent,
+                actions: actions(for: section),
+                note: OverviewCardNote(detail, symbol: "clock"),
+                accessibilityLabel: "\(section.lens.title), \(detail), \(headline)") { }
+        }
+    }
+
+    private func receiptActions(_ section: OrganizeOverviewSection) -> [OverviewCardAction] {
+        // "Open Storage" without a count, unlike a finding's pill. The count belongs on a backlog
+        // you are going to work through; here it would put the number in the one place the badge
+        // rule was careful to keep it out of.
+        var actions = [OverviewCardAction(title: "Open \(section.lens.title)", rank: .primary,
+                                          run: { onOpen(section.lens) })]
+        if section.lens == .storage, let onBuildStorage {
+            actions.append(OverviewCardAction(title: isBuildingStorage ? "Analyzing…" : "Re-analyze",
+                                              isDisabled: isBuildingStorage,
+                                              run: onBuildStorage))
+        }
+        return actions
     }
 
     // MARK: A pass that has not run
 
-    /// The offer to run one scan — **and the whole reason this screen was rebuilt.**
+    /// The offer to run one scan — **and the whole reason this screen was rebuilt** the round
+    /// before this one.
     ///
     /// What it replaces was three tertiary lines reading "To File — not scanned  Scan…", one per
     /// lens, whose buttons did not scan: they set the rail selection and left you at that lens's
@@ -1024,68 +1009,27 @@ struct OrganizeOverview: View {
     @ViewBuilder
     private func passCard(_ pass: OrganizePass) -> some View {
         let isRunning = sections.contains { pass.lenses.contains($0.lens) && $0.isScanning }
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 9) {
-                Image(systemName: pass.symbol)
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 21, height: 21)
-                    .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.5)))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(pass.offerTitle)
-                        .scaledFont(.system(size: 12.5, weight: .semibold))
-                    Text(pass.offerLede)
-                        .scaledFont(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                if isRunning {
-                    HStack(spacing: 5) {
-                        InlineSpinner()
-                        Text("Running…")
-                            .scaledFont(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    .fixedSize()
-                } else if runnablePasses.contains(pass) {
-                    Button(pass.runTitle) { onRun(pass) }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .chromeHover()
-                        .fixedSize()
-                        .help(pass.offerCost)
-                }
-            }
-            .padding(11)
-
+        OverviewCard(
+            symbol: pass.symbol,
+            title: pass.offerTitle,
+            subtitle: pass.offerLede,
+            accent: accent,
+            status: isRunning ? .working("Running…") : .none,
+            actions: isRunning || !runnablePasses.contains(pass)
+                ? []
+                : [OverviewCardAction(title: pass.runTitle, rank: .primary, help: pass.offerCost,
+                                      run: { onRun(pass) })],
+            note: OverviewCardNote(pass.offerCost)) {
             // The lenses this one click answers. Drawn only when there is more than one, because
             // for a single-lens pass the row would restate the heading directly above it.
-            //
-            // Every lens a pass answers has a place to land again, now that the folded Names case
-            // is retired. This drew `presentedLenses` — `lenses` minus the fold — for the whole of
-            // P10, because `lenses` correctly still named a lens the screen had no room for.
             if pass.lenses.count > 1 {
-                Divider()
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(pass.lenses, id: \.self) { lens in
                         passLensRow(lens)
                     }
                 }
             }
-
-            Divider()
-            // `.secondary`, not `.tertiary`. This is the one line on the card stating what the
-            // click costs, and rendering it read back as barely legible grey — the weight the
-            // footer's "names checked" gloss deserves, not the weight a cost disclosure does.
-            Text(pass.offerCost)
-                .scaledFont(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 7)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Radius.well).fill(.quaternary.opacity(0.35)))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.well))
     }
 
     /// One lens inside a pass card: what this share of the one walk gets you.
@@ -1115,10 +1059,93 @@ struct OrganizeOverview: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 11)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+
+    // MARK: A lens no pass speaks for
+
+    /// **Storage's card before it has ever been analyzed — and the hole this redesign was reported
+    /// against.**
+    ///
+    /// Every other lens on this screen gets a card in every state: findings take one, a pass that
+    /// has not run takes one, a report takes one. Storage in the state it spends most of its life
+    /// in — never analyzed — took a line of tertiary grey text in the footer, below the fold,
+    /// beside the "duplicates checked" glosses. It is a lens with a verb and a real answer to give,
+    /// and it looked like a footnote about something that had already happened.
+    ///
+    /// The reason it fell there is real and is preserved: Storage is in no ``OrganizePass``, so
+    /// `pendingPasses` cannot offer it a card and it lands in ``strandedUnscanned``. What changes is
+    /// what a stranded lens *draws*. **A stranded lens with a verb gets a card; one without stays a
+    /// quiet line**, which keeps the rule that produced the footer in the first place — a card
+    /// offering a scan this host cannot start is worse than a line saying it has not run.
+    var strandedCards: [OrganizeOverviewSection] {
+        strandedUnscanned.filter { !actions(for: $0).isEmpty }
+    }
+
+    /// Stranded lenses with nothing to offer — the quiet line, still, and for the original reason.
+    var strandedLines: [OrganizeOverviewSection] {
+        strandedUnscanned.filter { actions(for: $0).isEmpty }
+    }
+
+    /// The verb a never-run lens can offer from here, if any.
+    ///
+    /// Two sources, and they are mutually exclusive by construction: a pass this host can start
+    /// (`offersPassRun` already de-dupes it to one row per pass), or — for the one lens in no pass
+    /// — Storage's own analyzer.
+    private func strandedActions(_ section: OrganizeOverviewSection) -> [OverviewCardAction] {
+        if offersPassRun(for: section), let pass = OrganizePass(producing: section.lens) {
+            return [OverviewCardAction(title: pass.runTitle, rank: .primary, help: pass.offerCost,
+                                       run: { onRun(pass) })]
+        }
+        if section.lens == .storage, let onBuildStorage {
+            return [OverviewCardAction(title: isBuildingStorage ? "Analyzing…" : "Analyze",
+                                       rank: .primary, isDisabled: isBuildingStorage,
+                                       run: onBuildStorage)]
+        }
+        return []
+    }
+
+    /// The small print under a stranded lens's card: what its scan costs, where a pass can price
+    /// it, and what Storage's analysis is and is not where no pass can.
+    private func strandedNote(_ section: OrganizeOverviewSection) -> OverviewCardNote? {
+        if let pass = OrganizePass(producing: section.lens), runnablePasses.contains(pass) {
+            return OverviewCardNote(pass.offerCost)
+        }
+        if section.lens == .storage {
+            // The badge rule's sentence, said where somebody deciding whether to press is standing.
+            return OverviewCardNote("Free, and on-device. A report — it never moves, deletes or "
+                                    + "evicts a file.")
+        }
+        return nil
+    }
+
+    /// The heading over a check that has not run and has no pass card to say so.
+    ///
+    /// **It names what did not happen, in that check's own verb.** A generic "Storage hasn’t run
+    /// here" is the shape of sentence a pass card makes about a walk of the tree, and Storage does
+    /// not walk — it analyses, and its button says Analyze. A heading and a button disagreeing
+    /// about the verb on one card is how a screen teaches somebody the wrong word for what they
+    /// are about to do. Where a pass does own the lens, its own ``OrganizePass/offerTitle`` is
+    /// already the right sentence and is quoted rather than restated.
+    static func strandedTitle(_ lens: OrganizeLens) -> String {
+        if let pass = OrganizePass(producing: lens) { return pass.offerTitle }
+        return lens == .storage ? "Storage hasn’t been analyzed here"
+                                : "\(lens.title) hasn’t run here"
+    }
+
+    @ViewBuilder
+    private func strandedCard(_ section: OrganizeOverviewSection) -> some View {
+        OverviewCard(
+            symbol: section.lens.symbol,
+            title: Self.strandedTitle(section.lens),
+            subtitle: section.blurb,
+            accent: accent,
+            status: section.isScanning ? .working("Running…") : .none,
+            actions: actions(for: section),
+            note: strandedNote(section),
+            accessibilityLabel: "\(section.lens.title), not scanned here") { }
     }
 
     /// Everything reporting is empty and there is nothing left to run. Distinct from "nothing has
@@ -1133,8 +1160,13 @@ struct OrganizeOverview: View {
         }
     }
 
-    /// The quiet line: what ran and was clean, and any lens left unscanned that no pass card above
-    /// already speaks for.
+    /// The quiet line: what ran and was clean, and any lens left unscanned that has no verb to
+    /// offer from here — the two things on this screen that are genuinely footnotes.
+    ///
+    /// **What left it is Storage's Analyze, and the run buttons beside the stranded rows.** A
+    /// button on a footnote line was the tell that the line was carrying something it was not
+    /// shaped for; those lenses have cards now (``strandedCard(_:)``), and what stays here is only
+    /// text.
     private var footer: some View {
         VStack(alignment: .leading, spacing: 5) {
             Divider()
@@ -1157,40 +1189,10 @@ struct OrganizeOverview: View {
                 }
                 .foregroundStyle(.tertiary)
             }
-            ForEach(strandedUnscanned) { section in
-                HStack(spacing: 6) {
-                    Text("\(section.lens.title) — not scanned")
-                        .scaledFont(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                    // Runs the pass, like every other scan control on this screen — and **at most
-                    // once per pass**, which is the whole rule this screen exists to enforce.
-                    // Written per row it read fine and could put two identical "Run the file pass"
-                    // buttons on two stranded lenses of one walk: the old footer's defect, rebuilt
-                    // inside its replacement. One expression, in `offersPassRun(for:)`, because the
-                    // test that guards it has to branch on the same thing this does.
-                    if offersPassRun(for: section),
-                       let pass = OrganizePass(producing: section.lens) {
-                        Button(pass.runTitle) { onRun(pass) }
-                            .buttonStyle(.plain)
-                            .scaledFont(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(accent)
-                            .chromeHover()
-                    }
-                    // **Storage's verb, because it is the one lens no pass can offer.** Every other
-                    // unscanned lens reaches a scan from this screen — through a pass card above, or
-                    // through the button beside it. Storage is in no `OrganizePass`, so both routes
-                    // answer nothing for it and the line said "Storage — not scanned" with no way to
-                    // do anything about it: the only dead end on the landing page, on the lens whose
-                    // whole point is that you have not looked yet.
-                    if section.lens == .storage, let onBuildStorage {
-                        Button(isBuildingStorage ? "Analyzing…" : "Analyze") { onBuildStorage() }
-                            .buttonStyle(.plain)
-                            .scaledFont(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(isBuildingStorage ? AnyShapeStyle(.secondary) : AnyShapeStyle(accent))
-                            .chromeHover()
-                            .disabled(isBuildingStorage)
-                    }
-                }
+            ForEach(strandedLines) { section in
+                Text("\(section.lens.title) — not scanned")
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.tertiary)
             }
         }
     }

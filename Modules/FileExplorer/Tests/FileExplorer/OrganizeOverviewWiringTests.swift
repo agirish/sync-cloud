@@ -447,8 +447,13 @@ import SwiftUI
     /// screen, on the one lens whose entire state is "you have not looked yet".
     ///
     /// Pinned here rather than in pixels because the shape is what matters: if Storage ever stops
-    /// being stranded (someone gives it a pass), the footer stops being where its verb belongs and
-    /// this fails rather than leaving a second button somewhere nobody looks.
+    /// being stranded (someone gives it a pass), its card stops being minted from
+    /// `strandedActions` and this fails rather than leaving a second button somewhere nobody looks.
+    ///
+    /// **Stranded no longer means "a footnote".** A stranded lens with a verb takes a card like any
+    /// other unrun check — `OverviewCardConsistencyTests.aNeverAnalyzedStorageTakesACardAndNotAFootnote`
+    /// is the claim about what it draws. What is asserted here is only that Storage arrives at the
+    /// stranded route at all, which is the fact about the machinery the card is built on.
     @Test func aNeverAnalyzedStorageIsStrandedWithNoPassToOfferIt() {
         let sections = subject(FileSyncManager()).overviewModel.sections
         let overview = OrganizeOverview(
@@ -459,7 +464,7 @@ import SwiftUI
 
         #expect(sections.first { $0.lens == .storage }?.state == .notScanned)
         #expect(overview.strandedUnscanned.contains { $0.lens == .storage },
-                "Storage is not on the stranded line, so the Analyze button added there never draws")
+                "Storage is not stranded, so the card carrying its Analyze button never draws")
         #expect(!overview.pendingPasses.flatMap(\.lenses).contains(.storage),
                 "a pass now claims Storage — its verb belongs on that card, not on the footer line")
         #expect(OrganizePass(producing: .storage) == nil,

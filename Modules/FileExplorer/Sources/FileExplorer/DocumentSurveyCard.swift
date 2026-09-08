@@ -228,37 +228,29 @@ struct DocumentSurveyCard: View {
     var onUpdate: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 9) {
-                Image(systemName: "doc.text.magnifyingglass")
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 21, height: 21)
-                    .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.5)))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(DocumentSurveyCardText.title(for: state))
-                        .scaledFont(.system(size: 12.5, weight: .semibold))
-                        .monospacedDigit()
-                    if let fraction = DocumentSurveyCardText.fraction(for: state) {
-                        progressBar(fraction)
-                    }
-                    Text(DocumentSurveyCardText.detail(for: state))
-                        .scaledFont(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                verbs
+        OverviewCard(
+            symbol: "doc.text.magnifyingglass",
+            title: DocumentSurveyCardText.title(for: state),
+            subtitle: DocumentSurveyCardText.detail(for: state),
+            accent: accent,
+            actions: verbs,
+            // **The claim stays through every state.** A privacy line that appeared only on the
+            // offer card would read as a sales line rather than a fact about the feature — and the
+            // state where a person is most likely to wonder is the one where they can see it
+            // working.
+            //
+            // Scoped to the reading, exactly as the Help article is: "on this Mac" is true of this
+            // feature without qualification, while an app-wide claim would not be — Refine with
+            // Claude reaches Anthropic's API with the user's own key.
+            note: OverviewCardNote(
+                privacySentence, symbol: "lock.fill", help: onOpenHelp,
+                helpLabel: "About reading your documents",
+                helpTip: "What gets opened, how much is read, what is kept — and why none of it "
+                    + "leaves this Mac.")) {
+            if let fraction = DocumentSurveyCardText.fraction(for: state) {
+                progressBar(fraction)
             }
-            .padding(11)
-
-            Divider()
-            privacyLine
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Radius.well).fill(.quaternary.opacity(0.35)))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(DocumentSurveyCardText.title(for: state))
     }
 
     /// **Grey while paused, accent while reading.** The pair has to be drawn together: a paused
@@ -289,109 +281,66 @@ struct DocumentSurveyCard: View {
         .designAnimation(.easeOut(duration: 0.2), value: fraction)
     }
 
-    @ViewBuilder
-    private var verbs: some View {
+    /// The card's verbs, as ``OverviewCardAction`` values rather than buttons.
+    ///
+    /// **The ranks are what changed, and they are the whole point of stating them as data.** This
+    /// card used to pick its own dresses per state — a prominent Start, a bordered Pause, a
+    /// bordered "Resume now", and, in the settled state, a bare accent word that was the only
+    /// control on the overview with no button shape at all. That last one sat at a card's
+    /// top-right beside a Storage receipt whose verbs were also bare accent words, above a
+    /// Restructure card whose Refresh was a *bordered* button 60pt lower and 400pt to the left.
+    /// One word, three appearances, three positions.
+    ///
+    /// Now: whatever this card's most important verb is in the state it is in is the primary, it is
+    /// the rightmost control, and it looks exactly like every other card's primary.
+    var verbs: [OverviewCardAction] {
         switch state {
         case .offered:
-            if let onStart {
-                Button("Read my documents", action: onStart)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .chromeHover()
-                    .fixedSize()
-            }
+            return onStart.map {
+                [OverviewCardAction(title: "Read my documents", rank: .primary, run: $0)]
+            } ?? []
         case .running(_, _, _, _, let pause):
-            HStack(spacing: 8) {
-                if let pause, !pause.resumesOnItsOwn, let onResume {
-                    Button("Resume", action: onResume)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .chromeHover().fixedSize()
-                } else if pause == nil, let onPause {
-                    Button("Pause", action: onPause)
-                        .buttonStyle(.bordered).controlSize(.small)
-                        .chromeHover().fixedSize()
-                } else if pause != nil, let onResume {
-                    // Resumes on its own — the button is an impatience valve, not the way out, so
-                    // it is the quieter of the two.
-                    Button("Resume now", action: onResume)
-                        .buttonStyle(.bordered).controlSize(.small)
-                        .chromeHover().fixedSize()
-                }
-                if let onStop {
-                    Button("Stop", action: onStop)
-                        .buttonStyle(.plain)
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .chromeHover().fixedSize()
-                }
+            var actions: [OverviewCardAction] = []
+            if let pause, !pause.resumesOnItsOwn, let onResume {
+                actions.append(OverviewCardAction(title: "Resume", rank: .primary, run: onResume))
+            } else if pause == nil, let onPause {
+                actions.append(OverviewCardAction(title: "Pause", rank: .primary, run: onPause))
+            } else if pause != nil, let onResume {
+                // Resumes on its own — the button is an impatience valve, not the way out, so it is
+                // the quieter of the two.
+                actions.append(OverviewCardAction(title: "Resume now", run: onResume))
             }
+            if let onStop {
+                actions.append(OverviewCardAction(title: "Stop", run: onStop))
+            }
+            return actions
         case .interrupted:
-            HStack(spacing: 8) {
-                if let onResume {
-                    Button("Resume", action: onResume)
-                        .buttonStyle(.borderedProminent).controlSize(.small)
-                        .chromeHover().fixedSize()
-                }
-                if let onStart {
-                    // "Start over" rather than "Start": the distinction matters here, where a
-                    // partly-finished survey is on disk and the alternative throws it away.
-                    Button("Start over", action: onStart)
-                        .buttonStyle(.plain)
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .chromeHover().fixedSize()
-                }
+            var actions: [OverviewCardAction] = []
+            if let onResume {
+                actions.append(OverviewCardAction(title: "Resume", rank: .primary, run: onResume))
             }
+            if let onStart {
+                // "Start over" rather than "Start": the distinction matters here, where a
+                // partly-finished survey is on disk and the alternative throws it away.
+                actions.append(OverviewCardAction(title: "Start over", run: onStart))
+            }
+            return actions
         case .finished, .finishing:
             // Nothing to offer: the reading is over, and the merge cannot be paused or stopped
             // without throwing away the whole pass.
-            EmptyView()
+            return []
         case .settled:
             // **Refresh, not "Read again".** This runs the incremental pass — new and changed
             // documents only, seconds to minutes — which is the refresh anybody actually wants.
             // A full re-read is three hours and a genuinely different need (a suspect corpus,
             // changed extraction rules); offering it beside a thirty-second button would invite
             // the wrong click, so it is deliberately not here.
-            if let onUpdate {
-                Button("Refresh", action: onUpdate)
-                    .buttonStyle(.plain)
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(accent)
-                    .chromeHover().fixedSize()
-            }
+            return onUpdate.map {
+                [OverviewCardAction(title: "Refresh", rank: .primary,
+                                    help: "Reads only the documents that changed since the last "
+                                        + "survey.", run: $0)]
+            } ?? []
         }
-    }
-
-    /// **The claim stays through every state.** A privacy line that appeared only on the offer card
-    /// would read as a sales line rather than a fact about the feature — and the state where a
-    /// person is most likely to wonder is the one where they can see it working.
-    ///
-    /// Scoped to the reading, exactly as the Help article is: "on this Mac" is true of this feature
-    /// without qualification, while an app-wide claim would not be — Refine with Claude reaches
-    /// Anthropic's API with the user's own key.
-    @ViewBuilder
-    private var privacyLine: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "lock.fill")
-                .scaledFont(.system(size: 9))
-            Text(privacySentence)
-                .scaledFont(.system(size: 10.5))
-            if let onOpenHelp {
-                Button(action: onOpenHelp) {
-                    Image(systemName: "questionmark.circle")
-                        .scaledFont(.system(size: 10))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("About reading your documents")
-                .help("What gets opened, how much is read, what is kept — and why none of it leaves this Mac.")
-                .chromeHover()
-            }
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 11)
-        .padding(.vertical, 6)
     }
 
     /// Long on the offer, short everywhere else — the offer is where the decision is made, and the

@@ -3943,11 +3943,16 @@ public struct LensWorkspaceView: View {
             ledger: overviewLedger(model, scopeFolders: scopeFolders),
             runnablePasses: runnablePasses,
             onOpen: { item in
-                // **Arriving from "Open Restructure — 12 ›" skips the reveal card.** That button
-                // states the count and the user pressed it to see those findings; landing them on
-                // a card whose own button says "Show 12 findings" is one intent charged twice.
-                // The launch gate is about opening the lens cold, not about a link that already
-                // told you what is behind it.
+                // **Arriving from a reporting card's "Open Restructure" skips the reveal card.**
+                // The card states the count in its pill and the user pressed the button beside it
+                // to see those findings; landing them on a card whose own button says "Show 12
+                // findings" is one intent charged twice. The launch gate is about opening the lens
+                // cold, not about a way in that already told you what is behind it.
+                //
+                // (The count used to be *in* the button — "Open Restructure — 12 ›". It moved to
+                // the pill when the overview's cards were unified: one blue verb per card, always
+                // the rightmost control, and a button whose width moved with the data could not be
+                // the thing every other card aligned to.)
                 if item == .restructure { syncManager.hasReviewedStructure = true }
                 withAnimation(listSettle) { railLens = item }
             },
