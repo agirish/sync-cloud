@@ -254,6 +254,30 @@ import Sync
         #expect(targets == ["receipt.pdf", "sub/scan.png"])
     }
 
+    /// **A focus on a folder the root only LINKS to.** The iCloud source focused on `Documents`
+    /// composed `<iCloud Drive>/Documents` lexically, while every node the walk produces under it
+    /// is spelled `~/Documents/…` — so `relativeIgnoreTargets` stripped nothing and each ignore
+    /// went into the durable per-pair store as a verbatim absolute path, which is pane-specific
+    /// and invisible to the other side. The same defect that drew "Empty" over the Columns view's
+    /// second column (`FileSyncManager.focusURL`), reached through a different door.
+    @Test func testIgnoreBasePathResolvesAFocusOnALinkedFolder() {
+        let links: PathBoundary.LinkedFolders = ["/iCloud": ["Documents": "/home/Documents"]]
+        let base = PaneLogic.ignoreBasePath(isLeft: true, leftRoot: "/iCloud", rightRoot: "/Right",
+                                            leftRelativePath: "Documents", rightRelativePath: "",
+                                            links: links)
+        #expect(base == "/home/Documents")
+        #expect(PaneLogic.relativeIgnoreTargets(nodeIds: ["/home/Documents/Home/deed.pdf"],
+                                                basePath: base) == ["Home/deed.pdf"])
+        // A root the table does not name, and a linked name that is not the FIRST component,
+        // compose exactly as before.
+        #expect(PaneLogic.ignoreBasePath(isLeft: true, leftRoot: "/Other", rightRoot: "/Right",
+                                         leftRelativePath: "Documents", rightRelativePath: "",
+                                         links: links) == "/Other/Documents")
+        #expect(PaneLogic.ignoreBasePath(isLeft: true, leftRoot: "/iCloud", rightRoot: "/Right",
+                                         leftRelativePath: "Word/Documents", rightRelativePath: "",
+                                         links: links) == "/iCloud/Word/Documents")
+    }
+
     // The toggledIgnoredPaths cases moved to Sync's PersistentIgnoresTests alongside
     // `FileSyncManager.toggleIgnored(focusRelativePaths:)`, which superseded the helper.
 

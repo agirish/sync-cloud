@@ -894,19 +894,24 @@ enum PaneLogic {
     /// entirely and get stored verbatim as absolute paths in the durable per-pair ignore store,
     /// hiding the wrong files from every future comparison. An empty relative path means the pane
     /// is at its root, which is the root path itself.
+    ///
+    /// **`PathBoundary.join`, not lexical composition**, for the reason the paragraph above
+    /// gives — a focus on a folder the root only LINKS to composed a base no node id can match.
+    /// The iCloud source focused on `Documents` composed `<iCloud Drive>/Documents` while every
+    /// node under it is spelled `~/Documents/…`, so nothing stripped and every ignore landed in
+    /// the durable store as a verbatim absolute path: pane-specific, and invisible to the other
+    /// side. Same family as the "empty column" defect (`FileSyncManager.focusURL`), same fix.
     static func ignoreBasePath(
         isLeft: Bool,
         leftRoot: String,
         rightRoot: String,
         leftRelativePath: String,
-        rightRelativePath: String
+        rightRelativePath: String,
+        links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders
     ) -> String {
-        let root = isLeft ? leftRoot : rightRoot
-        let relativePath = isLeft ? leftRelativePath : rightRelativePath
-        let expandedRoot = (root as NSString).expandingTildeInPath
-        return relativePath.isEmpty
-            ? expandedRoot
-            : (expandedRoot as NSString).appendingPathComponent(relativePath)
+        PathBoundary.join(root: isLeft ? leftRoot : rightRoot,
+                          relative: isLeft ? leftRelativePath : rightRelativePath,
+                          links: links)
     }
 
     /// Reduces absolute node paths to ignore targets relative to the pane's focal path,
