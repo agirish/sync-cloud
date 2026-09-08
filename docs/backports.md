@@ -4245,3 +4245,55 @@ in the diff: the survey's yield list must not contain its own `filingSurveyLifec
 correct — "stand aside for a running scan" — and the survey marks itself running before it reads
 its first document, so it stands aside for itself, forever, and the card sits at "paused" with no
 reason a user could act on. It is caught by a test only if that test starts the lifecycle first.
+
+---
+
+## 2026-09-08 — Organize's overview becomes one card system, and Storage gets a card
+
+Three commits, `d01f33ab`..`84bd54d9`. SHAs read after the push. Reported as a screenshot and a
+list — *everything is different and not consistent; Storage doesn't even have a card; Restructure
+has a colour card; the Refresh buttons don't line up; the buttons don't all have the blue
+background pill; the heights of the cards don't match* — which is five observations of one cause:
+five card anatomies had grown on one screen.
+
+**`v4.x` has the screen and four of the five defects; `v3.x` and `v2.x` have no screen at all.**
+The probe that settles both, with its positive control on `main`:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s overview=%s storageLens=%s receipt=%s survey=%s lensCard=%s pill=%s\n' "$l" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift 2>/dev/null | grep -c 'struct OrganizeOverview')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/OrganizeLens.swift 2>/dev/null | grep -c 'case storage')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift 2>/dev/null | grep -c 'case receipt')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DocumentSurveyCard.swift 2>/dev/null | grep -c 'struct DocumentSurveyCard')" \
+    "$(git show origin/$l:Modules/Design/Sources/Design/LensCard.swift 2>/dev/null | grep -c 'func lensCard')" \
+    "$(git show origin/$l:Modules/Design/Sources/Design/Pill.swift 2>/dev/null | grep -c 'enum PillVariant')"
+done
+# main 2/1/1/1/1/1 · v4.x 2/0/0/0/1/1 · v3.x and v2.x 0/0/0/0/1/1
+
+# WHICH defects reproduce on v4.x — the wash, the stripe, the wells, the mixed button dresses,
+# and the two ledger builders. This is the row's real content: "it has the screen" is not the
+# same claim as "it has the problem".
+# One grep per claim, deliberately: `grep -c` with two `-e` patterns prints ONE combined count,
+# so "2" would not say whether it found both marks or the same mark twice.
+V=Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift
+git show origin/v4.x:$V | grep -c 'accent.opacity(0.07)'              # 1 — the findings wash
+git show origin/v4.x:$V | grep -c 'RoundedRectangle(cornerRadius: 1.5)'  # 1 — its 3pt stripe
+git show origin/v4.x:$V | grep -c 'quaternary.opacity(0.35)'  # 2 — the wells lensCard() replaces
+git ls-tree -r --name-only origin/v4.x -- Modules/FileExplorer/Sources/FileExplorer/OverviewCard.swift
+# empty on all three maintenance lines; present on main — the positive control for the path
+```
+
+| What landed on `main` | `v4.x` | `v3.x` | `v2.x` | Status |
+|---|---|---|---|---|
+| **`d01f33ab`** — `OverviewCard`, the one anatomy (glyph, heading, body slot on the title's spine, trailing action cluster, small print under a rule), plus `OverviewCardAction`'s *rank not style* and `OverviewQuietRow` | **Applies cleanly, and this is the piece worth having on its own.** Both dependencies are present — `lensCard()` in `Design` and the C1 `Pill` — and the file is new, so nothing conflicts. It is a container with no knowledge of which lenses exist, so nothing in it needs re-fitting | **Does not apply.** No `OrganizeOverview` on this line; the container would have no screen to be a container for | **Does not apply**, same reason | RECORDED — not owed (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`5d1d2753`** — the overview and the survey card rebuilt on it, `actions(for:)` as the one place a card's verbs are decided, `strandedCards`/`strandedLines` partitioning `strandedUnscanned`, and the consistency suite | **Applies in substance, needs splitting.** Four of the five defects reproduce verbatim (the `accent.opacity(0.07)` wash, the 1.5-radius stripe, two `quaternary.opacity(0.35)` wells, and `checksTile`/`ledgerTile` as separate builders with only the latter stretched). The other two cannot: `v4.x` has no `case storage` on `OrganizeLens` and no `case receipt` on `OrganizeOverviewState`, so **the headline complaint — Storage has no card — does not exist there**, and neither does the receipt card or the survey's Refresh. A pick is the card-shape half only, and `strandedCards` would partition a list that on that line only ever holds pass-covered lenses | **Does not apply** | **Does not apply** | RECORDED — not owed, and would need splitting (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`84bd54d9`** — the five bullets in the v5.3 draft, in `RELEASE_NOTES.md` and `docs/releases.html` | **Does not apply as written.** Two of the five bullets describe a Storage card and a survey Refresh that line does not have; if the code above is ever picked, the notes are written then against that line's own tip | **Does not apply** | **Does not apply** | CLOSED — written per line, never copied |
+
+**The distinction this row exists to record**, because it is the expensive half to reconstruct:
+`v4.x` *has* the overview and *has* most of the visual defects, which makes it look like a
+straightforward pick — and it is not, because the complaint that named the work ("Storage doesn't
+even have a card") is about a lens that line does not carry. Anyone reading only the commit
+subjects would send the whole thing and land a `strandedCards`/`strandedLines` split with nothing
+to put in the first list. `v3.x` and `v2.x` need no judgement: `OrganizeOverview.swift` is absent,
+so there is no partial pick and no defect to reproduce.
