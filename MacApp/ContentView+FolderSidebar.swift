@@ -940,13 +940,40 @@ extension ContentView {
             openInNewTab(absolutePath: resolved, isLeft: isLeft)
             return
         }
-        // Compared against the pane being opened on, matching the `setFolderSidebarProvider` call
-        // beside it — comparing the target pane's provider here while setting the `isLeft` pane's
-        // was the missed half of the fix this function's own doc describes.
-        if provider.id != (isLeft ? leftProviderId : rightProviderId) {
-            setFolderSidebarProvider(provider.id, isLeft: isLeft)
+        // Compared against the pane being opened on, matching the provider write beside it —
+        // comparing the target pane's provider here while setting the `isLeft` pane's was the
+        // missed half of the fix this function's own doc describes.
+        let alreadyOnIt = provider.id == (isLeft ? leftProviderId : rightProviderId)
+        // The place IS the source's root — so the ordinary provider switch, which re-homes the pane
+        // at its new source's landing folder, already lands exactly where this click means. Nothing
+        // to preserve, so nothing to arm.
+        guard !relative.isEmpty else {
+            if !alreadyOnIt { setFolderSidebarProvider(provider.id, isLeft: isLeft) }
+            return
         }
-        if !relative.isEmpty { syncManager.focusOn(relativePath: relative, isLeft: isLeft) }
+        // Already on the owning source: a plain navigation, no switch to survive.
+        guard !alreadyOnIt else {
+            syncManager.focusOn(relativePath: relative, isLeft: isLeft)
+            return
+        }
+        // **A bare provider write would throw this navigation away**, and that is what the row did
+        // until 2026-09-08: `onChange(of: leftProviderId)` fires on the NEXT view update and calls
+        // `retargetPane()`, which re-homes the pane at its new source's landing folder — so
+        // clicking `Downloads` while `~` was a source switched to Home folder and landed at Home's
+        // root, with the folder the user actually clicked silently dropped. Reported as "it jumps
+        // to home".
+        //
+        // `CommandPaletteHost.switchSourceAndReveal` had already solved exactly this for ⌘K's
+        // cross-source Go to Folder, and its three statements are copied here in its order, each
+        // position load-bearing: `focusOn` first so both writes land in one synchronous turn and
+        // the visit is recorded against the NEW root; the ARMED provider write second, because it
+        // is the write whose handler must find the navigation already done; the reload last,
+        // because it resolves both providers out of `enabledProviders` by the ids as they now are.
+        syncManager.focusOn(relativePath: relative, isLeft: isLeft)
+        adoptProviderForTab(provider.id, isLeft: isLeft,
+                            log: "Sidebar: \(source.name) opened inside \(owner) on the "
+                                + "\(PaneSideChoice.name(isLeft)) pane at \(relative)")
+        refreshForTabSwitch(movedPane: isLeft)
     }
 
     /// A local folder SyncCloud has not been given: add it as a folder source, open it, and say so.

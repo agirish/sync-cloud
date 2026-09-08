@@ -340,3 +340,58 @@ import Foundation
         #expect(SidebarFavoritePlaces.salvageKey == SidebarFavoritePlaces.storageKey + ".unreadable")
     }
 }
+
+/// **Clicking a place that lives inside another source must land ON that place, not at the
+/// owning source's root.**
+///
+/// Reported 2026-09-08: with `~` a folder source and `~/Downloads` not, the Downloads row read
+/// "in Home folder" — correct, and the user liked it — but clicking it switched the pane to Home
+/// folder and landed at Home's ROOT. "It jumps to home."
+///
+/// The cause is a documented hazard this call site had not adopted. A bare provider write makes
+/// `onChange(of: leftProviderId)` fire on the NEXT view update and call `retargetPane()`, which
+/// re-homes the pane at its new source's landing folder — throwing away a `focusOn` issued in the
+/// same turn. `CommandPaletteHost.switchSourceAndReveal` solved it for ⌘K by arming
+/// `pendingTabProviderChanges` through `adoptProviderForTab` so the handler consumes instead of
+/// resetting, then driving the one reload itself.
+///
+/// Asserted against `ContentView`'s own source, for the reason the suite above gives: `ContentView`
+/// is a `View` with `@State` and cannot be instantiated here, so the alternative is a copy of the
+/// logic that can agree with itself while disagreeing with the app.
+@Suite struct SidebarInsideOwnerNavigationTests {
+
+    static func source() throws -> String { try SidebarPlaceRowTests.source() }
+
+    /// The switch goes through the armed door, so the navigation survives the provider change.
+    @Test func openingInsideAnOwnerArmsTheProviderChange() throws {
+        let code = try Self.source()
+        #expect(code.contains("adoptProviderForTab(provider.id, isLeft: isLeft"),
+                "the sidebar switches source with a bare write again — retargetPane will re-home the pane and drop the folder the user clicked")
+        #expect(code.contains("refreshForTabSwitch(movedPane: isLeft)"),
+                "nothing drives the reload after the armed switch, so the moved pane keeps the old source's tree")
+    }
+
+    /// **Order is the other half of the contract**, and it is invisible at a glance: `focusOn` must
+    /// precede the armed write, so both land in one synchronous turn and the handler finds the
+    /// navigation already done. Asserted as positions rather than presence, because a later edit
+    /// that merely reorders these three lines reintroduces the whole defect with every symbol still
+    /// spelled correctly.
+    @Test func theNavigationIsAppliedBeforeTheProviderIsAdopted() throws {
+        let code = try Self.source()
+        let focus = try #require(code.range(of: "syncManager.focusOn(relativePath: relative, isLeft: isLeft)\n        adoptProviderForTab"),
+                                 "focusOn no longer immediately precedes adoptProviderForTab — the handler will not find the navigation done")
+        let adopt = try #require(code.range(of: "adoptProviderForTab(provider.id"))
+        let reload = try #require(code.range(of: "refreshForTabSwitch(movedPane: isLeft)"))
+        #expect(focus.lowerBound < adopt.lowerBound)
+        #expect(adopt.lowerBound < reload.lowerBound,
+                "the reload runs before the provider is adopted, so it resolves the OLD ids")
+    }
+
+    /// The pane already on the owning source must NOT arm anything — there is no switch to survive,
+    /// and a stray armed counter would swallow the next real provider change's reset.
+    @Test func aPaneAlreadyOnTheOwnerJustNavigates() throws {
+        let code = try Self.source()
+        #expect(code.contains("guard !alreadyOnIt else {"),
+                "the already-on-it case no longer short-circuits, so it arms a counter nothing will balance")
+    }
+}

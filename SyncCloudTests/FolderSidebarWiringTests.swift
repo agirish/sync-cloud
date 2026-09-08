@@ -354,14 +354,20 @@ import Foundation
                 "the owner is resolved by display name, the collision this section's qualifiers exist for")
     }
 
-    /// And it compares against the pane being opened on, matching the `setFolderSidebarProvider`
-    /// call beside it — comparing the target pane's provider while setting the `isLeft` pane's was
-    /// the missed half of the same fix.
+    /// And it compares against the pane being opened on, matching the provider write beside it —
+    /// comparing the target pane's provider while setting the `isLeft` pane's was the missed half
+    /// of the same fix.
+    ///
+    /// **Pinned on the side resolution, not on the operator.** This asserted the whole expression
+    /// `provider.id != (isLeft ? …)` verbatim, and broke on 2026-09-08 when the same comparison was
+    /// given a name (`alreadyOnIt`) and flipped to `==` so the two no-switch cases could return
+    /// early. Nothing about the guard it protects had changed. What matters is which pane's
+    /// provider is read; the spelling of the test around it is not the invariant.
     @Test func theInsideOpenComparesTheOpeningPanesProvider() throws {
         let body = try Self.body(of: "func openFolderSidebarShortcutInsideItsOwner(")
-        #expect(body.contains("provider.id != (isLeft ? leftProviderId : rightProviderId)"),
+        #expect(body.contains("provider.id == (isLeft ? leftProviderId : rightProviderId)"),
                 "the switch decision reads some other pane's provider than the one it sets")
-        #expect(!body.contains("provider.id != folderSidebarProviderId"),
+        #expect(!body.contains("folderSidebarProviderId"),
                 "the switch decision reads the TARGET pane's provider while setting the `isLeft` pane's")
     }
 
