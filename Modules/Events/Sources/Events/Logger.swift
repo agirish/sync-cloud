@@ -83,22 +83,22 @@ public struct LogEntry: Identifiable, Sendable {
         return set
     }()
     
-    /// Shared timestamp formatter. Reused instead of reallocated per log line (DateFormatter is
-    /// expensive to create and is thread-safe for formatting).
+    /// Shared timestamp formatter — the one that renders `~/sync-cloud.log`'s lines and reads them
+    /// back. Reused instead of reallocated per log line; `DateFormatter` is expensive to create.
     ///
     /// Locale and calendar are pinned (en_US_POSIX + Gregorian, matching `LogGrouping.keyFormatter`)
     /// because this formatter also PARSES history lines back out of `~/sync-cloud.log`: with the
     /// user's locale/calendar, a system set to e.g. the Islamic calendar would render and round-trip
     /// Gregorian dates as years like 1448/2587, silently mis-dating every parsed history entry.
-    /// The timezone deliberately stays local — the file's existing lines are local-time, and
-    /// changing it would break continuity with them.
-    private static let timestampFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
-        return formatter
-    }()
+    ///
+    /// **The zone is re-checked on every use rather than captured** — see
+    /// ``LogTimestampFormatter`` for why, which is a longer story here than it was for the two
+    /// display-only formatters that were fixed first.
+    ///
+    /// Internal, not private, so `LogTimestampZoneTests` can drive the refresh branch directly —
+    /// the alternative is moving `NSTimeZone.default`, which is process-wide and would race every
+    /// other suite in the run.
+    static let timestampFormatter = LogTimestampFormatter()
 
     /// The canonical single-line rendering (`[timestamp] [LEVEL] message`) used both for the disk
     /// log and for the Activity Log's Copy action, so the clipboard matches the file byte-for-byte.
@@ -145,6 +145,109 @@ public struct LogEntry: Identifiable, Sendable {
         guard level == .warning || level == .error,
               let range = message.range(of: " | Location: ", options: .backwards) else { return (message, nil) }
         return (String(message[..<range.lowerBound]), String(message[range.upperBound...]))
+    }
+}
+
+/// The `~/sync-cloud.log` timestamp, rendered and parsed through one lock-guarded formatter.
+///
+/// **The zone is re-checked on every use rather than captured.** A `DateFormatter` whose
+/// `timeZone` is never set takes the system zone the first time it formats and keeps it for the
+/// life of the process, so after a Date & Time change or a flight every line written for the rest
+/// of the session carried the wall clock of a place the machine had left — and `~/sync-cloud.log`
+/// outlives the session, so that stamp is permanent and there is nothing in the file to correct it
+/// against. `LogEntryRow.formatter(_:)` and `RestructureLens.formatter(_:)` were fixed for the
+/// same defect; this is the same remedy.
+///
+/// **What the old comment protected does not exist.** It said the zone stayed local "because the
+/// file's existing lines are local-time, and changing it would break continuity with them" — but
+/// the file already holds more than one zone, unmarked. It is a rolling file trimmed at ~5 MB, so
+/// it spans sessions, and each session captured whatever zone was current when it started. This
+/// machine's own log is the demonstration: it runs from 2026-07-28 to today across a move from
+/// `America/Los_Angeles` to `Asia/Kolkata` (the repo's own commit offsets date the move to between
+/// 2026-09-03 and 2026-09-05), and the boundary is invisible — the app was not running across it,
+/// so there is not even a jump to see. Re-checking does not put a second zone in the file; it
+/// moves an unmarked boundary the file was going to get anyway from the next launch to now.
+///
+/// **What the file is, then:** a sequence of wall-clock readings, each in whatever zone was
+/// current when the line was written. Re-checking makes that true always. Pinning to the session's
+/// start zone makes it false the moment a zone changes mid-session — which is the bug.
+///
+/// **Rendering and parsing must share a zone, and that is what decides it.** Nothing reads a
+/// parsed line's *instant* for its own sake: the Activity Log renders it back and buckets it by
+/// day. So parse-then-render is the identity on the file's text — a line displays as the text
+/// that is in the file — precisely while the two zones agree, and that is why zone-changed history
+/// has always displayed correctly despite being parsed at the wrong instant. `LogEntryRow` now
+/// re-checks. Pinning here would leave the reader on a different zone from the renderer after a
+/// mid-session change, and every older-history row would display shifted and could group under the
+/// wrong day. Following the system keeps the pair together.
+///
+/// **The accepted cost.** `LogViewer.parseOlderThan` splits history on `timestamp < sessionStart`,
+/// and that comparison does read instants. After a mid-session zone change, lines this session
+/// wrote in the old zone parse at a shifted instant, so pressing "Show older history" in that same
+/// session can show a few of them twice (moving east) or hide the last few hours of the previous
+/// session (moving west). It is transient, it needs a zone change and a history load in one
+/// session, and it clears at the next launch. The alternative was to stamp a UTC offset into every
+/// line, which is the only way to make a line's zone actually recoverable — rejected here as an
+/// on-disk format change with a migration for every line already written, and one that would make
+/// old lines display at a wall clock the user never saw.
+///
+/// **Locked, not just shared.** The two formatters fixed before this one are reached only from the
+/// main actor — both live on `View`s, and `View` carries SwiftUI's own isolation. This one does
+/// not. `LogEntry.formattedString` is evaluated inside `Logger.log`, which is `nonisolated`
+/// and runs on the caller's thread, so many threads reach it at once. Reading a `DateFormatter`
+/// concurrently is safe; writing `timeZone` on one thread while another formats is not, so the
+/// check and the use are both taken under the lock — the same `NSLock` box shape
+/// `MinimumLevelBox` uses one screen down, and for the same reason.
+///
+/// (DST is not this question; a `TimeZone` handles its own transitions.)
+final class LogTimestampFormatter: @unchecked Sendable {
+    private let lock = NSLock()
+    private let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        return formatter
+    }()
+
+    /// Renders one canonical timestamp, in the zone the system is in now.
+    func string(from date: Date) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        refreshZone()
+        return formatter.string(from: date)
+    }
+
+    /// Reads one canonical timestamp back, in the zone the system is in now — the same zone
+    /// ``string(from:)`` just wrote in, which is the pairing the round trip depends on.
+    func date(from text: String) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        refreshZone()
+        return formatter.date(from: text)
+    }
+
+    /// Callers must hold `lock`. The compare is cheap and the assignment only runs when the zone
+    /// has actually moved.
+    private func refreshZone() {
+        if formatter.timeZone != TimeZone.current { formatter.timeZone = TimeZone.current }
+    }
+
+    /// The zone the shared formatter is currently on. Test seam: it is what lets
+    /// `LogTimestampZoneTests` observe the refresh without moving `NSTimeZone.default`, which is
+    /// process-wide and would race every other suite in the run.
+    var zone: TimeZone {
+        lock.lock()
+        defer { lock.unlock() }
+        return formatter.timeZone
+    }
+
+    /// Puts the shared formatter on `zone` without refreshing, so a test can stage the stale state
+    /// this class exists to prevent. Test-only: nothing in the app calls it.
+    func stageZoneForTesting(_ zone: TimeZone) {
+        lock.lock()
+        formatter.timeZone = zone
+        lock.unlock()
     }
 }
 
