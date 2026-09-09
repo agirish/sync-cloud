@@ -611,6 +611,19 @@ public struct EditorWorkspaceView: View {
                 outline = []
                 editorScrollRequest = nil
                 previewScrollRequest = nil
+                // **The status line is seeded from the same anchor the text view is.**
+                //
+                // `caretOffset` is what Ln/Col is derived from, and it is `@State` — so a workspace
+                // switch resets it to 0 while `makeNSView` puts the caret wherever the anchor says.
+                // Nothing reports that placement any more (the delegate is deliberately wired after
+                // it, so construction cannot write SwiftUI state), which left the readout claiming
+                // line 1 while the caret sat somewhere else entirely.
+                //
+                // Clamped HERE and not in the argument above: this runs on arrival and on a file
+                // change, where reading the buffer's length is affordable, and that argument is
+                // rebuilt on every keystroke, where it is not.
+                caretOffset = EditorCaretAnchors.clamped(
+                    document.caretAnchors.offset(for: document.path) ?? 0, in: document.text)
             }
             // **The re-render is debounced, and the parse is off the main actor.** Keyed on the
             // document's version counter rather than on its text: `.task(id:)` compares its id
@@ -799,7 +812,7 @@ public struct EditorWorkspaceView: View {
                         // because the memberwise init takes them in declaration order, and that
                         // order is also the precedence: a scroll request lands in `updateNSView`,
                         // which runs after `makeNSView` and overwrites this.
-                        initialSelection: document.caretAnchors.offset(for: document.path),
+                        initialSelection: document.caretAnchors.offset(for: document.path) ?? 0,
                         onVisibleLineChange: visibleLineReporter,
                         lineIndex: lineIndex,
                         findRequest: findRequest,

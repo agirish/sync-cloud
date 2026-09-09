@@ -264,6 +264,26 @@ public struct FileTreeView: View, Equatable {
         hostExpanded ?? $ownExpanded
     }
 
+    /// The expansion set as this view reads and writes it, reachable from tests — the same seam, and
+    /// the same reason, as `PaneOutlineRows.expansionBindingForTesting`.
+    ///
+    /// **The property, not the binding, and the difference is the whole point.** The disclosure
+    /// triangles write through ``expandedBinding``, which resolves the host directly; the three
+    /// writers that go through ``expanded``'s setter are the search reveal, the columns carry-over
+    /// and the prune on a root change. Invert the condition in that setter and a hosted pane writes
+    /// its dead `ownExpanded`: the host's set never moves, so `==` sees no difference, so the
+    /// equality suite stays green — and revealing a search hit stops opening its ancestors, the
+    /// carry-over stops opening the trail it just scrolled to, and a re-rooted pane keeps remembering
+    /// folders that are no longer under it. None of those has a rendered assertion; they just quietly
+    /// stop happening.
+    ///
+    /// A first version of this seam exposed the BINDING and was vacuous: it wrote past the setter it
+    /// claimed to be testing, and the mutation went straight through it green.
+    var expandedForTesting: Set<String> {
+        get { expanded }
+        nonmutating set { expanded = newValue }
+    }
+
     /// The column stack this pane has already carried into its Tree presentation — see
     /// `carryColumnsIntoTree`, which scrolls only when the parked stack differs from it. Pane
     /// state for the same reason `expanded` is: it has to survive the branch switch between the two

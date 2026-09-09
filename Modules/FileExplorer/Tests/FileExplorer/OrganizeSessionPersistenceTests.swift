@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import Testing
 @testable import Sync
@@ -58,6 +59,29 @@ import Testing
 
         #expect(first !== second)
         #expect(second.filter == .all, "an unhosted mount inherited another mount's narrowing")
+    }
+
+    /// **A nested `ObservableObject` does not publish through its parent**, so the session has to
+    /// re-emit `automationsState`'s changes as its own.
+    ///
+    /// This mattered only once the state moved. As a `@StateObject` on the view, `automationsState`
+    /// was observed directly and "Preview all" flipped the lens into its results view immediately.
+    /// Held inside the session and observed only through it, the change reaches nobody: the button
+    /// writes `viewingResults`, the session says nothing, and the lens keeps drawing the rule list
+    /// until some unrelated publish happens to re-render it.
+    ///
+    /// Nothing rendered would notice the subscription going missing, and nothing else in this suite
+    /// touches it — deleting those four lines left the whole suite green, which is why this exists.
+    @Test func theSessionRepublishesTheAutomationsLensState() {
+        let session = LensWorkspaceSession()
+        var announcements = 0
+        let token = session.objectWillChange.sink { _ in announcements += 1 }
+        defer { token.cancel() }
+
+        session.automationsState.viewingResults = true
+
+        #expect(announcements == 1,
+                "the session did not re-emit its automations state — 'Preview all' writes the flag and nothing observing the session hears it")
     }
 
     // MARK: The seed

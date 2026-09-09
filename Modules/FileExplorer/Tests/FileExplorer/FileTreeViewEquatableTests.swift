@@ -139,6 +139,48 @@ import Design
                 "a hosted pane and an unhosted one read as the same view")
     }
 
+    /// **A write through `expanded`'s SETTER lands in the host's set, not in the pane's own.**
+    ///
+    /// The check above proves the gate notices the host's value; it says nothing about where a write
+    /// goes. Two paths write this set and only one of them is the disclosure triangle: the triangles
+    /// go through the binding, which resolves the host directly, while the search reveal, the
+    /// columns carry-over and the prune on a root change all go through the property's setter.
+    /// Invert the condition there and a hosted pane writes its dead `ownExpanded` — the host's set
+    /// never moves, `==` sees no difference, every test above stays green, and revealing a search hit
+    /// silently stops opening its ancestors.
+    ///
+    /// The first version of this test drove the BINDING and was vacuous: it wrote past the setter it
+    /// claimed to cover, and the mutation went straight through it green. Driving the property is
+    /// what makes it fail.
+    @Test("A reveal or a prune writes through to the window's set")
+    func writingTheExpansionReachesTheHost() {
+        final class Box { var value: Set<String> = [] }
+        let box = Box()
+        let hosted = FileTreeView(
+            tree: PaneTree(side: .left, version: 1, nodes: []),
+            otherTree: PaneTree(side: .right, version: 1, nodes: []),
+            isLoading: false, currentPath: "/root", selection: .constant([]), otherSelection: [],
+            isLeft: true, delegate: StubDelegate(),
+            hostExpanded: Binding(get: { box.value }, set: { box.value = $0 }))
+
+        hosted.expandedForTesting = ["/root/Documents"]
+
+        #expect(box.value == ["/root/Documents"],
+                "the pane wrote its expansion into its own storage while the window held the set — a search reveal opens nothing")
+        #expect(hosted.expandedForTesting == ["/root/Documents"],
+                "the pane cannot read back what it just wrote")
+    }
+
+    // **The unhosted half of that setter is deliberately not tested here, and the reason is worth
+    // recording so nobody adds it back.** The fallback is `@State`, and a `@State` write on a struct
+    // that was never installed in the view tree goes nowhere — the storage does not exist yet, so
+    // the write is discarded and the read comes back empty. A test asserting the round trip fails
+    // against correct code, which is how this note came to be written. The fallback's real coverage
+    // is every other suite in this package: they all mount panes with no host, and they all expand,
+    // reveal and prune through it.
+
+
+
     @Test("A republished tree is noticed")
     func treeVersionIsCompared() {
         #expect(pane() != pane(tree: PaneTree(side: .left, version: 2, nodes: [])))

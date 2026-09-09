@@ -83,6 +83,14 @@ struct ContentView: View {
     ///
     /// Not persisted across launches: an expansion describes a reading session, the same call
     /// `editorRailTab` and `editorMode` make just below.
+    ///
+    /// **Plain `@State`, so opening a folder re-renders this body — and that is a considered cost
+    /// rather than an oversight.** The pane's own selection is `syncManager.selectedLeftPaths`, a
+    /// `@Published` this view already observes, so *clicking a row* has always cost one pass here.
+    /// A disclosure triangle is the same kind of event at the same frequency, and it now costs the
+    /// same. The lens and differences sessions next door are reference types precisely because their
+    /// writes are keystroke-frequency; these are not, so a second observable object would buy
+    /// nothing and add a publisher to keep in step.
     @State var leftTreeExpanded: Set<String> = []
     @State var rightTreeExpanded: Set<String> = []
 

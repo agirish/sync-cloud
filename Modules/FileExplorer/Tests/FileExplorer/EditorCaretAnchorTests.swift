@@ -6,9 +6,15 @@ import Testing
 /// **Coming back to Edit put the reader at the top of the file.**
 ///
 /// `PlainTextEditor` is an `NSViewRepresentable`, and a workspace switch destroys it: ⌘1 and back
-/// runs `makeNSView` again, which assigns `view.string = text` into a brand-new text storage. A
-/// fresh `NSTextView` selects `{0, 0}`, so the caret and the scroll both went to the top of the
-/// document — on every trip through any other workspace.
+/// runs `makeNSView` again, which assigns `view.string = text` into a brand-new text storage, and
+/// the reader's place in the document is gone — on every trip through any other workspace.
+///
+/// **Where it goes is not where it looks, and that measurement is load-bearing enough to be pinned
+/// below rather than described here.** Assigning `string` leaves the caret at the END of the new
+/// text, while the scroll view is independently still at the top. So the symptom reads as "it went
+/// back to the top of the file" when the caret is actually parked invisibly at the bottom of it —
+/// and it is why the caret is placed unconditionally rather than only when something was
+/// remembered. See `aRawTextViewParksTheCaretAtTheEndOfAnAssignedString`.
 ///
 /// What made it read as arbitrary rather than as a reset is that almost everything else survived.
 /// The buffer, the open file, the undo stack, Edit/Preview/Split, the rail filter and the rail tab
@@ -105,10 +111,39 @@ import Testing
         return found
     }
 
-    private static func editor(text: String, initialSelection: Int?) -> PlainTextEditor {
+    private static func editor(text: String, initialSelection: Int,
+                               onSelectionChange: @escaping (NSRange) -> Void = { _ in }) -> PlainTextEditor {
         PlainTextEditor(text: .constant(text), isEditable: true, fontScale: 1,
                         documentID: "/a/b.md", undoManager: UndoManager(),
+                        onSelectionChange: onSelectionChange,
                         initialSelection: initialSelection)
+    }
+
+    /// **Building the view must report no selection changes at all**, and this is the test for a
+    /// defect that shipped.
+    ///
+    /// `NSTextView` calls `textViewDidChangeSelection` for programmatic moves as readily as for a
+    /// click, and construction makes two: assigning `string` leaves the caret at the end of the new
+    /// text, and `restoreCaret` then puts it back. With the delegate wired at the top of
+    /// `makeNSView`, both were reported — measured at 11 then 4 on this fixture.
+    ///
+    /// The second is merely noise. **The first was a wrong answer that got written down**: the host
+    /// records every reported selection as this file's anchor, so opening a file and switching
+    /// workspace without ever clicking in the text recorded "end of document" — and coming back put
+    /// the reader at the bottom of a file they had not touched. Both also wrote SwiftUI `@State`
+    /// from inside an update pass.
+    ///
+    /// Nothing in construction needs a delegate, so the fix is to wire it last. Asserting the count
+    /// is zero rather than one is deliberate: "the restore no longer reports" would still pass with
+    /// the string assignment reporting, and that is the half that caused the bug.
+    @Test func buildingTheViewReportsNoSelectionChange() {
+        final class Box { var calls: [Int] = [] }
+        let box = Box()
+        _ = Self.textView(of: Self.editor(text: "hello there", initialSelection: 4,
+                                          onSelectionChange: { box.calls.append($0.location) }))
+
+        #expect(box.calls.isEmpty,
+                "constructing the editor reported \(box.calls) — the host writes those down as the reader's caret, so a file nobody clicked in gets an anchor at the end of it")
     }
 
     /// **The mechanism.** A rebuilt text view opens with the caret where the anchor says, not at 0.
@@ -122,29 +157,35 @@ import Testing
 
     /// **What a fresh text view does unaided — and it is not what it looks like.**
     ///
-    /// This is the measurement the whole design turns on, so it is pinned rather than described.
-    /// Assigning `view.string` replaces the storage and leaves the insertion point after the LAST
-    /// character: mounted over "hello there" with no anchor, the caret reports 11, not 0. The scroll
-    /// view is independently still at the top, which is why the symptom reads as "it went back to
-    /// the top of the file" while the caret was actually parked invisibly at the bottom of it.
+    /// This is the measurement the whole design turns on, so it is pinned rather than described, and
+    /// pinned against RAW AppKit rather than through `PlainTextEditor` — the editor now always
+    /// places the caret, so it no longer exhibits this and could not hold the claim.
     ///
-    /// Pinned because two decisions rest on it. `initialSelection` is optional rather than
-    /// defaulting to 0, and a zero anchor is restored like any other — both of which are pointless
-    /// if this is 0, and both of which are load-bearing because it is 11. Should a future AppKit
-    /// change this, that is the conversation this test is here to start.
-    @Test func aTextViewWithNoAnchorLeavesTheCaretWhereAppKitPutIt() throws {
-        let view = try #require(Self.textView(of: Self.editor(text: "hello there", initialSelection: nil)))
+    /// Assigning `string` replaces the storage and leaves the insertion point after the LAST
+    /// character. The scroll view is independently still at the top, which is why the symptom reads
+    /// as "it went back to the top of the file" while the caret was actually parked invisibly at the
+    /// bottom of it.
+    ///
+    /// Two decisions rest on this being 11 rather than 0: the caret is placed unconditionally (so a
+    /// file with no anchor opens at the top instead of the end), and the status line is seeded from
+    /// the same number the text view is given (so Ln/Col cannot disagree with the caret). Should a
+    /// future AppKit change this, that is the conversation this test exists to start.
+    @Test func aRawTextViewParksTheCaretAtTheEndOfAnAssignedString() {
+        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        view.string = "hello there"
+
         #expect(view.selectedRange().location == 11,
-                "a fresh NSTextView no longer parks the caret at the end of an assigned string — the optional anchor and the zero-anchor restore were both built on it doing so")
+                "NSTextView no longer parks the caret at the end of an assigned string — the unconditional restore and the seeded status line were both built on it doing so")
     }
 
-    /// **The reader who was at the top gets the top back.**
+    /// **Zero is a place, and asking for it must put the caret there.**
     ///
-    /// The case an `offset > 0` early return silently broke, and the reason `offset(for:)` is
-    /// optional. Nothing about this looks like a restore — the request and the outcome are both 0 —
-    /// which is exactly why it needs a test: without one, the skip is invisible and the symptom is
-    /// somebody's caret at the end of a file they were reading the first line of.
-    @Test func anAnchorAtTheTopIsRestoredLikeAnyOther() throws {
+    /// This one assertion covers the two cases an `offset > 0` early return broke, because the host
+    /// spells both as 0: the reader who was at the top of the file, and the file nobody has read at
+    /// all. Nothing about it looks like a restore — the request and the outcome are both 0 — which
+    /// is exactly why it needs a test. Without it the skip is invisible, and the symptom is a caret
+    /// at the end of a document somebody was reading the first line of.
+    @Test func askingForTheTopPutsTheCaretThere() throws {
         let view = try #require(Self.textView(of: Self.editor(text: "hello there", initialSelection: 0)))
         #expect(view.selectedRange().location == 0,
                 "a zero anchor was treated as no anchor, so the caret stayed where AppKit left it — at the end")
@@ -189,8 +230,15 @@ import Testing
         let workspace = Self.codeOnly(try Self.source("EditorWorkspaceView.swift"))
         #expect(workspace.contains("document.caretAnchors.remember($0.location, for: document.path)"),
                 "the workspace no longer records where the caret went — every anchor stays 0")
-        #expect(workspace.contains("initialSelection: document.caretAnchors.offset(for: document.path)"),
+        #expect(workspace.contains("initialSelection: document.caretAnchors.offset(for: document.path) ?? 0"),
                 "the workspace no longer hands the anchor to the text view — the caret resets on every switch")
+        // **The status line reads the same anchor, or it contradicts the caret.** `caretOffset`
+        // drives Ln/Col and is `@State`, so it comes back 0 on every switch — while the text view is
+        // placed wherever the anchor says. Nothing reports that placement any more, by design (the
+        // delegate is wired after it so construction cannot write SwiftUI state), so the readout has
+        // to be seeded from the same number rather than told by the view.
+        #expect(workspace.contains("caretOffset = EditorCaretAnchors.clamped("),
+                "the status line is no longer seeded from the anchor — Ln/Col will claim line 1 while the caret sits elsewhere")
     }
 
     /// **The anchor store may not become observable.** The caret moves on every arrow key and every

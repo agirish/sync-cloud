@@ -31,6 +31,29 @@ import Foundation
                 "the lens is no longer handed the window's session, so every narrowing resets on the next switch")
     }
 
+    /// **A caret anchor is dropped wherever the text it was measured against is.**
+    ///
+    /// Both places that discard the buffer — answering the divergence alert with Discard, and
+    /// reloading a changed file from disk — already drop the undo stack, because registrations made
+    /// against text that is going away name places in a document that will not exist. A caret
+    /// offset is the same claim in smaller form: clamping stops it crashing, it does not stop it
+    /// being the wrong place, and a file recreated at a path somebody once read would inherit a
+    /// caret from a file it has nothing to do with.
+    ///
+    /// Counted against the undo store's own sites rather than asserted as a number, so the rule
+    /// stays "wherever the stack goes, the caret goes" and a third such site cannot be added with
+    /// only half of it. The `#require` is the positive control: with the undo call gone this fails
+    /// saying so rather than passing on an empty search.
+    @Test func aDiscardedOrReloadedBufferDropsItsCaretAnchor() throws {
+        let source = try macAppSources()
+        let undoDrops = source.components(separatedBy: "editorUndoStore.forget(path)").count - 1
+        try #require(undoDrops > 0,
+                     "the undo store is never dropped by path any more — the caret's rule is anchored to that one and has drifted")
+        let caretDrops = source.components(separatedBy: "caretAnchors.forget(path)").count - 1
+        #expect(caretDrops == undoDrops,
+                "the caret anchor is dropped at \(caretDrops) of the \(undoDrops) sites that drop the undo stack — a buffer thrown away leaves its caret behind")
+    }
+
     /// The pane's open folders are held per SIDE by the window.
     ///
     /// Per side rather than per workspace because Browse's pane, the lens rail and Compare's left

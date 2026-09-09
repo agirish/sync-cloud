@@ -303,7 +303,14 @@ extension ContentView {
             // now holds text from before those edits while the stack holds registrations made
             // against the text after them — the exact mismatch `EditorUndoStore` refuses, made
             // deliberately here rather than left for the fingerprint to catch.
-            if let path = editorDocument.path { editorUndoStore.forget(path) }
+            if let path = editorDocument.path {
+                editorUndoStore.forget(path)
+                // **And the caret with it, for the same reason.** The buffer is being thrown away
+                // for the copy on disk, so an offset taken against the discarded text names a place
+                // in a document that no longer exists — the same mismatch the stack is dropped for.
+                // Clamping would stop it crashing; it would not stop it being the wrong place.
+                editorDocument.caretAnchors.forget(path)
+            }
             return true
         case .save:
             // "Save" here means "overwrite what is on disk", which is the choice the divergence
@@ -678,6 +685,9 @@ extension ContentView {
         // **Forgotten before the load, not cleared after it.** `loadIntoEditor` will ask the store
         // for this path's stack; dropping it here is what makes that ask return a fresh one.
         editorUndoStore.forget(path)
+        // Beside it, and for the reason given at the discard site: the file on disk is not the text
+        // this anchor was measured against.
+        editorDocument.caretAnchors.forget(path)
         loadIntoEditor(path: path)
         return false
     }

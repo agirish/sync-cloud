@@ -63,12 +63,17 @@ struct PlainTextEditor: NSViewRepresentable {
     /// makes precisely because they have scrolled away since the first, would do nothing.
     var scrollRequest: EditorScrollRequest?
 
-    /// Where to put the caret when this text view is **created** — a UTF-16 offset, or nil to leave
-    /// the caret wherever AppKit put it.
+    /// Where to put the caret when this text view is **created** — a UTF-16 offset, 0 for the top.
     ///
-    /// **Optional rather than defaulting to 0**, because 0 is a position somebody can be in and nil
-    /// is not: see ``EditorCaretAnchors/offset(for:)`` for the defect that conflating them causes,
-    /// and `restoreCaret` for what "wherever AppKit put it" actually turns out to be.
+    /// **Always applied, never conditional**, and that is the second thing this member got wrong.
+    /// It was optional, with nil meaning "leave the caret wherever AppKit put it" — and where AppKit
+    /// puts it is the END of the assigned text (see `restoreCaret`). So "no anchor" opened a file
+    /// with the caret invisibly at the bottom, which nobody chose and which the status line, seeded
+    /// from the same number as this, would then disagree with. A caller with nothing remembered
+    /// passes 0 and gets the top, which is both deterministic and what a reader expects.
+    ///
+    /// The optional still exists where it means something: ``EditorCaretAnchors/offset(for:)``
+    /// answers nil for a file nobody has read, and it is the HOST that decides nil means the top.
     ///
     /// **Read by `makeNSView` alone, and that is the whole design.** A workspace switch destroys the
     /// representable and builds a new one, so `makeNSView` is exactly the moment "the reader is
@@ -81,8 +86,9 @@ struct PlainTextEditor: NSViewRepresentable {
     /// it back where it was", is asked once per view, and loses to a scroll request arriving in the
     /// same pass — see the end of `updateNSView`, which runs after this and overwrites it.
     ///
-    /// The caller clamps. See ``EditorCaretAnchors/clamped(_:in:)`` for why the store cannot.
-    var initialSelection: Int?
+    /// The caller clamps against the text; this clamps against the storage. See
+    /// ``EditorCaretAnchors/clamped(_:in:)`` for why the store itself cannot.
+    var initialSelection: Int = 0
 
     /// Called when the topmost visible line changes, which is what the split's preview follows.
     ///
@@ -548,7 +554,8 @@ struct PlainTextEditor: NSViewRepresentable {
         scroll.drawsBackground = false
         guard let view = scroll.documentView as? NSTextView else { return scroll }
 
-        view.delegate = context.coordinator
+        // **The delegate is wired at the END of this method, not here.** See the note above the
+        // assignment, which is where the reason lives.
         view.allowsUndo = true
         view.isRichText = false
         view.importsGraphics = false
@@ -592,6 +599,24 @@ struct PlainTextEditor: NSViewRepresentable {
         context.coordinator.offersMarkup = offersMarkup
         context.coordinator.watchScrolling(of: scroll, textView: view)
         Self.restoreCaret(to: initialSelection, in: view, text: text)
+        // **Wired LAST, after the string and the caret, and this is a fix rather than tidiness.**
+        //
+        // `NSTextView` calls `textViewDidChangeSelection` for programmatic moves as readily as for
+        // a click, and building this view makes two of them: assigning `string` leaves the caret at
+        // the end of the new text, and `restoreCaret` then puts it where the reader left it.
+        // Measured on a mount over `"hello there"` with an anchor of 4, the delegate fired twice —
+        // at 11, then at 4.
+        //
+        // Both landed inside SwiftUI's update pass, which is the wrong place to write `@State`
+        // from. Worse, once the host started RECORDING the caret, the first of them was recorded:
+        // open a file, switch workspace without ever clicking in the text, and the anchor said "end
+        // of document" because assigning the string had said so. Coming back put the reader at the
+        // bottom of a file they had not touched.
+        //
+        // Nothing in the construction above needs a delegate — it is read on user input, not during
+        // setup — so the honest fix is to have no delegate to call. `EditorCaretAnchorTests`
+        // pins the silence.
+        view.delegate = context.coordinator
         return scroll
     }
 
@@ -619,12 +644,11 @@ struct PlainTextEditor: NSViewRepresentable {
     /// so what a reader saw on coming back was the first page of the file with the caret parked
     /// invisibly at the end of it.
     ///
-    /// That is why `offset` is optional and why a **zero anchor is restored like any other**. An
-    /// early return on `offset > 0` looks like a free optimisation — the top is where a new view
-    /// already is — and is not: it conflates "no anchor" with "anchored at the top", so the reader
-    /// most likely to be at 0 was the one reader whose caret came back at the end.
-    private static func restoreCaret(to offset: Int?, in view: NSTextView, text: String) {
-        guard let offset else { return }
+    /// That is why the caret is placed **unconditionally**, a zero included. An early return on
+    /// `offset > 0` looks like a free optimisation — the top is where a new view already is — and it
+    /// is not, twice over: it leaves the top-of-file reader at the end, and it leaves a file with no
+    /// anchor at the end too.
+    private static func restoreCaret(to offset: Int, in view: NSTextView, text: String) {
         let bounded = EditorCaretAnchors.clamped(offset, in: text)
         let range = NSRange(location: bounded, length: 0)
         view.setSelectedRange(range)
@@ -636,7 +660,13 @@ struct PlainTextEditor: NSViewRepresentable {
             // a rail click lands in `updateNSView`, which pushes a different string — so the range
             // is re-checked against the storage as it stands NOW rather than against the string
             // this call was made for.
-            guard let view, bounded <= (view.string as NSString).length else { return }
+            //
+            // **`textStorage?.length`, never `view.string`.** Reading `string` copies the entire
+            // text storage out of AppKit to produce a Swift `String` — on a 4 MiB document that is
+            // a 4 MiB copy to answer a question about a count, and it is the same copy
+            // `updateNSView`'s echo guard was rewritten to stop paying. The storage's own length is
+            // the number, in the units `NSRange` is measured in.
+            guard let view, bounded <= (view.textStorage?.length ?? 0) else { return }
             view.scrollRangeToVisible(range)
         }
     }
