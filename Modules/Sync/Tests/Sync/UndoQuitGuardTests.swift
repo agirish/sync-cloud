@@ -6,6 +6,15 @@ import Foundation
 /// I/O, so `activeFileOperationsCount` must be bumped synchronously inside the handler itself —
 /// otherwise ⌘Z immediately followed by ⌘Q reads a zero counter in
 /// `applicationShouldTerminate` before the undo's operation is even scheduled.
+///
+/// **The two drains go through `waitUntil`, not a hand-rolled deadline.** They were
+/// `ContinuousClock.now + .seconds(5)` loops, and on 2026-09-08 the first one lost that budget in a
+/// full 3411-test parallel run at load average ~12: it failed on the final `== 0` reading 1, after
+/// 8.270 s, against a suite that needs **21-25 ms** alone. Wall time is the wrong unit here — what
+/// these wait for arrives on main-actor turns, and a congested run has fewer of them per second,
+/// so a seconds-only budget shrinks exactly when the wait needs it most. `waitUntil` is bounded by
+/// POLLS as well (`waitPollFloor`), which is the part that makes it survive congestion, and it
+/// names the poll count in the failure so a starved wait can be told from a disproved one.
 @Suite struct UndoQuitGuardTests {
 
     @MainActor
@@ -27,11 +36,9 @@ import Foundation
 
         // The shared decrement is unconditional: once the operation completes, the counter
         // returns to zero (no double-count from enqueueFileOperation(alreadyCounted: true)).
-        let deadline = ContinuousClock.now + .seconds(5)
-        while manager.activeFileOperationsCount != 0, ContinuousClock.now < deadline {
-            try await Task.sleep(nanoseconds: 10_000_000)
+        await waitUntil("the create-folder undo's decrement returns the counter to zero") {
+            manager.activeFileOperationsCount == 0
         }
-        #expect(manager.activeFileOperationsCount == 0)
         #expect(mockFM.virtualDisk[folderURL.path] != nil)
     }
 
@@ -64,11 +71,9 @@ import Foundation
         undoManager.undo()
         #expect(manager.activeFileOperationsCount > 0)
 
-        let deadline = ContinuousClock.now + .seconds(5)
-        while manager.activeFileOperationsCount != 0, ContinuousClock.now < deadline {
-            try await Task.sleep(nanoseconds: 10_000_000)
+        await waitUntil("the copy undo's decrement returns the counter to zero") {
+            manager.activeFileOperationsCount == 0
         }
-        #expect(manager.activeFileOperationsCount == 0)
         #expect(mockFM.virtualDisk["/dst/copied.txt"] == nil)
     }
 }
