@@ -24,9 +24,11 @@ import Sync
 /// The difference is not the card, it is what the lens has to show — Restructure's rows are deep
 /// paths that repeat their parents, and three of them cannot represent fifty-three.
 ///
-/// **Renames already answered this**, which is the precedent rather than a new idea: its
-/// `examples` carries `RenameBacklogTally.breakdown` — a summary, not rows — and it is the one
-/// findings card on the page that always reads well.
+/// **Renames already answered half of this**, which is the precedent rather than a new idea: it
+/// summarised rather than sampling long before this type existed. It was putting that summary in
+/// the detail slot too, though, where a monospaced font meant for filenames was setting a run of
+/// prose; both arms carry their breakdown in the blurb now, and the slot is left to the two lenses
+/// whose rows really are identifiers.
 ///
 /// ## Why the words are here and not at the call site
 ///

@@ -124,6 +124,12 @@ User-facing changes, newest first. For the full commit history see the
   the page is a bare coloured word any more — Refresh in particular was a link on one card, a
   button on another, and buried under a finding's examples on a third, and the new-year reminder's
   **Set up…** was a link sitting in the middle of its own sentence.
+- **Renames' card says the same thing in the same place.** Its breakdown was two lines under the
+  card in the monospaced font meant for filenames; it now reads **"Names worth changing — 12 names
+  that won't store cleanly · 58 to name or reshuffle · 1,134 to pad."** — the same words the
+  Renames lens's own header uses, so the two summaries of one backlog cannot disagree. The generic
+  "to sync, to convention, to order" stays where there is nothing to count, which is the only place
+  it beats a real number.
 - **Restructure's card says what its backlog is made of, instead of showing you three of it.**
   It listed three findings off the front of an unsorted list, which on a real tree meant three
   lines from one `node_modules` folder, each repeating sixty characters of the same path — telling

@@ -276,6 +276,21 @@ enum OrganizeOverviewState: Equatable {
     /// something like 800pt of unused column beneath it. Three lines cost nothing there and are
     /// the difference between "there are duplicates" and knowing whether they are the video you
     /// meant to keep two copies of.
+    ///
+    /// ## `examples` holds identifiers, and a lens with nothing of the sort passes none
+    ///
+    /// The slot renders monospaced, because what belongs in it is filenames and paths —
+    /// `Invoice.pdf → Finance`, `clip.mp4 — 2 copies` — where a fixed pitch is what lets you read a
+    /// machine-generated name a character at a time. **A summary is not that**, and two lenses were
+    /// putting one here: Renames its rename tally, Restructure a run of `finding.headline` that was
+    /// three deep paths off the front of an unsorted list. Both were prose set in the wrong font,
+    /// and Restructure's was not even a sample — `prefix(3)` of an unsorted list is whatever sorts
+    /// first, which on the reference tree was one `node_modules` subtree three times over.
+    ///
+    /// Both carry their breakdown in the blurb now, which is the summary channel — To File has
+    /// appended "31 ready, 11 unsure" to its own all along — and which renders in the system font a
+    /// sentence wants. So the rule for this slot is: **rows you could act on, or nothing.**
+    /// `noLensPutsProseInTheExampleSlot` is the guard.
     case findings(count: Int, headline: String, examples: [String])
     /// Ran, found nothing. Reported on the quiet trailing line rather than as a section.
     case clean

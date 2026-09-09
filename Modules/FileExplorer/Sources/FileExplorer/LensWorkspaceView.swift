@@ -4231,6 +4231,39 @@ public struct LensWorkspaceView: View {
                 // is the section's example line, and quoting the global one under a narrow scope is
                 // the same lie the badge used to tell.
                 let tally = RenameBacklogTally(scoped)
+                // **The breakdown belongs in the blurb, not in the detail slot.**
+                //
+                // It was two lines under this card set in a monospaced font — a font chosen for the
+                // slot's usual tenants, which are filenames and paths. To File draws
+                // `Invoice.pdf → Finance` there and Duplicates draws `clip.mp4 — 2 copies`; those
+                // are identifiers, and monospacing them helps you read them. A run of prose set the
+                // same way just looks like prose in the wrong font. Restructure's arm below made the
+                // same move for the same reason, and this arm's own note already conceded the
+                // point: it said the evidence here "is a summary of the whole list rather than a
+                // sample from it", which is a description of a blurb.
+                //
+                // **It REPLACES the generic triple rather than joining it.** "to sync, to
+                // convention, to order" is exactly what the breakdown says concretely — the three
+                // categories, unfilled — so carrying both would state the same list twice, once
+                // vaguely, and leave the sentence with two em-dash clauses. The generic version
+                // survives where there is nothing to count, which is the only place it is the best
+                // available answer. This is To File's shape ("… — 31 ready, 11 unsure") with the
+                // placeholder standing in until a count exists.
+                //
+                // **`headerBreakdown`, not `breakdown`** — the shorter form, and picked for its
+                // stated reason rather than for its length. It drops "N left alone" because the run
+                // it belongs to is prefixed by a total the skips are not part of; here the prefix
+                // is the words "Names worth changing", and a file the pass deliberately declined to
+                // rename is not one of those. It is also what the Renames lens's own header draws,
+                // so the two summaries of one backlog cannot say different things.
+                let riskyClause = scopedRisky.isEmpty ? nil
+                    // Not "this provider will not accept": an iCloud or folder source has no naming
+                    // rules of its own and still reports here, because the invisible-hazard half of
+                    // the check runs on every provider.
+                    : "\(scopedRisky.count) name\(scopedRisky.count == 1 ? "" : "s") that won't store cleanly"
+                let renameParts = [riskyClause,
+                                   tally.headerBreakdown.isEmpty ? nil : tally.headerBreakdown]
+                    .compactMap { $0 }
                 return OrganizeOverviewSection(
                     lens: item,
                     // All three categories in one line, in the order the list draws them. It said
@@ -4239,7 +4272,9 @@ public struct LensWorkspaceView: View {
                     // of what this lens now does: since Names folded in (P10) the same list carries
                     // provider-hostile names to fix and files that ignore their folder's
                     // convention, and neither is a folder or a number.
-                    blurb: "Names worth changing — to sync, to convention, to order.",
+                    blurb: renameParts.isEmpty
+                        ? "Names worth changing — to sync, to convention, to order."
+                        : "Names worth changing — \(renameParts.joined(separator: " · ")).",
                     // Ungated by coverage for the same reason Names is: `detectRenamePlans` reads
                     // the provider-wide taxonomy, not the enumerated folder. But "clean" vouches
                     // for BOTH of the card's lists — the rename plans (filing walk) AND the risky
@@ -4256,10 +4291,10 @@ public struct LensWorkspaceView: View {
                     // the badge beside this card said "126" while the card itself said the lens
                     // had never run.
                     //
-                    // One example line, and not three: the backlog's evidence is its *breakdown*
-                    // ("8 month folders · 3 quarters"), which is a summary of the whole list
-                    // rather than a sample from it. Padding it out with three folder names
-                    // would put two different kinds of claim in one column.
+                    // No detail rows at all: this card's evidence is its breakdown, and a
+                    // breakdown is a summary of the whole list rather than a sample from it — so it
+                    // reads as a clause of the blurb above and not as a row in a slot whose other
+                    // tenants are filenames. See the composition just above `return`.
                     //
                     // The headline's unit: "folders" while the list is folders — the common
                     // case — and the neutral "to change" once to-fix rows share it, because a
@@ -4269,16 +4304,7 @@ public struct LensWorkspaceView: View {
                                     headline: scopedRisky.isEmpty
                                         ? "\(n) folder\(n == 1 ? "" : "s")"
                                         : "\(n) to change",
-                                    examples: {
-                                        let fix = scopedRisky.isEmpty ? nil
-                                            // Not "this provider will not accept": an iCloud or
-                                            // folder source has no naming rules of its own and
-                                            // still reports here, because the invisible-hazard
-                                            // half of the check runs on every provider.
-                                            : "\(scopedRisky.count) name\(scopedRisky.count == 1 ? "" : "s") that won't store cleanly"
-                                        return [fix, tally.breakdown.isEmpty ? nil : tally.breakdown]
-                                            .compactMap { $0 }
-                                    }())
+                                    examples: [])
                         : !syncManager.hasSuggestedFiling || !syncManager.hasScannedNames ? .notScanned
                         : .clean,
                     // `isScanningNames` too: this card hosts the folded Names findings, so a

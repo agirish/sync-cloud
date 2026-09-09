@@ -481,9 +481,7 @@ import SwiftUI
     /// What it replaced: `scoped.prefix(3).map(\.headline)` — three findings off the front of an
     /// unsorted list, which on the reference tree drew one `node_modules` subtree three times over.
     @Test func restructureSummarisesItsBacklogRatherThanSamplingIt() throws {
-        let view = try OrganizeScopeCallSiteTests.source("LensWorkspaceView.swift")
-        let model = try OrganizeScopeCallSiteTests.body(of: "var overviewModel: OverviewModel {",
-                                                        in: view)
+        let model = try Self.overviewModelCode()
         #expect(model.contains("StructureBacklogTally(scoped).breakdown"),
                 "the Restructure arm does not build a breakdown — its card has nothing to summarise")
         // `\\.headline` appears nowhere else in this declaration, and `body(of:)` strips comments,
@@ -492,8 +490,43 @@ import SwiftUI
         // a guard that cannot match is a guard that always passes.
         #expect(!model.contains("\\.headline"),
                 "the three-of-fifty-three sample is back")
-        // Non-vacuity: the arms that SHOULD still draw rows do, so this is not passing because the
-        // haystack is empty or the declaration was renamed out from under it.
+        Self.expectTheRowDrawingArmsStillDraw(model)
+    }
+
+    /// **The `examples` slot holds identifiers, and the two lenses with none pass none.**
+    ///
+    /// It renders monospaced, which is right for `Invoice.pdf → Finance` and `clip.mp4 — 2 copies`
+    /// and wrong for a run of prose. Renames put its rename tally there and Restructure put three
+    /// deep paths; both are summaries of a whole list rather than rows out of it, and both belong
+    /// in the blurb — the channel To File has used for "31 ready, 11 unsure" all along.
+    ///
+    /// Pinned at the call site for the reason the sibling above gives: `structureReport` and the
+    /// rename backlog are both functions of a `FolderProfile`, and seeding one that produces
+    /// findings of several kinds is a heavier fixture than the claim is worth. What each summary
+    /// *says* is pinned by `StructureBacklogTallyTests` and `RenameBacklogTallyTests`.
+    @Test func noLensPutsProseInTheExampleSlot() throws {
+        let model = try Self.overviewModelCode()
+        #expect(model.contains("Names worth changing — \\(renameParts"),
+                "the Renames arm no longer composes its breakdown into the blurb")
+        // The tally's own words, wherever they are built, must not reach the detail slot. Both
+        // needles are unique to the arm and survive reformatting, unlike an indentation-shaped one.
+        #expect(!model.contains("tally.breakdown"),
+                "the rename tally is back in the monospaced slot it was moved out of")
+        #expect(model.contains("tally.headerBreakdown"),
+                "the blurb dropped the shorter form — the skips are not among the names worth changing")
+        Self.expectTheRowDrawingArmsStillDraw(model)
+    }
+
+    private static func overviewModelCode() throws -> String {
+        try OrganizeScopeCallSiteTests.body(
+            of: "var overviewModel: OverviewModel {",
+            in: try OrganizeScopeCallSiteTests.source("LensWorkspaceView.swift"))
+    }
+
+    /// Non-vacuity for both guards above: the arms that SHOULD still draw rows do, so neither is
+    /// passing because the haystack came back empty or the declaration was renamed out from under
+    /// it. Without this a `body(of:)` that silently returned "" would satisfy every `!contains`.
+    private static func expectTheRowDrawingArmsStillDraw(_ model: String) {
         #expect(model.contains("copies"), "Duplicates stopped drawing its rows too")
         #expect(model.contains("s.fileName"), "To File stopped drawing its rows too")
     }
