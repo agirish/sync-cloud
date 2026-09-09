@@ -40,9 +40,47 @@ enum DuplicateThumbnail {
     @MainActor private static var declined: Set<String> = []
     private static let maxDeclined = 512
 
+    /// What identifies one rendered preview: the file, the size it was drawn at, and the version of
+    /// the file it was drawn from.
+    ///
+    /// **One expression, because two ends of a lookup that spell a key separately come to disagree.**
+    /// ``cached(path:side:scale:modified:)`` has to produce byte-identical keys to ``image`` or it
+    /// silently answers nil for entries that are sitting right there — a miss that looks exactly
+    /// like a cold cache and would make the peek below a no-op nobody could see was broken.
+    private static func key(path: String, side: CGFloat, scale: CGFloat, modified: Date?) -> String {
+        "\(path)|\(Int(side))|\(Int(scale))|\(modified?.timeIntervalSince1970 ?? 0)"
+    }
+
+    /// The already-decoded preview for this key, or nil — **without suspending**.
+    ///
+    /// **Why a synchronous peek exists at all.** ``image`` is `async`, so its caller can only reach
+    /// it from a `.task`, which runs *after* the first render. The cache itself is `static` and
+    /// outlives every view, so on a return to Duplicates the entries are still there — but the
+    /// view's `@State` starts nil, so the tile drew the generic file-type icon for one frame before
+    /// the task resumed and put the real preview back. That flash is the whole of the "thumbnails
+    /// reload when I come back" complaint: nothing is re-requested, and for a cache hit nothing is
+    /// even recomputed. It is one frame of the fallback, and this removes it.
+    ///
+    /// Deliberately does **not** consult ``declined``: a refusal means "there is no image", which is
+    /// what returning nil already says, and the caller's fallback is the same either way.
+    @MainActor
+    static func cached(path: String, side: CGFloat, scale: CGFloat, modified: Date?) -> NSImage? {
+        imageCache.object(forKey: key(path: path, side: side, scale: scale, modified: modified) as NSString)
+    }
+
+    /// Puts one rendered preview in the cache.
+    ///
+    /// Extracted from ``image`` rather than written beside it so a test can warm the cache through
+    /// the **production** store — a test that inserted by its own spelling of the key would prove
+    /// only that it agrees with itself, which is precisely the failure ``key`` exists to prevent.
+    @MainActor
+    static func store(_ image: NSImage, path: String, side: CGFloat, scale: CGFloat, modified: Date?) {
+        imageCache.setObject(image, forKey: key(path: path, side: side, scale: scale, modified: modified) as NSString)
+    }
+
     @MainActor
     static func image(path: String, side: CGFloat, scale: CGFloat, modified: Date?) async -> NSImage? {
-        let key = "\(path)|\(Int(side))|\(Int(scale))|\(modified?.timeIntervalSince1970 ?? 0)"
+        let key = Self.key(path: path, side: side, scale: scale, modified: modified)
         if let hit = imageCache.object(forKey: key as NSString) { return hit }
         // The key carries the modification date, so a file whose CONTENT changed gets a new key
         // and a fresh attempt — a refusal is remembered for one version of one file, not forever.
@@ -59,7 +97,7 @@ enum DuplicateThumbnail {
         // keeps that an observation rather than something to re-verify.
         let image = NSImage(cgImage: rendered.cgImage,
                             size: CGSize(width: rendered.cgImage.width, height: rendered.cgImage.height))
-        imageCache.setObject(image, forKey: key as NSString)
+        store(image, path: path, side: side, scale: scale, modified: modified)
         return image
     }
 
@@ -141,12 +179,43 @@ struct DuplicateThumbnailView: View {
 
     @Environment(\.displayScale) private var displayScale
 
+    /// The picture to draw: what the task has loaded, or — before it has run — whatever the shared
+    /// cache is already holding for this exact key.
+    ///
+    /// **The fallback is what survives a workspace switch.** Leaving Organize destroys this view, so
+    /// `image` comes back nil and the `.task` below cannot answer until after the first render.
+    /// ``DuplicateThumbnail/imageCache`` is `static` and survives, so for a tile that has been shown
+    /// before the answer is already in hand and the generic icon never has to be drawn at all.
+    ///
+    /// Reads the same `side` and `scale` the task asks with, because a peek keyed differently from
+    /// the store is a permanent miss — see ``DuplicateThumbnail/key(path:side:scale:modified:)``.
+    ///
+    /// Non-private so `DuplicateThumbnailCacheTests` can pin it, on the same reasoning
+    /// `FileTreeView.expansionPruned` is: the alternative is a decision reachable only by rendering
+    /// a tile and looking at it, and "it drew the icon rather than the picture" is not something a
+    /// render can be asked.
+    var shownImage: NSImage? {
+        if let image { return image }
+        guard loadsPreview else { return nil }
+        return DuplicateThumbnail.cached(path: path, side: side,
+                                         scale: previewScale, modified: modified)
+    }
+
+    /// The scale a preview for this tile is rendered and looked up at.
+    ///
+    /// **One expression, read by both the peek above and the task below.** They were two copies of
+    /// `max(1, displayScale)` for exactly as long as it took to write them, and two copies is how a
+    /// peek comes to ask for a key the store never wrote: change the task's scale and the cache
+    /// still fills, `cached` still answers, and it answers **nil forever** — a silent return to the
+    /// one-frame flash with a green suite and nothing on screen to say why.
+    var previewScale: CGFloat { max(1, displayScale) }
+
     var body: some View {
         VStack(spacing: 5) {
             ZStack {
                 RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                     .fill(Color(nsColor: .textBackgroundColor))
-                if let image {
+                if let image = shownImage {
                     Image(nsImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
@@ -188,7 +257,9 @@ struct DuplicateThumbnailView: View {
         }
         .task(id: "\(path)|\(modified?.timeIntervalSince1970 ?? 0)|\(loadsPreview)") {
             guard loadsPreview else { return }
-            image = await DuplicateThumbnail.image(path: path, side: side, scale: max(1, displayScale), modified: modified)
+            // `previewScale`, not a second `max(1, displayScale)` — see that member for what the
+            // second copy costs the peek above.
+            image = await DuplicateThumbnail.image(path: path, side: side, scale: previewScale, modified: modified)
         }
         // **No tooltip here at all.** An inner `.help` wins over its container's, so a `.help` on
         // the tile would carve the one part of a clickable row that refuses to say what clicking
