@@ -4715,3 +4715,63 @@ Release, machine quiet:
 
 Recorded rather than picked, per the standing direction — though here the direction never comes
 into it, since there is no line to pick onto.
+
+---
+
+## 2026-09-09 — the privacy scan's exclusions read the checkout's own ancestry
+
+`NoTelemetryTests.shippedSources` walks the **repository root** — it is the only repo-wide scan here
+that does, which is why it is the only one that needs an exclusion list at all. It tested that list
+against `url.standardizedFileURL.pathComponents`, the whole **absolute** path, so components *above*
+the root voted too. CLAUDE.md requires every session to work in a worktree under
+`<repo>/.claude/worktrees/<name>`; `.claude` is on the exclusion list; so in the only place anybody
+is allowed to work, every file under the root matched, `shippedSources` came back **empty**, and
+`theScanCanSeeTheSources`, `theScansAreNotVacuous` and `onlyTheRefinePathReachesTheNetwork` all
+failed. The fix filters the components **below** `rootPath` instead, which keeps every exclusion's
+intent — a `.build` or `.dd` copy, another branch's checkout under `.claude/worktrees` — without the
+root's ancestry deciding the answer. Introduced by `01cf7a48`, whose row is the 2026-09-07 section
+above.
+
+**Why nothing surfaced it for two days.** The self-hosted runner checks out to
+`~/actions-runner-synccloud-x64/_work/...`, which has no excluded component, so CI was green
+throughout. This is the inverse of the usual reading — *green on CI, red on every developer machine*
+— and the reason to write it down is that the next scan to walk the repo root will be tempted to
+copy this exclusion list.
+
+```sh
+# stage 1 — is the suite there at all? main is the positive control.
+# stage 2 — the SHAPE: does any Swift file on the line key on ".claude"?
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s noTelemetry=%s belowRoot=%s dotClaudeInSwift=%s sourceCodeOnly=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- SyncCloudTests/NoTelemetryTests.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:SyncCloudTests/NoTelemetryTests.swift 2>/dev/null | grep -c 'componentsBelowRoot')" \
+    "$(git grep -l '"\.claude"' origin/$l -- '*.swift' 2>/dev/null | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:SyncCloudTests/TestSupport.swift 2>/dev/null | grep -c 'func sourceCodeOnly')"
+done
+# measured 2026-09-09, before this landed:
+# main   noTelemetry=1 belowRoot=0 dotClaudeInSwift=1 sourceCodeOnly=1
+# v4.x   noTelemetry=0 belowRoot=0 dotClaudeInSwift=0 sourceCodeOnly=1
+# v3.x   noTelemetry=0 belowRoot=0 dotClaudeInSwift=0 sourceCodeOnly=0
+# v2.x   noTelemetry=0 belowRoot=0 dotClaudeInSwift=0 sourceCodeOnly=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`componentsBelowRoot`** — the exclusions read the path below the repository root, not the whole absolute path | **Does not apply.** `NoTelemetryTests.swift` does not exist on the line (`noTelemetry=0`), and no Swift file on it names `.claude` at all, so there is nothing carrying the defect to fix. The suite's own row in the 2026-09-07 section already stands at RECORDED — not owed; if it is ever picked, pick it **with** this fix, or the pick lands red in the worktree it is developed in | Same, and further from applying: `sourceCodeOnly` is missing too, so the suite has no way to read source there | CLOSED — does not apply |
+| **The near-vacuous message** on `theScanCanSeeTheSources`, which now names the root it read and says an empty result means the walk excluded everything | Does not apply — same reason | Same | CLOSED — does not apply |
+
+**The family was checked, and this is the only member.** Every other repo-wide source scan anchors
+its walk under a named subdirectory (`Modules`, `MacApp`, `SyncCloudCLI`, or a module's `Sources/`)
+and filters with **slash-anchored substrings** — `/Tests/`, `/.build/`, `/Sources/` — which an
+ancestry cannot satisfy. Measured against this worktree's own root
+(`/Users/abhishek/Projects/SyncCloud/.claude/worktrees/silly-raman-863c41`): of every filter any
+scan uses, `.claude` was the single ancestry match, and `NoTelemetryTests` was the only file keying
+on it.
+
+**One latent sibling, recorded rather than changed.**
+`PaneTabWiringTests`'s module sweep filters `!$0.pathComponents.contains("Tests")` over absolute
+paths, so a checkout underneath any directory literally named `Tests` would empty `elsewhere` and
+trip its `>= 250` floor — the same failure shape, the same misleading red. No such component exists
+on this machine, and nothing has ever hit it, so it is written down here rather than fixed on
+speculation. Its walk roots are `Modules` and `SyncCloudCLI`, never the repo root, which is what
+keeps it out of reach today.
