@@ -18,6 +18,15 @@ struct ColumnPreviewItem: Equatable {
     let kind: String?
     let fileSize: Int?
     let modified: Date?
+    /// The type itself, kept beside its localized `kind` because the two answer different questions:
+    /// `kind` is what a person reads under the icon, this is what decides which renderer draws the
+    /// file — see `PreviewRenderer`.
+    ///
+    /// Resolved from the walk's UTI when it has one and from the path's extension when it does not.
+    /// The fallback is not decoration: `FileNode.kind` comes from a resource-value read that a
+    /// deferred column listing can skip, and a PDF that arrived without its type would otherwise be
+    /// drawn by the renderer this whole change is about replacing.
+    let contentType: UTType?
 
     init(row: PaneRow) {
         self.path = row.node.id
@@ -25,6 +34,19 @@ struct ColumnPreviewItem: Equatable {
         self.kind = Self.describe(uti: row.node.kind)
         self.fileSize = row.node.fileSize
         self.modified = row.node.modificationDate
+        self.contentType = Self.type(uti: row.node.kind, path: row.node.id)
+    }
+
+    /// The file's type, from the walk's identifier or, failing that, its extension.
+    ///
+    /// **A dynamic identifier counts as no answer.** `UTType("dyn.…")` succeeds — the system mints a
+    /// placeholder type for anything it does not recognise rather than returning nil — so a plain
+    /// `if let` here would accept `dyn.ah62d4rv4ge8086dcta` as the file's type and never reach the
+    /// extension, which is the one thing left that still knows it is a PDF.
+    static func type(uti: String?, path: String) -> UTType? {
+        if let uti, let type = UTType(uti), !type.isDynamic { return type }
+        let ext = (path as NSString).pathExtension
+        return ext.isEmpty ? nil : UTType(filenameExtension: ext)
     }
 
     /// Turns the walk's raw type identifier into the description Finder shows.
@@ -415,11 +437,22 @@ struct ColumnPreviewColumn: View {
 
     // MARK: - Preview area
 
+    /// Which renderer draws this file once it has settled — see `PreviewRenderer`.
+    var renderer: PreviewRenderer { PreviewRenderer.forType(item.contentType) }
+
     @ViewBuilder
     private var preview: some View {
         switch probe?.source {
         case .quickLook where hasSettled:
-            QuickLookPreview(url: URL(fileURLWithPath: item.path))
+            // The settle delay applies to both renderers, and for the same reason: holding ↓ through
+            // a folder of PDFs should not build a `PDFDocument` per row any more than it should spawn
+            // a Quick Look extension per row.
+            switch renderer {
+            case .pdfPages:
+                PDFPagePreview(url: URL(fileURLWithPath: item.path))
+            case .quickLook:
+                QuickLookPreview(url: URL(fileURLWithPath: item.path))
+            }
         case .cloudOnly:
             placeholder(caption: previewCaption) { accessoryView }
         case .missing:

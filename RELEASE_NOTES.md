@@ -65,6 +65,12 @@ User-facing changes, newest first. For the full commit history see the
   all, and gets it back when you widen the pane.
 - **View ▸ Preview Column is now View ▸ Preview**, because it is no longer a column in one of the
   two views. Same key, same tick.
+- **A PDF in the preview shows a whole page, and scrolls through the document.** It used to be
+  scaled to fit the preview's *width*, so the wider you made the pane the more of the page fell
+  below the fold — a letter page in a wide preview rendered about twice the height it had, and there
+  was no way to reach the rest. It is now fitted so the whole page is visible whichever way the pane
+  is shaped, and scrolling walks the pages. Other formats are unchanged: images already came out
+  whole and text already scrolled.
 
 ### Three menu items that were missing
 
