@@ -37,7 +37,7 @@ import Sync
 /// wears on its own card inside the lens, so a summary that named the same kinds differently would
 /// read as a different measurement of a different thing — and `theBreakdownQuotesTheLensesOwnTags`
 /// pins the two together so they cannot drift.
-struct StructureBacklogTally: Equatable {
+struct StructureBacklogTally {
 
     /// How many findings of each kind, kinds with none omitted.
     let counts: [FindingKind: Int]
@@ -46,7 +46,12 @@ struct StructureBacklogTally: Equatable {
         counts = findings.reduce(into: [:]) { $0[$1.kind, default: 0] += 1 }
     }
 
-    /// The kinds present, **the ones you can drive to zero first**.
+    /// The kinds present **and their counts**, the ones you can drive to zero first.
+    ///
+    /// Pairs rather than kinds alone, so ``breakdown`` cannot look a count up and find nothing:
+    /// it read `counts[kind]?.formatted() ?? "0"`, and that `"0"` was a fallback for a state this
+    /// very filter makes unrepresentable — a branch that can only ever be wrong if it is ever
+    /// reached.
     ///
     /// Not biggest-first, which is what a summary of fifty-three otherwise wants to do. The
     /// distinction is ``FindingKind/carriesPlan``, which exists for this exact reason one surface
@@ -55,9 +60,12 @@ struct StructureBacklogTally: Equatable {
     /// plan, buries the fourteen findings that have a button behind the ones that do not.
     ///
     /// Declared order within each half, so the line does not reshuffle itself as a tree changes.
-    var kinds: [FindingKind] {
-        let present = FindingKind.allCases.filter { (counts[$0] ?? 0) > 0 }
-        return present.filter(\.carriesPlan) + present.filter { !$0.carriesPlan }
+    var kinds: [(kind: FindingKind, count: Int)] {
+        let present = FindingKind.allCases.compactMap { kind -> (kind: FindingKind, count: Int)? in
+            guard let n = counts[kind], n > 0 else { return nil }
+            return (kind, n)
+        }
+        return present.filter(\.kind.carriesPlan) + present.filter { !$0.kind.carriesPlan }
     }
 
     /// The line: `31 Shape · 14 Loose folder · 8 Dead weight`.
@@ -70,7 +78,7 @@ struct StructureBacklogTally: Equatable {
     /// the lens, and there is no useful answer to that. The line wraps instead, which costs a
     /// second row on a narrow pane and never hides a kind.
     var breakdown: String {
-        kinds.map { "\(counts[$0]?.formatted() ?? "0") \(RestructureLens.kindLabel($0))" }
+        kinds.map { "\($0.count.formatted()) \(RestructureLens.kindLabel($0.kind))" }
             .joined(separator: " · ")
     }
 }

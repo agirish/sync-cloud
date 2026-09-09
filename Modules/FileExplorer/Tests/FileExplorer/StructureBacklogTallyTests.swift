@@ -35,14 +35,14 @@ import Testing
     @Test func actionableKindsLeadTheLine() {
         // Dead weight is much the largest and carries no plan; Echo is small and does.
         let tally = StructureBacklogTally(finding(.deadWeight, 40) + finding(.echoName, 2))
-        #expect(tally.kinds == [.echoName, .deadWeight])
+        #expect(tally.kinds.map(\.kind) == [.echoName, .deadWeight])
         #expect(tally.breakdown.hasPrefix("2 "), "the breakdown led with the kind nothing can fix")
     }
 
     /// Declared order within each half, so the line does not reshuffle as a tree changes under it.
     @Test func theOrderIsStableWithinEachHalf() {
         let all = FindingKind.allCases.flatMap { finding($0, 1) }
-        #expect(StructureBacklogTally(all).kinds
+        #expect(StructureBacklogTally(all).kinds.map(\.kind)
                 == FindingKind.allCases.filter(\.carriesPlan)
                     + FindingKind.allCases.filter { !$0.carriesPlan })
         // Same set, different arrival order, same line.

@@ -141,8 +141,11 @@ struct OverviewCard<Content: View>: View {
     var status: OverviewCardStatus = .none
     var actions: [OverviewCardAction] = []
     var note: OverviewCardNote?
-    /// The × that makes a notice go away, where there is one. Drawn last, outside the action row —
-    /// dismissal is not one of the card's verbs and must not be mistaken for the primary.
+    /// The × that makes a notice go away, where there is one.
+    ///
+    /// Outside the action row and drawn **before** it — dismissal is not one of the card's verbs
+    /// and must not be mistaken for the primary, and putting it after would take the primary off
+    /// the line every other card's lands on. See `heading` for the measurement.
     var dismiss: OverviewCardDismiss?
     /// VoiceOver's summary of the card. Defaults to the title.
     var accessibilityLabel: String?

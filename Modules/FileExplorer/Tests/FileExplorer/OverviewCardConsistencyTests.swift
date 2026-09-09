@@ -340,6 +340,60 @@ import Design
             .isDisjoint(with: Set(page.strandedLines.map(\.lens))))
     }
 
+    // MARK: A card with nothing to show is not taller for it
+
+    /// **An empty content slot costs a card 7pt of dead air, and two of the four findings cards
+    /// are in that state.**
+    ///
+    /// `OverviewCard` separates its heading from its content by 7pt. An empty `VStack` is still a
+    /// view, so a slot built unconditionally and then filled with nothing takes that spacing and
+    /// pads the card's bottom with it — measured at 60pt against 53pt for the same card handed
+    /// `EmptyView`. Renames and Restructure both summarise in the blurb now and pass no rows at
+    /// all, so this was card heights disagreeing again for a reason invisible in the source: the
+    /// difference between `if x { VStack { … } }` and `VStack { if x { … } }`.
+    ///
+    /// Measured through the real cards rather than through `OverviewCard` directly, so the claim is
+    /// about what the overview builds and not about what the container can be made to do.
+    @Test func aFindingsCardWithNoRowsIsNoTallerForIt() {
+        let bare = Self.section(.renames, .findings(count: 126, headline: "126 to change",
+                                                    examples: []))
+        let withRows = Self.section(.renames, .findings(count: 126, headline: "126 to change",
+                                                        examples: ["a.pdf → Finance"]))
+        let bareHeight = Self.cardHeight(bare)
+        let rowsHeight = Self.cardHeight(withRows)
+        // The two values this sits between are measured, not guessed: 53pt correct, 60pt with the
+        // slot built unconditionally — the outer stack's 7pt spacing, paid for nothing. 57 leaves
+        // four points of margin on each side, where the 60 this started at left none and would
+        // have flipped on a half-point of font metric.
+        #expect(bareHeight < 57,
+                "a findings card with no rows is \(Int(bareHeight))pt — it is paying for a content slot it does not fill")
+        #expect(rowsHeight > bareHeight + 10,
+                "adding a row changed the card by \(Int(rowsHeight - bareHeight))pt — the probe is not measuring the slot")
+    }
+
+    /// And the nudge is content too: hosted on its card, it earns the slot back.
+    @Test func aHostedNudgeGivesItsCardTheSlot() {
+        let reporting = Self.section(.restructure,
+                                     .findings(count: 53, headline: "53 findings", examples: []))
+        let quiet = Self.cardHeight(reporting, nudge: nil)
+        let nudged = Self.cardHeight(reporting, nudge: Self.nudge())
+        #expect(nudged > quiet + 10,
+                "the nudge added \(Int(nudged - quiet))pt to its host card — it is not being drawn")
+    }
+
+    /// One findings card's rendered height, off the real view.
+    private static func cardHeight(_ section: OrganizeOverviewSection,
+                                   nudge: OrganizeOverview.BacklogNudge? = nil) -> CGFloat {
+        let page = OrganizeOverview(sections: [section], scopeLabel: nil, accent: .blue,
+                                    backlogNudge: nudge,
+                                    ledger: OrganizeOverview.Ledger(),
+                                    runnablePasses: Set(OrganizePass.allCases),
+                                    onOpen: { _ in }, onRun: { _ in })
+        // The page's own 14pt padding top and bottom is the only other tenant with one section.
+        let host = NSHostingView(rootView: AnyView(page.frame(width: 560)))
+        return host.fittingSize.height - 28
+    }
+
     // MARK: The surface is one surface
 
     /// **A finding and an offer are made of the same thing.**

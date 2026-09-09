@@ -713,11 +713,16 @@ struct OrganizeOverview: View {
             accent: accent,
             // The card's only verb, so it is the primary — the same rule the survey's lone Refresh
             // follows, and the reason it lands on the same vertical line as every other one.
-            actions: [OverviewCardAction(title: "Set up…", rank: .primary,
+            actions: [OverviewCardAction(title: Self.nudgeVerbTitle, rank: .primary,
                                          help: Self.nudgeVerbHelp, run: nudge.setUp)],
             dismiss: Self.nudgeDismissal(nudge)) { }
     }
 
+    /// The nudge's verb and its tooltip, in one place because the nudge has **two** renderings —
+    /// the row inside its host card and the standalone card it falls back to. They were spelling
+    /// `Set up…` as a literal apiece, which is a rename away from two screens offering the same
+    /// action under different words.
+    static let nudgeVerbTitle = "Set up…"
     static let nudgeVerbHelp = "Opens Restructure on the first folder with this gap."
 
     static func nudgeDismissal(_ nudge: BacklogNudge) -> OverviewCardDismiss {
@@ -769,7 +774,10 @@ struct OrganizeOverview: View {
             .help(dismissal.help)
             .chromeHover()
             .padding(.trailing, 4)
-            Button("Set up…", action: nudge.setUp)
+            // **`.bordered`, where the standalone card's verb is `.borderedProminent`.** Inside a
+            // card the main verb is `Open Restructure`; a second filled button would break the
+            // page's one-primary rule from within a card rather than across the page.
+            Button(Self.nudgeVerbTitle, action: nudge.setUp)
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .chromeHover()
@@ -976,21 +984,31 @@ struct OrganizeOverview: View {
             // the heading rather than filling the slot for symmetry's sake.
             note: findingsNote(section),
             accessibilityLabel: "\(section.lens.title), \(headline)") {
-            VStack(alignment: .leading, spacing: 6) {
-                // **Above the examples**, because it is the one finding here with a clock on it:
-                // the examples are a sample of the backlog, this is the row that stops being
-                // actionable when the year turns.
-                if let backlogNudge, nudgeHost?.lens == section.lens {
-                    nudgeRow(backlogNudge)
-                }
-                if !examples.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(examples.prefix(Self.exampleLimit), id: \.self) { example in
-                            Text(example)
-                                .scaledFont(.system(size: 11.5, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+            // **The whole slot is conditional, and an empty `VStack` here is not the same thing
+            // as no content.** `OverviewCard` separates its heading from its content by 7pt, and
+            // an empty stack is still a view: it takes that spacing and adds 7pt of dead air to
+            // the bottom of every card with nothing to put here. Measured — 60pt against 53pt for
+            // the same card given `EmptyView`. Two of the four findings cards are in that state
+            // now that Renames and Restructure summarise in the blurb, so this was card heights
+            // disagreeing again, which is the complaint the whole redesign started from.
+            let nudged = backlogNudge != nil && nudgeHost?.lens == section.lens
+            if nudged || !examples.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    // **Above the examples**, because it is the one finding here with a clock on
+                    // it: the examples are a sample of the backlog, this is the row that stops
+                    // being actionable when the year turns.
+                    if let backlogNudge, nudged {
+                        nudgeRow(backlogNudge)
+                    }
+                    if !examples.isEmpty {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(examples.prefix(Self.exampleLimit), id: \.self) { example in
+                                Text(example)
+                                    .scaledFont(.system(size: 11.5, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
                         }
                     }
                 }

@@ -506,7 +506,10 @@ import SwiftUI
     /// *says* is pinned by `StructureBacklogTallyTests` and `RenameBacklogTallyTests`.
     @Test func noLensPutsProseInTheExampleSlot() throws {
         let model = try Self.overviewModelCode()
-        #expect(model.contains("Names worth changing — \\(renameParts"),
+        // Keyed on the composition, not on the sentence: `renameParts.joined` is what puts the
+        // breakdown in the blurb, and the words around it are copy somebody may well reword.
+        // A needle made of the sentence would fail a rewrite that changed nothing about the rule.
+        #expect(model.contains("renameParts.joined"),
                 "the Renames arm no longer composes its breakdown into the blurb")
         // The tally's own words, wherever they are built, must not reach the detail slot. Both
         // needles are unique to the arm and survive reformatting, unlike an indentation-shaped one.

@@ -155,16 +155,16 @@ User-facing changes, newest first. For the full commit history see the
   different from each other, and worth reading.
 - **The new-year reminder moved onto Restructure's card.** It was a headless row of its own,
   wedged between the tiles at the top and the card it was talking about — and the folder it names
-  is one of the findings that card is counting, so it belongs on it. It sits above the examples
-  with its own **Set up…** and its own ×, and the page is one rung shorter.
+  is one of the findings that card is counting, so it belongs on it. It sits inside that card with
+  its own **Set up…** and its own ×, and the page is one rung shorter.
 - **The inbox shortcut is a card.** It used to be a row you clicked anywhere on, with a chevron for
   a hint — the only control on the page that gave no sign of where its hit area was. It has a
   button now, like everything else. It is not a check either, so it carries no small print.
 - **A card with findings is no longer a coloured slab.** What says there is something here is the
   tinted glyph and the count beside it, which is what the lens rail already uses — one card in six
   reading as a different app was carrying a signal that was already being carried twice.
-- **The three tiles at the top are the same height**, and Restructure's Refresh now says what it
-  costs, under the same rule the scan cards use.
+- **The tiles at the top are the same height**, and Restructure's Refresh now says what it costs,
+  under the same rule the scan cards use.
 
 ### Help now says what happens to your documents
 
