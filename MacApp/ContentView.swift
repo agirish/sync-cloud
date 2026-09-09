@@ -96,6 +96,12 @@ struct ContentView: View {
     /// itself removing. `@State` on a class stores and does not subscribe; `LensWorkspaceView`
     /// observes it and re-renders alone. Same reasoning as the `RenderMemo`s inside that view.
     @State private var lensSession = LensWorkspaceSession()
+
+    /// How the reader had the differences table narrowed — see `DifferencesSession`. Held on the
+    /// same terms as `lensSession` above, and for the same reason: owned here so it survives the
+    /// switch, `@State` rather than `@StateObject` so the window is not subscribed to Compare's
+    /// search field.
+    @State private var differencesSession = DifferencesSession()
     /// Whether the rail's inline naming row is open. Held here because ⌘N opens it from any
     /// workspace, including ones where the editor is not on screen yet.
     @State var editorIsNaming = false
@@ -4746,7 +4752,7 @@ struct ContentView: View {
         } else if compareBottomListActive {
             // DifferencesView renders its own two cards (toolbar + table); the workspace bar lives in
             // the window toolbar.
-            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, isCollapsed: $bottomPaneCollapsed, shortcutsSuspended: pendingDestination != nil, onCompareFilePair: { compareDifferencePair = $0 })
+            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, isCollapsed: $bottomPaneCollapsed, shortcutsSuspended: pendingDestination != nil, onCompareFilePair: { compareDifferencePair = $0 }, session: differencesSession)
         } else {
             // Compare with nothing to list yet: scanning / all-in-sync / not-scanned placeholder.
                 Group {

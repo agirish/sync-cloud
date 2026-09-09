@@ -19,7 +19,19 @@ public struct DifferencesView: View {
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
-    @State private var selectedFilter: DifferenceFilter = .all
+    /// The narrowings the reader set, kept where they outlive the workspace — see
+    /// ``DifferencesSession``. The members below forward onto it, so every place that reads them is
+    /// unchanged by the move.
+    ///
+    /// `@StateObject` with the host's object as its initial value, exactly as `LensWorkspaceView`
+    /// takes its session: the app hands one down from `ContentView`, and a caller that hands none
+    /// gets a fresh one per mount, which is what this state did as `@State`.
+    @StateObject private var session: DifferencesSession
+
+    private var selectedFilter: DifferenceFilter {
+        get { session.selectedFilter }
+        nonmutating set { session.selectedFilter = newValue }
+    }
     /// Whether the table breaks its rows into top-level folder sections. Persisted, and ON by
     /// default: a flat list of five hundred differences has no landmarks, and the single-section
     /// fall-back (`DifferenceGrouping.isWorthGrouping`) means a small comparison is never given a
@@ -31,10 +43,16 @@ public struct DifferencesView: View {
     /// rescan: the folders themselves change between scans, so a remembered "Claude was collapsed"
     /// is a preference about a list that no longer exists — and restoring it would hide
     /// differences the user has never seen.
-    @State private var collapsedSections: Set<String> = []
+    private var collapsedSections: Set<String> {
+        get { session.collapsedSections }
+        nonmutating set { session.collapsedSections = newValue }
+    }
     /// Toggles the per-side item totals beside the count pill — clicking the pill reveals them,
     /// clicking again collapses. Off by default so the header stays uncluttered until asked.
-    @State private var showItemCounts = false
+    private var showItemCounts: Bool {
+        get { session.showItemCounts }
+        nonmutating set { session.showItemCounts = newValue }
+    }
     /// Hover state for the count pill: a slight grow signals the pill is clickable (post-scan only).
     @State private var isCountPillHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -45,9 +63,15 @@ public struct DifferencesView: View {
     /// Drives the count pill's freshness palette. Read from the environment rather than from the
     /// Theme setting, so it follows System just as well as an explicit Light/Dark.
     @Environment(\.colorScheme) private var colorScheme
-    @State private var searchText = ""
+    private var searchText: String {
+        get { session.searchText }
+        nonmutating set { session.searchText = newValue }
+    }
     @State private var selection = Set<FileDifference.ID>()
-    @State private var sortOrder: [KeyPathComparator<FileDifference>] = [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)]
+    private var sortOrder: [KeyPathComparator<FileDifference>] {
+        get { session.sortOrder }
+        nonmutating set { session.sortOrder = newValue }
+    }
     /// The filtered+sorted table rows, cached in state and rebuilt by `.task(id:)` off the main
     /// actor (the DiffStatusIndex pattern): running the O(n) filter and the O(n log n)
     /// localized-comparator sort inline in `body` re-ran both on EVERY re-render, and during a
@@ -57,7 +81,10 @@ public struct DifferencesView: View {
     /// False until the first row computation lands: gates the "No differences" empty overlay so
     /// the async first pass shows a briefly blank table, never a wrong "nothing here" flash.
     @State private var hasComputedRows = false
-    @State private var isSearchExpanded = false
+    private var isSearchExpanded: Bool {
+        get { session.isSearchExpanded }
+        nonmutating set { session.isSearchExpanded = newValue }
+    }
     /// The review table's selection — doubles as the review cursor: advancing the session moves
     /// it, and clicking a pending row jumps the session. Separate from `selection` so entering
     /// and leaving review mode can't corrupt the normal table's selection.
@@ -122,7 +149,7 @@ public struct DifferencesView: View {
     /// `ContentView` presents it against the live window.
     private let onCompareFilePair: (DifferencePair) -> Void
 
-    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, paneRules: PaneProviderRules = .strictest, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, isCollapsed: Binding<Bool>? = nil, shortcutsSuspended: Bool = false, onCompareFilePair: @escaping (DifferencePair) -> Void = { _ in }) {
+    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, paneRules: PaneProviderRules = .strictest, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, isCollapsed: Binding<Bool>? = nil, shortcutsSuspended: Bool = false, onCompareFilePair: @escaping (DifferencePair) -> Void = { _ in }, session: DifferencesSession? = nil) {
         self.syncManager = syncManager
         self.reviewStore = reviewStore
         self.paneNames = paneNames
@@ -132,6 +159,7 @@ public struct DifferencesView: View {
         self.isCollapsed = isCollapsed
         self.shortcutsSuspended = shortcutsSuspended
         self.onCompareFilePair = onCompareFilePair
+        _session = StateObject(wrappedValue: session ?? DifferencesSession())
     }
 
     private var isBulkSyncing: Bool {
@@ -353,8 +381,36 @@ public struct DifferencesView: View {
         // scan date rather than on `differences`, which also republishes mid-bulk-sync per file —
         // collapsing a folder and watching it spring open on every copied file would be worse
         // than not collapsing at all.
-        .onChange(of: syncManager.lastScanDate) { _, _ in
+        // **The folds belong to one comparison, and this is the one handler that retires them.**
+        //
+        // It used to be an unconditional `collapsedSections.removeAll()` on a change, which was
+        // enough while the set was this view's own `@State`: a rescan with Compare on screen fired
+        // it, and a rescan with Compare torn down — started from Browse or from the Organize rail —
+        // was covered by the rebuild. Now that the folds outlive the view, neither is true, and a
+        // fold remembered from the previous comparison hides differences the reader has never seen,
+        // which is exactly what the note on `collapsedSections` says must not happen.
+        //
+        // So it is keyed on WHICH scan the folds describe rather than on the change firing, and
+        // `initial: true` asks the question on arrival too. However many scans went by while
+        // Compare was away, the first render back sees a date it does not recognise and drops them;
+        // a return with nothing rescanned recognises it and leaves them alone, which is the fix.
+        //
+        // ONE handler, deliberately: a second `.onChange` on this same value would fire alongside it
+        // and behave correctly, right up until somebody edited "the" handler and found only one.
+        .onChange(of: syncManager.lastScanDate, initial: true) { _, date in
+            guard session.collapsedSectionsScanDate != date else { return }
             collapsedSections.removeAll()
+            session.collapsedSectionsScanDate = date
+        }
+        // The same argument for the filter. `.failed` is set when a partial run publishes failures
+        // and cleared when they go; both are `.onChange`, so failures that clear while Compare is
+        // off screen used to be covered by the rebuild putting the filter back to `.all`. Left
+        // standing, `.failed` filters a table with nothing failed in it to nothing at all — an empty
+        // table whose Picker selection matches no tag, and no visible way back to a full one.
+        .onAppear {
+            if selectedFilter == .failed, syncManager.lastTransferFailures == nil {
+                selectedFilter = .all
+            }
         }
         // A partial run leaves its failures in the list, unmarked and — on a large diff — not
         // findable. Land on them.
@@ -789,8 +845,8 @@ public struct DifferencesView: View {
             primaryTransferButton(compaction, isMove: facts.isMove, targets: targets)
             ActionBarDivider()
             ExpandingSearchToggle(                              // VIEW
-                text: $searchText,
-                isExpanded: $isSearchExpanded,
+                text: $session.searchText,
+                isExpanded: $session.isSearchExpanded,
                 accent: glassHue.accentColor,
                 help: "Search by name or path"
             )
@@ -971,7 +1027,7 @@ public struct DifferencesView: View {
             // A Picker inside a Menu gets the native menu check column; a per-row
             // checkmark-in-icon-slot Label only fakes it (and leaves the slot empty
             // on unselected rows). Same pattern as the main toolbar's Sort menu.
-            Picker("Filter", selection: $selectedFilter) {
+            Picker("Filter", selection: $session.selectedFilter) {
                 // `.failed` is withheld at zero — see `DifferenceFilter.isOffered`. Everything
                 // else is listed even at zero, so the menu's shape stays constant.
                 ForEach(DifferenceFilter.allCases.filter { $0.isOffered(failedCount: filterCounts[.failed, default: 0]) },
@@ -1369,7 +1425,7 @@ public struct DifferencesView: View {
         // The columns being defined once is the point, not a bonus: they were duplicated verbatim
         // across both branches with nothing pinning them identical, and they had ALREADY drifted
         // before the collapse. Sharing them makes that class of drift unrepresentable.
-        Table(of: FileDifference.self, selection: $selection, sortOrder: $sortOrder) {
+        Table(of: FileDifference.self, selection: $selection, sortOrder: $session.sortOrder) {
             TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact, paneRules: paneRules, keptNames: keptNames) }
             TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0, compact: compact) }
             // Sorted on the bare parent (root rows first, siblings adjacent); the cell prints it
@@ -1729,8 +1785,8 @@ public struct DifferencesView: View {
         let tokens = DifferenceSearch.parse(searchText).tokens
         let chips = DifferenceSearch.chips(searchText)
         return ExpandingSearchField(
-            text: $searchText,
-            isExpanded: $isSearchExpanded,
+            text: $session.searchText,
+            isExpanded: $session.isSearchExpanded,
             placeholder: "Search — try kind:pdf, >10mb, only:left",
             trailing: {
                 if selectedFilter != .all || !searchText.isEmpty {
