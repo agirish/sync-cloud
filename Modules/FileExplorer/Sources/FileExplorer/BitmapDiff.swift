@@ -295,17 +295,13 @@ enum BitmapDiff {
         return ctx.makeImage()
     }
 
-    /// ``compare(_:_:)`` with a best-effort de-skew first — CC14.4.
+    /// ``compare(_:_:)`` with a best-effort de-skew first, and the difference raster where a mode
+    /// is going to draw it — CC14.4.
     ///
     /// **The alignment is attempted, then judged, then either applied or dropped.** A transform the
     /// estimator is not confident about is discarded and the pages are compared as they are, which
     /// is exactly what this did before the feature existed. The result says which happened; nothing
     /// downstream may assume alignment from the fact that it was tried.
-    static func compareAligning(_ left: CGImage, _ right: CGImage) -> BitmapDiffResult? {
-        compareAligning(left, right, wantsDifferenceImage: false).result
-    }
-
-    /// The same, plus the difference raster where a mode is going to draw it.
     ///
     /// **The picture is of the same pair the comparison read — the aligned one, where an alignment
     /// was applied.** It used to be drawn from the pages as they are, which left the callouts and
@@ -337,6 +333,8 @@ enum BitmapDiff {
     /// speckle, 22 regions before against 224 after on one measured pair, and coverage falls to
     /// 74.9-81.1%. Both counts are far over ``ChangedRegionCallouts/maxDrawn``, so NOTHING is
     /// outlined and the reader sees no disagreement there either — but for the opposite reason.
+    /// What that costs the reader, and why it is being left alone, is written down at
+    /// ``ChangedRegionCallouts/maxDrawn``.
     ///
     /// What the change actually buys is that the de-skew becomes VISIBLE — the old shape let an
     /// alignment move the region list and write the caption while leaving the picture, which is the

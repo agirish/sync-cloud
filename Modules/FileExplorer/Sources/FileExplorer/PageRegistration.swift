@@ -21,13 +21,20 @@ public struct PageRegistration: Equatable, Sendable {
     /// Translation in pixels of the FULL-SIZE image, applied after the rotation.
     public let dx: Double
     public let dy: Double
-    /// How much better the aligned overlap is than the unaligned one, as a fraction of the
-    /// unaligned error: 0 means alignment bought nothing, 1 would mean it removed all of it.
+    /// How sharply the error surface falls away around the winning transform: 0 is a flat surface
+    /// where the best candidate is barely better than everything near it, 1 would be a perfect
+    /// spike. Measured against the best candidate FAR from the winner — see
+    /// ``PageRegistrationEstimator/estimate(_:_:scale:)``, which carries the derivation.
+    ///
+    /// **It is emphatically NOT how much error the alignment removed, and the difference is the
+    /// whole safety of the feature.** Scoring by improvement was the first cut and it was measured
+    /// out: a real 0.5° skew scored 0.183 while two deliberately unrelated pages scored 0.152 and
+    /// 0.160, so no threshold on that number could accept the first and refuse the others. What
+    /// separates them is the SHAPE of the surface, not the size of the win.
     ///
     /// **This is the number the feature is gated on**, not the transform. A confident-looking
     /// rotation recovered from two genuinely different pages is exactly the failure the caveat
-    /// exists to prevent, and the only defence is refusing to claim an alignment that did not
-    /// measurably improve the match.
+    /// exists to prevent.
     public let confidence: Double
 
     /// Whether this estimate is worth applying — see ``confidence``.
@@ -252,6 +259,22 @@ public enum PageRegistrationEstimator {
         // nothing is actually lining up. So confidence is measured against the best candidate FAR
         // from the winner, and a flat surface scores near zero however much error the winner
         // happened to remove.
+        // **A measured weakness of this score, recorded rather than fixed — 2026-09-09.** The sweep
+        // above steps `dx` and `dy` in whole GRID pixels, and one grid pixel is `scale` full ones —
+        // 6.25 at the 1600px raster the sheet compares at. A true offset landing near the half-way
+        // point between two integer candidates is therefore claimed by neither: the well is split,
+        // `best.err` rises while `far` does not, and the ratio below collapses even though the
+        // ANGLE came back exact. Measured on the bar fixture at 0.75° with dx held at 4 full
+        // pixels, sweeping dy: 0 → 0.633, −1 → 0.578, −2 → 0.431, **−3 → 0.145**, −4 → 0.324,
+        // −5 → 0.541, −6.25 → 0.637. The refusals at −3 and −4 are a lattice artefact, not a
+        // judgement about the alignment; roughly a third of vertical offsets fall in such a band.
+        //
+        // **Left alone deliberately.** Every failure here is a REFUSAL — the pair falls back to an
+        // honest unaligned comparison and the caveat says so — so the cost is a de-skew that does
+        // not fire, never a wrong alignment claimed. Closing it means a sub-pixel refinement around
+        // the winning offset, which changes what `far` is measured against and so re-opens the one
+        // gate `docs/backports.md` warns must not be weakened. Worth doing with numbers in hand,
+        // not in passing.
         let far = surface
             .filter { abs($0.deg - best.deg) >= 0.75
                         || abs($0.dx - best.dx) >= 3 || abs($0.dy - best.dy) >= 3 }

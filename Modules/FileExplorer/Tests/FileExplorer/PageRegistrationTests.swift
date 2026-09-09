@@ -209,7 +209,7 @@ import CoreGraphics
         let a = try image { $0.fill(CGRect(x: 8, y: 8, width: 50, height: 40)) }
         let b = try image { $0.fill(CGRect(x: 70, y: 110, width: 50, height: 40)) }
 
-        let result = try #require(BitmapDiff.compareAligning(a, b))
+        let result = try #require(BitmapDiff.compareAligning(a, b, wantsDifferenceImage: false).result)
         #expect(result.registration == nil,
                 "two unrelated pages were reported as aligned (\(String(describing: result.registration)))")
         // And the figure is the unaligned one — the pages really were compared as they are.

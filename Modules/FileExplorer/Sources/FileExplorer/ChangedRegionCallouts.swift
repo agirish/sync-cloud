@@ -18,6 +18,22 @@ enum ChangedRegionCallouts {
     /// end is not "47 things changed" that a reader steps through; it is a different page, which
     /// the glow already says better than 47 rectangles would. Over the cap the count is still
     /// reported — the reader is told what was found — and nothing is drawn.
+    ///
+    /// **A large count does NOT imply a heavily changed page once a de-skew is in play, and the
+    /// reasoning above quietly assumes it does.** ``BitmapDiff/warped(_:by:)`` resamples one side
+    /// and leaves the other, so a corrected pair carries residue along every anti-aliased edge; it
+    /// is faint, but it clears ``BitmapDiff/tolerance`` and it is scattered, so it fragments what
+    /// would have been a few solid regions into speckle. Measured 2026-09-09 on the shipped
+    /// pipeline — two ruled pages a degree apart, one line rewritten, rendered at
+    /// ``PagePairRaster/compareLongEdge``: the comparison found **214 regions** and 1.585% changed,
+    /// so the caption read "214 regions differ — too many to outline" and NOTHING was outlined,
+    /// over a picture in which exactly one line was bright. The same pair unaligned gives 22.
+    ///
+    /// **Left as it is, deliberately, and this note is the whole of the fix.** Merging speckle
+    /// would change what a region IS, which changes the count the caption states, the verdict
+    /// ``PageDiffState`` derives, and the dots the page strip draws for every page — none of which
+    /// the de-skew touches today. Recorded so the next reader meets it as a known property of the
+    /// aligned path rather than as a bug in this cap.
     static let maxDrawn = 12
 
     /// The rect an image occupies inside `available` under `.aspectRatio(contentMode: .fit)`,

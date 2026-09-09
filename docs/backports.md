@@ -4697,6 +4697,7 @@ file-pair viewer, which is `main`-only; `v4.x` was cut at `v4.6` on 2026-08-28, 
 |---|---|---|
 | **`compareAligning` draws the picture from `aligned`** rather than from `right` — one walk instead of two, and the glow and the callouts stop being of different image pairs | No `BitmapDiff.swift`: no pixel difference, no de-skew, nothing to draw either way | CLOSED — checked, does not apply |
 | **`thePictureAndTheFigureAreOfTheSamePair`** — counts the picture's above-tolerance pixels back and requires them to reproduce `changedFraction` exactly, with a guard that the fixture really aligned and a guard that the old shape would have failed | No `PageRegistrationTests.swift` | CLOSED — checked, does not apply |
+| **The region count a de-skew inflates**, recorded at `ChangedRegionCallouts.maxDrawn` — a corrected pair fragments a solid glow into speckle (214 regions against 22 unaligned, measured on the shipped pipeline), so the caption says "too many to outline" and nothing is drawn. Documented, deliberately not fixed | No `ChangedRegionCallouts.swift` — measured 2026-09-09, `main` 1, the other three 0 | CLOSED — checked, does not apply |
 | **Release note and Pages bullet** under the v5.3 draft | `RELEASE_NOTES.md` exists on all three, but v5.3 is `main`'s line alone; `docs/releases.html` is served from `main` only | CLOSED — checked, does not apply |
 
 **Two measurements this leaves on record, because they are the expensive half to reconstruct and
