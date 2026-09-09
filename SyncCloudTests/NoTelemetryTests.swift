@@ -49,6 +49,10 @@ import Testing
     /// debris that would otherwise let a stale copy of a deleted file answer the question;
     /// `.claude/worktrees` in particular holds whole checkouts of other branches, and reading them
     /// would report another session's in-progress work as this branch's.
+    ///
+    /// Every one of those names is matched **below the repository root only** — see
+    /// `componentsBelowRoot`, which exists because matching them against the whole absolute path
+    /// made this suite fail in every worktree CLAUDE.md tells a session to work in.
     private static let shippedSources: [(path: String, text: String)] = {
         let root = repositoryRoot()
         let rootPath = root.standardizedFileURL.path
@@ -57,28 +61,47 @@ import Testing
         func isExcluded(_ component: String) -> Bool {
             excludedComponents.contains(component) || component.hasSuffix("Tests")
         }
+
+        /// The components of `url` **below the repository root** — the only ones the exclusions
+        /// above may read — or `nil` for a URL that is not under the root at all.
+        ///
+        /// **Testing the whole absolute path let the checkout's own ancestry answer the
+        /// question, and it did.** CLAUDE.md requires every session to work in a worktree under
+        /// `<repo>/.claude/worktrees/<name>`, so the repository root itself contained a `.claude`
+        /// component; every file beneath it matched, `shippedSources` came back **empty**, and
+        /// three tests in this suite failed for a reason that had nothing to do with telemetry.
+        /// CI never saw it, because the runner checks out to a path with no excluded component —
+        /// so the suite was green on CI and red in the only place anybody was allowed to work.
+        ///
+        /// The exclusions are about where a file sits **inside** the repository — a `.build` or
+        /// `.dd` copy, another branch's whole checkout under `.claude/worktrees` — and where the
+        /// repository itself sits is none of their business.
+        func componentsBelowRoot(_ url: URL) -> [String]? {
+            let full = url.standardizedFileURL.path
+            guard full.hasPrefix(rootPath + "/") else { return nil }
+            return String(full.dropFirst(rootPath.count + 1))
+                .split(separator: "/").map(String.init)
+        }
+
         guard let walker = FileManager.default.enumerator(at: root,
                                                           includingPropertiesForKeys: nil) else {
             return []
         }
         var out: [(String, String)] = []
         for case let url as URL in walker {
-            let components = url.standardizedFileURL.pathComponents
+            guard let components = componentsBelowRoot(url) else { continue }
             if components.contains(where: isExcluded) {
                 if url.hasDirectoryPath { walker.skipDescendants() }
                 continue
             }
             guard !url.hasDirectoryPath, url.pathExtension == "swift" else { continue }
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            let full = url.standardizedFileURL.path
-            let relative = full.hasPrefix(rootPath + "/")
-                ? String(full.dropFirst(rootPath.count + 1)) : full
             // Comment-stripped, for the reason `sourceCodeOnly` exists: prose is not code. The
             // doc comment on Help's own privacy article names these very symbols in order to say
             // which files hold them, and against raw text that sentence reported ITSELF as a
             // telemetry call. A scan a writer has to phrase around is a scan that will eventually
             // be phrased around.
-            out.append((relative, sourceCodeOnly(text)))
+            out.append((components.joined(separator: "/"), sourceCodeOnly(text)))
         }
         return out.sorted { $0.0 < $1.0 }
     }()
@@ -105,7 +128,13 @@ import Testing
 
     @Test func theScanCanSeeTheSources() {
         #expect(Self.shippedSources.count > 200,
-                "read \(Self.shippedSources.count) shipped Swift files — the scans below would be near-vacuous")
+                """
+                read \(Self.shippedSources.count) shipped Swift files — the scans below would be \
+                near-vacuous. A count at or near zero is not a finding about telemetry: it means \
+                the WALK excluded everything, and the usual cause is a repository root that itself \
+                sits inside a directory the exclusions name — a checkout under `.claude/worktrees`, \
+                `DerivedData` or `.build`. Root read: \(Self.repositoryRoot().path)
+                """)
         #expect(Self.shippedSources.contains { $0.path == "MacApp/SyncCloudApp.swift" },
                 "MacApp/SyncCloudApp.swift was not read — the walk is not reaching the app")
         #expect(Self.shippedSources.contains { $0.path.hasPrefix("Modules/Sync/Sources/") },
