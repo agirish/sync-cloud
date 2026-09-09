@@ -4809,3 +4809,51 @@ done
 restored after a pass where it was not. Read the line, do not count it. That is the third row in a
 row where a count over this file misleads, which is starting to look like a property of the file
 rather than an accident.
+
+---
+
+## 2026-09-09 — Recents becomes removable, and stops repeating the rest of the column
+
+Two changes to the folder sidebar's Recents section: a **Remove from Recents** item on a recent's
+context menu (`FolderJumpStore.forgetRecent`), and a rule that keeps a folder out of Recents when
+Favorites or Locations already lists it (`FolderSidebarModel.rows(listedElsewhere:)`, fed by
+`ContentView.folderSidebarListedElsewhere`). Two smaller corrections travelled with the second: the
+per-section cap moved from the store to the row builder so it counts rows that are actually drawn,
+and the source badge is read off the drafts rather than off the inputs.
+
+**The section itself is v4.4 and later.** `FolderSidebar.swift` does not exist on `v3.x` or `v2.x`
+at all, and neither carries `mostRecentAcrossRoots` — those lines have per-root recents behind the
+pane header's jump menu and the ⌘K palette, and no cross-source column for any of this to be about.
+`v4.x` carries the whole surface and therefore carries both defects.
+
+```sh
+# stage 1 — is the file there? stage 2 — is the SHAPE there? main is the positive control.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s sidebar=%s crossSource=%s forget=%s listed=%s cap=%s badge=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Dashboard/Sources/Dashboard/FolderSidebar.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/FolderJumpStore.swift 2>/dev/null | grep -c 'mostRecentAcrossRoots')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/FolderJumpStore.swift 2>/dev/null | grep -c 'func forgetRecent')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/FolderSidebar.swift 2>/dev/null | grep -c 'listedElsewhere')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/FolderSidebar.swift 2>/dev/null | grep -c 'recentsLimit')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/FolderSidebar.swift 2>/dev/null | grep -c 'Set(drafts.map')"
+done
+# measured 2026-09-09, before this landed:
+# main   sidebar=1 crossSource=5 forget=0 listed=0 cap=0 badge=0
+# v4.x   sidebar=1 crossSource=5 forget=0 listed=0 cap=0 badge=0
+# v3.x   sidebar=0 crossSource=0 forget=0 listed=0 cap=0 badge=0
+# v2.x   sidebar=0 crossSource=0 forget=0 listed=0 cap=0 badge=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`FolderJumpStore.forgetRecent`** and the **Remove from Recents** item on a recent's context menu | **Applies.** The section, its rows and their context menu are all there (`sidebar=1`), and the menu holds Add to / Remove from Favorites and nothing that removes a recent — a row you no longer want stays until eight newer visits push it out. Two files: the store member, and the item plus its `onForgetRecent` closure in `FolderSidebarView` | **Does not apply.** No `FolderSidebar.swift`, no Recents section, no row to right-click. The per-root recents these lines do have are read by the pane's jump menu and ⌘K, neither of which offers a removal either — but that is a feature gap, not this defect | RECORDED — not owed |
+| **`listedElsewhere`** — a recent is dropped when Favorites' places or a Locations row already offers the folder | **Applies, and it is the visible half.** `v4.x` subtracts favorites and the landing folder (`crossSource=5`) and nothing else, so a Favorites place inside a source — Desktop, Documents, Downloads under a home-folder source — is drawn twice. Three pieces to pick together: the `rows(listedElsewhere:)` parameter, `ContentView.folderSidebarListedElsewhere`, and the `links:` argument threaded through `resolveFolderSidebarRows` so the iCloud `Documents` link is matched. `PathBoundary.relativize` is already on every line, so the arithmetic itself needs nothing | Does not apply — same reason | RECORDED — not owed |
+| **The cap moved to `rows(recentsLimit:)`** so it counts drawn rows, not candidates | **Applies.** `v4.x` caps in `recentVisitsAcrossRoots` and then drops recents for a removed source in the builder, so a stale entry spends one of the eight and leaves the section short. Cannot be picked on its own: it is a two-sided change (`limit: .max` at the call site, the cap in the builder), and picking one half silently uncaps the section | Does not apply | RECORDED — not owed |
+| **The source badge read off the drafts** rather than off the inputs | **Applies in principle, unreachable in practice on that line.** The old expression differs from the new one only when a recent is dropped after being counted, and on `v4.x` the only such drop is the removed-source one — rare, and it needs to be the account's *sole* contribution. Worth picking only alongside `listedElsewhere`, which is what makes it ordinary | Does not apply | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** `FolderJumpStore.recordVisit` is untouched: nothing
+here changes what is *recorded*, only what is *drawn*, so the maintenance lines' stored recents stay
+byte-compatible with `main`'s and the shared defaults domain is unaffected in both directions. That
+was a deliberate choice rather than an omission — the places in Favorites and the rows in Locations
+are the user's own list and the mounted volumes, neither of which the store can see, so a filter at
+record time would have been keyed on a snapshot that goes stale the moment either changes.

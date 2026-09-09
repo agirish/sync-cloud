@@ -166,6 +166,29 @@ User-facing changes, newest first. For the full commit history see the
 - **The tiles at the top are the same height**, and Restructure's Refresh now says what it costs,
   under the same rule the scan cards use.
 
+### The sidebar's Recents stops repeating the rest of the column
+
+- **A recent you do not want is removable.** Right-click any row under Recents and choose **Remove
+  from Recents**. It asks nothing and takes the row off the column immediately; the folder itself is
+  untouched. Going back to that folder writes the row again, which is the bargain — Recents is a
+  record of where you have been, and Favorites, one item up the same menu, is the list that keeps a
+  folder for good.
+- **A folder the column already lists is not listed twice.** Visiting somewhere that is already a
+  Favorites place or a Locations row — your Documents folder, an account's own top level, a disk —
+  no longer writes a Recents row underneath it. The landing folder each source opens at was already
+  being left out for this reason; the rest of the column is now too.
+- **It reaches spellings a path comparison would miss.** iCloud Drive's Desktop and Documents are
+  links into its container, so the Favorites place and the recent under the iCloud root are one
+  folder written two ways. They are matched as one.
+- **The eight rows are eight rows you can see.** The cap used to be applied before two of the
+  section's filters ran, so a recent in a source you had since removed spent one of the eight and
+  was then dropped — leaving the section a row short for no reason on screen. It is applied last
+  now, and counts only what is drawn.
+- **A source badge names a source with something on it.** The badge appears on every row once two
+  sources contribute, and "contributes" is read off the rows now rather than off what was
+  remembered: an account whose every recent is one of the folders above no longer puts a badge down
+  the whole column.
+
 ### Help now says what happens to your documents
 
 - **A new article, Reading your documents.** Some of what Organize knows comes from opening your
