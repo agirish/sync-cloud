@@ -68,6 +68,14 @@ public final class EditorDocument: ObservableObject {
     /// Held for the document's whole life, so it survives everything the document survives.
     public let buffer = EditorBuffer()
 
+    /// Where the caret was in each file this session — see ``EditorCaretAnchors``.
+    ///
+    /// Beside ``buffer`` and for the same reason: it has to survive the editor's view being torn
+    /// down, which is exactly what a workspace switch does. Deliberately not `@Published` — the
+    /// caret moves at typing speed, and announcing it would undo the split that keeps this
+    /// document's observers off the keystroke path.
+    public let caretAnchors = EditorCaretAnchors()
+
     /// The file on screen, or `nil` when nothing is open.
     @Published public private(set) var path: String?
 

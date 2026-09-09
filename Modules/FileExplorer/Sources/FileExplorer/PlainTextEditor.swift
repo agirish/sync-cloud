@@ -63,6 +63,27 @@ struct PlainTextEditor: NSViewRepresentable {
     /// makes precisely because they have scrolled away since the first, would do nothing.
     var scrollRequest: EditorScrollRequest?
 
+    /// Where to put the caret when this text view is **created** — a UTF-16 offset, or nil to leave
+    /// the caret wherever AppKit put it.
+    ///
+    /// **Optional rather than defaulting to 0**, because 0 is a position somebody can be in and nil
+    /// is not: see ``EditorCaretAnchors/offset(for:)`` for the defect that conflating them causes,
+    /// and `restoreCaret` for what "wherever AppKit put it" actually turns out to be.
+    ///
+    /// **Read by `makeNSView` alone, and that is the whole design.** A workspace switch destroys the
+    /// representable and builds a new one, so `makeNSView` is exactly the moment "the reader is
+    /// coming back to this file" happens, and nothing else. Read in `updateNSView` as well it would
+    /// be a second, permanent authority on the caret, fighting every click and arrow key that
+    /// disagreed with it.
+    ///
+    /// Distinct from ``scrollRequest`` on purpose: that is a *request*, carrying a token so the same
+    /// line can be asked for twice, and it means "somebody clicked an outline row". This means "put
+    /// it back where it was", is asked once per view, and loses to a scroll request arriving in the
+    /// same pass — see the end of `updateNSView`, which runs after this and overwrites it.
+    ///
+    /// The caller clamps. See ``EditorCaretAnchors/clamped(_:in:)`` for why the store cannot.
+    var initialSelection: Int?
+
     /// Called when the topmost visible line changes, which is what the split's preview follows.
     ///
     /// Fired from the clip view's own bounds notification rather than polled: the text view scrolls
@@ -570,7 +591,54 @@ struct PlainTextEditor: NSViewRepresentable {
         context.coordinator.textView = view
         context.coordinator.offersMarkup = offersMarkup
         context.coordinator.watchScrolling(of: scroll, textView: view)
+        Self.restoreCaret(to: initialSelection, in: view, text: text)
         return scroll
+    }
+
+    /// Puts a rebuilt text view's caret back where the reader left it.
+    ///
+    /// **Clamped against the text being assigned, not against whatever the anchor remembers.** The
+    /// file can be shorter than it was when the offset was recorded — edited in another app,
+    /// reverted, truncated — and `setSelectedRange` past the end of the storage raises
+    /// `NSRangeException`, which takes the app down with every unsaved buffer in it. Same hazard the
+    /// undo store's fingerprint check exists for, reached through the caret instead of a stack.
+    ///
+    /// **The selection lands now; the scroll takes a hop.** In `makeNSView` the scroll view has no
+    /// geometry yet — it is not in a window and has never been laid out — so
+    /// `scrollRangeToVisible` resolves against nothing and is silently dropped. That is the same
+    /// mechanism `FileTreeView`'s reveal and `PaneColumnsView`'s both hop for, and the same reason:
+    /// a scroll issued before the layout it names exists is not merely early, it never happens. The
+    /// caret itself is set synchronously so a keystroke arriving before the hop still goes to the
+    /// right place.
+    ///
+    /// **What a fresh text view does on its own is put the caret at the END**, and that is worth
+    /// stating because it is not what it looks like and it is not what this function was first
+    /// written against. Assigning `view.string` replaces the storage and leaves the insertion point
+    /// after the last character — measured, not assumed: mounting an editor over `"hello there"`
+    /// with no anchor reports `selectedRange().location == 11`. The scroll view is still at the top,
+    /// so what a reader saw on coming back was the first page of the file with the caret parked
+    /// invisibly at the end of it.
+    ///
+    /// That is why `offset` is optional and why a **zero anchor is restored like any other**. An
+    /// early return on `offset > 0` looks like a free optimisation — the top is where a new view
+    /// already is — and is not: it conflates "no anchor" with "anchored at the top", so the reader
+    /// most likely to be at 0 was the one reader whose caret came back at the end.
+    private static func restoreCaret(to offset: Int?, in view: NSTextView, text: String) {
+        guard let offset else { return }
+        let bounded = EditorCaretAnchors.clamped(offset, in: text)
+        let range = NSRange(location: bounded, length: 0)
+        view.setSelectedRange(range)
+        // Nothing to bring into view at the top — the fresh scroll view is already there, and the
+        // hop below is only worth taking when it would actually move something.
+        guard bounded > 0 else { return }
+        DispatchQueue.main.async { [weak view] in
+            // The document can have been replaced between the hop being scheduled and it running —
+            // a rail click lands in `updateNSView`, which pushes a different string — so the range
+            // is re-checked against the storage as it stands NOW rather than against the string
+            // this call was made for.
+            guard let view, bounded <= (view.string as NSString).length else { return }
+            view.scrollRangeToVisible(range)
+        }
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {

@@ -782,8 +782,24 @@ public struct EditorWorkspaceView: View {
                         fontScale: fontScale,
                         documentID: document.path,
                         undoManager: undoManager,
-                        onSelectionChange: { caretOffset = $0.location },
+                        // **Two writes, and only one of them announces anything.** `caretOffset` is
+                        // this view's `@State` and drives the status line's Ln/Col. The anchor is a
+                        // plain reference type on the document, so recording it costs nothing and
+                        // re-renders nobody — see `EditorCaretAnchors` for why it may not publish.
+                        // Written here rather than on the way out: `.onDisappear` would make the
+                        // whole feature depend on teardown ordering, and this is always current.
+                        onSelectionChange: {
+                            caretOffset = $0.location
+                            document.caretAnchors.remember($0.location, for: document.path)
+                        },
                         scrollRequest: editorScrollRequest,
+                        // Where the caret goes when this text view is BUILT, which is to say on
+                        // arrival back from another workspace. Clamped by `restoreCaret` against the
+                        // text actually being assigned. After `scrollRequest` in the argument list
+                        // because the memberwise init takes them in declaration order, and that
+                        // order is also the precedence: a scroll request lands in `updateNSView`,
+                        // which runs after `makeNSView` and overwrites this.
+                        initialSelection: document.caretAnchors.offset(for: document.path),
                         onVisibleLineChange: visibleLineReporter,
                         lineIndex: lineIndex,
                         findRequest: findRequest,
