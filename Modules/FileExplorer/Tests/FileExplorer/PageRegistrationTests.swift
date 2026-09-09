@@ -218,40 +218,101 @@ import CoreGraphics
                 "the declined alignment still changed what was compared")
     }
 
-    /// **The glow and the outlines are one arithmetic.** `compareAligning` used to walk the aligned
-    /// pair for the numbers and the UNALIGNED pair for the picture, so a de-skewed page was outlined
-    /// from one comparison and lit from another. This asserts the two now come from the same walk,
-    /// in the only terms that cannot drift: the picture IS the per-channel distance, so counting the
-    /// pixels in it that clear ``BitmapDiff/tolerance`` must reproduce `changedFraction` exactly.
+    /// **The glow and the outlines are one arithmetic, on every path out of `compareAligning`.**
+    /// It used to walk the aligned pair for the numbers and the UNALIGNED pair for the picture, so
+    /// a de-skewed page was outlined from one comparison and lit from another. The invariant is
+    /// stated in the only terms that cannot drift: the picture IS the per-channel distance, so
+    /// counting the pixels in it that clear ``BitmapDiff/tolerance`` must reproduce
+    /// `changedFraction` exactly.
     ///
-    /// **Three guards, because two of them are the ones that go vacuous.** The pair has to actually
-    /// align — on a refused pair both sides read the same two pages and the check passes saying
-    /// nothing — and the unaligned picture has to actually differ, or the fixture could not tell the
-    /// old behaviour from the new. Measured when this was written: the old shape put 0.068 of ink on
-    /// screen against a reported 0.029, and this test fails on it by that margin.
+    /// **All three returns, because the aligned one is the RARE one.** The estimator refuses most
+    /// real pairs, so the fallback is what a reader usually gets, and pinning only the aligned path
+    /// would leave the common case uncovered.
+    ///
+    /// **Two guards, and they are what stop this going vacuous.** Each case has to take the branch
+    /// it is named for — a change that quietly stopped aligning anything would otherwise turn the
+    /// whole test green — and on the aligned case the unaligned picture has to actually disagree,
+    /// or the fixture could not tell the old behaviour from the new. Measured when this was
+    /// written: the old shape put 0.068 of ink on screen against a reported 0.029, and this test
+    /// fails on it by that margin.
     @Test func thePictureAndTheFigureAreOfTheSamePair() throws {
+        let left = try barPage(edited: false)
+
+        // Ink in the opposite corner from the fixture's own: unmistakably a different page, which
+        // the estimator refuses, so `analyse(left, right,)` answers instead.
+        let unrelated = try image(512, 662) { $0.fill(CGRect(x: 300, y: 60, width: 160, height: 220)) }
+        // A different aspect ratio, so the two grids disagree on height and the guard fires before
+        // the estimator is ever reached.
+        let otherShape = try image(900, 400) { $0.fill(CGRect(x: 40, y: 40, width: 300, height: 200)) }
+
+        let cases: [(name: String, right: CGImage, aligns: Bool)] = [
+            ("a de-skewed pair", try skewed(barPage(edited: true), degrees: -1.0), true),
+            ("two unrelated pages", unrelated, false),
+            ("a pair whose grids do not match", otherShape, false)
+        ]
+
+        for c in cases {
+            let (outcome, picture) = BitmapDiff.compareAligning(left, c.right,
+                                                                wantsDifferenceImage: true)
+            let result = try #require(outcome, "\(c.name): nothing came back at all")
+            let shown = try #require(picture, "\(c.name): asked for a picture and got none")
+
+            // Guard one: this case took the branch it is here to cover.
+            #expect((result.registration != nil) == c.aligns, """
+                \(c.name): registration came back \(result.registration == nil ? "nil" : "set"), \
+                so this case is no longer testing the path it names
+                """)
+
+            // The invariant itself.
+            #expect(inkFraction(shown) == result.changedFraction, """
+                \(c.name): the picture holds \(inkFraction(shown)) of changed pixels while the \
+                result reports \(result.changedFraction) — the glow and the callouts are of \
+                different image pairs again
+                """)
+
+            // Guard two, on the aligned case only: the OLD picture would have failed the line
+            // above, so the fixture is sharp enough to catch a return to it.
+            if c.aligns {
+                let asTheyAre = try #require(BitmapDiff.analyse(left, c.right,
+                                                                wantsDifferenceImage: true).difference)
+                #expect(inkFraction(asTheyAre) != result.changedFraction,
+                        "\(c.name): the unaligned picture already matched the aligned figure — this fixture proves nothing")
+            }
+        }
+    }
+
+    /// **A caller that did not ask for the picture must not be given one.** The difference raster is
+    /// a third full-page image — ~13 MB at the size the sheet compares at — and the swipe and onion
+    /// modes never draw it; `CompareCopiesSheet.wantsAlignedDifference` exists to keep them from
+    /// paying for it. Nothing asserted that `compareAligning` honours the flag on the ALIGNED path,
+    /// so a stray `true` there would have cost that raster silently, in the one mode that also pays
+    /// for the estimator.
+    @Test func askingForNoPictureOnAnAlignedPairAllocatesNone() throws {
         let left = try barPage(edited: false)
         let right = try skewed(barPage(edited: true), degrees: -1.0)
 
-        let (outcome, picture) = BitmapDiff.compareAligning(left, right, wantsDifferenceImage: true)
-        let result = try #require(outcome)
-        let shown = try #require(picture)
-
-        // Guard one: this pair really was de-skewed, so the assertion below has something to catch.
+        let outcome = BitmapDiff.compareAligning(left, right, wantsDifferenceImage: false)
+        let result = try #require(outcome.result)
+        // The guard: this is the aligned path, not a fallback that trivially draws nothing.
         #expect(result.registration != nil,
-                "the fixture was not aligned, so this test would pass without comparing anything")
+                "the fixture was not aligned, so this says nothing about the aligned path")
+        #expect(outcome.difference == nil,
+                "a caller that asked for no picture was handed one anyway — a full-page raster the swipe and onion modes would pay for")
+    }
 
-        // Guard two: the picture the reader is shown reports the figure the reader is told.
-        #expect(inkFraction(shown) == result.changedFraction, """
-            the picture holds \(inkFraction(shown)) of changed pixels while the result reports \
-            \(result.changedFraction) — the glow and the callouts are of different image pairs again
-            """)
-
-        // Guard three: the OLD picture would have failed the line above, so the fixture is sharp.
-        let asTheyAre = try #require(BitmapDiff.analyse(left, right,
-                                                        wantsDifferenceImage: true).difference)
-        #expect(inkFraction(asTheyAre) != result.changedFraction,
-                "the unaligned picture already matched the aligned figure — this fixture proves nothing")
+    /// A blank raster of a given size with `draw` run over it in black — the shape both fallback
+    /// fixtures need.
+    private func image(_ width: Int, _ height: Int,
+                       _ draw: (CGContext) -> Void) throws -> CGImage {
+        let ctx = try #require(CGContext(data: nil, width: width, height: height,
+                                         bitsPerComponent: 8, bytesPerRow: 0,
+                                         space: CGColorSpaceCreateDeviceRGB(),
+                                         bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        draw(ctx)
+        return try #require(ctx.makeImage())
     }
 
     /// The share of a difference raster that is above ``BitmapDiff/tolerance`` — the same predicate
