@@ -32,6 +32,21 @@ User-facing changes, newest first. For the full commit history see the
   anywhere outside Edit, it shows or hides the inspector as it always has. The five Markup keys
   follow the same rule — they never edit the document from a field you are typing in.
 
+### Seeing what changed, before choosing which version wins
+
+- **The alert about a file that changed under you gains "Show What Changed…".** When a document
+  moves on disk while it is open, autosave stops and an alert asks Save Anyway, Reload from Disk or
+  Cancel — a question about a difference the person answering has never seen. The new button opens
+  an in-window overlay that diffs what you have against what arrived, with the same three verbs at
+  its foot, so the decision is made looking at it.
+- **Both sides are selectable**, because the common case is one changed line on each side, where
+  "which version wins" is the wrong question and a merge by hand is the honest answer. Left is your
+  buffer, right is the disk.
+- **A file that is now too large, or no longer text, is refused with the reason** rather than
+  diffed, and a file that *moved* keeps its two-button alert — there is nothing at the path to read.
+- **The header's amber "not saving — changed on disk" is a second door onto the same overlay.**
+  Cancel leaves autosave stopped, and without that door the only way back to the question was ⌘S.
+
 ### Browse gets a status bar
 
 - **A line at the foot of the pane, on by default.** How many items are in the tree, what your
@@ -71,6 +86,29 @@ User-facing changes, newest first. For the full commit history see the
   was no way to reach the rest. It is now fitted so the whole page is visible whichever way the pane
   is shaped, and scrolling walks the pages. Other formats are unchanged: images already came out
   whole and text already scrolled.
+### Walking the columns, and clicks that land
+
+- **⌘↓ opens the selected folder into a new column, ⌘↑ closes the rightmost one.** Both are in the
+  Go menu beside Back and Forward, as **Open Selected Folder** and **Enclosing Folder**. They move
+  the column stack, which costs nothing and leaves every difference badge valid — not the
+  comparison scope, which would reload the tree and re-run the scan. Both are dead in Tree view,
+  which draws no columns.
+- **⌘↑ is not a second spelling of ⌘[.** ⌘[ pops the same stack and then keeps going, stepping the
+  comparison scope back through the pane's focus history. ⌘↑ stops at the root column and greys.
+  Finder draws the same line between Back and Enclosing Folder.
+- **⌘↑ and ⌘↓ are also the field editor's move-to-start and move-to-end**, so both hand the key
+  back to the caret when you are typing — in a pane's search box, a rename row, the ⌘K field or an
+  open document. ⌘↓ also refuses a row that is not in the deepest open column, since silently
+  closing three columns is not what anybody pressing it is asking for.
+- **⌘-click and ⇧-click multi-select in Columns works now.** Roughly one click in ten registered,
+  on rows all over the list, with the main thread idle — a tap gesture on the row claimed the
+  mouse-down and then, far more often than not, never completed, so the click never reached the
+  table and the table selected nothing. Measured live rather than argued from the source: with the
+  gesture on, 28 clicks produced 3 selections; with it off, 6 produced 6. Plain clicks always looked
+  fine because they had a second committer, which is what made this read as a modifier-key problem
+  for so long.
+- **The cost, decided rather than assumed: ⌘-double-click no longer opens a folder in a new tab.**
+  It stays on the row's context menu and on ⌘T.
 
 ### Three menu items that were missing
 
@@ -144,6 +182,32 @@ User-facing changes, newest first. For the full commit history see the
   as tall as a 13" display allows, so the reference is wider and shorter rather than taller — a
   reference you scroll is a reference you stop reading. Every chord above has its row.
 
+### Where your sources start
+
+- **iCloud is rooted at iCloud Drive itself**, what Finder shows under that name, and it lands on
+  Documents when the container has one. Its root used to be `~/Documents` — the one folder the
+  Documents favorite also names — so the favorite claimed the provider, the Locations section had no
+  iCloud row at all, and the breadcrumb's first crumb had nothing above Documents to go to. A Mac
+  with Desktop & Documents syncing switched off opens at whatever the container does have.
+- **Desktop and Documents still read "in iCloud", and a click still navigates there.** macOS keeps
+  the real folders in your home directory and leaves two hidden links to them in the container, so
+  the app now carries a table of which name means which folder and composes every path through it.
+- **The startup disk is back in Locations**, above any card and above the Trash. It had been a
+  default favorite since late August on the argument that both it and home are places you navigate
+  to from a standing start — an argument that fits home and never fitted the disk, which is the
+  widest scope and the least often wanted. Existing installs are moved once, so a disk you put back
+  into Favorites afterwards stays there.
+- **A cloud source can open the vendor's own settings.** The row's context menu and the account's
+  editor in Settings ▸ Sources carry **Open iCloud Settings**, which opens its System Settings pane,
+  and **Open Google Drive**, which brings up the app where its settings gear lives. The label names
+  what the door does rather than promising a settings window.
+- **OneDrive and Dropbox get nothing there, deliberately.** Their preferences live behind their
+  menu-bar status items, and every programmatic route was measured on a live machine and rejected:
+  activation shows no window, their URL schemes either spawn an error window or are inert, and
+  neither app answers scripting beyond the standard suite. A web fallback was built and turned down
+  — the direction is native preferences or nothing, so those rows offer nothing at all rather than
+  a disabled item.
+
 ### Organize's landing page is one set of cards
 
 - **Every check on the page is now the same shape.** The screen had grown five card designs — a
@@ -184,8 +248,14 @@ User-facing changes, newest first. For the full commit history see the
 - **A card with findings is no longer a coloured slab.** What says there is something here is the
   tinted glyph and the count beside it, which is what the lens rail already uses — one card in six
   reading as a different app was carrying a signal that was already being carried twice.
-- **The tiles at the top are the same height**, and Restructure's Refresh now says what it costs,
-  under the same rule the scan cards use.
+- **The three tiles at the top are the same height**, and Restructure's Refresh now says what it
+  costs, under the same rule the scan cards use.
+- **Renames summarises in the blurb too, in the same move.** Its breakdown was two lines under the
+  card in the monospaced face the slot's usual tenants want — `Invoice.pdf → Finance`, `clip.mp4 —
+  2 copies` — where a fixed pitch is what lets you read a machine-generated name a character at a
+  time. A run of prose set that way is just prose in the wrong font. The breakdown replaces the
+  generic "to sync, to convention, to order" rather than joining it, since that phrase is the same
+  list unfilled; the generic wording survives only where there is nothing yet to count.
 
 ### The sidebar's Recents stops repeating the rest of the column
 
@@ -209,6 +279,91 @@ User-facing changes, newest first. For the full commit history see the
   sources contribute, and "contributes" is read off the rows now rather than off what was
   remembered: an account whose every recent is one of the folders above no longer puts a badge down
   the whole column.
+
+### Reading every document, once
+
+- **Organize offers to read page one of every document in your tree, once, in the background.**
+  What To File and Restructure know has come from filenames plus whatever had been read incidentally;
+  this is the pass that reads the tree itself, so their suggestions can use what a file says rather
+  than only what it is called. The card states the cost before the benefit: **about 3 h**, pausable,
+  and only new documents are read next time.
+- **It counts before it opens anything.** The offer promises the number and delivers it once a walk
+  has really happened, rather than quoting one of the cheap numbers to hand — the profile's own file
+  count is every file, which overstates the reading by about 7%, and overstating the work in the one
+  sentence somebody decides on is worse than not stating it.
+- **Pause is never cancel, and the card says what it is waiting for.** It stands aside for a scan
+  you started, for a sleeping display — where iCloud stops handing files over, so the count freezes
+  whatever the survey wants — for a Mac running hot, and for Low Power Mode, in that order, naming
+  the one that is actually stopping it and adding "Resumes on its own." Your own Pause outranks all
+  of them: a card explaining the weather under a button you just pressed is the app talking over you.
+- **Progress survives a quit, and a resume states the remainder rather than the original ask.**
+  How many are still to read is a far easier second decision than three hours, and it is what makes
+  an interrupted survey worth resuming rather than a bar stuck part-way for ever.
+- **The completion names what it could not open** — the Word, PowerPoint and Excel documents in the
+  tree — because a summary reporting only what it managed reads as complete when it was not.
+- **It carries no badge and stays out of the checks-run fraction.** A badge means something to act
+  on, and reading is not that. Where a tree has already been read the card is not offered at all,
+  because Refresh is both correct and a click, and offering three hours beside it would be offering
+  the worse of two answers.
+
+### The People list
+
+- **The roster is a list.** One line per person: initials, name, relationship, and at the trailing
+  edge the one fact worth reading across the whole list at once, how many folders and documents are
+  theirs. Everything the row used to say — the matched forms, the areas, the documents kept out of
+  other people's folders, the amber caveat — and every button moves behind a disclosure, the shape
+  the Sources tab gives its providers. Nothing is gone; it is a click further away, and every action
+  is on the row's context menu too. A caution glyph stays on the shut row for the one state that can
+  change an outcome, so the row worth opening is visible without opening any.
+- **The page is sections**, so each thing on it is one thing: People, Names found in your documents,
+  Across your tree, and Try a filename. Seven people at three lines of evidence each, then the
+  overview, the tester, two buttons, a source note and a six-line caption used to arrive as one
+  unbroken column.
+- **The order is relationship, not display name** — yourself, then spouse, children, parents,
+  siblings, then everyone else, alphabetically within each tier so two children do not swap places
+  between launches. Sorting by name put the daughter first and the owner of the Mac fifth, which is
+  the wrong way round for a list whose job is answering whose document this is.
+- **And the order is yours to set.** Move Up and Move Down sit in the opened row and its context
+  menu, and once you have moved anything, Use Default Order appears under the list to give the rule
+  back. A refused move changes nothing, so a click that did nothing cannot quietly convert the
+  default arrangement into a custom one.
+- **An opened row leads somewhere.** Show Their Files hands the person to the same gather ⌘K's
+  People rows reach, with the sheet closed first so the answer lands on a pane you can see, and Show
+  Folder lists their folders grouped by area, each one revealing that folder in Finder.
+- **Look for Names actually reads your documents now.** The button was offered whenever a filing
+  profile was loaded, which is every launch, but the root it handed the scanner exists only after a
+  To File scan has run in the same session — so it bailed on nothing at all: no read, no log line,
+  not even the "No new names" line. It worked the day it shipped and had been silent for four
+  weeks. It reads the profile's own tree now, which is the tree the survey walked.
+
+### Coming back to a workspace keeps what you had set
+
+- **Leaving a workspace used to reset it.** Each one is mounted inside its own arm of the window's
+  layout, so switching away tore the whole thing down and coming back rebuilt it from its defaults.
+  What made this read as arbitrary rather than as a reset is how much already survived: you returned
+  to the same page, the same lens, the same scope, with only the narrowing silently gone.
+- **Edit brings the caret back to where you left it.** Returning built a new text view and assigned
+  the whole string into it, which leaves the insertion point after the last character while the
+  scroll view is independently still at the top — so it read as "it went back to the top of the
+  file" while the caret was in fact sitting invisibly at the bottom of it.
+- **Browse keeps the folders you had open.** The Tree's expanded set belonged to the view, so every
+  folder you had opened closed itself on the way to Compare and back. Opening one folder, then its
+  child, then its child looked like it worked, because arriving re-opens the one descending path it
+  can name; two sibling folders is the case that showed it. A folder opened on one side is now open
+  in that side's other workspaces, which is what a reader already expects of one tree.
+- **Organize keeps how you had the results narrowed** — the match filter, the query you parked, the
+  search field, the sections you unfolded, what you have freed this session, and the flags that let
+  an empty list say "all filed" rather than "nothing was ever loose".
+- **Compare keeps the differences table's filter, search, sort and folds**, with the two guards its
+  rebuild used to provide kept deliberately. A fold remembered from an earlier comparison would hide
+  differences you have never seen, so folds carry the scan they describe and are dropped on arrival
+  whenever the comparison has moved on. And a "failed" filter left standing after the failures are
+  gone would filter a table with nothing failed in it down to nothing, with no visible way back to a
+  full one, so it is resolved on arrival too.
+- **Duplicate thumbnails come back drawn.** The tiles were rebuilt with nothing and could not ask
+  the cache without waiting a frame, so a picture already decoded and still in memory showed one
+  frame of the generic file-type icon on the way back. They can read it directly now. Nothing is
+  re-requested, and the cap that withholds previews on a large group still applies.
 
 ### Help now says what happens to your documents
 
@@ -235,6 +390,37 @@ User-facing changes, newest first. For the full commit history see the
   Settings whose whole subject is privacy and had the least to read beside it; it now carries a
   question mark that opens the article.
 
+
+### Fixes
+
+- **The Activity Log's day headers named the wrong day.** Each section's boundary was computed in
+  the current time zone while the header that renders it went through a formatter still holding
+  whichever zone the window first drew in — so entries stamped 1 June, bucketed at midnight locally,
+  were drawn under "Sunday, May 31". Today and Yesterday were always right, which left the wrong
+  answer only on sections two days old and older, exactly where there is nothing else to check it
+  against.
+- **Every date column in the app now reads in the zone you are actually in.** A formatter whose zone
+  is never set captures the system zone the first time it formats and keeps it for the life of the
+  process, and these are built once each because they run per row and per render — so a window left
+  open across a Date & Time change or a flight went on reading in the old zone for the rest of the
+  session, an hour or five and a half out, with nothing saying so. Three columns were fixed one at a
+  time; an audit found eight more, and the rule is now one shared type rather than sixteen copies
+  across eleven places. A scan keyed on the constructor rather than on what the copies are named
+  catches the next one, which is how the last two were missed. `~/sync-cloud.log` follows the
+  machine too: it already spans zones, because it outlives the session that wrote its earlier lines.
+- **A folder of PDFs no longer reads as an empty one.** Standing in a folder of scans, Edit's rail
+  said "No text files in this folder. The + button makes one." — word for word what it says about a
+  folder with nothing in it at all, so a folder you had just filled looked like one the app had
+  lost. It lists text files only, which is right; what was missing was any way to tell the two cases
+  apart. It now says how many files it passed over. A folder it could not read has no count and does
+  not get one invented.
+- **A launch no longer warns about a source that is present.** Restoring a pane onto Google Drive,
+  Dropbox or OneDrive logged "Skipped a refresh: … is not among the enabled sources yet" every time,
+  which read as a race discovery kept losing. It was not a race: the list the app seeds itself with
+  before discovery finishes carried iCloud and your folder sources and no cloud account of any kind,
+  so the warning was guaranteed rather than timing-dependent. The accounts discovery last saw are
+  kept across a quit and offered to that seed. A pane pinned to an account that has since been
+  signed out still warns, which is the case the line exists for.
 ---
 
 ## v5.2
