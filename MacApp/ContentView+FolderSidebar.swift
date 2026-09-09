@@ -132,8 +132,13 @@ extension ContentView {
                                         recents: FolderJumpStore.shared.recentPaths(forRoot: root),
                                         pinned: FolderJumpStore.shared.pinnedPaths(forRoot: root))
             },
+            // **Uncapped**, because the cap belongs after the walk. Two more filters run on the
+            // far side — a root that is no longer a source, and everything the column already
+            // lists under Favorites or Locations — and both of them would otherwise be subtracting
+            // from an already-counted eight, leaving the section short by however well they worked.
+            // `FolderSidebarModel.rows` takes `recentsLimit` and applies it last.
             recents: FolderJumpStore.shared.recentVisitsAcrossRoots(
-                landings: Self.folderSidebarLandings(providers)),
+                landings: Self.folderSidebarLandings(providers), limit: .max),
             favoriteOrder: FolderJumpStore.shared.favoriteOrder,
             favoritePlaces: folderSidebarFavoritePlaces)
         // **The volume walk, only when something can have changed it.** See
@@ -209,9 +214,13 @@ extension ContentView {
     /// `nonisolated` is the point, not an annotation: every `stat` in a refresh is in here or in
     /// what it calls, and each of them can block for seconds on a sleeping disk or a network mount
     /// that has stopped answering.
+    /// - Parameter links: the folders a source root links in from outside — the machine's own
+    ///   table by default, a test's own otherwise. Passed on to both halves that need it, so the
+    ///   place rows and the Recents subtraction agree about where `Documents` really is.
     nonisolated static func resolveFolderSidebarRows(
         _ inputs: FolderSidebarWalkInputs,
-        volumes: [SidebarSourceModel.Volume]
+        volumes: [SidebarSourceModel.Volume],
+        links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders
     ) -> FolderSidebarResolution {
         // One `reachable` call per source. Each `stat`s that root once for both of its lists —
         // under an unreachable network mount every one of those can block, which is why the store
@@ -225,10 +234,17 @@ extension ContentView {
                                              isAvailable: remembered.rootIsAvailable)
         }
         let places = Self.splitFolderSidebarPlaceRows(inputs.providers, volumes: volumes,
-                                                      favoritePlaces: inputs.favoritePlaces)
+                                                      favoritePlaces: inputs.favoritePlaces,
+                                                      links: links)
         return FolderSidebarResolution(
-            rows: FolderSidebarModel.rows(sources: sources, recents: inputs.recents,
-                                          favoriteOrder: inputs.favoriteOrder),
+            rows: FolderSidebarModel.rows(
+                sources: sources, recents: inputs.recents, favoriteOrder: inputs.favoriteOrder,
+                // **From the rows this very pass built**, not from a second enumeration of what the
+                // column ought to contain. The places depend on the user's Favorites list, on what
+                // is mounted and on which folders a source already claims; a copy of that reasoning
+                // written here would answer differently the first time any of the three moved.
+                listedElsewhere: Self.folderSidebarListedElsewhere(
+                    places.locations + places.shortcuts, roots: sources.map(\.root), links: links)),
             locations: places.locations,
             shortcuts: places.shortcuts,
             volumes: volumes)
@@ -292,6 +308,49 @@ extension ContentView {
             landings[FolderJumpStore.key(forRoot: provider.rootPath)] = provider.openAt
         }
         return landings
+    }
+
+    /// **Everything the column already offers under another heading, per source root** — what
+    /// Recents subtracts so the same folder is not drawn twice in one 180pt column.
+    ///
+    /// Takes the place rows this refresh actually built — Favorites' places and every Locations row
+    /// — and re-expresses each of their absolute paths as a path relative to each source root.
+    /// `~/Documents` is a Favorites place and, under a source rooted at the home folder, also the
+    /// recent `Documents`; those are one folder and the sidebar should say so once.
+    ///
+    /// **`PathBoundary.relativize` rather than string prefixes**, for the case that made this worth
+    /// having at all: iCloud Drive's `Desktop` and `Documents` are links into the container, so a
+    /// recent recorded as `Documents` under the iCloud root and the Favorites place at
+    /// `~/Documents` are the same folder by two spellings that no prefix comparison relates
+    /// (`PathBoundary.LinkedFolders`). The links table answers it; the table is passed in rather
+    /// than read here so a test can supply its own.
+    ///
+    /// **Lexical, and deliberately no `stat`.** The recents are stored as paths relative to a root,
+    /// which is exactly the space this arithmetic works in, and this runs once per source per row
+    /// — resolving symlinks for each of those would put a few hundred disk reads on a refresh that
+    /// exists partly to stop doing that.
+    ///
+    /// An EMPTY relative path is dropped: it means the row *is* the root, and a root is never a
+    /// recent (`FolderJumpStore.recordVisit` refuses to write one), so an entry for it cannot
+    /// exist to be subtracted. Keeping it would put `""` in every set for no reader.
+    ///
+    /// Roots come in already normalised through `FolderJumpStore.key(forRoot:)` — they are the
+    /// built `Source.root`s — so the keys here meet the ones the recents are stored under.
+    nonisolated static func folderSidebarListedElsewhere(
+        _ rows: [SidebarSourceRow], roots: [String],
+        links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> [String: Set<String>] {
+        guard !rows.isEmpty, !roots.isEmpty else { return [:] }
+        let paths = rows.map { ($0.absolutePath as NSString).expandingTildeInPath }
+        var listed: [String: Set<String>] = [:]
+        for root in roots {
+            let relatives = Set(paths.compactMap { path -> String? in
+                guard let relative = PathBoundary.relativize(path, under: root, links: links),
+                      !relative.isEmpty else { return nil }
+                return relative
+            })
+            if !relatives.isEmpty { listed[root] = relatives }
+        }
+        return listed
     }
 
     /// One canonical place, before it is known whether SyncCloud has it as a source.

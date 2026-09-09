@@ -129,10 +129,10 @@ public enum FolderSidebarModel {
     /// beside a top-level `Legal` on iCloud is two rows reading `Legal` from two accounts, where
     /// neither the badge nor the parent alone tells them apart.
     ///
-    /// - Parameter recents: already ordered and already capped by the store. Rows for a root that
-    ///   is not in `sources` are dropped rather than drawn unavailable — an entry whose whole
-    ///   source has been removed is not a sleeping drive, it is a folder the app can no longer say
-    ///   anything about.
+    /// - Parameter recents: already ordered by the store (`FolderJumpStore.mostRecentAcrossRoots`),
+    ///   and **not yet capped** — see `recentsLimit`. Rows for a root that is not in `sources` are
+    ///   dropped rather than drawn unavailable — an entry whose whole source has been removed is
+    ///   not a sleeping drive, it is a folder the app can no longer say anything about.
     /// - Parameter favoriteOrder: the user's dragged sequence, as `FolderJumpStore.favoriteKey`
     ///   keys. **Applied here, or the drag writes an order nothing draws.**
     ///
@@ -144,19 +144,44 @@ public enum FolderSidebarModel {
     ///   lists in source order and stopped. Every folder-favorite drag persisted a sequence, logged
     ///   that it had, and the rows came back in the old order on the next refresh. It is the same
     ///   rule the reorder handler applies, called from the one place that draws.
+    /// - Parameter listedElsewhere: per root, the relative paths the column **already offers under
+    ///   another heading** — the places drawn in Favorites and the rows drawn in Locations,
+    ///   expressed against this root. Subtracted from Recents, because a folder reachable from two
+    ///   headings at once is one wasted row in a list of eight.
+    ///
+    ///   This is the same argument the landing folder already wins inside
+    ///   `FolderJumpStore.mostRecentAcrossRoots`, applied to the rest of the column: a Locations
+    ///   row IS a source and a Favorites place IS a folder, so a recent naming either is a second
+    ///   route to a destination the reader can already see, a few rows further up the same 180pt
+    ///   column. With `~/Desktop`, `~/Documents` and `~/Downloads` in Favorites and a folder source
+    ///   over the home folder, simply opening those three filled three of the eight rows with
+    ///   duplicates of the three rows above them.
+    ///
+    ///   **Subtracted here rather than by the store**, because only the column knows what the
+    ///   column lists: the places are the user's own Favorites list, the Locations rows are the
+    ///   mounted volumes, and neither is a thing `FolderJumpStore` can see. Keyed by
+    ///   `FolderJumpStore.key(forRoot:)` like every other root in this file, and holding *relative*
+    ///   paths, so the comparison is the same string arithmetic a recent is stored in rather than a
+    ///   second trip to the disk.
+    ///
+    ///   A root the map does not name subtracts nothing, which is what makes the default safe.
+    /// - Parameter recentsLimit: how many recents survive to become rows.
+    ///
+    ///   **The cap is applied after both filters, and that is the whole reason it moved here.** It
+    ///   was the store's, applied before this builder dropped recents for a removed source — so an
+    ///   entry from a source that had been deleted took one of the eight and then vanished, leaving
+    ///   the section short by a row for no reason on screen. `listedElsewhere` would have made that
+    ///   worse in proportion to how well it works. Counting only rows that are actually drawn is
+    ///   the same rule `mostRecentAcrossRoots` states for its own two filters.
     public static func rows(sources: [Source], recents: [RememberedVisit],
-                            favoriteOrder: [String] = []) -> [FolderSidebarRow] {
+                            favoriteOrder: [String] = [],
+                            listedElsewhere: [String: Set<String>] = [:],
+                            recentsLimit: Int = FolderJumpStore.maxRecents) -> [FolderSidebarRow] {
         // First-wins on a duplicate root, not `uniqueKeysWithValues:` — that spelling TRAPS, and
         // while `SettingsManager.existingSource` keeps two enabled providers off one root today,
         // a hand-edited plist or a future entry point would turn that guard's gap into a crash on
         // every sidebar refresh. Same spelling as this file's other builders.
         let byRoot = Dictionary(sources.map { ($0.root, $0) }, uniquingKeysWith: { a, _ in a })
-        // Only sources that actually contribute a row count toward "is this multi-source" — a
-        // second account with nothing remembered in it should not put a badge on every row.
-        var contributing = Set(sources.filter { !$0.favorites.isEmpty }.map(\.root))
-        contributing.formUnion(recents.compactMap { byRoot[$0.root] != nil ? $0.root : nil })
-        let showsBadge = contributing.count > 1
-
         struct Draft { let group: FolderSidebarRow.Group, root: String, path: String, name: String }
         var drafts: [Draft] = []
         // The base the sequence is applied ON TOP of is the caller's source order — which is the
@@ -173,10 +198,25 @@ public enum FolderSidebarModel {
             drafts.append(Draft(group: .pinned, root: favorite.root,
                                 path: favorite.relativePath, name: favorite.name))
         }
+        var recentsDrawn = 0
         for visit in recents where byRoot[visit.root] != nil {
+            guard recentsDrawn < recentsLimit else { break }
+            // Already on the column under Favorites or Locations — see `listedElsewhere`.
+            guard listedElsewhere[visit.root]?.contains(visit.relativePath) != true else { continue }
             drafts.append(Draft(group: .recents, root: visit.root, path: visit.relativePath,
                                 name: leaf(of: visit.relativePath)))
+            recentsDrawn += 1
         }
+
+        // Only sources that actually contribute a row count toward "is this multi-source" — a
+        // second account with nothing remembered in it should not put a badge on every row.
+        //
+        // **Read off the drafts, so it counts rows that are DRAWN.** It was read off the inputs,
+        // which was the same answer until Recents started dropping entries (for a removed source,
+        // for `listedElsewhere`, for the cap): an account whose every recent was subtracted still
+        // put a source badge on every row in the column, naming a second source that contributes
+        // nothing visible.
+        let showsBadge = Set(drafts.map(\.root)).count > 1
 
         // Counted across BOTH groups and every source, because the reader is looking at one column.
         var leafCounts: [String: Int] = [:]

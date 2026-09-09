@@ -243,6 +243,106 @@ import Design
             recents: [])
         #expect(rows.map(\.isAvailable) == [true, false])
     }
+
+    // MARK: A folder the column already lists under another heading
+
+    /// **The rule the user asked for**: a recent naming a folder that Favorites or Locations
+    /// already offers is not drawn a second time. The reader is looking at one 180pt column, and
+    /// two rows to one folder is one wasted row out of eight.
+    @Test func aRecentTheColumnAlreadyListsIsNotDrawnAgain() {
+        let rows = FolderSidebarModel.rows(
+            sources: [Self.source("/iCloud", "iCloud", [])],
+            recents: [Self.visit("/iCloud", "Documents"), Self.visit("/iCloud", "Health")],
+            listedElsewhere: ["/iCloud": ["Documents"]])
+        #expect(FolderSidebarModel.rows(rows, in: .recents).map(\.name) == ["Health"])
+    }
+
+    /// **Per root, not per path.** Two sources holding the same relative path are two folders, and
+    /// a place listed under one of them says nothing about the other — the same reason the row's
+    /// identity carries its root.
+    @Test func theSubtractionIsKeyedByRoot() {
+        let rows = FolderSidebarModel.rows(
+            sources: [Self.source("/iCloud", "iCloud", []), Self.source("/Dropbox", "Dropbox", [])],
+            recents: [Self.visit("/iCloud", "Documents"), Self.visit("/Dropbox", "Documents")],
+            listedElsewhere: ["/iCloud": ["Documents"]])
+        let recents = FolderSidebarModel.rows(rows, in: .recents)
+        #expect(recents.map(\.root) == ["/Dropbox"])
+    }
+
+    /// A root the map does not name subtracts nothing, which is what makes the empty default safe.
+    @Test func anEmptyListedMapSubtractsNothing() {
+        #expect(one(recents: ["Documents", "Health"]).count == 2)
+    }
+
+    // MARK: The cap counts rows that are DRAWN
+
+    /// **The cap moved here from the store**, and this is why: it was applied before this builder
+    /// dropped a recent whose source had been removed, so a dead entry took one of the eight and
+    /// then vanished — leaving the section a row short for no reason on screen.
+    @Test func aRecentFromARemovedSourceDoesNotSpendOneOfTheEight() {
+        let rows = FolderSidebarModel.rows(
+            sources: [Self.source("/iCloud", "iCloud", [])],
+            recents: [Self.visit("/Removed", "Ghost")] + (1...3).map { Self.visit("/iCloud", "F\($0)") },
+            recentsLimit: 3)
+        #expect(FolderSidebarModel.rows(rows, in: .recents).map(\.name) == ["F1", "F2", "F3"],
+                "the ghost spent a slot the column never drew")
+    }
+
+    /// The same, for the subtraction above — it would otherwise make the section shorter in exact
+    /// proportion to how well it worked.
+    @Test func aSubtractedRecentDoesNotSpendOneOfTheEight() {
+        let rows = FolderSidebarModel.rows(
+            sources: [Self.source("/iCloud", "iCloud", [])],
+            recents: (1...4).map { Self.visit("/iCloud", "F\($0)") },
+            listedElsewhere: ["/iCloud": ["F1", "F2"]],
+            recentsLimit: 2)
+        #expect(FolderSidebarModel.rows(rows, in: .recents).map(\.name) == ["F3", "F4"])
+    }
+
+    /// The cap is on Recents alone. Favorites is curated and finite by the user's own hand, and a
+    /// cap there would silently hide one they had added.
+    @Test func theCapDoesNotTouchFavorites() {
+        let rows = FolderSidebarModel.rows(
+            sources: [Self.source("/iCloud", "iCloud", ["A", "B", "C"])],
+            recents: [Self.visit("/iCloud", "F1"), Self.visit("/iCloud", "F2")],
+            recentsLimit: 1)
+        #expect(FolderSidebarModel.rows(rows, in: .pinned).map(\.name) == ["A", "B", "C"])
+        #expect(FolderSidebarModel.rows(rows, in: .recents).map(\.name) == ["F1"])
+    }
+
+    /// A zero cap draws no recents rather than every one of them — the clamp's other end.
+    @Test func aZeroCapDrawsNoRecents() {
+        let rows = FolderSidebarModel.rows(
+            sources: [Self.source("/iCloud", "iCloud", ["A"])],
+            recents: [Self.visit("/iCloud", "F1")],
+            recentsLimit: 0)
+        #expect(FolderSidebarModel.rows(rows, in: .recents).isEmpty)
+        #expect(FolderSidebarModel.rows(rows, in: .pinned).map(\.name) == ["A"])
+    }
+
+    // MARK: The badge counts sources that are DRAWN
+
+    /// **"Is this multi-source" is read off the rows, not off the inputs.** A second account whose
+    /// every recent is subtracted contributes nothing visible, and putting a badge on every row in
+    /// the column to name it is the noise `sourceName` is nil for in the first place.
+    @Test func aSourceWhoseEveryRecentIsSubtractedPutsNoBadgeOnTheColumn() {
+        let rows = FolderSidebarModel.rows(
+            sources: [Self.source("/iCloud", "iCloud", ["Health"]),
+                      Self.source("/Dropbox", "Dropbox", [])],
+            recents: [Self.visit("/Dropbox", "Documents")],
+            listedElsewhere: ["/Dropbox": ["Documents"]])
+        #expect(rows.map(\.name) == ["Health"])
+        #expect(rows.map(\.sourceName) == [nil], "a badge names a source with nothing on screen")
+    }
+
+    /// And the case it must not break: two sources that both draw still badge.
+    @Test func twoSourcesThatBothDrawStillBadge() {
+        let rows = FolderSidebarModel.rows(
+            sources: [Self.source("/iCloud", "iCloud", ["Health"]),
+                      Self.source("/Dropbox", "Dropbox", [])],
+            recents: [Self.visit("/Dropbox", "Documents")])
+        #expect(rows.map(\.sourceName) == ["iCloud", "Dropbox"])
+    }
 }
 
 /// **The column, rendered.** Geometry cannot say whether a row is dimmed or which one is current.
@@ -631,7 +731,6 @@ import Design
         #expect(!body.contains(".disabled("),
                 "the item now refuses on an unavailable row, which is the row it exists for")
     }
-
 
     /// **Only where there are two panes.** `target` is nil outside Compare, and naming a left and a
     /// right pane in a workspace with one would offer a choice that does not exist.

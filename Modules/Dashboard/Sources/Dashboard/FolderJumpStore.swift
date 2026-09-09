@@ -99,7 +99,10 @@ public final class FolderJumpStore: ObservableObject {
     /// How many recents are kept **per root**, and — since v4.4 — how many the sidebar's one global
     /// list shows. Public because the sidebar is outside this module and asks for the same eight;
     /// two constants meaning "how many recents" is how they come to disagree.
-    public static let maxRecents = 8
+    ///
+    /// `nonisolated` so it can be a default argument outside the main actor —
+    /// `FolderSidebarModel.rows` applies the cap and is pure.
+    public nonisolated static let maxRecents = 8
     /// The user's own order for the Favorites section, as `root\u{0}relativePath` keys.
     ///
     /// **A separate key rather than a field on `JumpLocation`, and separate from `pinnedByRoot`'s
@@ -369,7 +372,6 @@ public final class FolderJumpStore: ObservableObject {
         recentsByRoot[key] = list
         persistRecents()
     }
-
 
     /// Written on every visit, which is every pane folder change. Cheap on purpose: a capped list
     /// of eight small values per root, and `UserDefaults` coalesces its own writes to disk — the
