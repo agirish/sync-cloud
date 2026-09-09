@@ -4857,3 +4857,47 @@ byte-compatible with `main`'s and the shared defaults domain is unaffected in bo
 was a deliberate choice rather than an omission — the places in Favorites and the rows in Locations
 are the user's own list and the mounted volumes, neither of which the store can see, so a filter at
 record time would have been keyed on a snapshot that goes stale the moment either changes.
+
+## 2026-09-09 — the file preview follows the pane into Tree mode
+
+Tree panes draw the Quick Look preview the Columns stack has had: `showsPreviewToggle` answers yes
+for both modes, `ColumnPreview` grows a `treeRows:` entry point that walks the row projection down
+the selected path, `FileTreeView` frames its outline to the pane minus the preview, and the preview
+and its divider move into a shared `PanePreviewSidebar` so the two presentations cannot disagree
+about the seam. The tree's width gate is its own rule (`showsTreePreview` /
+`minimumTreeListWidth`), not the column one reused.
+
+**Every line already has the surface this stands on**, which is unusual for a v5 feature and worth
+recording: the preview column, `PaneViewMode`, and the `mode == .columns` gate that withheld it from
+Tree are on all four. So the picks below are all technically *possible*; they are not owed, because
+this is new work on the v5 line rather than a defect anywhere.
+
+```sh
+# stage 1 — is the preview there at all? stage 2 — is the Columns-only GATE the shape being changed?
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s previewColumn=%s toggle=%s treeGate=%s columnsOnly=%s browseKey=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/ColumnPreviewColumn.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/Design/Sources/Design/PaneViewMode.swift 2>/dev/null | grep -c 'func showsPreviewToggle')" \
+    "$(git show origin/$l:Modules/Design/Sources/Design/PaneViewMode.swift 2>/dev/null | grep -c 'showsTreePreview')" \
+    "$(git show origin/$l:Modules/Design/Sources/Design/PaneViewMode.swift 2>/dev/null | grep -c 'mode == .columns')" \
+    "$(git show origin/$l:Modules/Design/Sources/Design/PaneViewMode.swift 2>/dev/null | grep -c 'browsePreviewColumnDefaultsKey')"
+done
+# measured 2026-09-09, before this landed:
+# main   previewColumn=1 toggle=1 treeGate=0 columnsOnly=1 browseKey=4
+# v4.x   previewColumn=1 toggle=1 treeGate=0 columnsOnly=1 browseKey=4
+# v3.x   previewColumn=1 toggle=1 treeGate=0 columnsOnly=1 browseKey=0
+# v2.x   previewColumn=1 toggle=1 treeGate=0 columnsOnly=1 browseKey=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **The Tree preview itself** — `showsTreePreview` / `minimumTreeListWidth`, `ColumnPreview.item(selection:treeRows:)`, and `FileTreeView.treePresentation` | **Could be picked.** `columnsOnly=1` says the gate being flipped is there verbatim, and so is everything under it. Four files plus two new test suites; nothing it needs is missing | **Could be picked, with one extra decision.** `browseKey=0`: neither line splits Browse's preference from Compare's, so the preference this feature spreads across both modes is one key for every surface there. Decide what that should mean *before* picking, rather than discovering it | RECORDED — not owed. New v5 work, and the standing direction is no backporting |
+| **`PanePreviewSidebar` / `PaneDividerHandle`** — the extraction that made one preview serve two presentations | Could be picked, and is worth nothing on its own: with no Tree preview there is one caller, which is what the code already was | Same | RECORDED — not owed |
+| **View ▸ Preview Column → View ▸ Preview**, and the help and ⌘/ strings that named a column | Could be picked. All three lines carry the item under the old title | Same | RECORDED — not owed. Renaming it where the preview really is a column only would make those lines *less* accurate |
+
+**Checked and not owed, the other direction.** The stored keys are untouched — `paneColumnShowsPreview`,
+`paneColumnShowsPreviewBrowse` and `paneColumnPreviewWidth` keep their names, their meanings and
+their defaults, and the tree reads the same preference the columns do rather than adding a fourth.
+A maintenance-line build and a `main` build therefore still share one defaults domain without either
+reinterpreting what the other wrote: an install that has turned the preview off sees it off in both,
+and a preview dragged wide on one opens that wide on the other.
