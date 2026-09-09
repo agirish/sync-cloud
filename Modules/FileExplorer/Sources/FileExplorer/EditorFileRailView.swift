@@ -15,6 +15,11 @@ struct EditorFileRailView: View {
 
     let folderName: String
     let entries: [EditorRailEntry]
+    /// How many files the folder holds that the rail does not list, or `nil` when nothing counted
+    /// them. Read only by ``fileEmptyCaption(folderName:anyEntries:filter:otherFiles:)``, which is
+    /// the one place it can be seen. Defaulted, so the previews and the layout probe — which have
+    /// no folder behind them — need not answer a question they have no way to.
+    var otherFileCount: Int?
     let selectedPath: String?
     let accent: Color
     /// The label colour on the accent fill, for the selected tab. See ``EditorRailTabBar/onAccent``.
@@ -456,15 +461,49 @@ struct EditorFileRailView: View {
         .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
     }
 
-    /// - Parameter anyEntries: whether the folder has text files at all. **The two empties are
-    ///   different questions** — a folder with nothing in it, and a filter that matched nothing —
-    ///   and "The + button makes one" is unhelpful advice for the second.
+    /// What the rail says when it is listing nothing — **four different questions, asked as a
+    /// function so the distinctions are testable**, the shape ``outlineEmptyCaption(hasDocument:)``
+    /// and `PaneColumnsView.emptyCaption` both take.
+    ///
+    /// No folder chosen; a filter that matched nothing; a folder that really is empty; and a folder
+    /// that is **full of files this editor does not open**. The last is the one that was missing,
+    /// and it is the ordinary case on a real disk: the rail lists only `PairContentKind.text`, so a
+    /// folder of scans, PDFs or Word documents drew "No text files in this folder" — true, and
+    /// indistinguishable from what an empty folder drew. Standing in a folder he had just filled,
+    /// the app appeared to have lost it.
+    ///
+    /// "The + button makes one" survives into the new arm because the advice still applies: there
+    /// is no text file here and he can have one. What it must not do any more is arrive alone,
+    /// implying there is nothing else here either.
+    ///
+    /// - Parameter otherFiles: how many files the folder holds that the rail will not list, or
+    ///   `nil` when nothing counted them. `nil` and `0` are treated alike on purpose — see
+    ///   ``EditorRail/Survey/otherFileCount``, where the difference is real and where it stops.
+    nonisolated static func fileEmptyCaption(folderName: String, anyEntries: Bool,
+                                             filter: String, otherFiles: Int?) -> String {
+        guard !folderName.isEmpty else {
+            return "Pick a folder in the sidebar to see the text files in it."
+        }
+        if anyEntries {
+            return "No text files here match “\(filter.trimmingCharacters(in: .whitespaces))”."
+        }
+        guard let otherFiles, otherFiles > 0 else {
+            return "No text files in this folder. The + button makes one."
+        }
+        // Two sentences rather than one pluralised template: "None of the 1 file" is what a shared
+        // template produces, and the singular is not a corner — one PDF in a folder of its own is
+        // an ordinary thing to be standing in.
+        if otherFiles == 1 {
+            return "The one file in this folder isn’t one the editor opens. "
+                + "The + button makes a text file."
+        }
+        return "None of the \(otherFiles) files in this folder are ones the editor opens. "
+            + "The + button makes a text file."
+    }
+
     private func emptyCaption(anyEntries: Bool) -> some View {
-        Text(folderName.isEmpty
-             ? "Pick a folder in the sidebar to see the text files in it."
-             : anyEntries
-               ? "No text files here match “\(filter.trimmingCharacters(in: .whitespaces))”."
-               : "No text files in this folder. The + button makes one.")
+        Text(Self.fileEmptyCaption(folderName: folderName, anyEntries: anyEntries,
+                                   filter: filter, otherFiles: otherFileCount))
             .scaledFont(.system(size: 11))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)

@@ -49,26 +49,31 @@ extension ContentView {
         return (target as NSString).expandingTildeInPath
     }
 
-    /// The rail's rows, re-read when the folder changes and after the editor writes to it.
+    /// The rail's rows and its empty-caption count, re-read when the folder changes and after the
+    /// editor writes to it.
     ///
     /// Off the main actor: this is a directory read plus one `lstat` per surviving row, and on an
-    /// iCloud folder either can block. `id:` covers the folder *and* the hidden-files preference,
-    /// so flipping ⇧⌘. re-lists rather than leaving a stale answer on screen.
+    /// iCloud folder either can block. A folder with no text files in it pays a second `lstat` per
+    /// entry — see ``EditorRail/survey(in:showsHidden:fileManager:isCloudOnly:)``, which is where
+    /// that cost is confined and why it is only spent there. `id:` covers the folder *and* the
+    /// hidden-files preference, so flipping ⇧⌘. re-lists rather than leaving a stale answer on
+    /// screen.
     func refreshEditorRail() async {
         let folder = editorFolder
         let showsHidden = syncManager.showHiddenFiles
-        let rows = await Task.detached(priority: .userInitiated) {
-            EditorRail.entries(in: folder, showsHidden: showsHidden)
+        let survey = await Task.detached(priority: .userInitiated) {
+            EditorRail.survey(in: folder, showsHidden: showsHidden)
         }.value
         // The folder can change while the walk is out; a late answer for the wrong folder would
         // list somebody else's files under this one's heading.
         guard folder == editorFolder else { return }
         // **Only when the listing actually changed.** This runs after every autosave — twice a
         // sentence, for a typist — and writing `@State` unconditionally is a change as far as
-        // SwiftUI is concerned, so an identical list of rows still bought a full body pass. The
-        // rows carry the file's size, so a write that changed the length does still land.
-        guard rows != editorRailEntries else { return }
-        editorRailEntries = rows
+        // SwiftUI is concerned, so an identical survey still bought a full body pass. The rows
+        // carry the file's size, so a write that changed the length does still land — and the
+        // survey is compared whole, so a PDF landing in an empty folder moves the caption too.
+        guard survey != editorRailSurvey else { return }
+        editorRailSurvey = survey
     }
 
     // MARK: - The layout arm
@@ -152,7 +157,8 @@ extension ContentView {
             document: editorDocument,
             autosavePolicy: editorAutosavePolicy,
             folder: editorFolder,
-            entries: editorRailEntries,
+            entries: editorRailSurvey.rows,
+            otherFileCount: editorRailSurvey.otherFileCount,
             accent: glassHue.accentColor,
             onAccent: glassHue.onAccentLabelColor,
             mode: $editorMode,

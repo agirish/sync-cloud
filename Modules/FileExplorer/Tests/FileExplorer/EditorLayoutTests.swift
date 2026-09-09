@@ -505,6 +505,56 @@ import Design
                 "the no-headings caption does not say what makes a heading: \(noHeadings)")
     }
 
+    /// **The rail's four empties, kept apart.** No folder chosen; a filter that matched nothing; a
+    /// folder that really is empty; and a folder full of files the editor does not open. The last
+    /// one used to render as the third, which is the defect this whole change is: standing in a
+    /// folder of PDFs, the app said "No text files in this folder" and nothing else, and a folder
+    /// he had just filled read as one he had lost.
+    ///
+    /// Collapse any two arms and the set shrinks, which is what makes this a test rather than a
+    /// restatement of the function.
+    @Test func theEmptyRailKeepsItsFourAnswersApart() {
+        let noFolder = EditorFileRailView.fileEmptyCaption(folderName: "", anyEntries: false,
+                                                           filter: "", otherFiles: nil)
+        let noMatch = EditorFileRailView.fileEmptyCaption(folderName: "Notes", anyEntries: true,
+                                                          filter: "zzz", otherFiles: nil)
+        let empty = EditorFileRailView.fileEmptyCaption(folderName: "Notes", anyEntries: false,
+                                                        filter: "", otherFiles: 0)
+        let others = EditorFileRailView.fileEmptyCaption(folderName: "Scans", anyEntries: false,
+                                                         filter: "", otherFiles: 12)
+
+        let all = [noFolder, noMatch, empty, others]
+        #expect(Set(all).count == 4,
+                "two of the rail's empties say the same thing: \(all.joined(separator: " / "))")
+        #expect(noMatch.contains("zzz"), "the filter caption does not name the filter: \(noMatch)")
+        #expect(others.contains("12"),
+                "the caption does not say how many files are in the folder: \(others)")
+        #expect(!empty.contains("0"),
+                "the empty folder's caption counts files that are not there: \(empty)")
+    }
+
+    /// An uncounted folder reads as an empty one. `nil` means nobody asked — which happens only
+    /// when the rail has rows and this caption is not on screen — so the two must not diverge into
+    /// a third sentence nothing can reach.
+    @Test func anUncountedFolderReadsAsAnEmptyOne() {
+        #expect(EditorFileRailView.fileEmptyCaption(folderName: "Notes", anyEntries: false,
+                                                    filter: "", otherFiles: nil)
+                == EditorFileRailView.fileEmptyCaption(folderName: "Notes", anyEntries: false,
+                                                       filter: "", otherFiles: 0))
+    }
+
+    /// One file is not a corner — a PDF in a folder of its own is an ordinary thing to be standing
+    /// in — and a single pluralised template renders it "None of the 1 file in this folder are".
+    @Test func theEmptyRailReadsAsEnglishForOneFile() {
+        let one = EditorFileRailView.fileEmptyCaption(folderName: "Scans", anyEntries: false,
+                                                      filter: "", otherFiles: 1)
+        #expect(!one.contains("the 1 file"), "reads as a filled-in template: \(one)")
+        #expect(!one.contains("files"), "the singular caption uses the plural noun: \(one)")
+        #expect(one != EditorFileRailView.fileEmptyCaption(folderName: "Scans", anyEntries: false,
+                                                           filter: "", otherFiles: 0),
+                "one unopenable file reads the same as an empty folder: \(one)")
+    }
+
     /// An empty outline is a caption, not a blank card.
     ///
     /// **Asserted as a difference between the two captions, not as a height floor.** A floor is

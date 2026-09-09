@@ -77,6 +77,9 @@ public struct EditorWorkspaceView: View {
     /// The folder the sidebar has selected. Empty when there is none.
     let folder: String
     let entries: [EditorRailEntry]
+    /// Passed straight through to the rail's empty caption — see
+    /// ``EditorFileRailView/otherFileCount``. Defaulted for the same reason it is defaulted there.
+    var otherFileCount: Int?
     let accent: Color
     /// The label colour on the accent fill — deepened by the host so white text stays legible on
     /// every hue, the same value the workspace bar's selected segment uses.
@@ -183,6 +186,7 @@ public struct EditorWorkspaceView: View {
                 autosavePolicy: EditorAutosavePolicy,
                 folder: String,
                 entries: [EditorRailEntry],
+                otherFileCount: Int? = nil,
                 accent: Color,
                 onAccent: Color,
                 mode: Binding<EditorMode>,
@@ -215,6 +219,7 @@ public struct EditorWorkspaceView: View {
         self.autosavePolicy = autosavePolicy
         self.folder = folder
         self.entries = entries
+        self.otherFileCount = otherFileCount
         self.accent = accent
         self.onAccent = onAccent
         self._mode = mode
@@ -261,6 +266,7 @@ public struct EditorWorkspaceView: View {
         HStack(spacing: 0) {
             EditorFileRailView(folderName: folderName,
                                entries: entries,
+                               otherFileCount: otherFileCount,
                                selectedPath: document.path,
                                accent: accent,
                                onAccent: onAccent,

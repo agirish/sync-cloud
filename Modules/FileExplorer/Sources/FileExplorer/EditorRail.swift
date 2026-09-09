@@ -55,6 +55,32 @@ public struct EditorRailEntry: Identifiable, Equatable, Sendable {
 /// Which of a folder's files the editor will list.
 public enum EditorRail {
 
+    /// What one look at a folder found: the rows to draw, and — when there are none — how many
+    /// files are sitting in there that the rail does not list.
+    public struct Survey: Equatable, Sendable {
+
+        public var rows: [EditorRailEntry]
+
+        /// How many files the folder holds that the rail will not open, or `nil` when the question
+        /// was not asked.
+        ///
+        /// **Asked only when ``rows`` is empty, which is the only moment anything can show it.** A
+        /// folder that lists something draws its list; this count exists for the caption that
+        /// stands where the list would be, and counting it otherwise would `stat` every entry of
+        /// every folder the user walks through to tell nobody anything.
+        ///
+        /// `nil` and `0` render the same and are deliberately different here: one is "nothing else
+        /// is in there", the other is "not counted". A caller that conflates them is still correct
+        /// on screen, which is why the distinction lives in the type rather than in a comment at
+        /// the call site.
+        public var otherFileCount: Int?
+
+        public init(rows: [EditorRailEntry], otherFileCount: Int?) {
+            self.rows = rows
+            self.otherFileCount = otherFileCount
+        }
+    }
+
     /// The text-like files directly inside `folder`, in the order the rail draws them.
     ///
     /// **One level, no recursion.** The rail answers "what can I open in the folder I am standing
@@ -70,8 +96,34 @@ public enum EditorRail {
                         isCloudOnly: (String) -> Bool = {
                             MaterializationStatus.isCloudOnly(atPath: $0)
                         }) -> [EditorRailEntry] {
+        survey(in: folder, showsHidden: showsHidden, fileManager: fileManager,
+               isCloudOnly: isCloudOnly).rows
+    }
+
+    /// ``entries``, plus the count that answers the question an empty rail used to get wrong.
+    ///
+    /// **A folder full of PDFs is not an empty folder, and the rail said it was.** The list filters
+    /// on `PairContentKind.text`, so standing in a folder of scans or Word documents drew "No text
+    /// files in this folder" — true, and indistinguishable on screen from a folder with nothing in
+    /// it at all. The count is what lets the caption tell those two apart.
+    ///
+    /// **The second pass runs only for a folder that listed nothing**, so the ordinary case pays
+    /// nothing for it: it re-walks names already in hand, and the `stat` per name is the price of
+    /// keeping directories out of the count. Counting them would put a second wrong answer where
+    /// the first one was — "none of the 12 files" over a folder holding eight subfolders and four
+    /// files.
+    public static func survey(in folder: String,
+                       showsHidden: Bool,
+                       fileManager: FileManager = .default,
+                       isCloudOnly: (String) -> Bool = {
+                           MaterializationStatus.isCloudOnly(atPath: $0)
+                       }) -> Survey {
+        // Unreadable, or no folder at all: "there are no other files in it" is a claim, and there
+        // is nothing here to base one on. `nil` says that; `0` would assert it.
         guard !folder.isEmpty,
-              let names = try? fileManager.contentsOfDirectory(atPath: folder) else { return [] }
+              let names = try? fileManager.contentsOfDirectory(atPath: folder) else {
+            return Survey(rows: [], otherFileCount: nil)
+        }
         var rows: [EditorRailEntry] = []
         for name in names {
             guard showsHidden || !name.hasPrefix(".") else { continue }
@@ -96,7 +148,22 @@ public enum EditorRail {
         }
         // Localized standard order, so "note 2" sorts before "note 10" and the rail reads the way
         // Finder does rather than the way ASCII does.
-        return rows.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let sorted = rows.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        guard sorted.isEmpty else { return Survey(rows: sorted, otherFileCount: nil) }
+
+        var others = 0
+        for name in names {
+            guard showsHidden || !name.hasPrefix(".") else { continue }
+            // Every name that gets this far already failed the text classification above — had one
+            // passed it, existed, and not been a directory, it would be a row and this pass would
+            // not be running. So the directory check is the only question left to ask.
+            let path = (folder as NSString).appendingPathComponent(name)
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue else { continue }
+            others += 1
+        }
+        return Survey(rows: [], otherFileCount: others)
     }
 
     /// The rows that match what was typed into the rail's filter.

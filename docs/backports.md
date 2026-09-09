@@ -4471,3 +4471,29 @@ through `PathBoundary.join`; a first component under a tree root goes through
 `PaneBrowsePath.step(from:into:atRoot:linked:)`. Lexical composition is correct only where the root
 is already resolved — the filing profile's root, a scan root, a restructure root — and those sites
 were checked and left alone.
+
+### 20. The editor rail's empty caption, which called a folder of PDFs empty — CLOSED, does not apply (filed 2026-09-09)
+
+**No maintenance line has an editor at all**, so there is no line for this to be owed to. The Edit
+workspace is v5 work — it landed on `main` for v5.2 — and neither file this change touches exists
+on any of the three:
+
+```sh
+for l in v4.x v3.x v2.x; do
+  echo -n "$l: "
+  git ls-tree -r --name-only origin/$l \
+    -- Modules/FileExplorer/Sources/FileExplorer/EditorRail.swift \
+       Modules/FileExplorer/Sources/FileExplorer/EditorFileRailView.swift | wc -l
+done   # all three print 0
+```
+
+Recorded rather than left unwritten because the *absence* is the expensive half to reconstruct: a
+future audit grepping for `fileEmptyCaption` finds nothing on three lines and cannot tell "never
+had it" from "missed it". This row says which.
+
+**What the user saw** (`main` only): the rail lists `PairContentKind.text` and nothing else, so a
+folder holding only PDFs, scans or Word documents drew "No text files in this folder. The + button
+makes one." — the same words an empty folder drew, and the whole rail otherwise blank. Standing in
+a folder he had just filled, the app read as though it had lost it. The fix counts what the rail
+declined to list and says so; the count excludes subfolders, because "none of the 4 files" over
+three folders and one PDF would be a second wrong answer in place of the first.

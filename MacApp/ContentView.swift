@@ -63,7 +63,11 @@ struct ContentView: View {
     /// an `@ObservedObject` so the workspace is a rendering of it and nothing else.
     @ObservedObject var editorDocument: EditorDocument
     /// The rail's rows for the current folder, re-listed off the main actor by `refreshEditorRail`.
-    @State var editorRailEntries: [EditorRailEntry] = []
+    /// What the last look at the editor's folder found — the rail's rows, and the count its empty
+    /// caption needs. **One piece of state rather than two**, so the "did anything change" guard in
+    /// ``refreshEditorRail()`` stays a single comparison: held apart, a folder whose only change was
+    /// a PDF arriving would keep a caption claiming it was empty.
+    @State var editorRailSurvey = EditorRail.Survey(rows: [], otherFileCount: nil)
     /// Whether the rail's inline naming row is open. Held here because ⌘N opens it from any
     /// workspace, including ones where the editor is not on screen yet.
     @State var editorIsNaming = false

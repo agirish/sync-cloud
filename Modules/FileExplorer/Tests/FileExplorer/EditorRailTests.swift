@@ -40,6 +40,84 @@ import Sync
         #expect(names == ["data.json", "notes.md", "readme.txt"])
     }
 
+    /// **A folder of PDFs is not an empty folder**, and the rail could not tell the difference:
+    /// it lists only text kinds, so a folder of scans and a folder with nothing in it both drew
+    /// "No text files in this folder". This is the count that separates them.
+    @Test func aFolderOfUnopenableFilesIsCountedRatherThanCalledEmpty() throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try file("scan one.pdf", in: folder)
+        try file("scan two.pdf", in: folder)
+        try file("letter.docx", in: folder)
+
+        let survey = EditorRail.survey(in: folder.path, showsHidden: false,
+                                       isCloudOnly: nothingIsCloudOnly)
+        #expect(survey.rows.isEmpty, "a PDF was offered for editing")
+        #expect(survey.otherFileCount == 3,
+                "counted \(survey.otherFileCount as Int?) of the 3 files in the folder")
+    }
+
+    /// Directories are not files, and counting them would put a second wrong answer where the
+    /// first one was — "none of the 4 files" over a folder holding three subfolders and one PDF.
+    @Test func theOtherFileCountLeavesFoldersOut() throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try file("paper.pdf", in: folder)
+        for name in ["Archive", "Sent", "Drafts"] {
+            try FileManager.default.createDirectory(at: folder.appendingPathComponent(name),
+                                                    withIntermediateDirectories: true)
+        }
+
+        let survey = EditorRail.survey(in: folder.path, showsHidden: false,
+                                       isCloudOnly: nothingIsCloudOnly)
+        #expect(survey.otherFileCount == 1,
+                "subfolders were counted as files: \(survey.otherFileCount as Int?)")
+    }
+
+    /// The count describes what he can see. A folder whose only other file is hidden reads as empty
+    /// while hidden files are off, because on screen it is.
+    @Test func theOtherFileCountFollowsTheHiddenFilesPreference() throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try file("visible.pdf", in: folder)
+        try file(".hidden.pdf", in: folder)
+
+        #expect(EditorRail.survey(in: folder.path, showsHidden: false,
+                                  isCloudOnly: nothingIsCloudOnly).otherFileCount == 1)
+        #expect(EditorRail.survey(in: folder.path, showsHidden: true,
+                                  isCloudOnly: nothingIsCloudOnly).otherFileCount == 2)
+    }
+
+    /// **Not asked when the rail has rows**, which is what keeps the second pass off every folder
+    /// with a note in it — the caption is the only thing that reads this, and it is not on screen.
+    @Test func theOtherFileCountIsNotAskedWhenTheRailListsSomething() throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try file("notes.md", in: folder)
+        try file("paper.pdf", in: folder)
+
+        let survey = EditorRail.survey(in: folder.path, showsHidden: false,
+                                       isCloudOnly: nothingIsCloudOnly)
+        #expect(survey.rows.map(\.name) == ["notes.md"])
+        #expect(survey.otherFileCount == nil,
+                "the folder was walked a second time to answer a question nobody asked")
+    }
+
+    /// A folder with genuinely nothing in it answers `0`, and a folder that could not be read
+    /// answers `nil`. **The difference is the point of the optional**: one is a fact about the
+    /// folder, the other is the absence of one.
+    @Test func nothingInItAndCouldNotReadItAreDifferentAnswers() throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        #expect(EditorRail.survey(in: folder.path, showsHidden: false,
+                                  isCloudOnly: nothingIsCloudOnly).otherFileCount == 0)
+        #expect(EditorRail.survey(in: "/nowhere/at/all", showsHidden: false,
+                                  isCloudOnly: nothingIsCloudOnly).otherFileCount == nil)
+        #expect(EditorRail.survey(in: "", showsHidden: false,
+                                  isCloudOnly: nothingIsCloudOnly).otherFileCount == nil)
+    }
+
     @Test func foldersAreNotOfferedAsFilesToOpen() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
