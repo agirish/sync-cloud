@@ -1321,8 +1321,10 @@ public struct PaneHeader: View {
 
     /// Whether this header offers the preview toggle at all.
     ///
-    /// A header with no view-mode switch (`viewMode == nil`) is on a surface with no Columns mode to
-    /// be in, so there is nothing to preview and nothing to offer.
+    /// A header with no view-mode switch (`viewMode == nil`) is on a surface that draws no pane
+    /// presentation at all, so there is nothing to preview and nothing to offer. Where there IS one,
+    /// both modes now answer yes — Tree draws the same preview Columns does — and the decision stays
+    /// in `PaneViewMode.showsPreviewToggle` rather than being restated here.
     private var showsPreviewToggle: Bool {
         guard let viewMode else { return false }
         return PaneViewMode.showsPreviewToggle(mode: viewMode.wrappedValue)

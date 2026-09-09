@@ -147,7 +147,7 @@ enum ShortcutsReference {
             Item(keys: "⇧⌘ N", action: "New folder in the focused pane's current folder"),
             Item(keys: "⌃⌘ S", action: "Show or hide the sidebar"),
             Item(keys: "⇧⌘ .", action: "Show or hide hidden files"),
-            Item(keys: "⇧⌘ P", action: "Show or hide the Columns preview"),
+            Item(keys: "⇧⌘ P", action: "Show or hide the file preview"),
             Item(keys: "⌘ ⌫", action: "Delete the selected items, after confirming"),
             Item(keys: "Space", action: "Quick Look the selected item"),
             Item(keys: "⌘-click / ⇧-click", action: "Select multiple items"),

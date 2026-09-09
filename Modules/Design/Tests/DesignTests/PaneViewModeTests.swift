@@ -153,12 +153,16 @@ import SwiftUI
         #expect(e.object(forKey: PaneViewMode.previewColumnKey(isBrowse: true)) == nil)
     }
 
-    /// The toggle is offered only where flipping it does something: Columns mode. A switch wired to
-    /// nothing is worse than no switch.
-    @Test func testThePreviewToggleIsOfferedOnlyWhereAPreviewCanAppear() {
-        #expect(PaneViewMode.showsPreviewToggle(mode: .columns))
-        // Tree mode has no preview for a toggle to govern.
-        #expect(PaneViewMode.showsPreviewToggle(mode: .tree) == false)
+    /// The toggle is offered wherever flipping it does something, which is now both modes: Tree
+    /// draws the same preview Columns does, so a pill withheld there would be a setting the user
+    /// cannot reach on the surface it governs.
+    ///
+    /// Written over every case rather than as two literals, so a third presentation added later has
+    /// to state its own answer here instead of inheriting one.
+    @Test func testThePreviewToggleIsOfferedWhereverAPreviewCanAppear() {
+        for mode in PaneViewMode.allCases {
+            #expect(PaneViewMode.showsPreviewToggle(mode: mode), "\(mode.rawValue)")
+        }
     }
 
     // MARK: - Column-width floor lift
@@ -316,6 +320,76 @@ import SwiftUI
                                                   preferred: PaneViewMode.maximumPreviewColumnWidth)
         #expect(width == 290)
         #expect(width + 210 == 500)
+    }
+
+    // MARK: - Preview beside a tree
+
+    /// The Tree gate, at the width it turns on: a legible outline beside a minimum preview, and one
+    /// point under it there is no preview at all.
+    @Test func testATreePreviewNeedsRoomForALegibleOutlineBesideIt() {
+        let floorWidth = PaneViewMode.minimumTreeListWidth + PaneViewMode.minimumPreviewColumnWidth
+        #expect(PaneViewMode.showsTreePreview(
+            paneWidth: floorWidth, isEnabled: true, hasPreviewTarget: true))
+        #expect(PaneViewMode.showsTreePreview(
+            paneWidth: floorWidth - 1, isEnabled: true, hasPreviewTarget: true) == false)
+    }
+
+    /// Both switches are real switches here too — the same pair `showsPreviewColumn` answers.
+    @Test func testATreePreviewNeedsBothATargetAndTheSetting() {
+        #expect(PaneViewMode.showsTreePreview(
+            paneWidth: 1200, isEnabled: true, hasPreviewTarget: false) == false)
+        #expect(PaneViewMode.showsTreePreview(
+            paneWidth: 1200, isEnabled: false, hasPreviewTarget: true) == false)
+    }
+
+    /// **The two gates are deliberately not the same rule, and at today's constants the TREE one is
+    /// the stricter.** A default column is 210 and the outline's floor is 220, so there is a band of
+    /// pane widths — 430 up to 439 — where a Columns pane previews and a Tree pane does not. Pinned
+    /// because it reads backwards: the mode with no column to fit is the one that refuses first.
+    @Test func testTheTwoGatesDivergeAndTheTreesIsTheStricter() {
+        let width = PaneViewMode.defaultColumnWidth + PaneViewMode.minimumPreviewColumnWidth
+        #expect(PaneViewMode.showsPreviewColumn(
+            paneWidth: width, columnWidth: PaneViewMode.defaultColumnWidth,
+            isEnabled: true, hasPreviewTarget: true))
+        #expect(PaneViewMode.showsTreePreview(
+            paneWidth: width, isEnabled: true, hasPreviewTarget: true) == false)
+    }
+
+    /// A tree has no column stack, so the column gate's push-navigation condition is not one of its
+    /// conditions — the tree floor is the whole rule.
+    ///
+    /// Unobservable at today's constants: `pushNavigationBelowWidth` is 280 and the tree floor sits
+    /// at 440, so every pane narrow enough for push mode is already refused on width. The assertion
+    /// is therefore the arithmetic that makes it unobservable, so that retuning either number
+    /// surfaces the question rather than quietly answering it.
+    @Test func testPushNavigationIsNotOneOfTheTreeGatesConditions() {
+        let treeFloor = PaneViewMode.minimumTreeListWidth + PaneViewMode.minimumPreviewColumnWidth
+        #expect(PaneViewMode.pushNavigationBelowWidth < treeFloor)
+        #expect(PaneViewMode.showsTreePreview(
+            paneWidth: PaneViewMode.pushNavigationBelowWidth - 1,
+            isEnabled: true, hasPreviewTarget: true) == false)
+    }
+
+    /// One remembered width across both modes: a preview dragged to 900 in Columns opens at 900 in
+    /// Tree. The modes differ only in what the cap leaves behind.
+    @Test func testTheTreePreviewSharesTheDraggedWidth() {
+        #expect(PaneViewMode.treePreviewPaneWidth(paneWidth: 1590, preferred: 900) == 900)
+        #expect(PaneViewMode.treePreviewPaneWidth(paneWidth: 1590, preferred: 420) == 420)
+    }
+
+    /// …capped so a legible outline always survives beside it, exactly as the column cap keeps one
+    /// full column.
+    @Test func testTheTreePreviewNeverSqueezesOutTheOutline() {
+        let width = PaneViewMode.treePreviewPaneWidth(
+            paneWidth: 500, preferred: PaneViewMode.maximumPreviewColumnWidth)
+        #expect(width == 500 - PaneViewMode.minimumTreeListWidth)
+        #expect(width + PaneViewMode.minimumTreeListWidth == 500)
+    }
+
+    /// The floor is a legibility number, not a column measurement: an indented outline needs more
+    /// room to show a name than one column of unindented rows does.
+    @Test func testTheOutlinesFloorIsWiderThanAColumns() {
+        #expect(PaneViewMode.minimumTreeListWidth > PaneViewMode.minimumColumnWidth)
     }
 
     @Test func testThePreviewWidthIsClampedToTheLegibleRange() {

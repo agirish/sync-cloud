@@ -69,20 +69,27 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         #expect(laidOutHeight(Self.paneHeader(), width: width) == LiquidGlass.headerHeight)
     }
 
-    /// And it genuinely renders: a Columns header draws one more control than the same header in Tree
-    /// mode, where there is no preview for a toggle to govern.
+    /// And it genuinely renders — in BOTH modes, which is the change Tree's preview made here.
     ///
-    /// Mode is now the *whole* gate. The header used to take an `isSingleSource` and withhold the
-    /// toggle from comparison panes, which is why there was a second test here asserting a comparison
-    /// header drew one control fewer. That input is gone rather than merely ignored — a comparison
-    /// header and the rail's are the same value now, so the property this suite could assert about
-    /// them is a tautology, and the surface-independence is instead carried by the type having no
-    /// surface to be told about. What a comparison pane does with the setting is asserted where it is
-    /// observable: `ColumnPreviewLayoutTests.testAComparisonPaneGetsThePreviewToo`.
-    @Test func aColumnsHeaderDrawsTheExtraControl() {
+    /// This used to read `columns == tree + 1`, on the ground that Tree had no preview for a toggle
+    /// to govern. It has one now, so the two headers draw the same controls and the assertion is
+    /// their agreement. The second half is what keeps that from being vacuous: a header with no
+    /// view-mode switch at all draws strictly fewer, so "equal" is two headers that both have the
+    /// pill rather than two that both lost it.
+    ///
+    /// Mode is no longer any part of the gate. The header used to take an `isSingleSource` and
+    /// withhold the toggle from comparison panes, which is why there was a third test here asserting
+    /// a comparison header drew one control fewer. That input is gone rather than merely ignored — a
+    /// comparison header and the rail's are the same value now — and the surface-independence is
+    /// carried by the type having no surface to be told about. What a comparison pane does with the
+    /// setting is asserted where it is observable:
+    /// `ColumnPreviewLayoutTests.testAComparisonPaneGetsThePreviewToo`.
+    @Test func bothModesDrawThePreviewToggle() {
         let columns = Self.buttonCount(Self.paneHeader(mode: .columns), width: 560)
         let tree = Self.buttonCount(Self.paneHeader(mode: .tree), width: 560)
-        #expect(columns == tree + 1)
+        let noSwitch = Self.buttonCount(Self.paneHeaderWithoutViewMode(), width: 560)
+        #expect(columns == tree)
+        #expect(tree > noSwitch)
     }
 
     // MARK: Fixtures
@@ -124,6 +131,21 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),
             onRefresh: {}, isRefreshing: false, showHiddenFiles: .constant(false),
             viewMode: .constant(mode), onNewFolder: {})
+    }
+
+    /// The same header with no view-mode switch — a surface that draws no pane presentation, and so
+    /// offers neither the switch nor the preview toggle. Identical in every other argument, so the
+    /// difference in control count is those two and nothing else.
+    private static func paneHeaderWithoutViewMode() -> PaneHeader {
+        PaneHeader(
+            title: "Left",
+            provider: CloudProvider(id: "icloud", displayName: "iCloud Drive", imageName: "icloud-logo",
+                                    rootPath: "/Users/test/iCloud", type: .iCloud),
+            rootPath: "/Users/test/iCloud", relativePath: "Documents/Reports",
+            canGoBack: true, canGoForward: false, onBack: {}, onForward: {},
+            onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),
+            onRefresh: {}, isRefreshing: false, showHiddenFiles: .constant(false),
+            onNewFolder: {})
     }
 
     private static func headerNoProvider() -> PaneHeader {

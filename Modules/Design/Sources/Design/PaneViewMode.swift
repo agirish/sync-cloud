@@ -184,10 +184,15 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
 
     // MARK: - Preview column
 
-    /// Whether a Columns pane appends a Quick Look preview column for a selected file, as Finder's
-    /// column view does. On by default; toggled from the pane header's pill (or the same item in its
-    /// ⋯ menu at narrow widths), and from a column's empty-area context menu — the place Finder keeps
-    /// its view options.
+    /// Whether a pane shows a Quick Look preview for a selected file, as Finder's column view does.
+    /// On by default; toggled from the pane header's pill (or the same item in its ⋯ menu at narrow
+    /// widths), and from the empty-area context menu of a column or of a tree — the place Finder
+    /// keeps its view options.
+    ///
+    /// One preference across BOTH presentations, deliberately. It answers "do I want to see file
+    /// contents while I work here", which is a question about the surface and not about how the
+    /// surface happens to be listing its files right now; splitting it would mean flipping the pill
+    /// twice to get one outcome, and a mode switch could then take the preview away.
     ///
     /// Shared by both comparison panes and the single-source rail (Organize, Storage), like
     /// `columnWidthDefaultsKey`: across those three this is one reading preference ("do I want to see
@@ -221,9 +226,17 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
 
     /// Whether a pane's header offers the preview toggle.
     ///
-    /// One condition, and it is about the control being honest rather than about taste: Tree mode has
-    /// no preview to show, so a toggle there would be a switch wired to nothing. A control that can be
-    /// flipped without anything happening is worse than no control.
+    /// **Both modes, now that Tree draws a preview too.** This used to be `mode == .columns`, on the
+    /// honest ground that a switch wired to nothing is worse than no switch: Tree had no preview for
+    /// it to govern. That was a fact about the Tree presentation, not about previewing — a selected
+    /// file is a selected file whichever way the pane lists it, and the preview reads the selection,
+    /// never the stack. `FileTreeView.treePreviewItem` resolves it from the row projection, so the
+    /// switch now governs something on every surface and this returns true for both cases.
+    ///
+    /// Kept as a function rather than deleted at its three call sites. It is the one place that
+    /// answers "may this surface offer the preview at all", and a mode that could not draw one (a
+    /// future gallery, say) would say so here rather than in the header, the ⋯ menu and ⇧⌘P
+    /// separately.
     ///
     /// It used to also require the single-source rail, matching a gate in `PaneColumnsView.previewItem`
     /// that kept the preview off comparison panes. Both are gone: a comparison pane in Columns mode
@@ -246,7 +259,9 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// Stated because the divergence looks like an oversight: do not "align" the two without
     /// deciding which scope you mean.
     public static func showsPreviewToggle(mode: PaneViewMode) -> Bool {
-        mode == .columns
+        switch mode {
+        case .tree, .columns: return true
+        }
     }
 
     /// Narrower than this a preview is not worth the room it costs: the thumbnail stops carrying
@@ -297,6 +312,48 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     ) -> Bool {
         guard isEnabled, hasPreviewTarget, !usesPushNavigation(paneWidth: paneWidth) else { return false }
         return paneWidth >= columnWidth + minimumPreviewColumnWidth
+    }
+
+    // MARK: - Preview beside a tree
+
+    /// The narrowest the outline may be squeezed to by a preview beside it.
+    ///
+    /// The same number, for the same reason, as `PaneLogic.minRailWidth`: below 220 a file row cannot
+    /// show a name. It is stated here rather than read from there because the two are different
+    /// scopes that happen to agree — that one clamps a whole rail inside a window, this one divides
+    /// one pane — and a shared constant would make retuning either silently retune the other.
+    ///
+    /// Not `minimumColumnWidth`. A column's 140 is what an unindented list of one folder's rows needs;
+    /// a tree indents, so the same name in a deep folder starts at 140 with a good deal of it already
+    /// spent, and the pane it is being squeezed by is the whole outline rather than the last column
+    /// of a stack the user can scroll.
+    public static let minimumTreeListWidth: CGFloat = 220
+
+    /// Whether a Tree pane this wide will show the preview for a selected file.
+    ///
+    /// Same shape as `showsPreviewColumn` and the same rule underneath — the preview only ever takes
+    /// slack the list is not using — with the column stack's two conditions dropped, because a tree
+    /// has neither. There is no push navigation to protect (nothing scrolls sideways, so selecting a
+    /// file cannot make the pane jump), and no column width to fit beside the preview: the outline is
+    /// one list that reflows into whatever it is left, down to `minimumTreeListWidth`.
+    public static func showsTreePreview(
+        paneWidth: CGFloat,
+        isEnabled: Bool,
+        hasPreviewTarget: Bool
+    ) -> Bool {
+        guard isEnabled, hasPreviewTarget else { return false }
+        return paneWidth >= minimumTreeListWidth + minimumPreviewColumnWidth
+    }
+
+    /// Width of the preview beside a tree: what it was dragged to, capped so a legible outline
+    /// remains.
+    ///
+    /// Delegates to `previewPaneWidth`, so the preview is one width preference across both modes —
+    /// drag it in Columns and Tree opens at the same size. Only the floor the cap leaves behind
+    /// differs, which is the one thing the two modes genuinely disagree about.
+    public static func treePreviewPaneWidth(paneWidth: CGFloat, preferred: CGFloat) -> CGFloat {
+        previewPaneWidth(paneWidth: paneWidth, columnWidth: minimumTreeListWidth,
+                         preferred: preferred)
     }
 
     /// Width of the preview pane: exactly what it was dragged to, capped so one full column still

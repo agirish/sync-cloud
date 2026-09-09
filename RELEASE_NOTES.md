@@ -51,6 +51,21 @@ User-facing changes, newest first. For the full commit history see the
   to a folder you were in ten minutes ago says ten minutes, not "just now" — the age belongs to the
   walk that read the disk, and it survives being served from memory.
 
+### The preview works in the tree too
+
+- **Selecting a file in a tree pane opens a preview beside it**, the same Quick Look preview the
+  Finder-style columns have had. The switch is the one that was already there — the pane header's
+  pill, ⇧⌘P, and Show Preview in the pane's right-click menu — so the preference travels with the
+  surface rather than with the way it happens to be listing files: turn the preview on in columns,
+  switch that pane to a tree, and it is still there.
+- **The rows give up the room, and only ever room they have.** The preview is pinned to the pane's
+  trailing edge and the list reflows into what is left, so nothing is covered and nothing scrolls
+  sideways. Drag the seam between them to resize it; the width is remembered and is the same width
+  the columns use. A pane too narrow to hold a legible list beside a preview shows no preview at
+  all, and gets it back when you widen the pane.
+- **View ▸ Preview Column is now View ▸ Preview**, because it is no longer a column in one of the
+  two views. Same key, same tick.
+
 ### Three menu items that were missing
 
 - **View ▸ Text Size ▸ Bigger ⌘+ / Smaller ⌘− / Default Size ⌘0.** The whole app's type, from the

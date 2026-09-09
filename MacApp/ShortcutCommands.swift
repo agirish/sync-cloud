@@ -1557,9 +1557,13 @@ extension ContentView {
         // to a stack the user was not looking at — dead in Browse-Columns whenever the rail was in
         // Tree, and live in Browse-Tree whenever the rail was in Columns.
         // Same gate as ⇧⌘N, and it was missing for the same reason: with its source pane collapsed
-        // the Editor has no columns to put a preview beside, but it fell through to the RAIL's
-        // stored mode — so ⇧⌘P was live there whenever the rail happened to be in Columns, toggling
-        // a key nothing on screen read. Expanded, the pane is real and so is the preview column.
+        // the Editor has nothing to put a preview beside, but it fell through to the RAIL's stored
+        // mode — so ⇧⌘P was live there whenever the rail happened to be in Columns, toggling a key
+        // nothing on screen read. Expanded, the pane is real and so is the preview.
+        //
+        // The mode check below is what it always was, but it no longer selects between the two
+        // presentations: both draw a preview now, so it stands as the one place a future mode that
+        // cannot would say so.
         guard contentLayout.drawsAPaneList else { return nil }
         let mode = resolvedViewModeBinding(isLeft: shortcutTargetIsLeft)
         guard PaneViewMode.showsPreviewToggle(mode: mode.wrappedValue) else { return nil }
@@ -2189,7 +2193,7 @@ struct TogglePreviewColumnCommand: View {
     @FocusedValue(\.previewColumn) private var previewColumn
 
     var body: some View {
-        Toggle("Preview Column", isOn: previewColumn ?? .constant(false))
+        Toggle("Preview", isOn: previewColumn ?? .constant(false))
             .keyboardShortcut(AppChord.previewColumn.key, modifiers: AppChord.previewColumn.modifiers)
             .disabled(previewColumn == nil)
     }

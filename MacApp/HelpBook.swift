@@ -156,7 +156,7 @@ enum HelpBook {
                 blocks: [
                     .bullets([
                         "Move through Finder-style columns — clicking a folder opens the next column — or switch the pane to a tree; the choice is remembered for Browse on its own.",
-                        "In columns, selecting a file opens a preview beside the list; Space opens Quick Look in either view.",
+                        "Selecting a file opens a preview beside the list, in columns and in the tree alike; ⇧⌘P turns it off and on, and Space opens Quick Look in either view. A pane too narrow to hold both keeps the list and shows no preview.",
                         "In columns you can walk without the mouse: ⌘↓ opens the selected folder in a new column, and ⌘↑ closes the rightmost one. They are in the Go menu, and they move only the columns — the scan and the folder each pane is comparing stay where they are. ⌘↑ stops at the first column rather than stepping back out of it; ⌘[ is the one that goes further back. Both are greyed out in the tree view, which has no columns to walk.",
                         "Hold two places at once with tabs: right-click a folder and choose “Open in New Tab”, or press ⌘T to open a second tab on the folder you are in. The strip appears as soon as there is a second tab.",
                         "Each tab keeps its own folder, and its selection, search and Back history for as long as the app is open. With “Reopen panes where I left off” on — it is on by default — the tabs you leave open come back the next time you launch. ⇧⌘] and ⇧⌘[ step between them; ⌘W closes one, and closes the window on the last.",

@@ -255,7 +255,7 @@ public extension AppChord {
 
     /// File ▸ Print… — the open document, rendered, on paper (roadmap RD9).
     ///
-    /// **⌘P was free, and that is not the same as unused.** ⇧⌘P is View ▸ Preview Column and has
+    /// **⌘P was free, and that is not the same as unused.** ⇧⌘P is View ▸ Preview and has
     /// been since v3; the bare ⌘P has never been registered by anything here, and it is the one
     /// chord on the platform a reader will try without looking. `TextEditingChord` does not claim
     /// it either — printing is not one of `NSTextView`'s own key bindings — so a menu equivalent

@@ -6,7 +6,7 @@ import SwiftUI
 import Sync
 import UniformTypeIdentifiers
 
-/// The file a Columns pane's preview column is showing, reduced to scalars.
+/// The file a pane's preview is showing, reduced to scalars.
 ///
 /// Deliberately not a `PaneRow`/`FileNode`: a view that stores a node keeps that node's subtree
 /// reachable from the view graph (the reason `FileRowInfo` exists at all), and a preview needs none
@@ -43,23 +43,57 @@ struct ColumnPreviewItem: Equatable {
     }
 }
 
-/// Which file a preview column should show, given a pane's selection.
+/// Which file a preview should show, given a pane's selection.
 ///
 /// Pure and separate from the view because the answer is a rule, not a rendering: exactly one file,
-/// selected in the deepest open column. Both halves matter.
+/// found where that presentation keeps its selection.
 ///
-/// - One item, because a preview names one file. A ⌘-click multi-selection has no single subject,
-///   and previewing the "first" of it would describe a file the user did not point at.
-/// - In the deepest column, because that is where a file selection lives by construction: clicking a
-///   file truncates the stack to its own column (`PaneColumnsView.navigation(for:depth:)`), so a
-///   selection resolved anywhere shallower is a stale one the pane has already navigated past.
+/// The "exactly one" half is shared by both modes and is the load-bearing one — a preview names one
+/// file, and a ⌘-click multi-selection has no single subject, so previewing the "first" of it would
+/// describe a file the user did not point at. Only *where to look* differs, which is what the two
+/// entry points below are.
 enum ColumnPreview {
+    /// Columns: the selection lives in the deepest open column by construction — clicking a file
+    /// truncates the stack to its own column (`PaneColumnsView.navigation(for:depth:)`), so a
+    /// selection resolved anywhere shallower is a stale one the pane has already navigated past.
     static func item(selection: Set<String>, deepestRows: [PaneRow]) -> ColumnPreviewItem? {
-        guard selection.count == 1, let id = selection.first,
-              let row = deepestRows.first(where: { $0.id == id }),
-              !row.node.isDirectory
+        resolve(selection: selection) { path in deepestRows.first { $0.id == path } }
+    }
+
+    /// Tree: the selection can be at any depth of the outline, so the path is walked down the row
+    /// projection rather than looked for in one list.
+    ///
+    /// `treeRows` is the pane's whole projection (`PaneTree.rows`), and the walk is why this takes it
+    /// rather than a flattened list: `descend` follows the path's own components, so it touches one
+    /// directory's siblings per level instead of the ~40,000 rows a pane routinely holds. A linear
+    /// scan here would run on every render of a pane with a file selected, which is the shape
+    /// `PaneTree` exists to keep out of the view graph.
+    static func item(selection: Set<String>, treeRows: [PaneRow]) -> ColumnPreviewItem? {
+        resolve(selection: selection) { path in descend(to: path, in: treeRows) }
+    }
+
+    /// The shared half: exactly one selected path, resolved to a row, and that row a file.
+    private static func resolve(selection: Set<String>,
+                                row: (String) -> PaneRow?) -> ColumnPreviewItem? {
+        guard selection.count == 1, let path = selection.first,
+              let row = row(path), !row.node.isDirectory
         else { return nil }
         return ColumnPreviewItem(row: row)
+    }
+
+    /// Finds the row for an absolute path by walking the projection, entering only the one directory
+    /// on the way to it.
+    ///
+    /// The containment test is `id + "/"`, never a bare `hasPrefix`: `/a/b` is a prefix of `/a/bc`
+    /// as a string but not as a path, and descending into the wrong sibling ends the walk at nothing.
+    static func descend(to path: String, in rows: [PaneRow]) -> PaneRow? {
+        for row in rows {
+            if row.id == path { return row }
+            guard row.info.isDirectory, let children = row.children,
+                  path.hasPrefix(row.id + "/") else { continue }
+            return descend(to: path, in: children)
+        }
+        return nil
     }
 }
 

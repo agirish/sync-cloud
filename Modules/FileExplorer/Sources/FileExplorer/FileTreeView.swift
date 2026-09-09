@@ -209,6 +209,16 @@ public struct FileTreeView: View, Equatable {
     /// no second syscall.
     @StateObject private var downloads = PaneDownloadWatch()
 
+    /// The preview's width, shared with the Columns presentation — one preference, so a preview
+    /// dragged wide in Columns opens that wide in Tree. Only the floor differs, and that lives in
+    /// `PaneViewMode.treePreviewPaneWidth`.
+    @AppStorage(PaneViewMode.previewColumnWidthDefaultsKey) private var storedPreviewWidth: Double =
+        Double(PaneViewMode.defaultPreviewColumnWidth)
+    /// Live drag scratch for the preview's seam, owned here because the outline beside it is laid
+    /// out from the pane width minus this — see `PanePreviewSidebar`, which writes both.
+    @State private var dragPreviewWidth: CGFloat?
+    @State private var dragPreviewAnchor: CGFloat?
+
     /// The folders whose children are showing, in the Tree presentation. Pane state, not model
     /// state: it survives a republish (identity is the node path) and is reset by nothing, exactly
     /// as `OutlineGroup`'s private equivalent behaved.
@@ -894,8 +904,77 @@ public struct FileTreeView: View, Equatable {
                 flipEdgeIfScrolledAcross()
             }
         } else {
-            paneList
+            treePresentation
         }
+    }
+
+    /// The tree, and — when a single file is selected — the same preview the columns show, pinned to
+    /// the pane's trailing edge beside it.
+    ///
+    /// **The outline is framed to what is LEFT, never overlaid.** The preview takes its width off the
+    /// list's, so the rows reflow into the narrower pane exactly as they do under a splitter drag;
+    /// nothing scrolls sideways and no row is covered. That is the same structure the column stack
+    /// uses (the preview is outside its scroll view), arrived at for the same reason.
+    ///
+    /// The width is measured here rather than mirrored into `@State`, matching `PaneColumnsView`:
+    /// reading it back from state decided the layout of the first render from a width of 0.
+    @ViewBuilder
+    private var treePresentation: some View {
+        GeometryReader { geo in
+            let paneWidth = geo.size.width
+            let target = treePreviewItem
+            let showsPreview = PaneViewMode.showsTreePreview(
+                paneWidth: paneWidth, isEnabled: previewEnabled.wrappedValue,
+                hasPreviewTarget: target != nil)
+            let previewWidth = showsPreview
+                ? PaneViewMode.treePreviewPaneWidth(paneWidth: paneWidth,
+                                                    preferred: preferredPreviewWidth)
+                : 0
+
+            HStack(spacing: 0) {
+                paneList
+                    .frame(width: paneWidth - previewWidth)
+                if showsPreview, let target {
+                    // `placement` is the action-bar signal, exactly as in the column stack: nil on
+                    // surfaces that have no bar (the single-source rail), so only the surfaces where
+                    // the bar would cover the identity rows hold a band clear for it.
+                    PanePreviewSidebar(
+                        item: target,
+                        width: previewWidth,
+                        actionBarClearance: placement == nil ? 0 : ColumnPreviewColumn.actionBarClearance,
+                        paneToken: paneToken,
+                        isAwaitingDownload: downloads.requests[target.path] != nil,
+                        downloadChannel: downloadChannel,
+                        dragWidth: $dragPreviewWidth,
+                        dragAnchor: $dragPreviewAnchor,
+                        storedWidth: $storedPreviewWidth)
+                        // The tint wash, which in Columns is applied once around the stack AND its
+                        // preview. Here the list paints its own (see `paneListBody`), so the
+                        // preview needs its own to sit on the same surface rather than on a seam of
+                        // bare window.
+                        .contentSurface(hue: glassHue, tint: surfaceTint)
+                }
+            }
+        }
+    }
+
+    /// The width the preview would like: the live drag while one is in flight, the remembered width
+    /// otherwise.
+    private var preferredPreviewWidth: CGFloat {
+        PaneViewMode.clampPreviewColumnWidth(dragPreviewWidth ?? CGFloat(storedPreviewWidth))
+    }
+
+    /// The file the tree's preview would show, or nil — see `ColumnPreview.item(selection:treeRows:)`.
+    ///
+    /// Resolved per render, and cheap enough to be: with nothing or several things selected it
+    /// returns before touching a row at all, and with one file it walks the path's own directories
+    /// rather than the tree. It is deliberately NOT cached in `@State` — a cache would have to be
+    /// invalidated on both the selection and every republish, and a preview showing the previous
+    /// file for a frame is exactly the stale-state class `ColumnPreviewColumn.ProbeResult` was
+    /// written to make unrepresentable.
+    private var treePreviewItem: ColumnPreviewItem? {
+        guard previewEnabled.wrappedValue else { return nil }
+        return ColumnPreview.item(selection: selection, treeRows: tree.rows)
     }
 
     /// The pane's List plus its list-level chrome: the empty-area context menu and the pane's own
@@ -1121,6 +1200,19 @@ public struct FileTreeView: View, Equatable {
             Button("Date Modified") { delegate.handleSort(.dateModified) }
             Button("Size") { delegate.handleSort(.size) }
             Button("Tags") { delegate.handleSort(.tags) }
+        }
+        // The pane's view options where Finder keeps its own — the empty-area menu of the very list
+        // the preview takes its room from. The columns menu carries the identical item; both write
+        // the binding the header's pill and ⇧⌘P write, so the three cannot disagree.
+        //
+        // Unconditional here, unlike the column menu's copy, which is withheld once a pane is too
+        // narrow to hold a preview at all. The tree has no equivalent of that width to test against
+        // without measuring, and this menu is built from a context click rather than from layout —
+        // reaching for a geometry read to hide one item would put the pane's width into a code path
+        // that has never needed it.
+        Divider()
+        Toggle(isOn: previewEnabled) {
+            Label("Show Preview", systemImage: "sidebar.right")
         }
     }
 }

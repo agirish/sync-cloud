@@ -293,18 +293,21 @@ struct PaneColumnsView: View {
                 // you are not reading beats geometry that moves under the one you just clicked, which
                 // is the same resting-state rule `showsPreviewColumn` follows when it refuses to let
                 // a file click start the stack scrolling.
-                ColumnPreviewColumn(
+                //
+                // The preview and its seam are `PanePreviewSidebar`, shared with the Tree
+                // presentation: this stack decides how much room the preview gets and hands over
+                // the rest of the pane, which is the only part of the arrangement the two modes
+                // disagree about.
+                PanePreviewSidebar(
                     item: previewTarget,
+                    width: previewWidth,
                     actionBarClearance: placement == nil ? 0 : ColumnPreviewColumn.actionBarClearance,
                     paneToken: paneToken,
                     isAwaitingDownload: awaitingDownloads[previewTarget.path] != nil,
-                    downloadChannel: downloadChannel)
-                    .frame(width: previewWidth)
-                    // On the preview's LEADING edge, and it resizes the preview. This is the drag
-                    // that could not work while the preview lived in the scroll view: pinned to the
-                    // trailing edge, growing it moves this seam left, under the cursor, exactly as a
-                    // divider should behave.
-                    .overlay(alignment: .leading) { previewDivider(rendered: previewWidth) }
+                    downloadChannel: downloadChannel,
+                    dragWidth: $dragPreviewWidth,
+                    dragAnchor: $dragPreviewAnchor,
+                    storedWidth: $storedPreviewWidth)
             }
         }
     }
@@ -1087,7 +1090,7 @@ struct PaneColumnsView: View {
     /// The draggable seam between two columns. Writes defaults only when the drag ends, so a drag
     /// doesn't churn UserDefaults every frame.
     private var divider: some View {
-        dividerChrome {
+        PaneDividerHandle(gesture:
             DragGesture(coordinateSpace: .global)
                 .onChanged { value in
                     // Capture the starting width once; `translation` is cumulative, so
@@ -1101,46 +1104,7 @@ struct PaneColumnsView: View {
                     if let dragWidth { storedColumnWidth = Double(dragWidth) }
                     dragWidth = nil
                     dragAnchorWidth = nil
-                }
-        }
-    }
-
-    /// The seam between the scrolling columns and the pinned preview, which resizes the PREVIEW.
-    ///
-    /// - Parameter rendered: the preview's current laid-out width, which is what the drag starts
-    ///   from — the stored preference can differ from it when the `room` cap binds, and anchoring on
-    ///   the stored one would jump the seam by the difference on the drag's first pixel.
-    private func previewDivider(rendered: CGFloat) -> some View {
-        dividerChrome {
-            DragGesture(coordinateSpace: .global)
-                .onChanged { value in
-                    let anchor = dragPreviewAnchor ?? rendered
-                    if dragPreviewAnchor == nil { dragPreviewAnchor = anchor }
-                    dragPreviewWidth = PaneViewMode.draggedPreviewColumnWidth(
-                        anchor: anchor, translation: value.translation.width)
-                }
-                .onEnded { _ in
-                    if let dragPreviewWidth { storedPreviewWidth = Double(dragPreviewWidth) }
-                    dragPreviewWidth = nil
-                    dragPreviewAnchor = nil
-                }
-        }
-    }
-
-    /// One hairline and the 9pt strip that makes it grabbable. Shared by both dividers so they
-    /// cannot drift apart visually; only the gesture differs.
-    private func dividerChrome<G: Gesture>(gesture: () -> G) -> some View {
-        Rectangle()
-            .fill(Color.primary.opacity(0.08))
-            .frame(width: 1)
-            .overlay {
-                Rectangle()
-                    .fill(Color.clear)
-                    .frame(width: 9)
-                    .contentShape(Rectangle())
-                    .onHover { NSCursor.resizeLeftRight.set(); if !$0 { NSCursor.arrow.set() } }
-                    .gesture(gesture())
-            }
+                })
     }
 }
 
