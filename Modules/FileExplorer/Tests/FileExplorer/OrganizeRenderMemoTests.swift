@@ -216,15 +216,14 @@ import Testing
         let elsewhere = try #require([TimeZone(identifier: "Asia/Kolkata"),
                                       TimeZone(identifier: "America/Los_Angeles")]
             .compactMap { $0 }.first { $0 != TimeZone.current })
-        let formatter = RestructureLens.formatter("HH:mm")
-        formatter.timeZone = elsewhere
-        #expect(RestructureLens.formatter("HH:mm").timeZone == TimeZone.current,
+        RestructureLens.stampClock.stageZoneForTesting(elsewhere)
+        _ = RestructureLens.stampClock.string(from: Date())
+        #expect(RestructureLens.stampClock.zone == TimeZone.current,
                 "a cached formatter must be put back on the system zone before it is used")
         // The reading itself, so this is not only about a property.
         let stamp = "2026-08-28T09:14:00"
-        RestructureLens.formatter("yyyy-MM-dd'T'HH:mm:ss").timeZone = elsewhere
-        let now = try #require(RestructureLens.formatter("yyyy-MM-dd'T'HH:mm:ss")
-            .date(from: "2026-08-28T12:00:00"))
+        RestructureLens.stampParser.stageZoneForTesting(elsewhere)
+        let now = try #require(RestructureLens.stampParser.date(from: "2026-08-28T12:00:00"))
         #expect(RestructureLens.landingPhrase(stamp, now: now) == "today at 09:14")
     }
 }

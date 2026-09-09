@@ -18,7 +18,8 @@ import Design
 /// Driven through the accessor rather than by moving `NSTimeZone.default`, which is process-wide
 /// and would race every other suite in the run — the same rule
 /// `OrganizeRenderMemoTests.theStampFormattersFollowTheSystemZone` follows for
-/// `RestructureLens.formatter(_:)`, which is the same defect one module over.
+/// `RestructureLens`' stamp formatters. Both now share `Design.ZoneRefreshedFormatter`, which is
+/// where the rule itself is tested; what these assert is that this row routes through it.
 @MainActor
 @Suite(.serialized) struct LogRowTimeZoneTests {
 
@@ -41,12 +42,14 @@ import Design
                                       TimeZone(identifier: "America/Los_Angeles")]
             .compactMap { $0 }.first { $0 != TimeZone.current })
 
-        LogEntryRow.formatter(.current).timeZone = elsewhere
-        #expect(LogEntryRow.formatter(.current).timeZone == TimeZone.current,
+        LogEntryRow.timeFormatter.stageZoneForTesting(elsewhere)
+        _ = LogEntryRow.timeFormatter.string(from: Self.instant)
+        #expect(LogEntryRow.timeFormatter.zone == TimeZone.current,
                 "a cached formatter must be put back on the system zone before it is used")
 
         let utc = try #require(TimeZone(identifier: "UTC"))
-        #expect(LogEntryRow.formatter(utc).timeZone == utc,
+        _ = LogEntryRow.timeFormatter.string(from: Self.instant, in: utc)
+        #expect(LogEntryRow.timeFormatter.zone == utc,
                 "an injected zone must survive the accessor")
     }
 
@@ -55,8 +58,8 @@ import Design
     @Test func theStampIsRenderedInTheZoneItIsGiven() throws {
         let utc = try #require(TimeZone(identifier: "UTC"))
         let kolkata = try #require(TimeZone(identifier: "Asia/Kolkata"))
-        #expect(LogEntryRow.formatter(utc).string(from: Self.instant) == "12:00:00.000")
-        #expect(LogEntryRow.formatter(kolkata).string(from: Self.instant) == "17:30:00.000")
+        #expect(LogEntryRow.timeFormatter.string(from: Self.instant, in: utc) == "12:00:00.000")
+        #expect(LogEntryRow.timeFormatter.string(from: Self.instant, in: kolkata) == "17:30:00.000")
     }
 
     /// **The call-site half.** The two tests above are about a formatter; this one is about the

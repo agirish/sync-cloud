@@ -155,8 +155,10 @@ public struct LogEntry: Identifiable, Sendable {
 /// life of the process, so after a Date & Time change or a flight every line written for the rest
 /// of the session carried the wall clock of a place the machine had left — and `~/sync-cloud.log`
 /// outlives the session, so that stamp is permanent and there is nothing in the file to correct it
-/// against. `LogEntryRow.formatter(_:)` and `RestructureLens.formatter(_:)` were fixed for the
-/// same defect; this is the same remedy.
+/// against. Every date column in the UI was fixed for the same defect and now shares
+/// `Design.ZoneRefreshedFormatter`; this is the same remedy, deliberately not that type, because
+/// Events is a leaf module that must not depend on Design — and because the question here is
+/// about the log FILE rather than a column, as the rest of this note explains.
 ///
 /// **What the old comment protected does not exist.** It said the zone stayed local "because the
 /// file's existing lines are local-time, and changing it would break continuity with them" — but

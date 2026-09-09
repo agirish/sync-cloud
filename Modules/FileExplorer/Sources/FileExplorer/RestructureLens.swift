@@ -436,10 +436,10 @@ struct RestructureLens: View {
     /// footnote that says "Surveyed yesterday". An unparseable stamp renders as itself — a wrong
     /// spelling of the truth beats a pretty invention.
     static func landingPhrase(_ stamp: String, now: Date = Date()) -> String {
-        guard let date = Self.formatter("yyyy-MM-dd'T'HH:mm:ss").date(from: stamp) else {
+        guard let date = Self.stampParser.date(from: stamp) else {
             return stamp
         }
-        let time = Self.formatter("HH:mm").string(from: date)
+        let time = Self.stampClock.string(from: date)
         let calendar = Calendar.current
         let days = calendar.dateComponents([.day],
                                            from: calendar.startOfDay(for: date),
@@ -1651,7 +1651,7 @@ struct RestructureLens: View {
     }
 
     private static func absolute(_ date: Date) -> String {
-        Self.formatter("d MMM yyyy").string(from: date)
+        Self.stampDate.string(from: date)
     }
 
     /// The POSIX formatters these cards read stamps with, built once each.
@@ -1659,31 +1659,20 @@ struct RestructureLens: View {
     /// **Two or three `DateFormatter`s were allocated per Applied card per render.**
     /// `landingPhrase` made a parser and a clock, `absolute` made a third, and every one of them
     /// is `DateFormatter`'s notoriously expensive setup — repeated for every ledger card on every
-    /// redraw of the lens. The formats are a fixed set of three, so the cache is bounded by
-    /// construction and only ever needs filling.
+    /// redraw of the lens. There are exactly three formats, so they are three named constants
+    /// rather than the string-keyed cache this used to be.
     ///
-    /// **The time zone is re-checked rather than pinned.** A fresh formatter picked up the
-    /// system zone on each call; a cached one would keep whichever zone was current when it was
-    /// first built, so a landing stamped this morning would read an hour out after a flight. The
-    /// comparison is cheap and the assignment only happens when the zone has actually moved.
-    /// (DST is not this question — a `TimeZone` handles its own transitions.)
-    private static var formatters: [String: DateFormatter] = [:]
-
+    /// The zone is re-checked rather than pinned, which is `ZoneRefreshedFormatter`'s whole job:
+    /// a fresh formatter picked up the system zone on each call, and a cached one would keep
+    /// whichever zone was current when it was first built, so a landing stamped this morning would
+    /// read an hour out after a flight.
+    ///
     /// Internal, not private, so `theStampFormattersFollowTheSystemZone` can drive the refresh
-    /// branch directly — the alternative is mutating `NSTimeZone.default`, which is process-wide
-    /// and would race every other suite in the same run.
-    static func formatter(_ format: String) -> DateFormatter {
-        if let cached = formatters[format] {
-            if cached.timeZone != TimeZone.current { cached.timeZone = TimeZone.current }
-            return cached
-        }
-        let made = DateFormatter()
-        made.locale = Locale(identifier: "en_US_POSIX")
-        made.timeZone = TimeZone.current
-        made.dateFormat = format
-        formatters[format] = made
-        return made
-    }
+    /// directly — the alternative is mutating `NSTimeZone.default`, which is process-wide and
+    /// would race every other suite in the same run.
+    static let stampParser = ZoneRefreshedFormatter.fixed("yyyy-MM-dd'T'HH:mm:ss")
+    static let stampClock = ZoneRefreshedFormatter.fixed("HH:mm")
+    static let stampDate = ZoneRefreshedFormatter.fixed("d MMM yyyy")
 
     private var samplesAccessibility: String {
         "Example of the structure-finding format: a family of sibling folders, how many of them "

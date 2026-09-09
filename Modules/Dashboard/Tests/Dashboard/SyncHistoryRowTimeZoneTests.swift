@@ -14,7 +14,8 @@ import Events
 /// Driven through the accessor rather than by moving `NSTimeZone.default`, which is process-wide
 /// and would race every other suite in the run — the same rule
 /// `OrganizeRenderMemoTests.theStampFormattersFollowTheSystemZone` follows for
-/// `RestructureLens.formatter(_:)`, which is this defect two modules over.
+/// `RestructureLens`' stamp formatters. Both now share `Design.ZoneRefreshedFormatter`, which is
+/// where the rule itself is tested; what these assert is that this column routes through it.
 @MainActor
 @Suite(.serialized) struct SyncHistoryRowTimeZoneTests {
 
@@ -47,9 +48,10 @@ import Events
     /// answers with the stale one, which is the bug exactly.
     @Test func theSyncHistoryStampFollowsTheSystemZone() throws {
         let away = try Self.elsewhere()
-        SyncHistoryRow.timeFormatter().timeZone = away
+        SyncHistoryRow.timeFormatter.stageZoneForTesting(away)
+        _ = SyncHistoryRow.timeFormatter.string(from: Self.instant)
 
-        #expect(SyncHistoryRow.timeFormatter().timeZone == TimeZone.current,
+        #expect(SyncHistoryRow.timeFormatter.zone == TimeZone.current,
                 "a cached formatter must be put back on the system zone before it is used")
     }
 
@@ -72,7 +74,7 @@ import Events
         #expect(stale != Self.expected(Self.instant),
                 "the fixture zone and the system zone render this instant identically — pick another")
 
-        SyncHistoryRow.timeFormatter().timeZone = away
+        SyncHistoryRow.timeFormatter.stageZoneForTesting(away)
 
         #expect(SyncHistoryRow.timeString(Self.instant) == Self.expected(Self.instant),
                 "the row drew its stamp in a zone the system has left")

@@ -18,8 +18,10 @@ import Testing
 ///
 /// Driven through `stageZoneForTesting` rather than by moving `NSTimeZone.default`, which is
 /// process-wide and would race every other suite in the run — the same rule
-/// `OrganizeRenderMemoTests.theStampFormattersFollowTheSystemZone` follows for
-/// `RestructureLens.formatter(_:)`.
+/// `OrganizeRenderMemoTests.theStampFormattersFollowTheSystemZone` follows for `RestructureLens`.
+///
+/// The UI columns share `Design.ZoneRefreshedFormatter`; this one deliberately does not, because
+/// Events is a leaf module that must not depend on Design — see `LogTimestampFormatter`.
 @Suite(.serialized) struct LogTimestampZoneTests {
 
     /// 2026-06-01 12:00:00.000 UTC — whole seconds, so a round-tripped timestamp compares exactly

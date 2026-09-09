@@ -1031,41 +1031,21 @@ struct LogEntryRow: View {
             .textSelection(.enabled)
     }
     
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        // Pinned locale + calendar, the same rule SyncHistoryRow follows and for the same reason:
-        // an unpinned fixed-format DateFormatter follows the system region, which can rewrite even
-        // an explicit "HH" into a 12-hour clock — so the row would disagree with the line Copy puts
-        // on the clipboard and with the on-disk log. The zone is NOT set here — `formatter(_:)`
-        // owns it, and owns it on every call; see its note.
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = "HH:mm:ss.SSS"
-        return formatter
-    }()
-
-    /// The one formatter these rows stamp with, put on `zone` before it is handed back.
+    /// The one formatter these rows stamp with — `fixed`, so locale and calendar are pinned.
     ///
-    /// **The zone is re-checked rather than captured**, the same rule and the same reason as
-    /// `RestructureLens.formatter(_:)`: this is one shared formatter built once, so it otherwise
-    /// keeps whichever zone was current the first time a row drew. The Activity Log is a window
-    /// someone leaves open, and a `DateFormatter` that never looks again would keep stamping in
-    /// the old zone for the rest of the session after a flight or a Date & Time change — every
-    /// row an hour or more out, with nothing to say so. The compare is cheap and the assignment
-    /// only runs when the zone has actually moved. (DST is not this question; a `TimeZone`
-    /// handles its own transitions.)
+    /// Both pins matter here and neither is about the zone: an unpinned fixed-format
+    /// `DateFormatter` follows the system region, which can rewrite even an explicit "HH" into a
+    /// 12-hour clock, and the row would then disagree with the line Copy puts on the clipboard and
+    /// with the on-disk log. The zone is `ZoneRefreshedFormatter`'s business, re-checked on every
+    /// use rather than captured; see that type for why.
     ///
-    /// Internal, not private, so `theLogTimeFormatterFollowsTheZoneItIsAskedFor` can drive the
-    /// refresh branch directly — the alternative is moving `NSTimeZone.default`, which is
-    /// process-wide and would race every other suite in the run.
-    static func formatter(_ zone: TimeZone) -> DateFormatter {
-        let formatter = Self.timeFormatter
-        if formatter.timeZone != zone { formatter.timeZone = zone }
-        return formatter
-    }
+    /// Internal, not private, so `LogRowTimeZoneTests` can drive the refresh directly — the
+    /// alternative is moving `NSTimeZone.default`, which is process-wide and would race every
+    /// other suite in the run.
+    static let timeFormatter = ZoneRefreshedFormatter.fixed("HH:mm:ss.SSS")
 
     private func timeString(from date: Date) -> String {
-        return Self.formatter(timeZone).string(from: date)
+        return Self.timeFormatter.string(from: date, in: timeZone)
     }
 }
 
@@ -1153,6 +1133,6 @@ private struct LogOperationGroupRow: View {
     /// and the folded-run headers directly above them would not, in the same list, with no
     /// version of the code saying which is right.
     private static func timeString(_ date: Date) -> String {
-        LogEntryRow.formatter(.current).string(from: date)
+        LogEntryRow.timeFormatter.string(from: date)
     }
 }
