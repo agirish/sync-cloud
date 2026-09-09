@@ -4543,3 +4543,74 @@ git show origin/v4.x:$L | grep -n    'tally.breakdown'    # 1801, 1802 header Te
 own, and a session that picked either without its prerequisite would land a summary that reads
 wrong rather than one that does not compile — which is the failure worth writing down, because the
 compiler will not raise it.
+---
+
+## 2026-09-09 — the zone sweep closes: eleven formatters, one rule, and a scan that found the last two
+
+`main` `<SHAs read after the push>`. The two sections above fixed three date columns one at a time.
+An audit of the rest of the tree found **eight more**, so the rule stopped being copied and became a
+type: `Design.ZoneRefreshedFormatter`, which all eleven call sites now share. `Events` keeps its own
+lock-guarded version, deliberately — it is a leaf module that must not depend on Design, and its
+formatter answers a question about the log FILE rather than a column.
+
+**The two that a hand audit missed are the reason there is now a test instead of a grep.** The
+manual pass keyed on `static let …[Ff]ormatter` and found nine. `LensWorkspaceView.receiptWeekday`
+and `receiptDate` are the identical defect with names that say nothing about formatting, and only a
+scan keyed on the CONSTRUCTOR saw them. `CapturedTimeZoneScanTests` is that scan, and it lives in
+the app-target tests because no package can see another.
+
+```sh
+# stage 1 — which of the eight new sites each line carries
+D=Modules/Dashboard/Sources/Dashboard; F=Modules/FileExplorer/Sources/FileExplorer
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s logGroupHdr=%s details=%s colPreview=%s compareCopies=%s dupCard=%s fileTree=%s reviewCard=%s receipts=%s\n' "$l" \
+    "$(git show origin/$l:$D/LogGrouping.swift 2>/dev/null | grep -c 'setLocalizedDateFormatFromTemplate')" \
+    "$(git show origin/$l:$D/DetailsSidebar.swift 2>/dev/null | grep -c 'nonisolated private static let dateFormatter')" \
+    "$(git show origin/$l:$F/ColumnPreviewColumn.swift 2>/dev/null | grep -c 'static let dateFormatter')" \
+    "$(git show origin/$l:$F/CompareCopiesModels.swift 2>/dev/null | grep -c 'static let dateFormatter')" \
+    "$(git show origin/$l:$F/DuplicateGroupCard.swift 2>/dev/null | grep -c 'static let dateFormatter')" \
+    "$(git show origin/$l:$F/FileTreeView.swift 2>/dev/null | grep -c 'static let modifiedFormatter')" \
+    "$(git show origin/$l:$F/ReviewCardModel.swift 2>/dev/null | grep -c 'static let dateFormatter')" \
+    "$(git show origin/$l:$F/LensWorkspaceView.swift 2>/dev/null | grep -c 'static let receipt')"
+done
+# main 2/1/1/1/1/1/1/2 · v4.x 2/1/1/0/1/1/1/0 · v3.x and v2.x 2/1/1/0/0/1/1/0
+
+# stage 2 — the shared type's prerequisites, which are present everywhere
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s Design=%s Dashboard→Design=%s FileExplorer→Design=%s SyncCloudTests=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Design/Sources/Design | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/Dashboard/Package.swift 2>/dev/null | grep -c '"../Design"')" \
+    "$(git show origin/$l:Modules/FileExplorer/Package.swift 2>/dev/null | grep -c '"../Design"')" \
+    "$(git ls-tree -r --name-only origin/$l -- SyncCloudTests/TestSupport.swift | wc -l | tr -d ' ')"
+done
+# every line: Design present (33–47 files), both modules already depend on it, SyncCloudTests exists
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`Design.ZoneRefreshedFormatter`** — the shared type | Applies in full and lands cleanly: Design is there and both consumers already depend on it, so the type carries no new edge in the graph | Same — Design is smaller on these lines (33–35 files vs 47) but the dependency edges are identical | RECORDED — not owed |
+| **The Activity Log's day header** (`LogGrouping.headerThisYear` / `headerOtherYear`, rendered in `calendar.timeZone`) | Applies, and it is **the row to take first if these are ever picked**: a header a full day out, on every line, with `Today`/`Yesterday` masking it so it only shows on sections two days old and older. Present on all three (`logGroupHdr=2`) | Same | RECORDED — not owed |
+| **`DetailsSidebar`** — the one site reached off the main actor | Applies on all three (`details=1`), and is the row that must NOT be picked as a bare zone check: its formatter is `nonisolated` and read inside `loadMetadata`, so the compare-and-assign has to be under a lock. The shared type is what supplies that | Same | RECORDED — not owed |
+| **`ColumnPreviewColumn`, `FileTreeView`, `ReviewCardModel`** | Apply on all three, unchanged shapes | Same | RECORDED — not owed |
+| **`CompareCopiesModels`** | **Does not apply** — Compare Copies is a v5 surface; `compareCopies=0` on every maintenance line | Does not apply | CLOSED — does not apply |
+| **`LensWorkspaceView.receiptWeekday` / `receiptDate`** | **Does not apply** — the Organize overview receipt shipped with the v5.3 document-survey work; `receipts=0` on every maintenance line | Does not apply | CLOSED — does not apply |
+| **`DuplicateGroupCard`** + its `timeZone` injection and the snapshot pin | Applies on `v4.x` (`dupCard=1`). The card's references there carry the same latent trap `main`'s did and would need the pin picked with it | **Does not apply** — no `DuplicateGroupCard` on either line | RECORDED — not owed (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`CapturedTimeZoneScanTests`** — the repo-wide guard | Applies, **with its allow-list edited per line**: the list names four files by path and `CompareCopiesModels`/`LensWorkspaceView` aside, a line missing any allow-listed file fails the list's own anti-rot test rather than passing quietly. That is the intended behaviour, not a defect in the pick | Same, with more editing | RECORDED — not owed |
+
+**The thing worth not re-deriving.** A hand audit of this defect will undercount, and it is worth
+knowing *why* before repeating one. Every search that looks for the formatter by NAME misses the
+sites whose formatters are not called "formatter" — here that was two of eleven, both on a
+per-`body` path, both user-visible. The scan that finds all of them keys on `DateFormatter()`, the
+constructor, and then has to exclude `ISO8601DateFormatter()`, which ends with the same fifteen
+characters and is a different type with nothing to capture (it is pinned to a stated zone by
+construction). Allow-listing that file would have been the wrong fix and would have quietly covered
+any real formatter it later grew; matching on the identifier boundary is the right one.
+
+**And the assertion trap that nearly shipped with it.** The first version of the day-header test
+compared the header of a UTC bucket against a Kolkata one and asserted they differed. That passes
+under the bug — the two buckets are different instants and render differently in any single zone —
+and the mutation that puts the formatter back on the system zone went green straight through it. A
+zone test has to pin the RENDERED value against a control built in the bucket's own zone. The two
+zones the test settled on are the extremes of the real offset range (+14 and −12), which is what
+makes it independent of the machine: rendering midnight-in-Z under the system zone C names the wrong
+day whenever `offset(C) < offset(Z)`, and between those two Z values every possible C is covered.
