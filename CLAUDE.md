@@ -63,7 +63,8 @@ and can go.
 ## Session isolation: work in a worktree, land only when he says so
 
 The goal is a **linear `main`** where every completed change lands as a small number of thematic
-commits — no long-lived feature branches, no PRs, no merge commits. But **in-progress work must
+commits — usually **one**, see step 3 — with no long-lived feature branches, no PRs, no merge
+commits. But **in-progress work must
 never share a working tree with another session**: on 2026-07-13 several sessions edited the shared
 `main` checkout at once and their uncommitted changes got entangled.
 `/Users/abhishek/Projects/SyncCloud` is the shared landing zone, not a scratch space — do not edit
@@ -87,20 +88,55 @@ approval of the *previous* batch. One ask, one push.
    is for you, not for `main`, so a commit per experiment is fine and reverting one is cheap.
    Nothing leaves the worktree at this stage.
 
-3. **Squash into thematic commits — before you ask, not after he says yes.** The branch's shipped
-   shape is a handful of commits, each one theme a reader could review on its own: a behaviour
-   change and its tests together, a refactor separate from the behaviour change it enabled, docs
-   separate from code. Not one commit per file, and not one commit for the whole session.
-   Interactive rebase is unavailable here, so squash by replaying onto the line and re-committing
-   in themed chunks, or with `git reset --soft` to the merge base and staging path by path:
+3. **Squash before you ask, not after he says yes — and prefer ONE commit.** The shipped shape is
+   the fewest commits a reader can follow, which is usually **one**. Split only when a second
+   genuinely earns its place: a refactor worth reading on its own before the behaviour change it
+   enabled, or docs that stand apart from the code. Not one commit per file, and never a stack of
+   `WIP`. "Prefer one" is a default, not a hard rule — two well-drawn themes beat one commit
+   nobody can review.
+
+   **`git reset` is banned in every flavour, `--soft` included, and so is force-push** — standing
+   direction, 2026-09-09. The recipe that used to live here reached for `git reset --soft`; it is
+   gone. Squash by **replaying onto a fresh branch** instead: no ref moves, nothing is discarded,
+   and the working branch survives both as the fallback and as the thing you diff against.
+
+   Rebase first — always, and before anything else touches the work:
    ```sh
-   git fetch origin && git rebase origin/main            # rebase first, squash onto the real base
-   git reset --soft $(git merge-base origin/main HEAD)   # all work now staged, nothing lost
-   git restore --staged . && git add <paths for theme 1> && git commit   # repeat per theme
+   git fetch origin && git rebase origin/main
+   git checkout -b <task>-themed origin/main
    ```
-   `git reset --soft` **stages against the ref as it is now** — if the line moved under you, it
-   clobbers; rebase first, and check `git status` shows exactly the files you expect before the
-   first commit.
+
+   **One commit** — the whole branch delta staged at once, deletions and renames included. This is
+   the default; reach for it unless you have already decided on a real second theme:
+   ```sh
+   git merge --squash <task>
+   git commit -F <message-file>    # no editor here, so write the message to a file
+   ```
+
+   **More than one** — group the working commits by theme, one `commit` per group:
+   ```sh
+   git cherry-pick -n <sha> <sha> && git commit -F <message-file>   # repeat per theme
+   ```
+   `cherry-pick` replays each *change* rather than a file's end state, so two themes may share a
+   file, and a change `main` made under you **conflicts loudly** instead of disappearing. This is
+   also why the grouping only works where your theme boundaries fall on commit boundaries — one
+   more reason to commit small and single-purpose in step 2, since those commits do not ship.
+
+   **Never build a theme with `git checkout <task> -- <paths>`.** Measured 2026-09-09, three ways
+   it loses work silently: it takes the file's **final** content, so a later theme bleeds into the
+   earlier commit; it **reverts** any change `main` made to that file, with no conflict and no
+   message; and a path the branch **deleted** is left sitting there, with nothing but an
+   `error: pathspec ... did not match` to show for it. `git diff | git apply --index` fixes only
+   the third of those.
+
+   **Then prove the rebuild kept everything — this must print NOTHING:**
+   ```sh
+   git diff <task> <task>-themed
+   ```
+   Empty means the themed branch is byte-identical to the work despite having been rebuilt commit
+   by commit. It is the one check that catches a dropped file, a lost deletion and a bled theme at
+   once, and it is cheap; run it before you read anything else. Note that it says nothing about
+   whether each commit *builds* on its own — build at each one if that matters.
    - Message shape: imperative subject; prose body explaining *why*; trailer
      `Co-Authored-By: <model> <noreply@anthropic.com>`.
    - **Empty commits do not survive the squash, but check anyway** — this prints nothing when the
@@ -117,8 +153,9 @@ approval of the *previous* batch. One ask, one push.
 
 4. **Land, once he has said yes.** Fast-forward the primary checkout; **no merge commits**:
    ```sh
-   git -C /Users/abhishek/Projects/SyncCloud merge --ff-only <task> && git push
+   git -C /Users/abhishek/Projects/SyncCloud merge --ff-only <task>-themed && git push
    ```
+   It is the **themed** branch that lands — `<task>` itself is the working record and never ships.
    Then record any maintenance-line gap in `docs/backports.md` — a record, not a to-do; see the
    standing direction above. Finally `git worktree remove /Users/abhishek/Projects/SyncCloud-<task>`.
 
@@ -129,8 +166,9 @@ read before step 4 names a commit that no longer exists.
 
 `git checkout -- <file>` and `git restore <file>` do not undo *your last edit*: they throw the file
 back to `HEAD` and take **every uncommitted change in it** with them, silently and with no reflog
-entry to recover from. The same is true of `git reset --hard`, `git clean -fd`, and `git stash
-drop`. Mutation testing is where this bites, because reverting the mutation is the whole point of
+entry to recover from. The same is true of `git clean -fd` and `git stash drop` — and of
+`git reset --hard`, which is doubly out of bounds now that **`git reset` is banned outright**
+(step 3). Mutation testing is where this bites, because reverting the mutation is the whole point of
 the step and the file also holds the fix being tested.
 
 **It happened twice on 2026-08-30, in one session.** The second time it wiped a new view's entire

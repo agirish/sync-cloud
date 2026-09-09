@@ -4901,3 +4901,40 @@ their defaults, and the tree reads the same preference the columns do rather tha
 A maintenance-line build and a `main` build therefore still share one defaults domain without either
 reinterpreting what the other wrote: an install that has turned the preview off sees it off in both,
 and a preview dragged wide on one opens that wide on the other.
+
+---
+
+## 2026-09-09 — the squash recipe drops `git reset`, and step 3 prefers one commit — **nothing owed**
+
+A working-agreement change, not code. `CLAUDE.md` step 3 used to squash a branch with
+`git reset --soft` to the merge base; a standing direction on 2026-09-09 banned `git reset` in every
+flavour and force-push with it, so the step now replays onto a fresh branch instead —
+`git merge --squash` for the one-commit default, `git cherry-pick -n` groups when a second theme
+really earns its place, and an equivalence diff to prove the rebuild lost nothing.
+
+The row exists so a future audit does not go looking for a pick that cannot be made: the banned
+recipe never reached the maintenance lines, and neither did the step that carried it.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s resetSoft=%s mergeSquash=%s squashMentions=%s\n' "$l" \
+    "$(git show origin/$l:CLAUDE.md 2>/dev/null | grep -c 'reset --soft')" \
+    "$(git show origin/$l:CLAUDE.md 2>/dev/null | grep -c 'merge --squash')" \
+    "$(git show origin/$l:CLAUDE.md 2>/dev/null | grep -ci 'squash')"
+done
+# measured 2026-09-09, before this landed:
+# main   resetSoft=3 mergeSquash=0 squashMentions=high
+# v4.x   resetSoft=0 mergeSquash=0 squashMentions=1   ← and that 1 is a BRANCH NAME, not the step
+# v3.x   resetSoft=0 mergeSquash=0 squashMentions=0
+# v2.x   resetSoft=0 mergeSquash=0 squashMentions=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` | `v2.x` | Status |
+|---|---|---|---|---|
+| **Step 3 rewritten** — `reset --soft` out, `git merge --squash` / `cherry-pick -n` in, one commit preferred | **Cannot be picked, and nothing is missing.** `v4.x` carries an older *Session isolation* section with **no squash step at all** — work is committed on the worktree branch and landed as-is. There is no recipe there to correct | **Same** — no squash step | **Same** | RECORDED — not owed. There is no counterpart to replace |
+| **The three measured failure modes of `git checkout <task> -- <paths>`** — final-state bleed, silent revert of a concurrent `main` change, leaked deletion | Does not apply: no line but `main` tells a session to build a commit that way | Does not apply | Does not apply | RECORDED — not owed |
+| **The `git reset` / force-push ban itself** | **Applies everywhere, and is written down only on `main`.** The direction is about how *he* wants git driven, not about v5 code, so a session that ever works a maintenance line would read a `CLAUDE.md` that never mentions it | Same | Same | RECORDED — not owed under the standing no-backport direction. Named here because this is the one row where the gap is a real one rather than a non-applicable one |
+
+**The one thing to carry forward**: `grep -ci squash` reads `1` on `v4.x` and means nothing —
+the hit is `backup-roots-preReviewSquash2`, a branch name in the `roots` write-up, not a squash
+step. Read the line, do not count it.
