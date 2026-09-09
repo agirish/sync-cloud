@@ -1399,6 +1399,18 @@ struct FilePairCompareView<Verdict: View>: View {
         // a de-skewed comparison: the caption is read straight off `pageRegistration`.
         heldComparisonAligned = wantsAligned
         pageRegistration = comparison.1?.registration
+        // **The only trace an applied de-skew leaves behind.** The caption states it on screen and
+        // then goes with the sheet; a pair that glowed oddly is reported afterwards, when the one
+        // question worth asking — was this page rotated before it was compared, and by how much —
+        // has no other answer. `.debug`, so it costs nothing at the shipped log level.
+        if let applied = comparison.1?.registration {
+            Logger.shared.debug("""
+                [compare] page \(page + 1) aligned before comparing: \
+                \(String(format: "%.2f", applied.degrees))°, \
+                (\(String(format: "%.1f", applied.dx)), \(String(format: "%.1f", applied.dy))) px, \
+                confidence \(String(format: "%.3f", applied.confidence))
+                """)
+        }
         pageComparison = PageComparison(image: comparison.0?.cgImage,
                                         regions: comparison.1?.changedRects ?? [])
         pageStates[page] = resolvedPairing.isComparable(at: page)
