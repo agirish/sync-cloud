@@ -5,10 +5,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v5.3 — DRAFT, not released
-
-> What is on `main` since v5.2. It may still change before v5.3 is cut, and nothing here is
-> installable from a release yet.
+## v5.3
 
 ### Edit gets its menus
 
@@ -404,9 +401,9 @@ User-facing changes, newest first. For the full commit history see the
   process, and these are built once each because they run per row and per render — so a window left
   open across a Date & Time change or a flight went on reading in the old zone for the rest of the
   session, an hour or five and a half out, with nothing saying so. Three columns were fixed one at a
-  time; an audit found eight more, and the rule is now one shared type rather than sixteen copies
-  across eleven places. A scan keyed on the constructor rather than on what the copies are named
-  catches the next one, which is how the last two were missed. `~/sync-cloud.log` follows the
+  time, a hand audit found eight more, and a scan keyed on the constructor rather than on what the
+  copies happen to be named turned up the two that audit had missed — sixteen copies across twelve
+  files, now one shared type. The scan is what catches the next one. `~/sync-cloud.log` follows the
   machine too: it already spans zones, because it outlives the session that wrote its earlier lines.
 - **A folder of PDFs no longer reads as an empty one.** Standing in a folder of scans, Edit's rail
   said "No text files in this folder. The + button makes one." — word for word what it says about a
