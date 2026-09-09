@@ -294,6 +294,80 @@ import Sync
         #expect(back.first == "F1" && back.last == "F8", "the cap kept the wrong end of the list")
     }
 
+    // MARK: Forgetting one recent (the sidebar's Remove from Recents)
+
+    /// The verb the sidebar row offers: the entry goes, the rest of the list is untouched, and it
+    /// stays gone across a relaunch — a removal that came back on the next launch would be worse
+    /// than no removal at all.
+    @Test func forgettingARecentTakesThatOneAndPersists() {
+        let defaults = freshDefaults()
+        let store = FolderJumpStore(defaults: defaults)
+        store.recordVisit(root: "/Volumes/Data", relativePath: "Legal", name: "Legal")
+        store.recordVisit(root: "/Volumes/Data", relativePath: "Taxes", name: "Taxes")
+        store.recordVisit(root: "/Volumes/Data", relativePath: "Legal/2026", name: "2026")
+
+        store.forgetRecent(root: "/Volumes/Data", relativePath: "Taxes")
+
+        #expect(store.recentPaths(forRoot: "/Volumes/Data") == ["Legal/2026", "Legal"],
+                "the wrong entry went, or the order moved")
+        #expect(FolderJumpStore(defaults: defaults).recentPaths(forRoot: "/Volumes/Data")
+                == ["Legal/2026", "Legal"], "the removal did not survive a relaunch")
+    }
+
+    /// **Either spelling of the root reaches the entry**, like every other member — the sidebar row
+    /// carries a root already normalised, and the pane hands over the stored `~` form, so a verb
+    /// that keyed raw would silently remove nothing from a folder source.
+    @Test func forgettingARecentNormalisesItsRoot() {
+        let store = FolderJumpStore(defaults: freshDefaults())
+        let tilde = "~/Documents"
+        #expect(tilde != (tilde as NSString).expandingTildeInPath)
+        // Recorded under the EXPANDED spelling and forgotten under the tilde — the two must meet,
+        // and they only do if this verb normalises. Forgetting under the spelling it was recorded
+        // with would pass whether or not it does.
+        store.recordVisit(root: (tilde as NSString).expandingTildeInPath,
+                          relativePath: "Legal", name: "Legal")
+
+        store.forgetRecent(root: tilde, relativePath: "Legal")
+        #expect(store.recentPaths(forRoot: tilde).isEmpty)
+    }
+
+    /// **Forgotten, not suppressed.** Going back to the folder writes the row again, which is the
+    /// intended bargain — the list is a record of visits, and Favorites is the curated one.
+    @Test func visitingAForgottenFolderRecordsItAgain() {
+        let store = FolderJumpStore(defaults: freshDefaults())
+        store.recordVisit(root: "/Volumes/Data", relativePath: "Legal", name: "Legal")
+        store.forgetRecent(root: "/Volumes/Data", relativePath: "Legal")
+        #expect(store.recentPaths(forRoot: "/Volumes/Data").isEmpty)
+
+        store.recordVisit(root: "/Volumes/Data", relativePath: "Legal", name: "Legal")
+        #expect(store.recentPaths(forRoot: "/Volumes/Data") == ["Legal"])
+    }
+
+    /// Recents and favorites are two lists, and this verb touches one of them. A recent that is
+    /// also a favorite is not a state the sidebar draws — `mostRecentAcrossRoots` subtracts pins —
+    /// but the store allows it, and removing the pin here would be a second act nobody asked for.
+    @Test func forgettingARecentLeavesTheFavoriteAlone() {
+        let store = FolderJumpStore(defaults: freshDefaults())
+        store.recordVisit(root: "/Volumes/Data", relativePath: "Legal", name: "Legal")
+        store.togglePin(root: "/Volumes/Data", relativePath: "Legal", name: "Legal")
+
+        store.forgetRecent(root: "/Volumes/Data", relativePath: "Legal")
+        #expect(store.isPinned(root: "/Volumes/Data", relativePath: "Legal"))
+    }
+
+    /// A root with nothing remembered, and a folder that is not in the list: both are silent. The
+    /// sidebar refresh that follows the first click is what takes the row off screen, so a second
+    /// click on a row that has already gone is ordinary rather than an error.
+    @Test func forgettingSomethingThatIsNotThereChangesNothing() {
+        let defaults = freshDefaults()
+        let store = FolderJumpStore(defaults: defaults)
+        store.recordVisit(root: "/Volumes/Data", relativePath: "Legal", name: "Legal")
+
+        store.forgetRecent(root: "/Volumes/Nothing", relativePath: "Legal")
+        store.forgetRecent(root: "/Volumes/Data", relativePath: "Taxes")
+        #expect(store.recentPaths(forRoot: "/Volumes/Data") == ["Legal"])
+    }
+
     // MARK: A remembered folder that has gone
 
     @Test func reachableKeepsWhatIsThereAndDropsWhatIsGone() {

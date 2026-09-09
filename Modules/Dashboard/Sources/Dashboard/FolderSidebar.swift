@@ -528,6 +528,8 @@ public struct FolderSidebarView: View {
     private let accent: Color
     private let onOpen: (FolderSidebarRow, Bool) -> Void
     private let onToggleFavorite: (FolderSidebarRow) -> Void
+    /// **Forget one recent**, so the row goes. Only Recents rows offer it — see the context menu.
+    private let onForgetRecent: (FolderSidebarRow) -> Void
     private let onOpenSource: (SidebarSourceRow, Bool) -> Void
     private let onToggleSection: (Section) -> Void
     private let onNoticeAction: () -> Void
@@ -769,7 +771,8 @@ public struct FolderSidebarView: View {
                 canRestoreStandardFavorites: Bool = false,
                 onMoveFavorite: @escaping (Int, Int) -> Void = { _, _ in },
                 onMoveSource: @escaping (Int, Int) -> Void = { _, _ in },
-                onFavoriteRecent: @escaping (FolderSidebarRow, Int) -> Void = { _, _ in }) {
+                onFavoriteRecent: @escaping (FolderSidebarRow, Int) -> Void = { _, _ in },
+                onForgetRecent: @escaping (FolderSidebarRow) -> Void = { _ in }) {
         self.folderRows = folderRows
         self.locationRows = locationRows
         self.shortcutRows = shortcutRows
@@ -802,6 +805,7 @@ public struct FolderSidebarView: View {
         self.onMoveFavorite = onMoveFavorite
         self.onMoveSource = onMoveSource
         self.onFavoriteRecent = onFavoriteRecent
+        self.onForgetRecent = onForgetRecent
     }
 
     /// **A drag preset into the view, so the insertion indicator can be rendered at all.**
@@ -1543,6 +1547,16 @@ public struct FolderSidebarView: View {
                 .disabled(!canOpen)
             Button(row.group == .pinned ? "Remove from Favorites" : "Add to Favorites") {
                 onToggleFavorite(row)
+            }
+            // **Only on a recent, because only a recent can be forgotten.** A favorite is removed
+            // by the verb directly above; offering a second removal here would be two items that
+            // read like a choice and are not one. And it is enabled for an UNAVAILABLE row on
+            // purpose, unlike everything above it: taking a row off the column is the one thing
+            // still worth doing when the folder behind it cannot be opened, which is exactly the
+            // state — a source asleep, a folder renamed out from under its entry — that makes a
+            // stale recent worth removing in the first place.
+            if row.group == .recents {
+                Button("Remove from Recents") { onForgetRecent(row) }
             }
             // **"Take me there" and "show me where that is" are different questions.** The row
             // itself answers the first; this answers the second, which is the one you ask when a

@@ -608,6 +608,31 @@ import Design
         #expect(try Self.source().contains("private func sideItems("))
     }
 
+    /// **Remove from Recents is offered only on a recent.** A favorite is removed by the verb
+    /// directly above it, so drawing both on one row would read as a choice between two removals
+    /// that are not alternatives — and "Remove from Recents" on a favorite would name a list the
+    /// row is not in.
+    @Test func removeFromRecentsIsGatedOnTheRecentsGroup() throws {
+        let code = try Self.source()
+        let gate = try #require(code.range(of: "if row.group == .recents {"),
+                                "the item is no longer gated on the group — it draws on favorites too")
+        let body = String(code[gate.upperBound...].prefix(200))
+        #expect(body.contains("Button(\"Remove from Recents\") { onForgetRecent(row) }"),
+                "the gate no longer holds the Remove from Recents item — this scan is aimed at nothing")
+    }
+
+    /// **Enabled on an unavailable row, unlike everything above it.** Taking a row off the column
+    /// is the one act still worth doing when the folder behind it cannot be opened, which is the
+    /// state — a source asleep, a folder renamed away — that makes a stale recent worth removing.
+    @Test func removeFromRecentsIsNotDisabledWithTheRest() throws {
+        let code = try Self.source()
+        let gate = try #require(code.range(of: "if row.group == .recents {"))
+        let body = String(code[gate.upperBound...].prefix(200))
+        #expect(!body.contains(".disabled("),
+                "the item now refuses on an unavailable row, which is the row it exists for")
+    }
+
+
     /// **Only where there are two panes.** `target` is nil outside Compare, and naming a left and a
     /// right pane in a workspace with one would offer a choice that does not exist.
     @Test func theSideItemsAppearOnlyWhenThereIsATarget() throws {

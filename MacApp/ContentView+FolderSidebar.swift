@@ -689,7 +689,8 @@ extension ContentView {
             canRestoreStandardFavorites: SidebarFavoritePlaces.isMissingStandard(folderSidebarFavoritePlaces),
             onMoveFavorite: { from, to in moveFolderSidebarFavorite(from: from, to: to) },
             onMoveSource: { from, to in moveFolderSidebarSource(from: from, to: to) },
-            onFavoriteRecent: { row, to in favoriteRecentByDrag(row, to: to) })
+            onFavoriteRecent: { row, to in favoriteRecentByDrag(row, to: to) },
+            onForgetRecent: { row in forgetFolderSidebarRecent(row) })
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
     }
 
@@ -814,6 +815,22 @@ extension ContentView {
         let wasFavorite = row.group == .pinned
         FolderJumpStore.shared.togglePin(root: row.root, relativePath: row.relativePath, name: row.name)
         Logger.shared.info("Sidebar: \(wasFavorite ? "removed" : "added") favorite “\(row.name)” (\(row.relativePath.isEmpty ? "root" : row.relativePath))")
+        refreshFolderSidebarRows()
+    }
+
+    /// **Takes one row out of Recents.**
+    ///
+    /// **Keyed by the row's own root**, like the favorite toggle beside it: the section spans every
+    /// source, so a stale recent in an account the panes are not showing is removable without
+    /// visiting it first.
+    ///
+    /// No confirmation, and nothing to undo — the entry is a record of a visit, and going back to
+    /// the folder writes it again (`FolderJumpStore.forgetRecent`). That is a different bargain
+    /// from Remove Source next door, which takes a configured source out of the app.
+    func forgetFolderSidebarRecent(_ row: FolderSidebarRow) {
+        guard row.group == .recents else { return }
+        FolderJumpStore.shared.forgetRecent(root: row.root, relativePath: row.relativePath)
+        Logger.shared.info("Sidebar: removed “\(row.name)” (\(row.relativePath)) from Recents")
         refreshFolderSidebarRows()
     }
 

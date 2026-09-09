@@ -335,6 +335,42 @@ public final class FolderJumpStore: ObservableObject {
         persistPinned()
     }
 
+    /// **Takes one folder out of Recents** — the sidebar's "Remove from Recents", on a row the
+    /// user does not want offered any more.
+    ///
+    /// **Forgotten, not suppressed.** The alternative — a persisted list of folders Recents may
+    /// not show — is a second store to keep in step with this one, and the two would disagree the
+    /// first time a root was re-keyed or a volume renamed (both of which move entries here and
+    /// would have to be taught to move entries there). Recents is a record of where you have been;
+    /// removing the record is the whole of the answer.
+    ///
+    /// **Visiting the folder again writes it back**, and that is the intended behaviour rather
+    /// than a hole in it. The row means "you were here recently", so a fresh visit earns a fresh
+    /// row; a removal that outlived the next visit would be a hidden preference the user set once
+    /// and could never see again. Favorites is the list that is curated, and it is one context-menu
+    /// item away on the same row.
+    ///
+    /// `removeAll` for symmetry with ``togglePin(root:relativePath:name:)``, which needs it: pins
+    /// written before the keys were normalised can hold one folder twice. **Recents cannot reach
+    /// that shape today** — `init` dedupes what it reads, `inserting(_:into:cap:)` dedupes on every
+    /// visit, and `rekeyed(_:whenVolumeMovedFrom:to:)` dedupes on a volume rename — so this is the
+    /// spelling that stays correct if any of those three ever stops, rather than a case with a test
+    /// behind it. There is no test, deliberately: one would have to plant a duplicate no code path
+    /// can produce, and would then be asserting about a fixture rather than about the app.
+    ///
+    /// Silent, and does not persist, when nothing matched — a root with no entries or a folder
+    /// already gone is not an error, and a write here would rewrite the whole map for no change.
+    public func forgetRecent(root: String, relativePath: String) {
+        let key = Self.key(forRoot: root)
+        guard var list = recentsByRoot[key] else { return }
+        let before = list.count
+        list.removeAll { $0.relativePath == relativePath }
+        guard list.count != before else { return }
+        recentsByRoot[key] = list
+        persistRecents()
+    }
+
+
     /// Written on every visit, which is every pane folder change. Cheap on purpose: a capped list
     /// of eight small values per root, and `UserDefaults` coalesces its own writes to disk — the
     /// alternative (persisting on quit) loses the whole list to a crash or a force-quit, and the
