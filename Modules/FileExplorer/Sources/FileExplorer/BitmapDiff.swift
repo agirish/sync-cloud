@@ -314,16 +314,33 @@ enum BitmapDiff {
     ///
     /// **It is cheaper, not dearer.** The old shape walked `analyse` twice — once over the aligned
     /// pair for the numbers, once over the unaligned pair for the picture. `aligned` is already in
-    /// hand, so asking the first walk for the picture removes a second one and the two normalised
-    /// full-page rasters it needed. Measured at 1600x2070 on an Apple M4, Release, best of 20:
-    /// **10.4 ms against 18.7 ms**, and ~26 MB less transient allocation.
+    /// hand, so asking the first walk for the picture removes a second walk and the two normalised
+    /// full-page rasters it needed: **~25 MB** less transient allocation at 1600x2070, and a little
+    /// over **40% off the diff work**.
     ///
-    /// **The disagreement it was meant to settle was never the visible half.** Measured on a 0.5
-    /// degree skew at that size: 95.7-99.5% of the old picture's glow already fell inside the
-    /// outlines drawn over it, and the aligned and unaligned region lists were the same eight boxes
-    /// to within one cell. What the change actually buys is that the de-skew becomes VISIBLE — the
-    /// old shape let an alignment move the region list and write the caption while leaving the
-    /// picture, which is the thing a reader in the difference mode is looking at, exactly as it was.
+    /// **The proportion is the claim; the milliseconds are one machine's reading.** Measured at
+    /// 1600x2070 on an Apple M4 in Release, best of 20, machine quiet: 10.4 ms against 18.7 ms. The
+    /// same comparison on the same build with the machine busy reads 14.3 against 26.3 — the
+    /// absolutes move by 40% with whatever else is running, while the saving holds at 42-46% across
+    /// every reading. That is why the ratio is what is written down and the timings are labelled.
+    ///
+    /// **The disagreement it was meant to settle was never the visible half — on the pairs where
+    /// outlines are drawn at all.** Measured over 0.25-2 degrees of skew on two page fixtures, a
+    /// dense text page and a sparse one, counting only the pairs whose region count stays under
+    /// ``ChangedRegionCallouts/maxDrawn``: **95.7-99.5%** of the old picture's glow already fell
+    /// inside the outlines drawn over it (95.7% at 2 degrees, 99.5% at 0.25), and at half a degree
+    /// on the dense page the aligned and unaligned region lists were the same eight boxes to within
+    /// one cell.
+    ///
+    /// **The qualifier is load-bearing, so do not quote the range without it.** A page of sparse
+    /// horizontal rules behaves nothing like that: aligning it fragments a solid glow into
+    /// speckle, 22 regions before against 224 after on one measured pair, and coverage falls to
+    /// 74.9-81.1%. Both counts are far over ``ChangedRegionCallouts/maxDrawn``, so NOTHING is
+    /// outlined and the reader sees no disagreement there either — but for the opposite reason.
+    ///
+    /// What the change actually buys is that the de-skew becomes VISIBLE — the old shape let an
+    /// alignment move the region list and write the caption while leaving the picture, which is the
+    /// thing a reader in the difference mode is looking at, exactly as it was.
     ///
     /// **What it does not buy is a clean page, and the reason is worth knowing before anyone
     /// tightens the estimator to chase one.** ``warped`` resamples the right page and leaves the

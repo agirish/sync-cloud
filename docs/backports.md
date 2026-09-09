@@ -4704,8 +4704,10 @@ they bound what any future work on the estimator can achieve.** Both at 1600x207
 Release, machine quiet:
 
 - **The change is a saving, not a cost.** One walk over the aligned pair against a walk plus a
-  second walk for the picture: **10.4 ms against 18.7 ms**, best of 20, and ~26 MB less transient
-  allocation.
+  second walk for the picture: a little over **40% off the diff work**, and **~25 MB** less
+  transient allocation. Quiet-machine reading, best of 20: 10.4 ms against 18.7 ms; the same build
+  on a busy machine reads 14.3 against 26.3. The absolutes move with load and the proportion does
+  not, so the proportion is the claim.
 - **A perfect de-skew does not clean the page, so do not tune the estimator expecting one.**
   ``warped`` resamples the right page and leaves the left alone, and that asymmetry alone clears
   ``BitmapDiff.tolerance`` on every anti-aliased edge. On a pair with one paragraph rewritten: the

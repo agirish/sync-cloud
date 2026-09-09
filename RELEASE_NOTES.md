@@ -110,7 +110,7 @@ User-facing changes, newest first. For the full commit history see the
   while the glow went on showing every line doubled, and the reader could see no sign the alignment
   had happened. On a 0.5° skew the unchanged paragraphs now fall back to a faint ghost and the one
   that was rewritten stays bright. It is less work rather than more: one pass over the aligned pair
-  instead of two, 10.4 ms against 18.7 ms at 1600×2070.
+  instead of two, which takes a little over 40% off the comparison and ~25 MB off what it allocates.
 - **The glow is still not clean, and the caption still says "best effort".** Correcting a skew
   rotates one page and leaves the other alone, and resampling moves every anti-aliased edge — so a
   corrected pair still lights more than the words that changed. Measured on a page with one
