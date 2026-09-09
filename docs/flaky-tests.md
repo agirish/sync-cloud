@@ -111,7 +111,7 @@ genuinely cannot read "not started" as "finished". Both were mutation-tested by 
 item back into the redo params, and both fail without the sleep — in ~0.03s, where the sleeps had
 been charging half a second for the same verdict.
 
-**A 5-second deadline that needs 21 milliseconds, 2026-09-08.**
+**A 5-second deadline that needs 21 milliseconds, 2026-09-08 — FIXED 2026-09-09.**
 `UndoQuitGuardTests.testUndoHandlerCountsOperationBeforeItsTaskRuns` polls
 `activeFileOperationsCount` — the right shape, per everything above — but behind a flat
 `ContinuousClock.now + .seconds(5)`. In a full 3411-test parallel run at load average ~12 the
@@ -122,11 +122,44 @@ green in **21-25 ms across three consecutive runs** — a 200x margin — and th
 **14.2 s quiet against 33.6 s loaded**, which is the same 2.4x that turns 21 ms into more than five
 seconds.
 
-Recorded rather than fixed: the poll is already correct and only its safety net is too tight, so
-the fix is to widen the deadline or route it through the shared `waitUntil`, and that is a change to
-a test no batch here has touched. **Do not read a red on this one as a regression without running
-it alone first** — the discriminator in CLAUDE.md's release section applies verbatim, and the
-margin is wide enough that a genuine break could not hide inside it.
+**Fixed by routing both drains through `waitUntil`**, which is bounded by POLLS as well as by
+seconds — and the polls are the half that survives congestion, since what these wait for arrives on
+main-actor turns and a congested run has fewer of them per second, not more. Widening the seconds
+would have been guessing at a number; `waitPollFloor` guarantees 50 evaluations however slow the
+machine is, which at the 223 ms/poll worst case in this file is ~11 s of real waiting against the
+two polls the operation actually needs.
+
+Mutation-tested by removing the decrement in `enqueueFileOperation`'s completion
+(`FileSyncManager.swift`): both tests then fail at the wait, anchored at the CALL SITE rather than
+inside the helper, reporting
+
+```
+the create-folder undo's decrement returns the counter to zero — still false after 417 polls
+```
+
+417 is the number that matters. A wait that gives up after hundreds was genuinely disproved; one
+that gives up after a handful was starved and says nothing about the code — which is the
+distinction the old hand-rolled loop could not draw, because it reported neither. Green costs
+nothing: the suite still runs in 17-19 ms.
+
+**The load reproduction did NOT work, and that is worth recording rather than hiding.** Ten `yes`
+spinners on a ten-core machine took the package run from 13.5 s to 29.9 s (load 15.05) and the fixed
+suite passed — but so did the ORIGINAL hand-rolled deadline under the same treatment, at load 26.24.
+So that green says nothing: synthetic CPU load is not the thing that breaks this. What starves these
+waits is contention for MAIN-ACTOR TURNS from several hundred sibling tests, and a spinner burning a
+core does not queue work on the main actor. Anyone reaching for `yes` to reproduce a wait flake here
+should expect the same non-result.
+
+The case for the fix therefore rests on the mutation test above and on a structural argument, not on
+a reproduction: a poll floor strictly dominates a wall-clock-only bound, because it cannot be
+consumed by a machine that is slow. That is sound, and it is also weaker evidence than a reproduced
+red would be — stated plainly so nobody later cites this entry as proof the failure was reproduced.
+
+**The general lesson, since two spellings of this remain in the tree.** A seconds-only deadline in
+a test is a bet that the machine will not be busy, and this repo's runner IS the developer's Mac.
+`FileSyncManagerFilingTests` and `MergeUndoGroupingAndGateTests` still carry hand-rolled
+`ContinuousClock` deadlines; they have not misfired, and they are not swept here on that basis, but
+they are where to look first if either goes red under load.
 
 **A pump that never pumps — `RunLoop.main.run(until:)` with no window in the process, 2026-08-21.**
 `MergeUndoGroupingAndGateTests` and `DuplicateBatchRedesignTests` each carried a
