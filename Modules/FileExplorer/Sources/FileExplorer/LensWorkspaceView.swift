@@ -180,7 +180,22 @@ public struct LensWorkspaceView: View {
     /// nothing in here selects a lens any more — the workspace bar does — so a writable binding
     /// would be a write path with no writer.
     private let lens: WorkspaceLensKind
-    @State private var filter: DuplicateMatchFilter = .all
+    /// Everything on this screen the reader set, kept where it outlives the workspace — see
+    /// ``LensWorkspaceSession``. Every member below is a forwarder onto it, which is why the two
+    /// hundred-odd places that read them are untouched by the move.
+    ///
+    /// **`@StateObject`, and the host's object comes in through its initial value.** The app hands
+    /// one down from `ContentView`, which is mounted once for the window's life; a caller that hands
+    /// none — every test that mounts this view to ask about something else — gets a fresh one per
+    /// mount, which is exactly the behaviour it had as `@State`. Held rather than observed from
+    /// outside because the autoclosure runs only on first mount, so the identity is stable for the
+    /// life of this view either way.
+    @StateObject private var session: LensWorkspaceSession
+
+    private var filter: DuplicateMatchFilter {
+        get { session.filter }
+        nonmutating set { session.filter = newValue }
+    }
     /// Each lens's live query, kept SEPARATELY rather than as one shared field.
     ///
     /// Not tidiness — correctness. The grammars are deliberately per-lens, so a query carried
@@ -188,49 +203,85 @@ public struct LensWorkspaceView: View {
     /// lands in Rename, which declares no size token, so `>5mb` degrades to free text and matches
     /// nothing. The user would see an empty Rename lens with no visible cause. Each lens keeps
     /// (and re-enters) its own query instead.
-    @State private var searchQueries: [WorkspaceLensKind: String] = [:]
+    private var searchQueries: [WorkspaceLensKind: String] {
+        get { session.searchQueries }
+        nonmutating set { session.searchQueries = newValue }
+    }
     /// Which lenses currently have the field revealed — per-lens for the same reason.
-    @State private var searchExpandedLenses: Set<WorkspaceLensKind> = []
-    @State private var expanded: Set<UUID> = []
+    private var searchExpandedLenses: Set<WorkspaceLensKind> {
+        get { session.searchExpandedLenses }
+        nonmutating set { session.searchExpandedLenses = newValue }
+    }
+    private var expanded: Set<UUID> {
+        get { session.expanded }
+        nonmutating set { session.expanded = newValue }
+    }
     /// Duplicate sections the user has opened past their fold — see `duplicateTileRows`. Stored as
     /// the UNFOLDED set rather than the folded one, so a section that grows with the next scan
     /// folds by default instead of inheriting whatever the first render saw (the same argument
     /// `RenameCategories` used for its toggled set).
-    @State private var unfoldedSections: Set<DuplicateMatchType.Kind> = []
+    private var unfoldedSections: Set<DuplicateMatchType.Kind> {
+        get { session.unfoldedSections }
+        nonmutating set { session.unfoldedSections = newValue }
+    }
     /// The group a "Find duplicates of this" handoff sent the user to, marked until they look
     /// somewhere else. A landing, not a scroll: without a mark, a reveal into a list of similar
     /// cards leaves the user to work out which one they were sent to.
-    @State private var revealedGroupID: UUID?
+    private var revealedGroupID: UUID? {
+        get { session.revealedGroupID }
+        nonmutating set { session.revealedGroupID = newValue }
+    }
     /// The named answer a handoff put on screen, with the query it describes — never a silently
     /// filtered-to-nothing list.
     ///
     /// It is not *cleared* by the paths that could invalidate it; it is *gated* on still applying,
     /// by `DuplicateReveal.namedAnswer`. Clearing rules need one at every write path (typing, the
     /// ✕, chip removal, a scan reset, the next handoff) and the chip-removal path was missed.
-    @State private var revealLanding: DuplicateReveal.Landing?
+    private var revealLanding: DuplicateReveal.Landing? {
+        get { session.revealLanding }
+        nonmutating set { session.revealLanding = newValue }
+    }
     /// The reveal request this view has already acted on, so re-resolving on a groups change (or
     /// on any other re-render) does not re-clear a search the user has since typed.
-    @State private var appliedRevealID: UUID?
+    private var appliedRevealID: UUID? {
+        get { session.appliedRevealID }
+        nonmutating set { session.appliedRevealID = newValue }
+    }
     @State private var showSpendHistory = false
     /// H5 — bytes reclaimed so far this Duplicates session (view-level only; see ``ReclaimTally``).
     /// Drives the "… freed this session" count-up caption on the reclaim pill.
-    @State private var reclaim = ReclaimTally()
+    private var reclaim: ReclaimTally {
+        get { session.reclaim }
+        nonmutating set { session.reclaim = newValue }
+    }
     /// Bumped on every successful resolve to flash the reclaim pill's green glow once (H5). A token,
     /// not a Bool, so back-to-back resolves each retrigger the fade cleanly.
-    @State private var reclaimFlashToken = 0
+    private var reclaimFlashToken: Int {
+        get { session.reclaimFlashToken }
+        nonmutating set { session.reclaimFlashToken = newValue }
+    }
     /// True once the user has filed at least one loose file since the current Filing scan finished.
     /// Lets the empty-list state distinguish an earned "All filed" from "nothing was ever loose."
     /// Reset when a new scan starts (see `.onChange(of: isSuggestingFiles)`).
-    @State private var filedThisSession = false
+    private var filedThisSession: Bool {
+        get { session.filedThisSession }
+        nonmutating set { session.filedThisSession = newValue }
+    }
     /// True once the user has dismissed ("Not here") at least one suggestion this session without
     /// filing any. Lets the empty state say the scan's suggestions were cleared, rather than the
     /// misleading "Nothing loose to file" — which claims the scan found nothing when it actually did.
     /// Reset when a new scan starts.
-    @State private var dismissedThisSession = false
+    private var dismissedThisSession: Bool {
+        get { session.dismissedThisSession }
+        nonmutating set { session.dismissedThisSession = newValue }
+    }
     /// A just-made override the user can teach as a rule (G2): they filed a loose file into a folder
     /// other than the suggested home — the highest-value learning moment. Held (inline prompt shown)
     /// until they Remember it or dismiss it. Cleared when a new scan starts.
-    @State private var pendingRememberPrompt: PendingRememberPrompt?
+    private var pendingRememberPrompt: PendingRememberPrompt? {
+        get { session.pendingRememberPrompt }
+        nonmutating set { session.pendingRememberPrompt = newValue }
+    }
 
     /// The shape finding whose §5.4 plan sheet is open — sheet presentation state, so it clears
     /// itself when the sheet closes.
@@ -329,9 +380,15 @@ public struct LensWorkspaceView: View {
     /// A learn-by-example rule offered after the user files a loose file — turned into an editable
     /// Automation on Save. Deterministic complement to the AI backend. Held (inline prompt shown)
     /// until saved or dismissed; cleared when a new scan starts.
-    @State private var pendingRuleOffer: RuleOffer?
+    private var pendingRuleOffer: RuleOffer? {
+        get { session.pendingRuleOffer }
+        nonmutating set { session.pendingRuleOffer = newValue }
+    }
     /// Which phrasing of the offered rule (narrower / balanced / broader) the user has selected.
-    @State private var ruleVariantChoice: AutomationRuleProposer.Variant?
+    private var ruleVariantChoice: AutomationRuleProposer.Variant? {
+        get { session.ruleVariantChoice }
+        nonmutating set { session.ruleVariantChoice = newValue }
+    }
     /// The just-created rule ("Remember" or "Save rule"), opened in the editor right away for a
     /// review pass (Cancel keeps it as created; it stays editable under Organize ▸ Rules). Also backs
     /// the header card's "New rule", so a blank rule and a taught one share one editor.
@@ -339,7 +396,7 @@ public struct LensWorkspaceView: View {
     /// The Automations lens's host-owned view state. It lives up here because the lens's controls
     /// now ride the shared header card: "Preview all" is rendered by this view and has to flip the
     /// lens into its results view.
-    @StateObject private var automationsState = AutomationsLensState()
+    private var automationsState: AutomationsLensState { session.automationsState }
 
     private let providerName: String?
     /// The folder a rescan would target — the focused pane's current directory. Lets both lenses
@@ -516,7 +573,8 @@ public struct LensWorkspaceView: View {
         revealRequest: DuplicateRevealRequest? = nil,
         onRevealHandled: ((UUID) -> Void)? = nil,
         onFindDuplicatesOf: ((String) -> Void)? = nil,
-        initialSearchQueries: [WorkspaceLensKind: String] = [:]
+        initialSearchQueries: [WorkspaceLensKind: String] = [:],
+        session: LensWorkspaceSession? = nil
     ) {
         self.syncManager = syncManager
         // The one seam into `searchQueries`, which is otherwise `@State` seeded empty and reachable
@@ -525,7 +583,12 @@ public struct LensWorkspaceView: View {
         // which page answers a query at all. That is not a small blind spot, it is where three of
         // this screen's defects lived. The app passes nothing and gets today's behaviour exactly;
         // the shape is `SettingsRail.versionText`'s, for the same reason.
-        _searchQueries = State(initialValue: initialSearchQueries)
+        //
+        // **Seeded into the session inside the `@StateObject` autoclosure**, so it happens exactly
+        // once, on first mount. Written outside it, a host-supplied session would have its live
+        // queries overwritten by the seed on every re-render — which for the app (whose seed is
+        // empty) is a parked query silently cleared the next time anything published.
+        _session = StateObject(wrappedValue: Self.startingSession(session, seed: initialSearchQueries))
         self.lens = lens
         self.providerName = providerName
         self.scanTargetFolder = scanTargetFolder
@@ -3037,7 +3100,7 @@ public struct LensWorkspaceView: View {
             // for a filter that would reveal rows once picked — see `filterCounts` for why the
             // scope is the one narrowing it does honour.
             let counts = Self.filterCounts(syncManager.duplicateGroups, scope: scope)
-            Picker("Filter", selection: $filter) {
+            Picker("Filter", selection: $session.filter) {
                 ForEach(DuplicateMatchFilter.allCases) { f in
                     Text("\(f.label) (\(counts[f] ?? 0))").tag(f)
                 }
@@ -4944,7 +5007,7 @@ public struct LensWorkspaceView: View {
                 RuleOfferPromptView(
                     offer: offer,
                     accent: glassHue.accentColor,
-                    variantChoice: $ruleVariantChoice,
+                    variantChoice: $session.ruleVariantChoice,
                     onSave: { saveProposedRule(offer) },
                     onNotNow: { pendingRuleOffer = nil }
                 )

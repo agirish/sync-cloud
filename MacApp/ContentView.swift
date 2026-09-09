@@ -85,6 +85,17 @@ struct ContentView: View {
     /// `editorRailTab` and `editorMode` make just below.
     @State var leftTreeExpanded: Set<String> = []
     @State var rightTreeExpanded: Set<String> = []
+
+    /// How the reader had Organize's results narrowed — see `LensWorkspaceSession`.
+    ///
+    /// **`@State` holding a reference type, deliberately not `@StateObject`.** This view must OWN
+    /// the object (so it survives the workspace switches that destroy `LensWorkspaceView`) without
+    /// OBSERVING it. A `@StateObject` here would subscribe this four-thousand-line body to every
+    /// keystroke in Organize's search field and every duplicate resolve — a window-wide re-render
+    /// for a change that concerns one panel, which is the shape of cost the v5 speed batch spent
+    /// itself removing. `@State` on a class stores and does not subscribe; `LensWorkspaceView`
+    /// observes it and re-renders alone. Same reasoning as the `RenderMemo`s inside that view.
+    @State private var lensSession = LensWorkspaceSession()
     /// Whether the rail's inline naming row is open. Held here because ⌘N opens it from any
     /// workspace, including ones where the editor is not on screen yet.
     @State var editorIsNaming = false
@@ -4723,7 +4734,14 @@ struct ContentView: View {
                 // folder that actually CONTAINS the file. `onFindDuplicates` scans the lens's
                 // focused root, which for a handoff from the other pane may still not contain it —
                 // pressing it re-ran the same unanswerable scan forever.
-                onFindDuplicatesOf: { path in revealCoordinator.findDuplicates(ofPath: path) }
+                onFindDuplicatesOf: { path in revealCoordinator.findDuplicates(ofPath: path) },
+                // **Held here because this view outlives the switch and that one does not.** The
+                // comment above says one construction site keeps the lens's state across a LENS
+                // change, and it does — but a workspace change tears down the arm this whole call
+                // lives in, and no property of a single call site survives that. Everything the
+                // reader set — the filter, the parked queries, the folds, the tallies, the session
+                // flags — now lives in an object mounted once for the window.
+                session: lensSession
             )
         } else if compareBottomListActive {
             // DifferencesView renders its own two cards (toolbar + table); the workspace bar lives in
