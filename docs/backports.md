@@ -4938,3 +4938,46 @@ done
 **The one thing to carry forward**: `grep -ci squash` reads `1` on `v4.x` and means nothing —
 the hit is `backup-roots-preReviewSquash2`, a branch name in the `roots` write-up, not a squash
 step. Read the line, do not count it.
+
+## 2026-09-09 — a PDF preview fits the whole page instead of the pane's width
+
+Quick Look scales a PDF page to fit the preview's WIDTH and lets the height overflow, so the wider
+the pane the less of the page was visible. Measured on a letter page in a 560pt-tall preview: at
+388pt wide it fitted almost exactly, and at 820pt it rendered about 1060pt tall — the top third and
+no way to reach the rest, because Quick Look draws in an out-of-process `NSRemoteView` whose scale
+and scrolling are the extension's. PDFs therefore move to PDFKit in-process (`PDFPagePreview`,
+`FitPagePDFView`, `PreviewRenderer`), fitted on whichever dimension is tighter and in
+`singlePageContinuous` so a scroll walks the document. Everything else stays with Quick Look, which
+was measured rather than assumed.
+
+**This one is a DEFECT, and every line has it.** All three carry the preview column and its
+`QuickLookPreview`, unchanged, so all three show a PDF the same wrong way. That is a stronger case
+for a pick than the tree preview two rows up — which was a feature — and it is still not owed, for
+the same reason: the standing direction is no backporting. Written down so the next audit sees a
+user-visible defect rather than an enhancement.
+
+```sh
+# stage 1 — is the preview there? stage 2 — is the RENDERER the one with the defect, and is the fix absent?
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s previewColumn=%s quickLook=%s pdfFit=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/ColumnPreviewColumn.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/ColumnPreviewColumn.swift 2>/dev/null | grep -c 'struct QuickLookPreview')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PDFPagePreview.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-09-09, before this landed:
+# main   previewColumn=1 quickLook=1 pdfFit=0
+# v4.x   previewColumn=1 quickLook=1 pdfFit=0
+# v3.x   previewColumn=1 quickLook=1 pdfFit=0
+# v2.x   previewColumn=1 quickLook=1 pdfFit=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **The PDF renderer** — `PDFPagePreview`, `FitPagePDFView`, `PreviewRenderer`, and the switch in `ColumnPreviewColumn.preview` | **Applies, and the defect is present.** One new file plus a `contentType` on `ColumnPreviewItem` and a two-case switch; it needs nothing this line lacks, PDFKit being a system framework | Applies, same shape and same defect | RECORDED — not owed |
+| **`ColumnPreviewItem.type(uti:path:)`** — the extension fallback, and its rejection of `dyn.…` placeholder types | Applies only alongside the renderer; on its own it computes a type nothing reads | Same | RECORDED — not owed |
+| **`clearInheritedBackground`** — PDFKit's scroll view painting a white slab around the page | **Does not apply.** It is a defect in the new renderer, not in anything these lines have | Same | CLOSED — does not apply |
+
+**Checked and not owed, the other direction.** Nothing here touches a stored preference or the
+preview's sizing keys: `paneColumnPreviewWidth` and the two `paneColumnShowsPreview` keys keep their
+names, meanings and defaults, so a maintenance-line build and a `main` build still share one defaults
+domain. The change is entirely in which view draws a file and at what scale.
