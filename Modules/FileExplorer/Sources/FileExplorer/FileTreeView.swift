@@ -216,7 +216,43 @@ public struct FileTreeView: View, Equatable {
     /// It is here rather than inside `PaneOutlineRows` because the SEARCH writes it — revealing a
     /// hit is `expanded.formUnion(hit.ancestorPaths)` and nothing else. That is the whole reason the
     /// outline stopped being an `OutlineGroup`; see `PaneOutlineRows`.
-    @State private var expanded: Set<String> = []
+    ///
+    /// **The fallback, used only when no host offers storage of its own.** As the pane's own `@State`
+    /// this died with the view, and the view is destroyed by every workspace switch — the four
+    /// layout arms mount `paneColumn` in structurally different places, so Browse's pane and
+    /// Organize's rail are two identities over one folder. Every folder a reader had opened closed
+    /// itself on the way to Compare and back. Columns hid it: the stack lives on the manager, and
+    /// `carryColumnsIntoTree` re-opens the one descending path it names on arrival — which is why the
+    /// obvious repro (expand a folder, then its child, then its child) appeared to work, and why two
+    /// SIBLING folders is the test that shows it.
+    ///
+    /// Tests mount this view without a host and get exactly today's behaviour; see ``hostExpanded``.
+    @State private var ownExpanded: Set<String> = []
+
+    /// Where the host keeps this pane's expansion, when it keeps it at all.
+    ///
+    /// **Optional rather than required**, so the two dozen test call sites that mount a pane to ask
+    /// about something else are unchanged and keep their own storage. A defaulted
+    /// `.constant([])` would have compiled just as quietly and broken every one of them that
+    /// expands anything — a search reveal writes this set, and writes to a constant binding are
+    /// dropped on the floor.
+    var hostExpanded: Binding<Set<String>>?
+
+    /// The expansion set, wherever it actually lives. Every reader and writer in this file goes
+    /// through here rather than naming one of the two storages, which is what stops a later edit
+    /// reading the fallback while the host writes the real one.
+    private var expanded: Set<String> {
+        get { hostExpanded?.wrappedValue ?? ownExpanded }
+        nonmutating set {
+            if let hostExpanded { hostExpanded.wrappedValue = newValue } else { ownExpanded = newValue }
+        }
+    }
+
+    /// `expanded` as a binding, for `PaneOutlineRows` — which needs to write single rows open and
+    /// closed without this view re-deriving the whole set.
+    private var expandedBinding: Binding<Set<String>> {
+        hostExpanded ?? $ownExpanded
+    }
 
     /// The column stack this pane has already carried into its Tree presentation — see
     /// `carryColumnsIntoTree`, which scrolls only when the parked stack differs from it. Pane
@@ -268,7 +304,7 @@ public struct FileTreeView: View, Equatable {
     /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
     var badgeMemoRoot: String { currentPath }
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String) -> Void)? = nil, graftsInFlight: Set<String> = [], onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String) -> Void)? = nil, graftsInFlight: Set<String> = [], onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -309,6 +345,7 @@ public struct FileTreeView: View, Equatable {
         self.onBackgroundDeselect = onBackgroundDeselect
         self.onQuickLook = onQuickLook
         self.downloadChannel = downloadChannel
+        self.hostExpanded = hostExpanded
     }
 
     /// See the note on the type. Every stored property is accounted for here: the value ones by
@@ -354,6 +391,14 @@ public struct FileTreeView: View, Equatable {
             // would either never differ (skipping the re-render that shows or hides the preview when the
             // header's pill is clicked) or always differ.
             && lhs.previewEnabled.wrappedValue == rhs.previewEnabled.wrappedValue
+            // **The VALUE, for the reason stated directly above — and this one is load-bearing in a
+            // way that is easy to miss.** While the expansion set was this view's own `@State`, a
+            // write to it invalidated the view unconditionally and no gate could suppress the
+            // redraw. Held by the host it arrives as a binding instead, so leaving it out of this
+            // comparison means the host's write re-renders `ContentView`, builds a new pane, and
+            // `EquatableView` then decides nothing changed: every disclosure triangle in the tree
+            // would stop responding to clicks. `FileTreeViewEquatableTests` holds this line.
+            && lhs.hostExpanded?.wrappedValue == rhs.hostExpanded?.wrappedValue
             && lhs.childrenIndex == rhs.childrenIndex
             && lhs.browsePath == rhs.browsePath
             && lhs.placement === rhs.placement
@@ -902,7 +947,7 @@ public struct FileTreeView: View, Equatable {
             // handing it the raw `[FileNode]` puts the recursive `FileNode.==` straight back into
             // the view graph — which is exactly what `PaneTree` alone failed to prevent. That was
             // true of `OutlineGroup` and is equally true of the `ForEach` inside `PaneOutlineRows`.
-            PaneOutlineRows(rows: tree.rows, expanded: $expanded,
+            PaneOutlineRows(rows: tree.rows, expanded: expandedBinding,
                             onNeedChildren: onNeedChildren ?? { _ in }) { row in
                 treeRow(for: row)
             }

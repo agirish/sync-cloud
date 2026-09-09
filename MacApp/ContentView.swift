@@ -62,12 +62,29 @@ struct ContentView: View {
     /// The one open document, owned by the app — see ``SyncCloudApp/editorDocument``. Held here as
     /// an `@ObservedObject` so the workspace is a rendering of it and nothing else.
     @ObservedObject var editorDocument: EditorDocument
-    /// The rail's rows for the current folder, re-listed off the main actor by `refreshEditorRail`.
     /// What the last look at the editor's folder found — the rail's rows, and the count its empty
     /// caption needs. **One piece of state rather than two**, so the "did anything change" guard in
     /// ``refreshEditorRail()`` stays a single comparison: held apart, a folder whose only change was
     /// a PDF arriving would keep a caption claiming it was empty.
     @State var editorRailSurvey = EditorRail.Survey(rows: [], otherFileCount: nil)
+
+    /// Which folders each pane has open in its Tree presentation.
+    ///
+    /// **Here for the reason the editor's own session state is here**: `paneColumn(isLeft:)` is
+    /// mounted by four structurally different arms of `verticalSplit`'s switch, so the pane in
+    /// Browse and the rail in Organize are two SwiftUI identities over the same folder — and a set
+    /// kept as `FileTreeView`'s `@State` was destroyed on every trip between them. This view is
+    /// mounted once for the window's life and outlives all of it.
+    ///
+    /// **Per side, not per workspace.** Browse's pane, the lens rail and Compare's left pane are all
+    /// the left pane — one tree, one path, one provider — so they share one answer, and a folder
+    /// opened in one is open in the others. Two sets rather than one because Compare shows both at
+    /// once and they are genuinely different trees.
+    ///
+    /// Not persisted across launches: an expansion describes a reading session, the same call
+    /// `editorRailTab` and `editorMode` make just below.
+    @State var leftTreeExpanded: Set<String> = []
+    @State var rightTreeExpanded: Set<String> = []
     /// Whether the rail's inline naming row is open. Held here because ⌘N opens it from any
     /// workspace, including ones where the editor is not on screen yet.
     @State var editorIsNaming = false
@@ -4392,7 +4409,15 @@ struct ContentView: View {
             onBackgroundDeselect: { handleBackgroundDeselect(depth: $0, isLeft: pane.isLeft) },
             // The row menu's preview goes through the HOST's panel, not the pane's own: there is
             // one Quick Look panel and only the host can keep it pointed at the current file.
-            onQuickLook: { toggleQuickLook($0, followsPane: true) }
+            onQuickLook: { toggleQuickLook($0, followsPane: true) },
+            // **The open folders are held HERE, because this view outlives the switch and the pane
+            // does not.** `paneColumn` is mounted by four structurally different layout arms, so
+            // Browse's pane and Organize's rail are two identities over one folder — and a set of
+            // open folders kept as the pane's own `@State` died on the way between them. Per side
+            // rather than per workspace, deliberately: Browse, the lens rail and Compare's left are
+            // all the LEFT pane, on one tree at one path, and a reader who opens a folder in one
+            // should find it open in the others.
+            hostExpanded: pane.isLeft ? $leftTreeExpanded : $rightTreeExpanded
         )
         // The whole point of `FileTreeView: Equatable`. Without this the conformance is inert —
         // SwiftUI only consults a view's `==` through `EquatableView` — and this view is built

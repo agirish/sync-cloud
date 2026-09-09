@@ -87,7 +87,8 @@ import Design
         graftsInFlight: Set<String> = [],
         onBackgroundDeselect: ((Int?) -> Void)? = { _ in },
         onQuickLook: ((URL) -> Void)? = { _ in },
-        downloadChannel: NotificationCenter = .default
+        downloadChannel: NotificationCenter = .default,
+        hostExpanded: Set<String>? = nil
     ) -> FileTreeView {
         FileTreeView(
             tree: tree, otherTree: otherTree, isLoading: isLoading, currentPath: currentPath,
@@ -102,7 +103,8 @@ import Design
             browsePath: .constant(browsePath), onColumnNavigate: onColumnNavigate,
             onNeedChildren: onNeedChildren, graftsInFlight: graftsInFlight,
             onBackgroundDeselect: onBackgroundDeselect, onQuickLook: onQuickLook,
-            downloadChannel: downloadChannel)
+            downloadChannel: downloadChannel,
+            hostExpanded: hostExpanded.map { value in .constant(value) })
     }
 
     @Test("An unchanged pane compares equal — otherwise the gate never engages at all")
@@ -111,6 +113,31 @@ import Design
     }
 
     // MARK: The mutation sweep
+
+    /// **The open folders, now that the host holds them.**
+    ///
+    /// This is the one entry in the sweep whose absence would have been catastrophic rather than
+    /// subtle, and it only became necessary when the set moved out of the pane. As the view's own
+    /// `@State`, a write invalidated it unconditionally and no gate could suppress the redraw —
+    /// there was nothing for this suite to hold. Held by `ContentView` it arrives as a binding, so
+    /// omitting it here means the host's write rebuilds the pane, `==` answers true, SwiftUI keeps
+    /// the old one, and **every disclosure triangle in the tree stops responding to clicks**.
+    ///
+    /// Compared by VALUE for the reason `previewEnabled` is: two bindings onto the same storage are
+    /// fresh structs on every render, so anything else here either never differs or always does.
+    @Test("The open folders are noticed — the host owns them now, so the gate must see them")
+    func hostExpansionIsCompared() {
+        #expect(pane(hostExpanded: []) != pane(hostExpanded: ["/root/Documents"]))
+    }
+
+    /// A pane with no host keeps its own set and compares equal to another such pane — the two
+    /// dozen call sites that mount a pane to ask about something else are unaffected.
+    @Test("An unhosted pane is unchanged by the hoist")
+    func anUnhostedPaneStillComparesEqual() {
+        #expect(pane(hostExpanded: nil) == pane(hostExpanded: nil))
+        #expect(pane(hostExpanded: nil) != pane(hostExpanded: []),
+                "a hosted pane and an unhosted one read as the same view")
+    }
 
     @Test("A republished tree is noticed")
     func treeVersionIsCompared() {
