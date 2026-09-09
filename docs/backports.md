@@ -4497,3 +4497,49 @@ makes one." — the same words an empty folder drew, and the whole rail otherwis
 a folder he had just filled, the app read as though it had lost it. The fix counts what the rail
 declined to list and says so; the count excludes subfolders, because "none of the 4 files" over
 three folders and one PDF would be a second wrong answer in place of the first.
+
+---
+
+## 2026-09-09 — Renames' breakdown moves to the blurb, and the detail slot gets a contract (`bb0adfde`)
+
+The other half of the row above. Both arms that were putting a *summary* in the overview's
+detail slot now carry it in the blurb, and the slot's rule — **rows you could act on, or nothing** —
+is written on `OrganizeOverviewState.findings` where the slot is declared.
+
+**`v4.x` has this defect in code too, and its fix is blocked on a different missing piece than the
+Restructure one was.** Same shape as the row above, different prerequisite.
+
+```sh
+L=Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s tally=%s headerBreakdown=%s risky=%s breakdownInFile=%s monoSlot=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/RenameBacklogTally.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/RenameBacklogTally.swift 2>/dev/null | grep -c 'var headerBreakdown')" \
+    "$(git show origin/$l:$L 2>/dev/null | grep -c 'scopedRisky')" \
+    "$(git show origin/$l:$L 2>/dev/null | grep -c 'tally.breakdown')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift 2>/dev/null | grep -c 'design: .monospaced')"
+done
+# main 1/1/5/2/1 · v4.x 1/0/5/3/1 · v3.x and v2.x 0/0/0/0/0
+```
+
+**`breakdownInFile` counts the whole file and must be read, not totalled** — the same trap the row
+above names. `main`'s two are the Renames *header*'s tooltip and accessibility label, where the full
+form is right (no width limit, and a screen reader is not short of room); the overview's use is
+gone. `v4.x`'s three include line 3357, which IS the overview's detail slot:
+
+```sh
+git show origin/main:$L | grep -n -B1 'tally.breakdown'   # 1958 .help(…), 1966 .accessibilityLabel(…)
+git show origin/v4.x:$L | grep -n    'tally.breakdown'    # 1801, 1802 header Text; 3357 THE DEFECT
+```
+
+| What landed on `main` | `v4.x` | `v3.x` | `v2.x` | Status |
+|---|---|---|---|---|
+| Renames' breakdown moves from the detail slot to the blurb | **The defect is real and the fix is unpickable as written.** Line 3357 puts the tally in the slot, and `design: .monospaced` is on that slot there too, so it renders exactly as `main`'s did — prose in a font meant for filenames. But **`headerBreakdown` does not exist on this line**: `RenameBacklogTally` is there and carries `breakdown` and `claim` only, and that line's own Renames header draws the full `breakdown` (1801–1802) because it has nothing shorter to draw. A pick would have to use `breakdown`, which appends "N left alone" under the words *Names worth changing* — a file the pass declined to rename is not one of those, and avoiding exactly that is why the shorter form exists | **Does not apply** — no `RenameBacklogTally`, no overview | **Does not apply** | RECORDED — not owed; defect real, fix blocked on `headerBreakdown` (`v4.x`) |
+| The slot's contract on `OrganizeOverviewState.findings`, and `noLensPutsProseInTheExampleSlot` | **Does not apply on its own.** It is a rule about a slot two arms have been moved out of; asserted against `v4.x` as it stands it would fail, correctly, and pinning a rule the code does not follow is a red suite, not a guard | **Does not apply** | **Does not apply** | CLOSED — carried by the pick above, if that is ever made |
+| The draft bullet in `RELEASE_NOTES.md` and `docs/releases.html` | **Does not apply as written** | **Does not apply** | **Does not apply** | CLOSED — written per line, never copied |
+
+**Both halves of this pair are blocked on something small and different**: Restructure's on
+`FindingKind`, Renames' on `RenameBacklogTally.headerBreakdown`. Neither is a large backport on its
+own, and a session that picked either without its prerequisite would land a summary that reads
+wrong rather than one that does not compile — which is the failure worth writing down, because the
+compiler will not raise it.
