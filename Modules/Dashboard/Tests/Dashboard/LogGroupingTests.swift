@@ -135,6 +135,62 @@ import Events
         #expect(header != "Today")
         #expect(header != "Yesterday")
         #expect(!header.isEmpty)
+        // The date itself, which the three assertions above never looked at — and that is how a
+        // header a full day out went unnoticed. `1` is the day this bucket is for in UTC.
+        #expect(header.contains("1"), "the dated header does not name the day it labels")
+    }
+
+    /// **A dated header names the day its bucket is for, in the bucket's own zone.**
+    ///
+    /// `byDay` takes the bucket boundary from the calendar it is handed, but the two header
+    /// formatters used to be shared `DateFormatter`s that captured the system zone at first use and
+    /// never looked again. So the boundary moved with the machine and the rendering did not: entries
+    /// bucketed at midnight in one zone were drawn under a date belonging to another — a full day
+    /// out, and only ever on sections two days old and older, because `Today`/`Yesterday` compare
+    /// against the same fresh calendar and were always right.
+    ///
+    /// **The assertion has to pin the rendered date, not merely show two zones differing.** The
+    /// first version of this test compared a UTC bucket's header with a Kolkata one and asserted
+    /// they were not equal — which passes under the bug too, because the two buckets are different
+    /// instants and render differently in any single zone. It caught nothing; the mutation that
+    /// puts the formatter back on the system zone went green through it.
+    ///
+    /// The two zones are the extremes of the real offset range (+14 and −12), and that is what makes
+    /// this independent of the machine it runs on. Rendering midnight-in-Z under the system zone C
+    /// names the wrong day whenever `offset(C) < offset(Z)`: at Z = +14 that is every C but +14
+    /// itself, and Z = −12 covers the remaining C in +12…+14. One of the two always fails under the
+    /// bug, wherever this runs.
+    @Test func testADatedHeaderIsRenderedInItsBucketsOwnZone() throws {
+        let instant = at(2026, 7, 1, 20)
+        let now = at(2026, 7, 14, 12)
+        let entries = [LogEntry(timestamp: instant, level: .info, message: "old")]
+
+        for offsetHours in [14, -12] {
+            var bucket = Calendar(identifier: .gregorian)
+            bucket.timeZone = try #require(TimeZone(secondsFromGMT: offsetHours * 3600))
+            let section = LogGrouping.byDay(entries, now: now, calendar: bucket)[0]
+
+            // The expectation, built independently: a fresh formatter, same template, on the
+            // bucket's own zone. Fresh, so it cannot inherit the staleness under test.
+            let control = DateFormatter()
+            control.timeZone = bucket.timeZone
+            control.setLocalizedDateFormatFromTemplate("EEEEMMMd")
+            let day = bucket.startOfDay(for: instant)
+
+            #expect(section.header == control.string(from: day),
+                    "the header names a day belonging to some zone other than its bucket's")
+            #expect(section.id == Self.isoDay(day, in: bucket.timeZone))
+        }
+    }
+
+    /// `yyyy-MM-dd` for a section id, computed independently of the code under test.
+    private static func isoDay(_ day: Date, in zone: TimeZone) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.timeZone = zone
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: day)
     }
 
     @Test func testEmptyInputYieldsNoSections() {

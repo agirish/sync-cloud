@@ -1,4 +1,5 @@
 import Foundation
+import Design
 import Events
 
 /// Pure grouping for the Activity Log — day buckets and collapsed operation runs — kept out of the
@@ -123,7 +124,7 @@ enum LogGrouping {
 
         func flush() {
             guard let day = startOfCurrent, !bucket.isEmpty else { return }
-            sections.append(DaySection(id: Self.keyFormatter.string(from: day),
+            sections.append(DaySection(id: Self.keyFormatter.string(from: day, in: calendar.timeZone),
                                        header: dayHeader(day, now: now, calendar: calendar),
                                        items: fold(bucket)))
             bucket.removeAll(keepingCapacity: true)
@@ -145,26 +146,33 @@ enum LogGrouping {
         if day == today { return "Today" }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: today), day == yesterday { return "Yesterday" }
         let sameYear = calendar.component(.year, from: day) == calendar.component(.year, from: today)
-        return (sameYear ? Self.headerThisYear : Self.headerOtherYear).string(from: day)
+        // Rendered in the zone the bucket was computed in, not in whatever zone a shared
+        // formatter woke up in. `day` is `calendar.startOfDay(for:)`, so `calendar.timeZone` is
+        // the only zone in which it means the midnight it was built to mean — read it in any
+        // other and the header names the wrong day. In the app `calendar` is `.current`, so this
+        // changes nothing there; it is what makes the two agree by construction.
+        return (sameYear ? Self.headerThisYear : Self.headerOtherYear)
+            .string(from: day, in: calendar.timeZone)
     }
 
     /// Stable `yyyy-MM-dd` section id — locale-independent so it never collides across days.
-    private static let keyFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
+    ///
+    /// Now also calendar-pinned, which `fixed` brings with it: the id was Gregorian only by
+    /// accident of the reader's region, and a Buddhist-calendar Mac keyed its sections `2569-…`.
+    /// Nothing compared these ids across machines, so that was invisible rather than broken.
+    private static let keyFormatter = ZoneRefreshedFormatter.fixed("yyyy-MM-dd")
 
-    private static let headerThisYear: DateFormatter = {
-        let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("EEEEMMMd")
-        return f
-    }()
-
-    private static let headerOtherYear: DateFormatter = {
-        let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("MMMdyyyy")
-        return f
-    }()
+    /// The two DISPLAYED day headers, and the reason this file is in the zone sweep at all.
+    ///
+    /// `byDay` takes each section's `day` from a **fresh** `Calendar.current`, so the bucket
+    /// boundary always moved with the system zone — but these formatters captured whichever zone
+    /// was current when the Activity Log first drew, so they rendered that boundary in a zone the
+    /// machine had left. The result was a header a full day out: entries stamped 2026-06-01,
+    /// bucketed at midnight IST, drawn under "Sunday, May 31" by a formatter still on Pacific.
+    ///
+    /// The `Today`/`Yesterday` branch above never had the bug — it compares against the same fresh
+    /// calendar — so this only ever showed on sections two days old and older, which is exactly
+    /// where a reader has no other way to tell.
+    private static let headerThisYear = ZoneRefreshedFormatter.template("EEEEMMMd")
+    private static let headerOtherYear = ZoneRefreshedFormatter.template("MMMdyyyy")
 }
