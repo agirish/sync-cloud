@@ -1,5 +1,6 @@
 import Foundation
 import Sync
+import Design
 
 // MARK: - The facts strip
 
@@ -145,12 +146,7 @@ struct ComparePairFacts: Equatable {
         return dateFormatter.string(from: date)
     }
 
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f
-    }()
+    private static let dateFormatter = ZoneRefreshedFormatter.localized(date: .medium, time: .short)
 
     /// The one-line summary over the strip: what actually differs, in the reader's words.
     ///

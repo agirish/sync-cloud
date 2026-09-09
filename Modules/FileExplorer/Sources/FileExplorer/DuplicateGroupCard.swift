@@ -14,6 +14,16 @@ struct DuplicateGroupCard: View {
     /// reads the @AppStorage once and passes the resolved metrics down); comfortable is the
     /// pre-H7 look.
     let densityMetrics: ListDensityMetrics
+    /// The zone the meta line's "modified" date reads in — `.current` everywhere in the app.
+    ///
+    /// Injectable only so this card's snapshot references stop baking in the recording machine's
+    /// zone, the same reason `LogEntryRow.timeZone` exists. That trap is not hypothetical: the two
+    /// log-row references carried it, went red on a frozen fixture when this Mac moved from Pacific
+    /// to `Asia/Kolkata`, and cost a day being mistaken for a colour regression. This card's own
+    /// reference survived only by luck — its fixture is 12:00 UTC, which is the same calendar day
+    /// in both zones, and the card shows no time. A move past roughly ±12 hours would have reddened
+    /// it the same way.
+    var timeZone: TimeZone = .current
     let onToggle: () -> Void
     let onApply: () -> Void
     let onReveal: () -> Void
@@ -572,7 +582,7 @@ struct DuplicateGroupCard: View {
         }
         parts.append(FileSyncManager.formatBytes(copy.size))
         if let d = copy.modificationDate {
-            parts.append("modified \(Self.dateFormatter.string(from: d))")
+            parts.append("modified \(Self.dateFormatter.string(from: d, in: timeZone))")
         }
         if !copy.isRecommendedKeeper {
             switch group.matchType {
@@ -798,12 +808,7 @@ struct DuplicateGroupCard: View {
         return tilde.components(separatedBy: "/").filter { !$0.isEmpty }
     }
 
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return f
-    }()
+    private static let dateFormatter = ZoneRefreshedFormatter.localized(date: .medium, time: .none)
 }
 
 // MARK: - Header layout

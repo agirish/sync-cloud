@@ -1709,12 +1709,8 @@ struct FileRowView: View {
 
     /// Shared formatter (sizes use FileSizeFormat.byteCount): rows render lazily but
     /// scroll fast, so allocating a formatter per row body would still churn.
-    @MainActor private static let modifiedFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter
-    }()
+    @MainActor private static let modifiedFormatter = ZoneRefreshedFormatter.localized(date: .medium,
+                                                                                        time: .none)
 
     /// Size for files, date modified for directories (a directory's fileSize is just the
     /// entry size, not its contents); nil when the scan didn't populate the metadata, and nil for

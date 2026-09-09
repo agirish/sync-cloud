@@ -62,15 +62,14 @@ public struct DetailsSidebar: View {
     /// of `metadata` (DateFormatter is expensive to construct).
     ///
     /// `nonisolated` so the stat that reads it can run off the main actor — see
-    /// `loadMetadata(for:fileManager:)`. Safe: it is fully configured here and never mutated
-    /// afterwards, and `DateFormatter` is documented thread-safe for formatting on macOS 10.9+
-    /// (which is why Foundation marks it `Sendable`).
-    nonisolated private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .medium
-        return formatter
-    }()
+    /// `loadMetadata(for:fileManager:)`. **That is why it is a `ZoneRefreshedFormatter` and not a
+    /// bare `DateFormatter` with a zone check bolted on.** The old note here was right that
+    /// formatting is thread-safe and wrong about what that buys: it held only while the formatter
+    /// was "never mutated afterwards", and re-checking the zone is a mutation. This column is the
+    /// one site in the sweep reached from more than one thread, so the check and the format are
+    /// taken together under that type's lock.
+    nonisolated private static let dateFormatter = ZoneRefreshedFormatter.localized(date: .medium,
+                                                                                    time: .medium)
     
     public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false, overridePath: String? = nil, singleSource: Bool = false, cloudCoverage: FileLocation.Coverage? = nil) {
         self.init(syncManager: syncManager, leftPath: leftPath, rightPath: rightPath,

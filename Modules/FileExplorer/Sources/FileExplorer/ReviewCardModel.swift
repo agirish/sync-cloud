@@ -1,5 +1,6 @@
 import Foundation
 import Sync
+import Design
 
 extension FileDifference {
     /// Absolute path of the side this difference's `action` copies FROM.
@@ -222,12 +223,8 @@ struct ReviewCardModel: Equatable {
     }
 
     /// "Jul 8, 2026 at 6:12 PM" — one cached formatter (same churn rule as `FileSizeFormat`).
-    @MainActor private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
+    @MainActor private static let dateFormatter = ZoneRefreshedFormatter.localized(date: .medium,
+                                                                                    time: .short)
 }
 
 extension ReviewCardModel {

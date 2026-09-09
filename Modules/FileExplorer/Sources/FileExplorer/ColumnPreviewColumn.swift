@@ -290,12 +290,7 @@ struct ColumnPreviewColumn: View {
 
     /// Shared by the two date rows; `DateFormatter` is expensive to construct and `body` is not the
     /// place to do it (the same reason `DetailsSidebar` keeps one).
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
+    private static let dateFormatter = ZoneRefreshedFormatter.localized(date: .medium, time: .short)
 
     /// `.task(id:)` key: the path, plus the generation so a download request can re-run the probe
     /// for the very same file.

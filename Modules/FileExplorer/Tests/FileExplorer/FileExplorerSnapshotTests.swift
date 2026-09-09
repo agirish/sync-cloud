@@ -16,6 +16,17 @@ import Sync
     /// card's meta line renders it through a DateFormatter.
     private static let fixedDate = Date(timeIntervalSince1970: 1_780_315_200)
 
+    /// The zone the cards below render their "modified" date in, so these references hold the
+    /// card's layout and not the recording machine's location.
+    ///
+    /// A frozen `Date` is only half of a frozen string. `DashboardSnapshotTests` learned that the
+    /// expensive way: its two log-row references baked in Pacific, went red on an unchanged fixture
+    /// when this Mac moved to `Asia/Kolkata`, and read as a colour regression for a day. These
+    /// references had the identical exposure and survived on luck alone — 12:00 UTC is the same
+    /// calendar day either side, and the card prints no clock — so the pin is taken now rather than
+    /// after a move that does cross a midnight. UTC, matching the fixture comment above.
+    private static let pinnedZone = TimeZone(identifier: "UTC")!
+
     // MARK: StatPill
 
     /// The differences-header pills: count + label + tint per severity family, plus the
@@ -309,6 +320,7 @@ import Sync
             of: DuplicateGroupCard(
                 group: group, isExpanded: false, providerName: "iCloud Drive", scanRoot: "/d",
                 densityMetrics: ListDensity.comfortable.metrics,
+                timeZone: Self.pinnedZone,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
                 onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
                 .padding(12),
@@ -342,6 +354,7 @@ import Sync
             of: DuplicateGroupCard(
                 group: group, isExpanded: true, providerName: "iCloud Drive", scanRoot: "/d",
                 densityMetrics: ListDensity.comfortable.metrics,
+                timeZone: Self.pinnedZone,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
                 onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
                 .padding(12),
@@ -367,6 +380,7 @@ import Sync
             of: DuplicateGroupCard(
                 group: group, isExpanded: true, providerName: "iCloud Drive", scanRoot: "/d",
                 densityMetrics: ListDensity.comfortable.metrics,
+                timeZone: Self.pinnedZone,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
                 onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
                 .padding(12),
@@ -391,6 +405,7 @@ import Sync
             of: DuplicateGroupCard(
                 group: group, isExpanded: true, providerName: "iCloud Drive", scanRoot: "/d",
                 densityMetrics: ListDensity.compact.metrics,
+                timeZone: Self.pinnedZone,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
                 onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
                 .padding(12),

@@ -2119,18 +2119,13 @@ public struct LensWorkspaceView: View {
     /// from `overviewModel`, which rebuilds on every state change the landing page observes — so a
     /// per-call formatter is a real allocation on a per-`body` path. Same reason
     /// `OrganizeRailMetrics` tabulates its glyph widths rather than measuring them each time.
-    private static let receiptWeekday: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "EEEE"
-        return f
-    }()
-
-    private static let receiptDate: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return f
-    }()
+    ///
+    /// Both re-check the system zone on every use rather than capturing it — see
+    /// `ZoneRefreshedFormatter`. The weekday goes through `template` rather than a literal `EEEE`
+    /// so the name stays the reader's: the two render identically in en_US, fr_FR, de_DE, ja_JP
+    /// and hi_IN, which is what made the swap safe.
+    private static let receiptWeekday = ZoneRefreshedFormatter.template("EEEE")
+    private static let receiptDate = ZoneRefreshedFormatter.localized(date: .medium, time: .none)
 
     static func receiptDay(_ date: Date, now: Date = Date()) -> String {
         let calendar = Calendar.current
