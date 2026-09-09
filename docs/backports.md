@@ -4614,3 +4614,56 @@ zone test has to pin the RENDERED value against a control built in the bucket's 
 zones the test settled on are the extremes of the real offset range (+14 and −12), which is what
 makes it independent of the machine: rendering midnight-in-Z under the system zone C names the wrong
 day whenever `offset(C) < offset(Z)`, and between those two Z values every possible C is covered.
+
+## 2026-09-09 — the workspace switch stops throwing away what the reader set (`bed8e2ce`..`f88f42bd`)
+
+`main` `bed8e2ce`..`f88f42bd`. `verticalSplit` lays the window out as a `switch` over
+`contentLayout`, and each arm is a separate SwiftUI identity — so moving between Browse, Compare,
+Organize and Edit tears the outgoing workspace's tree down and builds the incoming one from nothing.
+Five things a reader had set went with it. None of this changes the mounting; each fix moves the
+state to a host that outlives the switch.
+
+**The finding that decides most of the rows below: the CAUSE is a v5 shape.** The four-workspace bar
+is what makes a switch destroy a workspace, and `Workspace` has four cases on `main`, three on
+`v4.x`, two on `v3.x` and none on `v2.x` (which has no workspace enum at all). So the same code can
+carry the same state and still not have the same defect — a line with one workspace never leaves it.
+Read the applicability column as "does this line's UI reach the teardown", not "does the file exist".
+
+```sh
+# which surfaces each line carries, and whether the switch that destroys them exists
+F=Modules/FileExplorer/Sources/FileExplorer
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s thumb=%s lens=%s diffs=%s tree=%s editorDoc=%s workspaceCases=%s\n' "$l" \
+    "$(git show origin/$l:$F/DuplicateThumbnail.swift 2>/dev/null | grep -c 'imageCache')" \
+    "$(git show origin/$l:$F/LensWorkspaceView.swift 2>/dev/null | grep -c 'searchQueries')" \
+    "$(git show origin/$l:$F/DifferencesView.swift 2>/dev/null | grep -c 'collapsedSections')" \
+    "$(git show origin/$l:$F/FileTreeView.swift 2>/dev/null | grep -c 'private var expanded: Set<String>')" \
+    "$(git show origin/$l:$F/EditorDocument.swift 2>/dev/null | grep -c 'public let buffer')" \
+    "$(git show origin/$l:MacApp/Workspace.swift 2>/dev/null | grep -cE '^    case (browse|compare|filing|editor) =')"
+done
+# main   thumb=6 lens=15 diffs=21 tree=1 editorDoc=1 workspaceCases=4
+# v4.x   thumb=4 lens=14 diffs=15 tree=1 editorDoc=0 workspaceCases=3
+# v3.x   thumb=4 lens=0  diffs=14 tree=1 editorDoc=0 workspaceCases=2
+# v2.x   thumb=4 lens=0  diffs=14 tree=0 editorDoc=0 workspaceCases=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`DuplicateThumbnail.cached(…)`** — a synchronous peek at the static `NSCache`, so a returning tile paints the preview it already has instead of one frame of the file-type icon. Plus `key(…)` and `store(…)` as single expressions both ends share | Applies (`thumb=4`), and the defect is real there — the cache is `static` on every line, so the flash is a nil `@State` and not a reload | Applies on `v3.x`; the file is present on `v2.x` too. Lower value: fewer workspaces to switch between | RECORDED — not owed |
+| **`EditorCaretAnchors`** + `PlainTextEditor.initialSelection` — the caret and scroll survive a switch | **Does not apply** — the Editor workspace shipped in v5.2; `editorDoc=0`, no `PlainTextEditor` on the line | Does not apply | CLOSED — does not apply |
+| **`FileTreeView.hostExpanded`** — the Tree's open folders held per side by `ContentView` | Applies (`tree=1`) and the defect is reachable: three workspaces, and `paneColumn` is mounted by several arms there too. **The row that must not be picked as the storage change alone** — `FileTreeView.==` is hand-written, and moving the set to a binding without adding it to that comparison stops every disclosure triangle responding to clicks | Applies on `v3.x` (`tree=1`), with the same `==` caveat. **Does not apply** on `v2.x` — no such set (`tree=0`) | RECORDED — not owed (`v4.x`, `v3.x`); CLOSED — does not apply (`v2.x`) |
+| **`LensWorkspaceSession`** — Organize's filter, parked queries, folds, tallies and session flags | Applies (`lens=14`). Note the pick is 16 declarations turned into forwarders, so it is wide but mechanical; the two `Binding` sites (the filter `Picker`, the rule-variant chooser) are the only edits that are not a declaration | **Does not apply** — no `LensWorkspaceView` on either line (`lens=0`) | RECORDED — not owed (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`DifferencesSession`** — Compare's filter, search, sort and folded sections | Applies (`diffs=15`). **The row with a trap, and it is the whole reason this one took longer than Organize's**: `collapsedSections` and the `.failed` filter are retired by `.onChange` handlers that cannot fire while the view is unmounted, so today the REBUILD is the reset. Picking the storage move without `collapsedSectionsScanDate` and the two arrival guards reintroduces a fold that hides differences nobody has seen, and a `.failed` filter over a table with nothing failed in it | Applies on both (`diffs=14`), same trap. On `v2.x` there is no workspace enum, so the teardown never happens and the value is nil | RECORDED — not owed (`v4.x`, `v3.x`); CLOSED — does not apply (`v2.x`) |
+| **Row selections deliberately NOT hoisted** (`selection`, `reviewSelection`) | n/a — nothing to pick | n/a | Recorded so a later pick does not "finish the job": an ID names a row in one comparison, and carrying one across a rescan points it at rows that no longer exist |
+
+**What a repeat of this should measure first.** The obvious repro for the pane's open folders says
+the bug is not there. The column stack lives on the manager and survives, and
+`carryColumnsIntoTree` re-opens the one descending path it names on arrival — so expanding a folder,
+then its child, then its child, and coming back, looks like it worked. Two SIBLING folders is the
+test that shows it, because a single descending trail is the most a carry-over can restore.
+
+**And the measurement that corrected the editor row.** A fresh `NSTextView` does not select `{0, 0}`
+after `view.string = text`; it puts the caret at the END (11 for `"hello there"`), with the scroll
+view independently still at the top. That is why the symptom reads as "back to the top" while the
+caret sits invisibly at the bottom — and why a restore that skips a zero anchor as "nothing
+recorded" hands the top-of-file reader their document back with the caret at the end.
