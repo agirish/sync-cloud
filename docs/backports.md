@@ -4775,3 +4775,35 @@ trip its `>= 250` floor — the same failure shape, the same misleading red. No 
 on this machine, and nothing has ever hit it, so it is written down here rather than fixed on
 speculation. Its walk roots are `Modules` and `SyncCloudCLI`, never the repo root, which is what
 keeps it out of reach today.
+
+---
+
+## 2026-09-09 — the card system's second review pass (`fdd16421`) — **nothing owed anywhere**
+
+Five defects and two stale release-note claims, all of them in code that only `main` has. The row
+exists so a future audit does not go looking: the answer is no on every line, and one of the five
+is worth a sentence because a careless reader could "fix" `v4.x` into having it.
+
+```sh
+V=Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s card=%s nudgeRow=%s tally=%s guardedSlot=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/OverviewCard.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:$V 2>/dev/null | grep -c 'func nudgeRow')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/StructureBacklogTally.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:$V 2>/dev/null | grep -c 'examples.isEmpty')"
+done
+# main 1/1/1/1 · v4.x 0/0/0/1 · v3.x and v2.x 0/0/0/0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` | `v2.x` | Status |
+|---|---|---|---|---|
+| **The 7pt empty content slot** — `VStack { if x }` where `if x { VStack }` was meant | **Does not apply, and `v4.x` has the CORRECT shape already.** Its `findingsSection` still reads `if !examples.isEmpty { VStack … }` (line 754), because this was a regression introduced on `main` by folding the nudge into its host card and fixed in the same pass. There is nothing here to send and nothing there to repair | **Does not apply** — no overview | **Does not apply** | CLOSED — self-inflicted on `main`; the other lines never had it |
+| `nudgeVerbTitle`; `OverviewCard.dismiss`'s doc; `StructureBacklogTally`'s unreachable `"0"`; the test needle keyed on copy | **Does not apply.** No `nudgeRow`, no `OverviewCard`, no `StructureBacklogTally` — every subject is v5-only | **Does not apply** | **Does not apply** | CLOSED — does not apply on any line |
+| The two corrected v5.3 draft claims | **Does not apply as written** | **Does not apply** | **Does not apply** | CLOSED — written per line, never copied |
+
+**The one thing to carry forward**: `grep -c 'examples.isEmpty'` reads `1` on both `main` and
+`v4.x` and means opposite things — the guarded form on `v4.x`, and on `main` the guarded form
+restored after a pass where it was not. Read the line, do not count it. That is the third row in a
+row where a count over this file misleads, which is starting to look like a property of the file
+rather than an accident.
