@@ -14,6 +14,10 @@ public protocol FileManaging: Sendable {
     func setAttributes(_ attributes: [FileAttributeKey : Any], ofItemAtPath path: String) throws
     func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey : Any]?) throws
     func copyItem(at srcURL: URL, to dstURL: URL) throws
+    /// `copyItem(at:to:)` that can be abandoned part-way — see `CopyObserver`. Throws
+    /// `CocoaError(.userCancelled)` when `observer.shouldContinue` answers false, having removed
+    /// what it wrote. The default (every test double) copies whole and checks only before starting.
+    func copyItem(at srcURL: URL, to dstURL: URL, observer: CopyObserver) throws
     func moveItem(at srcURL: URL, to dstURL: URL) throws
     func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws
     func removeItem(at URL: URL) throws
@@ -38,10 +42,19 @@ extension FileManaging {
     func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions) -> FileManager.DirectoryEnumerator? {
         return enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: nil)
     }
+
+    public func copyItem(at srcURL: URL, to dstURL: URL, observer: CopyObserver) throws {
+        guard observer.shouldContinue() else { throw CocoaError(.userCancelled, userInfo: [NSFilePathErrorKey: srcURL.path]) }
+        try copyItem(at: srcURL, to: dstURL)
+    }
 }
 
 // Ensure the real macOS FileManager strictly conforms to this interface.
 extension FileManager: FileManaging {
+    public func copyItem(at srcURL: URL, to dstURL: URL, observer: CopyObserver) throws {
+        try observedCopyItem(at: srcURL, to: dstURL, observer: observer)
+    }
+
     public func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
         // `replaceItemAt` is defined only when the original exists; a brand-new destination is a
         // plain rename — no backup, and no replacement window to close.

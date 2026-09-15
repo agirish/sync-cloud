@@ -188,6 +188,74 @@ import Sync
         #expect(SyncOperationAlerts.collisionResolution(for: .stop) == .skip)
     }
 
+    // MARK: Merge (RD23)
+
+    private static func folderCollision(isMove: Bool = false, preview: FolderMergePreview?) -> FileCollision {
+        FileCollision(sourcePath: "/Users/me/Work/Reports", destinationPath: "/Users/me/Dropbox/Work/Reports",
+                      isMove: isMove, isDirectory: true, offersMerge: true, mergePreview: preview)
+    }
+
+    @Test func aFolderCollisionThatOffersMergeMakesMergeTheDefaultAndMapsEveryButton() throws {
+        let collision = Self.folderCollision(preview: nil)
+        let titles = SyncOperationAlerts.collisionButtonTitles(for: collision)
+        // First = rightmost = Return: the one answer that removes nothing from the destination.
+        #expect(titles.first == "Merge")
+        #expect(Set(titles) == ["Merge", "Keep Both", "Skip", "Replace"])
+        for (title, meaning) in [("Merge", CollisionResolution.merge), ("Keep Both", .keepBoth), ("Skip", .skip), ("Replace", .replace)] {
+            #expect(SyncOperationAlerts.collisionResolution(for: try response(for: title, in: titles), offersMerge: true) == meaning, "\(title)")
+        }
+        #expect(SyncOperationAlerts.collisionResolution(for: .cancel, offersMerge: true) == .skip)
+        #expect(SyncOperationAlerts.collisionResolution(for: .alertFirstButtonReturn, offersMerge: true) != .replace)
+    }
+
+    @Test func aCollisionThatDoesNotOfferMergeDrawsExactlyTheOldAlert() throws {
+        let file = FileCollision(sourcePath: "/a/x.txt", destinationPath: "/b/x.txt", isMove: false, isDirectory: false)
+        let folderWithoutMerge = FileCollision(sourcePath: "/a/F", destinationPath: "/b/F", isMove: false, isDirectory: true)
+        for collision in [file, folderWithoutMerge] {
+            #expect(SyncOperationAlerts.collisionButtonTitles(for: collision) == SyncOperationAlerts.collisionButtonTitles)
+            #expect(!SyncOperationAlerts.collisionButtonTitles(for: collision).contains("Merge"))
+            #expect(SyncOperationAlerts.collisionInformativeText(collision) == SyncOperationAlerts.collisionInformativeText(collision, policy: .replace))
+            #expect(!SyncOperationAlerts.collisionInformativeText(collision).contains("erg"))
+        }
+        // The engine refuses to attach counts to a collision that offers no merge.
+        #expect(FileCollision(sourcePath: "/a", destinationPath: "/b", isMove: false, isDirectory: true,
+                              mergePreview: FolderMergePreview(destinationOnlyCount: 1, collidingCount: 1)).mergePreview == nil)
+    }
+
+    @Test func theMergeSentenceCountsWhatEachAnswerDoes() {
+        let text = SyncOperationAlerts.collisionInformativeText(Self.folderCollision(preview: FolderMergePreview(destinationOnlyCount: 14, collidingCount: 3)))
+        #expect(text.contains("Replacing moves the existing folder to the Trash, including the 14 items that exist only there."))
+        #expect(text.contains("Merging keeps everything already there and asks about each of the 3 items in both."))
+        #expect(text.contains("Copying: /Users/me/Work/Reports"))
+        #expect(text.contains("Into: /Users/me/Dropbox/Work/Reports"))
+
+        let singular = SyncOperationAlerts.collisionInformativeText(Self.folderCollision(isMove: true, preview: FolderMergePreview(destinationOnlyCount: 1, collidingCount: 1)))
+        #expect(singular.contains("including the 1 item that exists only there"))
+        #expect(singular.contains("each of the 1 item in both"))
+        #expect(singular.contains("Moving: "))
+
+        let nothing = SyncOperationAlerts.collisionInformativeText(Self.folderCollision(preview: FolderMergePreview(destinationOnlyCount: 0, collidingCount: 0)))
+        #expect(nothing.contains("nothing in it exists only there"))
+        #expect(nothing.contains("nothing is in both"))
+    }
+
+    @Test func anUncountedMergeSaysItsSentenceWithoutNumbers() {
+        let text = SyncOperationAlerts.collisionInformativeText(Self.folderCollision(preview: nil))
+        #expect(text.contains("items that exist only in the destination folder will be moved to the Trash"))
+        #expect(text.contains("Merging keeps them and asks about each item that is in both."))
+        #expect(text.rangeOfCharacter(from: .decimalDigits) == nil)
+    }
+
+    @Test func aStandingConflictPolicyIsNamedInsteadOfPromisingToAsk() {
+        let counted = SyncOperationAlerts.collisionInformativeText(
+            Self.folderCollision(preview: FolderMergePreview(destinationOnlyCount: 2, collidingCount: 3)), policy: .keepBoth)
+        #expect(counted.contains("the 3 items in both follow your Conflicts setting (Keep both)."))
+        #expect(!counted.contains("asks"))
+        let uncounted = SyncOperationAlerts.collisionInformativeText(Self.folderCollision(preview: nil), policy: .skip)
+        #expect(uncounted.contains("items in both follow your Conflicts setting (Skip)."))
+        #expect(!uncounted.contains("asks"))
+    }
+
     @Test func invalidNameButtonsMapToTheResolutionTheyName() throws {
         let titles = SyncOperationAlerts.invalidNameButtonTitles(Self.violation())
         #expect(titles.first == "Use \"report.pdf\"")   // Return-key default: the safe, sanitized name

@@ -69,6 +69,85 @@ extension FileSyncManager {
         )
     }
 
+    /// A folder's immediate children, hidden ones included, in name order — the order a merge
+    /// asks its questions in. Through the shared `listing(of:)`, so the children are spelled under
+    /// the path the transfer was given; and anything short of a complete listing throws, because a
+    /// merge of a folder it could only partly read would report itself done.
+    nonisolated static func mergeChildren(of folder: URL, fileManager fm: FileManaging) throws -> [URL] {
+        let listing = fm.listing(of: folder)
+        guard listing.isComplete else {
+            throw CocoaError(.fileReadNoPermission, userInfo: [NSFilePathErrorKey: folder.path])
+        }
+        return listing.urls
+            .map { folder.appendingPathComponent($0.lastPathComponent) }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    /// The entry's own type, WITHOUT following a symlink (`attributesOfItem` does not follow), or
+    /// nil when nothing is there — a dangling link included, which `fileExists` would call absent.
+    nonisolated static func entryKind(at url: URL, fileManager fm: FileManaging) -> FileAttributeType? {
+        guard let attributes = try? fm.attributesOfItem(atPath: url.path) else { return nil }
+        return (attributes[.type] as? FileAttributeType) ?? (attributes[.type] as? String).map(FileAttributeType.init(rawValue:))
+    }
+
+    /// Whether a merge may walk INTO `url`: a real folder — not a symlink to one (`attributesOfItem`
+    /// does not follow), and not a package. A `.pages` document, an `.app` or a `.photoslibrary` is a
+    /// folder on disk and a file to the person using it; merging two of them child by child builds
+    /// a bundle neither app wrote, so a package collides as a whole, the way Finder treats it.
+    nonisolated static func isMergeableFolder(_ url: URL, fileManager fm: FileManaging) -> Bool {
+        guard entryKind(at: url, fileManager: fm) == .typeDirectory else { return false }
+        return (try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [.isPackageKey]))?.isPackage != true
+    }
+
+    /// Counts what Replace and Merge would each do to `destination`, for the collision alert
+    /// (RD23). **Bounded**, because it runs before the alert opens: past `entryLimit` entries or
+    /// `timeLimit` seconds it gives up and answers nil, and the alert says its sentence without
+    /// numbers — a partial count would be a number the app invented.
+    ///
+    /// Paths are compared the way the destination volume compares names: folded for case and
+    /// normalization unless the volume is case-sensitive.
+    nonisolated static func folderMergePreview(
+        source: URL, destination: URL, fileManager fm: FileManaging,
+        entryLimit: Int = 5_000, timeLimit: TimeInterval = 1.0
+    ) -> FolderMergePreview? {
+        let deadline = Date().addingTimeInterval(timeLimit)
+        let caseSensitive = volumeSupportsCaseSensitiveNames(for: destination)
+        func key(_ relative: String) -> String {
+            let composed = relative.precomposedStringWithCanonicalMapping
+            return caseSensitive ? composed : composed.lowercased()
+        }
+        var visited = 0
+        /// relative key → whether the entry is a real folder. Nil when the walk ran out of budget.
+        func walk(_ root: URL) -> [String: Bool]? {
+            var entries: [String: Bool] = [:]
+            var pending: [(url: URL, relative: String)] = [(root, "")]
+            while let (folder, relative) = pending.popLast() {
+                guard let children = try? mergeChildren(of: folder, fileManager: fm) else { continue }
+                for child in children {
+                    visited += 1
+                    if visited > entryLimit || Date() > deadline { return nil }
+                    let childRelative = relative.isEmpty ? child.lastPathComponent : relative + "/" + child.lastPathComponent
+                    // A package is counted as one item, like the merge itself treats it.
+                    let isFolder = isMergeableFolder(child, fileManager: fm)
+                    entries[key(childRelative)] = isFolder
+                    if isFolder { pending.append((child, childRelative)) }
+                }
+            }
+            return entries
+        }
+        guard let destinationEntries = walk(destination), let sourceEntries = walk(source) else { return nil }
+        var destinationOnly = 0
+        var colliding = 0
+        for (path, isFolder) in destinationEntries where (path as NSString).lastPathComponent.lowercased() != ".ds_store" {
+            if let sourceIsFolder = sourceEntries[path] {
+                if !(isFolder && sourceIsFolder) { colliding += 1 }
+            } else if !isFolder {
+                destinationOnly += 1
+            }
+        }
+        return FolderMergePreview(destinationOnlyCount: destinationOnly, collidingCount: colliding)
+    }
+
     /// Derives the cross-pane destination for a node: its path relative to the source pane root,
     /// re-rooted under the opposite pane's root. Throws instead of guessing when the node is not
     /// actually inside the source root — including the empty-root case (a provider dropped from
@@ -117,6 +196,9 @@ extension FileSyncManager {
         fileManager fm: FileManaging
     ) async -> [FileNode] {
         let resolveCollision = collisionResolver
+        // A merge's children are a batch of their own — several collisions, one gesture — so they
+        // go through the bulk seam and its "apply to all", scoped to that one merge (RD23).
+        let resolveMergeChildCollision = bulkCollisionResolver
         // The pre-write name check runs on the MainActor (its resolver presents UI); the
         // detached loop below hops into this closure per item. Weak: if the manager is gone
         // the operation is already a no-op via its own guard, so "clean" is a safe answer.
@@ -194,12 +276,12 @@ extension FileSyncManager {
             progress.isCancellable = true
         }
 
-        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<CopyIdentityReading, Never>], alreadyThere: Int) in
-            guard self != nil else { return ([], [], [], 0) }
+        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<CopyIdentityReading, Never>], alreadyThere: Int, mergedNodeIDs: Set<String>) in
+            guard self != nil else { return ([], [], [], 0, []) }
             // One stat, before any I/O: a missing destination root fails the whole operation
             // rather than being recreated by the per-item intermediate-directory pass below.
             guard !destinationRootPath.isEmpty, fm.fileExists(atPath: destinationRootPath) else {
-                return ([FileOperationError.destinationRootUnavailable], [], [], 0)
+                return ([FileOperationError.destinationRootUnavailable], [], [], 0, [])
             }
             // Publish progress only once this operation actually starts; setting it at enqueue
             // time would clobber the progress of an operation still running ahead in the queue.
@@ -226,8 +308,169 @@ extension FileSyncManager {
             // re-derived afterwards: the loop's target can be rewritten by the provider-name
             // check, so only the loop knows which comparison actually decided the skip.
             var alreadyThere = 0
+            // Nodes answered with Merge that landed at least one child. A merge's transfers are its
+            // CHILDREN's, so they cannot be matched back to the node by source path afterwards.
+            var mergedNodeIDs: Set<String> = []
+            // Children a merge skipped — by an answer, or a `.DS_Store` the destination keeps — so its
+            // log line can say what it did NOT do as well as what it did.
+            var mergeSkipped = 0
+            // Set when Cancel abandons a copy mid-item, inside a merge or not: ends the batch.
+            var abandonedAtCancel = false
 
-            for (index, node) in prunedNodes.enumerated() {
+            /// Records one item that has landed at `targetURL`: the transfer, and for a copy the
+            /// identity walk its undo will compare against.
+            func recordLanded(from sourceURL: URL, to targetURL: URL, overwritten trashed: URL?) {
+                targetItems.append((from: sourceURL, to: targetURL, overwritten: trashed))
+                if !isMove {
+                    // A batch can land one destination TWICE — two same-named sources
+                    // through the replace prompt, under one spelling or two ("F.txt" then
+                    // "f.txt" on a folding volume). The copy that just landed replaced the
+                    // EARLIER item's output, so the earlier walk now describes an item this
+                    // batch itself superseded — not user drift. Left stale, the undo would
+                    // refuse the earlier registration (`.changed`) and strand its pre-batch
+                    // backup: the handler's duplicate-registration guard is built on both
+                    // registrations recording the FINAL state (pinned by
+                    // `copyUndoDuplicateRegistrationOnTrashlessVolumeRemovesOnce`, which is
+                    // what caught this). Restart the superseded walks so they do; the
+                    // discarded walk's result is never read.
+                    let foldedTarget = targetURL.path.precomposedStringWithCanonicalMapping.lowercased()
+                    for i in copyWalkIndicesByFoldedDestination[foldedTarget] ?? [] {
+                        let earlier = targetItems[i].to
+                        // One on-disk name: exact after precomposing (APFS lookups are
+                        // normalization-insensitive on every volume), or a case variant on
+                        // a volume that folds case — the undo handler's own foldedKey gate.
+                        //
+                        // `…ForNewItem` rather than the plain probe, for its FAILURE
+                        // behaviour rather than for a missing path (`targetURL` was just
+                        // copied, so it is there): the plain probe answers `false` — folds —
+                        // for any path it cannot query, and a false "folds" here restarts an
+                        // unrelated earlier item's walk, moving its recording time to the end
+                        // of THIS copy and reopening the batch-length window
+                        // `startCopyIdentityWalk` exists to eliminate. The walking-up form
+                        // asks the nearest ancestor that can answer, which is the same volume,
+                        // and only falls back to `false` when nothing up to "/" answers at
+                        // all. For a path that resolves first time the two are one probe each.
+                        let sameOnDiskName = earlier.path.precomposedStringWithCanonicalMapping
+                            == targetURL.path.precomposedStringWithCanonicalMapping
+                            || !Self.volumeSupportsCaseSensitiveNamesForNewItem(at: targetURL)
+                        if sameOnDiskName {
+                            identityWalks[i] = Self.startCopyIdentityWalk(at: earlier, fileManager: fm)
+                        }
+                    }
+                    // `identityWalks` runs parallel to `targetItems` for copies (each append
+                    // above pairs this one), so the new walk's index is the count now.
+                    copyWalkIndicesByFoldedDestination[foldedTarget, default: []].append(identityWalks.count)
+                    identityWalks.append(Self.startCopyIdentityWalk(at: targetURL, fileManager: fm))
+                }
+            }
+
+            /// Copies or moves one item into a free or Replace-sanctioned `targetURL`. False when
+            /// Cancel abandoned it inside its staging copy — nothing reached the destination, and it
+            /// is neither a transfer nor a failure. Other failures are collected, not thrown.
+            func land(_ sourceURL: URL, at targetURL: URL, itemName: String) async -> Bool {
+                do {
+                    try Self.validateFileOperation(source: sourceURL, destination: targetURL)
+                    try Self.ensureParentDirectoryExists(for: targetURL, fileManager: fm)
+                    // RD24: the item's own copy watches the Cancel button too, so one very large
+                    // file or folder no longer runs to the end once it starts. An abandoned copy
+                    // throws `userCancelled` from inside its `.tmp_` staging, exactly as a cancel
+                    // between items has always ended the batch: without an alert.
+                    let observer = progress.map { Self.transferCopyObserver(progress: $0, itemName: itemName, sourceURL: sourceURL, fileManager: fm) }
+                    let trashed = isMove
+                        ? try Self.safeMoveItem(at: sourceURL, to: targetURL, fileManager: fm, observer: observer)
+                        : try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm, observer: observer)
+                    recordLanded(from: sourceURL, to: targetURL, overwritten: trashed)
+                } catch where CopyObserver.isCancellation(error) && progress?.isCancelled == true {
+                    // Only a cancel of THIS operation's Progress ends the batch. A `userCancelled`
+                    // from anywhere else — a provider refusing a read, say — is a failure like any
+                    // other, and swallowing it would silently drop every item after it.
+                    let abandonedTarget = targetURL.path
+                    _ = await MainActor.run {
+                        Logger.shared.info("\(isMove ? "Move" : "Copy") of \"\(itemName)\" abandoned mid-copy at Cancel — nothing reached \(abandonedTarget)")
+                    }
+                    abandonedAtCancel = true
+                    return false
+                } catch {
+                    taskErrors.append(error)
+                }
+                return true
+            }
+
+            /// RD23: merges `source` into the existing folder `destination`, child by child. What is
+            /// missing lands whole; a folder in both is merged in turn, silently, as Finder does; any
+            /// other child in both is a collision of its own, answered through the bulk seam — so the
+            /// Settings policy still speaks, and "apply to all" covers the rest of THIS merge only.
+            /// A child folder's collision never seeds or reads that answer, the same rule every other
+            /// path keeps for folders. `.DS_Store` in both is left as the destination has it.
+            ///
+            /// For a move, the source folder goes to the Trash once nothing but a `.DS_Store` is left
+            /// in it; whatever was skipped keeps it where it was.
+            func merge(_ source: URL, into destination: URL, applyToAll: inout CollisionResolution?) async {
+                let children: [URL]
+                do {
+                    children = try Self.mergeChildren(of: source, fileManager: fm)
+                } catch {
+                    taskErrors.append(error)
+                    return
+                }
+                for child in children {
+                    if progress?.isCancelled == true || abandonedAtCancel { return }
+                    let name = child.lastPathComponent
+                    let target = destination.appendingPathComponent(name)
+                    await MainActor.run {
+                        progress?.localizedAdditionalDescription = (destination.lastPathComponent as NSString).appendingPathComponent(name)
+                    }
+                    guard let targetKind = Self.entryKind(at: target, fileManager: fm) else {
+                        guard await land(child, at: target, itemName: name) else { return }
+                        continue
+                    }
+                    if targetKind == .typeDirectory, Self.isMergeableFolder(child, fileManager: fm),
+                       Self.isMergeableFolder(target, fileManager: fm) {
+                        var nested = applyToAll
+                        await merge(child, into: target, applyToAll: &nested)
+                        applyToAll = nested
+                        continue
+                    }
+                    if name == ".DS_Store" { mergeSkipped += 1; continue }
+                    let targetIsDirectory = targetKind == .typeDirectory
+                    let resolution: CollisionResolution
+                    if let cached = applyToAll, !targetIsDirectory {
+                        resolution = cached
+                    } else {
+                        let collision = FileCollision(sourcePath: child.path, destinationPath: target.path,
+                                                      isMove: isMove, isDirectory: targetIsDirectory)
+                        let answer = await MainActor.run { resolveMergeChildCollision(collision) }
+                        if answer.applyToAll && !targetIsDirectory { applyToAll = answer.resolution }
+                        resolution = answer.resolution
+                    }
+                    switch resolution {
+                    case .skip, .merge:
+                        mergeSkipped += 1
+                        continue
+                    case .replace:
+                        guard await land(child, at: target, itemName: name) else { return }
+                    case .keepBoth:
+                        guard await land(child, at: Self.generateUniqueURL(for: target, fileManager: fm), itemName: name) else { return }
+                    }
+                }
+                if isMove, !abandonedAtCancel, progress?.isCancelled != true {
+                    let left = (try? Self.mergeChildren(of: source, fileManager: fm)) ?? [source]
+                    if left.allSatisfy({ $0.lastPathComponent == ".DS_Store" }) {
+                        let emptied = source.path
+                        do {
+                            try fm.trashItem(at: source, resultingItemURL: nil)
+                            _ = await MainActor.run { Logger.shared.info("Merge moved everything out of \(emptied) — the emptied folder went to the Trash") }
+                        } catch {
+                            // A volume with no Trash: the folder stays, empty. Never a permanent
+                            // delete — it may still hold a `.DS_Store`, and it costs nothing to keep.
+                            let reason = error.localizedDescription
+                            _ = await MainActor.run { Logger.shared.warning("Merge moved everything out of \(emptied), but the emptied folder could not go to the Trash and was left in place: \(reason)") }
+                        }
+                    }
+                }
+            }
+
+            items: for (index, node) in prunedNodes.enumerated() {
                 if progress?.isCancelled == true { break }
 
                 await MainActor.run {
@@ -275,80 +518,61 @@ extension FileSyncManager {
                     // folder replaces its whole contents (Finder-style), not just a same-named file.
                     var targetIsDir: ObjCBool = false
                     if fm.fileExists(atPath: targetURL.path, isDirectory: &targetIsDir) {
+                        // Merge needs two REAL folders: `fileExists` follows a symlink, and merging
+                        // through one would write into whatever tree it points at; and a package is
+                        // a document, not a folder to merge (see `isMergeableFolder`).
+                        let offersMerge = targetIsDir.boolValue
+                            && Self.isMergeableFolder(targetURL, fileManager: fm)
+                            && Self.isMergeableFolder(sourceURL, fileManager: fm)
                         let collision = FileCollision(
                             sourcePath: sourceURL.path,
                             destinationPath: targetURL.path,
                             isMove: isMove,
-                            isDirectory: targetIsDir.boolValue
+                            isDirectory: targetIsDir.boolValue,
+                            offersMerge: offersMerge,
+                            mergePreview: offersMerge ? Self.folderMergePreview(source: sourceURL, destination: targetURL, fileManager: fm) : nil
                         )
                         let resolution = await MainActor.run { resolveCollision(collision) }
                         switch resolution {
                         case .replace: break
                         case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
-                        case .skip:
-                            // Same accounting as the move-onto-itself skip above.
+                        case .merge where offersMerge:
+                            do {
+                                // The nesting guard a Replace gets from `land`: merging a folder into
+                                // its own descendant would walk what it is writing.
+                                try Self.validateFileOperation(source: sourceURL, destination: targetURL)
+                                let landedBefore = targetItems.count
+                                let failedBefore = taskErrors.count
+                                mergeSkipped = 0
+                                var applyToAll: CollisionResolution?
+                                await merge(sourceURL, into: targetURL, applyToAll: &applyToAll)
+                                if targetItems.count > landedBefore { mergedNodeIDs.insert(node.id) }
+                                let summary = "\(targetItems.count - landedBefore) item(s) \(isMove ? "moved" : "copied"), \(mergeSkipped) skipped, \(taskErrors.count - failedBefore) failed"
+                                let stopped = abandonedAtCancel || progress?.isCancelled == true
+                                _ = await MainActor.run {
+                                    Logger.shared.info("Merged \"\(node.name)\" into \(targetURL.path)\(stopped ? " (stopped at Cancel)" : ""): \(summary)")
+                                }
+                            } catch {
+                                taskErrors.append(error)
+                            }
+                            if abandonedAtCancel { break items }
+                            await MainActor.run { progress?.completedUnitCount = Int64(index + 1) }
+                            continue
+                        case .skip, .merge:
+                            // Same accounting as the move-onto-itself skip above. A `.merge` that was
+                            // not offered is a stray answer and gets the safe reading.
                             await MainActor.run { progress?.completedUnitCount = Int64(index + 1) }
                             continue
                         }
                     }
                 }
 
-                do {
-                    try Self.validateFileOperation(source: sourceURL, destination: targetURL)
-                    try Self.ensureParentDirectoryExists(for: targetURL, fileManager: fm)
-                    let trashed = isMove
-                        ? try Self.safeMoveItem(at: sourceURL, to: targetURL, fileManager: fm)
-                        : try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
-                    targetItems.append((from: sourceURL, to: targetURL, overwritten: trashed))
-                    if !isMove {
-                        // A batch can land one destination TWICE — two same-named sources
-                        // through the replace prompt, under one spelling or two ("F.txt" then
-                        // "f.txt" on a folding volume). The copy that just landed replaced the
-                        // EARLIER item's output, so the earlier walk now describes an item this
-                        // batch itself superseded — not user drift. Left stale, the undo would
-                        // refuse the earlier registration (`.changed`) and strand its pre-batch
-                        // backup: the handler's duplicate-registration guard is built on both
-                        // registrations recording the FINAL state (pinned by
-                        // `copyUndoDuplicateRegistrationOnTrashlessVolumeRemovesOnce`, which is
-                        // what caught this). Restart the superseded walks so they do; the
-                        // discarded walk's result is never read.
-                        let foldedTarget = targetURL.path.precomposedStringWithCanonicalMapping.lowercased()
-                        for i in copyWalkIndicesByFoldedDestination[foldedTarget] ?? [] {
-                            let earlier = targetItems[i].to
-                            // One on-disk name: exact after precomposing (APFS lookups are
-                            // normalization-insensitive on every volume), or a case variant on
-                            // a volume that folds case — the undo handler's own foldedKey gate.
-                            //
-                            // `…ForNewItem` rather than the plain probe, for its FAILURE
-                            // behaviour rather than for a missing path (`targetURL` was just
-                            // copied, so it is there): the plain probe answers `false` — folds —
-                            // for any path it cannot query, and a false "folds" here restarts an
-                            // unrelated earlier item's walk, moving its recording time to the end
-                            // of THIS copy and reopening the batch-length window
-                            // `startCopyIdentityWalk` exists to eliminate. The walking-up form
-                            // asks the nearest ancestor that can answer, which is the same volume,
-                            // and only falls back to `false` when nothing up to "/" answers at
-                            // all. For a path that resolves first time the two are one probe each.
-                            let sameOnDiskName = earlier.path.precomposedStringWithCanonicalMapping
-                                == targetURL.path.precomposedStringWithCanonicalMapping
-                                || !Self.volumeSupportsCaseSensitiveNamesForNewItem(at: targetURL)
-                            if sameOnDiskName {
-                                identityWalks[i] = Self.startCopyIdentityWalk(at: earlier, fileManager: fm)
-                            }
-                        }
-                        // `identityWalks` runs parallel to `targetItems` for copies (each append
-                        // below pairs the one above), so the new walk's index is the count now.
-                        copyWalkIndicesByFoldedDestination[foldedTarget, default: []].append(identityWalks.count)
-                        identityWalks.append(Self.startCopyIdentityWalk(at: targetURL, fileManager: fm))
-                    }
-                } catch {
-                    taskErrors.append(error)
-                }
+                guard await land(sourceURL, at: targetURL, itemName: node.name) else { break items }
                 await MainActor.run {
                     progress?.completedUnitCount = Int64(index + 1)
                 }
             }
-            return (taskErrors, targetItems, identityWalks, alreadyThere)
+            return (taskErrors, targetItems, identityWalks, alreadyThere, mergedNodeIDs)
         }
 
         let transferred = result.transferred
@@ -383,7 +607,15 @@ extension FileSyncManager {
         // Keyed lookup instead of a linear scan per transferred item; first-wins matches what
         // `first(where:)` returned should an id ever repeat in the selection.
         let nodesByID = Dictionary(prunedNodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let transferredNodes = transferred.compactMap { nodesByID[$0.from.path] }
+        var transferredNodes = transferred.compactMap { nodesByID[$0.from.path] }
+        // A merged folder's transfers are its children's, so none of them matches the node's own
+        // path; it counts as transferred when anything in it landed. Only then is the list rebuilt,
+        // in processing order, so a batch with no merge returns exactly what it always did.
+        if !result.mergedNodeIDs.isEmpty {
+            let landedIDs = Set(transferredNodes.map(\.id)).union(result.mergedNodeIDs)
+            var seen = Set<String>()
+            transferredNodes = prunedNodes.filter { landedIDs.contains($0.id) && seen.insert($0.id).inserted }
+        }
 
         if let firstError = result.errors.first {
             let reason = firstError.localizedDescription

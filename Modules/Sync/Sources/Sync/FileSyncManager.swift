@@ -3284,7 +3284,8 @@ public class FileSyncManager: ObservableObject {
                 isDirectory: isDirectory
             ))
             switch resolution {
-            case .skip:
+            case .skip, .merge:
+                // A single-row sync never offers Merge; a stray `.merge` gets the safe reading.
                 return nil
             case .keepBoth:
                 // generateUniqueURL stats candidate names in a loop; keep that off the main actor too.

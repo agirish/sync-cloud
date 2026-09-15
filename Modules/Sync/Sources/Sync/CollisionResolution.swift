@@ -5,6 +5,25 @@ public enum CollisionResolution: Sendable {
     case replace
     case keepBoth
     case skip
+    /// Folder onto folder only, and only where the collision says `offersMerge` (RD23): keep
+    /// everything already in the destination, add what is missing, and resolve each child that
+    /// collides on its own. A path that never offers it treats it as `.skip`, the safe answer.
+    case merge
+}
+
+/// What each answer to a folder collision would do to the destination, counted before the prompt
+/// opens so the alert can say it (RD23). Counts entries that are not folders; `.DS_Store` is left
+/// out of both, because a merge keeps the destination's own and never asks about it.
+public struct FolderMergePreview: Sendable, Equatable {
+    /// Items only in the existing folder: what Replace sends to the Trash and Merge keeps.
+    public let destinationOnlyCount: Int
+    /// Items at the same path in both folders (not both folders): what Merge asks about one by one.
+    public let collidingCount: Int
+
+    public init(destinationOnlyCount: Int, collidingCount: Int) {
+        self.destinationOnlyCount = destinationOnlyCount
+        self.collidingCount = collidingCount
+    }
 }
 
 /// Everything a collision prompt needs to say WHAT collided and WHERE — the bare file name
@@ -21,6 +40,13 @@ public struct FileCollision: Sendable {
     /// Whether the colliding DESTINATION item is a folder, so the prompt can warn that
     /// replacing a folder replaces its entire contents.
     public let isDirectory: Bool
+    /// True when both sides are real folders (not symlinks) on a path that can carry out a merge,
+    /// so the prompt may offer Merge. False everywhere Merge would have nowhere to go.
+    public let offersMerge: Bool
+    /// The counts behind the Merge prompt's sentence, or nil when they were not taken — no merge
+    /// offered, or a tree too large to count before the alert opens. Nil is said as a sentence
+    /// without numbers, never as a guess.
+    public let mergePreview: FolderMergePreview?
 
     /// Name of the colliding item. Computed, not stored, so no future initializer or
     /// decoding path can ever set it inconsistently with `destinationPath` — the alert
@@ -29,11 +55,14 @@ public struct FileCollision: Sendable {
         (destinationPath as NSString).lastPathComponent
     }
 
-    public init(sourcePath: String, destinationPath: String, isMove: Bool, isDirectory: Bool) {
+    public init(sourcePath: String, destinationPath: String, isMove: Bool, isDirectory: Bool,
+                offersMerge: Bool = false, mergePreview: FolderMergePreview? = nil) {
         self.sourcePath = sourcePath
         self.destinationPath = destinationPath
         self.isMove = isMove
         self.isDirectory = isDirectory
+        self.offersMerge = offersMerge
+        self.mergePreview = offersMerge ? mergePreview : nil
     }
 }
 

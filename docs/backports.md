@@ -4982,3 +4982,50 @@ done
 preview's sizing keys: `paneColumnPreviewWidth` and the two `paneColumnShowsPreview` keys keep their
 names, meanings and defaults, so a maintenance-line build and a `main` build still share one defaults
 domain. The change is entirely in which view draws a file and at what scale.
+
+## 2026-09-15 — folder Merge on collision (RD23), and a Cancel that stops the copy in flight (RD24)
+
+Two changes to the transfer path. **RD23** adds `CollisionResolution.merge`: a pane transfer that
+lands a folder onto a real folder offers Merge as the default, counts what Replace and Merge would
+each do (`folderMergePreview`), and merges child by child through the existing primitives and
+`bulkCollisionResolver`. **RD24** routes every staging copy that has a Progress to watch through
+`FileManager.observedCopyItem` — `copyfile(3)` with a callback — so Cancel abandons the item in
+flight inside its `.tmp_` file, and adds a bytes line to the progress dialog for a slow pane copy.
+
+**Every maintenance line carries the surface both changes are about, unchanged.** The collision enum
+has its three cases, the bulk resolver and the conflict policy exist, the transfer loop checks Cancel
+only between items, and the alert still warns that replacing a folder trashes its entire contents:
+
+```sh
+# stage 1 — is the file there? stage 2 — is the SHAPE there? main is the positive control.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s collision=%s mergeCase=%s bulkResolver=%s policy=%s observed=%s bulkIO=%s transferLoop=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/CollisionResolution.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/CollisionResolution.swift 2>/dev/null | grep -c 'case merge')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift 2>/dev/null | grep -c 'public var bulkCollisionResolver')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/ConflictPolicy.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/ObservedCopy.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+BulkSync.swift 2>/dev/null | grep -c 'func performBulkSyncIO')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations.swift 2>/dev/null | grep -c 'if progress?.isCancelled == true { break }')"
+done
+# measured 2026-09-15, before this landed:
+# main   collision=1 mergeCase=0 bulkResolver=1 policy=1 observed=0 bulkIO=1 transferLoop=2
+# v4.x   collision=1 mergeCase=0 bulkResolver=1 policy=1 observed=0 bulkIO=1 transferLoop=2
+# v3.x   collision=1 mergeCase=0 bulkResolver=1 policy=1 observed=0 bulkIO=1 transferLoop=2
+# v2.x   collision=1 mergeCase=0 bulkResolver=1 policy=1 observed=0 bulkIO=1 transferLoop=2
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`CollisionResolution.merge`**, `FileCollision.offersMerge` / `mergePreview`, `isMergeableFolder` (no symlinks, no packages), the recursive merge in `transferItems`, and the four-button alert with its counted sentence | **Applies whole.** Same enum, same loop, same alert. Pick as one: the enum case makes every `switch` over it non-exhaustive (`transferItems`, `syncFile`, `syncAll`), so a partial pick does not build. The alert half lives in `MacApp/`, so the app target must be built, not only the package | Applies, same shape | RECORDED — not owed |
+| **`FileManager.observedCopyItem`** and `CopyObserver`, the `FileManaging.copyItem(at:to:observer:)` requirement, and the `observer:` parameter on `safeCopyItem` / `safeMoveItem` / `performFileSyncIO` | **Applies.** Self-contained: one new file, a defaulted protocol requirement (every test double keeps compiling), and defaulted parameters. The folder-time correction is part of the file, and must travel with it — without it a copied folder holding a symlink comes back stamped with the time of the copy | Applies, same shape | RECORDED — not owed |
+| **The two callers** — `transferItems` handing the observer and the bytes line, `performBulkSyncIO` treating a cancellation as neither success nor failure | Applies only alongside the primitive. The bulk half is the one that matters: without its `catch where isCancellation`, a cancelled copy is reported in the failure alert | Same | RECORDED — not owed |
+| **`transferItems` refactored into `land` / `recordLanded`** | Not a behaviour change on its own — the identity-walk code moved verbatim so a merge's children could use it. Needed only as the carrier for the merge | Same | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** Nothing here is stored: no defaults key, no file
+format, no change to `ConflictPolicy`'s raw values, so a `main` build and a maintenance-line build
+still share one defaults domain. And one thing measured along the way that is **not** a defect in
+this change and is on every line: `trashItem` on a file deletes the `.DS_Store` of the folder it
+leaves, so every Replace — on all four lines — has always dropped the destination folder's Finder
+view settings. Written down because a merge test expecting the destination's `.DS_Store` to survive
+tripped on it, and the next audit should not re-diagnose it as a merge bug.

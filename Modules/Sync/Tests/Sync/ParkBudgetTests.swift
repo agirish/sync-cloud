@@ -267,6 +267,10 @@ import Testing
             "BulkOperationsTests.swift": ["mockFM.enumeratorDelay = 0.05"],
             "ProgressiveLoadTests.swift": ["mockFM.enumeratorDelay = 0.05", "mockFM.enumeratorDelay = 0.1"],
             "MergeCancelMidCopyTests.swift": ["Thread.sleep(forTimeInterval: 0.005)"],
+            // `ScriptedObservedCopy` polls for the run's Progress from the copying worker, a pool
+            // thread, until the test installs it (bounded at 30 s). Its bulk test declares
+            // `.parksAThread`; the transfer test never reaches the poll.
+            "ObservedCopyTests.swift": ["while progressBox.withLock({ $0 }) == nil, Date() < deadline { Thread.sleep(forTimeInterval: 0.005) }"],
             // `SamplerObservedTrash`'s rendezvous: the trash blocks its pool thread until the
             // main-actor observation it enqueued signals back. Bounded, records its expiry, and
             // its test declares `.parksAThread`.

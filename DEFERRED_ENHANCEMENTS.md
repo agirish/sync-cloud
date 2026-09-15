@@ -20,24 +20,37 @@ full at the end of `ROADMAP.md`.
 
 ---
 
-## 1. Real folder **Merge** (not just wholesale Replace)
+## 1. ~~Real folder **Merge** (not just wholesale Replace)~~ — **DONE**
 
-**Today:** When a copy/move collides with a same-named **folder** and the user picks **Replace**,
-the entire existing destination folder is swapped out (moved to Trash / kept as a `.rollback_`
-backup) and the source folder takes its place. Files that existed *only* in the destination folder
-are removed from it. This is intentional, Finder-parity behavior; since `23a1ccb` the prompt warns
-about it ("Replacing a folder replaces its entire contents…"), and it is Trash-recoverable.
+**Was:** When a copy/move collided with a same-named **folder** and the user picked **Replace**, the
+entire existing destination folder was swapped out, and files that existed *only* in the destination
+went with it (to the Trash). Deferred because it is sync-engine work — a recursive per-child
+collision path instead of one atomic `replaceItem` — and promoted to `ROADMAP.md` once it became
+wanted rather than accepted.
 
-**Why it was deferred:** This is genuine sync-engine work, not a prompt tweak — it needs a recursive
-per-child collision path instead of the single atomic `replaceItem`, plus its own collision
-semantics (Merge-all / apply-to-all) and tests. The current behavior is safe (recoverable) and now
-clearly warned, so the review punted it.
+**Landed** (roadmap RD23): `CollisionResolution.merge`, offered only where `FileCollision.offersMerge`
+says both sides are real folders, which today means the pane transfers (`transferItems`: pane to
+pane, Copy to… / Move to…, paste). What each choice decided:
 
-**→ It is now planned work: see the folder-Merge item in `ROADMAP.md`,** which carries the full
-specification (the `.merge` case on `CollisionResolution`, the `SyncOperationAlerts` button, the
-recursive `transferItems` path, and the surfaces to mock). It was promoted out of this file because
-it is a feature people ask for rather than an accepted limit, and a spec kept in two places drifts
-in one of them. This entry stays only to record *why it sat here first*.
+- **Children** — a missing child lands whole through the same `safeCopyItem` / `safeMoveItem`; a
+  folder in both is merged in turn without asking; anything else in both is a collision of its own
+  through `bulkCollisionResolver`, so the Settings conflict policy still answers and "apply to all"
+  covers the rest of that one merge. A folder-level child collision never seeds or reads it.
+- **Symlinks and packages** — `isMergeableFolder` needs `attributesOfItem` to say `.typeDirectory`
+  (`fileExists` follows a link, and a merge through one would write into the tree it points at) and
+  `isPackage` to say no: a `.pages`, `.rtfd` or `.app` is a folder on disk and a document to its app,
+  and merging two child by child writes a bundle neither app made. Both hold at the top and inside a
+  merge, where such a child collides as a whole.
+- **Cancellation** — only a cancel of the operation's own Progress ends the batch quietly; a
+  `userCancelled` from anywhere else (a provider refusing a read) is a failure, reported, and the batch
+  goes on.
+- **The alert** — Merge is the Return-key default, and the body counts what Replace would trash and
+  what Merge would ask about (`folderMergePreview`), bounded at 5,000 entries or one second, past
+  which it says the sentence without numbers.
+- **Move** — the source folder goes to the Trash once only a `.DS_Store` is left in it.
+- **Not offered** — on single-row sync (`syncFile`) and bulk sync (`syncAll`), whose prompts keep
+  their three answers; a stray `.merge` there reads as Skip. Taking Merge to them is open work, not a
+  decision. The CLI plans per file, so it has no folder collision to answer.
 
 ---
 
@@ -93,20 +106,31 @@ guarantee beyond the collision case).
 
 ---
 
-## 5. Cancellable large single-file copy
+## 5. ~~Cancellable large single-file copy~~ — **DONE**
 
-**Today:** Cancellation is observed only **between** items (`progress.isCancelled` is checked at the
-top of each loop iteration — see `CancellationTests`). This is a deliberate safety property: a
-single file is never interrupted mid-copy, so a cancel can't produce a half-written file. The
-trade-off is that one very large file (e.g. tens of GB) cannot be cancelled once its copy starts.
+**Was:** Cancellation was observed only **between** items, so one very large file (or folder) could
+not be stopped once its copy started. Deferred as a responsiveness limit rather than a corruption
+risk, with the condition that the atomicity guarantee survive.
 
-**Enhancement:** Chunked, cancellable copy for large files — stream in cancellation-checked chunks
-into the `.tmp_` staging file, so a cancel can abandon and delete the partial staging copy without
-ever touching the destination.
+**Landed** (roadmap RD24), and not as a hand-written chunk loop: `copyfile(3)` with a status
+callback (`FileManager.observedCopyItem`), which checks `CopyObserver.shouldContinue` per data chunk
+and per tree entry and answers `COPYFILE_QUIT`. The copy still goes into the `.tmp_` staging name, so
+an abandoned copy has touched nothing at the destination; it throws `CocoaError(.userCancelled)`,
+which the transfer loop and the bulk-sync workers read as neither a transfer nor a failure.
 
-**Why deferred:** Not a correctness/corruption issue — purely a responsiveness limitation. A chunked
-copy adds real complexity and must preserve the current atomicity guarantee (partial work stays in
-the temp and is discarded on cancel). **Effort:** medium. **Risk:** medium.
+- **Why copyfile rather than chunks** — it keeps what `copyItem` does and a chunk loop would not:
+  the same-volume APFS clone, xattrs, ACLs, flags, and a folder in one call. Measured equivalent to
+  `copyItem` on a fixture (mode, flags, xattrs, ACL, link targets, birth time, mtime to the
+  nanosecond) with one correction: `copyfile` leaves a folder holding a symlink stamped with the time
+  of the copy, so folder times are re-applied from the source afterwards.
+  `ObservedCopyTests.anUncancelledObservedCopyLandsTheSameTreeCopyItemDoes` pins it.
+- **Errors** — anything but cancellation and out-of-space goes back through `copyItem`, so alerts keep
+  the wording they always had.
+- **What a clone cannot do** — a same-volume clone writes no data, so it reports no progress and has
+  nothing to cancel; it is instant.
+- **Test doubles** — `FileManaging.copyItem(at:to:observer:)` defaults to a whole copy checked once
+  before it starts, which is why `CancellationTests` still pins "the in-flight item completes" against
+  the mock while the real-disk behaviour is pinned in `ObservedCopyTests`.
 
 ---
 

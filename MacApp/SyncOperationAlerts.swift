@@ -21,7 +21,8 @@ struct SyncOperationAlerts {
     /// wholesale-replacement warning, since Replace trashes the entire existing folder —
     /// including items that exist only there — not just the same-named file.
     /// Pure (no AppKit) so it can be unit-tested and so file vs. folder wording can't drift.
-    nonisolated static func collisionInformativeText(_ collision: FileCollision) -> String {
+    nonisolated static func collisionInformativeText(_ collision: FileCollision, policy: ConflictPolicy = .ask) -> String {
+        if collision.offersMerge { return mergeCollisionInformativeText(collision, policy: policy) }
         var text = "Do you want to replace it with the one you're \(collision.isMove ? "moving" : "copying")?"
         if collision.isDirectory {
             text += " Replacing a folder replaces its entire contents. "
@@ -30,6 +31,51 @@ struct SyncOperationAlerts {
         text += "\n\n\(collision.isMove ? "Moving" : "Copying"): \(displayPath(collision.sourcePath))"
         text += "\nReplacing: \(displayPath(collision.destinationPath))"
         return text
+    }
+
+    /// The folder-onto-folder body when Merge is on offer (RD23): what Replace would send to the
+    /// Trash and what Merge would ask about, COUNTED when the engine could count them before the
+    /// alert opened (`FolderMergePreview`), and said without numbers when it could not.
+    ///
+    /// `policy` is the standing Settings answer. Merge's children are file collisions, which that
+    /// policy answers without a prompt, so "asks about each" is only true under `.ask` — otherwise
+    /// the sentence names the setting that will answer instead.
+    nonisolated static func mergeCollisionInformativeText(_ collision: FileCollision, policy: ConflictPolicy) -> String {
+        let verb = collision.isMove ? "moving" : "copying"
+        var text = "Do you want to merge it with the one you're \(verb), or replace it?"
+        func items(_ n: Int) -> String { n == 1 ? "1 item" : "\(n) items" }
+        let answeredBy = policy == .ask ? nil : "your Conflicts setting (\(policy.displayName))"
+        if let preview = collision.mergePreview {
+            let d = preview.destinationOnlyCount
+            let k = preview.collidingCount
+            text += d == 0
+                ? " Replacing moves the existing folder to the Trash; nothing in it exists only there."
+                : " Replacing moves the existing folder to the Trash, including the \(items(d)) that \(d == 1 ? "exists" : "exist") only there."
+            if k == 0 {
+                text += " Merging keeps everything already there, and nothing is in both."
+            } else if let answeredBy {
+                text += " Merging keeps everything already there; the \(items(k)) in both follow \(answeredBy)."
+            } else {
+                text += " Merging keeps everything already there and asks about each of the \(items(k)) in both."
+            }
+        } else {
+            text += " Replacing a folder replaces its entire contents: items that exist only in the destination folder will be moved to the Trash."
+            text += answeredBy.map { " Merging keeps them; items in both follow \($0)." }
+                ?? " Merging keeps them and asks about each item that is in both."
+        }
+        text += "\n\n\(collision.isMove ? "Moving" : "Copying"): \(displayPath(collision.sourcePath))"
+        text += "\nInto: \(displayPath(collision.destinationPath))"
+        return text
+    }
+
+    /// The Merge variant of `collisionButtonTitles`, same `addButton` order: Merge is first, so it
+    /// is the rightmost button and the one Return presses — the only answer that removes nothing
+    /// from the destination. The other three keep their order, one place further left.
+    nonisolated static let mergeCollisionButtonTitles = ["Merge", "Keep Both", "Skip", "Replace"]
+
+    /// The titles a given collision's alert draws.
+    nonisolated static func collisionButtonTitles(for collision: FileCollision) -> [String] {
+        collision.offersMerge ? mergeCollisionButtonTitles : collisionButtonTitles
     }
 
     /// The collision alert's button titles, in `NSAlert.addButton` order (right to left, so the
@@ -70,15 +116,30 @@ struct SyncOperationAlerts {
     private static func runCollisionAlert(_ collision: FileCollision, accessoryView: NSView?) -> CollisionResolution {
         let alert = NSAlert()
         alert.messageText = "An item named \"\(collision.fileName)\" already exists in this location."
-        alert.informativeText = collisionInformativeText(collision)
+        alert.informativeText = collisionInformativeText(collision, policy: ConflictPolicy.persisted())
         alert.accessoryView = accessoryView
 
         // Buttons added right to left, from the shared title list.
-        for title in collisionButtonTitles {
+        for title in collisionButtonTitles(for: collision) {
             alert.addButton(withTitle: title)
         }
 
-        return collisionResolution(for: alert.runModal())
+        return collisionResolution(for: alert.runModal(), offersMerge: collision.offersMerge)
+    }
+
+    /// `collisionResolution(for:)` for either button set: with Merge on offer the first button is
+    /// Merge and the file set's meanings each move one place along. Derived from the title lists,
+    /// not restated, so the two cannot disagree about which click replaces.
+    nonisolated static func collisionResolution(for response: NSApplication.ModalResponse, offersMerge: Bool) -> CollisionResolution {
+        guard offersMerge else { return collisionResolution(for: response) }
+        let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        guard mergeCollisionButtonTitles.indices.contains(index) else { return .skip }
+        switch mergeCollisionButtonTitles[index] {
+        case "Merge": return .merge
+        case "Keep Both": return .keepBoth
+        case "Replace": return .replace
+        default: return .skip
+        }
     }
 
     /// Presents a native macOS alert to resolve file collisions (Replace, Keep Both, Skip).

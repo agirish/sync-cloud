@@ -5,6 +5,40 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v5.4 — DRAFT, not released
+
+> What is on `main` since v5.3. It may still change before v5.4 is cut, and nothing here is
+> installable from a release yet.
+
+### Folders merge, and Cancel stops the copy it is in
+
+- **A folder that already exists at the destination can be merged, and Merge is the default.** When
+  a copy or move lands a folder onto one of the same name, the alert used to offer Replace, Keep Both
+  or Skip — and Replace sent the whole existing folder to the Trash, including everything that was
+  only in it. **Merge** keeps everything already there, adds what is missing, and asks about each
+  file that is in both folders on its own. Its "Apply to all" covers the rest of that one merge, and
+  a Conflicts setting other than "Ask every time" answers those files the way it answers any other.
+  Folders inside the two are merged as well, without asking.
+- **The alert counts what each answer would do before you choose** — how many items Replace would
+  send to the Trash, and how many Merge would ask about. On folders too large to count quickly it
+  says the same thing without numbers rather than guessing.
+- **A move merge tidies up after itself.** The source folder goes to the Trash once everything in it
+  has moved, and stays where it was if you skipped anything inside it. One ⌘Z takes the whole merge
+  back.
+- **Merge is offered for copies and moves between panes, Copy to… / Move to…, and paste.** It is not
+  offered through a folder that is really a symlink, nor for a package — an app, a photo library, or
+  a document your Mac shows as a single file is one item, and merging two of them would build a document neither app wrote — and
+  not yet in Compare's single-row or bulk sync, whose prompts are unchanged.
+- **Cancel stops the item that is copying, not just the ones after it.** One very large file or folder
+  used to run to the end once it had started, however long that took. It now stops mid-file, and
+  nothing half-copied is left at the destination, because the copy is abandoned before any of it
+  reaches there. A cancel is not reported as a failure. This applies to bulk sync as well.
+- **The progress window shows how far a slow copy has got**, as "4.2 GB of 12.8 GB · about 2 min
+  left" under the file's name once it has been copying for a second. It stays off for a bulk sync,
+  where several copies share the line.
+
+---
+
 ## v5.3
 
 ### Edit gets its menus

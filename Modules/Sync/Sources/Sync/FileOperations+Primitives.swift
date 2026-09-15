@@ -293,19 +293,24 @@ extension FileSyncManager {
     /// Safely copies a file, atomically replacing the destination if it exists to prevent corruption.
     /// Returns a restorable URL for the overwritten item, if any (Trash, or a hidden in-place
     /// backup on volumes without Trash).
+    ///
+    /// With an `observer`, the staging copy can be abandoned part-way (RD24): it throws
+    /// `CocoaError(.userCancelled)` before anything reaches the destination, and the `defer` below
+    /// sweeps whatever the staging file held.
     @discardableResult
-    public nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default) throws -> URL? {
+    public nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default, observer: CopyObserver? = nil) throws -> URL? {
         try safeCopyItem(
             at: sourceURL,
             to: destinationURL,
             fileManager: fileManager,
-            caseSensitiveVolume: volumeSupportsCaseSensitiveNames(for: sourceURL)
+            caseSensitiveVolume: volumeSupportsCaseSensitiveNames(for: sourceURL),
+            observer: observer
         )
     }
 
     /// Testable core; production resolves `caseSensitiveVolume` from the source volume.
     @discardableResult
-    nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool) throws -> URL? {
+    nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool, observer: CopyObserver? = nil) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume)
 
         let targetDirectory = destinationURL.deletingLastPathComponent()
@@ -313,7 +318,7 @@ extension FileSyncManager {
 
         defer { try? fileManager.removeItem(at: tempURL) }
 
-        try fileManager.copyItem(at: sourceURL, to: tempURL)
+        try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
 
         if destinationExistsForReplacement(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume, fileManager: fileManager) {
             // Atomically swap the staged copy into place, preserving the old destination as a
@@ -338,23 +343,27 @@ extension FileSyncManager {
     /// Safely moves a file, atomically replacing the destination if it exists.
     /// Returns a restorable URL for the overwritten item, if any (Trash, or a hidden in-place
     /// backup on volumes without Trash).
+    /// With an `observer`, only a cross-volume move's staging copy is abandonable — a same-volume
+    /// move is a rename, and a cancel that arrives after the copy has landed lets the move finish,
+    /// because the source cleanup that follows is not something to stop half-way.
     @discardableResult
-    public nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default) throws -> URL? {
+    public nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default, observer: CopyObserver? = nil) throws -> URL? {
         try safeMoveItem(
             at: sourceURL,
             to: destinationURL,
             fileManager: fileManager,
-            caseSensitiveVolume: volumeSupportsCaseSensitiveNames(for: sourceURL)
+            caseSensitiveVolume: volumeSupportsCaseSensitiveNames(for: sourceURL),
+            observer: observer
         )
     }
 
     /// Testable core; production resolves `caseSensitiveVolume` from the source volume.
     @discardableResult
-    nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool) throws -> URL? {
+    nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool, observer: CopyObserver? = nil) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume)
 
         if destinationExistsForReplacement(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume, fileManager: fileManager) {
-            return try replaceDestinationByMoving(sourceURL: sourceURL, destinationURL: destinationURL, fileManager: fileManager)
+            return try replaceDestinationByMoving(sourceURL: sourceURL, destinationURL: destinationURL, fileManager: fileManager, observer: observer)
         }
 
         // No existing destination (or a case-only rename whose "destination" is the source itself):
@@ -370,7 +379,7 @@ extension FileSyncManager {
 
             defer { try? fileManager.removeItem(at: tempURL) }
 
-            try fileManager.copyItem(at: sourceURL, to: tempURL)
+            try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
             try fileManager.moveItem(at: tempURL, to: destinationURL)
 
             // Cleanup source: try trash first, fall back to direct remove if the volume has no Trash.
@@ -418,7 +427,8 @@ extension FileSyncManager {
     private nonisolated static func replaceDestinationByMoving(
         sourceURL: URL,
         destinationURL: URL,
-        fileManager: FileManaging
+        fileManager: FileManaging,
+        observer: CopyObserver? = nil
     ) throws -> URL? {
         let targetDirectory = destinationURL.deletingLastPathComponent()
         let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
@@ -436,7 +446,7 @@ extension FileSyncManager {
         do {
             try fileManager.moveItem(at: sourceURL, to: tempURL)
         } catch {
-            try fileManager.copyItem(at: sourceURL, to: tempURL)
+            try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
             sourceConsumed = false
         }
 
@@ -559,6 +569,16 @@ extension FileSyncManager {
         try? fileManager.removeItem(at: staleBackup)
     }
     
+    /// The one staging copy every primitive above makes: observed when there is an observer,
+    /// `copyItem` exactly as before when there is not.
+    private nonisolated static func stage(_ sourceURL: URL, to tempURL: URL, fileManager: FileManaging, observer: CopyObserver?) throws {
+        if let observer {
+            try fileManager.copyItem(at: sourceURL, to: tempURL, observer: observer)
+        } else {
+            try fileManager.copyItem(at: sourceURL, to: tempURL)
+        }
+    }
+
     /// Ensures the parent of `destinationURL` can be used as a directory (creates it or throws if it exists as a file).
     /// Call before copying into a path like `.../Package.pages-tef/Previews` so we don't fail with "file already exists".
     public nonisolated static func ensureParentDirectoryExists(
@@ -583,14 +603,15 @@ extension FileSyncManager {
         from sourceURL: URL,
         to destinationURL: URL,
         isMove: Bool,
-        fileManager: FileManaging = FileManager.default
+        fileManager: FileManaging = FileManager.default,
+        observer: CopyObserver? = nil
     ) throws -> (trashed: URL?, from: URL, to: URL) {
         try ensureParentDirectoryExists(for: destinationURL, fileManager: fileManager)
         let trashed: URL?
         if isMove {
-            trashed = try safeMoveItem(at: sourceURL, to: destinationURL, fileManager: fileManager)
+            trashed = try safeMoveItem(at: sourceURL, to: destinationURL, fileManager: fileManager, observer: observer)
         } else {
-            trashed = try safeCopyItem(at: sourceURL, to: destinationURL, fileManager: fileManager)
+            trashed = try safeCopyItem(at: sourceURL, to: destinationURL, fileManager: fileManager, observer: observer)
         }
         return (trashed, sourceURL, destinationURL)
     }

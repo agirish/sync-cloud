@@ -451,22 +451,6 @@ invariants wholesale. Gate it behind item 5's watcher, a per-rule confirmation c
 
 ---
 
-## 10. In-place folder Merge as a collision choice
-
-**Why:** Already specified in detail as `DEFERRED_ENHANCEMENTS.md` #1, and it is the one collision
-answer users expect from Finder-adjacent tooling that SyncCloud cannot give: replacing a folder
-today swaps it wholesale, discarding destination-only children (recoverably, and with a warning).
-
-**What:** A `.merge` case on `CollisionResolution` (which today carries only `replace` / `keepBoth`
-/ `skip`), a recursive per-child collision path, and its own apply-to-all semantics. See
-`DEFERRED_ENHANCEMENTS.md` #1 for the full pickup notes.
-
-**Impact:** Removes the sharpest edge left in the transfer path.
-
-**Effort:** Medium. **Risk:** Medium — new data path.
-
----
-
 ## 11. In-app diff viewer for text files
 
 **Why:** Files can be opened in external apps but their contents cannot be compared inside
@@ -1192,7 +1176,6 @@ the question hundreds of keeper picks actually raise.
 | 7 | Cross-provider duplicates | High | High |
 | 8 | Export / import configuration | Low | Medium |
 | 9 | Auto-running automations | Medium | Medium–High |
-| 10 | Folder Merge on collision | Medium | Medium |
 | 11 | In-app diff viewer | Medium | Medium |
 | 12 | Menu bar status item | Low–Medium | Medium |
 | 13 | Path-anchored / include-only rules | Low–Medium | Medium |
@@ -1272,9 +1255,9 @@ You reach for that file when the *code* surprises you — "why does this skip fi
 and this one when you are deciding what to build next. Different question, different file.
 
 **The real problem was duplication, and it is fixed.** In-place folder Merge carried a full
-specification in both files. It lives here now (item 10), because it is planned feature work rather
-than an accepted limit, and a spec kept in two places drifts in one of them.
-`DEFERRED_ENHANCEMENTS.md` #1 keeps only the record of why it sat there first, and points here. The
+specification in both files. It moved here, because it was planned feature work rather than an
+accepted limit, and a spec kept in two places drifts in one of them — and it has since shipped, so
+`DEFERRED_ENHANCEMENTS.md` #1 is now the only record left of it outside git. The
 remaining cross-links are one-directional and correct: item 7 → Deferred #6 (hashing's three blind
 spots), item 3 → Deferred #9 (the hash cache, now persisted and closed — item 3 links to it for the
 record of how the index was built, not for outstanding work).

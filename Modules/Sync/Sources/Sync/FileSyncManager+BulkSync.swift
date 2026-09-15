@@ -246,11 +246,19 @@ extension FileSyncManager {
             reportCompleted: reportCompleted
         ) { item in
             let (diff, fromURL, toURL, isMove) = item
+            // RD24: each worker's copy also watches Cancel, so a run holding a very large file stops
+            // inside it rather than after it. The dialog's item line is not touched here — four
+            // copies share it, so a byte count would describe whichever wrote last.
+            let progress = progressRef.progress
+            let observer = CopyObserver(shouldContinue: { !progress.isCancelled })
             do {
-                let syncResult = try performFileSyncIO(from: fromURL, to: toURL, isMove: isMove, fileManager: fileManager)
+                let syncResult = try performFileSyncIO(from: fromURL, to: toURL, isMove: isMove, fileManager: fileManager, observer: observer)
                 let identityWalk = isMove ? nil
                     : FileSyncManager.startCopyIdentityWalk(at: syncResult.to, fileManager: fileManager)
                 await collector.addSuccess(diff, (syncResult.trashed, syncResult.from, syncResult.to), identityWalk)
+            } catch where CopyObserver.isCancellation(error) && progress.isCancelled {
+                // Abandoned inside its staging copy: not synced, and not a failure to report — the
+                // row simply stays in the list, as the items the cancel never reached do.
             } catch {
                 await collector.addFailure(diff, error)
             }
@@ -259,7 +267,7 @@ extension FileSyncManager {
     }
 
     /// Resolves all differences in one direction by copying or moving each matching item (same behavior as per-file sync; collisions show "Apply to all" when applicable).
-    /// Runs up to 4 file operations in parallel. Cancellation completes the current file then stops before starting new ones.
+    /// Runs up to 4 file operations in parallel. Cancellation abandons the files in flight inside their staging copies and starts no new ones.
     /// - Parameters:
     ///   - direction: Which direction to sync (e.g. `.copyToRight` → copy all that are "missing on right" or "left newer").
     ///   - isMove: If true, moves each file; otherwise copies.
@@ -454,7 +462,9 @@ extension FileSyncManager {
                     resolution = res
                 }
                 switch resolution {
-                case .skip:
+                case .skip, .merge:
+                    // `.merge` is never offered here (the collision above does not set
+                    // `offersMerge`), so it can only be a stray answer — given the safe reading.
                     skippedCount += 1
                     continue
                 case .keepBoth:

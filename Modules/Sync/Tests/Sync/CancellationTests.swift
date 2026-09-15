@@ -4,9 +4,14 @@ import Foundation
 
 /// Closes coverage gap A from the data-corruption review: cancelling a copy/move/delete mid-run
 /// had NO test, even though "cancel copy / cancel move" is a core flow. These pin the contract of
-/// the `progress.isCancelled` check in `transferItems`/`deleteItems`: cancellation is only observed
-/// BETWEEN items, so the item already in flight completes ATOMICALLY (no half-written file, no
-/// stray `.tmp_`), while every not-yet-started item is skipped.
+/// the `progress.isCancelled` check in `transferItems`/`deleteItems`: the item already in flight
+/// completes ATOMICALLY (no half-written file, no stray `.tmp_`), while every not-yet-started item
+/// is skipped.
+///
+/// **Against the mock, which copies whole.** Since RD24 a REAL copy also watches Cancel inside the
+/// item and abandons it in its staging file — the mock's `copyItem(at:to:observer:)` is the protocol
+/// default, checked only before it starts, so these still describe the between-items half. The
+/// mid-item half is pinned on a real disk in `ObservedCopyTests`.
 @Suite struct CancellationTests {
 
     /// Blocks the FIRST call to one chosen primitive on a gate, signalling `entered` when that call

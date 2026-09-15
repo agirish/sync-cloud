@@ -135,6 +135,23 @@
 
 <div class="timeline">
 
+  <!-- v5.4 — DRAFT, not released. Keep the Latest badge on v5.3 until v5.4 is cut. -->
+  <article class="rel draft">
+    <div class="rel-head"><span class="v">v5.4</span><span class="tag draft">In development</span></div>
+    <p class="lede"><b>Not released yet</b> &#8212; this is what is on <code>main</code> since v5.3, and it may still change before v5.4 is cut. So far: <b>a folder that already exists at the destination can be merged</b> rather than replaced, and <b>Cancel stops the copy it is in</b>, however large.</p>
+    <div class="grp">
+      <h3>Folders merge, and Cancel stops the copy it is in</h3>
+      <ul class="flist">
+        <li><span class="ic">&#8862;</span><span><b>Merge is the default answer to a folder collision.</b> Replace sent the whole existing folder to the Trash, including everything that was only in it. Merge keeps everything already there, adds what is missing, and asks about each file that is in both folders on its own &#8212; with &#8220;Apply to all&#8221; covering the rest of that one merge, and a Conflicts setting other than &#8220;Ask every time&#8221; answering those files as it answers any other. Folders inside the two merge without asking.</span></li>
+        <li><span class="ic">&#35;</span><span><b>The alert counts what each answer would do</b> &#8212; how many items Replace would send to the Trash, and how many Merge would ask about. On folders too large to count quickly it says the same thing without numbers rather than guessing.</span></li>
+        <li><span class="ic">&#8630;</span><span><b>A move merge tidies up after itself.</b> The source folder goes to the Trash once everything in it has moved, and stays put if you skipped anything inside it. One <code>&#8984;Z</code> takes the whole merge back. Offered for copies and moves between panes, Copy to&#8230; / Move to&#8230; and paste; not through a symlinked folder or into a package such as an app or a photo library, and not yet in Compare&#8217;s single-row or bulk sync.</span></li>
+        <li><span class="ic">&#9632;</span><span><b>Cancel stops the item that is copying, not just the ones after it.</b> One very large file or folder used to run to the end once started. It now stops mid-file, nothing half-copied is left at the destination, and a cancel is not reported as a failure &#8212; in bulk sync too.</span></li>
+        <li><span class="ic">&#8987;</span><span><b>The progress window shows how far a slow copy has got</b>, as &#8220;4.2 GB of 12.8 GB &#183; about 2 min left&#8221; under the file&#8217;s name once it has been copying for a second. It stays off for a bulk sync, where several copies share the line.</span></li>
+      </ul>
+    </div>
+    <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v5.3...main">v5.3...main</a></p>
+  </article>
+
   <!-- v5.3 -->
   <article class="rel">
     <div class="rel-head"><span class="v">v5.3</span><span class="tag latest">Latest</span></div>
