@@ -5222,3 +5222,39 @@ So what a maintenance line is missing is **a test that can tell the truth on mac
 If one of those lines is ever built or CI'd on 27, that red is this row, and the pick is the
 provenance assertion — which is the expensive half to reconstruct, because the naive repair
 (widening to accept `HostingClipView`) silently stops detecting the swap the test exists for.
+
+## Snapshot compare aborts on macOS 27, and four EmptyState references move with the OS
+
+Two changes, both **test-only**: `installPerceptualCompareShim()` in all four copies of
+`SnapshotRendering.swift` (plus `SnapshotPerceptualCompareTests` in Design), so a snapshot that is
+not byte-identical fails or passes as a test instead of killing the package with signal 6; and the
+eight `DesignSnapshotTests` EmptyState references re-recorded on macOS 27, where the SF Symbol above
+them reserves up to 1pt more room. See "A snapshot mismatch that aborts the process instead of
+failing" in `docs/flaky-tests.md`.
+
+```sh
+# stage 1 — the helper and its pin. stage 2 — the SHAPE: does the helper install the shim, and are
+# the EmptyState references the pre-27 set? main is the positive control (before this landed).
+for l in main v4.x v3.x v2.x; do
+  r=origin/$l
+  printf '%-6s helpers=%s pin=%s shim=%s emptyStateRefs=%s\n' "$l" \
+    "$(git ls-tree -r --name-only $r -- Modules | grep -c 'SnapshotRendering.swift')" \
+    "$(git show $r:Modules/Design/Package.swift | sed -n 's/.*swift-snapshot-testing", exact: "\([0-9.]*\)".*/\1/p')" \
+    "$(git show $r:Modules/Design/Tests/DesignTests/SnapshotRendering.swift | grep -c installPerceptualCompareShim)" \
+    "$(git ls-tree -r $r -- Modules/Design/Tests/DesignTests/__Snapshots__/DesignSnapshotTests/ | grep emptyState | awk '{print $3}' | git hash-object --stdin | cut -c1-8)"
+done
+# measured 2026-09-16, before this landed:
+# main   helpers=4 pin=1.19.4 shim=0 emptyStateRefs=d671f149
+# v4.x   helpers=4 pin=1.19.4 shim=0 emptyStateRefs=d671f149
+# v3.x   helpers=4 pin=1.19.4 shim=0 emptyStateRefs=d671f149
+# v2.x   helpers=4 pin=1.19.4 shim=0 emptyStateRefs=d671f149
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **The shim**, in all four helpers | Applies: same four helpers, same 1.19.4 pin, no shim — so on macOS 27 any snapshot suite with a non-byte-identical image aborts its package. **Inferred from the files, not run** | Same | RECORDED — not owed (test-only; CI skips these suites on every line) |
+| **`SnapshotPerceptualCompareTests`** | Would apply with the shim, and only with it: without, it aborts the package it is added to | Same | RECORDED — not owed |
+| **The eight EmptyState references** | Same pre-27 blobs as `main` had, and `EmptyStateView.swift` is the same blob as `main`'s, so they are stale on 27 in the same way. **Inferred, not run** | Same references; `EmptyStateView.swift` differs from `main`'s, so a pick would need re-recording on that line, not copying `main`'s PNGs | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** Nothing in the app changes: every file touched is
+under `Tests/` or `docs/`. No defaults key, no stored format, no product code path.

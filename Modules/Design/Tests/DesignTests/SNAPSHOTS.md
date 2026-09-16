@@ -69,6 +69,19 @@ images are expected to differ across machines/OS versions because they bake in:
   deliberate exception and `ActionBarFocusIndependenceTests` turns this caveat into a rig: it
   renders a weight here precisely *because* the window is never key, and asserts the fill
   survives it.
+- **the OS release, even on this machine.** macOS 27.0 (installed 2026-09-15) grew the layout box
+  of the SF Symbols `EmptyStateView` leads with — same ink, up to 1pt more room under it — and
+  moved everything below the icon in all four EmptyState scenarios down a pixel or two.
+  Established as OS drift (byte-identical renders at a commit from before the upgrade) before the
+  eight references were re-recorded on 2026-09-16.
+  The other eleven Design scenarios, and every Dashboard, FileExplorer and Settings reference,
+  still matched on 27 and were left alone.
+
+**A mismatch must fail as a test, never abort the run.** On macOS 27 SnapshotTesting's perceptual
+compare throws an uncaught ObjC exception on the first image that is not byte-identical — a real
+mismatch or ordinary jitter alike — and the whole package dies with signal 6 and no verdict.
+`installPerceptualCompareShim()` in the render helper prevents it; keep the call in all four copies.
+See "A snapshot mismatch that aborts the process instead of failing" in `docs/flaky-tests.md`.
 
 To run these on another machine or in CI, re-record there first (or delete `__Snapshots__` and
 let record mode regenerate). Never mix references recorded on different machines.

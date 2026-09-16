@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC
 import SnapshotTesting
 import SwiftUI
 
@@ -37,6 +38,7 @@ func assertViewSnapshot<V: View>(
     line: UInt = #line,
     column: UInt = #column
 ) {
+    installPerceptualCompareShim()
     for (variant, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
         let image = renderOffscreen(view, size: size, appearance: appearance)
         assertSnapshot(
@@ -53,6 +55,39 @@ func assertViewSnapshot<V: View>(
         )
     }
 }
+
+/// Makes SnapshotTesting's perceptual compare survive macOS 27, where it otherwise kills the
+/// whole test process instead of failing one test.
+///
+/// Any image that is not byte-identical to its reference — a real change, or the ordinary
+/// anti-aliasing jitter `perceptualPrecision` exists to absorb — is diffed through
+/// `CIAreaAverage` / `CIAreaMaximum`, and SnapshotTesting (1.19.4, and still `main` as of
+/// 2026-09-16) passes those filters' `inputExtent` as a bare `CGRect`. Swift bridges that to an
+/// `NSValue`. CoreImage documents the key as a `CIVector`; on macOS 27 its reduction filters ask
+/// the value for `-CGRectValue`, which `CIVector` has and a macOS `NSValue` does not (AppKit's
+/// spelling is `-rectValue`). The result is an uncaught `NSInvalidArgumentException`, SIGABRT,
+/// and no Swift Testing verdict for ANY test in the package — see "A snapshot mismatch that
+/// aborts the process instead of failing" in docs/flaky-tests.md.
+///
+/// The shim gives `NSValue` the missing selector, answering with its `rectValue`. It is
+/// additive only: `class_addMethod` never replaces an existing implementation, and the guard
+/// makes it a no-op on an OS (or a future SnapshotTesting) where the selector already resolves.
+/// `SnapshotPerceptualCompareTests` in Modules/Design proves the compare then reports the right
+/// numbers rather than merely not crashing. Delete this once the pinned SnapshotTesting passes a
+/// `CIVector`.
+func installPerceptualCompareShim() {
+    _ = perceptualCompareShim
+}
+
+private let perceptualCompareShim: Void = {
+    let missing = NSSelectorFromString("CGRectValue")
+    guard !NSValue.instancesRespond(to: missing),
+          let rectValue = class_getInstanceMethod(NSValue.self, NSSelectorFromString("rectValue"))
+    else { return }
+    let forward: @convention(block) (NSValue) -> CGRect = { $0.rectValue }
+    class_addMethod(
+        NSValue.self, missing, imp_implementationWithBlock(forward), method_getTypeEncoding(rectValue))
+}()
 
 @MainActor
 private func renderOffscreen<V: View>(_ view: V, size: CGSize, appearance: NSAppearance.Name) -> NSImage {

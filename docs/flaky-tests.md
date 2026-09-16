@@ -2565,3 +2565,75 @@ mechanism 2's shape, and when it is short the probe goes quietly inert again rat
 
 **The general rule:** if the phase under test is entered by someone else's callback, the test has to
 observe that it was entered. Posting the notification is not entering the phase.
+
+### 23. A snapshot mismatch that aborts the process instead of failing — a red with no verdict
+
+**Symptom.** `swift test` on a package with a snapshot suite dies with `exited with unexpected
+signal code 6` and **no Swift Testing summary at all** — no `Test run with N tests`, no `✘`, no
+name. Every other suite in the package is lost with it. The last tests to report are whatever
+happened to run before the snapshot suite, which points at the wrong place. Seen 2026-09-16 on
+macOS 27.0 in `Modules/Design` and `Modules/Settings`, at `origin/main` in a clean worktree:
+
+```
+*** Terminating app due to uncaught exception 'NSInvalidArgumentException',
+    reason: '-[NSConcreteValue CGRectValue]: unrecognized selector sent to instance …'
+  5  CoreImage   -[CIReductionFilter offsetAndCrop]
+  6  CoreImage   -[CIAreaAverage outputImage]
+  8  DesignPackageTests  CIImage.applyingAreaAverage (SnapshotTesting)
+  9  DesignPackageTests  SnapshotTesting.perceptuallyCompare(…)
+```
+
+**Mechanism.** Two things, layered, and only the second is SnapshotTesting's.
+
+- **Any image that is not byte-identical takes the perceptual path.** Not only a real mismatch:
+  ordinary anti-aliasing jitter — the thing `perceptualPrecision: 0.98` exists to absorb — goes
+  there too. Measured: `DesignSnapshotTests.tokenChipsRowActive` and Settings' only snapshot both
+  *pass* once the compare can run, and both aborted before it could.
+- **On that path SnapshotTesting hands CoreImage a bare `CGRect`** for `CIAreaAverage` /
+  `CIAreaMaximum`'s `inputExtent` (`UIImage.swift`, `applyingAreaAverage`). Swift bridges it to an
+  `NSValue`. CoreImage documents the key as a `CIVector`, and on macOS 27 its reduction filters ask
+  for `-CGRectValue`, which `CIVector` answers and a macOS `NSValue` does not — AppKit spells it
+  `-rectValue`. An uncaught ObjC exception cannot be turned into a test issue, so the process goes.
+  Still the code in 1.19.5 and on SnapshotTesting's `main` as of 2026-09-16; no upstream issue.
+
+**Why CI did not see it.** Every snapshot suite is `.machinePinned(.referenceImages)` and CI skips
+that reason. A green CI run says nothing about any of them.
+
+**Tell.** Signal 6 with no summary line, and `CIAreaAverage` / `perceptuallyCompare` in the
+crashing thread. Distinguish it from the Sync abort in the parallel-start window (no ObjC exception,
+uniform ~4 s durations): this one names its exception on stderr, and it reproduces every run, idle,
+under `--filter <Suite>SnapshotTests`.
+
+**Fix.** `installPerceptualCompareShim()` in `SnapshotRendering.swift` — all four copies, called
+from `assertViewSnapshot`, the one funnel every snapshot goes through — gives `NSValue` the missing
+selector, answering with its `rectValue`. It is additive (`class_addMethod` never replaces) and
+guarded, so it does nothing where the selector already resolves. Delete it once the pinned
+SnapshotTesting passes a `CIVector`.
+
+`SnapshotPerceptualCompareTests` (Modules/Design, **not** machine-pinned, so CI runs it) drives the
+strategy on images whose difference is painted pixel by pixel and pins the numbers it reports, not
+just the absence of a crash. Mutation-tested: shim disabled → the same abort; the shim answering a
+half-width, half-height or offset extent → a named red. The first version painted whole rows and a
+half-width extent **survived** it — rows spread the change evenly across x, so a wrong width still
+averages to the right fraction. The changed pixels are a corner block now.
+
+**What it had been hiding.** The same macOS 27.0 upgrade as "An OS upgrade repealed a framework
+convention a test had pinned", reaching the pixels instead of a class name. Once the compare could run, four `DesignSnapshotTests` EmptyState
+scenarios failed in both appearances at a perceptual precision of 0.46 — which, as the Dashboard
+timezone red showed, reads like a colour regression and is not one. Established as OS drift before
+re-recording, not after:
+
+1. **The same code renders the same bytes.** At `dfced33d` (2026-09-08, on macOS 26.6.2 the day
+   the Dashboard date reds were chased through all four snapshot packages) and at `a993174c`, all
+   eight renders are byte-identical on this Mac, and both commits fail the same four tests.
+   `EmptyStateView.swift` last changed 2026-08-12; the references were recorded 2026-07-16.
+2. **The OS moved in between.** `system_profiler SPInstallHistoryDataType`: macOS 27.0 installed
+   2026-09-15.
+3. **Not the zone.** Still red under `TZ=America/Los_Angeles`, and the view formats no date.
+4. **A band-by-band pixel diff names the change.** The symbol's *ink* is the same size in the same
+   place; everything below it moved down as a rigid block — 2px (1pt) in the regular layout, 1px in
+   compact — and matches once shifted. The SF Symbol's layout box grew under its ink. Nothing in the
+   app lays that out.
+
+Only then were the eight references re-recorded, and the recorded PNGs checked pixel-identical to
+the renders the diff above was run on.
