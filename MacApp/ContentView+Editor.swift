@@ -76,7 +76,66 @@ extension ContentView {
         editorRailSurvey = survey
     }
 
+    // MARK: - Just the text
+
+    /// Whether the file rail is on screen: the pane is collapsed and "Just the text" is off.
+    var editorRailIsDrawn: Bool {
+        TopPaneVisibility.editorRailIsDrawn(paneHidden: panesHiddenForCurrentTab,
+                                            railHidden: editorRailHidden)
+    }
+
+    /// The header glyph's act. On: hide the rail and, if the pane is open, collapse it — the
+    /// sidebar goes with it, since `FolderSidebarModel.appliesTo` refuses to draw one beside a
+    /// collapsed pane. Off: show the rail. **The pane is NOT re-expanded on the way out**: leaving
+    /// "just the text" is a request for the rail, not necessarily for the pane.
+    func toggleJustTheText() {
+        if editorRailHidden {
+            editorRailHidden = false
+        } else {
+            editorRailHidden = true
+            if !panesHiddenForCurrentTab { togglePanesForCurrentTab() }
+        }
+    }
+
+    /// The pane's one-click open, as a rule: which path a selection change opens, or `nil`.
+    ///
+    /// **Five guards, each a case in `EditorPaneClickTests`.** Edit only; pane expanded (collapsed,
+    /// the rail is the list and the pane has no rows on screen to click); exactly one path; not a
+    /// folder — `isDirectory` is `nil` when the selection could not be resolved to a node, which
+    /// refuses too; and a kind Edit opens. Cloud-only and too-large files pass, deliberately: they
+    /// reach `openInEditor`, which refuses them with the caption the rail's rows would have — one
+    /// refusal, in one place.
+    static func paneSelectionOpens(workspace: Workspace, paneHidden: Bool,
+                                   paths: Set<String>, isDirectory: Bool?) -> String? {
+        guard workspace == .editor, !paneHidden,
+              paths.count == 1, let path = paths.first,
+              let isDirectory, !isDirectory,
+              EditableText.isText(path: path) else { return nil }
+        return path
+    }
+
+    /// In Edit, the open pane IS the file list, so selecting a single text file in it opens the
+    /// file — the same route a rail row takes, `openInEditor`, which guards the already-open case
+    /// and settles a dirty buffer first. **Not `handOffToEditor`**: that re-roots the pane and
+    /// switches workspace, and here the pane is already the folder and the workspace is already
+    /// Edit. Arrow keys move the selection exactly as clicks do, so they open files too.
+    ///
+    /// `openInEditor` never writes the pane's selection, so this cannot fire itself. The row menu's
+    /// hand-off and the preview column's Edit button end in a selection that already names the
+    /// open document, and `openInEditor`'s first guard returns early for it.
+    func openSelectedPaneFileInEditor(_ paths: Set<String>) {
+        // The node walk is paid only once the cheap guards have passed: one path, in Edit, pane open.
+        let node = (selectedWorkspace == .editor && paths.count == 1)
+            ? paneSelectionNodes(isLeft: true).first : nil
+        guard let path = Self.paneSelectionOpens(workspace: selectedWorkspace,
+                                                 paneHidden: panesHiddenForCurrentTab,
+                                                 paths: paths, isDirectory: node?.isDirectory)
+        else { return }
+        openInEditor(path: path)
+    }
+
     // MARK: - The layout arm
+
 
     /// Editor: the folder sidebar, a collapsible source pane, then the file rail and the open
     /// document.
@@ -90,9 +149,15 @@ extension ContentView {
     /// **Collapsed by default** (`TopPaneVisibility.defaultPanesHidden`): the common session opens a
     /// file and writes in it, and three columns before the text would be three things to look past.
     ///
+    /// **The two arms differ in one more thing than the collapse: whether the rail is drawn.** The
+    /// pane and the rail list the same folder — the sidebar re-roots the pane and so does every
+    /// hand-off into Edit — so with the pane open the rail is a second copy of the list beside it,
+    /// and the expanded arm withholds it. The collapsed arm draws it unless "Just the text" is on
+    /// (`editorRailIsDrawn`). Either way the document takes what the rail does not.
+    ///
     /// Clamped like `singleSourceLayout`, against the editor's own minimum rather than a lens
-    /// panel's: the workspace half here is the file rail plus the document, which need
-    /// `EditorLayoutMetrics.minWorkspaceWidth` between them.
+    /// panel's — and against the rail-less minimum, `EditorLayoutMetrics.minDocumentOnlyWidth`,
+    /// because in this arm the rail is not there to reserve room for.
     @ViewBuilder
     func editorLayout(collapsed: Bool, geo: GeometryProxy) -> some View {
         let totalWidth = geo.size.width
@@ -113,7 +178,7 @@ extension ContentView {
                 // **No region frame here.** The workspace draws its own two cards — the rail and
                 // the document — and wrapping them in a third would put a card inside a card, which
                 // `bottomSectionCard` stacks into a doubled inset and a squared-off corner.
-                editorWorkspace
+                editorWorkspace(showsRail: editorRailIsDrawn)
                     .frame(maxWidth: .infinity)
                     .clipped()
             }
@@ -121,7 +186,7 @@ extension ContentView {
         } else {
             let splitWidth = totalWidth - sidebarSlot
             let lower = PaneLogic.minRailWidth / max(splitWidth, 1)
-            let upper = 1 - EditorLayoutMetrics.minWorkspaceWidth / max(splitWidth, 1)
+            let upper = 1 - EditorLayoutMetrics.minDocumentOnlyWidth / max(splitWidth, 1)
             // Both minimums cannot always be honoured — the same bind the lens row is in, and the
             // same answer: pin to the rail's minimum rather than letting the clamp invert.
             let fraction = (lower <= upper)
@@ -138,7 +203,8 @@ extension ContentView {
                 paneColumn(isLeft: true)
                     .panesRegionFrame(surfaceStyle, level: glassLevel)
                     .frame(width: row.railWidth)
-                editorWorkspace
+                // The pane is the file list here, so the rail is withheld whatever the bit says.
+                editorWorkspace(showsRail: false)
                     .frame(width: row.workspaceWidth)
                     .clipped()
             }
@@ -152,13 +218,19 @@ extension ContentView {
         }
     }
 
-    var editorWorkspace: some View {
+    /// - Parameter showsRail: whether the file rail is drawn — decided by the arm, see
+    ///   ``editorLayout(collapsed:geo:)``. The survey `.task` below runs regardless: the ⌘N refusal
+    ///   and the prefilled name read `editorFolder`, not the survey, but the survey is cheap and
+    ///   the rail returns often.
+    func editorWorkspace(showsRail: Bool) -> some View {
         EditorWorkspaceView(
             document: editorDocument,
             autosavePolicy: editorAutosavePolicy,
             folder: editorFolder,
             entries: editorRailSurvey.rows,
             otherFileCount: editorRailSurvey.otherFileCount,
+            showsRail: showsRail,
+            railIsHidden: editorRailHidden,
             accent: glassHue.accentColor,
             onAccent: glassHue.onAccentLabelColor,
             mode: $editorMode,
@@ -184,6 +256,7 @@ extension ContentView {
             onOpen: { entry in openInEditor(path: entry.path) },
             onCreate: { name in createTextFile(named: name) },
             onRevealInBrowse: { path in revealInBrowse(path) },
+            onToggleJustTheText: { toggleJustTheText() },
             onAutosaveResumed: { runAutosave() })
         // The rail is re-listed on arrival and whenever the folder or the hidden-files preference
         // moves — `.task(id:)` restarts on either.

@@ -23,6 +23,11 @@ struct PaneActionDelegate: FileActionDelegate {
     /// LAYOUT question — how many trees are on screen — which Browse and Storage answer the same
     /// way the rail does, while only one of the three is the surface Organize is about.
     let ownsOrganizeScope: Bool
+    /// Whether this surface is Edit's own source pane — the one pane whose rows are dimmed when
+    /// the editor would refuse them, and opened by a single click. Every other workspace answers
+    /// `nil` to `editorRefusal` whatever the row is. Same shape as `ownsOrganizeScope`, and kept
+    /// apart from `isSingleSource` for the same reason: that is a layout question.
+    let servesEditor: Bool
     let forceRefreshAction: () -> Void
     /// Shows the in-app Info inspector for a path (replaces Finder's Get Info from the pane menu).
     let onGetInfo: (String) -> Void
@@ -129,7 +134,7 @@ struct PaneActionDelegate: FileActionDelegate {
     /// which is what lets a pane skip re-rendering — and with it every visible row — when the only
     /// thing that moved was some unrelated corner of the manager.
     ///
-    /// Every stored property is accounted for. The seven values are compared outright; the three
+    /// Every stored property is accounted for. The eight values are compared outright; the three
     /// references are compared by identity; and the closures are ignored, which is the one claim
     /// here that needs justifying.
     ///
@@ -152,6 +157,10 @@ struct PaneActionDelegate: FileActionDelegate {
             && rightProviderId == other.rightProviderId
             && isSingleSource == other.isSingleSource
             && ownsOrganizeScope == other.ownsOrganizeScope
+            // Rendered eagerly per row, so it MUST take part: left out, switching into Edit does
+            // not re-render the pane and its rows stay bright until something unrelated moves —
+            // the failure `ignoreStateToken`'s doc describes.
+            && servesEditor == other.servesEditor
             && ignoreStateToken == other.ignoreStateToken
             && keptNamesToken == other.keptNamesToken
             && homeBadgeCoverage == other.homeBadgeCoverage
@@ -231,6 +240,14 @@ struct PaneActionDelegate: FileActionDelegate {
     func riskyNameReason(forName name: String, isDirectory: Bool) -> String? {
         guard !syncManager.isKeptName(name) else { return nil }
         return RiskyNameBadgeCache.reason(name: name, isDirectory: isDirectory, provider: paneProviderType)
+    }
+
+    /// See `FileActionDelegate.editorRefusal`. The too-large sentence is the rail's, word for
+    /// word, from the one static both surfaces call.
+    func editorRefusal(forPath path: String, isDirectory: Bool, size: Int) -> String? {
+        guard servesEditor, !isDirectory else { return nil }
+        if !EditableText.isText(path: path) { return "Not a kind Edit opens." }
+        return EditorRailEntry.tooLargeReason(size: size)
     }
 
     func isKeptName(_ name: String) -> Bool { syncManager.isKeptName(name) }

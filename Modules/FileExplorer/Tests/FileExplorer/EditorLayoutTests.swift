@@ -581,17 +581,20 @@ import Design
         return document
     }
 
-    private func workspace(_ document: EditorDocument) -> EditorWorkspaceView {
+    private func workspace(_ document: EditorDocument, showsRail: Bool = true,
+                           railIsHidden: Bool = false, naming: Bool = false) -> EditorWorkspaceView {
         EditorWorkspaceView(
             document: document,
             autosavePolicy: EditorAutosavePolicy(),
             folder: "/n",
             entries: [],
+            showsRail: showsRail,
+            railIsHidden: railIsHidden,
             accent: .blue,
             onAccent: .white,
             mode: .constant(.edit),
             splitFraction: .constant(0.5),
-            isNaming: .constant(false),
+            isNaming: .constant(naming),
             typedName: .constant(""),
             railFilter: .constant(""),
             railFilterIsExpanded: .constant(false),
@@ -602,7 +605,8 @@ import Design
             refusal: { _ in nil },
             onOpen: { _ in },
             onCreate: { _ in true },
-            onRevealInBrowse: { _ in })
+            onRevealInBrowse: { _ in },
+            onToggleJustTheText: {})
     }
 
     /// **A `.md` and a `.txt` header must be the same height**, or the document column below them
@@ -706,5 +710,198 @@ import Design
         let body = String(source[metaRow.upperBound..<end.lowerBound])
         #expect(body.contains("Color.clear"),
                 "the subtitle's reservation is not a drawn shape, so it takes no part in layout")
+    }
+}
+
+// MARK: - Fewer columns
+
+/// **What the document gets when the rail is not drawn, and where ⌘N's row goes.** Measured on the
+/// mounted AppKit tree rather than read off the view, because `showsRail` is one `if` and a rail
+/// hidden by `.opacity(0)` would pass any presence check while taking exactly the width it took
+/// before.
+@MainActor
+@Suite(.serialized) struct EditorFewerColumnsLayoutTests {
+
+    private static let size = CGSize(width: 800, height: 400)
+
+    private func document(named name: String) throws -> EditorDocument {
+        let folder = NSTemporaryDirectory() + "fewer-" + UUID().uuidString
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let path = (folder as NSString).appendingPathComponent(name)
+        try "hello".write(toFile: path, atomically: true, encoding: .utf8)
+        let document = EditorDocument()
+        _ = EditorFileStore.load(path: path, into: document)
+        return document
+    }
+
+    private func workspace(_ document: EditorDocument, showsRail: Bool, railIsHidden: Bool = false,
+                           naming: Bool = false) -> EditorWorkspaceView {
+        EditorWorkspaceView(
+            document: document,
+            autosavePolicy: EditorAutosavePolicy(),
+            folder: "/n/Downloads",
+            entries: [],
+            showsRail: showsRail,
+            railIsHidden: railIsHidden,
+            accent: .blue,
+            onAccent: .white,
+            mode: .constant(.edit),
+            splitFraction: .constant(0.5),
+            isNaming: .constant(naming),
+            typedName: .constant(""),
+            railFilter: .constant(""),
+            railFilterIsExpanded: .constant(false),
+            railTab: .constant(.files),
+            railOutlineAnchors: .constant([:]),
+            undoManager: UndoManager(),
+            prefilledName: { "Untitled.md" },
+            refusal: { _ in nil },
+            onOpen: { _ in },
+            onCreate: { _ in true },
+            onRevealInBrowse: { _ in },
+            onToggleJustTheText: {})
+    }
+
+    /// The workspace mounted at a fixed width, so the columns divide a known number.
+    private func mounted<V: View>(_ view: V) -> NSHostingView<AnyView> {
+        let host = NSHostingView(rootView: AnyView(view.frame(width: Self.size.width, height: Self.size.height)))
+        host.frame = CGRect(origin: .zero, size: Self.size)
+        host.layoutSubtreeIfNeeded()
+        return host
+    }
+
+    /// The first descendant of `type`, with its frame in the host's coordinates — a frame read raw
+    /// is in the superview's space, and the nesting here is deep.
+    private func first<T: NSView>(_ type: T.Type, in host: NSView) -> (view: T, frame: CGRect)? {
+        var found: (T, CGRect)?
+        func walk(_ v: NSView) {
+            if found != nil { return }
+            if let match = v as? T { found = (match, v.convert(v.bounds, to: host)); return }
+            v.subviews.forEach(walk)
+        }
+        walk(host)
+        return found
+    }
+
+    /// Every `NSTextField` whose placeholder is the naming row's, with frames in host coordinates.
+    private func nameFields(in host: NSView) -> [CGRect] {
+        var found: [CGRect] = []
+        func walk(_ v: NSView) {
+            if let field = v as? NSTextField, field.placeholderString == "Name" {
+                found.append(v.convert(v.bounds, to: host))
+            }
+            v.subviews.forEach(walk)
+        }
+        walk(host)
+        return found
+    }
+
+    /// **Without the rail the document is wider by the rail and its card**, measured on the text
+    /// view AppKit actually mounted. The difference is `railWidth + cardGutter`: the rail's width
+    /// plus the one gutter its card cost — the number `minDocumentOnlyWidth` is built from.
+    @Test func withoutTheRailTheDocumentTakesItsWidth() throws {
+        let doc = try document(named: "note.txt")
+        let withRail = try #require(first(NSTextView.self, in: mounted(workspace(doc, showsRail: true))),
+                                    "no text view mounted with the rail")
+        let without = try #require(first(NSTextView.self, in: mounted(workspace(doc, showsRail: false))),
+                                   "no text view mounted without the rail")
+        let gained = without.frame.width - withRail.frame.width
+        let expected = EditorLayoutMetrics.railWidth + LiquidGlass.cardGutter
+        #expect(abs(gained - expected) < 1,
+                "the document gained \(gained)pt without the rail; the rail and its card are \(expected)pt")
+        // And it is the LEFT edge that moved: the rail was on the left, so the text starts where
+        // the rail started. A document that widened to the right would be measuring something else.
+        #expect(without.frame.minX < withRail.frame.minX - EditorLayoutMetrics.railWidth + 1,
+                "the text still starts at x=\(without.frame.minX) without the rail (with: \(withRail.frame.minX))")
+    }
+
+    /// **⌘N's row is in the rail while there is one, and at the top of the document when there is
+    /// not** — one row, never two, never none. Told apart by width: the rail's field is inside a
+    /// 232pt column, the document's spans the row.
+    @Test func theNamingRowMovesToTheDocumentWhenThereIsNoRail() throws {
+        let doc = try document(named: "note.txt")
+        let inRail = nameFields(in: mounted(workspace(doc, showsRail: true, naming: true)))
+        #expect(inRail.count == 1, "\(inRail.count) naming fields with the rail drawn")
+        #expect((inRail.first?.width ?? 0) < EditorLayoutMetrics.railWidth,
+                "the field measures \(inRail.first?.width ?? 0)pt — wider than the rail it should be inside")
+
+        let inDocument = nameFields(in: mounted(workspace(doc, showsRail: false, naming: true)))
+        #expect(inDocument.count == 1, "\(inDocument.count) naming fields with no rail")
+        #expect((inDocument.first?.width ?? 0) > EditorLayoutMetrics.railWidth,
+                "the field measures \(inDocument.first?.width ?? 0)pt — rail-sized, in a row with no rail")
+        // Above the text, not below it: the row leads the column.
+        let text = try #require(first(NSTextView.self, in: mounted(workspace(doc, showsRail: false, naming: true))))
+        #expect((inDocument.first?.minY ?? .infinity) < text.frame.minY,
+                "the naming row sits at y=\(inDocument.first?.minY ?? -1), under the text at y=\(text.frame.minY)")
+
+        // The control: no ⌘N, no field, in either home.
+        #expect(nameFields(in: mounted(workspace(doc, showsRail: false))).isEmpty)
+        #expect(nameFields(in: mounted(workspace(doc, showsRail: true))).isEmpty)
+    }
+
+    /// The header glyph names its NEXT act: "Just the text" while the rail is there, "Show the text
+    /// files" once it is not — one string for the label and the tooltip. Pinned on the static the
+    /// view draws from, because a hosted SwiftUI tree exposes neither its accessibility labels nor
+    /// its tooltips under `swift test` (measured 2026-09-16: `NSView.toolTip` is nil throughout).
+    /// Mutation: swap the ternary's arms and both lines fail.
+    @Test func theJustTheTextGlyphNamesItsNextAct() {
+        #expect(EditorWorkspaceView.justTheTextTitle(railIsHidden: false) == "Just the text")
+        #expect(EditorWorkspaceView.justTheTextTitle(railIsHidden: true) == "Show the text files")
+    }
+
+    /// **The glyph really lights**, measured in pixels: the header rendered with the rail hidden
+    /// differs from the header rendered with it showing, and two renders of the same state do not
+    /// differ at all — which is what makes the first difference the lit state and not noise.
+    @Test func theJustTheTextGlyphLightsWhenTheRailIsHidden() throws {
+        let doc = try document(named: "note.txt")
+        let off = try #require(render(workspace(doc, showsRail: true, railIsHidden: false).headerContent))
+        let offAgain = try #require(render(workspace(doc, showsRail: true, railIsHidden: false).headerContent))
+        let on = try #require(render(workspace(doc, showsRail: false, railIsHidden: true).headerContent))
+        #expect(differingPixels(off, offAgain) == 0, "two renders of the same header differ — the detector is noise")
+        let lit = differingPixels(off, on)
+        // **The floor is between the two ways the glyph can light.** Measured 2026-09-16 at this
+        // size: the accent foreground alone moves 266 pixels, the foreground plus the soft accent
+        // fill 1,228. A floor of 20 was passed by a mutation that deleted the fill, so the floor
+        // sits above the foreground-only count: both cues have to be there.
+        #expect(lit > 600, "the header barely changes with the rail hidden (\(lit) pixels differ) — the glyph's fill is not lit")
+        // And the lit state is a glyph, not a relayout: a bounded patch, not a whole row.
+        #expect(lit < 4_000, "\(lit) pixels differ between the two headers — more than a lit glyph")
+    }
+
+    private static let headerSize = CGSize(width: 520, height: 44)
+
+    private func render<V: View>(_ view: V) -> NSBitmapImageRep? {
+        let subject = view
+            .frame(width: Self.headerSize.width, height: Self.headerSize.height)
+            .background(Color.white)
+            .environment(\.colorScheme, .light)
+        let host = NSHostingView(rootView: AnyView(subject))
+        host.frame = CGRect(origin: .zero, size: Self.headerSize)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.colorSpace = .sRGB
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return rep
+    }
+
+    private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
+        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return Int.max }
+        var count = 0
+        for x in 0..<a.pixelsWide {
+            for y in 0..<a.pixelsHigh {
+                guard let p = a.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      let q = b.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                let delta = max(abs(p.redComponent - q.redComponent),
+                                max(abs(p.greenComponent - q.greenComponent),
+                                    abs(p.blueComponent - q.blueComponent)))
+                if delta > 0.02 { count += 1 }
+            }
+        }
+        return count
     }
 }

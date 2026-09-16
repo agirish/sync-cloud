@@ -917,6 +917,8 @@ struct PaneColumnsView: View {
             showsChevron: node.isDirectory,
             fonts: fonts,
             riskyReason: delegate.riskyNameReason(forName: row.info.name, isDirectory: row.info.isDirectory),
+            editorRefusal: delegate.editorRefusal(forPath: row.info.id, isDirectory: row.info.isDirectory,
+                                                  size: row.info.fileSize ?? 0),
             // Columns is the default view mode — a badge that shipped only into the tree would
             // miss most of the app's usage. Resolved by the column for the same reason
             // `riskyReason` is.
@@ -1176,6 +1178,8 @@ struct ColumnRowView: View {
     /// See `FileRowView.riskyReason`. Resolved by the column, for the same reason the tree row
     /// resolves it: only the pane can reach the delegate.
     var riskyReason: String? = nil
+    /// See `FileRowView.editorRefusal`. Resolved by the column, like `riskyReason`.
+    var editorRefusal: String? = nil
     /// See `FileRowView.isOnThisMacOnly`. Resolved by the column, like `riskyReason`.
     var isOnThisMacOnly: Bool = false
     /// Forwarded to ``FileRowView/isArmedForCompare``. Defaulted for the same reason its
@@ -1195,7 +1199,8 @@ struct ColumnRowView: View {
         HStack(spacing: 6) {
             FileRowView(node: row.info, isIgnored: isIgnored, diffStatus: diffStatus,
                         containedDiffCount: containedDiffCount, density: density,
-                        fonts: fonts, riskyReason: riskyReason, isOnThisMacOnly: isOnThisMacOnly,
+                        fonts: fonts, riskyReason: riskyReason, editorRefusal: editorRefusal,
+                        isOnThisMacOnly: isOnThisMacOnly,
                         isArmedForCompare: isArmedForCompare,
                         awaitingDownloadID: awaitingDownloadID,
                         searchContext: searchContext, isLeftPane: isLeftPane,

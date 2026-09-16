@@ -35,7 +35,7 @@ struct EditorFileRailView: View {
     /// is the one of the two that holds something the USER TYPED, and it was left behind as
     /// `@State`. Typing a name, switching to Browse and switching back left the row open with the
     /// field silently reset — and `onChange(initial: true)` then saw it empty and overwrote it with
-    /// `Untitled.md`. The comment on ``cancelNaming()`` promises a row keeps its text; that promise
+    /// `Untitled.md`. ``EditorNamingRow`` promises a row keeps its text on Esc alone; that promise
     /// held for a click elsewhere and not for a tab switch.
     @Binding var typedName: String
     /// Where the OPEN document stands, so its row in the list can say so too. `nil` when nothing
@@ -94,7 +94,6 @@ struct EditorFileRailView: View {
     /// The rail's width. See ``EditorLayoutMetrics/railWidth``.
     static var width: CGFloat { EditorLayoutMetrics.railWidth }
 
-    @FocusState private var nameFieldFocused: Bool
     /// The outline's top row, as `.scrollPosition(id:)` reports and accepts it.
     @State private var outlineTopRow: Int?
     /// The outline section's height, as the scroll view reports it — the one input that decides how
@@ -129,22 +128,20 @@ struct EditorFileRailView: View {
         // *then* this view is constructed — already open. Without `initial:` the change never
         // happened as far as this modifier is concerned, and the row appeared with an empty field,
         // no focus, and a "Type a name for the file." hint under it.
+        //
+        // **Only the tab is handled here.** The prefill and the focus travel with the row itself
+        // (``EditorNamingRow``), which is also drawn in the document column when this rail is not
+        // on screen; what stays behind is the one thing that is about the rail rather than the row.
         .onChange(of: isNaming, initial: true) { _, naming in
-            // Prefilled at the moment it opens, not held between openings: the first free
-            // `Untitled` can change while the row is closed, and a stale prefill would land the
-            // user on a name that now collides.
             guard naming else { return }
             // **The tab goes with it.** The naming row is drawn in the files half, and ⌘N is
             // reachable from anywhere — including from this rail with Outline showing, where
             // opening a row nobody can see would take the keystroke and answer with nothing.
             tab = .files
-            if typedName.isEmpty { typedName = prefilledName() }
-            nameFieldFocused = true
         }
         .onChange(of: namingFocus) { _, _ in
             guard isNaming else { return }
             tab = .files
-            nameFieldFocused = true
         }
     }
 
@@ -242,7 +239,11 @@ struct EditorFileRailView: View {
     /// The folder's text files: the naming row, the filter field, and the list itself.
     @ViewBuilder
     private var filesSection: some View {
-        if isNaming { namingRow }
+        if isNaming {
+            EditorNamingRow(isNaming: $isNaming, typedName: $typedName, namingFocus: namingFocus,
+                            accent: accent, prefilledName: prefilledName, refusal: refusal,
+                            onCreate: onCreate)
+        }
         if filterIsExpanded {
             ExpandingSearchField(text: $filter, isExpanded: $filterIsExpanded,
                                  placeholder: "Filter by name")
@@ -262,62 +263,6 @@ struct EditorFileRailView: View {
                 .padding(.bottom, 8)
             }
         }
-    }
-
-    /// The inline naming row — the same bargain New Folder strikes: the field opens, and nothing
-    /// exists on disk until Return.
-    private var namingRow: some View {
-        let hint = refusal(typedName)
-        return VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Image(systemName: "doc.text")
-                    .scaledFont(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                TextField("Name", text: $typedName)
-                    .textFieldStyle(.plain)
-                    .scaledFont(.system(size: 12))
-                    .focused($nameFieldFocused)
-                    .onSubmit {
-                        // **`refusal(typedName)` again, not the captured `hint`.** That value was
-                        // computed when this body was built; the field has been typed into since,
-                        // and a Return that validates one string while creating another is how a
-                        // name gets past a check that was looking at the previous keystroke.
-                        guard refusal(typedName) == nil else { return }
-                        // **The row closes only once the file exists.** It used to close first and
-                        // create second, so a prompt raised in between — "save your changes to the
-                        // document you are leaving?" — could be cancelled, and the effect of
-                        // answering Cancel to a question about one file was that the name typed for
-                        // another was gone, with nothing on screen to say so.
-                        if onCreate(typedName) {
-                            typedName = ""
-                            isNaming = false
-                        }
-                    }
-                    .onExitCommand { cancelNaming() }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: Radius.control)
-                .fill(accent.opacity(0.12)))
-            .overlay(RoundedRectangle(cornerRadius: Radius.control)
-                .stroke(accent.opacity(0.5), lineWidth: 1))
-            if let hint {
-                Text(hint)
-                    .scaledFont(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-            }
-        }
-        .padding(.horizontal, 6)
-        .padding(.bottom, 6)
-    }
-
-    /// Shuts the naming row and forgets what was typed. Esc, and nothing else — a row abandoned by
-    /// clicking elsewhere keeps its text, because the next ⌘N is more likely to be a return to it
-    /// than a fresh start.
-    private func cancelNaming() {
-        typedName = ""
-        isNaming = false
     }
 
     /// The open document's headings.

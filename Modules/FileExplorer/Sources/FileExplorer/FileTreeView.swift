@@ -1129,6 +1129,10 @@ public struct FileTreeView: View, Equatable {
             // and the reason `RiskyNameBadgeCache` exists. Reads `row.info`, never `row.node`, so
             // a folder's subtree stays out of reach of a per-row call.
             riskyReason: delegate.riskyNameReason(forName: row.info.name, isDirectory: row.info.isDirectory),
+            // The third: what Edit would refuse. Pure path math and a size the row already holds,
+            // so it needs no memo. Also `row.info`, never `row.node`.
+            editorRefusal: delegate.editorRefusal(forPath: row.info.id, isDirectory: row.info.isDirectory,
+                                                  size: row.info.fileSize ?? 0),
             // The second eagerly-rendered delegate answer, resolved the same way and memoized
             // by `HomeOnlyBadgeCache`. Also `row.info`, never `row.node`.
             isOnThisMacOnly: delegate.isOnThisMacOnly(forPath: row.info.id),
@@ -1719,6 +1723,15 @@ struct FileRowView: View {
     /// `RiskyNameBadgeCache`. Defaulted so every caller that has no provider context, and every
     /// test double, renders exactly the row it rendered before the badge existed.
     var riskyReason: String? = nil
+    /// Why the Editor workspace would refuse this row, or nil when it would open it — and nil in
+    /// every workspace but Edit, where the question is not asked. Resolved by the pane from the
+    /// delegate (`FileActionDelegate.editorRefusal`), eagerly per visible row like `riskyReason`,
+    /// and for the same reason it is a path and a size rather than a node. A refused row recedes
+    /// at the search-dim opacity and carries the reason as its tooltip; a folder never has one, so
+    /// the row that leads out of the listing stays bright. Defaulted so every caller with no
+    /// delegate, and every test double, renders exactly the row it rendered before Edit's pane
+    /// existed.
+    var editorRefusal: String? = nil
     /// Whether this row's file sits inside no cloud provider's folder — the `⌂ on this Mac only`
     /// badge. Resolved by the pane from the delegate and memoized by path (see
     /// `HomeOnlyBadgeCache`), exactly like `riskyReason`, and for the same reason: it is answered
@@ -1952,8 +1965,13 @@ struct FileRowView: View {
         .padding(.vertical, densityMetrics.flatRowVerticalPadding)
         // A find, not a filter: a row off every path to an answer recedes and stays readable, so
         // the tree's shape — which is the answer to “where is this?” — never changes under the
-        // question being asked.
-        .opacity(searchContext.isDimmed ? PaneSearchDim.opacity : 1)
+        // question being asked. A row Edit cannot open recedes the same way, for the same reason:
+        // it is still where it is, it is just not an answer here.
+        .opacity(searchContext.isDimmed || editorRefusal != nil ? PaneSearchDim.opacity : 1)
+        // `?? ""` rather than a branch: an empty tooltip attaches nothing, and an `if let` around a
+        // modifier would give the row two structural identities and drop `isCloudOnly` every time
+        // the refusal flipped.
+        .help(editorRefusal ?? "")
         .contentShape(Rectangle())
         // ONE keyed task for the badge, and it consults the memo first — so the syscall happens
         // once per path per republish rather than once per realization. `List` realizes and

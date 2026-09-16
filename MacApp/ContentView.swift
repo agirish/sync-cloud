@@ -603,6 +603,13 @@ struct ContentView: View {
     /// deliberately showing or hiding the panes on a workspace sticks across launches.
     @AppStorage(TopPaneVisibility.overridesKey) private var topPaneOverridesRaw: String = ""
 
+    /// "Just the text" — the editor's file rail withheld. Read only while the editor's source pane
+    /// is collapsed: `TopPaneVisibility.editorRailIsDrawn` is the rule, and it never clears this
+    /// bit, so the choice survives a trip into the pane and back. Persisted, like the pane
+    /// override above it, for the same reason.
+    @AppStorage(TopPaneVisibility.editorRailHiddenKey) var editorRailHidden: Bool = false
+
+
     /// Whether the Compare Info inspector is shown. It replaces the old Details tab: a toggleable
     /// right-side panel that shows metadata (and both-sides status) for the current selection.
     /// Persisted so it stays open/closed across launches. Internal, not private: its toggle sits in
@@ -1257,6 +1264,12 @@ struct ContentView: View {
         // An open panel follows the pane selection, Finder-style, and closes when it is cleared.
         // The rule is `CurrentSelection.previewFollow`; this only supplies the trigger.
         .onChange(of: paneQuickLookTarget) { _, _ in followPaneSelectionWithQuickLook() }
+        // In Edit with the source pane open, the pane is the file list, so a single selected text
+        // file opens. The rule and its guards are `paneSelectionOpens`; this only supplies the
+        // trigger.
+        .onChange(of: syncManager.selectedLeftPaths) { _, paths in
+            openSelectedPaneFileInEditor(paths)
+        }
         // Dismissing the panel by hand nils the binding without going through `toggleQuickLook`,
         // so the origin flag has to be cleared here or the NEXT preview — opened from a Differences
         // row — would inherit "follows the panes" from this one and be yanked by a pane click.
@@ -4343,6 +4356,7 @@ struct ContentView: View {
             isSingleSource: layoutMode == .singleSource,
             // Not `layoutMode == .singleSource`: Browse and Storage answer that too.
             ownsOrganizeScope: selectedWorkspace == .filing,
+            servesEditor: selectedWorkspace == .editor,
             forceRefreshAction: forceRefreshAction,
             onGetInfo: { showInfo(for: $0) },
             onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) },

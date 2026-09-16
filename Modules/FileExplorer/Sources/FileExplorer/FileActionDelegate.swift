@@ -92,6 +92,18 @@ public protocol FileActionDelegate: Sendable {
     /// would also put a folder's whole subtree back within reach of a per-row call.
     func riskyNameReason(forName name: String, isDirectory: Bool) -> String?
 
+    /// Why the Editor workspace would refuse this row, in the words the row's tooltip shows, or
+    /// `nil` when it would open it — or when this delegate does not serve the Editor at all,
+    /// which is every workspace but one. Eager and per-row like `riskyNameReason`, so it is a
+    /// path and two facts the row already holds, never a `FileNode`.
+    ///
+    /// **Only the two cheap refusals**: the kind, which is path math, and the size, which the row
+    /// already carries. Cloud-only is deliberately not among them — the row learns that by its own
+    /// lazy `lstat`, and the editor answers a click on one with the same "Not downloaded" caption
+    /// one step later.
+    func editorRefusal(forPath path: String, isDirectory: Bool, size: Int) -> String?
+
+
     /// Whether the user has said they meant this name.
     ///
     /// Separate from `riskyNameReason` returning nil, which conflates "fine" with "kept". The row
@@ -268,6 +280,7 @@ extension FileActionDelegate {
     public func riskyName(for node: FileNode) -> RiskyName? { nil }
     public func handleFixName(_ node: FileNode) {}
     public func riskyNameReason(forName name: String, isDirectory: Bool) -> String? { nil }
+    public func editorRefusal(forPath path: String, isDirectory: Bool, size: Int) -> String? { nil }
     public func isKeptName(_ name: String) -> Bool { false }
     public func handleKeepName(_ node: FileNode) {}
     public func handleStopKeepingName(_ node: FileNode) {}

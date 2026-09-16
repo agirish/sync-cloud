@@ -5314,3 +5314,50 @@ list. With focus, a bare ⌫ on a selection reaches `handleDelete`, which confir
 logged with the pane's table as first responder, the confirmation shown, cancelled, nothing deleted. That is the pane's written intent, not new
 behaviour — but on `v3.x`, which has none of the `DeleteOutcome` family, it is a keystroke that can
 reach a removal the line cannot tell apart from a permanent one.
+
+---
+
+## Edit with fewer columns: the rail yields to the pane, "Just the text", and one click opens (TE36 + TE40 + TE41)
+
+**Everything here hangs off the Editor workspace, and no maintenance line has one.** `Workspace.editor`
+is absent on `v4.x` (and so on the older two), so the rail there is nothing to withhold, the pane has
+no editor to dim rows for, and a spine rung that says "Show the text files" has no text files to
+show. One check answers for the whole batch:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s editorWorkspace=%s workspaceEditor=%s paneSearchDim=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/Workspace.swift 2>/dev/null | grep -c 'case editor')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PaneSearchRow.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-09-16, before this landed:
+# main   editorWorkspace=1 workspaceEditor=1 paneSearchDim=1
+# v4.x   editorWorkspace=0 workspaceEditor=0 paneSearchDim=1
+# v3.x   editorWorkspace=0 workspaceEditor=0 paneSearchDim=1
+# v2.x   editorWorkspace=0 workspaceEditor=0 paneSearchDim=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **The shim**, in all four helpers | Applies: same four helpers, same 1.19.4 pin, no shim — so on macOS 27 any snapshot suite with a non-byte-identical image aborts its package. **Inferred from the files, not run** | Same | RECORDED — not owed (test-only; CI skips these suites on every line) |
+| **`SnapshotPerceptualCompareTests`** | Would apply with the shim, and only with it: without, it aborts the package it is added to | Same | RECORDED — not owed |
+| **The eight EmptyState references** | Same pre-27 blobs as `main` had, and `EmptyStateView.swift` is the same blob as `main`'s, so they are stale on 27 in the same way. **Inferred, not run** | Same references; `EmptyStateView.swift` differs from `main`'s, so a pick would need re-recording on that line, not copying `main`'s PNGs | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** Nothing in the app changes: every file touched is
+under `Tests/` or `docs/`. No defaults key, no stored format, no product code path.
+| **`TopPaneVisibility.editorRailIsDrawn(paneHidden:railHidden:)`** and the `editorRailHidden` defaults key; `EditorWorkspaceView.showsRail` / `railIsHidden` / `onToggleJustTheText` (all required, no defaults); `EditorLayoutMetrics.minDocumentOnlyWidth` for the expanded arm's clamp; the naming row extracted to `EditorNamingRow` with a second home atop the document column | Not owed — no editor workspace, no rail, no naming row | Same | RECORDED — not owed |
+| **The header's "Just the text" glyph** and the spine's second rung (`ContentView.spineRungs`, gated on `.editor` AND the bit) | Not owed. The spine (`railSpine`) IS on `v4.x`, but the rung is gated on a workspace that line does not have, so the pick would be dead code | Same | RECORDED — not owed |
+| **`FileActionDelegate.editorRefusal(forPath:isDirectory:size:)`** (protocol body, default `nil`), `PaneActionDelegate.servesEditor` joining `isEquivalent`, `FileRowView.editorRefusal` dimming at `PaneSearchDim.opacity` with the reason as tooltip, in both row presentations | Not owed. `riskyNameReason`'s pattern is there to ride, and `PaneSearchDim` is there, but every answer would be `nil`: `servesEditor` can never be true on a line with no `.editor` | Same; `v2.x` has no `PaneSearchDim` either | RECORDED — not owed |
+| **One click opens** — `.onChange(of: syncManager.selectedLeftPaths)` → `openSelectedPaneFileInEditor` → `paneSelectionOpens` (pure rule) → `openInEditor` | Not owed — nothing to open into | Same | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** No defect fix rides along. The one change touching a
+shared surface is `railSpine` growing a conditional second rung, and its container keeps the 34pt
+strip and the one card, so the spine the other workspaces draw is unchanged — and on a line without
+`.editor` the condition is unreachable.
+
+**Boundaries a future audit should not re-derive:** cloud-only rows are deliberately NOT dimmed by
+the delegate (the row's own lazy `lstat` knows; a click is refused by the editor with the same
+"Not downloaded" caption one step later). Decision I (the bit persists, `@AppStorage`) and J (arrow
+keys open, since they move the same selection) were taken as the plan's defaults. The one-click
+suite, the spine suite and the refusal-delegate suite are app-target and run locally only.

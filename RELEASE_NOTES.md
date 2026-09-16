@@ -38,6 +38,21 @@ User-facing changes, newest first. For the full commit history see the
   "Cop…" — and adding a fourth would have left two with no letters at all. Each one now keeps its
   whole name, taking a second line where it needs one.
 
+### Edit with fewer columns
+
+- **Edit shows one list of files, never two.** Open the source pane beside the document and the
+  Text Files list steps aside: the pane is the list. Files Edit cannot open — a PDF, an image, a
+  text file over its size limit — are dimmed there, with the reason as their tooltip, and **a
+  single click on a text file opens it**, as does moving the selection to one with the arrow keys.
+  Collapse the pane and the list comes back.
+- **Just the text.** A button beside Find, above the document, hides the Text Files list and folds
+  the source pane if it was open, leaving the document alone in the window. It stays hidden until
+  you ask for it back — the same button, or the new rung on the strip at the left edge — and the
+  choice is remembered across launches.
+- **⌘N follows the list.** With no list on screen, the new file's name is typed at the top of the
+  document instead, with the folder it will be created in named beside the field. Return creates and
+  opens it; Escape puts it away.
+
 ### Folders merge, and Cancel stops the copy it is in
 
 - **A folder that already exists at the destination can be merged, and Merge is the default.** When

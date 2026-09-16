@@ -44,11 +44,19 @@ public struct EditorRailEntry: Identifiable, Equatable, Sendable {
     /// same file is opened anyway — two surfaces saying the same thing about one file.
     public var dimmedReason: String? {
         if isCloudOnly { return "Not downloaded — there is nothing here to read yet." }
-        if isTooLarge {
-            return "Too large to open (\(FileSyncManager.formatBytes(size)); the limit is "
-                + "\(FileSyncManager.formatBytes(BoundedTextRead.maxBytes)))."
-        }
-        return nil
+        return Self.tooLargeReason(size: size)
+    }
+
+    /// The too-large sentence, or `nil` when `size` is within what the editor will read.
+    ///
+    /// **One static, because two surfaces say it.** The rail's row says it here, and the source
+    /// pane's row says it through `FileActionDelegate.editorRefusal` — from the app target, which
+    /// cannot see `BoundedTextRead.maxBytes`. Two copies of the sentence would drift; one function
+    /// cannot.
+    public static func tooLargeReason(size: Int) -> String? {
+        guard size > BoundedTextRead.maxBytes else { return nil }
+        return "Too large to open (\(FileSyncManager.formatBytes(size)); the limit is "
+            + "\(FileSyncManager.formatBytes(BoundedTextRead.maxBytes)))."
     }
 }
 

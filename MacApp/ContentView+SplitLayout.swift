@@ -438,30 +438,78 @@ extension ContentView {
     var railSpine: some View {
         let provider = settings.availableProviders.first(where: { $0.id == leftProviderId })
         let name = provider?.displayName ?? "Source"
-        Button {
-            withAnimation(.easeInOut(duration: 0.2)) { togglePanesForCurrentTab() }
-        } label: {
-            VStack(spacing: 10) {
-                Image(systemName: "chevron.right")
-                    .scaledFont(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.secondary)
-                Image(systemName: "cloud")
-                    .scaledFont(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(glassHue.accentColor)
+        let rungs = Self.spineRungs(workspace: selectedWorkspace, railHidden: editorRailHidden)
+        let showsTextFilesRung = rungs.contains(.textFiles)
+        // One card, one 34pt strip, for every workspace that draws a spine — the second rung is
+        // only ever added INSIDE it, so the card's geometry does not move for the others.
+        VStack(spacing: 10) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { togglePanesForCurrentTab() }
+            } label: {
+                VStack(spacing: 10) {
+                    Image(systemName: "chevron.right")
+                        .scaledFont(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "cloud")
+                        .scaledFont(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(glassHue.accentColor)
+                    // The spacer is what makes the strip this button's target; with a second
+                    // rung below it stays out, or it pushes that rung to the strip's foot
+                    // (measured 2026-09-16: the rung drew at the bottom edge).
+                    if !showsTextFilesRung { Spacer(minLength: 0) }
+                }
+                .padding(.top, 12)
+                .frame(width: 34)
+                // The whole strip is this button's target, as it always was — except while a
+                // second rung shares the strip, when it takes its glyphs' height and no more.
+                .frame(maxHeight: showsTextFilesRung ? nil : .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor, shape: .roundedRect(8)))
+            .help("Show the \(name) pane to browse or re-scope")
+            .accessibilityLabel("Show the \(name) source pane")
+            // **The way back from "Just the text."** The header glyph that set the bit is still on
+            // screen, so this is a second door to the same act, put where the rail was: the strip
+            // is what is left of the columns, and it is where a reader looks for them. Gated on
+            // the workspace and not only on the bit — the bit is editor-only, but this spine is
+            // drawn by every workspace with a collapsible pane, and a stray rung in Organize would
+            // be the first thing anyone clicked.
+            if showsTextFilesRung {
+                Button { editorRailHidden = false } label: {
+                    Image(systemName: "doc.text")
+                        .scaledFont(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(glassHue.accentColor)
+                        .frame(width: 34, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor, shape: .roundedRect(8)))
+                .help("Show the text files")
+                .accessibilityLabel("Show the text files")
                 Spacer(minLength: 0)
             }
-            .padding(.top, 12)
-            .frame(width: 34)
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor, shape: .roundedRect(8)))
+        .frame(width: 34)
+        .frame(maxHeight: .infinity)
         // A slim card, not a docked `.bar` strip: the bar fill stayed opaque at Clear and sat
         // flush against the root padding while every neighbor floated — the spine joins the gap
         // model instead (5pt to the window edge and to the workspace card beside it).
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
-        .help("Show the \(name) pane to browse or re-scope")
-        .accessibilityLabel("Show the \(name) source pane")
+    }
+
+    /// What the collapsed pane's spine offers, as a rule a test can hold.
+    enum SpineRung: Equatable {
+        /// The chevron-and-cloud button that re-expands the source pane. Every spine has it.
+        case sourcePane
+        /// The editor's "Show the text files" door, present only in Edit while "Just the text" is
+        /// on — see `TopPaneVisibility.editorRailIsDrawn`.
+        case textFiles
+    }
+
+    /// The spine's rungs, top to bottom. Pure, so `EditorRailSpineTests` can pin that the second
+    /// rung is gated on BOTH the workspace and the bit: the bit is editor-only, but the spine is
+    /// drawn by every workspace with a collapsible pane.
+    static func spineRungs(workspace: Workspace, railHidden: Bool) -> [SpineRung] {
+        workspace == .editor && railHidden ? [.sourcePane, .textFiles] : [.sourcePane]
     }
 
     /// Invisible drag handle on the rail/workspace boundary — mirrors `paneResizeHandle` but writes

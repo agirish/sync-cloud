@@ -76,6 +76,24 @@ enum TopPaneVisibility {
         override ?? defaultPanesHidden(for: workspace)
     }
 
+    // MARK: - The editor's file rail
+
+    /// Whether the editor's file rail is drawn, from the two bits that decide it.
+    ///
+    /// `paneHidden` is the workspace's existing override (``panesHidden(for:override:)``);
+    /// `railHidden` is the editor-only bit "Just the text" sets. The rail exists to be the ONE file
+    /// list on screen: while the source pane is open it lists the pane's folder a second time, so
+    /// the pane wins. While the pane is collapsed the rail bit decides. The bit is READ only in
+    /// that state and never cleared by the pane opening, so "just the text" survives a trip into
+    /// the pane and back.
+    static func editorRailIsDrawn(paneHidden: Bool, railHidden: Bool) -> Bool {
+        paneHidden && !railHidden
+    }
+
+    /// The defaults key for the rail bit. Persisted like ``overridesKey``, for the same reason: a
+    /// layout someone quit in is the layout they relaunch into.
+    static let editorRailHiddenKey = "editorRailHidden"
+
     // MARK: - Per-tab override persistence
 
     /// Decodes the persisted override map (workspace raw value → hidden). Malformed or empty input

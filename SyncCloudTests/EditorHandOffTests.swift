@@ -120,7 +120,7 @@ import FileExplorer
             PaneActionDelegate(
                 handler: nil, syncManager: FileSyncManager(), settings: SettingsManager(),
                 isLeft: isLeft, leftProviderId: "left", rightProviderId: "right",
-                isSingleSource: false, ownsOrganizeScope: false,
+                isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
                 forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
                 onOpenInEditor: { box.paths.append($0) },
                 ignoreStateToken: [], keptNamesToken: [],

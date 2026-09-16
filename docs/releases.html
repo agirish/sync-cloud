@@ -138,7 +138,7 @@
   <!-- v5.4 — DRAFT, not released. Keep the Latest badge on v5.3 until v5.4 is cut. -->
   <article class="rel draft">
     <div class="rel-head"><span class="v">v5.4</span><span class="tag draft">In development</span></div>
-    <p class="lede"><b>Not released yet</b> &#8212; this is what is on <code>main</code> since v5.3, and it may still change before v5.4 is cut. So far: <b>four ways to open a file in Edit</b>, including <code>&#8984;O</code> from any pane; <b>a folder that already exists at the destination can be merged</b> rather than replaced; and <b>Cancel stops the copy it is in</b>, however large.</p>
+    <p class="lede"><b>Not released yet</b> &#8212; this is what is on <code>main</code> since v5.3, and it may still change before v5.4 is cut. So far: <b>four ways to open a file in Edit</b>, including <code>&#8984;O</code> from any pane; <b>Edit shows one list of files, never two</b>; <b>a folder that already exists at the destination can be merged</b> rather than replaced; and <b>Cancel stops the copy it is in</b>, however large.</p>
     <div class="grp">
       <h3>The keyboard reaches the file panes</h3>
       <ul class="flist">
@@ -152,6 +152,14 @@
         <li><span class="ic">&#10003;</span><span><b>Each one is offered for a text file and never for a folder</b> &#8212; all four ask the question the right-click menu always asked, so they agree about what a text file is. The preview is the one that holds back further: for a file whose content is still in the cloud it goes on offering Download, because previewing that file is exactly what would start the download.</span></li>
         <li><span class="ic">&#8984;</span><span><b><code>&#8984;O</code> was free, and it is the key most people try first.</b> It is the only one of File&#8217;s row verbs with a key, and the <code>&#8984;/</code> shortcuts list shows it beside <code>&#8984;N</code>.</span></li>
         <li><span class="ic">&#8505;</span><span><b>The Info inspector&#8217;s row of actions now wraps instead of squeezing.</b> At the inspector&#8217;s usual width those buttons had been shrinking until their labels were a letter and an ellipsis &#8212; &#8220;Reve&#8230;&#8221;, &#8220;Cop&#8230;&#8221; &#8212; and adding a fourth would have left two with no letters at all. Each one now keeps its whole name, taking a second line where it needs one.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Edit with fewer columns</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9636;</span><span><b>Edit shows one list of files, never two.</b> Open the source pane beside the document and the Text Files list steps aside: the pane is the list. Files Edit cannot open &#8212; a PDF, an image, a text file over its size limit &#8212; are dimmed there, with the reason as their tooltip, and <b>a single click on a text file opens it</b>, as does moving the selection to one with the arrow keys. Collapse the pane and the list comes back.</span></li>
+        <li><span class="ic">&#9776;</span><span><b>Just the text.</b> A button beside Find, above the document, hides the Text Files list and folds the source pane if it was open, leaving the document alone in the window. It stays hidden until you ask for it back &#8212; the same button, or the new rung on the strip at the left edge &#8212; and the choice is remembered across launches.</span></li>
+        <li><span class="ic">&#8984;</span><span><b><code>&#8984;N</code> follows the list.</b> With no list on screen, the new file&#8217;s name is typed at the top of the document instead, with the folder it will be created in named beside the field. Return creates and opens it; Escape puts it away.</span></li>
       </ul>
     </div>
     <div class="grp">

@@ -27,6 +27,14 @@ public enum EditorLayoutMetrics {
         railWidth + minDocumentWidth + 2 * LiquidGlass.cardGutter
     }
 
+    /// What the editor half needs when the rail is not drawn: the document and its one card.
+    ///
+    /// One card is one gutter — half at each outer edge — by the arithmetic the doc comment above
+    /// spells out for two. The host clamps the source pane's drag range against this in its
+    /// expanded arm, where the rail has stepped aside for the pane; clamping against
+    /// ``minWorkspaceWidth`` there reserved 232pt for a column that was not on screen.
+    public static var minDocumentOnlyWidth: CGFloat { minDocumentWidth + LiquidGlass.cardGutter }
+
     /// The narrowest either half of a `.split` may become.
     ///
     /// **Deliberately not ``minDocumentWidth``, which is a different question.** That one is what a
@@ -77,6 +85,21 @@ public struct EditorWorkspaceView: View {
     /// The folder the sidebar has selected. Empty when there is none.
     let folder: String
     let entries: [EditorRailEntry]
+    /// Whether the file rail is drawn beside the document at all.
+    ///
+    /// **Decided by the host, not here** — `TopPaneVisibility.editorRailIsDrawn` is the rule, and
+    /// it reads two bits this view never sees: whether the source pane is open (the pane is then
+    /// the file list, and the rail would list the same folder a second time) and whether "Just the
+    /// text" is on. Without the rail the document takes the whole width, and the naming row ⌘N
+    /// opens is drawn at the top of the document column instead — see ``EditorNamingRow``.
+    let showsRail: Bool
+    /// Whether "Just the text" is on — the header glyph's lit state, and which of its two
+    /// tooltips it shows. Distinct from `!showsRail`: the rail is also absent while the source
+    /// pane is open, and the glyph is not lit then, because pressing it would hide a rail that is
+    /// already not there.
+    let railIsHidden: Bool
+    /// The header glyph's act. The host owns the bit and what else moves with it.
+    let onToggleJustTheText: () -> Void
     /// Passed straight through to the rail's empty caption — see
     /// ``EditorFileRailView/otherFileCount``. Defaulted for the same reason it is defaulted there.
     var otherFileCount: Int?
@@ -187,6 +210,8 @@ public struct EditorWorkspaceView: View {
                 folder: String,
                 entries: [EditorRailEntry],
                 otherFileCount: Int? = nil,
+                showsRail: Bool,
+                railIsHidden: Bool,
                 accent: Color,
                 onAccent: Color,
                 mode: Binding<EditorMode>,
@@ -206,6 +231,8 @@ public struct EditorWorkspaceView: View {
                 onOpen: @escaping (EditorRailEntry) -> Void,
                 onCreate: @escaping (String) -> Bool,
                 onRevealInBrowse: @escaping (String) -> Void,
+                // No default, so every construction site is read: the two in tests pass `{}`.
+                onToggleJustTheText: @escaping () -> Void,
                 onAutosaveResumed: @escaping () -> Void = {}) {
         self._railFilter = railFilter
         self._railFilterIsExpanded = railFilterIsExpanded
@@ -220,6 +247,9 @@ public struct EditorWorkspaceView: View {
         self.folder = folder
         self.entries = entries
         self.otherFileCount = otherFileCount
+        self.showsRail = showsRail
+        self.railIsHidden = railIsHidden
+        self.onToggleJustTheText = onToggleJustTheText
         self.accent = accent
         self.onAccent = onAccent
         self._mode = mode
@@ -236,6 +266,15 @@ public struct EditorWorkspaceView: View {
         self.onCreate = onCreate
         self.onRevealInBrowse = onRevealInBrowse
         self.onAutosaveResumed = onAutosaveResumed
+    }
+
+    /// What the "Just the text" glyph says — its label and its tooltip, one string. Names the
+    /// glyph's NEXT act rather than its state, the way the spine's chevron does: pressing it while
+    /// the rail is there hides the rail, and pressing it while the rail is hidden brings it back.
+    /// A static so the test can pin the two strings without a hosted accessibility tree, which
+    /// `swift test` does not build.
+    static func justTheTextTitle(railIsHidden: Bool) -> String {
+        railIsHidden ? "Show the text files" : "Just the text"
     }
 
     /// The mode actually being drawn — `.edit` on a file with nothing to preview, whatever the
@@ -264,6 +303,9 @@ public struct EditorWorkspaceView: View {
     /// sidebar's seam is a clear strip rather than a `Divider`.
     public var body: some View {
         HStack(spacing: 0) {
+            // Conditional on `showsRail` rather than hidden by opacity or width: an absent rail
+            // costs the layout nothing, which is what lets the document take the whole row.
+            if showsRail {
             EditorFileRailView(folderName: folderName,
                                entries: entries,
                                otherFileCount: otherFileCount,
@@ -288,6 +330,7 @@ public struct EditorWorkspaceView: View {
                                onCreate: onCreate)
                 .frame(maxHeight: .infinity)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+            }
             documentColumn
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
@@ -299,6 +342,15 @@ public struct EditorWorkspaceView: View {
     @ViewBuilder
     private var documentColumn: some View {
         VStack(spacing: 0) {
+            // ⌘N's row, when there is no rail to draw it in. The rail draws it otherwise, and the
+            // two conditions are exclusive — see ``EditorNamingRow``. The folder is named here
+            // because nothing else in this column says where the file is about to be created.
+            if !showsRail && isNaming {
+                EditorNamingRow(isNaming: $isNaming, typedName: $typedName, namingFocus: namingFocus,
+                                accent: accent, prefilledName: prefilledName, refusal: refusal,
+                                onCreate: onCreate, folderName: folderName)
+                    .padding(.top, 6)
+            }
             if document.path != nil {
                 header
                 Divider()
@@ -385,6 +437,25 @@ public struct EditorWorkspaceView: View {
                     .accessibilityLabel("Find in this document")
                     .help("Find and replace in this document")
                 }
+                // **"Just the text."** Hides the file rail — and, through the host, collapses the
+                // source pane if it was open — leaving the document alone in the row. Lit while the
+                // rail bit is set, and its label names its NEXT act rather than its state, the way
+                // the spine's chevron does. **Not withheld in Preview**, unlike Find: it is about
+                // the columns, not the text view. No chord — the menu bar is held, and ⌥ is not
+                // this app's to register.
+                Button(action: onToggleJustTheText) {
+                    Image(systemName: "text.justify.left")
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(railIsHidden ? accent : .primary)
+                        .frame(width: 18, height: 18)
+                        // The soft accent wash is the lit state; the hover style paints its own
+                        // wash over it, which reads as the pressed preview it is.
+                        .background(RoundedRectangle(cornerRadius: Radius.chip)
+                            .fill(railIsHidden ? accent.opacity(0.18) : .clear))
+                }
+                .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+                .accessibilityLabel(Self.justTheTextTitle(railIsHidden: railIsHidden))
+                .help(Self.justTheTextTitle(railIsHidden: railIsHidden))
                 // **Only for files that have something to preview.** `PairContentKind` already
                 // owns which extensions are Markdown; a capsule on a `.txt` would offer two modes
                 // that render the same thing.
@@ -704,9 +775,14 @@ public struct EditorWorkspaceView: View {
             // already written for a reader.
             caption(refused)
         } else if document.path == nil {
+            // "From the rail" only while there is one. Without it the list is the source pane, or
+            // — under "Just the text" — nothing at all until the spine's rung brings it back, and
+            // this view cannot tell those two apart; a sentence that names neither is right in both.
             caption(folder.isEmpty
                     ? "Pick a folder in the sidebar, then choose a file to edit."
-                    : "Choose a file from the rail, or press \(AppChord.newTextFile.display) to make one.")
+                    : showsRail
+                        ? "Choose a file from the rail, or press \(AppChord.newTextFile.display) to make one."
+                        : "Choose a file to edit, or press \(AppChord.newTextFile.display) to make one.")
         } else {
             VStack(spacing: 0) {
                 if let reason = document.readOnlyReason {

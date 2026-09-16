@@ -65,6 +65,33 @@ import AppKit
         #expect(!startCollapsed.isEmpty && startCollapsed.count < Workspace.allCases.count)
     }
 
+    // MARK: The editor's file rail
+
+    /// The quiet state: pane collapsed, nothing asked of the rail — it is the file list.
+    @Test func theRailIsDrawnInTheQuietState() {
+        #expect(TopPaneVisibility.editorRailIsDrawn(paneHidden: true, railHidden: false))
+    }
+
+    /// An open pane IS the file list, so the rail steps aside rather than listing the folder twice.
+    @Test func theRailYieldsToAnOpenPane() {
+        #expect(!TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: false))
+    }
+
+    /// "Just the text": the pane is collapsed and the rail bit is set, so neither list is drawn.
+    @Test func justTheTextHidesTheRail() {
+        #expect(!TopPaneVisibility.editorRailIsDrawn(paneHidden: true, railHidden: true))
+    }
+
+    /// With the pane open the bit is not consulted at all — both values of it answer the same —
+    /// which is what lets the bit survive a trip into the pane and back without being cleared.
+    /// The rule takes the bit by value and has nowhere to write, so "ignored" is the whole claim.
+    @Test func anOpenPaneIgnoresTheRailBitRatherThanClearingIt() {
+        let withBitClear = TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: false)
+        let withBitSet = TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: true)
+        #expect(withBitClear == withBitSet, "an open pane answers differently depending on the rail bit")
+        #expect(!withBitSet)
+    }
+
     @Test func testOverrideWinsOnEveryWorkspace() {
         for workspace in Workspace.allCases {
             #expect(TopPaneVisibility.panesHidden(for: workspace, override: true))

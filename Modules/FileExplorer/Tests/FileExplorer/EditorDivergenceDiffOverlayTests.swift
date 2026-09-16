@@ -249,6 +249,8 @@ import Testing
             autosavePolicy: EditorAutosavePolicy(),
             folder: "/n",
             entries: [],
+            showsRail: true,
+            railIsHidden: false,
             accent: .blue,
             onAccent: .white,
             mode: .constant(.edit),
@@ -266,7 +268,8 @@ import Testing
             refusal: { _ in nil },
             onOpen: { _ in },
             onCreate: { _ in true },
-            onRevealInBrowse: { _ in })
+            onRevealInBrowse: { _ in },
+            onToggleJustTheText: {})
     }
 
     /// **The header really branches on the door, at render time.**
@@ -278,7 +281,11 @@ import Testing
     /// about what the view does with it.
     @Test func thePillIsDrawnAsAControlOnlyWhenItIsOne() throws {
         let document = try document()
-        let words = "not saving — changed on disk"
+        // Long enough that the META row is the header's wider row. The header's fitting width is
+        // the wider of its two rows, and the door's padding is on the second; with short words the
+        // first row — the name, Find, the "Just the text" glyph — is wider, and the door could be
+        // drawn or not without the number below moving.
+        let words = "not saving — the file changed on disk underneath the buffer, and the words are long"
         // No width frame: at a pinned width the row's `Spacer` absorbs the padding and both
         // headers measure exactly the pin, which is a tautology rather than a measurement.
         let plain = size(workspace(document, stopped: words, door: nil).headerContent, width: nil)
