@@ -10,6 +10,12 @@ User-facing changes, newest first. For the full commit history see the
 > What is on `main` since v5.3. It may still change before v5.4 is cut, and nothing here is
 > installable from a release yet.
 
+### Getting a file into Edit
+
+- **Open in Edit is the first thing a file's right-click menu offers**, above Get Info and Reveal in
+  Finder rather than below them. The same menu, and so the same order, in Browse, in both Compare
+  panes, in Organize's list and in Edit's own file list. It is still offered only for a text file.
+
 ### Folders merge, and Cancel stops the copy it is in
 
 - **A folder that already exists at the destination can be merged, and Merge is the default.** When

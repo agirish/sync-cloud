@@ -2,6 +2,29 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
+/// Whether the Edit workspace opens this path.
+///
+/// **A public window onto an internal answer, and the point is that the answer is not re-derived.**
+/// ``PairContentKind`` is internal to this package, so the Info inspector (Dashboard) and the File
+/// menu (MacApp) cannot see it — and each of them needs the very gate the row context menu already
+/// applies in ``SharedFileMenuItems/openInEditor(_:delegate:)``. An extension list re-typed in
+/// either of those modules is a list that drifts, and the cost of drift here is a door that offers
+/// a file the editor then refuses, or withholds one it would have opened. `textExtensions` stays
+/// the single table; this is the only way out of the package.
+///
+/// Pure and I/O-free, exactly like the classification under it: it reads the path's extension and
+/// nothing else, so it is safe inside a `body` or a menu item's `disabled(…)`.
+///
+/// **It cannot tell a folder from a file**, having no disk to ask — a directory named `notes.md`
+/// answers true here. Every caller that can have a directory in hand tests that itself, the way
+/// the row menu's `!singleNode.isDirectory` does.
+public enum EditableText {
+    /// Whether ``EditorRail`` would list this file and the editor would load it.
+    public static func isText(path: String) -> Bool {
+        PairContentKind.classify(path: path) == .text
+    }
+}
+
 /// What kind of viewer a compared pair gets.
 ///
 /// **Not the same question `FileTypeGlyph.classify` answers, and that is why it is a second

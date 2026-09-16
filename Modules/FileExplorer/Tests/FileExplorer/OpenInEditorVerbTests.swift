@@ -49,6 +49,40 @@ import Sync
         }
     }
 
+    /// **The public predicate the doors outside this package ask, over the whole table.**
+    ///
+    /// `EditableText.isText` exists because `PairContentKind` is internal and the Info inspector
+    /// and the File menu are not: each has to gate its own Open in Edit on the same answer this
+    /// menu item does. So the claim worth pinning is agreement — every extension the row menu's
+    /// gate accepts, the predicate accepts, and nothing else does. Looping over `textExtensions`
+    /// rather than a hand-written sample is deliberate here (and is the opposite of
+    /// `theRailListsTheTextFilesAndOnlyThose`'s choice, for the opposite reason): the claim is not
+    /// "these six files are text", it is "there is no entry in the table the predicate misses".
+    @Test func thePublicPredicateAnswersForEveryTextExtensionAndNoOther() {
+        for ext in PairContentKind.textExtensions {
+            #expect(EditableText.isText(path: "/a/notes.\(ext)"),
+                    "the table lists .\(ext) but the predicate refuses it — a door would withhold it")
+        }
+        for name in ["photo.jpg", "report.pdf", "archive.zip", "clip.mov", "Makefile", "/a/Downloads"] {
+            #expect(!EditableText.isText(path: name),
+                    "\(name) reads as text — a door would offer it and the editor would refuse")
+        }
+        // Case, because a door is handed whatever the filesystem spells.
+        #expect(EditableText.isText(path: "/a/READ.MD"), "an upper-cased extension is not matched")
+    }
+
+    /// **The predicate and the menu item's own gate are one answer, not two that agree today.**
+    ///
+    /// The point of the predicate is that the inspector and the File menu cannot drift from this
+    /// menu; a test that checks each side against its own hand-written list would not see them
+    /// drift apart. This asserts them against each other over the same inputs.
+    @Test func thePredicateAgreesWithTheGateTheRowMenuApplies() {
+        for name in ["notes.md", "readme.txt", "Package.swift", "photo.jpg", "report.pdf", "noext"] {
+            #expect(EditableText.isText(path: name) == (PairContentKind.classify(path: name) == .text),
+                    "the predicate and the row menu's gate disagree about \(name)")
+        }
+    }
+
     /// **The rail lists exactly the text files, spelled out rather than re-derived.**
     ///
     /// The expectation used to be `names.filter { PairContentKind.classify(path: $0) == .text }` —
@@ -88,6 +122,81 @@ import Sync
         let image = drawn("/a/photo.jpg")
         #expect(text.height > 0, "no item was built for a text row — the verb is gone")
         #expect(image.height == 0, "an item was built for a JPEG — the text gate is not applied")
+    }
+
+    /// **The menu as it is actually DRAWN, in order — not the source that describes it.**
+    ///
+    /// The order is pinned in the app target too (`PaneTabWiringTests.openInEditLeadsTheRowMenus\
+    /// SingleFileBranch`), but that reads the file as text: it cannot see a `@ViewBuilder` branch
+    /// that never builds, and this repo has shipped a green geometry test sitting over a control
+    /// that was not drawn. Hosting `FileContextMenu` in a `VStack` flattens its `Group` into that
+    /// stack, so each item becomes one focus-ring view at its own y — which is the drawn order.
+    ///
+    /// **Identity by measurement, because the hosted rows carry no readable text.**
+    /// `accessibilityChildren()` on a hosting view returns an empty group here (measured, and
+    /// recorded in `OrganizeRailTests` for the rail), so a row is recognised by its WIDTH, which is
+    /// its label's intrinsic width — each item rendered alone, then matched inside the whole menu.
+    /// Nothing is compared against a hard-coded pixel count, so this is not machine-pinned; it does
+    /// assume the three labels measure differently, and says so out loud if they ever stop.
+    @Test func theDrawnMenuPutsOpenInEditAboveGetInfo() throws {
+        let delegate = Recorder()
+        let editorWidth = Self.soloWidth(SharedFileMenuItems.openInEditor("/a/notes.md", delegate: delegate))
+        let getInfoWidth = Self.soloWidth(SharedFileMenuItems.getInfo(for: "/a/notes.md", delegate: delegate))
+        let refreshWidth = Self.soloWidth(SharedFileMenuItems.refresh(delegate: delegate))
+        #expect(editorWidth > 0 && getInfoWidth > 0 && refreshWidth > 0, "an item drew nothing at all")
+        #expect(Set([editorWidth, getInfoWidth, refreshWidth]).count == 3,
+                "two of these labels now measure the same, so a row cannot be told from its neighbour")
+
+        let drawn = Self.drawnRowWidths(for: "/a/notes.md", delegate: delegate)
+        #expect(drawn.filter { $0 == editorWidth }.count == 1, "Open in Edit is drawn \(drawn.filter { $0 == editorWidth }.count) times")
+        let editor = try #require(drawn.firstIndex(of: editorWidth), "Open in Edit is not drawn at all")
+        let getInfo = try #require(drawn.firstIndex(of: getInfoWidth), "Get Info is not drawn at all")
+        #expect(editor < getInfo, "Open in Edit is drawn below Get Info")
+        // Refresh and its divider are all that precede it: the item leads the single-file branch.
+        #expect(editor == 1, "Open in Edit is the \(editor + 1)th item drawn, not the first after Refresh")
+        #expect(drawn.first == refreshWidth, "Refresh no longer leads the menu")
+
+        // …and the same menu over a PDF draws no editor row at all, which is what makes the index
+        // above a fact about THIS item rather than about whatever sits second.
+        let pdf = Self.drawnRowWidths(for: "/a/report.pdf", delegate: delegate)
+        #expect(!pdf.contains(editorWidth), "a PDF row draws Open in Edit")
+        #expect(pdf.first == refreshWidth && pdf.dropFirst().first == getInfoWidth,
+                "with no editor item, Get Info should lead the single-file branch")
+    }
+
+    /// One item hosted alone, measured at the width the menu gives it.
+    private static func soloWidth<V: View>(_ item: V) -> CGFloat {
+        focusRingFrames(in: AnyView(VStack(alignment: .leading) { item }.frame(width: 260)), height: 80)
+            .first?.width ?? 0
+    }
+
+    /// Every item of the row menu for `path`, in drawn order, as widths.
+    private static func drawnRowWidths(for path: String, delegate: FileActionDelegate) -> [CGFloat] {
+        let node = FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false)
+        let menu = FileContextMenu(row: PaneRow(side: .left, version: 1, node: node, children: nil),
+                                   selection: [],
+                                   tree: PaneTree(side: .left, version: 1, nodes: [node]),
+                                   otherTree: PaneTree(side: .right, version: 1, nodes: []),
+                                   otherSelection: [], isLeft: true, currentPath: "/a",
+                                   delegate: delegate, otherPaneName: "Right", isSingleSource: false,
+                                   onQuickLook: { _ in })
+        return focusRingFrames(in: AnyView(VStack(alignment: .leading, spacing: 0) { menu }.frame(width: 260)),
+                               height: 600).map(\.width)
+    }
+
+    /// The hosted focus-ring view of every `Button`, top to bottom. The one handle AppKit gives on
+    /// a SwiftUI menu item's box: a `Divider` has none, so these are the items and nothing else.
+    private static func focusRingFrames(in view: AnyView, height: CGFloat) -> [CGRect] {
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(x: 0, y: 0, width: 260, height: height)
+        host.layoutSubtreeIfNeeded()
+        var found: [CGRect] = []
+        func walk(_ v: NSView) {
+            if String(describing: type(of: v)).contains("FocusRing") { found.append(v.frame) }
+            v.subviews.forEach(walk)
+        }
+        walk(host)
+        return found.sorted { $0.minY < $1.minY }
     }
 
     /// **The delegate the app really wires, forwarding the path to the closure ContentView hands

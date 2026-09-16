@@ -2350,6 +2350,42 @@ import Sync
                 "the header menu offers Close Tab at one tab, where it would close the window")
     }
 
+    /// **Open in Edit leads the single-file branch**, ahead of Get Info and Reveal in Finder.
+    ///
+    /// Nothing pinned this menu's ORDER before — `openInNewTabSitsAheadOfQuickLook` below pins one
+    /// pair and `OpenInEditorVerbTests` pins the item's existence and its text gate, so the four
+    /// verbs could be shuffled into any arrangement and every suite stayed green. The order is the
+    /// claim here: Edit is a workspace of this app, the two items it passed hand the file to
+    /// something else, and this menu is the one door into Edit that Browse, both Compare panes,
+    /// Organize's rail and Edit's own source pane all share.
+    ///
+    /// Sliced to `FileContextMenu`'s own body first, because `SharedFileMenuItems.openInEditor` is
+    /// DECLARED some sixty lines above the menu that calls it: a whole-file scan would find the
+    /// declaration, which precedes every call site, and report the order correct whatever the menu
+    /// actually does. Comments are stripped for the same reason they are everywhere else in this
+    /// file — the prose above these lines names the items it orders.
+    @Test func openInEditLeadsTheRowMenusSingleFileBranch() throws {
+        let code = try Self.fileExplorer("FileTreeView.swift")
+        let menu = Self.codeOnly(try Self.typeBody("struct FileContextMenu: View {", in: code))
+        // The region really is the menu, and not an empty or wrongly-sliced one.
+        #expect(menu.contains("Label(\"Reveal in Finder\""), "the slice is not FileContextMenu's body")
+        #expect(menu.contains("Label(\"Quick Look\""), "the slice is not FileContextMenu's body")
+
+        let editor = try #require(menu.range(of: "SharedFileMenuItems.openInEditor("),
+                                  "the row menu no longer offers Open in Edit")
+        let getInfo = try #require(menu.range(of: "SharedFileMenuItems.getInfo("),
+                                   "the row menu no longer offers Get Info")
+        let reveal = try #require(menu.range(of: "Label(\"Reveal in Finder\""))
+        #expect(editor.lowerBound < getInfo.lowerBound,
+                "Open in Edit sank below Get Info — it is no longer where the eye lands")
+        #expect(getInfo.lowerBound < reveal.lowerBound, "Get Info and Reveal in Finder swapped")
+
+        // And it is still gated on the row being a file: leading the menu must not mean offering
+        // the editor for a folder, which the verb's own text gate would then silently refuse.
+        let lead = String(menu[..<editor.lowerBound].suffix(200))
+        #expect(lead.contains("!singleNode.isDirectory"), "a FOLDER is offered to the editor")
+    }
+
     /// Discovery beats tidiness: the row menu's tab item sits above Quick Look, not at the bottom
     /// of the folder branch (roadmap Fig. 11).
     @Test func openInNewTabSitsAheadOfQuickLook() throws {

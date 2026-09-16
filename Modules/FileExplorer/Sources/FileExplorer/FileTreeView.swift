@@ -1434,6 +1434,13 @@ struct FileContextMenu: View {
             SharedFileMenuItems.refresh(delegate: delegate)
             Divider()
             if count == 1, let singleNode = selectedNodes.first {
+                // **First after the divider**, ahead of Get Info and Reveal in Finder. Edit is a
+                // workspace of this app and the other two hand the file to something else — and
+                // this is the one door into Edit that every surface with rows already carries, so
+                // it is worth the place the eye lands on rather than fifth.
+                if !singleNode.isDirectory {
+                    SharedFileMenuItems.openInEditor(singleNode.id, delegate: delegate)
+                }
                 SharedFileMenuItems.getInfo(for: singleNode.id, delegate: delegate)
                 // Same direct reveal the Differences row menu and the error alert use;
                 // there is no FileActionHandler reveal to delegate to.
@@ -1443,9 +1450,6 @@ struct FileContextMenu: View {
                 // **Ahead of Quick Look, deliberately** (roadmap Fig. 11). With no ＋ on screen
                 // until a second tab exists, this item is the whole discovery story for tabs — it
                 // earns a place people's eyes actually reach rather than the bottom of the menu.
-                if !singleNode.isDirectory {
-                    SharedFileMenuItems.openInEditor(singleNode.id, delegate: delegate)
-                }
                 if singleNode.isDirectory, delegate.canOpenInNewTab {
                     Button(action: { delegate.handleOpenInNewTab(singleNode) }) {
                         Label("Open in New Tab", systemImage: "plus.rectangle.on.rectangle")

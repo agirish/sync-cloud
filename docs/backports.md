@@ -5029,3 +5029,41 @@ this change and is on every line: `trashItem` on a file deletes the `.DS_Store` 
 leaves, so every Replace — on all four lines — has always dropped the destination folder's Finder
 view settings. Written down because a merge test expecting the destination's `.DS_Store` to survive
 tripped on it, and the next audit should not re-diagnose it as a merge bug.
+
+---
+
+## Open in Edit leads the row menu, and the editor's text gate goes public (TE27)
+
+`main` only, and **not owed anywhere** — not because the change is small, but because the surface it
+edits does not exist on any maintenance line. The Edit workspace, its hand-off, its rail and the
+`PairContentKind` the gate reads all arrived after `v4.6`, so there is no row menu on `v4.x`,
+`v3.x` or `v2.x` with an editor item in it to reorder, and no module outside FileExplorer asking
+what the editor opens:
+
+```sh
+# every count is 0 off main, and main is the positive control.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s openInEditorVerb=%s handOff=%s pairKind=%s editorRail=%s\n' "$l" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift 2>/dev/null | grep -c 'func openInEditor')" \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/ContentView+Editor.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PairContentKind.swift 2>/dev/null | grep -c 'enum PairContentKind')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorRail.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-09-16, before this landed:
+# main   openInEditorVerb=1 handOff=1 pairKind=1 editorRail=1
+# v4.x   openInEditorVerb=0 handOff=0 pairKind=0 editorRail=0
+# v3.x   openInEditorVerb=0 handOff=0 pairKind=0 editorRail=0
+# v2.x   openInEditorVerb=0 handOff=0 pairKind=0 editorRail=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **The reorder** — `SharedFileMenuItems.openInEditor` moves to the head of `FileContextMenu`'s single-file branch, above Get Info and Reveal in Finder | Nothing to pick: the branch on that line has no editor item, and the two it would move above are already first | Same | RECORDED — not owed |
+| **`EditableText.isText(path:)`**, the one public way out of the package to the gate `PairContentKind.textExtensions` holds | Not owed on its own. It exists for TE29/TE30, which are `main`-only for the same reason | Same | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** Nothing here is stored or observable outside the
+window: no defaults key, no file format, no change to what the verb DOES when chosen — only where it
+sits in a menu and who may ask its question. A `main` build and a maintenance-line build still share
+one defaults domain. The three later doors this unblocks (preview column, Info inspector, File ▸
+Open in Edit) will each be `main`-only on this same reasoning; the audit does not need a new
+measurement for them, only this one.
