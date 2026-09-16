@@ -140,6 +140,18 @@ import Sync
         return (window, stack, columns)
     }
 
+    /// Origins well outside the clip view's legal band, one per edge of each axis. Far enough out
+    /// that no rounding could be mistaken for slack, and both axes because the swap's vertical
+    /// give — on an axis SwiftUI had locked — is the half that reached the user.
+    private func overTravelOrigins(_ clip: NSClipView) -> [NSPoint] {
+        let far: CGFloat = 300
+        let document = clip.documentView?.frame ?? .zero
+        return [NSPoint(x: document.minX - far, y: 0),
+                NSPoint(x: document.maxX + far, y: 0),
+                NSPoint(x: 0, y: document.minY - far),
+                NSPoint(x: 0, y: document.maxY + far)]
+    }
+
     @Test func testTheMountedStackScrollsNatively() async throws {
         let (window, stack, columns) = try await mountThreeColumns()
         defer { _ = window }
@@ -158,12 +170,74 @@ import Sync
         #expect(stack.verticalScrollElasticity == .none,
                 "the stack can be displaced vertically — a scroll will pull the columns down")
 
-        // The clip view is SwiftUI's own, exactly `NSClipView`. A custom subclass here means the
-        // swap is back — and with it whatever constraint relaxations it carries. (Note this is a
-        // class check, not a behavior check: a mutation run showed `isFlipped` self-corrects once
-        // the document is reattached, so flippedness detects nothing.)
-        #expect(type(of: stack.contentView) == NSClipView.self,
-                "the stack's clip view was swapped for a custom subclass — the machinery is back")
+        // The clip view is the framework's, not ours — asserted two ways, because the thing to
+        // catch is OUR subclass returning and neither half says that on its own.
+        //
+        // This used to read `type(of:) == NSClipView.self`, on the observation that SwiftUI handed
+        // the stack a plain `NSClipView`. macOS 27 installs SwiftUI's own `HostingClipView` instead
+        // and that spelling started failing on a stack with nothing wrong with it: "not exactly
+        // `NSClipView`" and "swapped by us" had been the same sentence only by coincidence.
+        //
+        // First, provenance. A clip view this module defines is vended by this module's bundle;
+        // SwiftUI's comes from SwiftUI.framework. That is the question the old check was reaching
+        // for, asked directly, and it does not care which subclass the framework picks next.
+        #expect(Bundle(for: type(of: stack.contentView))
+                != Bundle(for: PaneColumnsOverscrollReturn.WatchdogView.self),
+                "the stack's clip view is a subclass this module defines — the machinery is back (\(type(of: stack.contentView)))")
+
+        // Second, the behavior the swap actually broke: `BoundedElasticClipView` overrode
+        // `constrainBoundsRect` to re-open 44pt of travel past the content **on both axes**, and
+        // the vertical half is what displaced a horizontal Miller-column stack downward. So ask
+        // the clip view to travel past its content and require the legal origin back, unchanged.
+        //
+        // Both phases are probed, and the live one is not decoration: 7021b28 gated its slack on
+        // `willStartLiveScroll`/`didEndLiveScroll`, so at rest it clamped exactly like a clean one
+        // and a resting probe alone would have passed over it. Mutation-tested against a clone of
+        // that clip view — it clamps in the resting probe and grants ±44pt in the live one.
+        //
+        // (This says nothing about the elastic bounce asserted above, which is wanted: AppKit's own
+        // rubber band is driven from inside a real gesture, not from a posted notification, and
+        // both phases of this probe measure identically on the shipped stack.)
+        //
+        // **The live phase has to WAIT for the notification to be delivered, and be required to.**
+        // The gate the swap used was an observer registered with `queue: .main`, and those blocks
+        // are enqueued rather than run inside `post` — so probing straight after posting reads a
+        // clip view that has not been told the gesture started. Measured: against the clone below,
+        // probing immediately fires none of the four live assertions and probing after delivery
+        // fires all four. Without this wait the whole live half passes over the swap it names.
+        //
+        // The wait is a positive control, not a sleep: our own observer is registered LAST on the
+        // same notification and object, notification blocks are enqueued in registration order on
+        // the one queue, so when ours has run any earlier one has too. And it is `#require`d — if
+        // delivery never happens the test says so, instead of quietly measuring nothing.
+        for phase in ["at rest", "during a live scroll"] {
+            if phase != "at rest" {
+                var delivered = false
+                let token = NotificationCenter.default.addObserver(
+                    forName: NSScrollView.willStartLiveScrollNotification,
+                    object: stack, queue: .main
+                ) { _ in MainActor.assumeIsolated { delivered = true } }
+                defer { NotificationCenter.default.removeObserver(token) }
+                NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification,
+                                               object: stack)
+                let deadline = Date().addingTimeInterval(10)
+                while !delivered, Date() < deadline {
+                    window.layoutIfNeeded()
+                    try? await Task.sleep(nanoseconds: 4_000_000)
+                }
+                try #require(delivered,
+                             "the live-scroll notification was never delivered, so the probe below would measure a clip view that was never told a gesture started")
+            }
+            for proposed in overTravelOrigins(stack.contentView) {
+                let constrained = stack.contentView.constrainBoundsRect(
+                    NSRect(origin: proposed, size: stack.contentView.bounds.size)).origin
+                let legal = BoundedResolveView.legalOrigin(for: proposed, clip: stack.contentView)
+                #expect(abs(constrained.x - legal.x) < 0.5 && abs(constrained.y - legal.y) < 0.5,
+                        "\(phase) the clip view granted travel past the content: asked for \(proposed) it returned \(constrained), not the legal \(legal)")
+            }
+        }
+        NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification,
+                                        object: stack)
 
         // The columns' own lists keep their native vertical bounce. (No class check here: a
         // List's clip view is a private SwiftUI subclass, so `NSClipView.self` is the wrong

@@ -66,6 +66,7 @@ machine state at all.
 | Fails near a **time boundary** — a freshness cutoff, a recency window | [5](flaky-tests.md#5-tests-racing-a-real-time-window) | Inject the instant so the window is a value, not a race |
 | **Many** tests at ≥10 s at once, and `~/Library/Preferences` is filling with `<Suite>-<UUID>.plist` | [4](flaky-tests.md#4-leaked-defaults-suites) | Read the *passing* durations, not just the failures — one global `cfprefsd` freeze looks selective |
 | A test that failed **every** run of a batch stops failing partway through, on unchanged code — and the batch has been running for minutes | [20](flaky-tests.md#20-the-display-fell-asleep-mid-batch-so-a-suite-left-the-denominator--a-vacuous-green) | It did not start passing; a gated suite stopped running. `grep '\[ground-truth\]'` each run — a skip is not a pass, and it makes a constant failure look intermittent |
+| Red **fast** (~2s) under `--filter` on an **idle** machine, on the commit in front of you **and every commit behind it**, and the failing value is a framework's **class name, coordinate origin or ordering** | [21](flaky-tests.md#21-an-os-upgrade-repealed-a-framework-convention-a-test-had-pinned--a-red-about-no-commit-at-all) | Check `sw_vers` against the last green CI date before bisecting anything. A convention is not a contract — restate the claim, do not widen the assertion to accept both |
 
 ## 2. Check what else is running
 
@@ -111,7 +112,7 @@ machine state* and calling the difference a regression.
 
 ## The silent half — read before writing any absence assertion
 
-**Four mechanisms here can leave an assertion passing having examined nothing.** A false failure is
+**Five mechanisms here can leave an assertion passing having examined nothing.** A false failure is
 noisy and costs you a day; a vacuous pass is silent and permanent, so it costs you nothing to notice
 and everything to miss.
 
@@ -124,9 +125,13 @@ and everything to miss.
 - [12](flaky-tests.md#12-a-log-assertion-reading-a-window-that-has-already-rolled) — a log window
   that rolled past the interval being read. Read 12 before **any** assertion about
   `Logger.shared.entries`.
+- [22](flaky-tests.md#22-a-probe-gated-on-a-notification-measures-nothing-unless-it-waits-for-delivery--a-vacuous-green)
+  — a phase entered by someone else's callback, asserted on the line after the post. Observe that
+  the phase was entered; posting the notification is not entering it.
 
-The first three are visible in the test's own source. The fourth fires on the volume of unrelated
-suites, so the same test is honest or vacuous depending on what else was scheduled beside it.
+The first three are visible in the test's own source, as is the fifth. The fourth fires on the
+volume of unrelated suites, so the same test is honest or vacuous depending on what else was
+scheduled beside it.
 
 ---
 

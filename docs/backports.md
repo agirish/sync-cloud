@@ -5176,3 +5176,49 @@ sits in a menu and who may ask its question. A `main` build and a maintenance-li
 one defaults domain. The three later doors this unblocks (preview column, Info inspector, File ▸
 Open in Edit) will each be `main`-only on this same reasoning; the audit does not need a new
 measurement for them, only this one.
+
+## 2026-09-16 — two tests that pinned macOS 26's conventions, and the mechanism behind them
+
+Test-only on `main`, and **one half genuinely applies to all three maintenance lines** — which is
+the unusual part of this row, because nothing about the product changed. The machine moved to
+**macOS 27.0 (26A428)** on 2026-09-15 and two framework conventions moved with it; the assertions
+that had pinned them now fail on code that is behaving correctly.
+
+The two halves have different answers, so measure them separately:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s paneColumnsScroll=%s clipAssertion=%s pdfMounted=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Tests/FileExplorer/PaneColumnsScrollTests.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Tests/FileExplorer/PaneColumnsScrollTests.swift 2>/dev/null | grep -c '#expect(type(of: stack.contentView) == NSClipView.self')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Tests/FileExplorer/PDFPreviewMountedTests.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-09-16, against origin, before this landed:
+# main   paneColumnsScroll=1 clipAssertion=1 pdfMounted=1
+# v4.x   paneColumnsScroll=1 clipAssertion=1 pdfMounted=0
+# v3.x   paneColumnsScroll=1 clipAssertion=1 pdfMounted=0
+# v2.x   paneColumnsScroll=1 clipAssertion=1 pdfMounted=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` | `v2.x` | Status |
+|---|---|---|---|---|
+| **The clip-view assertion**, `type(of: stack.contentView) == NSClipView.self` → provenance (`Bundle(for:)` against a class this module defines) plus a `constrainBoundsRect` over-travel probe | **Applies.** Line 164 of that file, identical text. Anyone running this suite on macOS 27 gets the same red, on a stack with nothing wrong with it | Applies, identical | Applies, identical | RECORDED — not owed |
+| **The PDF scroll assertion**, which assumed PDFKit's unflipped bottom-up layout → far end measured off the laid-out views, asserted as "the last page is under the viewport" | Not owed: `PDFPreviewMountedTests.swift` does not exist on this line (the mounted PDF preview is `main`-only, landed 2026-09-09) | Same | Same | CLOSED — does not apply |
+| **`docs/flaky-tests.md` mechanisms 21 and 22**, and their two `docs/flaky-triage.md` rows | Carried on all four lines, so the numbering is per-line and will differ. **Cite by title, never by number** | Same | Same | RECORDED — not owed |
+
+**Checked and not owed, the other direction — and this is the row's real content.** No product file
+changed: `git diff origin/main -- Modules/*/Sources MacApp` is empty for this work. The app's
+behaviour was verified intact on macOS 27 before either test was touched, so there is no defect on
+any line to send:
+
+- The stack still scrolls natively — SwiftUI's own configuration (horizontal `.allowed`, vertical
+  `.none`) is unchanged, and no product file in any of the seven packages defines an `NSClipView`
+  subclass. The `BoundedElasticClipView` machinery the assertion guards against is still gone.
+- The PDF preview still reaches the whole document. Measured on the mounted view: content 4008pt
+  against a 792pt viewport, `goToLastPage` lands at originY **3211.03 of a 3216pt legal band** with
+  page 5 under the viewport. Only the coordinate convention flipped.
+
+So what a maintenance line is missing is **a test that can tell the truth on macOS 27**, not a fix.
+If one of those lines is ever built or CI'd on 27, that red is this row, and the pick is the
+provenance assertion — which is the expensive half to reconstruct, because the naive repair
+(widening to accept `HostingClipView`) silently stops detecting the swap the test exists for.

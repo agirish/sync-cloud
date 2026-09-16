@@ -2452,3 +2452,116 @@ measured comparison, not just to a cut.
 **The general rule, and it is the same one mechanism 19 states from the other side:** before
 comparing two runs, establish that they asked the same questions. A suite that stops running is
 indistinguishable from a suite that started passing, in every output this repo produces.
+
+### 21. An OS upgrade repealed a framework convention a test had pinned — a red about no commit at all
+
+**Symptom.** Two `FileExplorer` tests went red on 2026-09-16 and stayed red, on the commit in front
+of you and on every commit behind it. They fail in **~2s under `--filter`**, on an idle machine, in
+a fresh worktree with no local changes — none of the load tells in this file apply, and rerunning
+changes nothing:
+
+```
+✘ PaneColumnsScrollTests.testTheMountedStackScrollsNatively — PaneColumnsScrollTests.swift:165
+  (type(of: stack.contentView) → HostingClipView) == (NSClipView.self → NSClipView)
+✘ PDFPreviewMountedTests.testTheWholeDocumentIsScrollable — PDFPreviewMountedTests.swift:221, :224
+  (before → 0.0) > (visible → 792.0)
+  (documentVisibleRect.origin.y → 0.0) < (before - 1 → -1.0)
+```
+
+**Mechanism.** This Mac moved to **macOS 27.0 (26A428)** on 2026-09-15, and two framework
+conventions the assertions had pinned as facts moved with it. Neither is documented as a promise;
+both had simply been true for as long as anyone had looked.
+
+- SwiftUI now hands a `ScrollView`'s scroll view its own **`HostingClipView`** subclass, where it
+  used to leave a plain `NSClipView`. The assertion read `type(of:) == NSClipView.self`, but the
+  question it existed to ask was *"is OUR `BoundedElasticClipView` swap back?"* (`60fd18f` /
+  `7021b28`). "Not exactly `NSClipView`" and "swapped by us" had been the same sentence only by
+  coincidence, and the upgrade separated them.
+- PDFKit now lays its pages out in a **flipped** document view. Measured on the mounted preview:
+  `isFlipped=true`, content 4008pt, viewport 792pt, and the document **opens at originY 0.0**. The
+  test assumed the old bottom-up layout, where the top of the document was the scroller's
+  *maximum* and the way forward was toward zero — so on a preview working perfectly it asserted
+  the viewport had not opened where it should, then scrolled the wrong way.
+
+**Neither app behaviour actually changed.** The stack's elasticity is still configured as SwiftUI
+sets it (horizontal `.allowed`, vertical `.none`) and no product file defines an `NSClipView`
+subclass anywhere in the seven packages. The PDF preview still reaches the whole document:
+`goToLastPage` lands at **originY 3211.03 of a 3216pt legal band** with page 5 under the viewport,
+and driving the clip view to the measured far end does the same. Only the coordinate convention and
+the class name moved.
+
+**Tell — three checks, in this order, and all three are cheap.**
+
+1. **Does it fail on a commit that was green?** Check out an older tag in a detached worktree and
+   run the same `--filter`. Here both failed identically at `ed01247e`, which CI had passed on
+   09-09. A red that predates the commit in front of you is not about that commit.
+2. **When did CI last agree?** `gh run list` showed green through 09-09 and red from 09-16 —
+   with the OS upgrade between them, and nothing else.
+3. **Is the failing value a framework's class name, coordinate origin, or ordering?** Those are
+   conventions, not contracts. An assertion that names one is pinning an observation.
+
+**Fix — restate the claim in something the framework still answers, and never in its incidental
+shape.** Ask *whose* the clip view is rather than *which class* it is: `Bundle(for:)` on it against
+`Bundle(for:)` on a class this module defines says "ours" without caring which subclass the
+framework picks next, and it does not move again on the next upgrade. **Measure** the far end of a
+scroll off the laid-out views instead of assuming which numeric end it is
+(`farEnd = abs(opensAt - span) > abs(opensAt) ? span : 0`), and assert what the reader can see —
+"the LAST page is under the viewport" — rather than "the origin moved". Mutation-tested both ways:
+with the preview forced to open at the last page the measured far end correctly flips to 0 and the
+assertions still hold.
+
+**Do not simply widen the assertion to accept both.** A `type(of:) == NSClipView.self ||
+isKindOfClass` would have gone green and stopped detecting the swap it exists for — which is what
+the provenance check was mutation-tested against (a faithful clone of `7021b28`'s clip view
+reinstalled in `resolveAndObserve`; the provenance assertion fires on it).
+
+**What the sharper assertion bought.** The old scroll check was `origin.y < before - 1` — *any*
+movement. Under a paged-display-mode mutation the viewport travels **18.999pt**, which that
+assertion accepts; `pageUnderViewport == pageCount` and `abs(travel) > visible` both catch it. The
+OS forced the rewrite, and the rewrite closed a hole that had been open the whole time.
+
+**Read the page under the viewport, not `PDFView.currentPage`.** Measured at the far end of the
+fixture: `page(for:nearest:)` at the middle of the view reports **5**, `currentPage` still reports
+**1**. It is maintained on PDFKit's own cadence, not the clip view's, and would have made either
+assertion lie in whichever direction the stale value pointed.
+
+### 22. A probe gated on a notification measures nothing unless it waits for delivery — a VACUOUS green
+
+**Symptom.** None, which is the point — and it was found only by mutation-testing the fix for
+mechanism 21. A probe that posts `NSScrollView.willStartLiveScrollNotification` and then
+immediately asks the clip view to constrain an out-of-bounds rect passes against a **faithful
+clone of the very swap it names**. Four live-phase assertions, zero of them fire.
+
+**Mechanism.** The machinery being pinned gated its slack on an observer registered with
+`queue: .main`. Those blocks are **enqueued**, not run inside `post`, so the synchronous probe
+immediately after reads a clip view that has not yet been told a gesture started — it answers as if
+at rest, which is exactly the phase that clamps cleanly. Measured against the clone: probing
+immediately fires **0 of 4**; probing after delivery fires **4 of 4**, with the four resting probes
+still passing, which is the gating the probe exists to detect.
+
+**Tell.** A test that posts a notification (or sets state read by an observer, or an
+`OperationQueue` hop) and asserts on the next line, with nothing between the post and the read that
+could only happen after delivery. Same family as mechanism 19: the assertions hold whether or not
+the window was ever entered.
+
+**Fix — a positive control on delivery, not a sleep.** Register your own observer **last** on the
+same notification and object; notification blocks are enqueued in registration order on the one
+queue, so when yours has run any earlier one has too. Pump until it has, and **`#require` it** so a
+delivery that never happens is a labelled failure rather than a silent measurement of nothing:
+
+```swift
+var delivered = false
+let token = NotificationCenter.default.addObserver(
+    forName: NSScrollView.willStartLiveScrollNotification, object: stack, queue: .main
+) { _ in MainActor.assumeIsolated { delivered = true } }
+defer { NotificationCenter.default.removeObserver(token) }
+NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: stack)
+// ...pump until `delivered`, then:
+try #require(delivered, "the notification was never delivered — the probe below would be vacuous")
+```
+
+A fixed `pump(window, seconds: 0.2)` also works on an idle machine and is the wrong fix: it is
+mechanism 2's shape, and when it is short the probe goes quietly inert again rather than red.
+
+**The general rule:** if the phase under test is entered by someone else's callback, the test has to
+observe that it was entered. Posting the notification is not entering the phase.

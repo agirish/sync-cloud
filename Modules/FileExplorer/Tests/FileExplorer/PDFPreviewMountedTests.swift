@@ -214,15 +214,44 @@ import UniformTypeIdentifiers
         #expect(content > visible * 2,
                 "the document is \(content)pt against a \(visible)pt viewport — \(Fixture.pageCount) pages should be far more")
 
-        // And it really moves. Scroll toward the ORIGIN rather than the end: a PDF's pages are laid
-        // out bottom-up in an unflipped scroll view, so the viewport opens at the top of the document
-        // and therefore at the scroller's MAXIMUM. Asking it to go further down is a no-op, and a
-        // test written that way fails on a scroll view that works perfectly.
-        let before = scroll.documentVisibleRect.origin.y
-        #expect(before > visible, "the viewport did not open at the top of the document")
-        scroll.contentView.scroll(to: .zero)
+        // And it really moves, all the way to the end — asserted as "the LAST page is now under the
+        // reader's eye" rather than "the origin changed", because a scroll view that travels a few
+        // points and stops would satisfy the second and none of the complaint.
+        //
+        // **Which numeric end is "the end" is an OS convention, not a promise, and it changed.**
+        // Through macOS 26 PDFKit laid its pages out bottom-up in an UNFLIPPED scroll view: the
+        // document opened at the scroller's MAXIMUM and the way forward was toward zero, so this
+        // test scrolled to `.zero`. macOS 27 flips the clip view — the document opens at origin 0,
+        // measured `before=0` against a 792pt viewport — and the old spelling then asserted that a
+        // perfectly working preview had not opened where it was supposed to. So the far end is
+        // MEASURED off the laid-out views rather than assumed, and the test survives the next flip.
+        let opensAt = scroll.documentVisibleRect.origin.y
+        #expect(pageUnderViewport(of: view) == 1,
+                "the preview did not open at page one of the document")
+        let span = content - visible                         // the other end of the legal band
+        let farEnd = abs(opensAt - span) > abs(opensAt) ? span : 0
+        scroll.contentView.scroll(to: NSPoint(x: scroll.documentVisibleRect.origin.x, y: farEnd))
         scroll.reflectScrolledClipView(scroll.contentView)
-        #expect(scroll.documentVisibleRect.origin.y < before - 1,
-                "the clip view did not move — there is a scroll view but nothing scrolls")
+        mounted.window.layoutIfNeeded()
+
+        #expect(abs(scroll.documentVisibleRect.origin.y - opensAt) > visible,
+                "the clip view moved \(scroll.documentVisibleRect.origin.y - opensAt)pt from \(opensAt) — there is a scroll view but nothing scrolls")
+        #expect(pageUnderViewport(of: view) == Fixture.pageCount,
+                "the far end of the scroll shows page \(pageUnderViewport(of: view).map(String.init) ?? "nothing") of \(Fixture.pageCount) — the rest of the document is not reachable")
+    }
+
+    /// Which page the reader is actually looking at, read off the laid-out pages under the middle
+    /// of the view.
+    ///
+    /// **Not `PDFView.currentPage`**, which is maintained on PDFKit's own cadence rather than the
+    /// clip view's: driven to the last page of the fixture it still reported page 1, and it stayed
+    /// on page 5 after a scroll back to the start. It would have made both assertions above lie in
+    /// whichever direction the stale value happened to point.
+    private func pageUnderViewport(of view: FitPagePDFView) -> Int? {
+        guard let document = view.document,
+              let page = view.page(for: NSPoint(x: view.bounds.midX, y: view.bounds.midY),
+                                   nearest: true)
+        else { return nil }
+        return document.index(for: page) + 1
     }
 }
