@@ -35,6 +35,7 @@ import Foundation
         #expect(AppChord.saveDocument.display == "⌘S")
         #expect(AppChord.newTextFile.display == "⌘N")
         #expect(AppChord.printDocument.display == "⌘P")
+        #expect(AppChord.openInEditor.display == "⌘O")
         #expect(AppChord.hiddenFiles.display == "⇧⌘.")
         #expect(AppChord.previewColumn.display == "⇧⌘P")
         #expect(AppChord.deleteSelection.display == "⌘⌫")

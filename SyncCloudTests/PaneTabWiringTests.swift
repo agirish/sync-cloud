@@ -2288,6 +2288,32 @@ import Sync
                 "the row verbs read \(titles[quickLook...reveal]) — Download belongs between Quick Look and Reveal in Finder")
         #expect(file.items.first { $0.title == "Download" }?.keyEquivalent.isEmpty == true,
                 "Download has acquired a chord")
+
+        // **Open in Edit leads the row verbs, on ⌘O** (TE30) — the order the row context menu
+        // now leads with, so the claim above that this group mirrors that menu stays true. Read
+        // off the REAL menu, which is the only place the chord a person presses actually lives.
+        let editor = try #require(titles.firstIndex(of: "Open in Edit"), "File ▸ Open in Edit is gone")
+        let newTab = try #require(titles.firstIndex(of: "Open in New Tab"))
+        #expect(editor + 1 == newTab,
+                "the row verbs read \(titles[min(editor, newTab)...max(editor, newTab)]) — Open in Edit belongs first, directly above Open in New Tab")
+        let editorItem = try #require(file.items.first { $0.title == "Open in Edit" })
+        #expect(editorItem.keyEquivalent == "o", "Open in Edit is on '\(editorItem.keyEquivalent)', not ⌘O")
+        #expect(editorItem.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == .command,
+                "Open in Edit carries modifiers beyond ⌘")
+
+        // And nothing ELSE in the menu bar has taken ⌘O. Two claimants leave one of them dead, and
+        // which one AppKit picks is not something this app decides — the ⌘W reasoning above.
+        func claimants(_ menu: NSMenu) -> [NSMenuItem] {
+            menu.items.flatMap { item -> [NSMenuItem] in
+                let own = (item.keyEquivalent == "o"
+                           && item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == .command)
+                    ? [item] : []
+                return own + (item.submenu.map(claimants) ?? [])
+            }
+        }
+        let all = try #require(NSApp.mainMenu)
+        #expect(claimants(all).map(\.title) == ["Open in Edit"],
+                "⌘O is claimed by \(claimants(all).map(\.title))")
     }
 
     /// The View menu's Tab Bar switch, same source: a checkmark item, above the other switches.

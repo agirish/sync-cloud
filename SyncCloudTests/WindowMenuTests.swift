@@ -375,10 +375,39 @@ import AppKit
 
     static func resolve(count: Int = 1, isDirectory: Bool = true, isCloudOnly: Bool = false,
                         canOpenInNewTab: Bool = true,
-                        isComparing: Bool = true) -> PaneRowVerbAvailability.Answer {
+                        isComparing: Bool = true,
+                        isText: Bool = false) -> PaneRowVerbAvailability.Answer {
         PaneRowVerbAvailability.resolve(selectionCount: count, isDirectory: isDirectory,
                                         isCloudOnly: isCloudOnly,
-                                        canOpenInNewTab: canOpenInNewTab, isComparing: isComparing)
+                                        canOpenInNewTab: canOpenInNewTab, isComparing: isComparing,
+                                        isText: isText)
+    }
+
+    /// **File ▸ Open in Edit: one row, a file, and a file the editor opens.**
+    ///
+    /// Each term is asserted by removing it and nothing else, because all three have been the
+    /// wrong answer somewhere in this family: a folder is the case the row menu's own gate exists
+    /// for, a multi-selection would hand over whichever node happened to be first, and a `.pdf`
+    /// would open a document the editor then refuses.
+    @Test func openInEditNeedsASingleTextFile() {
+        #expect(Self.resolve(count: 1, isDirectory: false, isText: true).openInEditor)
+        #expect(!Self.resolve(count: 1, isDirectory: true, isText: true).openInEditor,
+                "a folder offered the editor")
+        #expect(!Self.resolve(count: 2, isDirectory: false, isText: true).openInEditor,
+                "a multi-selection offered the editor")
+        #expect(!Self.resolve(count: 1, isDirectory: false, isText: false).openInEditor,
+                "a file the editor does not open was offered to it")
+    }
+
+    /// It is independent of the cloud badge, unlike Download beside it. A text file whose content
+    /// is still on the provider is offered to the editor, which handles that itself — the menu
+    /// item's job is not to second-guess it, and the two verbs read different facts.
+    @Test func openInEditDoesNotReadTheCloudBadge() {
+        for isCloudOnly in [true, false] {
+            #expect(Self.resolve(count: 1, isDirectory: false, isCloudOnly: isCloudOnly,
+                                 isText: true).openInEditor,
+                    "the editor item read the cloud badge")
+        }
     }
 
     @Test func oneFolderOffersEverything() {
@@ -461,7 +490,7 @@ import AppKit
     @Test func anEmptySelectionOffersNothing() {
         let a = Self.resolve(count: 0, isCloudOnly: true)
         #expect(a == PaneRowVerbAvailability.Answer(openInNewTab: false, singleNodeVerbs: false,
-                                                    download: false,
+                                                    openInEditor: false, download: false,
                                                     chooseDestination: false, ignore: false))
     }
 }

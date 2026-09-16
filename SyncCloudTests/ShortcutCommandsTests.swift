@@ -50,7 +50,10 @@ import Foundation
             organizeVerbs: OrganizeVerbs(organizeFolder: {}, findDuplicates: {},
                                          fixName: {}, keepName: {}, undoReorganisation: {},
                                          planShape: {}, setUpLikeSiblings: {}),
-            paneRowVerbs: PaneRowVerbs(openInNewTab: {}, quickLook: {}, download: {}, revealInFinder: {},
+            // Every closure non-nil, `openInEditor` included: a nil here would let the suspension
+            // test below pass without ever proving the item was live to begin with.
+            paneRowVerbs: PaneRowVerbs(openInNewTab: {}, quickLook: {}, openInEditor: {}, download: {},
+                                       revealInFinder: {},
                                        rename: {}, chooseDestination: { _ in },
                                        ignore: PaneRowVerbs.IgnoreToggle(title: "Ignore in Comparison",
                                                                          run: {})),

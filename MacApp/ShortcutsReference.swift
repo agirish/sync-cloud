@@ -160,7 +160,15 @@ enum ShortcutsReference {
         // misleading one: both of these act on a document in one workspace, and a "Save" row under
         // a heading about panes reads as an app-wide key that saves something in Browse.
         Group(title: "Edit", items: [
-            Item(keys: "⌘ N", action: "New text file in Edit's folder"),
+            // **⌘O shares ⌘N's row, on the ⌘S/⌘P and ⌘F precedents directly below.** The
+            // reference had 21pt of headroom in its 740pt window and a row costs ~30pt, so a row of
+            // its own does not fit — and neither does a SECOND LINE on this one: the action column
+            // here holds about 35 characters, and every longer wording tried ("…— or open the
+            // selected one", "…/ open the selected file") wrapped and measured 749pt, which
+            // `theReferenceFitsItsWindowWithoutScrolling` refuses. "New or selected" maps onto the
+            // keys in order, and "in Edit" stays because ⌘O fires from a Browse or Compare pane,
+            // not from inside Edit where this group otherwise lives.
+            Item(keys: "⌘ N / ⌘ O", action: "New or selected text file, in Edit"),
             // **⌘P shares ⌘S's row, and that was measured rather than chosen for tidiness.** On a
             // row of its own the reference stood 770pt against a 740pt window, which
             // `theReferenceFitsItsWindowWithoutScrolling` refuses — the same wall the editor's ⌘F

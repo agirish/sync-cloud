@@ -157,7 +157,17 @@ import Foundation
         let shortcuts = try Self.source("ShortcutCommands.swift")
         let verbs = try #require(shortcuts.range(of: "var shortcutPaneRowVerbs"),
                                  "the row verbs resolver is gone or has moved out of this file")
-        let resolver = String(shortcuts[verbs.upperBound...].prefix(2_000))
+        // **To the member's own closing brace, not a 2,000-character window.** That window is the
+        // defect the note above names, and it bit exactly as described: TE30 added one resolver
+        // argument to an unrelated verb (File ▸ Open in Edit) and pushed `followsPane: true` to
+        // character 2,060, turning a Quick Look test red over a change that did not touch Quick
+        // Look. A member cannot outgrow its own closing brace.
+        let rest = shortcuts[verbs.upperBound...]
+        let end = try #require(rest.range(of: "\n    }\n"),
+                               "shortcutPaneRowVerbs never closes at member indentation")
+        let resolver = String(rest[..<end.lowerBound])
+        #expect(resolver.contains("return PaneRowVerbs("),
+                "the slice is not the resolver's body — the check below would be vacuous")
         #expect(resolver.contains("followsPane: true"),
                 "File ▸ Quick Look opens a preview that will not follow the pane selection it is about")
     }

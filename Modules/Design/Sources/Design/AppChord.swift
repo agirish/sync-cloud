@@ -267,6 +267,20 @@ public extension AppChord {
     /// app-wide (see ``foldAllDifferences``), and ⌘E is Use Selection for Find.
     static let printDocument = AppChord("p", .command)
 
+    /// File ▸ Open in Edit — hand the pane's selected text file to the Edit workspace.
+    ///
+    /// **⌘O was unregistered, and it is the key every Mac user tries.** Nothing in this app had
+    /// claimed it: no `AppChord`, no literal `.keyboardShortcut("o")` anywhere. It is also not one
+    /// of `NSTextView`'s own key bindings, so it does not join `TextEditingChord`'s colliding set —
+    /// the same reasoning ``saveDocument`` and ``printDocument`` carry: a menu equivalent claims it
+    /// outright and the field editor never sees it.
+    ///
+    /// **The one chord in File ▸'s row-verb group, deliberately.** That group documents the
+    /// absence of keys on Rename and Download; this item is the exception because a window-level
+    /// menu item can carry a key that a per-row context menu cannot, and because the act it names
+    /// has four doors now and no keyboard route at all among them.
+    static let openInEditor = AppChord("o", .command)
+
     /// File ▸ New Text File… — opens the naming row in the editor's rail. The ellipsis is the
     /// promise: nothing is on disk until Return.
     ///
@@ -350,7 +364,7 @@ public extension AppChord {
         settings, infoInspector, activityLog, shortcutsReference, commandPalette,
         selectAll, cut, copy, paste,
         findInPane, paneBack, paneForward, rescan, newFolder,
-        saveDocument, newTextFile, printDocument,
+        saveDocument, newTextFile, printDocument, openInEditor,
         folderSidebar, hiddenFiles, previewColumn,
         deleteSelection, switchPaneFocus,
         openSelectedFolder, enclosingFolder,

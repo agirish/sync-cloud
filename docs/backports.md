@@ -5133,6 +5133,42 @@ the selection — which the new button inherits for free, since every button in 
 `DetailsEditorDoorTests.theRowWrapsRatherThanSqueezingAtTheInspectorsWidth`, which fails if the row
 ever goes back to an `HStack`.
 
+---
+
+## File ▸ Open in Edit on ⌘O, the ⌘/ row, Help, and a Quick Look scan that stopped reading a window (TE30)
+
+`main` only, **not owed** — the fourth door onto a hand-off that exists nowhere else. One half of
+this batch is worth separating out, the way TE29's row did: **the `QuickLookOriginTests` slice fix
+is test-only and applies wherever that scan exists**, but it only fails when something pushes the
+resolver past 2,000 characters, which nothing off `main` does.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s rowVerbCommands=%s appChord=%s cmdO=%s editorHandOff=%s\n' "$l" \
+    "$(git show origin/$l:MacApp/ShortcutCommands.swift 2>/dev/null | grep -c 'struct PaneRowVerbCommands')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Design/Sources/Design/AppChord.swift | wc -l | tr -d ' ')" \
+    "$(git grep -c 'AppChord("o", .command)' origin/$l -- Modules MacApp 2>/dev/null | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/ContentView+Editor.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-09-16, before this landed:
+# main   rowVerbCommands=1 appChord=1 cmdO=0 editorHandOff=1
+# v4.x   rowVerbCommands=1 appChord=1 cmdO=0 editorHandOff=0
+# v3.x   rowVerbCommands=0 appChord=0 cmdO=0 editorHandOff=0
+# v2.x   rowVerbCommands=0 appChord=0 cmdO=0 editorHandOff=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`AppChord.openInEditor` (⌘O)**, `PaneRowVerbAvailability`'s `isText` term, `PaneRowVerbs.openInEditor`, and the menu item leading `PaneRowVerbCommands` | Not owed. The File menu's row-verb group and `AppChord` are both there, and ⌘O is free there too — but the item would hand a file to an editor that line does not have | Neither the row-verb group nor `AppChord` exists | RECORDED — not owed |
+| **The ⌘/ row** — ⌘O sharing ⌘N's, worded to fit one line | Not owed: no ⌘N row to share (no editor) | Same | RECORDED — not owed |
+| **`QuickLookOriginTests` slices `shortcutPaneRowVerbs` to its closing brace** instead of a 2,000-character window | Applies if the scan is there, and is harmless to pick; nothing on that line pushes the resolver past the window, so it is not failing | Not checked — `PaneRowVerbCommands` is absent, so neither is the resolver the scan reads | RECORDED — not owed (no failure to fix) |
+
+**Checked and not owed, the other direction.** Nothing stored. No defaults key. The menu item's
+suspension is inherited from the whole `PaneRowVerbs` value (`effectivePaneRowVerbs` nils it all),
+which is why no per-field suspension test was added: a nil `openInEditor` in the fixture survives
+every test, correctly, because nothing reads the field while suspended.
+
+
 
 **Checked and not owed, the other direction.** Nothing here is stored or observable outside the
 window: no defaults key, no file format, no change to what the verb DOES when chosen — only where it

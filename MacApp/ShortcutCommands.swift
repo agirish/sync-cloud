@@ -94,6 +94,10 @@ struct PaneRowVerbs {
     let openInNewTab: (() -> Void)?
     /// A single node of either kind.
     let quickLook: (() -> Void)?
+    /// A single TEXT FILE, handed to the Edit workspace — the fourth door onto `handOffToEditor`,
+    /// and the only one with a key. `nil` for a folder, for a multi-selection, and for a file the
+    /// editor does not open; see `PaneRowVerbAvailability.resolve`.
+    let openInEditor: (() -> Void)?
     /// A single FILE whose content is still on the provider (roadmap RD2). `nil` for a folder, for
     /// a file already on disk, and for a file whose badge has not been resolved yet — see
     /// `PaneRowVerbAvailability.resolve`, which is where the cache read is explained.
@@ -122,6 +126,7 @@ enum PaneRowVerbAvailability {
     struct Answer: Equatable {
         let openInNewTab: Bool
         let singleNodeVerbs: Bool
+        let openInEditor: Bool
         let download: Bool
         let chooseDestination: Bool
         let ignore: Bool
@@ -143,11 +148,15 @@ enum PaneRowVerbAvailability {
     /// **Get Info is absent**, for the reason the mockup settled: it wants Finder's ⌘I, which is
     /// the Info Inspector here, and the inspector already answers it without leaving the window.
     static func resolve(selectionCount: Int, isDirectory: Bool, isCloudOnly: Bool,
-                        canOpenInNewTab: Bool, isComparing: Bool) -> Answer {
+                        canOpenInNewTab: Bool, isComparing: Bool, isText: Bool) -> Answer {
         let single = selectionCount == 1
         return Answer(
             openInNewTab: single && isDirectory && canOpenInNewTab,
             singleNodeVerbs: single,
+            // The same three terms every other door applies, in the same order: one row, a file,
+            // and a file the editor opens. `isText` is answered by `EditableText.isText` at the
+            // call site — the row menu's own gate — so this item and that menu cannot disagree.
+            openInEditor: single && !isDirectory && isText,
             // A folder is never dataless in the sense the flag means, and the row menu gates on
             // `!isDirectory` too — a menu item offering to download a folder would be a promise
             // `MaterializationStatus.download` cannot keep.
@@ -1296,8 +1305,8 @@ extension ContentView {
     /// right-click are one act rather than two similar ones.
     var shortcutPaneRowVerbs: PaneRowVerbs {
         let selection = activeSelectionNodes
-        let none = PaneRowVerbs(openInNewTab: nil, quickLook: nil, download: nil, revealInFinder: nil,
-                                rename: nil, chooseDestination: nil, ignore: nil)
+        let none = PaneRowVerbs(openInNewTab: nil, quickLook: nil, openInEditor: nil, download: nil,
+                                revealInFinder: nil, rename: nil, chooseDestination: nil, ignore: nil)
         guard actionHandler != nil, let pane = activePane, !selection.isEmpty else { return none }
         let context = paneContext(isLeft: pane == .left)
         let delegate = paneActionDelegate(for: context)
@@ -1308,7 +1317,10 @@ extension ContentView {
             // The badge's memo, never a fresh stat — see the resolver's note. A folder never asks.
             isCloudOnly: node.flatMap { $0.isDirectory ? false : CloudOnlyBadgeCache.cached($0.id) } ?? false,
             canOpenInNewTab: delegate.canOpenInNewTab,
-            isComparing: layoutMode == .compare)
+            isComparing: layoutMode == .compare,
+            // A path read, no I/O — exactly as `isCloudOnly` above reads a cache rather than
+            // stat-ing. This resolver runs on every `ContentView` body pass.
+            isText: node.map { EditableText.isText(path: $0.id) } ?? false)
         // Resolved here, not in the item: the row menu reads the same `isNodeIgnored` to decide
         // which of the two verbs it is offering, and the two must not answer differently.
         let allIgnored = selection.allSatisfy { delegate.isNodeIgnored($0, currentPath: context.currentPath) }
@@ -1319,6 +1331,10 @@ extension ContentView {
             openInNewTab: can.openInNewTab ? { node.map { delegate.handleOpenInNewTab($0) } } : nil,
             quickLook: can.singleNodeVerbs
                 ? { node.map { toggleQuickLook(URL(fileURLWithPath: $0.id), followsPane: true) } } : nil,
+            // The row menu's act, verbatim — `handleOpenInEditor` is the one hand-off, so the menu
+            // item and the right-click are literally the same call.
+            openInEditor: can.openInEditor
+                ? { node.map { delegate.handleOpenInEditor($0.id) } } : nil,
             // The row menu's own verb body, through the one shared implementation: the fetch, the
             // two log lines and the pane-scoped post that starts the badge watch.
             download: can.download
@@ -2116,6 +2132,13 @@ struct PaneRowVerbCommands: View {
     @FocusedValue(\.paneRowVerbs) private var verbs
 
     var body: some View {
+        // **First, and the only item here with a key.** The group's note below records that Rename
+        // and Download deliberately carry none; this one is the exception because ⌘O is the key a
+        // reader tries unprompted, it was unclaimed, and a window-level item can hold a key that a
+        // per-row menu cannot.
+        Button("Open in Edit") { verbs?.openInEditor?() }
+            .keyboardShortcut(AppChord.openInEditor.key, modifiers: AppChord.openInEditor.modifiers)
+            .disabled(verbs?.openInEditor == nil)
         Button("Open in New Tab") { verbs?.openInNewTab?() }
             .disabled(verbs?.openInNewTab == nil)
         Button("Quick Look") { verbs?.quickLook?() }
