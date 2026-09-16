@@ -5,6 +5,7 @@ import Combine
 import UniformTypeIdentifiers
 import AppKit
 import Design
+import FileExplorer
 
 /// Sidebar that shows file/folder metadata (size, dates, permissions) for the current selection or focused folder.
 /// Shown in the bottom tabbed area of the main view when the “Details” tab is selected.
@@ -36,6 +37,12 @@ public struct DetailsSidebar: View {
     /// iCloud reported as *This Mac only* — the exact false statement this feature exists not to
     /// make. Absent is absent.
     public let cloudCoverage: FileLocation.Coverage?
+    /// How this host opens a file in Edit, or nil where it has no editor — see ``EditorHandOff``.
+    ///
+    /// Defaulted to nil on both initializers, so every existing construction site keeps compiling
+    /// and keeps asking the question it was written to ask. The default is a correct answer rather
+    /// than a silently broken one: the inspector then draws exactly the row it always drew.
+    public let editorHandOff: EditorHandOff?
 
     @State private var computedDirectorySizeKey: DirectorySizeTaskID? = nil
     @State private var computedDirectorySize: String? = nil
@@ -71,10 +78,11 @@ public struct DetailsSidebar: View {
     nonisolated private static let dateFormatter = ZoneRefreshedFormatter.localized(date: .medium,
                                                                                     time: .medium)
     
-    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false, overridePath: String? = nil, singleSource: Bool = false, cloudCoverage: FileLocation.Coverage? = nil) {
+    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false, overridePath: String? = nil, singleSource: Bool = false, cloudCoverage: FileLocation.Coverage? = nil, editorHandOff: EditorHandOff? = nil) {
         self.init(syncManager: syncManager, leftPath: leftPath, rightPath: rightPath,
                   compact: compact, overridePath: overridePath, singleSource: singleSource,
-                  cloudCoverage: cloudCoverage, cache: DetailsMetadataCache())
+                  cloudCoverage: cloudCoverage, editorHandOff: editorHandOff,
+                  cache: DetailsMetadataCache())
     }
 
     /// Test seam: hands in the metadata cache instead of letting `@State` mint one, so a test can
@@ -83,7 +91,7 @@ public struct DetailsSidebar: View {
     /// public one.
     init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool,
          overridePath: String?, singleSource: Bool, cloudCoverage: FileLocation.Coverage? = nil,
-         cache: DetailsMetadataCache) {
+         editorHandOff: EditorHandOff? = nil, cache: DetailsMetadataCache) {
         self.syncManager = syncManager
         self.leftPath = leftPath
         self.rightPath = rightPath
@@ -91,6 +99,7 @@ public struct DetailsSidebar: View {
         self.overridePath = overridePath
         self.singleSource = singleSource
         self.cloudCoverage = cloudCoverage
+        self.editorHandOff = editorHandOff
         _cache = State(initialValue: cache)
     }
     
@@ -752,12 +761,41 @@ public struct DetailsSidebar: View {
         }
     }
     
+    /// Whether this card offers to open its file in Edit.
+    ///
+    /// **Pure, and static, so the rule can be called rather than mounted** — the same reason every
+    /// other decision in this file is a value. Three terms, and each has already been the wrong
+    /// answer somewhere: no hand-off means the host has no editor at all (the Dashboard package
+    /// knows nothing about one); a DIRECTORY never offers it, because this card renders for
+    /// focused-folder selections too and `kind` is a localized UTI description that cannot be
+    /// asked; and the host answers PER PATH rather than once, because the closure is fixed when
+    /// this view is built and the selection is not.
+    static func offersEditor(handOff: EditorHandOff?, data: FileMetadata) -> Bool {
+        guard let handOff, !data.isDirectory else { return false }
+        return handOff.isOffered(data.path)
+    }
+
     /// Inline actions for the metadata card so the Details tab isn't a read-only dead end.
-    /// Mirrors the file-row context menu (Reveal / Copy Path / Quick Look). Bordered + small to
-    /// match the app's other inline action rows. Shown for both single-item and focused-folder
-    /// renders — wherever `data` is non-nil.
+    /// Mirrors the file-row context menu — Open in Edit / Reveal / Copy Path / Quick Look, in that
+    /// order, the one the row menu leads with. Bordered + small to match the app's other inline
+    /// action rows. Shown for both single-item and focused-folder renders — wherever `data` is
+    /// non-nil — and the editor verb additionally only for a text file the host can open.
     private func metadataActions(for data: FileMetadata) -> some View {
-        HStack(spacing: 8) {
+        // **Wrapping, not squeezing** — `FlowLayout`, which exists for exactly this defect and says
+        // so. The inspector is 270pt by default and this row was ALREADY losing its labels there:
+        // rendered, the three buttons read "Reve… / Cop… / Quic…". A fourth took two of them to an
+        // icon and a bare ellipsis with no letters at all, which is a control nobody can identify.
+        // Wrapped, every button keeps its whole title at every inspector width, and the row grows
+        // downward in a card that already scrolls.
+        FlowLayout(spacing: 8, lineSpacing: 8) {
+            if let handOff = editorHandOff, Self.offersEditor(handOff: handOff, data: data) {
+                Button {
+                    handOff.open(data.path)
+                } label: {
+                    Label("Open in Edit", systemImage: "square.and.pencil")
+                }
+                .chromeHover()
+            }
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: data.path)])
             } label: {
@@ -840,5 +878,34 @@ public struct DetailsSidebar: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+/// How a host opens one of its files in the Edit workspace, handed to ``DetailsSidebar``.
+///
+/// **Two closures rather than one, and neither is optional-per-file.** The literal shape this was
+/// first specified with — "a closure that is nil for a file the editor cannot open" — cannot work:
+/// a closure is fixed when the view is built and the inspector's selection changes underneath it,
+/// so a nil chosen at construction would answer about whichever file happened to be selected then.
+/// `isOffered` is therefore asked per path, on every render, and must be cheap and I/O-free (in the
+/// app it is `EditableText.isText`, which reads a path extension).
+///
+/// **One value rather than two separate parameters**, on the argument `PaneRowVerbs` makes about
+/// its own pair: two properties are two chances for a host to wire one and forget the other, and a
+/// predicate that says yes beside an `open` that does nothing is a button that looks live and is
+/// not. They arrive together or not at all.
+///
+/// The whole value is optional: nil means this host has no editor, and the inspector draws the row
+/// it always drew. The Dashboard package deliberately learns nothing about what a text file is —
+/// that answer lives in one place, and the app passes it down.
+public struct EditorHandOff {
+    /// Whether the editor opens the file at this path. Asked per render, per path.
+    public let isOffered: (String) -> Bool
+    /// Hands the file at this path to the editor.
+    public let open: (String) -> Void
+
+    public init(isOffered: @escaping (String) -> Bool, open: @escaping (String) -> Void) {
+        self.isOffered = isOffered
+        self.open = open
     }
 }

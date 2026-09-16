@@ -5096,6 +5096,44 @@ maintenance line that somehow gained this button without it would ask the provid
 whole file to open it in an editor that is not there. Nothing is stored, and the preview column's
 own download path is untouched — same notification, same pane token, same channel.
 
+---
+
+## Open in Edit in the Info inspector, and its action row stops squeezing (TE29)
+
+**Two halves with different answers, which is why this row is careful.** The editor door is
+`main`-only for the reason TE27/TE28 record. **The wrapping fix is not** — the squeezing row is on
+every line and reads the same way there.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s detailsSidebar=%s actionRow=%s flowLayout=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Dashboard/Sources/Dashboard/DetailsSidebar.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/DetailsSidebar.swift 2>/dev/null | grep -c 'func metadataActions')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/AutomationsLens.swift 2>/dev/null | grep -c 'public struct FlowLayout')"
+done
+# measured 2026-09-16, before this landed:
+# main   detailsSidebar=1 actionRow=1 flowLayout=1
+# v4.x   detailsSidebar=1 actionRow=1 flowLayout=1
+# v3.x   detailsSidebar=1 actionRow=1 flowLayout=0
+# v2.x   detailsSidebar=1 actionRow=1 flowLayout=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`EditorHandOff`** (a per-path `isOffered` beside `open`), the parameter on both `DetailsSidebar` inits, `offersEditor(handOff:data:)`, the button, and the wiring in `ContentView.infoInspector` | Not owed — no editor to hand a file to, and `EditableText` is not there to answer `isOffered` | Same | RECORDED — not owed |
+| **The action row wraps (`FlowLayout`) instead of squeezing** — a defect fix, not part of the feature | **APPLIES, and is a real defect there too.** At the inspector's default 270pt the three shipped buttons already render "Reve… / Cop… / Quic…" on every line. `FlowLayout` is public in FileExplorer on `v4.x`, so the pick is a two-line change (the layout swap plus the `import FileExplorer`) | **Applies, but costs more**: `FlowLayout` is not public there — `v3.x`/`v2.x` would need it exported, or a local copy, which is how this repo came to have three copies of it in the first place | RECORDED — **applies, NOT picked** (standing direction: `main` only) |
+
+**Checked and not owed, the other direction.** The wrap changes no behaviour, only layout: same four
+verbs, same actions, same `isStale` guard withholding the whole row while the card is a beat behind
+the selection — which the new button inherits for free, since every button in the row names
+`data.path` and for one turn that is still the previous file. Nothing stored, no defaults key.
+
+**The one thing a future audit should not re-derive:** the squeeze was found by RENDERING the row at
+270pt, not by reading it. The numbers are in the commit body and in
+`DetailsEditorDoorTests.theRowWrapsRatherThanSqueezingAtTheInspectorsWidth`, which fails if the row
+ever goes back to an `HStack`.
+
+
 **Checked and not owed, the other direction.** Nothing here is stored or observable outside the
 window: no defaults key, no file format, no change to what the verb DOES when chosen — only where it
 sits in a menu and who may ask its question. A `main` build and a maintenance-line build still share

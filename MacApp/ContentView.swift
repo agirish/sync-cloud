@@ -3854,7 +3854,12 @@ struct ContentView: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
             Divider()
-            DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true, overridePath: infoPath, singleSource: layoutMode == .singleSource, cloudCoverage: settings.cloudCoverage)
+            DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true, overridePath: infoPath, singleSource: layoutMode == .singleSource, cloudCoverage: settings.cloudCoverage,
+                           // The app answers what the editor opens, because the app is where every
+                           // other door asks it: `EditableText.isText` is the row menu's own gate,
+                           // so the inspector cannot come to disagree with the menu about a file.
+                           editorHandOff: EditorHandOff(isOffered: { EditableText.isText(path: $0) },
+                                                       open: { handOffToEditor($0) }))
         }
         .frame(width: inspectorDragWidth ?? inspectorWidth)
         // A card like every other surface, not a docked `.bar` panel: the opaque bar fill was a

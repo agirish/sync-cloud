@@ -19,6 +19,10 @@ User-facing changes, newest first. For the full commit history see the
   an **Edit** button beside it — the same hand-off, one click from where you were already reading the
   file. It is not offered for anything the editor cannot open, nor for a file that is still in the
   cloud: there, the preview goes on offering Download, as it did.
+- **The Info inspector offers it as well** (⌘I), first in its row of actions, for a text file and
+  never for a folder. **And that row now wraps instead of squeezing**: at the inspector's usual width
+  its buttons had been shrinking until their labels were a letter and an ellipsis — "Reve…", "Cop…" —
+  and each one now keeps its whole name, on a second line where it needs one.
 
 ### Folders merge, and Cancel stops the copy it is in
 
