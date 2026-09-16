@@ -5258,3 +5258,20 @@ done
 
 **Checked and not owed, the other direction.** Nothing in the app changes: every file touched is
 under `Tests/` or `docs/`. No defaults key, no stored format, no product code path.
+
+---
+
+## Review of TE27–TE30: the preview name, two unpinned wirings, overclaiming copy, two silent exits
+
+`main` only, **not owed** — every change edits a surface that exists only with the editor (the
+preview's Edit button, the inspector's and File menu's hand-off wiring, `handOffToEditor`'s log
+lines, and the copy describing all four). No maintenance-line measurement beyond TE27's is needed:
+`MacApp/ContentView+Editor.swift` is absent from `v4.x`, `v3.x` and `v2.x`.
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **The preview's Edit button stacks under a long name** (`ViewThatFits`) instead of taking its line, and carries the accessibility label "Open in Edit" | Not owed: the button is TE28's and main-only | Same | RECORDED — not owed |
+| **`OpenInEditorMenuTests.theInspectorAndTheFileMenuAreWiredToTheRealHandOff`** | Not owed: neither wiring exists there | Same | RECORDED — not owed |
+| **`handOffToEditor` logs its two exits that wrote nothing** (already open; settle cancelled) | Not owed: no hand-off | Same | RECORDED — not owed |
+| **Notes, Help and README copy** no longer claim a door "anywhere" / "wherever you are looking", nor "whatever the focused pane has selected" | Not owed | Same | RECORDED — not owed |
+

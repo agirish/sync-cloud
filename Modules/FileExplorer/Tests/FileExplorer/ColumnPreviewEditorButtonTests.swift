@@ -116,9 +116,10 @@ import UniformTypeIdentifiers
 
     /// Mounts a column in a real window and pumps until its probe has been answered.
     private func mounted(_ item: ColumnPreviewItem, source: ColumnPreviewSource,
-                         opened: Recorder) async -> NSWindow {
-        let host = NSHostingView(rootView: Harness(item: item, source: source, opened: opened))
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 620)
+                         opened: Recorder, width: CGFloat = 420) async -> NSWindow {
+        let host = NSHostingView(rootView: Harness(item: item, source: source, opened: opened)
+            .frame(width: width, height: 620))
+        host.frame = NSRect(x: 0, y: 0, width: width, height: 620)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -201,5 +202,39 @@ import UniformTypeIdentifiers
                                   "the Edit button is not drawn at all")
         #expect(button.minY > host.frame.height / 2,
                 "the Edit button is drawn in the preview's half of the column, at y \(button.minY)")
+    }
+
+    /// **A long name keeps its line; the button moves under it.**
+    ///
+    /// Found by rendering at the preview's 220pt floor, after this suite had shipped green: beside
+    /// a long name the button took the name's line from "Quarterly planning notes / for the
+    /// hous…ew 2026.md" down to "Quarterly / planni…26.md". Nothing here was checking the name,
+    /// because every fixture was eight characters long.
+    ///
+    /// Asserted by where the button lands horizontally, which is the one reading that tells the two
+    /// layouts apart: beside the name it is trailing-aligned, under the name it is leading-aligned.
+    /// A short name at the same width is the control — it still gets the one-line layout, so this
+    /// cannot pass by the button simply always stacking.
+    @Test func aLongNameKeepsItsLineAndTheButtonMovesUnderIt() async throws {
+        let width: CGFloat = 220
+        let edit = Self.editButtonWidth()
+        let opened = Recorder()
+
+        let short = await mounted(try Self.item("notes.md"), source: .quickLook, opened: opened,
+                                  width: width)
+        defer { short.contentView = nil }
+        let beside = try #require(Self.focusRings(short.contentView!).first { Self.matches($0, edit) },
+                                  "no Edit button beside a short name")
+        #expect(beside.minX > width / 2, "a short name no longer gets the one-line layout: x \(beside.minX)")
+
+        let long = await mounted(
+            try Self.item("Quarterly planning notes for the household budget review 2026.md"),
+            source: .quickLook, opened: opened, width: width)
+        defer { long.contentView = nil }
+        let rings = Self.focusRings(long.contentView!)
+        #expect(rings.count == 1, "the stacked layout drew \(rings.count) buttons — ViewThatFits built both")
+        let under = try #require(rings.first { Self.matches($0, edit) }, "no Edit button under a long name")
+        #expect(under.minX < width / 2,
+                "the button stayed beside a long name at x \(under.minX), taking the name's line")
     }
 }

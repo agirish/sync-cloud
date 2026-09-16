@@ -165,6 +165,54 @@ import FileExplorer
                 "the sidebar has started deciding for itself what the editor opens")
     }
 
+    /// **The two doors the app wires itself: the Info inspector and File ▸ Open in Edit.**
+    ///
+    /// Both were added with pure rules and mounted tests that inject their own closures — so the
+    /// one expression in each that connects the door to the real hand-off was never executed by
+    /// any test. Found on review: `open: { _ in }` at the inspector's construction site, or a
+    /// menu closure that did nothing, left every suite green while the button or ⌘O did nothing.
+    /// The same class of gap `bothPreviewMountsWireTheEditButtonToTheHandOff` closes for the
+    /// preview, closed the same way.
+    ///
+    /// The predicate half matters as much as the action half: `isText: true` in the menu, or
+    /// `isOffered: { _ in true }` in the inspector, would offer a PDF to a text editor, and the
+    /// resolver's own tests cannot see it because they inject `isText` directly.
+    @Test func theInspectorAndTheFileMenuAreWiredToTheRealHandOff() throws {
+        let content = try Self.macApp("ContentView.swift")
+        let inspector = try #require(content.range(of: "editorHandOff: EditorHandOff("),
+                                     "the Info inspector is built without an editor hand-off")
+        let handOff = String(content[inspector.upperBound...].prefix(240))
+        #expect(handOff.contains("isOffered: { EditableText.isText(path: $0) }"),
+                "the inspector no longer asks the row menu's own predicate what the editor opens")
+        #expect(handOff.contains("open: { handOffToEditor($0) }"),
+                "the inspector's Open in Edit is not wired to handOffToEditor")
+
+        let shortcuts = try Self.macApp("ShortcutCommands.swift")
+        let verbs = try #require(shortcuts.range(of: "var shortcutPaneRowVerbs"),
+                                 "the row verbs resolver is gone or has moved out of this file")
+        let rest = shortcuts[verbs.upperBound...]
+        let end = try #require(rest.range(of: "\n    }\n"), "shortcutPaneRowVerbs never closes")
+        let resolver = String(rest[..<end.lowerBound])
+        #expect(resolver.contains("return PaneRowVerbs("), "the slice is not the resolver's body")
+        #expect(resolver.contains("isText: node.map { EditableText.isText(path: $0.id) } ?? false"),
+                "File ▸ Open in Edit no longer asks the row menu's own predicate about the selection")
+        #expect(resolver.contains("? { node.map { delegate.handleOpenInEditor($0.id) } } : nil"),
+                "File ▸ Open in Edit is not wired to the delegate's hand-off")
+    }
+
+    /// A file in `MacApp/`, read from disk.
+    static func macApp(_ name: String) throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // SyncCloudTests
+            .deletingLastPathComponent()   // repo root
+            .appendingPathComponent("MacApp")
+            .appendingPathComponent(name)
+        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                "cannot read \(name) — this scan would be vacuous")
+        try #require(text.count > 500, "\(name) is implausibly short — the scan would be near-vacuous")
+        return text
+    }
+
     /// The module's own source, read from disk. Mirrors the other call-site scans in this suite.
     static func source(_ name: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)

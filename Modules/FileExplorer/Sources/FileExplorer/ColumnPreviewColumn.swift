@@ -547,27 +547,30 @@ struct ColumnPreviewColumn: View {
             // area — never over it. A hosted `QLPreviewView` brings its own controls and this file
             // deliberately puts nothing clickable on top of them (see the note on the preview's
             // missing click catcher); the identity rows are the column's own surface.
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(item.name)
-                    .scaledFont(.headline)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                Spacer(minLength: 8)
-                if offersEditor {
-                    Button { onOpenInEditor(item.path) } label: {
-                        // "Edit", not "Open in Edit": the button is beside the file it names, where
-                        // the menus that carry the longer title are not. Labelled rather than a bare
-                        // glyph, which is also what keeps it out of `UnnamedControlScanTests`.
-                        Label("Edit", systemImage: "square.and.pencil")
+            //
+            // **Beside the name only when the name fits beside it; otherwise under it.** Measured
+            // at the preview's 220pt floor, a side-by-side button took the name's line from
+            // "Quarterly planning notes / for the hous…ew 2026.md" down to "Quarterly /
+            // planni…26.md" — the file's identity paying for a control about the file. The name is
+            // what this block is for, so `ViewThatFits` keeps it whole: the one-line layout is used
+            // when the name fits on one line next to the button, and the stacked one otherwise.
+            if offersEditor {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        nameText
+                        Spacer(minLength: 8)
+                        editButton
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .chromeHover()
-                    .help("Open this file in Edit")
+                    VStack(alignment: .leading, spacing: 6) {
+                        nameText
+                        editButton
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                nameText
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             if let subtitle {
                 Text(subtitle)
                     .scaledFont(.caption)
@@ -582,6 +585,33 @@ struct ColumnPreviewColumn: View {
                 metadataRow("Modified", Self.dateFormatter.string(from: modified))
             }
         }
+    }
+
+    /// The file's name, as the identity block's first line draws it.
+    private var nameText: some View {
+        Text(item.name)
+            .scaledFont(.headline)
+            .lineLimit(2)
+            .truncationMode(.middle)
+            .textSelection(.enabled)
+    }
+
+    /// The hand-off to Edit, for a text file on this disk — see ``offersEditor``.
+    private var editButton: some View {
+        Button { onOpenInEditor(item.path) } label: {
+            // "Edit", not "Open in Edit": the button is beside the file it names, where the menus
+            // that carry the longer title are not. Labelled rather than a bare glyph, which is also
+            // what keeps it out of `UnnamedControlScanTests`.
+            Label("Edit", systemImage: "square.and.pencil")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .chromeHover()
+        .help("Open this file in Edit")
+        // The visible word is short because the file it acts on is right beside it. A screen
+        // reader reaches the button on its own, where "Edit" names no object, so it hears the
+        // verb every other door uses.
+        .accessibilityLabel("Open in Edit")
     }
 
     /// "PDF document — 37 KB", with either half omitted when the walk didn't resolve it.

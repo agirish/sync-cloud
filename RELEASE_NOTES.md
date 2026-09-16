@@ -12,12 +12,13 @@ User-facing changes, newest first. For the full commit history see the
 
 ### Getting a file into Edit
 
-- **Four ways in, and all four do the same thing.** A text file you can see anywhere in SyncCloud
-  can now be opened in Edit from wherever you happen to be looking at it: **File ▸ Open in Edit, on
-  ⌘O**, for whatever the focused pane has selected; **Open in Edit at the top of a file's
-  right-click menu**, where it used to sit below Get Info and Reveal in Finder; an **Edit** button on
-  the name line of the preview (⇧⌘P); and **Open in Edit first among the Info inspector's actions**
-  (⌘I). Until now the right-click menu was the only way, and it was easy to miss.
+- **Four ways in, and all four do the same thing.** A text file in a file pane can now be opened
+  in Edit from four places: **File ▸ Open in Edit, on ⌘O**, for the text file selected in the
+  focused pane; **Open in Edit at the top of a file's right-click menu**, where it used to sit below
+  Get Info and Reveal in Finder; an **Edit** button by the file's name in the preview (⇧⌘P) — beside
+  it, or under it when the name is long; and **Open in Edit first among the Info inspector's
+  actions** (⌘I). Until now the right-click menu was the only way, and it was easy to miss. Compare's list
+  of differences and Duplicates' copies do not offer it yet.
 - **Each one is offered for a text file and never for a folder** — all four ask the question the
   right-click menu always asked, so they agree about what a text file is. The preview is the one
   that holds back further: for a file whose content is still in the cloud it goes on offering

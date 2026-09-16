@@ -339,10 +339,20 @@ extension ContentView {
     func handOffToEditor(_ path: String) {
         guard path != editorDocument.path || editorDocument.refusal != nil else {
             // Already open and readable: just go there. Nothing to settle, nothing to move.
+            //
+            // **Logged, because every other outcome of a hand-off is.** `loadIntoEditor` writes one
+            // line for opened / read-only / refused, and this exit and the cancelled settle below
+            // were the two that wrote nothing — so a report of "I pressed ⌘O and nothing happened"
+            // had no line to find. There are four doors onto this function now; each hand-off
+            // leaves exactly one line whichever way it ends.
+            Logger.shared.info("Editor hand-off: \(path) is already open — showing Edit")
             if selectedWorkspace != .editor { selectedWorkspace = .editor }
             return
         }
-        guard settleEditorDocument() else { return }
+        guard settleEditorDocument() else {
+            Logger.shared.info("Editor hand-off to \(path) cancelled — the open document was kept")
+            return
+        }
         let folder = (path as NSString).deletingLastPathComponent
         // **The LEFT pane, whichever pane the row was in.** It took the row's side for a while,
         // which sounds more careful and is not: `editorFolder` reads the left pane and only the
