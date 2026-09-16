@@ -274,6 +274,21 @@ struct ColumnPreviewColumn: View {
     /// pass anything else are tests isolating themselves from each other.
     var downloadChannel: NotificationCenter = .default
 
+    /// Hands this column's file to the Edit workspace — the same act the row menu's Open in Edit
+    /// performs, reached through the pane's `FileActionDelegate.handleOpenInEditor`.
+    ///
+    /// **A closure rather than the delegate**, so the column stays free of the existential this
+    /// file's opening note keeps out of it: the preview needs one verb, not the thirty a
+    /// `FileActionDelegate` carries, and taking the protocol here would put a pane's whole action
+    /// surface inside a view that renders a file's identity. The column sits below `FileTreeView`'s
+    /// `Equatable` boundary, so a freshly built closure per render costs nothing.
+    ///
+    /// **No default, for the reason `paneToken` and `isAwaitingDownload` have none** — the rule
+    /// `ColumnPreviewDownloadWiringTests` was written to record. A defaulted `{ _ in }` is an
+    /// argument whose deletion at a call site compiles, leaves every suite green, and leaves a
+    /// button on screen that does nothing when clicked.
+    let onOpenInEditor: (String) -> Void
+
     /// The height the bar's band actually needs: its own height plus the padding the overlay adds
     /// around it. Only the BOTTOM edge is reserved. The bar flips to the top when the selected row is
     /// near its column's bottom, and there it covers the Quick Look area instead — an image that
@@ -435,6 +450,30 @@ struct ColumnPreviewColumn: View {
         PreviewAccessory.decide(source: probe?.source, isAwaitingDownload: isAwaitingDownload)
     }
 
+    /// Whether this column offers to open its file in Edit.
+    ///
+    /// **Pure, and decided here rather than inside `identity`**, for the reason `PreviewAccessory`
+    /// gives at length: a control that only exists inside a `body` has no channel a test can read
+    /// it through — SwiftUI builds no accessibility tree without an assistive client attached, so
+    /// a hosted assertion about it passes vacuously.
+    ///
+    /// **Both halves are load-bearing.** `.quickLook` is the classification's word for "the bytes
+    /// are on this disk": a cloud-only placeholder must not be handed to the editor (that is the
+    /// provider download this column exists to avoid starting) and a vanished file has nothing to
+    /// open. The text test is the row menu's own gate, asked through the one public spelling of it,
+    /// so this button and that menu item cannot come to disagree about what a text file is.
+    static func offersEditor(source: ColumnPreviewSource?, path: String) -> Bool {
+        source == .quickLook && EditableText.isText(path: path)
+    }
+
+    /// ``offersEditor(source:path:)`` for the file on screen right now.
+    ///
+    /// **Read off the PROBE, not off `hasSettled`.** The button belongs to the file's identity —
+    /// the name, the kind, the dates — all of which are on screen the moment the column appears;
+    /// `hasSettled` gates the expensive Quick Look mount 180 ms later, and nothing about "this is a
+    /// text file that is on disk" needs that wait. The 180 ms lead is deliberate, not an oversight.
+    var offersEditor: Bool { Self.offersEditor(source: probe?.source, path: item.path) }
+
     // MARK: - Preview area
 
     /// Which renderer draws this file once it has settled — see `PreviewRenderer`.
@@ -504,12 +543,31 @@ struct ColumnPreviewColumn: View {
     @ViewBuilder
     private var identity: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(item.name)
-                .scaledFont(.headline)
-                .lineLimit(2)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // The verb sits on the name line, INSIDE the identity block and so below the preview
+            // area — never over it. A hosted `QLPreviewView` brings its own controls and this file
+            // deliberately puts nothing clickable on top of them (see the note on the preview's
+            // missing click catcher); the identity rows are the column's own surface.
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(item.name)
+                    .scaledFont(.headline)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                Spacer(minLength: 8)
+                if offersEditor {
+                    Button { onOpenInEditor(item.path) } label: {
+                        // "Edit", not "Open in Edit": the button is beside the file it names, where
+                        // the menus that carry the longer title are not. Labelled rather than a bare
+                        // glyph, which is also what keeps it out of `UnnamedControlScanTests`.
+                        Label("Edit", systemImage: "square.and.pencil")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .chromeHover()
+                    .help("Open this file in Edit")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             if let subtitle {
                 Text(subtitle)
                     .scaledFont(.caption)

@@ -965,6 +965,7 @@ public struct FileTreeView: View, Equatable {
                         paneToken: paneToken,
                         isAwaitingDownload: downloads.requests[target.path] != nil,
                         downloadChannel: downloadChannel,
+                        onOpenInEditor: { delegate.handleOpenInEditor($0) },
                         dragWidth: $dragPreviewWidth,
                         dragAnchor: $dragPreviewAnchor,
                         storedWidth: $storedPreviewWidth)

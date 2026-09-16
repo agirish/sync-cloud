@@ -54,6 +54,9 @@ struct PanePreviewSidebar: View {
     /// Whether this pane is watching a download of the file on screen.
     let isAwaitingDownload: Bool
     var downloadChannel: NotificationCenter = .default
+    /// Hands the file on screen to Edit. Forwarded, not decided here — and with no default, for
+    /// the reason `ColumnPreviewColumn.onOpenInEditor` has none.
+    let onOpenInEditor: (String) -> Void
 
     /// The width the drag is at right now, `nil` when no drag is in flight. The caller reads it to
     /// lay the list out against a live seam.
@@ -70,7 +73,8 @@ struct PanePreviewSidebar: View {
             actionBarClearance: actionBarClearance,
             paneToken: paneToken,
             isAwaitingDownload: isAwaitingDownload,
-            downloadChannel: downloadChannel)
+            downloadChannel: downloadChannel,
+            onOpenInEditor: onOpenInEditor)
             .frame(width: width)
             // On the preview's LEADING edge, and it resizes the preview: pinned to the pane's
             // trailing edge, growing it moves this seam left, under the cursor, exactly as a divider

@@ -136,6 +136,35 @@ import FileExplorer
                 "the delegate did not forward the paths it was handed")
     }
 
+    /// **The preview column's Edit button reaches the same act, from both surfaces that mount it.**
+    ///
+    /// The button's own click is not drivable from a session — `ColumnPreviewEditorButtonTests`
+    /// proves it is DRAWN and `ColumnPreviewTests` proves WHEN, but what it calls when clicked is
+    /// two expressions in two files that nothing executes in a test. Both are scanned here, in the
+    /// suite that already exists for exactly this class of gap: a one-line forward that gets
+    /// reviewed by eye and never run.
+    ///
+    /// The path matters as much as the delegate. `onOpenInEditor(item.name)` would compile, draw
+    /// identically, and open the wrong thing — or nothing.
+    @Test func bothPreviewMountsWireTheEditButtonToTheHandOff() throws {
+        for file in ["FileTreeView.swift", "PaneColumnsView.swift"] {
+            let source = try Self.source(file)
+            #expect(source.contains("onOpenInEditor: { delegate.handleOpenInEditor($0) }"),
+                    "\(file) mounts the preview without wiring its Edit button to the hand-off")
+        }
+        // …and the button hands over the file's PATH, not its name or its kind.
+        let column = try Self.source("ColumnPreviewColumn.swift")
+        #expect(column.contains("Button { onOpenInEditor(item.path) }"),
+                "the Edit button no longer hands the editor this column's path")
+        // The sidebar in between forwards rather than deciding: a second decision about what is
+        // editable is the drift the one public predicate exists to prevent.
+        let sidebar = try Self.source("PanePreviewSidebar.swift")
+        #expect(sidebar.contains("onOpenInEditor: onOpenInEditor"),
+                "PanePreviewSidebar stopped forwarding the hand-off")
+        #expect(!sidebar.contains("EditableText") && !sidebar.contains("PairContentKind"),
+                "the sidebar has started deciding for itself what the editor opens")
+    }
+
     /// The module's own source, read from disk. Mirrors the other call-site scans in this suite.
     static func source(_ name: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)

@@ -15,6 +15,10 @@ User-facing changes, newest first. For the full commit history see the
 - **Open in Edit is the first thing a file's right-click menu offers**, above Get Info and Reveal in
   Finder rather than below them. The same menu, and so the same order, in Browse, in both Compare
   panes, in Organize's list and in Edit's own file list. It is still offered only for a text file.
+- **The preview pane offers it too.** With the preview showing (⇧⌘P), a text file's name line carries
+  an **Edit** button beside it — the same hand-off, one click from where you were already reading the
+  file. It is not offered for anything the editor cannot open, nor for a file that is still in the
+  cloud: there, the preview goes on offering Download, as it did.
 
 ### Folders merge, and Cancel stops the copy it is in
 

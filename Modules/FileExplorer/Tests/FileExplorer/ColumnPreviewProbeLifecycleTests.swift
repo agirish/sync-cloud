@@ -72,7 +72,8 @@ import UniformTypeIdentifiers
             let cloudOnlyPath = self.cloudOnlyPath
             let heldFor = self.heldFor
             let log = self.log
-            return ColumnPreviewColumn(item: box.item, paneToken: .left, isAwaitingDownload: false)
+            return ColumnPreviewColumn(item: box.item, paneToken: .left, isAwaitingDownload: false,
+                                       onOpenInEditor: { _ in })
                 .frame(width: 420, height: 520)
                 .environment(\.columnPreviewProbe, ColumnPreviewProbeReader { path in
                     let isCloudOnly = path == cloudOnlyPath

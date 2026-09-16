@@ -76,7 +76,8 @@ import UniformTypeIdentifiers
             item: item,
             paneToken: PaneToken(isLeft: true, isSingleSource: true),
             isAwaitingDownload: false,
-            downloadChannel: NotificationCenter()))
+            downloadChannel: NotificationCenter(),
+            onOpenInEditor: { _ in }))
         host.frame = NSRect(x: 0, y: 0, width: width, height: height)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)

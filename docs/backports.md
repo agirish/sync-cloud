@@ -5061,6 +5061,41 @@ done
 | **The reorder** — `SharedFileMenuItems.openInEditor` moves to the head of `FileContextMenu`'s single-file branch, above Get Info and Reveal in Finder | Nothing to pick: the branch on that line has no editor item, and the two it would move above are already first | Same | RECORDED — not owed |
 | **`EditableText.isText(path:)`**, the one public way out of the package to the gate `PairContentKind.textExtensions` holds | Not owed on its own. It exists for TE29/TE30, which are `main`-only for the same reason | Same | RECORDED — not owed |
 
+
+---
+
+## An Edit button in the preview column (TE28)
+
+`main` only, **not owed**, and the measurement is the one recorded for TE27 directly above — the
+editor, its hand-off and `PairContentKind` are absent from all three maintenance lines, so a button
+that hands a file to Edit has nothing to hand it to. The preview column itself exists on **all four**
+lines, which is exactly why this row spells out that the missing half is the destination, not the
+surface — the file this change edits is present everywhere and still has nothing to hand a file to:
+
+```sh
+# the surface exists off main; the thing it would open does not.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s previewColumn=%s editorHandOff=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/ColumnPreviewColumn.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/ContentView+Editor.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-09-16, before this landed:
+# main   previewColumn=1 editorHandOff=1
+# v4.x   previewColumn=1 editorHandOff=0
+# v3.x   previewColumn=1 editorHandOff=0
+# v2.x   previewColumn=1 editorHandOff=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`ColumnPreviewColumn.onOpenInEditor`** (required, no default), forwarded through `PanePreviewSidebar` and wired at both mount sites | Not owed: nothing to hand a file to. Were it ever wanted, the column there carries the same no-default rule and the same six construction sites would need updating | Same — the column is present, the editor is not | RECORDED — not owed |
+| **`offersEditor(source:path:)`** and the button on the identity block's name line | Not owed. It depends on `EditableText`, which depends on `PairContentKind` — and that enum is on no maintenance line at all, so the predicate cannot even compile there | Same | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** The `.cloudOnly` refusal is the half worth naming: a
+maintenance line that somehow gained this button without it would ask the provider to download a
+whole file to open it in an editor that is not there. Nothing is stored, and the preview column's
+own download path is untouched — same notification, same pane token, same channel.
+
 **Checked and not owed, the other direction.** Nothing here is stored or observable outside the
 window: no defaults key, no file format, no change to what the verb DOES when chosen — only where it
 sits in a menu and who may ask its question. A `main` build and a maintenance-line build still share

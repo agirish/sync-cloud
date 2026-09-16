@@ -424,7 +424,8 @@ import UniformTypeIdentifiers
         var body: some View {
             let probe = self.probe
             return ColumnPreviewColumn(item: item, paneToken: .singleSource,
-                                       isAwaitingDownload: watching.isAwaiting)
+                                       isAwaitingDownload: watching.isAwaiting,
+                                       onOpenInEditor: { _ in })
                 .environment(\.columnPreviewProbe, ColumnPreviewProbeReader { path in
                     await MainActor.run {
                         probe.answered.append(path)

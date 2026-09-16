@@ -169,6 +169,51 @@ import UniformTypeIdentifiers
         }
     }
 
+    // MARK: - The editor button
+
+    /// **Only a file whose bytes are on this disk, and only a text one.**
+    ///
+    /// Written as a loop over every source rather than three separate cases, so a rule that stopped
+    /// reading `source` at all cannot pass: `.cloudOnly` is the one that matters — handing a
+    /// dataless placeholder to the editor asks the provider for the whole file, which is the
+    /// download this column's classification exists to refuse — and `.missing` and `nil` are the
+    /// states where there is nothing, or nothing known, to open.
+    @Test func onlyAMaterializedTextFileOffersTheEditor() {
+        #expect(ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/notes.txt"))
+        #expect(ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/notes.md"))
+        for source: ColumnPreviewSource? in [.cloudOnly, .missing, nil] {
+            #expect(!ColumnPreviewColumn.offersEditor(source: source, path: "\(Self.dir)/notes.txt"),
+                    "\(String(describing: source)) offered the editor — the bytes are not on this disk")
+        }
+        for name in ["scan.pdf", "photo.jpg", "clip.mov", "archive.zip"] {
+            #expect(!ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/\(name)"),
+                    "\(name) offered the editor, which would then refuse it")
+        }
+    }
+
+    /// The button asks the same question the row menu's item does, through the one public spelling
+    /// of it. Asserted as agreement rather than against a second hand-written list: two lists are
+    /// two things to keep in step, and this whole predicate exists so there is only one.
+    @Test func theButtonAndTheRowMenuAgreeAboutWhatIsText() {
+        for name in ["notes.txt", "notes.md", "scan.pdf", "photo.jpg", "Package.swift", "noext"] {
+            #expect(ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/\(name)")
+                    == EditableText.isText(path: name),
+                    "the preview column and the row menu disagree about \(name)")
+        }
+    }
+
+    /// The instance property reads THIS column's probe, pinning it onto the static above — the same
+    /// shape `anUnprobedColumnOffersNothing` pins `accessory` and `previewCaption` with. An unprobed
+    /// column knows nothing about the file's bytes yet, so it offers nothing, text name or not.
+    @MainActor
+    @Test func anUnprobedColumnOffersNoEditorEither() throws {
+        let item = try #require(ColumnPreview.item(selection: ["\(Self.dir)/notes.txt"],
+                                                   deepestRows: Self.rows()))
+        let column = ColumnPreviewColumn(item: item, paneToken: .left, isAwaitingDownload: false,
+                                         onOpenInEditor: { _ in })
+        #expect(!column.offersEditor)
+    }
+
     /// The column reads its own probe: before one completes there is nothing to offer, whatever the
     /// pane's latch says. Pins the two instance properties onto the statics above — mutate either
     /// forward to a constant and this fails.
@@ -176,7 +221,8 @@ import UniformTypeIdentifiers
     @Test func anUnprobedColumnOffersNothing() throws {
         let item = try #require(ColumnPreview.item(selection: ["\(Self.dir)/scan.pdf"],
                                                    deepestRows: Self.rows()))
-        let column = ColumnPreviewColumn(item: item, paneToken: .left, isAwaitingDownload: true)
+        let column = ColumnPreviewColumn(item: item, paneToken: .left, isAwaitingDownload: true,
+                                         onOpenInEditor: { _ in })
 
         #expect(column.accessory == .none)
         #expect(column.previewCaption == nil)

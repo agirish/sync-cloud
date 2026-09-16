@@ -150,7 +150,8 @@ import UniformTypeIdentifiers
     func inkBounds(clearance: CGFloat, height: CGFloat) -> (top: CGFloat, bottom: CGFloat)? {
         let size = CGSize(width: 500, height: height)
         let subject = ColumnPreviewColumn(item: Self.item, actionBarClearance: clearance,
-                                          paneToken: .left, isAwaitingDownload: false)
+                                          paneToken: .left, isAwaitingDownload: false,
+                                          onOpenInEditor: { _ in })
             .frame(width: size.width, height: size.height)
             .background(Color.white)
             .environment(\.colorScheme, .light)

@@ -305,6 +305,7 @@ struct PaneColumnsView: View {
                     paneToken: paneToken,
                     isAwaitingDownload: awaitingDownloads[previewTarget.path] != nil,
                     downloadChannel: downloadChannel,
+                    onOpenInEditor: { delegate.handleOpenInEditor($0) },
                     dragWidth: $dragPreviewWidth,
                     dragAnchor: $dragPreviewAnchor,
                     storedWidth: $storedPreviewWidth)
