@@ -47,7 +47,7 @@ public enum MouseDownProbe {
         // `TapGesture` needs the up as well. A lost up is therefore invisible on the down, and
         // presents as a table that simply declines to select.
         monitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .leftMouseUp, .leftMouseDragged]
+            matching: [.leftMouseDown, .leftMouseUp, .leftMouseDragged, .keyDown]
         ) { event in
             report(event)
             return event      // never consume: see the class doc
@@ -60,6 +60,19 @@ public enum MouseDownProbe {
     /// The line itself. Everything it prints is read off the event and the view tree; it mutates
     /// nothing, so an armed session differs from an unarmed one only by the log.
     private static func report(_ event: NSEvent) {
+        // **Keys, and who they were delivered to.** Every other line in this file describes a
+        // click; none of them can say why a keystroke did nothing, because a key that reaches the
+        // wrong responder runs no handler at all and is therefore invisible exactly the way a dead
+        // click was. Measured 2026-09-16: two ↓ presses between two clicks left the pane's table
+        // selection unchanged at `[10]`, with no `[sel]` line between them — the table never saw
+        // them. This names the responder that did.
+        if event.type == .keyDown {
+            let window = event.window ?? NSApp.keyWindow
+            Logger.shared.debug(
+                "[key] w\(window?.windowNumber ?? -1) \(describe(event.modifierFlags))"
+                + "keyCode \(event.keyCode) → firstResponder \(responder(window))")
+            return
+        }
         guard let window = event.window else {
             // A click with no window never reached a view at all — worth its own line, because it
             // is indistinguishable from "nothing happened" everywhere else.
@@ -84,13 +97,73 @@ public enum MouseDownProbe {
         case .leftMouseUp:
             Logger.shared.debug(
                 "[hit] UP   w\(window.windowNumber) \(mods)click\(event.clickCount) "
-                + "after \(dragsSinceDown) drag(s) | \(where_)")
+                + "after \(dragsSinceDown) drag(s) | \(where_) | fr \(responder(window))")
             dragsSinceDown = 0
+            // **Asked again a beat later, because this monitor runs AHEAD of the click.** A local
+            // event monitor sees the up before any handler does, so the `fr` printed on the line
+            // above is the focus the click INHERITED, never the focus it produced — and reading
+            // only that would blame SwiftUI for a claim it had not yet had the chance to make.
+            checkFocusAfterTheClick(in: window, landedInTable: isInTable(hit))
         default:
             dragsSinceDown = 0
             Logger.shared.debug(
-                "[hit] DOWN w\(window.windowNumber) \(mods)click\(event.clickCount) → \(ancestry(of: hit)) | \(where_)")
+                "[hit] DOWN w\(window.windowNumber) \(mods)click\(event.clickCount) → \(ancestry(of: hit)) | \(where_) | fr \(responder(window))")
         }
+    }
+
+    /// Who holds the keyboard a beat after a click — the line that says whether
+    /// `PaneListKeyFocus` did its job.
+    ///
+    /// Before that claim existed this read `the WINDOW itself` after every row click (measured
+    /// 2026-09-16, with the arrow keys behind it arriving at the window and dying there). With it,
+    /// a row click should read as that list's table. 300ms is past the claim's two-turn deferral
+    /// with room to spare, so a line still naming the window is a claim that did not happen.
+    private static func checkFocusAfterTheClick(in window: NSWindow, landedInTable: Bool) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            MainActor.assumeIsolated {
+                _ = Logger.shared.debug(
+                    "[fr] 300ms after a click \(landedInTable ? "in a table" : "outside any table"): "
+                    + "\(responder(window))")
+            }
+        }
+    }
+
+    /// Whether `view` sits in a table — the same walk `row(for:event:)` makes, without the report.
+    private static func isInTable(_ view: NSView?) -> Bool {
+        var current = view
+        while let step = current {
+            if step is NSTableView { return true }
+            current = step.superview
+        }
+        return false
+    }
+
+    /// **Who holds keyboard focus**, named the way this investigation needs it: not the class
+    /// alone, but whether that responder sits inside one of the pane's tables. A `List` whose table
+    /// is not the first responder receives no arrow keys at all, and that is indistinguishable —
+    /// in every other line here — from a table that received them and declined.
+    private static func responder(_ window: NSWindow?) -> String {
+        guard let window else { return "NO WINDOW" }
+        guard let responder = window.firstResponder else { return "NOBODY" }
+        if responder === window { return "the WINDOW itself — no view holds focus" }
+        var name = String(describing: type(of: responder))
+        if let view = responder as? NSView {
+            var current: NSView? = view
+            while let step = current {
+                if let table = step as? NSTableView {
+                    name += step === view ? " (IS a table t\(shortID(table)))"
+                                          : " (inside table t\(shortID(table)))"
+                    break
+                }
+                current = step.superview
+            }
+        }
+        return name
+    }
+
+    /// The same short table identity the `[hit]` lines print, so the two can be read together.
+    private static func shortID(_ table: NSTableView) -> String {
+        String(UInt(bitPattern: ObjectIdentifier(table).hashValue) % 10000)
     }
 
     /// The hit view and up to three ancestors, innermost first. Three because the interesting
@@ -132,7 +205,7 @@ public enum MouseDownProbe {
                 let shown = selected.prefix(12).map(String.init).joined(separator: ",")
                 let more = selected.count > 12 ? "…+\(selected.count - 12)" : ""
                 let alreadyOn = index != -1 && selected.contains(index)
-                return "t\(UInt(bitPattern: ObjectIdentifier(table).hashValue) % 10000) "
+                return "t\(shortID(table)) "
                     + "\(place) of \(table.numberOfRows) | table sel [\(shown)\(more)] "
                     + "(\(selected.count)) | clicked row \(alreadyOn ? "ALREADY selected" : "not selected")"
             }

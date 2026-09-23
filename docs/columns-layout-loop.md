@@ -458,8 +458,23 @@ not clear and a `defaults write` never creates. First responder inside the colum
 obvious candidate — it survives a provider switch, it is precisely the "the picker click also moves
 first responder; that difference has not been closed" note above, and it would explain the whole
 pattern at once: why clicking reproduces every time, why the scripted route is unreliable, why no
-headless fixture has ever reproduced it (an offscreen window that is never key has no first
-responder), and why the rate appears to "decay over an evening" — investigators stop clicking.
+headless fixture has ever reproduced it, and why the rate appears to "decay over an evening" —
+investigators stop clicking.
+
+**Two measurements from 2026-09-16 bear on that candidate, and neither closes it.** This machine installed macOS 27.0
+on **2026-09-15** (`system_profiler SPInstallHistoryDataType`; `SystemVersion.plist`'s mtime says
+2026-09-03 and is not the install date), so every session above ran on macOS 26.
+
+- **On macOS 27 a click does not move first responder at all.** `MouseDownProbe`'s `[fr]` line read
+  `the WINDOW itself` 300ms after every row click, and a bare SwiftUI `List` in a separate app behaved
+  the same. Whether macOS 26 differed was not measured. **`PaneListKeyFocus` now makes the claim** —
+  so builds carrying it leave the column's table first responder after a click, the very state this
+  paragraph suspects. A `[cycle]` rate that rises after it lands should be read in that light before
+  anything else is blamed.
+- **The headless half of the argument is wrong as it was written.** It said an offscreen window that
+  is never key has no first responder. Measured, the opposite: AppKit makes the first key view of a
+  mounted test window its first responder unprompted, so a fixture's pane starts with its table
+  focused. If the candidate is real, fixtures did not miss it for want of focus.
 
 **This also reframes the slow-walk story.** Cold providers correlated with crashes because early
 sessions involved more clicking, not because elapsed walk time matters; the stall measurement above

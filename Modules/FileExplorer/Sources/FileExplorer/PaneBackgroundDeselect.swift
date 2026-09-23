@@ -123,6 +123,10 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
             table.addGestureRecognizer(click)
             recognizer = click
             installedOn = table
+            // The one place every pane table — Tree, and each column — is already resolved, so the
+            // keyboard claim rides on it rather than running a search of its own. Not a click
+            // behaviour of this recognizer's: see `PaneListKeyFocus` for why it is a monitor.
+            PaneListKeyFocus.register(table)
         }
 
         private func uninstall() {

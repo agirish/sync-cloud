@@ -5275,3 +5275,42 @@ lines, and the copy describing all four). No maintenance-line measurement beyond
 | **`handOffToEditor` logs its two exits that wrote nothing** (already open; settle cancelled) | Not owed: no hand-off | Same | RECORDED — not owed |
 | **Notes, Help and README copy** no longer claim a door "anywhere" / "wherever you are looking", nor "whatever the focused pane has selected" | Not owed | Same | RECORDED — not owed |
 
+---
+
+## A click in a file pane hands that list the keyboard (⇧↑ / ⇧↓ extend the selection)
+
+**A platform change, so every line has the defect — and every line can take the fix.** On macOS 27 a
+click on a SwiftUI `List` row selects it and leaves the window as first responder; every key after
+it is delivered to the window and dropped. Measured 2026-09-16 in the app (`[fr] 300ms after a row
+click: the WINDOW itself`) and in a bare four-list app with nothing of SyncCloud's in it, where all
+four lists behaved the same. Nothing about that is line-specific, and the fix hangs on
+`PaneBackgroundDeselect`'s recognizer install, which all four lines carry:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s deselectCatcher=%s probe=%s paneListDeleteCmd=%s\n' "$l" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneBackgroundDeselect.swift 2>/dev/null | grep -c 'table.addGestureRecognizer(click)')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/MouseDownProbe.swift | wc -l | tr -d ' ')" \
+    "$(git grep -c 'onDeleteCommand' origin/$l -- Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift Modules/FileExplorer/Sources/FileExplorer/PaneColumnsView.swift 2>/dev/null | awk -F: '{s+=$NF} END {print s+0}')"
+done
+# measured 2026-09-16, before this landed:
+# main   deselectCatcher=1 probe=1 paneListDeleteCmd=4
+# v4.x   deselectCatcher=1 probe=0 paneListDeleteCmd=4
+# v3.x   deselectCatcher=1 probe=0 paneListDeleteCmd=4
+# v2.x   deselectCatcher=1 probe=0 paneListDeleteCmd=4
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| `PaneListKeyFocus` — the monitor, the registry, the claim | owed | owed | **gap**: new file, no dependencies beyond AppKit; picks clean |
+| `PaneListKeyFocus.register(table)` in `PaneBackgroundDeselect.CatcherView.resolvePass` | owed | owed | **gap**: the install block it sits in is byte-identical on all four lines |
+| `PaneListKeyFocusTests` | owed | owed | **gap**: uses `PaneSearchTreeRevealTests`' fixture — check it exists on the line before picking |
+| `MouseDownProbe` `[key]` and `[fr]` lines | not owed | not owed | the probe itself is `main`-only; diagnostic, no user-facing behaviour |
+
+**Waking `.onDeleteCommand` on those lines is the part to think about, not the pick.** Both pane lists
+carry it on every line, and on macOS 27 it had become unreachable because nothing ever focused the
+list. With focus, a bare ⌫ on a selection reaches `handleDelete`, which confirms unless
+`confirmBeforeDelete` is off and moves to the Trash. Measured 2026-09-23 in the app: `keyCode 51`
+logged with the pane's table as first responder, the confirmation shown, cancelled, nothing deleted. That is the pane's written intent, not new
+behaviour — but on `v3.x`, which has none of the `DeleteOutcome` family, it is a keystroke that can
+reach a removal the line cannot tell apart from a permanent one.

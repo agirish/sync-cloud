@@ -10,6 +10,14 @@ User-facing changes, newest first. For the full commit history see the
 > What is on `main` since v5.3. It may still change before v5.4 is cut, and nothing here is
 > installable from a release yet.
 
+### The keyboard reaches the file panes
+
+- **Click a file, then use the arrow keys.** ↑ and ↓ move the selection and **⇧↑ / ⇧↓ extend it** a
+  row at a time, in Columns and in the list view alike — in Browse, in both Compare panes and in
+  Organize's list. On macOS 27 a click selected the file but left the keyboard with the window, so
+  every key pressed after it did nothing at all; ⇧-click was the only way to select a run of files.
+  A click now hands that list the keyboard, and a caret you click into a field is left where it is.
+
 ### Getting a file into Edit
 
 - **Four ways in, and all four do the same thing.** A text file in a file pane can now be opened
