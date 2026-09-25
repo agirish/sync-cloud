@@ -227,6 +227,70 @@ import FileExplorer
     }
 }
 
+/// **The Edit rail's row menu (TE33), wired to the app's real acts.**
+///
+/// `EditorRailRowMenuTests` in FileExplorer proves the menu's order, its words, that each item
+/// hands on the ROW's path, and that the workspace forwards its closures to the rail. What it
+/// cannot see is what the app passes in: `onGetInfo: { _ in }` at the one construction site would
+/// draw the item and do nothing, the exact shape of the two wirings the TE27–TE30 review found no
+/// test executing.
+@Suite struct EditorRailRowMenuWiringTests {
+
+    /// The three closures at the app's one `EditorWorkspaceView` construction.
+    @Test func theRailRowMenuIsWiredToTheInspectorQuickLookAndBrowse() throws {
+        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        let start = try #require(editor.range(of: "func editorWorkspace(showsRail: Bool) -> some View {"),
+                                 "the editor workspace builder is gone or renamed")
+        let rest = editor[start.upperBound...]
+        let end = try #require(rest.range(of: ".task(id: EditorRailKey("),
+                               "the builder no longer ends at the rail survey's task")
+        let site = String(rest[..<end.lowerBound])
+        #expect(site.contains("EditorWorkspaceView("), "the slice is not the workspace's construction")
+        #expect(site.contains("onRevealInBrowse: { path in revealInBrowse(path) }"),
+                "Reveal in Browse (header and rail rows) is not wired to revealInBrowse")
+        #expect(site.contains("onGetInfo: { path in showInfo(for: path) }"),
+                "the rail row menu's Get Info is not wired to the Info inspector")
+        // `followsPane: false`: a rail row is not the pane's selection, so a pane click must not
+        // retarget a preview opened from here (`CurrentSelection.previewFollow`).
+        #expect(site.contains(
+            "onQuickLook: { path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) }"),
+                "the rail row menu's Quick Look is not wired to the window's shared panel")
+    }
+
+    /// **Reveal in Browse leaves the open document alone** — the existing contract, now reachable
+    /// from any rail row rather than only from the open file's header. ⌘4 must come back to the
+    /// document exactly as it was, unsaved edits and all, so the verb may move the pane and the
+    /// workspace and nothing else.
+    @Test func revealInBrowseMovesThePaneAndTheWorkspaceAndNotTheDocument() throws {
+        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        let start = try #require(editor.range(of: "func revealInBrowse(_ path: String) {"),
+                                 "revealInBrowse is gone or renamed")
+        let rest = editor[start.upperBound...]
+        let end = try #require(rest.range(of: "\n    }\n"), "revealInBrowse never closes")
+        let body = String(rest[..<end.lowerBound])
+        #expect(body.contains("(path as NSString).deletingLastPathComponent"),
+                "Reveal in Browse no longer goes to the folder of the path it was handed")
+        #expect(body.contains("focusPaneOnFolder(folder)"), "Reveal in Browse no longer moves the pane")
+        #expect(body.contains("selectedWorkspace = .browse"), "Reveal in Browse no longer switches to Browse")
+        for touch in ["editorDocument", "settleEditorDocument", "loadIntoEditor", "openInEditor"] {
+            #expect(!body.contains(touch),
+                    "Reveal in Browse now touches the open document (\(touch)) — ⌘4 may not find it as left")
+        }
+    }
+
+    /// Get Info's destination: the inspector, on the path it was handed.
+    @Test func showInfoOpensTheInspectorOnThePathItWasHanded() throws {
+        let content = try OpenInEditorMenuTests.macApp("ContentView.swift")
+        let start = try #require(content.range(of: "func showInfo(for path: String) {"),
+                                 "showInfo is gone or renamed")
+        let rest = content[start.upperBound...]
+        let end = try #require(rest.range(of: "\n    }\n"), "showInfo never closes")
+        let body = String(rest[..<end.lowerBound])
+        #expect(body.contains("infoPath = path"), "Get Info no longer aims the inspector at its path")
+        #expect(body.contains("showInspector = true"), "Get Info no longer opens the inspector")
+    }
+}
+
 /// The hand-off path rule knows the folders a root links in from outside — iCloud Drive's
 /// `Documents` — and answers through the link's name, keeping its case rule below the link.
 @Suite struct EditorHandOffLinkedFolderTests {

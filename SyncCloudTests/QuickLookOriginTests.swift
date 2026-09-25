@@ -110,9 +110,11 @@ import Foundation
         // promises this suite makes: a fifth site passed it in silence, which is the one event the
         // suite exists for. Raising this number is the deliberate act of having decided what the
         // new entry point does about `followsPane`.
-        #expect(sites.count == 5,
+        // 6 since TE33: the Edit rail's row menu, which is not the pane's preview — see
+        // `testTheOtherSurfacesDoNotClaimThePaneSelection`.
+        #expect(sites.count == 6,
                 """
-                \(sites.count) Quick Look call sites, expected 5 — if you added one, decide whether \
+                \(sites.count) Quick Look call sites, expected 6 — if you added one, decide whether \
                 it owns the pane preview (`followsPane:`) and then update this count:
                 \(sites.joined(separator: "\n"))
                 """)
@@ -185,6 +187,14 @@ import Foundation
         #expect(line.contains("onQuickLook: { toggleQuickLook($0) }"),
                 "the Differences preview now follows the PANE selection — a pane click would move it")
         #expect(!line.contains("followsPane: true"))
+
+        // **The Edit rail's row menu (TE33).** A rail row is not the pane's selection — with the
+        // pane open beside it the two can name different files — so a pane click must not retarget
+        // or close a preview opened from the rail.
+        let editor = try Self.source("ContentView+Editor.swift")
+        let workspace = try Self.argumentList(after: "EditorWorkspaceView(", in: editor)
+        #expect(workspace.contains("onQuickLook: { path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) }"),
+                "the Edit rail's Quick Look now follows the PANE selection — a pane click would move it")
     }
 
     /// The origin has to be cleared when the panel closes by hand: `.quickLookPreview` nils its

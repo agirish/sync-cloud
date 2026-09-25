@@ -84,6 +84,12 @@ struct EditorFileRailView: View {
     /// refuse (an unsaved document the user declined to settle), and the row reopens with the typed
     /// name still in it rather than vanishing with the work.
     let onCreate: (String) -> Bool
+    /// What each file row's context menu does — see ``EditorRailRowMenu``. Every act takes the
+    /// ROW's path, which is not necessarily the open document's.
+    ///
+    /// **No default**, so every construction site says what its menu does: a defaulted `{ _ in }`
+    /// is how a door ships drawn and wired to nothing, which the Open in Edit review found twice.
+    let rowActions: EditorRailRowActions
 
     /// The rail row's one outline, stated once and used by both the hit shape and the hover wash.
     /// `roundedRect(7)` is what the `.row` variant defaults to; naming it here is what lets the
@@ -374,7 +380,9 @@ struct EditorFileRailView: View {
                            onAccent: .white, tab: .constant(.outline), isNaming: .constant(false),
                            typedName: .constant(""), prefilledName: { "" }, refusal: { _ in nil },
                            filter: .constant(""), filterIsExpanded: .constant(false),
-                           outlineAnchors: .constant([:]), onOpen: { _ in }, onCreate: { _ in true })
+                           outlineAnchors: .constant([:]), onOpen: { _ in }, onCreate: { _ in true },
+                           rowActions: EditorRailRowActions(revealInBrowse: { _ in }, getInfo: { _ in },
+                                                            quickLook: { _ in }))
     }
 
     private func outlineRow(_ entry: MarkdownOutlineEntry, isCurrent: Bool) -> some View {
@@ -539,5 +547,9 @@ struct EditorFileRailView: View {
         .buttonStyle(.hoverAffordance(isSelected ? .filled : .row,
                                       tint: accent, shape: Self.rowShape))
         .help(entry.dimmedReason ?? entry.name)
+        // **On every row, dim ones included, and not gated on anything about the row.** A file
+        // the editor refuses is the one most worth revealing or inspecting — see
+        // ``EditorRailRowMenu``. The path is the ROW's, never `selectedPath`.
+        .contextMenu { EditorRailRowMenu(path: entry.path, actions: rowActions) }
     }
 }

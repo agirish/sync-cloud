@@ -73,6 +73,8 @@ import Design
             onRevealInBrowse: { _ in },
             location: location,
             onLocationDoor: { _ in },
+            onGetInfo: { _ in },
+            onQuickLook: { _ in },
             onToggleJustTheText: {},
             onNewTextFile: {},
             onCloseDocument: {})

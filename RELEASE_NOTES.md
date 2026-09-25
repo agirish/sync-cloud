@@ -41,6 +41,12 @@ User-facing changes, newest first. For the full commit history see the
   Download, because previewing that file is exactly what would start the download.
 - **⌘O was free, and it is the key most people try first.** It is the only one of File's row verbs
   with a key, and the ⌘/ shortcuts list shows it beside ⌘N.
+- **And a way back out, from any file in Edit's Text Files list.** Right-click a file there for
+  **Reveal in Browse**, **Get Info**, **Reveal in Finder** and **Quick Look**, each acting on the
+  file you clicked rather than the one that is open. Until now the list had no right-click menu, and
+  Reveal in Browse was offered only on the open file's own name above the document. A file Edit will not
+  open — too large, or still in the cloud — keeps the menu, since that is when you most want to see
+  it somewhere else. Reveal in Browse leaves the open document as it was: ⌘4 comes back to it.
 - **The Info inspector's row of actions now wraps instead of squeezing.** At the inspector's usual
   width those buttons had been shrinking until their labels were a letter and an ellipsis — "Reve…",
   "Cop…" — and adding a fourth would have left two with no letters at all. Each one now keeps its

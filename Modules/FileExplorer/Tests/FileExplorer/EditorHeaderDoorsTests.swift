@@ -57,6 +57,8 @@ import Design
             onRevealInBrowse: { _ in },
             location: nil,
             onLocationDoor: { _ in },
+            onGetInfo: { _ in },
+            onQuickLook: { _ in },
             onToggleJustTheText: {},
             onNewTextFile: newTextFile,
             onCloseDocument: {})

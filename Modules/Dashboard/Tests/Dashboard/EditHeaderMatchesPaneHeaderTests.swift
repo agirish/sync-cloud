@@ -86,7 +86,8 @@ import Design
             location: EditorDocumentLocation(
                 segments: segments, style: style,
                 help: segments.map(\.name).joined(separator: " › ")),
-            onLocationDoor: { _ in }, onToggleJustTheText: {}, onNewTextFile: {},
+            onLocationDoor: { _ in }, onGetInfo: { _ in }, onQuickLook: { _ in },
+            onToggleJustTheText: {}, onNewTextFile: {},
             onCloseDocument: {})
     }
 

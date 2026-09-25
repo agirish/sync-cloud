@@ -45,7 +45,9 @@ import Design
             outline: outline,
             outlineAnchors: .constant([:]),
             onOpen: { _ in },
-            onCreate: { _ in true })
+            onCreate: { _ in true },
+            rowActions: EditorRailRowActions(revealInBrowse: { _ in }, getInfo: { _ in },
+                                             quickLook: { _ in }))
     }
 
     private func heading(_ title: String, level: Int = 1, line: Int) -> MarkdownOutlineEntry {
@@ -608,6 +610,8 @@ import Design
             onRevealInBrowse: { _ in },
             location: nil,
             onLocationDoor: { _ in },
+            onGetInfo: { _ in },
+            onQuickLook: { _ in },
             onToggleJustTheText: {},
             onNewTextFile: {},
             onCloseDocument: {})
@@ -765,6 +769,8 @@ import Design
             onRevealInBrowse: { _ in },
             location: nil,
             onLocationDoor: { _ in },
+            onGetInfo: { _ in },
+            onQuickLook: { _ in },
             onToggleJustTheText: {},
             onNewTextFile: {},
             onCloseDocument: {})

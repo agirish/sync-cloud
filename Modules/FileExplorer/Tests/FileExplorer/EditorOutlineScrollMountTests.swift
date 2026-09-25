@@ -36,7 +36,9 @@ import Design
             filter: .constant(""), filterIsExpanded: .constant(false),
             outline: outline(rows), currentOutlineIndex: current,
             outlineAnchors: Binding(get: { store.anchors }, set: { store.anchors = $0 }),
-            onOpen: { _ in }, onCreate: { _ in true })
+            onOpen: { _ in }, onCreate: { _ in true },
+            rowActions: EditorRailRowActions(revealInBrowse: { _ in }, getInfo: { _ in },
+                                             quickLook: { _ in }))
         let host = NSHostingView(rootView: AnyView(rail))
         host.frame = NSRect(x: 0, y: 0, width: 232, height: 260)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],

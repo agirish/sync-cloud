@@ -166,7 +166,9 @@ public struct EditorWorkspaceView: View {
     /// Commits a typed name. Answers `false` when the file was not created after all, so the
     /// naming row can stay open with the name still in it.
     let onCreate: (String) -> Bool
-    /// The reverse of "Open in Edit": shows the open file where it lives.
+    /// The reverse of "Open in Edit": shows a file where it lives. Called with the open document's
+    /// path by the header's filename menu, and with a ROW's path by the rail's row menu — one verb,
+    /// two doors, and neither closes the document.
     let onRevealInBrowse: (String) -> Void
     /// Where the open document lives, for the header's meta row — or, with no document open, the
     /// folder a new file would be made in, which is what the empty page's header names instead.
@@ -176,6 +178,10 @@ public struct EditorWorkspaceView: View {
     /// A door in that location, pressed. The host decides what each means for the left pane —
     /// the view only says which word was pressed.
     let onLocationDoor: (EditorDocumentLocation.Door) -> Void
+    /// The rail row menu's Get Info: the Info inspector, on that row's file.
+    let onGetInfo: (String) -> Void
+    /// The rail row menu's Quick Look: the window's one shared panel, on that row's file.
+    let onQuickLook: (String) -> Void
     /// Called when autosave is switched back on for the open document, so the host can write what
     /// is already pending rather than waiting for the next keystroke.
     var onAutosaveResumed: () -> Void = {}
@@ -255,6 +261,10 @@ public struct EditorWorkspaceView: View {
                 // leave the header saying nothing again.
                 location: EditorDocumentLocation?,
                 onLocationDoor: @escaping (EditorDocumentLocation.Door) -> Void,
+                // No default, like `onToggleJustTheText`: a rail row menu whose acts defaulted to
+                // nothing would draw, and do nothing, at any site that forgot them.
+                onGetInfo: @escaping (String) -> Void,
+                onQuickLook: @escaping (String) -> Void,
                 // No default, so every construction site is read: the two in tests pass `{}`.
                 onToggleJustTheText: @escaping () -> Void,
                 // No defaults either, for the same reason: a construction site that forgot one
@@ -297,6 +307,8 @@ public struct EditorWorkspaceView: View {
         self.onRevealInBrowse = onRevealInBrowse
         self.location = location
         self.onLocationDoor = onLocationDoor
+        self.onGetInfo = onGetInfo
+        self.onQuickLook = onQuickLook
         self.onAutosaveResumed = onAutosaveResumed
     }
 
@@ -331,6 +343,13 @@ public struct EditorWorkspaceView: View {
 
     private var folderName: String {
         folder.isEmpty ? "" : (folder as NSString).lastPathComponent
+    }
+
+    /// The rail row menu's acts. Reveal in Browse is the header's own closure — the same verb from
+    /// a second door — and Reveal in Finder is the menu's in-package default.
+    var railRowActions: EditorRailRowActions {
+        EditorRailRowActions(revealInBrowse: onRevealInBrowse, getInfo: onGetInfo,
+                             quickLook: onQuickLook)
     }
 
     /// **Two cards, not one region with a rule down it.**
@@ -372,7 +391,8 @@ public struct EditorWorkspaceView: View {
                                outlineAnchors: $railOutlineAnchors,
                                onSelectHeading: goToHeading,
                                onOpen: onOpen,
-                               onCreate: onCreate)
+                               onCreate: onCreate,
+                               rowActions: railRowActions)
                 .frame(maxHeight: .infinity)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
             }

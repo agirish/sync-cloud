@@ -5580,3 +5580,47 @@ line.
 At the narrowest document column (260pt) a 55-character `.md` name went from 44–69pt of ink to
 10–12pt (an ellipsis) across the four text sizes; at the 760pt window floor's column (~391pt) it keeps
 134–153pt. Pinned in `EditorHeaderDoorsTests.theNameRowFitsWithALongNameAtEveryTextSize`.
+
+---
+
+## A context menu on the Edit rail's rows: Reveal in Browse, Get Info, Reveal in Finder, Quick Look (TE33)
+
+**`main` gained a right-click menu on every row of Edit's Text Files rail**, in the order Reveal in
+Browse · Get Info · Reveal in Finder · Quick Look, each acting on the ROW's path rather than the open
+document's. Dim rows (too large, cloud-only) keep the whole menu. The header filename's one-item
+Reveal in Browse is unchanged; the rail's item reaches the same host closure
+(`onRevealInBrowse` → `revealInBrowse`), which moves the pane and the workspace and never the
+document. Get Info goes to `showInfo(for:)` (the Info inspector, which sits beside every layout
+arm including Edit's); Quick Look goes to the window's one panel through
+`toggleQuickLook(_:followsPane: false)` — a rail row is not the pane's selection, so a pane click
+must not retarget it. With the source pane open the rail is not drawn and the pane's own row menu
+applies; decision E kept Reveal in Browse off that menu.
+
+**Checked 2026-09-25, and not owed on any maintenance line** — the surface does not exist there:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s railView=%s workspace=%s revealInBrowse=%s showInfo=%s toggleQuickLook=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorFileRailView.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -c 'func revealInBrowse')" \
+    "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'func showInfo(for path: String)')" \
+    "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'func toggleQuickLook')"
+done
+# main   railView=1 workspace=1 revealInBrowse=1 showInfo=1 toggleQuickLook=1
+# v4.x   railView=0 workspace=0 revealInBrowse=0 showInfo=1 toggleQuickLook=1   (same for v3.x, v2.x)
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| `EditorRailRowMenu` + `EditorRailRowActions`, attached in `EditorFileRailView.row(_:)` | no rail — no Edit workspace | same | CHECKED — not owed |
+| `EditorWorkspaceView.onGetInfo` / `onQuickLook` (no defaults) and `railRowActions` | no `EditorWorkspaceView` | same | CHECKED — not owed |
+| App wiring in `ContentView+Editor.swift` (`showInfo`, `toggleQuickLook`) | the two targets exist there, the construction site does not | same | CHECKED — not owed |
+| `EditorRailRowMenuTests` (FileExplorer), `EditorRailRowMenuWiringTests` (app target) | nothing to test | same | CHECKED — not owed |
+
+**Boundary a future audit should not re-derive:** Reveal in Browse lands on the row's FOLDER, not a
+selected file — the header's verb has always done the same (`focusPaneOnFolder`), and TE33 reuses
+that verb rather than growing a second one. A SwiftUI `.contextMenu` inside an `NSHostingView` exposes no
+`NSMenu` to a test (measured: neither the host nor a subview carries one, and `menu(for:)` on a
+synthesised right-click answers empty), which is why the row's attachment is pinned by a source
+scan and the menu's order by hosting the menu body alone and reading its focus rings.
