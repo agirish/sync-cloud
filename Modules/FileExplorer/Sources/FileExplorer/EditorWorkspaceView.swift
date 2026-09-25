@@ -100,6 +100,13 @@ public struct EditorWorkspaceView: View {
     let railIsHidden: Bool
     /// The header glyph's act. The host owns the bit and what else moves with it.
     let onToggleJustTheText: () -> Void
+    /// The header's ＋ — **the host's ⌘N closure itself**, not a second copy of what it does.
+    ///
+    /// ⌘N sets `isNaming` AND bumps the focus counter this view only reads (``namingFocus``); a
+    /// button here that set `isNaming` alone would open the row and leave focus wherever it was,
+    /// the exact "second ⌘N did nothing" the counter was added for. `nil` when there is no folder
+    /// to create in — the same `nil` that greys File ▸ New Text File….
+    let onNewTextFile: (() -> Void)?
     /// Passed straight through to the rail's empty caption — see
     /// ``EditorFileRailView/otherFileCount``. Defaulted for the same reason it is defaulted there.
     var otherFileCount: Int?
@@ -246,6 +253,9 @@ public struct EditorWorkspaceView: View {
                 onLocationDoor: @escaping (EditorDocumentLocation.Door) -> Void,
                 // No default, so every construction site is read: the two in tests pass `{}`.
                 onToggleJustTheText: @escaping () -> Void,
+                // No default either, for the same reason: a construction site that forgot it would
+                // draw a ＋ that does nothing.
+                onNewTextFile: (() -> Void)?,
                 onAutosaveResumed: @escaping () -> Void = {}) {
         self._railFilter = railFilter
         self._railFilterIsExpanded = railFilterIsExpanded
@@ -263,6 +273,7 @@ public struct EditorWorkspaceView: View {
         self.showsRail = showsRail
         self.railIsHidden = railIsHidden
         self.onToggleJustTheText = onToggleJustTheText
+        self.onNewTextFile = onNewTextFile
         self.accent = accent
         self.onAccent = onAccent
         self._mode = mode
@@ -290,6 +301,13 @@ public struct EditorWorkspaceView: View {
     /// `swift test` does not build.
     static func justTheTextTitle(railIsHidden: Bool) -> String {
         railIsHidden ? "Show the text files" : "Just the text"
+    }
+
+    /// What the header's ＋ says in its tooltip: where the file will be made. The rail's ＋ names
+    /// its folder on the line beside it; this one has nothing beside it that does, so the tooltip
+    /// carries the folder. A static for the reason ``justTheTextTitle(railIsHidden:)`` is one.
+    static func newTextFileTitle(folderName: String) -> String {
+        folderName.isEmpty ? "Pick a folder in the sidebar first" : "New text file in \(folderName)"
     }
 
     /// The mode actually being drawn — `.edit` on a file with nothing to preview, whatever the
@@ -495,6 +513,8 @@ public struct EditorWorkspaceView: View {
                         }
                     }
                 Spacer(minLength: 0)
+                // ＋ — see ``newTextFileButton``; the empty page's header draws the same one.
+                newTextFileButton
                 // **Beside the capsule, not in it.** The capsule chooses which representation you
                 // are looking at; this acts on the one you are in. It is withheld in `.preview`,
                 // where there is no text view to search — the preview is a rendering, and a find
@@ -536,6 +556,33 @@ public struct EditorWorkspaceView: View {
             }
             metaRow
         }
+    }
+
+    /// **＋, ⌘N's button in the header** (TE45). With the source pane open, or under "Just the
+    /// text", there is no rail and so no other ＋ on screen — ⌘N and File ▸ New Text File… were the
+    /// only ways in, and neither is visible. It calls the host's ⌘N closure rather than setting
+    /// `isNaming`, so the naming row opens AND takes focus exactly as the chord does. **Not withheld
+    /// in Preview**, unlike Find: it is about the folder, not the text view. **Drawn with no
+    /// document open too** — the empty page is where making a file is most likely to be the next
+    /// thing — and by both headers from this one view.
+    ///
+    /// **Greyed with no folder, as the menu item is — and greyed where it SHOWS.** `.disabled` stops
+    /// the press, but a `.glyph` hover-affordance button draws the same at rest either way
+    /// (measured with TE45: pixel-identical with and without the closure), so on its own it left a
+    /// ＋ that looked pressable and did nothing. The glyph takes the tertiary style instead.
+    private var newTextFileButton: some View {
+        Button { onNewTextFile?() } label: {
+            Image(systemName: "plus")
+                .scaledFont(.system(size: 11, weight: .semibold))
+                .foregroundStyle(onNewTextFile == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+                .frame(width: 18, height: 18)
+        }
+        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        .accessibilityLabel("New text file")
+        .shortcutKeycap(AppChord.newTextFile.display)
+        .help(ShortcutHint.tooltip(Self.newTextFileTitle(folderName: folderName),
+                                   AppChord.newTextFile.display))
+        .disabled(onNewTextFile == nil)
     }
 
     /// **What the last segment says, and it is the whole visible account of autosave.**
@@ -684,8 +731,9 @@ public struct EditorWorkspaceView: View {
     /// capsule's height with a hidden real one, exactly as a plain-text file's does, and the meta
     /// row reserves the autosave switch's (see ``emptyMetaRow``).
     ///
-    /// **What it offers is what makes sense with nothing open.** No Find (nothing to search) and
-    /// no capsule (nothing to view three ways).
+    /// **What it offers is what makes sense with nothing open.** The ＋ — ``newTextFileButton``, the
+    /// same view the document's header draws, greyed with no folder — and no Find (nothing to
+    /// search) and no capsule (nothing to view three ways).
     ///
     /// "Just the text" is drawn only while it is LIT: with the rail and the pane both put away
     /// there is no list of files anywhere on screen, and the lit glyph is both the reason why and
@@ -706,6 +754,7 @@ public struct EditorWorkspaceView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
+                newTextFileButton
                 if railIsHidden {
                     justTheTextButton
                 }

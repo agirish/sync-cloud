@@ -5543,3 +5543,28 @@ done
 **Checked and not owed, the other direction.** No defect fix rides along: `navigatePane`,
 `BreadcrumbTrail` and `PaneLogic.relativePath` are reused unchanged, and the one visibility change
 (`paneSelectionBinding`) alters no behaviour. No defaults key, no stored format.
+
+---
+
+## New and Close in Edit's header (TE45 + TE46)
+
+**Both hang off Edit's document header, and no maintenance line has an Editor workspace.** Checked
+2026-09-25, before this landed:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s editorWorkspace=%s workspaceEditor=%s newTextFileCmd=%s saveItemGroup=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/Workspace.swift 2>/dev/null | grep -c 'case editor')" \
+    "$(git show origin/$l:MacApp/ShortcutCommands.swift 2>/dev/null | grep -c 'struct NewTextFileCommand')" \
+    "$(git show origin/$l:MacApp/SyncCloudApp.swift 2>/dev/null | grep -c 'replacing: .saveItem')"
+done
+# main   editorWorkspace=1 workspaceEditor=1 newTextFileCmd=1 saveItemGroup=1
+# v4.x   editorWorkspace=0 workspaceEditor=0 newTextFileCmd=0 saveItemGroup=1
+# v3.x   editorWorkspace=0 workspaceEditor=0 newTextFileCmd=0 saveItemGroup=0
+# v2.x   editorWorkspace=0 workspaceEditor=0 newTextFileCmd=0 saveItemGroup=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **TE45 — the header's ＋**: `EditorWorkspaceView.onNewTextFile` (required, no default), handed `shortcutNewTextFile` itself by `editorWorkspace(showsRail:)`; `newTextFileTitle(folderName:)` for its tooltip | Not owed — no editor, no header, no ⌘N | Same | RECORDED — not owed |

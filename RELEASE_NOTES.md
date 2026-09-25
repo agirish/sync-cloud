@@ -74,6 +74,13 @@ User-facing changes, newest first. For the full commit history see the
   open, reading "No document open" and naming the folder a new file would be made in, so the page
   does not move when a file opens.
 
+### New and Close, above the document
+
+- **A ＋ above the document makes a new text file.** It sits beside Find and does exactly what ⌘N
+  does — it opens the name field, in the folder its tooltip names — in every layout: with the
+  source pane open, with the Text Files list showing, and under Just the text. The Text Files list
+  keeps its own ＋; this one stays on screen when the list steps aside.
+
 ### Folders merge, and Cancel stops the copy it is in
 
 - **A folder that already exists at the destination can be merged, and Merge is the default.** When

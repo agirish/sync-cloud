@@ -292,6 +292,9 @@ extension ContentView {
                                          location: editorDocumentLocation)
             },
             onToggleJustTheText: { toggleJustTheText() },
+            // The header's ＋ IS ⌘N — the same closure, so it opens the row and bumps the focus
+            // counter, and greys out on the same `nil` the menu item does.
+            onNewTextFile: shortcutNewTextFile,
             onAutosaveResumed: { runAutosave() })
         // The rail is re-listed on arrival and whenever the folder or the hidden-files preference
         // moves — `.task(id:)` restarts on either.

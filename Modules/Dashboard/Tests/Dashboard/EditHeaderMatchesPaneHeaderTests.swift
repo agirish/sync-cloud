@@ -86,7 +86,7 @@ import Design
             location: EditorDocumentLocation(
                 segments: segments, style: style,
                 help: segments.map(\.name).joined(separator: " › ")),
-            onLocationDoor: { _ in }, onToggleJustTheText: {})
+            onLocationDoor: { _ in }, onToggleJustTheText: {}, onNewTextFile: {})
     }
 
     /// Both halves in one window, the way `editorLayout`'s expanded arm puts them.

@@ -271,7 +271,8 @@ import Testing
             onRevealInBrowse: { _ in },
             location: nil,
             onLocationDoor: { _ in },
-            onToggleJustTheText: {})
+            onToggleJustTheText: {},
+            onNewTextFile: {})
     }
 
     /// **The header really branches on the door, at render time.**

@@ -73,7 +73,8 @@ import Design
             onRevealInBrowse: { _ in },
             location: location,
             onLocationDoor: { _ in },
-            onToggleJustTheText: {})
+            onToggleJustTheText: {},
+            onNewTextFile: {})
     }
 
     private func host<V: View>(_ view: V, width: CGFloat, height: CGFloat? = nil) -> NSHostingView<AnyView> {
@@ -357,8 +358,9 @@ import Design
 
     /// **The empty page draws its header, in both surface styles, and names the pane's folder** —
     /// counted in controls on the whole mounted workspace, since the header is the only thing on the
-    /// empty page with any. The crumb's folder is words (the host hands the empty page a location
-    /// whose own level has no door), so a three-level crumb draws two doors; `in Finance` draws none.
+    /// empty page with any. The ＋ is one; the crumb's folder is words (the host hands the empty page
+    /// a location whose own level has no door), so a three-level crumb adds two doors and
+    /// `in Finance` adds none.
     ///
     /// Mutation: restore the empty page's one-card branch in `documentColumn` and both styles draw
     /// no header — zero controls.
@@ -370,12 +372,12 @@ import Design
             defaults.set(style.rawValue, forKey: LiquidGlass.surfaceStyleKey)
             let crumb = host(workspace(empty, location: Self.location(paneFolder, .crumb))
                                 .defaultAppStorage(defaults), width: 700, height: 400)
-            #expect(controls(in: crumb) == 2,
-                    "\(style): the empty page draws \(controls(in: crumb)) controls with a three-level crumb — two doors expected")
+            #expect(controls(in: crumb) == 3,
+                    "\(style): the empty page draws \(controls(in: crumb)) controls with a three-level crumb — the ＋ and two doors expected")
             let named = host(workspace(empty, location: Self.location(paneFolder, .folderName))
                                 .defaultAppStorage(defaults), width: 700, height: 400)
-            #expect(controls(in: named) == 0,
-                    "\(style): `in Finance` on the empty page is a door onto the folder the pane already shows")
+            #expect(controls(in: named) == 1,
+                    "\(style): the empty page draws \(controls(in: named)) controls with `in Finance` — the ＋ alone expected; the folder's name is words")
         }
         // The words themselves, as data: the folder's own level is text.
         #expect(Self.location(paneFolder, .folderName).parts(rung: [])
