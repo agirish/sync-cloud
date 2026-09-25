@@ -437,75 +437,36 @@ extension ContentView {
         }
     }
 
-    /// **The hand-off: "Open in Edit" from any file row, anywhere in the app.**
+    /// **The hand-off: "Open in Edit" from any file row, anywhere in the app.** The act and its
+    /// order — settle first, Cancel means nothing happened, then the pane, the workspace, the load,
+    /// one log line whichever way it ends — are `EditorHandOffRun.run`'s; this supplies the window's
+    /// pieces.
     ///
-    /// **The question comes first, and nothing moves until it is answered.** The unsaved-changes
-    /// prompt used to run last, inside `openInEditor`, after the pane had been re-rooted and the
-    /// workspace switched — so answering *Cancel* to "save your changes?" left the user in the
-    /// Editor, the pane moved to a folder they had not asked for, and the old dirty document still
-    /// on screen. Cancel has to mean nothing happened.
-    ///
-    /// Then: point the folder before switching workspace, so the rail lists the right folder on its
-    /// first render rather than listing the previous one and re-listing a frame later. Open last,
-    /// through `loadIntoEditor` — the buffer is already settled, so re-asking would be a second
-    /// prompt to keep in step with the first.
-    ///
-    /// Editing always *happens* in the editor workspace. This is the ⌘4 move a user could make by
-    /// hand, made for them: one writable surface, so dirty state, undo and the save circuit live in
-    /// exactly one place.
-    func handOffToEditor(_ path: String) {
-        guard path != editorDocument.path || editorDocument.refusal != nil else {
-            // Already open and readable: just go there. Nothing to settle, nothing to move.
-            //
-            // **Logged, because every other outcome of a hand-off is.** `loadIntoEditor` writes one
-            // line for opened / read-only / refused, and this exit and the cancelled settle below
-            // were the two that wrote nothing — so a report of "I pressed ⌘O and nothing happened"
-            // had no line to find. There are four doors onto this function now; each hand-off
-            // leaves exactly one line whichever way it ends.
-            Logger.shared.info("Editor hand-off: \(path) is already open — showing Edit")
-            if selectedWorkspace != .editor { selectedWorkspace = .editor }
-            return
-        }
-        guard settleEditorDocument() else {
-            Logger.shared.info("Editor hand-off to \(path) cancelled — the open document was kept")
-            return
-        }
-        let folder = (path as NSString).deletingLastPathComponent
-        // **The LEFT pane, whichever pane the row was in.** It took the row's side for a while,
-        // which sounds more careful and is not: `editorFolder` reads the left pane and only the
-        // left pane, so handing off a row from the right pane re-rooted a pane the editor never
-        // shows — resetting its column stack and pushing a history entry in the user's OTHER
-        // source — while the rail went on listing the left pane's folder and ⌘N went on creating
-        // files there. One pane is read, so one pane is moved. Nothing to do when it is already
-        // there: `focusOn` is not free.
-        if !folder.isEmpty, folder != editorFolder {
-            focusPaneOnFolder(folder)
-        }
-        if selectedWorkspace != .editor { selectedWorkspace = .editor }
-        loadIntoEditor(path: path)
+    /// - Parameter pane: what happens to the left pane. `.followsTheFile` for every door but one;
+    ///   Compare's list of differences passes `.staysPut`, because there the left pane is half of
+    ///   the comparison the list is showing — see `EditorHandOffRun.Pane`.
+    func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane = .followsTheFile) {
+        EditorHandOffRun.run(
+            path, pane: pane,
+            syncManager: syncManager,
+            paneRoot: (settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath,
+            openDocument: editorDocument.path, isRefused: editorDocument.refusal != nil,
+            paneFolder: { editorFolder },
+            settle: { settleEditorDocument() },
+            showEdit: { if selectedWorkspace != .editor { selectedWorkspace = .editor } },
+            load: { loadIntoEditor(path: $0) },
+            log: { Logger.shared.info($0) })
     }
 
-    /// Points the left pane at an absolute folder, the way the folder sidebar does.
-    ///
-    /// **`focusOn` takes a path RELATIVE to whatever root the pane is on**, which is the trap this
-    /// exists to avoid: handing it an absolute path resolves it against the root and lands the pane
-    /// somewhere real and wrong. A folder outside the pane's current root is refused rather than
-    /// guessed at — the file is still opened, it is the rail that will be showing a different
-    /// folder, and that is a smaller surprise than silently switching the user's source.
+    /// Points the left pane at an absolute folder, the way the folder sidebar does — see
+    /// `EditorHandOffRun.focusPane(on:root:syncManager:isLeft:)`, which this hands the pane's root.
     ///
     /// - Returns: `false` when the folder is not under the pane's root.
     @discardableResult
     func focusPaneOnFolder(_ folder: String, isLeft: Bool = true) -> Bool {
         let root = (settings.rootPath(for: isLeft ? leftProviderId : rightProviderId) as NSString)
             .expandingTildeInPath
-        guard !root.isEmpty else { return false }
-        let relative = PaneLogic.relativePath(of: folder, under: root)
-        guard let relative else {
-            Logger.shared.info("Editor hand-off: \(folder) is outside the pane's root — leaving the pane where it is")
-            return false
-        }
-        syncManager.focusOn(relativePath: relative, isLeft: isLeft)
-        return true
+        return EditorHandOffRun.focusPane(on: folder, root: root, syncManager: syncManager, isLeft: isLeft)
     }
 
     // MARK: - Closing

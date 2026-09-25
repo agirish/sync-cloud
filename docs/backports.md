@@ -5624,3 +5624,42 @@ that verb rather than growing a second one. A SwiftUI `.contextMenu` inside an `
 `NSMenu` to a test (measured: neither the host nor a subview carries one, and `menu(for:)` on a
 synthesised right-click answers empty), which is why the row's attachment is pinned by a source
 scan and the menu's order by hosting the menu body alone and reading its focus rings.
+
+---
+
+## Open in Edit on a differences row, once per side (TE31)
+
+`main` only, **not owed** — the fifth door onto a hand-off that exists on no maintenance line. The
+same split TE28 records: **the surface is on all four lines, the destination is on one.** Every line
+has `DifferencesView`, the shared `inspectionMenuItems` builder and `DifferenceRowMenu.existingSides`
+that the new item would join; none off `main` has the Edit workspace to hand a file to, nor
+`EditableText` to ask whether a side is text:
+
+```sh
+# the surface exists off main; the thing it would open does not.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s differencesView=%s inspectionItems=%s perSideRowMenu=%s editorHandOff=%s editableText=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/DifferencesView.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferencesView.swift 2>/dev/null | grep -c 'func inspectionMenuItems')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferenceRowMenu.swift 2>/dev/null | grep -c 'func existingSides')" \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/ContentView+Editor.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PairContentKind.swift 2>/dev/null | grep -c 'enum EditableText')"
+done
+# measured 2026-09-25, before this landed:
+# main   differencesView=1 inspectionItems=1 perSideRowMenu=1 editorHandOff=1 editableText=1
+# v4.x   differencesView=1 inspectionItems=1 perSideRowMenu=1 editorHandOff=0 editableText=0
+# v3.x   differencesView=1 inspectionItems=1 perSideRowMenu=1 editorHandOff=0 editableText=0
+# v2.x   differencesView=1 inspectionItems=1 perSideRowMenu=1 editorHandOff=0 editableText=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`DifferenceRowMenu.editableSides`** — `existingSides` narrowed by `EditableText.isText`, and emptied for a folder row on `enclosedItemCount` | Not owed: `EditableText` is absent, so it cannot compile there | Same | RECORDED — not owed |
+| **`DifferencesView.onOpenInEditor`** (optional, `nil` hides the items, as `onQuickLook` does) and its wiring to `handOffToEditor($0, pane: .staysPut)` in `ContentView` | Not owed — no hand-off to wire it to | Same | RECORDED — not owed |
+| **The hand-off that leaves the left pane where it is** — `EditorHandOffRun` (the hand-off moved out of `ContentView` into an act a test can run, `Pane.followsTheFile` / `.staysPut`), `.staysPut` for the differences list alone, and its log line `opened without moving the left pane`. Measured on `main` with a real `FileSyncManager` (`EditorHandOffRunTests`): the ordinary hand-off from Compare re-scopes the comparison, clears the session's Ignore in Comparison entries and sends a `.leftOnly` refresh; `.staysPut` does none of the three | Not owed — no hand-off at all | Same | RECORDED — not owed |
+| **The menu items moved into `DifferenceInspectionMenu`**, a `View` of their own, so a test can host them and read the drawn order | Not owed. A restructure that exists to carry the new group; the items it moved draw identically (Get Info / Reveal / Quick Look / Copy Path, same labels, same order) | Same | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** Nothing stored, no defaults key, no change to what the
+existing items do. Those lines also lack **Compare…** at the head of this menu (0 on all three for
+`Label("Compare…"`), so "directly under Compare…" has no anchor there anyway — on those lines the
+group would lead the menu, which is what a one-sided row does on `main`.

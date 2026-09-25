@@ -51,6 +51,59 @@ import Sync
         #expect(sides.map(\.paneName) == ["iCloud (left)", "iCloud (right)"])
     }
 
+    // MARK: Which sides offer Open in Edit (TE31)
+
+    private func textRow(_ type: FileDifference.DifferenceType, enclosedItemCount: Int? = nil) -> FileDifference {
+        FileDifference(
+            relativePath: "docs/notes.md", leftItemPath: "/icloud/docs/notes.md",
+            rightItemPath: "/dropbox/docs/notes.md", type: type,
+            action: type == .missingOnLeft ? .copyToLeft : .copyToRight, description: "d",
+            enclosedItemCount: enclosedItemCount
+        )
+    }
+
+    /// A text file on both sides is offered on both, left first — the order every other per-side
+    /// group in the menu uses.
+    @Test func aTextFileOnBothSidesOffersTheEditorOnBothLeftFirst() {
+        #expect(DifferenceRowMenu.editableSides(for: textRow(.differentDates), paneNames: names) == [
+            .init(paneName: "iCloud", path: "/icloud/docs/notes.md"),
+            .init(paneName: "Dropbox", path: "/dropbox/docs/notes.md"),
+        ])
+    }
+
+    /// **A row missing on a side offers only the side that is there.** Handing the editor the
+    /// missing side's path would open a file that does not exist.
+    @Test func aOneSidedTextRowOffersOnlyTheSideThatExists() {
+        #expect(DifferenceRowMenu.editableSides(for: textRow(.missingOnRight), paneNames: names)
+                == [.init(paneName: "iCloud", path: "/icloud/docs/notes.md")])
+        #expect(DifferenceRowMenu.editableSides(for: textRow(.missingOnLeft), paneNames: names)
+                == [.init(paneName: "Dropbox", path: "/dropbox/docs/notes.md")])
+    }
+
+    /// Not a text file, no editor: the same predicate every other door asks refuses a PDF, so this
+    /// list must too.
+    @Test func aRowThatIsNotTextOffersTheEditorOnNeitherSide() {
+        for type in [FileDifference.DifferenceType.differentDates, .missingOnRight, .missingOnLeft] {
+            #expect(DifferenceRowMenu.editableSides(for: diff(type, relativePath: "docs/report.pdf",
+                                                              left: "/icloud/docs/report.pdf",
+                                                              right: "/dropbox/docs/report.pdf"),
+                                                    paneNames: names).isEmpty,
+                    "a PDF row offers Open in Edit (\(type))")
+        }
+    }
+
+    /// **A folder is refused on the scan's folder marker, not on its name.** Named like a text
+    /// file on purpose: `EditableText.isText` answers true for a directory called `notes.md`, so
+    /// a fixture called `Notes` would be refused by the extension and never reach the folder
+    /// rule — the test would pass with the rule deleted.
+    @Test func aFolderRowOffersTheEditorOnNeitherSideEvenWhenNamedLikeText() {
+        #expect(EditableText.isText(path: "/icloud/docs/notes.md"),
+                "the premise: the fixture's name alone would be offered")
+        #expect(DifferenceRowMenu.editableSides(for: textRow(.missingOnRight, enclosedItemCount: 3),
+                                                paneNames: names).isEmpty,
+                "a folder row offers Open in Edit")
+    }
+
     // MARK: Ignore toggle
 
     @Test func testToggleIgnoresUsingRelativePath() {

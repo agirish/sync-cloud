@@ -200,6 +200,30 @@ import FileExplorer
                 "File ▸ Open in Edit is not wired to the delegate's hand-off")
     }
 
+    /// **Compare's differences list (TE31): the fifth door, wired to the same hand-off.**
+    ///
+    /// `DifferencesView` takes its editor as an optional closure that defaults to `nil` — the
+    /// shape `onQuickLook` has, and the one a dozen package tests construct the view with — so the
+    /// only thing that puts Open in Edit on a differences row at all is this argument at the app's
+    /// one construction site. Dropping it compiles, draws a menu with no editor items, and leaves
+    /// every package test green; `{ _ in }` in its place draws the items and makes them do nothing.
+    /// The drawn tests in `DifferenceRowMenuDrawnTests` inject their own closure and see neither.
+    @Test func theDifferencesListIsWiredToTheRealHandOff() throws {
+        let content = try Self.macApp("ContentView.swift")
+        let start = try #require(content.range(of: "DifferencesView(syncManager: syncManager"),
+                                 "the differences list is built somewhere this scan does not look")
+        let rest = content[start.lowerBound...]
+        let line = String(rest[..<(rest.firstIndex(of: "\n") ?? rest.endIndex)])
+        // `.staysPut`: the differences list opens the file WITHOUT moving the left pane, which is
+        // half of the comparison the list is showing (TE31's fixup) — see
+        // `EditorHandOffRunTests`, which measures what each variant does to a real pane.
+        #expect(line.contains("onOpenInEditor: { handOffToEditor($0, pane: .staysPut) }"),
+                "the differences list's Open in Edit is not wired to the hand-off that leaves the pane where it is")
+        // Exactly one construction, so the line read above is THE one.
+        #expect(content.components(separatedBy: "DifferencesView(").count == 2,
+                "a second DifferencesView construction appeared — scan it too")
+    }
+
     /// A file in `MacApp/`, read from disk.
     static func macApp(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)

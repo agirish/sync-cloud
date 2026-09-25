@@ -101,6 +101,10 @@ public struct DifferencesView: View {
     private let onQuickLook: ((URL) -> Void)?
     /// Shows the in-app Info inspector for a path (the "Get Info" row action). Default no-op.
     private let onGetInfo: (String) -> Void
+    /// Hands one side's file to the Edit workspace (the "Open in Edit" row action). `nil` — the
+    /// default — withholds the items, the way a `nil` `onQuickLook` withholds Quick Look: a host
+    /// with no editor to hand to offers no door onto one, rather than a door that does nothing.
+    private let onOpenInEditor: ((String) -> Void)?
     /// Host-owned collapse state for the whole pane. When bound, the header shows a chevron that
     /// hides the differences list, leaving only this header strip (the host shrinks the pane to it
     /// and hands the freed height to the panes above). `nil` — the default — means the pane can't
@@ -140,6 +144,9 @@ public struct DifferencesView: View {
     ///     to the same `quickLookPreview` binding the spacebar shortcut uses, so there is a
     ///     single presenter; `nil` hides the Quick Look menu items.
     ///   - onGetInfo: Shows the Info inspector for a file path (the "Get Info" row action).
+    ///   - onOpenInEditor: Hands a file path to the Edit workspace (the "Open in Edit" row
+    ///     action, one per side that holds a text file). The app routes this to the same
+    ///     `handOffToEditor` every other door uses; `nil` hides the items.
     /// Opens the shared file-pair viewer on a changed row — ROADMAP §11's diff pane.
     ///
     /// **A closure to the WINDOW, not an overlay of its own.** macOS clamps a sheet to its host
@@ -149,13 +156,14 @@ public struct DifferencesView: View {
     /// `ContentView` presents it against the live window.
     private let onCompareFilePair: (DifferencePair) -> Void
 
-    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, paneRules: PaneProviderRules = .strictest, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, isCollapsed: Binding<Bool>? = nil, shortcutsSuspended: Bool = false, onCompareFilePair: @escaping (DifferencePair) -> Void = { _ in }, session: DifferencesSession? = nil) {
+    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, paneRules: PaneProviderRules = .strictest, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, onOpenInEditor: ((String) -> Void)? = nil, isCollapsed: Binding<Bool>? = nil, shortcutsSuspended: Bool = false, onCompareFilePair: @escaping (DifferencePair) -> Void = { _ in }, session: DifferencesSession? = nil) {
         self.syncManager = syncManager
         self.reviewStore = reviewStore
         self.paneNames = paneNames
         self.paneRules = paneRules
         self.onQuickLook = onQuickLook
         self.onGetInfo = onGetInfo
+        self.onOpenInEditor = onOpenInEditor
         self.isCollapsed = isCollapsed
         self.shortcutsSuspended = shortcutsSuspended
         self.onCompareFilePair = onCompareFilePair
@@ -2064,57 +2072,15 @@ public struct DifferencesView: View {
         }
     }
 
-    /// Read-only row actions — per-side Reveal/Quick Look/Copy Path for the sides that exist.
-    /// Shared by the normal single-row menu and the review table's menu (which offers only these).
-    @ViewBuilder
+    /// Read-only row actions — Compare…, Open in Edit, and per-side Get Info/Reveal/Quick Look/
+    /// Copy Path for the sides that exist. Shared by the normal single-row menu and the review
+    /// table's menu (which offers only these). The items themselves are `DifferenceInspectionMenu`,
+    /// a view of their own so a test can host and draw them.
     private func inspectionMenuItems(for difference: FileDifference) -> some View {
-        let sides = DifferenceRowMenu.existingSides(for: difference, paneNames: paneNames)
-        // Offered only where there are two files to compare — `pair(for:paneNames:)` returns nil
-        // for a row missing on a side and for a folder, so the item is absent rather than present
-        // and inert. An inspection action, which is why it sits with the other read-only ones and
-        // reaches the review table's menu too.
-        if let pair = DifferencesPairCompare.pair(for: difference, paneNames: paneNames) {
-            Button {
-                onCompareFilePair(pair)
-            } label: {
-                Label("Compare…", systemImage: "rectangle.split.2x1")
-            }
-            Divider()
-        }
-        ForEach(sides, id: \.paneName) { side in
-            Button {
-                onGetInfo(side.path)
-            } label: {
-                Label("Get Info (\(side.paneName))", systemImage: "info.circle")
-            }
-        }
-        Divider()
-        ForEach(sides, id: \.paneName) { side in
-            Button {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: side.path)])
-            } label: {
-                Label("Reveal in Finder (\(side.paneName))", systemImage: RevealGlyph.inFinder)
-            }
-        }
-        if let onQuickLook {
-            Divider()
-            ForEach(sides, id: \.paneName) { side in
-                Button {
-                    onQuickLook(URL(fileURLWithPath: side.path))
-                } label: {
-                    Label("Quick Look (\(side.paneName))", systemImage: "doc.viewfinder")
-                }
-            }
-        }
-        Divider()
-        ForEach(sides, id: \.paneName) { side in
-            Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(side.path, forType: .string)
-            } label: {
-                Label("Copy Path (\(side.paneName))", systemImage: "doc.on.clipboard")
-            }
-        }
+        DifferenceInspectionMenu(difference: difference, paneNames: paneNames,
+                                 onCompareFilePair: onCompareFilePair,
+                                 onOpenInEditor: onOpenInEditor,
+                                 onGetInfo: onGetInfo, onQuickLook: onQuickLook)
     }
 
     /// Bulk menu for a multi-row selection: Copy/Move the selected rows in each direction
@@ -2159,6 +2125,91 @@ public struct DifferencesView: View {
             selection.removeAll()
         } label: {
             Label("Clear selection", systemImage: "xmark.circle")
+        }
+    }
+}
+
+// MARK: - Row menu
+
+/// The read-only items of a differences row's menu, in order: Compare…, Open in Edit per side,
+/// then Get Info, Reveal in Finder, Quick Look and Copy Path per side.
+///
+/// **A view of its own rather than a builder method on `DifferencesView`** so a test can host it
+/// and read the order it is DRAWN in (`DifferenceRowMenuDrawnTests`), not only the order the source
+/// spells. Everything it needs is passed in; it holds no state, so it builds the same items the
+/// method it replaced did.
+struct DifferenceInspectionMenu: View {
+    let difference: FileDifference
+    let paneNames: PaneProviderNames
+    let onCompareFilePair: (DifferencePair) -> Void
+    /// `nil` withholds Open in Edit, as `nil` `onQuickLook` withholds Quick Look.
+    let onOpenInEditor: ((String) -> Void)?
+    let onGetInfo: (String) -> Void
+    let onQuickLook: ((URL) -> Void)?
+
+    var body: some View {
+        let sides = DifferenceRowMenu.existingSides(for: difference, paneNames: paneNames)
+        // Offered only where there are two files to compare — `pair(for:paneNames:)` returns nil
+        // for a row missing on a side and for a folder, so the item is absent rather than present
+        // and inert. An inspection action, which is why it sits with the other read-only ones and
+        // reaches the review table's menu too.
+        if let pair = DifferencesPairCompare.pair(for: difference, paneNames: paneNames) {
+            Button {
+                onCompareFilePair(pair)
+            } label: {
+                Label("Compare…", systemImage: "rectangle.split.2x1")
+            }
+            Divider()
+        }
+        // **Directly under Compare…, ahead of Get Info** — the pane row menu's placement, where
+        // Open in Edit leads the single-file items. One item per side that holds a text file the
+        // editor opens (`editableSides`), so a one-sided row gets one, and a folder or a PDF gets
+        // none — and no divider either, which is what keeps a non-text row's menu exactly what it
+        // was before this group existed.
+        let editable = DifferenceRowMenu.editableSides(for: difference, paneNames: paneNames)
+        if let onOpenInEditor, !editable.isEmpty {
+            ForEach(editable, id: \.paneName) { side in
+                Button {
+                    onOpenInEditor(side.path)
+                } label: {
+                    Label("Open in Edit (\(side.paneName))", systemImage: "square.and.pencil")
+                }
+            }
+            Divider()
+        }
+        ForEach(sides, id: \.paneName) { side in
+            Button {
+                onGetInfo(side.path)
+            } label: {
+                Label("Get Info (\(side.paneName))", systemImage: "info.circle")
+            }
+        }
+        Divider()
+        ForEach(sides, id: \.paneName) { side in
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: side.path)])
+            } label: {
+                Label("Reveal in Finder (\(side.paneName))", systemImage: RevealGlyph.inFinder)
+            }
+        }
+        if let onQuickLook {
+            Divider()
+            ForEach(sides, id: \.paneName) { side in
+                Button {
+                    onQuickLook(URL(fileURLWithPath: side.path))
+                } label: {
+                    Label("Quick Look (\(side.paneName))", systemImage: "doc.viewfinder")
+                }
+            }
+        }
+        Divider()
+        ForEach(sides, id: \.paneName) { side in
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(side.path, forType: .string)
+            } label: {
+                Label("Copy Path (\(side.paneName))", systemImage: "doc.on.clipboard")
+            }
         }
     }
 }

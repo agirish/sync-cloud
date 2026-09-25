@@ -4790,8 +4790,10 @@ struct ContentView: View {
             )
         } else if compareBottomListActive {
             // DifferencesView renders its own two cards (toolbar + table); the workspace bar lives in
-            // the window toolbar.
-            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, isCollapsed: $bottomPaneCollapsed, shortcutsSuspended: pendingDestination != nil, onCompareFilePair: { compareDifferencePair = $0 }, session: differencesSession)
+            // the window toolbar. Its Open in Edit leaves the left pane where it is (`.staysPut`):
+            // that pane is half of the comparison this list IS, and re-rooting it would re-scope the
+            // comparison, re-run its scan and drop the session's "Ignore in comparison" entries.
+            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, onOpenInEditor: { handOffToEditor($0, pane: .staysPut) }, isCollapsed: $bottomPaneCollapsed, shortcutsSuspended: pendingDestination != nil, onCompareFilePair: { compareDifferencePair = $0 }, session: differencesSession)
         } else {
             // Compare with nothing to list yet: scanning / all-in-sync / not-scanned placeholder.
                 Group {

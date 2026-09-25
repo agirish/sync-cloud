@@ -32,6 +32,25 @@ public enum DifferenceRowMenu {
         return sides
     }
 
+    /// The sides of a difference that "Open in Edit" is offered for, left first: the sides that
+    /// exist, narrowed to files the Edit workspace opens.
+    ///
+    /// **The same predicate every other door asks** — `EditableText.isText(path:)`, the gate the
+    /// pane row menu, the Info inspector and File ▸ Open in Edit apply — so this list cannot offer
+    /// a PDF the editor would then refuse, nor withhold a `.md` the rail would list.
+    ///
+    /// **A folder row offers nothing, whatever it is called.** `isText` cannot tell a folder from a
+    /// file (it has no disk to ask; a directory named `notes.md` answers true), and its own doc
+    /// leaves that test to every caller that can have a directory in hand. A differences row
+    /// carries no `isDirectory`, so this asks the one fact it does carry: `enclosedItemCount`,
+    /// the scan's folder marker, which `DifferencesPairCompare.pair` withholds Compare… on for the
+    /// same reason. Both sides of the row share one relative path, so the marker answers for both.
+    public static func editableSides(for difference: FileDifference, paneNames: PaneProviderNames) -> [Side] {
+        guard difference.enclosedItemCount == nil else { return [] }
+        return existingSides(for: difference, paneNames: paneNames)
+            .filter { EditableText.isText(path: $0.path) }
+    }
+
     /// Whether this difference is hidden by the current ignore set. Uses the same
     /// predicate the differences filter applies (`FileSyncManager.isIgnoredPath` over
     /// `relativePath`), so the menu label always agrees with list membership.

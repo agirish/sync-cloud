@@ -33,8 +33,17 @@ User-facing changes, newest first. For the full commit history see the
   focused pane; **Open in Edit at the top of a file's right-click menu**, where it used to sit below
   Get Info and Reveal in Finder; an **Edit** button by the file's name in the preview (⇧⌘P) — beside
   it, or under it when the name is long; and **Open in Edit first among the Info inspector's
-  actions** (⌘I). Until now the right-click menu was the only way, and it was easy to miss. Compare's list
-  of differences and Duplicates' copies do not offer it yet.
+  actions** (⌘I). Until now the right-click menu was the only way, and it was easy to miss.
+  Duplicates' copies do not offer it yet.
+- **Compare's list of differences offers it too, once for each side.** Right-click a row whose
+  file is text and **Open in Edit** sits directly under Compare…, named for the pane it opens from
+  — both panes' copies when the file is on both, the one that exists when it is missing from a
+  side. A folder, or a file Edit does not open, gets no such item. The list shown during a guided
+  review offers it as well. **It opens the file without moving the left pane**, where every other
+  way in takes the pane to the file's folder: in Compare that pane is half of the comparison the
+  list is showing, so moving it would re-run the comparison and forget what you had set aside with
+  Ignore in Comparison. The folder name above the document says where the file lives; click it when
+  you do want the pane there.
 - **Each one is offered for a text file and never for a folder** — all four ask the question the
   right-click menu always asked, so they agree about what a text file is. The preview is the one
   that holds back further: for a file whose content is still in the cloud it goes on offering
