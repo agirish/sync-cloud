@@ -35,7 +35,9 @@ let package = Package(
         .testTarget(
             name: "DashboardTests",
             dependencies: [
-                "Dashboard", "Sync", "Events", "Design",
+                // FileExplorer for `EditHeaderMatchesPaneHeaderTests`, which lays Edit's document
+                // header out beside the real `PaneHeader` — the one place both views can be seen.
+                "Dashboard", "Sync", "Events", "Design", "FileExplorer",
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
             ],
             path: "Tests/Dashboard")

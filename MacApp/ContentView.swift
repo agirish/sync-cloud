@@ -4232,8 +4232,10 @@ struct ContentView: View {
     /// Both halves of that, and why each is necessary, live in `PaneLogic.applySelectionWrite` —
     /// where the ORDERING can be tested rather than only the arithmetic.
     ///
-    /// Not `private`: ⌘N's owed selection (`settleOwedPaneSelection`) writes through this same
-    /// setter, so a programmatic pick keeps every rule a click keeps.
+    /// Not `private`: two callers outside this file select through it — ⌘N's owed selection
+    /// (`settleOwedPaneSelection`) and the Edit header's "in Finance" door, which selects the open
+    /// document in the pane (`ContentView+Editor`). A selection written from outside the pane goes
+    /// through the same write a click does, so a programmatic pick keeps every rule a click keeps.
     func paneSelectionBinding(isLeft: Bool) -> Binding<Set<String>> {
         Binding(
             get: { isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths },

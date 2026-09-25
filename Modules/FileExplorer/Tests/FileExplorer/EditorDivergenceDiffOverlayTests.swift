@@ -269,6 +269,8 @@ import Testing
             onOpen: { _ in },
             onCreate: { _ in true },
             onRevealInBrowse: { _ in },
+            location: nil,
+            onLocationDoor: { _ in },
             onToggleJustTheText: {})
     }
 

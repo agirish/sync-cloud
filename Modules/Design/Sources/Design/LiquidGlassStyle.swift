@@ -490,6 +490,11 @@ public enum LiquidGlass {
     /// `LensHeaderMetrics` derives its row geometry to match this, and both are asserted against
     /// the LAID-OUT `fittingSize` rather than against each other — a constant agreeing with
     /// itself proves nothing (see `4b1f611`).
+    ///
+    /// **Edit's document header is the third reader** (`EditorWorkspaceView.headerCard`): its card
+    /// sits beside the source pane's toolbar card and is pinned here so the two share a bottom edge
+    /// and the text starts where the list does. `EditHeaderMatchesPaneHeaderTests` lays the two
+    /// real views out side by side and compares them, at every text size.
     public static let headerHeight: CGFloat = 81
     /// Corner radius for smaller elements (badges, buttons, inputs). The `Radius` scale's
     /// `well` stop under its older name.

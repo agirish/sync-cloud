@@ -134,6 +134,34 @@ extension ContentView {
         openInEditor(path: path)
     }
 
+    // MARK: - Where the open document lives
+
+    /// The header's location for the open document (TE43): `in Finance` while the source pane is
+    /// open, the whole crumb while it is collapsed — see `EditorDocumentLocation.Style`. With no
+    /// document open, the same for `editorFolder`, where a new file would be made — the empty
+    /// page's header names that instead.
+    ///
+    /// **The LEFT pane's source, for the reason `editorFolder` reads the left pane**: it is the one
+    /// pane Edit shows and the one every door here moves. `leftProviderId` rather than
+    /// `paneContext(isLeft:)`, which builds the whole pane's context to answer one id.
+    var editorDocumentLocation: EditorDocumentLocation? {
+        EditorHeaderLocation.location(
+            documentPath: editorDocument.path,
+            paneFolder: editorFolder,
+            sourceRoot: (settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath,
+            providerName: settings.availableProviders.first { $0.id == leftProviderId }?.displayName,
+            paneIsOpen: !panesHiddenForCurrentTab)
+    }
+
+    /// What a press on that location does — see `EditorLocationDoors`, which is handed neither the
+    /// pane's visibility nor the document, so no door can expand the pane or touch the file.
+    var editorLocationDoors: EditorLocationDoors {
+        EditorLocationDoors(
+            syncManager: syncManager,
+            drawsColumns: resolvedViewMode(isLeft: true) == .columns,
+            selectInPane: { paneSelectionBinding(isLeft: true).wrappedValue = $0 })
+    }
+
     // MARK: - The layout arm
 
 
@@ -256,6 +284,13 @@ extension ContentView {
             onOpen: { entry in openInEditor(path: entry.path) },
             onCreate: { name in createTextFile(named: name) },
             onRevealInBrowse: { path in revealInBrowse(path) },
+            location: editorDocumentLocation,
+            // Read at press time, both of them: the closure is built during this render, and the
+            // document or the pane can have moved by the time the word is clicked.
+            onLocationDoor: { door in
+                editorLocationDoors.open(door, documentPath: editorDocument.path,
+                                         location: editorDocumentLocation)
+            },
             onToggleJustTheText: { toggleJustTheText() },
             onAutosaveResumed: { runAutosave() })
         // The rail is re-listed on arrival and whenever the folder or the hidden-files preference

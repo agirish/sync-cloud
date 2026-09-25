@@ -5512,3 +5512,34 @@ own changed-only guard exists to avoid. The pane does not scroll a new file into
 enough to put it off-screen shows it selected but not visible (no scroll-to-selection exists outside
 search reveals). The rail click and the hand-off do not write the pane's selection either — a
 different cause (no selection write at all, no missing re-read), left alone.
+
+---
+
+## Edit's header says where the file lives, and is a card of its own (TE43)
+
+**Everything here is on the Editor workspace's header, and no maintenance line has one.** Checked
+2026-09-25 against `origin` before landing:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s editorWorkspace=%s workspaceEditor=%s paneHeaderPinned=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/Workspace.swift 2>/dev/null | grep -c 'case editor')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/DashboardViews.swift 2>/dev/null | grep -c 'frame(height: LiquidGlass.headerHeight)')"
+done
+# main   editorWorkspace=1 workspaceEditor=1 paneHeaderPinned=1
+# v4.x   editorWorkspace=0 workspaceEditor=0 paneHeaderPinned=1
+# v3.x   editorWorkspace=0 workspaceEditor=0 paneHeaderPinned=1
+# v2.x   editorWorkspace=0 workspaceEditor=0 paneHeaderPinned=1
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`EditorDocumentLocation`** + `EditorLocationLabel` (the value, its two readings, the fold-the-middle rungs, the doors as data); `EditorWorkspaceView.location` / `onLocationDoor` (required, no defaults) on the meta row after the autosave switch, at `layoutPriority(-1)` | Not owed — no editor workspace, no header to put it on | Same | RECORDED — not owed |
+| **The header as its own card** (`headerCard`, pinned to `LiquidGlass.headerHeight`), the text in a second card in `.cards` and flush under a hairline in `.unified`; ⌘N's row moved into the text card | Not owed. The pin it shares (`PaneHeader` at `headerHeight`) IS on every line, but there is no document column beside it | Same | RECORDED — not owed |
+| **`EditorHeaderLocation.location`** (built from `BreadcrumbTrail`), **`EditorLocationDoors`** (crumb → `navigatePane`, folder → `navigatePane` + the pane's own selection binding); `paneSelectionBinding` private → internal | Not owed — nothing calls them without the header | Same | RECORDED — not owed |
+| Dashboard test target gains a `FileExplorer` dependency for `EditHeaderMatchesPaneHeaderTests` | Not owed — the test has no subject there | Same | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** No defect fix rides along: `navigatePane`,
+`BreadcrumbTrail` and `PaneLogic.relativePath` are reused unchanged, and the one visibility change
+(`paneSelectionBinding`) alters no behaviour. No defaults key, no stored format.

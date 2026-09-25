@@ -64,6 +64,15 @@ User-facing changes, newest first. For the full commit history see the
   appears in the folder it was created in and is selected there, the way a file you click is, so the
   list says where the document lives. A PDF you export into the folder is listed there too. The pane
   used to go on listing the folder as it was until something else re-read it.
+- **The document says where it lives.** Under its name, beside Autosave, the header now names the
+  file's folder. With the source pane open it reads "in Finance": click it and the pane goes to that
+  folder with the file selected. With the pane folded away it spells out the whole path the pane's
+  breadcrumb would show — "iCloud › Documents › Finance" — and each part is a place to go: the folded
+  pane moves there, without opening, and the Text Files list follows it. A long path folds its middle
+  and keeps the source and the folder. The header is now a card of its own, as tall as the pane's
+  toolbar card beside it, so the text starts level with the list — and it stays with no document
+  open, reading "No document open" and naming the folder a new file would be made in, so the page
+  does not move when a file opens.
 
 ### Folders merge, and Cancel stops the copy it is in
 

@@ -157,6 +157,14 @@ public struct EditorWorkspaceView: View {
     let onCreate: (String) -> Bool
     /// The reverse of "Open in Edit": shows the open file where it lives.
     let onRevealInBrowse: (String) -> Void
+    /// Where the open document lives, for the header's meta row — or, with no document open, the
+    /// folder a new file would be made in, which is what the empty page's header names instead.
+    /// `nil` when there is nothing to place: no document and no folder. Built by the host from the
+    /// pane's own breadcrumb model; see ``EditorDocumentLocation``.
+    let location: EditorDocumentLocation?
+    /// A door in that location, pressed. The host decides what each means for the left pane —
+    /// the view only says which word was pressed.
+    let onLocationDoor: (EditorDocumentLocation.Door) -> Void
     /// Called when autosave is switched back on for the open document, so the host can write what
     /// is already pending rather than waiting for the next keystroke.
     var onAutosaveResumed: () -> Void = {}
@@ -231,6 +239,11 @@ public struct EditorWorkspaceView: View {
                 onOpen: @escaping (EditorRailEntry) -> Void,
                 onCreate: @escaping (String) -> Bool,
                 onRevealInBrowse: @escaping (String) -> Void,
+                // No defaults, so every construction site is read — the header's location is a
+                // claim about where the file lives, and a site that silently passed `nil` would
+                // leave the header saying nothing again.
+                location: EditorDocumentLocation?,
+                onLocationDoor: @escaping (EditorDocumentLocation.Door) -> Void,
                 // No default, so every construction site is read: the two in tests pass `{}`.
                 onToggleJustTheText: @escaping () -> Void,
                 onAutosaveResumed: @escaping () -> Void = {}) {
@@ -265,6 +278,8 @@ public struct EditorWorkspaceView: View {
         self.onOpen = onOpen
         self.onCreate = onCreate
         self.onRevealInBrowse = onRevealInBrowse
+        self.location = location
+        self.onLocationDoor = onLocationDoor
         self.onAutosaveResumed = onAutosaveResumed
     }
 
@@ -333,27 +348,82 @@ public struct EditorWorkspaceView: View {
             }
             documentColumn
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         }
     }
 
     // MARK: - The open document
 
+    /// **Two cards, the file pane's two: a header card, and the text under it** (TE43).
+    ///
+    /// The source pane beside this column is a toolbar card over a list card, and the document was
+    /// one card with its header drawn inside it — so the two halves of the window disagreed about
+    /// where the chrome ends and the content starts. Now the header is its own card, pinned to
+    /// `LiquidGlass.headerHeight`, which is the height the pane's `PaneHeader` is pinned to: the two
+    /// cards share a bottom edge because both read the ONE constant, not because a second copy of
+    /// the pane's number was typed here (the same rule the capsule reservation below states). With
+    /// the pane collapsed there is no toolbar card to line up with, and the header keeps the height
+    /// anyway — a document that moved when the pane opened would be worse than one that waited for
+    /// a card that is not there.
+    ///
+    /// **Per surface style, because the pane is.** In `.cards` the pane's header and list are two
+    /// cards with a gutter between them (`paneCardIfNeeded`), so this column is two cards. In
+    /// `.unified` the pane is ONE region with its list flush under its header (`panesRegionFrame`),
+    /// so this column is one region with its text flush under the header — two cards here would put
+    /// a gutter where the pane has none, and the text would start one gutter below the list.
+    ///
+    /// **No document, the same two cards.** The empty page keeps its header card, at the same pinned
+    /// height, so nothing jumps when a file opens or closes — see ``emptyHeaderContent`` for what it
+    /// says with nothing to name. It used to fall back to one card with the caption in it, which
+    /// moved the caption's card up by a header and a gutter on every close and left the header's
+    /// controls unreachable on the one page that has nothing else to press.
     @ViewBuilder
     private var documentColumn: some View {
+        if surfaceStyle == .cards {
+            VStack(spacing: 0) {
+                headerCard
+                    .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+                textCard
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+            }
+        } else {
+            VStack(spacing: 0) {
+                // The rule the header always had, drawn OVER its bottom edge rather than under it,
+                // so it costs no height: the pane's list starts flush at the header's pinned edge
+                // and so must this column's text.
+                headerCard
+                    .overlay(alignment: .bottom) { Divider() }
+                textCard
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+        }
+    }
+
+    /// The header, at the pane toolbar card's height. Internal so `EditorHeaderLocationTests` and
+    /// `EditHeaderMatchesPaneHeaderTests` can measure the card itself rather than its contents.
+    var headerCard: some View {
+        header
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: LiquidGlass.headerHeight)
+    }
+
+    /// Everything under the header: ⌘N's row when it has no rail to live in, the document, and its
+    /// status line.
+    private var textCard: some View {
         VStack(spacing: 0) {
             // ⌘N's row, when there is no rail to draw it in. The rail draws it otherwise, and the
             // two conditions are exclusive — see ``EditorNamingRow``. The folder is named here
             // because nothing else in this column says where the file is about to be created.
+            //
+            // **In the text card, not above the header.** The header card's height is the pane's
+            // toolbar card's, and a row that came and went above it would move it off that line
+            // for as long as ⌘N was open.
             if !showsRail && isNaming {
                 EditorNamingRow(isNaming: $isNaming, typedName: $typedName, namingFocus: namingFocus,
                                 accent: accent, prefilledName: prefilledName, refusal: refusal,
                                 onCreate: onCreate, folderName: folderName)
                     .padding(.top, 6)
-            }
-            if document.path != nil {
-                header
-                Divider()
             }
             body(for: document)
             // **Not under a refusal.** A document that could not be read has an empty buffer, and
@@ -374,7 +444,9 @@ public struct EditorWorkspaceView: View {
     /// with the text size. Asserting that a Markdown header and a plain-text header come out the
     /// same means measuring them, and measuring them means being able to build one.
     private var header: some View {
-        EditorDocumentHeader { headerContent }
+        EditorDocumentHeader {
+            if document.path == nil { emptyHeaderContent } else { headerContent }
+        }
     }
 
     /// Internal rather than private, so `EditorLayoutTests` can render the header on its own and
@@ -437,25 +509,8 @@ public struct EditorWorkspaceView: View {
                     .accessibilityLabel("Find in this document")
                     .help("Find and replace in this document")
                 }
-                // **"Just the text."** Hides the file rail — and, through the host, collapses the
-                // source pane if it was open — leaving the document alone in the row. Lit while the
-                // rail bit is set, and its label names its NEXT act rather than its state, the way
-                // the spine's chevron does. **Not withheld in Preview**, unlike Find: it is about
-                // the columns, not the text view. No chord — the menu bar is held, and ⌥ is not
-                // this app's to register.
-                Button(action: onToggleJustTheText) {
-                    Image(systemName: "text.justify.left")
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(railIsHidden ? accent : .primary)
-                        .frame(width: 18, height: 18)
-                        // The soft accent wash is the lit state; the hover style paints its own
-                        // wash over it, which reads as the pressed preview it is.
-                        .background(RoundedRectangle(cornerRadius: Radius.chip)
-                            .fill(railIsHidden ? accent.opacity(0.18) : .clear))
-                }
-                .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-                .accessibilityLabel(Self.justTheTextTitle(railIsHidden: railIsHidden))
-                .help(Self.justTheTextTitle(railIsHidden: railIsHidden))
+                // "Just the text" — one view, drawn by the empty page's header too.
+                justTheTextButton
                 // **Only for files that have something to preview.** `PairContentKind` already
                 // owns which extensions are Markdown; a capsule on a `.txt` would offer two modes
                 // that render the same thing.
@@ -533,7 +588,32 @@ public struct EditorWorkspaceView: View {
                 Text("·").foregroundStyle(.tertiary)
                 autosaveSwitch
             }
-            Spacer(minLength: 8)
+            // **Where the file lives — after the switch, so the switch never moves.** The folder's
+            // name is the one thing on the left of this row whose width depends on the file, and
+            // before the switch it would slide the switch sideways from one folder to the next,
+            // the same reason the status word is at the far end.
+            //
+            // **It takes the gap the `Spacer` held**, rather than sitting beside one: two views
+            // flexible without limit split the leftover width between them, and the crumb would
+            // have had half the room it could use.
+            //
+            // **And it yields first — `layoutPriority(-1)`.** At the same priority as its
+            // neighbours it was offered a share of the row before they had theirs, and at 135% in
+            // the narrowest column "Autosave" was handed less than its own width and wrapped onto
+            // a second line, growing a header that is pinned to the pane's toolbar card. Below
+            // them it is sized from what the kind, the switch and the status word leave — the
+            // location folds and truncates (``EditorLocationLabel``) where those words cannot.
+            if let location {
+                HStack(spacing: 6) {
+                    Text("·").foregroundStyle(.tertiary).fixedSize()
+                    EditorLocationLabel(location: location, accent: accent, onDoor: onLocationDoor)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.trailing, 8)
+                .layoutPriority(-1)
+            } else {
+                Spacer(minLength: 8)
+            }
             // **The far end, so the left never moves.** The word is the only thing in this row
             // whose width changes — `unsaved — ⌘S`, `not saving`, a stop's own sentence — and on
             // the left it would shove the switch sideways every time the state changed. Here it
@@ -593,6 +673,111 @@ public struct EditorWorkspaceView: View {
     /// Named once for the reason ``EditorFileRailView/dotColumnWidth`` is: two rows agreeing on a
     /// left edge by both writing `10` are two rows that will one day disagree.
     static let dotColumnWidth: CGFloat = 10
+
+    // MARK: - The empty page's header
+
+    /// **The header with no document open: the same card, saying so, and naming where a new file
+    /// would go.** First entry into Edit, and every close, land here.
+    ///
+    /// **The same two rows at the same heights as a document's**, so the card is filled the same
+    /// way and the text card below starts where it always does: the title row reserves the mode
+    /// capsule's height with a hidden real one, exactly as a plain-text file's does, and the meta
+    /// row reserves the autosave switch's (see ``emptyMetaRow``).
+    ///
+    /// **What it offers is what makes sense with nothing open.** No Find (nothing to search) and
+    /// no capsule (nothing to view three ways).
+    ///
+    /// "Just the text" is drawn only while it is LIT: with the rail and the pane both put away
+    /// there is no list of files anywhere on screen, and the lit glyph is both the reason why and
+    /// the way back — its label reads "Show the text files". Unlit it would only offer to hide a
+    /// list somebody has not yet used, on a page whose whole job is to get them to one.
+    ///
+    /// Internal so the tests can render it on its own, like ``headerContent``.
+    @ViewBuilder
+    var emptyHeaderContent: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                // The dot's column, reserved as a shape so the title starts where a file name does.
+                Color.clear
+                    .frame(width: Self.dotColumnWidth, height: 1)
+                Text(Self.emptyTitle)
+                    .scaledFont(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                if railIsHidden {
+                    justTheTextButton
+                }
+                // The capsule's height, reserved the way a plain-text header reserves it.
+                EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
+                    .hidden()
+                    .frame(width: 0)
+            }
+            emptyMetaRow
+        }
+    }
+
+    /// What the empty page's header says in place of a file name.
+    static let emptyTitle = "No document open"
+
+    /// **Where a new file would go, and nothing else.** No kind, no switch and no status word — each
+    /// of those is about a file, and there is none. The location is the pane's folder, which is
+    /// where ⌘N and the ＋ create; it is drawn by the same label as a document's, so it reads and
+    /// clicks the same way, but with no "·" before it because nothing precedes it. With no folder
+    /// the row is empty, and keeps its height.
+    ///
+    /// **Its height is the document meta row's, by reservation**: a hidden copy of the autosave
+    /// switch's label and track at zero width, the capsule trick again. They are the tallest things
+    /// that row holds, and measured without them the row was 1–2pt short at every text size with
+    /// no folder to name — enough to move the title between the empty page and an open file.
+    private var emptyMetaRow: some View {
+        HStack(spacing: 6) {
+            Color.clear
+                .frame(width: Self.dotColumnWidth, height: 1)
+            if let location {
+                EditorLocationLabel(location: location, accent: accent, onDoor: onLocationDoor)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.trailing, 8)
+                    .layoutPriority(-1)
+            } else {
+                Spacer(minLength: 8)
+            }
+            // The switch's label and track, as the document row draws them. Not the switch
+            // itself: that is a `Button`, and a hidden one would still be a control.
+            HStack(spacing: 5) {
+                Text("Autosave")
+                    .scaledFont(.system(size: 10, weight: .medium))
+                AutosaveSwitchTrack(isOn: false, accent: accent)
+            }
+            .fixedSize()
+            .hidden()
+            .frame(width: 0)
+        }
+        .scaledFont(.system(size: 10))
+        .foregroundStyle(.secondary)
+    }
+
+    /// **"Just the text."** Hides the file rail — and, through the host, collapses the source pane
+    /// if it was open — leaving the document alone in the row. Lit while the rail bit is set, and
+    /// its label names its NEXT act rather than its state, the way the spine's chevron does. **Not
+    /// withheld in Preview**, unlike Find: it is about the columns, not the text view. No chord —
+    /// the menu bar is held, and ⌥ is not this app's to register. One view, drawn by both headers.
+    private var justTheTextButton: some View {
+        Button(action: onToggleJustTheText) {
+            Image(systemName: "text.justify.left")
+                .scaledFont(.system(size: 11, weight: .semibold))
+                .foregroundStyle(railIsHidden ? accent : .primary)
+                .frame(width: 18, height: 18)
+                // The soft accent wash is the lit state; the hover style paints its own
+                // wash over it, which reads as the pressed preview it is.
+                .background(RoundedRectangle(cornerRadius: Radius.chip)
+                    .fill(railIsHidden ? accent.opacity(0.18) : .clear))
+        }
+        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        .accessibilityLabel(Self.justTheTextTitle(railIsHidden: railIsHidden))
+        .help(Self.justTheTextTitle(railIsHidden: railIsHidden))
+    }
 
     private var showsAutosaveSwitch: Bool {
         Self.showsAutosaveSwitch(hasPath: document.path != nil,
