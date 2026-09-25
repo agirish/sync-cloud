@@ -99,16 +99,25 @@ extension ContentView {
 
     /// The pane's one-click open, as a rule: which path a selection change opens, or `nil`.
     ///
-    /// **Five guards, each a case in `EditorPaneClickTests`.** Edit only; pane expanded (collapsed,
+    /// **Six guards, each a case in `EditorPaneClickTests`.** Edit only; pane expanded (collapsed,
     /// the rail is the list and the pane has no rows on screen to click); exactly one path; not a
     /// folder — `isDirectory` is `nil` when the selection could not be resolved to a node, which
     /// refuses too; and a kind Edit opens. Cloud-only and too-large files pass, deliberately: they
     /// reach `openInEditor`, which refuses them with the caption the rail's rows would have — one
     /// refusal, in one place.
+    ///
+    /// **And not a selection the app just wrote for the open document** (`paidSelection`, TE47).
+    /// The pane selects the document on the user's behalf after every open; that is a selection
+    /// CHANGE, and this rule would answer it with the document. For a readable one `openInEditor`'s
+    /// guard returns anyway — but for a REFUSED one it does not (a second try is how a refusal is
+    /// retried), so the app's own write would reload the file and log a second refusal. The write
+    /// is not a click, and is not answered as one.
     static func paneSelectionOpens(workspace: Workspace, paneHidden: Bool,
-                                   paths: Set<String>, isDirectory: Bool?) -> String? {
+                                   paths: Set<String>, isDirectory: Bool?,
+                                   paidSelection: String? = nil) -> String? {
         guard workspace == .editor, !paneHidden,
               paths.count == 1, let path = paths.first,
+              path != paidSelection,
               let isDirectory, !isDirectory,
               EditableText.isText(path: path) else { return nil }
         return path
@@ -124,12 +133,16 @@ extension ContentView {
     /// hand-off and the preview column's Edit button end in a selection that already names the
     /// open document, and `openInEditor`'s first guard returns early for it.
     func openSelectedPaneFileInEditor(_ paths: Set<String>) {
+        // One-shot: the app's own write is the next selection change and nothing after it.
+        let paid = editorPaneSelectionPaid
+        editorPaneSelectionPaid = nil
         // The node walk is paid only once the cheap guards have passed: one path, in Edit, pane open.
         let node = (selectedWorkspace == .editor && paths.count == 1)
             ? paneSelectionNodes(isLeft: true).first : nil
         guard let path = Self.paneSelectionOpens(workspace: selectedWorkspace,
                                                  paneHidden: panesHiddenForCurrentTab,
-                                                 paths: paths, isDirectory: node?.isDirectory)
+                                                 paths: paths, isDirectory: node?.isDirectory,
+                                                 paidSelection: paid)
         else { return }
         openInEditor(path: path)
     }
@@ -159,7 +172,7 @@ extension ContentView {
         EditorLocationDoors(
             syncManager: syncManager,
             drawsColumns: resolvedViewMode(isLeft: true) == .columns,
-            selectInPane: { paneSelectionBinding(isLeft: true).wrappedValue = $0 })
+            selectInPane: { owePaneSelection($0) })
     }
 
     // MARK: - The layout arm
@@ -281,7 +294,7 @@ extension ContentView {
             // Both closures, so neither walks the folder until the naming row is actually open.
             prefilledName: { EditorFileStore.availableUntitledName(in: editorFolder) },
             refusal: { typed in EditorFileStore.refusal(forName: typed, in: editorFolder) },
-            onOpen: { entry in openInEditor(path: entry.path) },
+            onOpen: { entry in openInEditor(path: entry.path, selectsInPane: true) },
             onCreate: { name in createTextFile(named: name) },
             onRevealInBrowse: { path in revealInBrowse(path) },
             location: editorDocumentLocation,
@@ -323,18 +336,27 @@ extension ContentView {
     /// **The prompt is here and nowhere else.** Every route into the editor — a rail row, ⌘N's new
     /// file, and later a hand-off from another workspace — comes through this function, so there is
     /// exactly one place that can lose an edit and exactly one question guarding it.
-    func openInEditor(path: String) {
+    ///
+    /// - Parameter selectsInPane: whether the left pane should then select the file and bring it
+    ///   into view (TE47) — the rail's click, where the pane is folded away behind the rail and
+    ///   shows the same folder. **Not** the pane's own click (`openSelectedPaneFileInEditor`): the
+    ///   row is already selected where the pointer is, and a reveal would scroll it to the middle
+    ///   under the user's hand.
+    func openInEditor(path: String, selectsInPane: Bool = false) {
         // Re-clicking the row that is already open does nothing — unless the last attempt was
-        // refused. A cloud-only file downloaded in Finder, or one that was too large and has since
-        // been trimmed, is a second click away from opening, and the early return used to swallow
-        // it and leave the stale refusal on screen.
-        guard path != editorDocument.path || editorDocument.refusal != nil else { return }
+        // refused. See `EditorHandOffRun.opens`, the guard the hand-off asks too.
+        guard EditorHandOffRun.opens(path, openDocument: editorDocument.path,
+                                     isRefused: editorDocument.refusal != nil) else {
+            if selectsInPane { owePaneSelection(path) }
+            return
+        }
         guard settleEditorDocument() else { return }
         // Choosing a file is the answer to the question the naming row was asking, so the row goes
         // with it. Left open it sat above a document the user was by then editing, with no way to
         // dismiss it short of Esc and nothing on screen saying so.
         editorIsNaming = false
         loadIntoEditor(path: path)
+        if selectsInPane { owePaneSelection(path) }
     }
 
     /// Reads a file and puts it on screen. No prompt: callers have already dealt with the buffer.
@@ -357,13 +379,16 @@ extension ContentView {
         // made one non-Markdown file destroy the setting for the rest of the session: read three
         // notes in Preview, open a `.txt` in between, and the third note opens in Edit. The type
         // that owns the rule says the opposite in its own doc comment.
+        Logger.shared.info(Self.loadLogLine(path: path, result: result))
+    }
+
+    /// The one line every load writes — opened, read-only or refused. A function of its own so a
+    /// test can count "Editor opened" lines through the same words the app writes (TE47).
+    static func loadLogLine(path: String, result: EditorFileStore.OpenResult) -> String {
         switch result {
-        case .refused(let reason):
-            Logger.shared.info("Editor could not open \(path) — \(reason)")
-        case .readOnly(let reason):
-            Logger.shared.info("Editor opened \(path) read-only — \(reason)")
-        case .opened:
-            Logger.shared.info("Editor opened \(path)")
+        case .refused(let reason): return "Editor could not open \(path) — \(reason)"
+        case .readOnly(let reason): return "Editor opened \(path) read-only — \(reason)"
+        case .opened: return "Editor opened \(path)"
         }
     }
 
@@ -445,8 +470,12 @@ extension ContentView {
     /// - Parameter pane: what happens to the left pane. `.followsTheFile` for every door but one;
     ///   Compare's list of differences passes `.staysPut`, because there the left pane is half of
     ///   the comparison the list is showing — see `EditorHandOffRun.Pane`.
+    ///
+    /// Then, unless the settle was cancelled, the pane owes the file a selection (TE47): where it
+    /// shows the file's folder — always, after a re-root — the document is selected there and
+    /// brought into view.
     func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane = .followsTheFile) {
-        EditorHandOffRun.run(
+        let outcome = EditorHandOffRun.run(
             path, pane: pane,
             syncManager: syncManager,
             paneRoot: (settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath,
@@ -456,6 +485,7 @@ extension ContentView {
             showEdit: { if selectedWorkspace != .editor { selectedWorkspace = .editor } },
             load: { loadIntoEditor(path: $0) },
             log: { Logger.shared.info($0) })
+        if outcome != .cancelled { owePaneSelection(path) }
     }
 
     /// Points the left pane at an absolute folder, the way the folder sidebar does — see
@@ -500,10 +530,15 @@ extension ContentView {
     /// Deliberately does NOT close the document — you are going to look at where it lives, not to
     /// put it away, and coming back with ⌘4 should find it exactly as you left it, unsaved edits
     /// and all.
+    ///
+    /// **And lands with the file selected, in view** (TE47) — the header's name and the rail row
+    /// menu's item alike, whose path may not be the open document's. Browse opens nothing on a
+    /// selection, so selecting a file the editor is not showing drags nobody anywhere.
     func revealInBrowse(_ path: String) {
         let folder = (path as NSString).deletingLastPathComponent
         if !folder.isEmpty { focusPaneOnFolder(folder) }
         selectedWorkspace = .browse
+        owePaneSelection(path)
     }
 
     // MARK: - The Text and Markup menus
@@ -865,9 +900,10 @@ extension ContentView {
     /// publishes, and a selection naming a row the list does not hold is at the mercy of the
     /// `List` and of `pruneSelection`. So it is recorded here and written by
     /// ``settleOwedPaneSelection()`` on the tree publish that lists it — including a column's
-    /// graft, which arrives on its own publish after the walk.
+    /// graft, which arrives on its own publish after the walk. Since TE47 this is one of the
+    /// doors onto ``owePaneSelection(_:)``, not a mechanism of its own.
     func showCreatedFileInPane(_ path: String) {
-        editorPaneSelectionOwed = path
+        owePaneSelection(path)
         rereadPanesAfterEditorWrite()
     }
 
@@ -891,7 +927,20 @@ extension ContentView {
         syncManager.refreshSubject.send(.both)
     }
 
-    /// What to do with an owed pane selection, as a rule — see ``owedPaneSelection(owed:openDocument:paneFolder:isListed:)``.
+    // MARK: - The pane follows the open document (TE47)
+
+    /// A selection the left pane owes: `path`, recorded while `document` was the open document.
+    ///
+    /// The document is part of the debt rather than read at payment time, so "another file was
+    /// opened since" is a comparison the rule can make — and so a debt for a file that is NOT the
+    /// document (the rail menu's Reveal in Browse on another row) can be told apart from one whose
+    /// document has moved on.
+    struct PaneSelectionDebt: Equatable {
+        let path: String
+        let document: String?
+    }
+
+    /// What to do with an owed pane selection, as a rule — see ``owedPaneSelection(owed:openDocument:paneFolder:paneIsCurrent:isListed:selection:selectingOpens:)``.
     enum OwedPaneSelection: Equatable {
         /// Nothing is owed.
         case nothing
@@ -903,38 +952,71 @@ extension ContentView {
         case drop
     }
 
-    /// **Selecting the created file is right only while it is still the open document in the
-    /// folder the pane shows**, and each guard is a case in `EditorNewFilePaneTests`.
+    /// **The one rule for "the pane selects the open document" (TE47)**, generalised from ⌘N's
+    /// (TE44). Each guard is a case in `EditorPaneFollowsDocumentTests`.
     ///
-    /// - The open document moved on: dropped. In Edit a single selected text file OPENS
-    ///   (`paneSelectionOpens`), so selecting the new file after the user had opened another one
-    ///   would drag them back to it — the one outcome worse than the bug.
-    /// - The pane moved to another folder: dropped. Selecting a row the pane is not showing would
-    ///   select something invisible, and the pane's own navigation already cleared its selection.
-    /// - Not listed yet: wait. The reload has not published, or published a shallow first paint.
+    /// **When it applies: at a MOMENT, never continuously.** A debt is recorded only when a file is
+    /// opened from the rail, handed off from any door, created with ⌘N, revealed in Browse, or
+    /// shown by the header's "in <folder>" — ``owePaneSelection(_:)``'s callers, and nothing else.
+    /// Having a document open selects nothing: switching workspaces, collapsing the pane or
+    /// returning to Browse leaves the pane's selection, and a multi-selection made there, exactly
+    /// as the user left it.
     ///
-    /// Selecting the open document cannot open it a second time: `openInEditor`'s first guard
-    /// returns for the path that is already open, so the pane's one-click open is a no-op here.
-    static func owedPaneSelection(owed: String?, openDocument: String?, paneFolder: String,
-                                  isListed: Bool) -> OwedPaneSelection {
+    /// - Another document has been opened since: dropped. In Edit a single selected text file
+    ///   OPENS (`paneSelectionOpens`), so selecting the old one would drag the reader back to it.
+    /// - The pane shows another folder than the file's: dropped. Selecting a row the pane is not
+    ///   showing would select something invisible — and a pane the user has navigated away is the
+    ///   user's. After a hand-off that re-roots, the pane is ALREADY on the file's folder here:
+    ///   `focusOn` moves the pane's folder synchronously, only its tree arrives later.
+    /// - Selecting would open a file that is not the document: dropped. Only the rail menu's Reveal
+    ///   in Browse owes a file that is not the document, and it lands in Browse, where a selection
+    ///   opens nothing — but if Edit's pane is what is showing when it comes due, the selection
+    ///   would open that file.
+    /// - The pane holds a multi-selection: dropped. Several rows selected are the user's; the rule
+    ///   replaces a single selection or none, never a set.
+    /// - The pane's tree is not yet the folder it shows (`paneIsCurrent`), or does not list the
+    ///   file yet: wait. A re-root publishes the new folder's tree after the move, and a path can
+    ///   be listed, nested, in the OLD tree meanwhile; ⌘N's file is listed by the re-read.
+    ///
+    /// Selecting the open document cannot open it a second time: the write is marked as the app's
+    /// own (`paidSelection`), and `openInEditor`'s guard returns for the document besides.
+    static func owedPaneSelection(owed: PaneSelectionDebt?, openDocument: String?,
+                                  paneFolder: String, paneIsCurrent: Bool, isListed: Bool,
+                                  selection: Set<String>, selectingOpens: Bool) -> OwedPaneSelection {
         guard let owed else { return .nothing }
-        guard owed == openDocument,
-              PaneBrowsePath.normalized((owed as NSString).deletingLastPathComponent)
-                == PaneBrowsePath.normalized(paneFolder)
+        guard owed.document == openDocument,
+              PaneBrowsePath.normalized((owed.path as NSString).deletingLastPathComponent)
+                == PaneBrowsePath.normalized(paneFolder),
+              owed.path == openDocument || !selectingOpens,
+              selection.count <= 1
         else { return .drop }
-        return isListed ? .select(owed) : .wait
+        return paneIsCurrent && isListed ? .select(owed.path) : .wait
     }
 
-    /// Pays an owed pane selection once the pane lists the file — called on every left-tree
-    /// publish, and a single `nil` test when nothing is owed.
+    /// **The one door onto the rule**: record that the left pane owes `path` a selection, and try
+    /// to pay it now. Every entry point calls this and nothing else — the rail's click, every
+    /// hand-off, ⌘N, Reveal in Browse, the header's "in <folder>".
+    func owePaneSelection(_ path: String) {
+        editorPaneSelectionOwed = PaneSelectionDebt(path: path, document: editorDocument.path)
+        settleOwedPaneSelection()
+    }
+
+    /// Pays an owed pane selection once the pane lists the file — called at the moment it is owed
+    /// and on every left-tree publish after, and a single `nil` test when nothing is owed.
     ///
     /// **Through `paneSelectionBinding`, the setter a click goes through**, so the one-pane
-    /// invariant and the focused-pane move are the ones a click gets, not a copy of them.
+    /// invariant and the focused-pane move are the ones a click gets, not a copy of them. Marked as
+    /// the app's own write first (`editorPaneSelectionPaid`), so the pane's one-click open does not
+    /// answer it. Then the reveal: a fresh `PaneRowReveal` for the row, which the pane scrolls to —
+    /// now if it is on screen, when it next appears if it is not.
     func settleOwedPaneSelection() {
         guard let owed = editorPaneSelectionOwed else { return }
         let decision = Self.owedPaneSelection(
             owed: owed, openDocument: editorDocument.path, paneFolder: editorFolder,
-            isListed: !syncManager.leftNodes(for: [owed]).isEmpty)
+            paneIsCurrent: paneTreeIsCurrent,
+            isListed: !syncManager.leftNodes(for: [owed.path]).isEmpty,
+            selection: syncManager.selectedLeftPaths,
+            selectingOpens: selectedWorkspace == .editor && !panesHiddenForCurrentTab)
         switch decision {
         case .nothing, .wait:
             return
@@ -943,8 +1025,51 @@ extension ContentView {
         case .select(let path):
             editorPaneSelectionOwed = nil
             if syncManager.selectedLeftPaths != [path] {
+                editorPaneSelectionPaid = path
                 paneSelectionBinding(isLeft: true).wrappedValue = [path]
             }
+            paneRowRevealToken &+= 1
+            paneRowReveal = PaneRowReveal(path: path, token: paneRowRevealToken)
         }
+    }
+
+    /// Whether the left pane's published tree was read at the folder the pane is on — see
+    /// `FileSyncManager.paneTreeFolder(isLeft:)`.
+    var paneTreeIsCurrent: Bool {
+        Self.treeIsCurrent(readAt: syncManager.paneTreeFolder(isLeft: true), paneFolder: currentLeftPath)
+    }
+
+    /// Whether a tree read at `readAt` is the tree of `paneFolder` — `false` for no tree at all.
+    /// Compared with `~` expanded and a trailing slash dropped, since the pane's folder is built
+    /// from the source's stored root and the walk from the URL it was handed.
+    static func treeIsCurrent(readAt: String?, paneFolder: String) -> Bool {
+        guard let readAt else { return false }
+        return PaneBrowsePath.normalized((readAt as NSString).expandingTildeInPath)
+            == PaneBrowsePath.normalized((paneFolder as NSString).expandingTildeInPath)
+    }
+
+    /// **Never fight the user**: once the pane's selection is something other than the owed or
+    /// revealed row, both are retired. A selection emptied by navigation or a prune retires the
+    /// reveal (there is no row to scroll to) but not the debt — the debt's own guards decide that.
+    /// Called on every change of the left pane's selection.
+    func retirePaneSelectionDebts(after paths: Set<String>) {
+        if let owed = editorPaneSelectionOwed, !Self.debtSurvives(owed, selection: paths) {
+            editorPaneSelectionOwed = nil
+        }
+        if let reveal = paneRowReveal, !Self.revealSurvives(reveal, selection: paths) {
+            paneRowReveal = nil
+        }
+    }
+
+    /// A debt survives a selection change that selects nothing — navigation and pruning empty the
+    /// selection, and are not the user choosing something else — or selects the owed row itself.
+    static func debtSurvives(_ owed: PaneSelectionDebt, selection: Set<String>) -> Bool {
+        selection.isEmpty || selection == [owed.path]
+    }
+
+    /// A reveal survives only while its row is the whole selection — the pane's own condition for
+    /// acting on it (`FileTreeView.revealsRow`), so a remount never scrolls to a row nobody selected.
+    static func revealSurvives(_ reveal: PaneRowReveal, selection: Set<String>) -> Bool {
+        selection == [reveal.path]
     }
 }

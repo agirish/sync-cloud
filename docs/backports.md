@@ -5506,7 +5506,8 @@ done
 | The owed pane selection (`editorPaneSelectionOwed`, `owedPaneSelection`, `settleOwedPaneSelection`, the `leftPaneTree` observer); `paneSelectionBinding` no longer `private` | Not owed — its only writer is ⌘N in Edit | Same | CHECKED — not owed |
 | `OutOfQueueWriteRereadTests` (Sync) | Would compile: `prepareForcedRescan` and `refreshTreesAndScan` are there. Not owed — it pins why an out-of-queue writer needs the preparation, and those lines have no such writer in Edit. Whether any other out-of-queue writer exists there was not checked | Same | RECORDED — not owed |
 
-**Boundaries a future audit should not re-derive:** autosave and ⌘S deliberately do NOT re-read the
+**Boundaries a future audit should not re-derive** (the last two superseded by TE47, below — the
+pane now scrolls a selected document into view, and every open selects it): autosave and ⌘S deliberately do NOT re-read the
 pane — they rewrite a file it already lists, and a two-pane walk per autosave is the cost the rail's
 own changed-only guard exists to avoid. The pane does not scroll a new file into view: a folder long
 enough to put it off-screen shows it selected but not visible (no scroll-to-selection exists outside
@@ -5704,6 +5705,8 @@ that makes the drawn test possible is worth keeping for the next audit: `NSHosti
 with a synthesized right-click answers the real `NSMenu` SwiftUI builds for the point, by item
 title, and answers nil for a `.contextMenu` whose builder is empty (macOS 27).
 
+---
+
 ## Edit's empty page keeps its header; the capsule sheds its words for the name; six doors in Help (TE34, and round-2 amendments to TE43 / TE45 / TE46)
 
 `main` only, and **not owed anywhere** — Edit is `main`-only. No maintenance line has the workspace
@@ -5734,3 +5737,52 @@ done
 
 **Checked and not owed, the other direction.** Nothing here is stored: no defaults key, no file
 format. The location builder's new `paneFolder:` input reads `editorFolder`, which already existed.
+
+---
+
+## The pane's selection follows the open document, and scrolls it into view (TE47)
+
+`main` only, **not owed** — the rule generalises TE44's owed selection, which exists only on `main`,
+and every entry point it serves is an Edit door. **The two halves it is built from are older than
+Edit, though, and that is the part worth recording:** the row scroll (`PaneColumnsView.revealRow`)
+and the search reveal's trigger (`FileTreeView.searchRevealNonce`) are on `v4.x` and `v3.x` too,
+the deepest-column reveal on every line, and the folder a pane's walk was read at
+(`lastLoadedLeftFocusPath`, now readable as `paneTreeFolder(isLeft:)`) on every line. A maintenance
+line would have the scroll to reuse and nothing to drive it with.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s editor=%s owedSel=%s searchRevealNonce=%s revealRow=%s revealDeepest=%s lastLoadedFocus=%s handOff=%s\n' $l \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/ContentView+Editor.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -c 'static func owedPaneSelection')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift 2>/dev/null | grep -c 'public let searchRevealNonce')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneColumnsView.swift 2>/dev/null | grep -c 'private func revealRow')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneColumnsView.swift 2>/dev/null | grep -c 'private func revealDeepestColumn')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift 2>/dev/null | grep -c 'var lastLoadedLeftFocusPath')" \
+    "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -c 'func handOffToEditor')"
+done
+# measured 2026-09-25 (origin/main 2b171445, TE44 not yet landed there — hence owedSel=0):
+# main   editor=1 owedSel=0 searchRevealNonce=1 revealRow=1 revealDeepest=1 lastLoadedFocus=1 handOff=1
+# v4.x   editor=0 owedSel=0 searchRevealNonce=1 revealRow=1 revealDeepest=1 lastLoadedFocus=1 handOff=0
+# v3.x   editor=0 owedSel=0 searchRevealNonce=1 revealRow=1 revealDeepest=1 lastLoadedFocus=1 handOff=0
+# v2.x   editor=0 owedSel=0 searchRevealNonce=0 revealRow=0 revealDeepest=1 lastLoadedFocus=1 handOff=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **One owed-selection rule** (`owedPaneSelection`, a `PaneSelectionDebt` carrying the document it was owed against; `owePaneSelection` its one door) and its callers: the rail's click (`openInEditor(path:selectsInPane: true)`), every hand-off, ⌘N, Reveal in Browse (header and rail menu), the header's "in <folder>" | Not owed — every caller is an Edit door | Same | CHECKED — not owed |
+| **Never fighting the user** — a debt dropped when another document opens, the pane shows another folder, the pane holds a multi-selection, or selecting would open a file that is not the document; retired when the user selects anything else (`debtSurvives`); the reveal retired off its row (`revealSurvives`) | Not owed — no debt to guard | Same | CHECKED — not owed |
+| **The one-click open ignores the app's own write** (`paneSelectionOpens(…paidSelection:)`, `editorPaneSelectionPaid`) — without it a programmatic select of a REFUSED document reloaded it and logged a second refusal, since a refusal is let through the already-open guard on purpose | Not owed — no one-click open (TE41) | Same | CHECKED — not owed |
+| **`PaneRowReveal` and `FileTreeView.rowReveal`** — the Tree scrolls the row to centre (`scrollTreeRow`, shared with the search reveal), Columns scrolls the row's column (`revealRow`) and brings the deepest column into view (`revealDeepestColumn`), on the request and on the pane appearing, only while the row is the whole selection (`revealsRow`) | Would compile on `v4.x`/`v3.x` (the scrolls exist). Not owed — nothing there selects a row on the user's behalf outside search, which has its own reveal | `v2.x` lacks `revealRow` | RECORDED — not owed |
+| **`FileSyncManager.paneTreeFolder(isLeft:)`** — public read of `lastLoadedFocusPath`, so a caller can tell a tree of the folder the pane just LEFT from the pane's own | Would compile on every line. Not owed — its only caller is the owed selection | Same | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** Nothing stored: no defaults key, no file format. The
+pane's selection itself is unchanged in kind — written through `paneSelectionBinding`, the setter a
+click uses. Boundaries a future audit should not re-derive: the rule applies at the MOMENT of an
+open, create, reveal or location click, never continuously, so returning to Browse with a document
+open selects nothing; the pane's own click owes nothing (its row is already under the pointer, and a
+reveal would scroll it to the middle); and from Compare's differences list the pane is not moved,
+so the file is selected only if the pane already shows its folder. What the header's "in <folder>"
+does to a comparison after such an open is measured in `EditorHandOffRunTests`: in Columns a browse
+move inside the scope (no re-scope, ignores kept, no refresh); in Tree a re-root (re-scoped, session
+ignores cleared, a `.leftOnly` refresh), because that is the pane breadcrumb's own route there.

@@ -113,19 +113,19 @@ import FileExplorer
     /// the pane's own selection write, which the test stands in for.
     @Test func theFolderNameShowsTheFileInThePane() {
         let manager = FileSyncManager()
-        var selected: [Set<String>] = []
+        var selected: [String] = []
         let doors = EditorLocationDoors(syncManager: manager, drawsColumns: true,
                                         selectInPane: { selected.append($0) })
         doors.open(.showInPane, documentPath: "/c/Documents/Finance/Test.md", location: Self.finance)
         #expect(manager.combinedRelativePath(isLeft: true) == "Documents/Finance")
-        #expect(selected == [["/c/Documents/Finance/Test.md"]])
+        #expect(selected == ["/c/Documents/Finance/Test.md"])
     }
 
     /// **A crumb re-points the pane and selects nothing** — in Columns a browse move inside the
     /// pane's scope, in Tree a re-root, exactly as the pane's own crumb for that level would.
     @Test func aCrumbMovesThePaneAndSelectsNothing() {
         let columns = FileSyncManager()
-        var selected: [Set<String>] = []
+        var selected: [String] = []
         EditorLocationDoors(syncManager: columns, drawsColumns: true,
                             selectInPane: { selected.append($0) })
             .open(.goTo("Documents"), documentPath: "/c/Documents/Finance/Test.md", location: Self.finance)
@@ -143,7 +143,7 @@ import FileExplorer
     /// A location with nowhere to go selects nothing and moves nothing.
     @Test func aFolderOutsideTheSourceOpensNoDoor() {
         let manager = FileSyncManager()
-        var selected: [Set<String>] = []
+        var selected: [String] = []
         let outside = EditorDocumentLocation(segments: [.init(name: "Scratch", target: nil)],
                                              style: .folderName, help: "~/Scratch")
         EditorLocationDoors(syncManager: manager, drawsColumns: true, selectInPane: { selected.append($0) })
@@ -168,8 +168,8 @@ import FileExplorer
                 "the header's doors are not wired to EditorLocationDoors")
         #expect(editor.contains("location: editorDocumentLocation)"),
                 "the doors are not handed the live location at press time")
-        #expect(editor.contains("selectInPane: { paneSelectionBinding(isLeft: true).wrappedValue = $0 }"),
-                "the folder door does not select through the pane's own selection write")
+        #expect(editor.contains("selectInPane: { owePaneSelection($0) }"),
+                "the folder door does not select through the one owed-selection rule (TE47)")
         #expect(editor.contains("drawsColumns: resolvedViewMode(isLeft: true) == .columns,"),
                 "the doors do not ask the mode the pane is drawn in")
         #expect(editor.contains("paneIsOpen: !panesHiddenForCurrentTab)"),

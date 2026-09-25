@@ -90,8 +90,10 @@ struct EditorLocationDoors {
     /// from a re-root, and it must be the mode the pane is ACTUALLY in (`resolvedViewMode`), for the
     /// reason `editorFolder` gives.
     let drawsColumns: Bool
-    /// The pane's own selection write — the binding a click in the pane goes through.
-    let selectInPane: (Set<String>) -> Void
+    /// Selects a file in the left pane — in the app, `owePaneSelection`, the one rule every door
+    /// that shows the open document in the pane goes through (TE47): selected once the pane lists
+    /// it, through the setter a click uses, and brought into view.
+    let selectInPane: (String) -> Void
 
     /// - Parameters:
     ///   - documentPath: the open document, read at press time — the closure the header holds was
@@ -113,10 +115,12 @@ struct EditorLocationDoors {
             guard let documentPath, let folder = location?.segments.last?.target else { return }
             Logger.shared.debug("[editor-header] folder → left pane to \(folder.isEmpty ? "root" : folder), selecting \(documentPath)")
             syncManager.navigatePane(isLeft: true, toCombinedPath: folder, drawsColumns: drawsColumns)
-            // The file it names, selected where it lives. In Edit a selected text file OPENS
-            // (`openSelectedPaneFileInEditor`), and this one is already open — `openInEditor`'s
-            // first guard returns for it, so nothing is settled or reloaded.
-            selectInPane([documentPath])
+            // The file it names, selected where it lives — OWED rather than written, since a
+            // re-root (a Tree pane, or a folder above the scope) publishes the folder's tree only
+            // after the move. In Edit a selected text file OPENS (`openSelectedPaneFileInEditor`);
+            // this one is already open and the write is marked as the app's own, so nothing is
+            // settled or reloaded.
+            selectInPane(documentPath)
         }
     }
 }

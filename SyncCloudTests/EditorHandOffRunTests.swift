@@ -140,14 +140,14 @@ import FileExplorer
                        .init(name: "Tax", target: "Documents/Finance/Tax")],
             style: .folderName, help: "")
         let columns = Scene()
-        var owed: [Set<String>] = []
+        var owed: [String] = []
         EditorLocationDoors(syncManager: columns.manager, drawsColumns: true, selectInPane: { owed.append($0) })
             .open(.showInPane, documentPath: Self.file, location: location)
         #expect(columns.manager.leftRelativePath == "Documents")
         #expect(columns.manager.combinedRelativePath(isLeft: true) == "Documents/Finance/Tax")
         #expect(columns.manager.ignoredPaths == ["Finance/old.md"])
         #expect(columns.refreshes.isEmpty)
-        #expect(owed == [[Self.file]])
+        #expect(owed == [Self.file])
 
         let tree = Scene()
         EditorLocationDoors(syncManager: tree.manager, drawsColumns: false, selectInPane: { _ in })

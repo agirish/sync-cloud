@@ -53,7 +53,8 @@ enum EditorHandOffRun {
     }
 
     /// Whether opening `path` is anything but a no-op: it is not the open document, or the last
-    /// attempt at it was refused — the same guard the rail's `openInEditor` makes.
+    /// attempt at it was refused. **The one guard both routes ask** — the rail's `openInEditor` and
+    /// every hand-off — so "already open" cannot come to mean two things.
     ///
     /// A refused file is let through on purpose: a cloud-only file downloaded in Finder, or one
     /// that was too large and has since been trimmed, is a second click away from opening, and an

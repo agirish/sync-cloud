@@ -93,6 +93,16 @@ User-facing changes, newest first. For the full commit history see the
   toolbar card beside it, so the text starts level with the list — and it stays with no document
   open, reading "No document open" and naming the folder a new file would be made in, so the page
   does not move when a file opens.
+- **The file you open is selected in the source pane, and scrolled into view.** Open a file from the
+  Text Files list, from any Open in Edit, with ⌘N or from the folder name above the document, and
+  the pane selects it where it lives and brings it on screen — the 140th file of a long folder as
+  much as the first, in Columns and in the list view. Reveal in Browse lands with the file selected
+  too. It happens as the file is opened and not afterwards: a file you then select yourself, a
+  folder you move the pane to, and a set of several files you have selected are all left as you
+  made them. With the pane folded away the file is selected in it all the same, and brought into
+  view when you open the pane. Compare's list of differences leaves the pane where it is, so there
+  the file is selected only if the pane is already showing its folder. Until now opening a file
+  selected nothing in the pane, and nothing outside a search scrolled a selected file into view.
 
 ### New and Close, above the document
 

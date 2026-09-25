@@ -121,9 +121,19 @@ struct ContentView: View {
     /// Bumped by ⌘N so the naming row takes focus even when it is already open — a pure signal,
     /// never read for its value.
     @State var editorNamingFocus = 0
-    /// A file ⌘N just created, owed a selection in the left pane once the pane's re-read lists it
-    /// — see ``showCreatedFileInPane(_:)``. `nil` whenever nothing is owed.
-    @State var editorPaneSelectionOwed: String?
+    /// A file the left pane owes a selection — the document just opened, created, revealed or
+    /// shown — paid once the pane lists it. See ``owePaneSelection(_:)`` (TE47, generalising
+    /// ⌘N's TE44 debt). `nil` whenever nothing is owed.
+    @State var editorPaneSelectionOwed: PaneSelectionDebt?
+    /// The path the app last wrote into the left pane's selection for the open document, until the
+    /// selection change it causes has been seen — so the pane's one-click open does not answer the
+    /// app's own write as a click. See `paneSelectionOpens`.
+    @State var editorPaneSelectionPaid: String?
+    /// The left pane's standing row reveal — the row the app selected on the user's behalf, to be
+    /// scrolled into view. Retired when the selection moves off it. See `PaneRowReveal`.
+    @State var paneRowReveal: PaneRowReveal?
+    /// Makes each reveal a new request, even for the same path.
+    @State var paneRowRevealToken = 0
     /// What is typed into the rail's filter, and whether its field is showing. **Here for the
     /// reason `editorTypedName` is here**: both are things the user typed, and the editor's view is
     /// rebuilt from nothing by every workspace switch.
@@ -1272,9 +1282,11 @@ struct ContentView: View {
         // trigger.
         .onChange(of: syncManager.selectedLeftPaths) { _, paths in
             openSelectedPaneFileInEditor(paths)
+            // A selection the user moved retires what the app owed or was revealing (TE47).
+            retirePaneSelectionDebts(after: paths)
         }
-        // A file ⌘N created is selected in the pane once the pane's re-read lists it — the tree is
-        // what changes, so the tree is what is watched. The rule is `owedPaneSelection`; this only
+        // The open document is selected in the pane once the pane lists it — the tree is what
+        // changes, so the tree is what is watched. The rule is `owedPaneSelection`; this only
         // supplies the trigger, and it returns at once when nothing is owed.
         .onChange(of: syncManager.leftPaneTree) { _, _ in settleOwedPaneSelection() }
         // Dismissing the panel by hand nils the binding without going through `toggleQuickLook`,
@@ -4444,6 +4456,9 @@ struct ContentView: View {
             search: paneSearchResults(isLeft: pane.isLeft),
             searchHitIndex: paneSearchState(isLeft: pane.isLeft).wrappedValue.hitIndex,
             searchRevealNonce: paneSearchState(isLeft: pane.isLeft).wrappedValue.revealNonce,
+            // The row the app selected on the user's behalf — the open document — brought into
+            // view (TE47). The left pane's alone: it is the only pane Edit reads and moves.
+            rowReveal: pane.isLeft ? paneRowReveal : nil,
             // Which pane the action bar is acting on — the same predicate that decides where the bar
             // renders, so the strong selection wash and the bar can never point at different panes.
             // The tab strip above takes it too, from the same helper.

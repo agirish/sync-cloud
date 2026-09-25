@@ -92,6 +92,10 @@ struct PaneColumnsView: View {
     /// to it — see `revealRow`. Separate from `search` because the hit INDEX lives in `FileTreeView`
     /// and a column has no business resolving it.
     var searchRevealTarget: String?
+    /// The host's row reveal (TE47) — the hosting `FileTreeView`'s, passed straight through. The
+    /// column that lists the row scrolls to it and the stack brings that column into view, while
+    /// the row is still the selection; see `FileTreeView.revealsRow`.
+    var rowReveal: PaneRowReveal?
 
     /// The `NotificationCenter` this pane's downloads are announced on, handed straight to the
     /// preview column so its Download button posts where the pane that owns it is LISTENING.
@@ -370,6 +374,12 @@ struct PaneColumnsView: View {
             .onChange(of: browsePath) { _, _ in
                 revealDeepestColumn(proxy)
             }
+            // The host's row reveal, stack half: the column holding the row must be on screen for
+            // the column's own scroll (`revealRow`) to show anything. On the request and on
+            // appearing — a pane mounted by the workspace switch that asked for the reveal has
+            // never seen the request change.
+            .onChange(of: rowReveal) { _, reveal in revealColumnHolding(reveal, proxy) }
+            .onAppear { revealColumnHolding(rowReveal, proxy) }
             // The second driver: the preview ARRIVING — the rising edge only.
             //
             // The preview is pinned OUTSIDE the scroll view, so it does not scroll into or out of
@@ -565,6 +575,21 @@ struct PaneColumnsView: View {
     /// generation the gate stamps each reveal with, which is what extends "replaces" to cover the
     /// two uncancellable attempts an earlier reveal has already queued. See
     /// `PaneColumnHoldGate.beginReveal()`, `deferReveal(generation:by:_:)` and `revealHoldChecks`.
+    /// Brings the column holding a host-revealed row into view — when that column is the deepest
+    /// one, which is the only column the host ever asks about (it reveals a file in the folder the
+    /// pane is showing, and in Columns that is the deepest column). A row in a shallower column
+    /// is already one the user walked past, and the stack is left where they put it.
+    ///
+    /// **`revealDeepestColumn` itself**, hold deferral and retry included, rather than a second
+    /// horizontal scroll with its own idea of when the layout has settled.
+    private func revealColumnHolding(_ reveal: PaneRowReveal?, _ proxy: ScrollViewProxy) {
+        guard let path = FileTreeView.revealsRow(reveal, selection: selection),
+              let deepest = directories.last,
+              PaneBrowsePath.normalized((path as NSString).deletingLastPathComponent)
+                == PaneBrowsePath.normalized(deepest) else { return }
+        revealDeepestColumn(proxy)
+    }
+
     private func revealDeepestColumn(_ proxy: ScrollViewProxy) {
         let animation = revealAnimation
         let gate = holdGate
@@ -806,6 +831,14 @@ struct PaneColumnsView: View {
         // `.onChange` alone never fires for the case that matters most.
         .onChange(of: searchRevealTarget) { _, target in revealRow(target, in: rows, proxy: proxy) }
         .onAppear { revealRow(searchRevealTarget, in: rows, proxy: proxy) }
+        // The host's row reveal, row half — the same scroll, for a row the host selected on the
+        // user's behalf (TE47), and only while it is still the selection.
+        .onChange(of: rowReveal) { _, reveal in
+            revealRow(FileTreeView.revealsRow(reveal, selection: selection), in: rows, proxy: proxy)
+        }
+        .onAppear {
+            revealRow(FileTreeView.revealsRow(rowReveal, selection: selection), in: rows, proxy: proxy)
+        }
         // **On appear, and again when the pane's walk finishes.** A column opened while the deep
         // walk is still running must not ask — every directory is unexplored during the shallow
         // first paint, so asking then would queue a listing for each one and duplicate the walk

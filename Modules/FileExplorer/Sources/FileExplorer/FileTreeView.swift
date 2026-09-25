@@ -160,6 +160,10 @@ public struct FileTreeView: View, Equatable {
     /// background republish and used to re-fire the reveal over whatever the user had selected,
     /// scrolled to, or navigated into since the walk. See `PaneSearchFieldState.revealNonce`.
     public let searchRevealNonce: Int
+    /// The host's request to bring one row into view — the open document, selected on the user's
+    /// behalf (TE47). See `PaneRowReveal`; acted on only while that row is the whole selection
+    /// (`revealsRow`). `nil`, the default, for every caller but the app's left pane.
+    public let rowReveal: PaneRowReveal?
 
     /// Whether this pane is the one the action bar is currently acting on. Drives the strength of
     /// the row-selection wash, restoring the emphasized/unemphasized distinction AppKit used to
@@ -334,7 +338,7 @@ public struct FileTreeView: View, Equatable {
     /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
     var badgeMemoRoot: String { currentPath }
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String) -> Void)? = nil, graftsInFlight: Set<String> = [], onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, rowReveal: PaneRowReveal? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String) -> Void)? = nil, graftsInFlight: Set<String> = [], onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -364,6 +368,7 @@ public struct FileTreeView: View, Equatable {
         self.search = search ?? .empty(side: tree.side)
         self.searchHitIndex = searchHitIndex
         self.searchRevealNonce = searchRevealNonce
+        self.rowReveal = rowReveal
         self.isActivePane = isActivePane
         self.viewMode = viewMode
         self.previewEnabled = previewEnabled
@@ -411,6 +416,8 @@ public struct FileTreeView: View, Equatable {
             // In the gate because the reveal listens to it: `.onChange` only observes values that
             // survive a re-render, and a nonce filtered out here would never fire one.
             && lhs.searchRevealNonce == rhs.searchRevealNonce
+            // In the gate for the nonce's reason: the row reveal listens to it with `.onChange`.
+            && lhs.rowReveal == rhs.rowReveal
             && lhs.isActivePane == rhs.isActivePane
             // Without this a graft landing or finishing cannot redraw the pane, and the spinner
             // it drives would be stuck in whichever state the last unrelated update left it.
@@ -544,15 +551,52 @@ public struct FileTreeView: View, Equatable {
         guard let hit = search.hit(at: searchHitIndex) else { return }
         expanded = PaneTreeSearch.expansion(expanded, revealing: hit)
         if selecting, selection != [hit.path] { selection = [hit.path] }
+        scrollTreeRow(hit.path, proxy)
+    }
+
+    /// Brings `path`'s row to the middle of the Tree's viewport — the scroll both of the Tree's
+    /// reveals make, the search walk's and the host's row reveal.
+    ///
+    /// Both hops are deferred: a reveal runs while SwiftUI is still applying the update that
+    /// opened the row's ancestors (or published the row at all), so the list the scroll resolves
+    /// against is the one WITHOUT the row in it. See `searchRevealRetryDelay` for the second.
+    private func scrollTreeRow(_ path: String, _ proxy: ScrollViewProxy) {
         let animation = revealAnimation
         func attempt() {
-            withAnimation(animation) { proxy.scrollTo(hit.path, anchor: .center) }
+            withAnimation(animation) { proxy.scrollTo(path, anchor: .center) }
         }
-        // Both hops are deferred: this runs while SwiftUI is still applying the update that opened
-        // the ancestors, so the list the scroll resolves against is the one WITHOUT the hit's row
-        // in it.
         DispatchQueue.main.async { attempt() }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.searchRevealRetryDelay) { attempt() }
+    }
+
+    // MARK: - Revealing a row the host selected
+
+    /// The row a host's reveal may scroll to, or `nil` — **only while that row is the pane's whole
+    /// selection.**
+    ///
+    /// That condition is what keeps the reveal from fighting the user. The host asks for a reveal
+    /// at the moment it selects a row on the user's behalf, and the request outlives the moment —
+    /// it is also answered when the pane next appears, because a pane collapsed at the time (Edit's
+    /// rail showing, a workspace switch in flight) had nothing on screen to scroll. Once the user
+    /// has selected anything else, the request speaks for a selection that no longer exists, and
+    /// scrolling to it would take them back. The host retires the request then too; this is the
+    /// pane refusing to act on one that has not been retired yet.
+    ///
+    /// Static so `PaneRowRevealTests` can pin the rule without a mounted pane; `PaneColumnsView`
+    /// asks the same one.
+    static func revealsRow(_ reveal: PaneRowReveal?, selection: Set<String>) -> String? {
+        guard let reveal, selection == [reveal.path] else { return nil }
+        return reveal.path
+    }
+
+    /// The Tree's answer to a row reveal: scroll the row to the middle of the list.
+    ///
+    /// **No expansion.** The host asks only for a row in the folder the pane is showing — in Tree,
+    /// the pane's root — so the row is a top-level one. A path under a closed folder has no row to
+    /// scroll to, and `scrollTo` for an id the list does not hold is a no-op.
+    private func revealRowInTree(_ reveal: PaneRowReveal?, _ proxy: ScrollViewProxy) {
+        guard let path = Self.revealsRow(reveal, selection: selection) else { return }
+        scrollTreeRow(path, proxy)
     }
 
     /// Carries a parked column stack over when the pane flips to Tree: opens the folders the
@@ -885,6 +929,7 @@ public struct FileTreeView: View, Equatable {
                 fonts: rowFonts,
                 search: search,
                 searchRevealTarget: search.hit(at: searchHitIndex)?.path,
+                rowReveal: rowReveal,
                 downloadChannel: downloadChannel,
                 previewEnabled: previewEnabled
             )
@@ -1027,8 +1072,17 @@ public struct FileTreeView: View, Equatable {
                 // the scroll.
                 .onAppear {
                     revealInTree(proxy, selecting: false)
-                    if search.hit(at: searchHitIndex) == nil { carryColumnsIntoTree(proxy) }
+                    if search.hit(at: searchHitIndex) == nil {
+                        carryColumnsIntoTree(proxy)
+                        // After the carry, so its scroll is the one that lands: the carry brings a
+                        // parked FOLDER into view, this the file the host selected in it.
+                        revealRowInTree(rowReveal, proxy)
+                    }
                 }
+                // The host's row reveal (TE47): a row selected on the user's behalf — the document
+                // Edit just opened, the file Reveal in Browse points at — brought into view. On its
+                // own token, never on a republish; see `PaneRowReveal`.
+                .onChange(of: rowReveal) { _, reveal in revealRowInTree(reveal, proxy) }
                 // And on the load's falling edge, because an arrival during a load is refused
                 // rather than answered — the Columns branch pairs its own carry the same way, and
                 // both keep the search's precedence: a hit is a place asked for by name.

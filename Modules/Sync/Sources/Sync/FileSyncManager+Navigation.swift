@@ -309,6 +309,19 @@ extension FileSyncManager {
     ///
     /// The caller still drops the comparison (`invalidateDifferencesForPaneRetarget`): one pane
     /// moving does change the pair.
+    /// The folder a pane's published tree was read at — absolute, as the walk was handed it — or
+    /// `nil` when the pane holds no walk (never loaded, or dropped by `invalidatePaneTree`).
+    ///
+    /// **What tells a caller the tree on screen describes where the pane now IS.** `focusOn` moves
+    /// `leftRelativePath` at once and the walk that answers it lands later, so for that window the
+    /// published tree is still the OLD folder's — and a path can be listed in it, nested, while the
+    /// pane already claims the new one. Edit's owed selection (TE47) asks this before selecting a
+    /// row, so it never selects against a tree that is about to be replaced. Read-only: the value
+    /// is `lastLoadedFocusPath`, which `loadTree` and `invalidatePaneTree` own.
+    public func paneTreeFolder(isLeft: Bool) -> String? {
+        isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath
+    }
+
     @MainActor public func invalidatePaneTree(isLeft: Bool) {
         if isLeft {
             rawLeftTree = []

@@ -2,70 +2,18 @@ import Testing
 import Foundation
 @testable import SyncCloud
 
-/// **A file made with ⌘N appears in the pane, selected** — TE44.
+/// **A file made with ⌘N appears in the pane, selected** — TE44's wiring.
 ///
 /// Since TE36 the open source pane IS Edit's file list and the rail is withheld beside it, so a
 /// ⌘N that refreshed only the rail created the file on disk, opened it, and left the column it was
-/// created in listing the folder as it had been. The fix has two halves and each is pinned here:
-/// the pane is re-read (the path every file operation takes), and the new file is selected once
-/// the re-read lists it — under the guards `ContentView.owedPaneSelection` states.
+/// created in listing the folder as it had been. The fix has two halves: the pane is re-read (the
+/// path every file operation takes), and the new file is selected once the re-read lists it. The
+/// selection's rule was ⌘N's own and is now the one every door shares (TE47) — its cases, ⌘N's
+/// among them, are `EditorPaneFollowsDocumentTests`.
 ///
 /// **Local-only**, like every suite in this target: CI runs package tests alone.
-@Suite struct EditorNewFilePaneTests {
-
-    private let created = "/Users/me/Documents/Finance/Test.md"
-    private let folder = "/Users/me/Documents/Finance"
-
-    private func decide(owed: String?? = nil, openDocument: String?? = nil,
-                        paneFolder: String? = nil,
-                        isListed: Bool = true) -> ContentView.OwedPaneSelection {
-        ContentView.owedPaneSelection(owed: owed ?? created,
-                                      openDocument: openDocument ?? created,
-                                      paneFolder: paneFolder ?? folder,
-                                      isListed: isListed)
-    }
-
-    /// The one positive case, and the control for every case below: each changes one input.
-    @Test func theCreatedFileIsSelectedOnceThePaneListsIt() {
-        #expect(decide() == .select(created))
-    }
-
-    /// The re-read has not published yet — or published a shallow first paint, or the column is
-    /// still being grafted. The debt stands; the next publish asks again.
-    @Test func notListedYetWaits() {
-        #expect(decide(isListed: false) == .wait)
-    }
-
-    @Test func nothingOwedIsNothing() {
-        #expect(decide(owed: .some(nil)) == .nothing)
-        #expect(decide(owed: .some(nil), isListed: false) == .nothing)
-    }
-
-    /// **The guard that matters most.** In Edit a selected text file OPENS, so selecting the new
-    /// file after the reader had opened something else would drag them back to it. Dropped even
-    /// when listed — and dropped rather than kept waiting, so it cannot fire later either.
-    @Test func anotherOpenDocumentDropsTheDebt() {
-        #expect(decide(openDocument: .some("/Users/me/Documents/Finance/Other.md")) == .drop)
-        #expect(decide(openDocument: .some(nil)) == .drop)
-        #expect(decide(openDocument: .some("/Users/me/Documents/Finance/Other.md"),
-                       isListed: false) == .drop)
-    }
-
-    /// The pane moved on to another folder: the row would be selected where nobody can see it.
-    @Test func aPaneInAnotherFolderDropsTheDebt() {
-        #expect(decide(paneFolder: "/Users/me/Documents") == .drop)
-        #expect(decide(paneFolder: "/Users/me/Documents/Finance/IN") == .drop)
-        // A sibling sharing the folder's opening is another folder, not this one.
-        #expect(decide(paneFolder: "/Users/me/Documents/Fin") == .drop)
-    }
-
-    /// The same folder spelled with a trailing slash is still the folder the pane shows.
-    @Test func spellingDoesNotDropTheDebt() {
-        #expect(decide(paneFolder: folder + "/") == .select(created))
-    }
-}
-
-/// The real call sites, which nothing above can reach: `ContentView` cannot be constructed in a
+///
+/// The real call sites: `ContentView` cannot be constructed in a
 /// test (its memberwise initializer is private — see `BrowseWorkspaceCallSiteTests`), so the
 /// wiring is pinned at the source level, the house technique for exactly this. Every check below
 /// was proved by deleting the line it names and watching it go red.
@@ -105,7 +53,7 @@ import Foundation
     @Test func theReReadIsTheFileOperationsOwn() throws {
         let show = try Self.body(of: "func showCreatedFileInPane(_ path: String) {",
                                  in: "ContentView+Editor.swift")
-        #expect(show.contains("editorPaneSelectionOwed = path"),
+        #expect(show.contains("owePaneSelection(path)"),
                 "the selection is no longer owed — nothing will select the file")
         #expect(show.contains("rereadPanesAfterEditorWrite()"),
                 "⌘N no longer re-reads the pane — the new file is not listed")
@@ -148,11 +96,15 @@ import Foundation
     /// it through `openInEditor`; that is a no-op here only because its first guard returns for
     /// the path already open. Pinned so that guard cannot be loosened without this going red.
     @Test func selectingTheOpenDocumentDoesNotOpenItAgain() throws {
-        let body = try Self.body(of: "func openInEditor(path: String) {", in: "ContentView+Editor.swift")
+        let body = try Self.body(of: "func openInEditor(path: String, selectsInPane: Bool = false) {",
+                                 in: "ContentView+Editor.swift")
         let guardLine = try #require(
-            body.range(of: "guard path != editorDocument.path || editorDocument.refusal != nil else { return }"),
+            body.range(of: "guard EditorHandOffRun.opens(path, openDocument: editorDocument.path,"),
             "openInEditor no longer returns early for the open document — a ⌘N would open the file twice")
         let load = try #require(body.range(of: "loadIntoEditor(path: path)"))
         #expect(guardLine.lowerBound < load.lowerBound)
+        // …and the guard it asks is the one that returns for the open document.
+        #expect(!EditorHandOffRun.opens("/r/a.md", openDocument: "/r/a.md", isRefused: false),
+                "the shared guard lets the open document through — a programmatic select would reopen it")
     }
 }
