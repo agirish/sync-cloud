@@ -72,7 +72,23 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
         /// The repaint observers attach on BOTH resolution paths — a cached hit and a fresh
         /// resolve — because a table can resolve before SwiftUI has wrapped it in its scroll
         /// view, and `observe` is what re-registers once the clip exists.
-        override func tableIsCurrent(_ table: NSTableView) { observe(table) }
+        override func tableIsCurrent(_ table: NSTableView) {
+            observe(table)
+            // **And the keyboard.** Clicking a difference did not move first responder, so the
+            // keys went on reaching whichever pane was last clicked: measured 2026-09-25, ⇧↓ in
+            // the differences list grew the LEFT PANE's selection instead. This is the one place
+            // that already resolves this table, exactly as `PaneBackgroundDeselect` is for the
+            // panes. The review queue is deliberately NOT here — it carries no styler, and
+            // `reviewFocusNudge` hands focus back to the review card on every selection change.
+            PaneListKeyFocus.register(table)
+            // And a recognizer, whose only job is to make this table's clicks visible to the app at
+            // all — see `PaneListKeyFocus.ClickNormalizer`. Registration alone is not enough: with
+            // no recognizer the click reaches nothing that can claim the keyboard.
+            if normalizedTable !== table {
+                normalizedTable = table
+                normalizer = PaneListKeyFocus.ClickNormalizer.install(on: table)
+            }
+        }
 
         /// Attaches the repaint observers to a newly resolved table (and its clip view),
         /// dropping any previous table's. Safe to call with the same table repeatedly — it
@@ -113,6 +129,9 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
             }
         }
         private weak var observedTable: NSTableView?
+        /// The click normalizer and the table it is on — see `tableIsCurrent(_:)`.
+        private var normalizer: PaneListKeyFocus.ClickNormalizer?
+        private weak var normalizedTable: NSTableView?
         private weak var observedClip: NSClipView?
 
         private func paintWashes() {

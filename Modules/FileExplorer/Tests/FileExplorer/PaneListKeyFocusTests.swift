@@ -134,6 +134,23 @@ import Sync
         #expect(window.firstResponder === editor)
     }
 
+    /// **A list can leave the window between the click and the claim** — two runloop turns is long
+    /// enough for a Columns drill to close the column that was clicked. The claim asks whose window
+    /// the table is in NOW, not which window the click came from.
+    @Test("The claim refuses a list that is no longer in the clicked window")
+    func claimRefusesATableFromAnotherWindow() async {
+        guard let (_, window, table) = await mountedPane(.tree) else { return }
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
+                             styleMask: [.borderless], backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        #expect(unfocused(window))
+        #expect(PaneListKeyFocus.claim(table, in: other) == false,
+                "the table is in `window`, so a claim naming another window must refuse")
+        #expect(other.firstResponder === other)
+        #expect(PaneListKeyFocus.claim(table, in: window),
+                "control: the same table in its own window is claimable, so the refusal was the window check")
+    }
+
     @Test("A table nobody registered is not a target")
     func unregisteredTableIsIgnored() {
         let stray = NSTableView(frame: .zero)

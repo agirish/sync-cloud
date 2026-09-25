@@ -1531,11 +1531,20 @@ public struct DifferencesView: View {
         //
         // `.onKeyPress` is strictly focus-scoped (measured): only the handler in the subtree
         // holding the first responder runs, siblings never both see the event, and `.ignored`
-        // does not fall through to a sibling. This table keeps key focus while it is on screen —
-        // a pane row click does not take it away — so with the bottom pane open, Space arrives
-        // HERE even when the user is working in a pane and the panes' own handler is never
-        // consulted. That is why "Space previewed the Differences row while the Info inspector
-        // showed the pane file": the panes' handler was correct and simply starved.
+        // does not fall through to a sibling.
+        //
+        // **"This table keeps key focus while it is on screen — a pane row click does not take it
+        // away" was true when it was written and is not true now.** It was the reason Space arrived
+        // HERE while the user worked in a pane, with the panes' own handler starved — the defect
+        // behind "Space previewed the Differences row while the Info inspector showed the pane
+        // file". Since `PaneListKeyFocus`, a click moves first responder to the list it landed in,
+        // panes and this table alike, so Space reaches whichever one was clicked last.
+        //
+        // The arbitration below STAYS, and not as a leftover: focus and "what the user last picked"
+        // are different questions, and nothing guarantees a click was what moved either. It answers
+        // the same way as before in the case that now matters most — the surface you last clicked —
+        // and it is what covers the keystroke that arrives with focus somewhere neither surface
+        // owns, which is every window that has not been clicked in yet.
         //
         // So this asks `CurrentSelection` rather than assuming the answer is its own row.
         // `singleSource: false` unconditionally: `compareBottomListActive` gates this whole view

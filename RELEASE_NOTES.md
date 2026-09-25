@@ -17,6 +17,13 @@ User-facing changes, newest first. For the full commit history see the
   Organize's list. On macOS 27 a click selected the file but left the keyboard with the window, so
   every key pressed after it did nothing at all; ⇧-click was the only way to select a run of files.
   A click now hands that list the keyboard, and a caret you click into a field is left where it is.
+- **The differences list takes the keyboard too.** Clicking a difference used to leave the keys with
+  whichever file pane you had clicked before it, so ⇧↓ grew the *pane's* selection while you were
+  looking at the differences — and clicking its top rows was the surest way to see it, because those
+  clicks were being attributed to the pane above. Clicking a difference now moves the keyboard there,
+  wherever in the list you click, and the arrows work on the list in front of you. The review queue
+  is deliberately unchanged: during a review the card keeps the keyboard, so ⏎ and Skip go on
+  working.
 
 ### Getting a file into Edit
 

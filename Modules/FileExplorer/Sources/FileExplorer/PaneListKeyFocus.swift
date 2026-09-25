@@ -43,6 +43,7 @@ enum PaneListKeyFocus {
 
     static func isRegistered(_ table: NSTableView) -> Bool { registered.contains(table) }
 
+
     /// One click's worth: find the pane list it landed in and claim the keyboard for it.
     ///
     /// **Two turns late, deliberately.** The monitor runs ahead of the click's own handling, and
@@ -59,8 +60,64 @@ enum PaneListKeyFocus {
     ) {
         guard let window = event.window, let content = window.contentView else { return }
         let hit = content.hitTest(content.convert(event.locationInWindow, from: nil))
-        guard let table = target(forHit: hit) else { return }
+        // A caret took this click; neither route may take the keys off it.
+        guard !landedInAnEditableField(hit) else { return }
+        // **A hit-test answer is only believed where the click is actually inside that list.**
+        // Measured 2026-09-25: a click on the differences list's top rows hit-tests to a PANE row —
+        // the pane's table answers for points well outside its own viewport — so the hit route
+        // "succeeded" and focused the pane while the reader was looking at the differences list.
+        // That is what made the failure positional: lower rows missed the pane's reach and worked.
+        let hitTable = target(forHit: hit).flatMap { table in
+            visibleRect(of: table).contains(event.locationInWindow) ? table : nil
+        }
+        guard let table = hitTable
+                ?? target(covering: event.locationInWindow, in: window) else { return }
         schedule { claim(table, in: window) }
+    }
+
+    /// The registered list whose visible rows cover `pointInWindow`, or nil.
+    ///
+    /// **The fallback for a list that hit-testing cannot see.** Measured 2026-09-25 in the app: a
+    /// click that really does select a row of the differences `Table` reports its hit view as the
+    /// window's ROOT hosting view, with no `NSTableView` anywhere in the chain — SwiftUI hosts that
+    /// table somewhere `hitTest` does not descend from the content view. The pane lists resolve
+    /// normally, so this is not a replacement for the hit-test route but the second question asked
+    /// when the first comes back empty.
+    ///
+    /// Frame containment answers it without the view tree, which is exactly what `PaneListResolver`
+    /// does for the stylers. The CLIP view's rect, not the table's: a table is as tall as its rows,
+    /// so its own frame reaches far below the scroll view and a click under a short list would
+    /// otherwise count. Smallest area wins, so a list inside another surface is preferred to the
+    /// surface around it.
+    /// Where a list's rows are actually visible, in window coordinates — its scroll view's viewport,
+    /// not the table's own frame, which is as tall as its rows.
+    static func visibleRect(of table: NSTableView) -> NSRect {
+        guard let clip = table.enclosingScrollView?.contentView else { return .zero }
+        return clip.convert(clip.bounds, to: nil)
+    }
+
+    static func target(covering pointInWindow: NSPoint, in window: NSWindow) -> NSTableView? {
+        var best: (table: NSTableView, area: CGFloat)?
+        for table in registered.allObjects where table.window === window {
+            let visible = visibleRect(of: table)
+            guard !visible.isEmpty, visible.contains(pointInWindow) else { continue }
+            let area = visible.width * visible.height
+            if best == nil || area < best!.area { best = (table, area) }
+        }
+        return best?.table
+    }
+
+    /// Whether the click put a caret in a field. Asked of the hit chain before either route, so a
+    /// field the frame fallback knows nothing about still keeps its own click.
+    static func landedInAnEditableField(_ hit: NSView?) -> Bool {
+        var view = hit
+        while let step = view {
+            if step is NSText { return true }
+            if let field = step as? NSTextField, field.isEditable { return true }
+            if step is NSTableView { return false }
+            view = step.superview
+        }
+        return false
     }
 
     /// The registered list a click on `hit` should focus, or nil.
@@ -78,6 +135,37 @@ enum PaneListKeyFocus {
             view = step.superview
         }
         return nil
+    }
+
+    /// Puts a recognizer on a list so its clicks reach the app's event stream at all.
+    ///
+    /// **It computes nothing, and that is the whole of it.** The differences `Table` handles its
+    /// clicks somewhere a local `NSEvent` monitor never sees: with no recognizer on it, clicking a
+    /// difference produces no event anywhere in the app, so `noteMouseUp` never runs and the keys
+    /// stay with whichever pane was clicked last. Attaching one changes that — measured 2026-09-25
+    /// by adding it, removing it, and adding it back, with the same build failing and working in
+    /// step. It never recognizes (`false`, always), so the click still belongs entirely to the
+    /// table; it is the *presence* of a recognizer that matters, not anything it does.
+    ///
+    /// **Do not give this a claim of its own.** A version that decided for itself which list a
+    /// click belonged to raced the monitor and claimed this table for clicks belonging to a pane,
+    /// which read as the fix working intermittently. One claimant: `noteMouseUp`.
+    @MainActor
+    final class ClickNormalizer: NSObject, NSGestureRecognizerDelegate {
+        @discardableResult
+        static func install(on table: NSTableView) -> ClickNormalizer {
+            let normalizer = ClickNormalizer()
+            let recognizer = NSClickGestureRecognizer(target: normalizer, action: #selector(never))
+            recognizer.delegate = normalizer
+            table.addGestureRecognizer(recognizer)
+            return normalizer
+        }
+
+        /// Never called: the recognizer is refused before it can recognize.
+        @objc private func never(_ sender: Any?) {}
+
+        func gestureRecognizer(_ gestureRecognizer: NSGestureRecognizer,
+                               shouldAttemptToRecognizeWith event: NSEvent) -> Bool { false }
     }
 
     /// Makes `table` first responder unless it — or something inside it — already is.

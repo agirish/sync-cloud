@@ -5361,3 +5361,54 @@ the delegate (the row's own lazy `lstat` knows; a click is refused by the editor
 "Not downloaded" caption one step later). Decision I (the bit persists, `@AppStorage`) and J (arrow
 keys open, since they move the same selection) were taken as the plan's defaults. The one-click
 suite, the spine suite and the refusal-delegate suite are app-target and run locally only.
+
+---
+
+## The differences list takes the keyboard too, and two ways hit-testing misleads
+
+**A follow-on to `50136fe0`, and half of it is a defect that commit introduced.** With the panes able
+to take focus and this table unable to, a click on a difference left first responder on the pane
+clicked before it: measured 2026-09-25 in the app, ⇧↓ in the differences list wrote 2, 3, 4 then 5
+items into the LEFT PANE's selection, against a table the click had never touched. Keys acting on the
+surface the user is not looking at is worse than the keys doing nothing, which is what they did
+before either surface could take focus.
+
+**Three measurements, each of which killed an attempted fix, in the order they were made:**
+
+1. **That table's clicks never reach a local `NSEvent` monitor** — no down, no up — so `noteMouseUp`
+   never ran for them. Attaching a gesture recognizer to it changes that, measured by adding,
+   removing and re-adding it with the same build failing and working in step. `ClickNormalizer` is
+   that recognizer and does nothing else; it never recognizes.
+2. **Its own coordinate space does not describe where it is drawn.** One click was simultaneously
+   "a pane row twelve rows down" to hit-testing and "my row 0, 15pt from the top" to the table,
+   whose `visibleRect` had a negative origin. Every fix built on those coordinates failed, one of
+   them by claiming this table for clicks belonging to a pane.
+3. **A PANE's table answers hit-tests for points outside its own viewport**, reaching over the
+   differences list below it. This is what made the failure positional — the differences list's top
+   rows resolved to pane rows and focused the pane, lower rows fell through and worked. The fix is
+   `visibleRect(of:)`: a hit-test answer is believed only where the click is inside that list's
+   viewport, and otherwise falls through to `target(covering:in:)`.
+
+**`selectionDidChangeNotification` never fires for that table either** (measured), so the wash
+repaints ride on other signals and no selection-based route is available.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s differencesStyler=%s tableIsCurrent=%s reviewNudge=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/DifferencesTableSelectionStyler.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferencesTableSelectionStyler.swift 2>/dev/null | grep -c 'override func tableIsCurrent')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferencesView.swift 2>/dev/null | grep -c 'reviewFocusNudge')"
+done
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| `visibleRect(of:)` validation + `target(covering:in:)` in `PaneListKeyFocus` | owed | owed | **gap**, and inseparable from the row above it: a line taking the pane fix without this ships the wrong-surface defect |
+| `ClickNormalizer`, installed from `DifferencesTableSelectionStyler.tableIsCurrent` | owed | owed | **gap**; check `tableIsCurrent` exists on the line first — it is the shared-resolver hook |
+| `DifferencesKeyFocusTests` | owed | owed | **gap**; mounts the real `DifferencesView` via `ScratchDefaults` + `.oneMountedDifferencesTable` |
+| The corrected `.onKeyPress(.space)` premise comment | not owed | not owed | it describes `PaneListKeyFocus`, which those lines do not have |
+
+**What the harness cannot show, and why that is stated rather than hidden.** In a test window these
+clicks reach the event stream and hit-testing behaves, so no test can prove the recognizer is
+necessary; that rests on the app measurement above. The viewport rule IS pinned, by a test that
+stages a lying hit-test — its first version passed with the rule deleted.
