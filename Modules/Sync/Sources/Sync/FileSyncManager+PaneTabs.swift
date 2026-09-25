@@ -135,7 +135,7 @@ extension FileSyncManager {
         return tab
     }
 
-    /// ⌘T, ⌘-double-click and Open in New Tab. Opens `tab` at the trailing end and makes it live.
+    /// ⌘T and Open in New Tab. Opens `tab` at the trailing end and makes it live.
     @MainActor public func openTab(_ tab: PaneTab, isLeft: Bool, currentProviderId: String) -> PaneTab {
         var list = paneTabs(isLeft: isLeft)
         list.captureActive(captureTab(isLeft: isLeft, providerId: currentProviderId))

@@ -186,4 +186,24 @@ import Design
             }
         }
     }
+
+    /// No row may advertise a ⌘-double-click — the same failure as the drag row above, a second
+    /// time.
+    ///
+    /// "⌘-double-click a folder — Open it in a new tab, in Columns" stayed in Tabs for a whole
+    /// release after `2e26a50f` removed the gesture with the column row's `TapGesture`, which was
+    /// eating nine ⌘/⇧ clicks in ten. The row cannot be true again without a gesture on that row,
+    /// and `PaneColumnRowHasNoGestureTests` refuses one; ⌘-click is multi-select everywhere else.
+    ///
+    /// Narrowed to ⌘ on purpose: a plain double-click on the tab strip's empty stretch still opens
+    /// a tab, and a row describing that one would be true.
+    @Test func testNoRowAdvertisesACommandDoubleClick() {
+        let rows = ShortcutsReference.groups.flatMap(\.items)
+        #expect(rows.count > 10, "the reference is implausibly short — this scan would be near-vacuous")
+        for item in rows {
+            let text = "\(item.keys) \(item.action)".lowercased()
+            #expect(!(text.contains("⌘") && text.contains("double-click")),
+                    "“\(item.keys) — \(item.action)” advertises a ⌘-double-click, and no row has one")
+        }
+    }
 }

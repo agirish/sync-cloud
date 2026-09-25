@@ -5436,3 +5436,32 @@ panes wear an active/inactive wash driven by the app's own focused-pane state, n
 responder, so the differences list can hold the keys while a pane still reads as active. Before these
 commits no list held the keys at all, so the question did not arise; it is a design decision rather
 than a defect, and it is the one thing a reader of this row should weigh next.
+
+---
+
+## The ⌘/ reference stops offering ⌘-double-click (TE35) — **checked, not owed anywhere**
+
+The Tabs group's "⌘-double-click a folder — Open it in a new tab, in Columns" row came in with
+`668ccaa2` (first shipped in v4.1) and outlived its gesture: `2e26a50f` took the column row's
+`TapGesture`s off for v5.3, the count-2 ⌘-double-click among them (§18 above), and v5.3 shipped the
+row anyway. `main` drops the row and adds `testNoRowAdvertisesACommandDoubleClick`, which is scoped to
+⌘ so a row for the tab strip's plain double-click would still be allowed. Three doc comments that
+still listed ⌘-double-click as a new-tab entry point were corrected with it.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s row=%s gesture=%s\n' "$l" \
+    "$(git show origin/$l:MacApp/ShortcutsReference.swift | grep -c '⌘-double-click a folder')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneColumnsView.swift | grep -c 'TapGesture(count: 2)')"
+done
+# before this change: main row=1 gesture=0 · v4.x row=1 gesture=1 · v3.x row=0 gesture=0 · v2.x row=0 gesture=0
+```
+
+| Line | Row | Gesture | Status |
+|---|---|---|---|
+| `v4.x` | yes | **yes**, count-2 `simultaneousGesture` on the column row | **not owed**: the row is TRUE there. It becomes owed only if §18's gesture removal is ever picked to `v4.x`, and must travel in the same pick |
+| `v3.x` | no | no | **not owed**: no Tabs group, no tabs, cut before `668ccaa2` |
+| `v2.x` | no | no | **not owed**: same as `v3.x` |
+
+The guard test is not owed on its own either: on `v4.x` it would fail against a row that is correct
+there.

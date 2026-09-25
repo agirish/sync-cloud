@@ -427,8 +427,9 @@ extension ContentView {
         }
     }
 
-    /// Right-click a folder ▸ Open in New Tab, and ⌘-double-click on a folder row — the discovery
-    /// route, and the only entry point that opens the new tab somewhere *different*.
+    /// Right-click a folder ▸ Open in New Tab, and File ▸ Open in New Tab for the selected folder —
+    /// the discovery route, and the only entry point that opens the new tab somewhere *different*.
+    /// (⌘-double-click on a folder row was one too, until `2e26a50f` took the column row's gesture.)
     func openInNewTab(absolutePath: String, isLeft: Bool) {
         let providerId = paneProviderId(isLeft: isLeft)
         // **Expanded.** A source's stored path may be written with a tilde, while a row's id is

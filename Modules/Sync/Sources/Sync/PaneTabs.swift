@@ -50,7 +50,7 @@ public enum PaneTabArrival {
 /// - **⌘T / ＋ / double-click the strip** open at the pane's own location, so the cut is the pane's
 ///   own — the new tab is layout-identical to the one it came from, which is what "new tab *here*"
 ///   has to mean.
-/// - **Open in New Tab / ⌘-double-click** open at a folder *under* that pane, so the scope holds
+/// - **Open in New Tab** opens at a folder *under* that pane, so the scope holds
 ///   and everything below it becomes stack — the ancestor columns a column browser is for.
 ///
 /// A target that is NOT under the pane's scope keeps the old answer (all scope, no stack): the

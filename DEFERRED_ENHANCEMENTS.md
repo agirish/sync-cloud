@@ -340,27 +340,19 @@ a third route to something two chords already do.
 
 ---
 
-## 15. ⌘-double-click opens a new tab in Columns only
+## 15. ~~⌘-double-click opens a new tab in Columns only~~ — **WITHDRAWN**
 
-**Today:** ⌘-double-clicking a folder row opens it in a new tab in the **Columns** view. The tree
-view has no double-click path at all — `FileTreeView` drives navigation from single taps and
-disclosure, and adding a double-click there re-enters the gesture question. **The attribution here
-was stale and is corrected:** this is not "the competition that got row `.draggable` removed".
-`PaneColumnsView.swift` records that the competition was long *blamed* for the selection drift, drag
-was removed on that theory, and the drift remained — `TapGesture`'s own strictness is the whole
-cause, and it is what a second gesture on the row has to be designed against. `ROADMAP_V4.md` §3
-carries the same correction, because it changes what the drop-on-tab item costs.
-Right-click ▸ **Open in New Tab** works in both views, so the tree is not cut off from the feature.
+**Was:** ⌘-double-clicking a folder row opened it in a new tab in the **Columns** view only, and the
+item asked for the same `TapGesture(count: 2)` on the tree row so the two views would match.
 
-**Enhancement:** a `.simultaneousGesture(TapGesture(count: 2))` on the tree row, matching Columns.
-
-**Why deferred:** the tree's single-tap already carries selection and disclosure, and a second
-recognizer on the same row has to be shown not to cost either. The precedent is real, but it is
-about the gesture being *added* rather than the one already there: competition on that row is what
-stopped cross-pane drag from ever starting, and is why `.draggable` went — it is **not** what causes
-the selection drift, which is `TapGesture`'s strictness and predates it (see **Today** above). So
-what this needs is a proof that a single click still selects and still discloses — the proof
-`.draggable` never got. **Effort:** low. **Risk:** medium (gesture competition). **Value:** low.
+**Withdrawn** (2026-09-25), because the Columns half it wanted to copy no longer exists. `2e26a50f`
+(2026-09-08) took the tap gestures off the column row for v5.3 — they were swallowing the row's
+mouse-downs, nine ⌘/⇧ clicks in ten — and `PaneColumnRowHasNoGestureTests` now fails if a gesture
+comes back to that row. v5.3 shipped without ⌘-double-click in either view, so there is nothing left
+for the tree to match, and adding one to the tree would bring back exactly the gesture competition
+that was just removed. **File ▸ Open in New Tab** (the selected folder) and the row menu's **Open in
+New Tab** already cover the act in both views; the ⌘/ reference's stale ⌘-double-click row went in
+the same change as this withdrawal (TE35).
 
 ---
 

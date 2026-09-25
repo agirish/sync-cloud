@@ -202,8 +202,11 @@ enum ShortcutsReference {
             // between. The Go menu's item names whichever it will do.
             Item(keys: "⌃ ⇥", action: "Next tab in Browse — the other pane in Compare"),
             Item(keys: "⇧⌘ T", action: "Show or hide the tab bar"),
+            // **No ⌘-double-click row.** One sat here from v4.1, and v5.3 shipped it after the gesture
+            // it described had gone with the column row's tap gesture (`2e26a50f`, see
+            // `PaneColumnRowHasNoGestureTests`). The row above is the pointer's way to a new tab
+            // now. `testNoRowAdvertisesACommandDoubleClick` fails if the row comes back.
             Item(keys: "Right-click a folder", action: "Open that folder in a new tab"),
-            Item(keys: "⌘-double-click a folder", action: "Open it in a new tab, in Columns"),
             // ⌘1…⌘9 are the workspaces', and a reader coming from Finder or Safari will try them.
             Item(keys: "⌘ 1 – ⌘ \(Workspace.allCases.count)", action: "Switch workspace — never tabs"),
         ]),

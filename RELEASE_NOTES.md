@@ -88,6 +88,13 @@ User-facing changes, newest first. For the full commit history see the
   left" under the file's name once it has been copying for a second. It stays off for a bulk sync,
   where several copies share the line.
 
+### Fixes
+
+- **The ⌘/ shortcuts list no longer offers ⌘-double-click.** Its Tabs group went on saying that
+  ⌘-double-clicking a folder opens it in a new tab for the whole of v5.3, which had taken that
+  gesture out so that ⌘-click and ⇧-click could select in Columns. The row is gone. To open a folder
+  in a new tab, right-click it, or select it and choose File ▸ Open in New Tab.
+
 ---
 
 ## v5.3
