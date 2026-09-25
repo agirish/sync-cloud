@@ -328,6 +328,29 @@ public struct EditorWorkspaceView: View {
         folderName.isEmpty ? "Pick a folder in the sidebar first" : "New text file in \(folderName)"
     }
 
+    /// **What the empty page says under its header: how to OPEN a file — one sentence.**
+    ///
+    /// Every variant ends on ⌘O, the one door into Edit that is reachable from every other place a
+    /// text file is listed, and the one nothing on this page would otherwise mention. What it no
+    /// longer says is "press ⌘N to make one": the header above now always carries the ＋, with ⌘N as
+    /// its keycap and tooltip, so the caption repeating it was a second copy of a control on the
+    /// same screen — and a sentence with three ways in stopped being one sentence.
+    ///
+    /// "From the rail" only while there is one. Without it the list is the source pane, or — under
+    /// "Just the text" — nothing at all until the header's lit glyph or the spine's rung brings it
+    /// back, and this view cannot tell those two apart; a sentence that names neither is right in
+    /// both. Both chords come from `AppChord`, so a rebinding moves the words with it. A static so
+    /// the test can read the three sentences without rendering them. It names the three workspaces
+    /// ⌘O works from rather than saying "in any tab": a pane's tabs and the workspace switcher are
+    /// both tabs in this app.
+    static func emptyCaption(hasFolder: Bool, showsRail: Bool) -> String {
+        let open = "press \(AppChord.openInEditor.display) on a text file in Browse, Compare or Organize"
+        guard hasFolder else { return "Pick a folder in the sidebar, then choose a file to edit — or \(open)." }
+        return showsRail
+            ? "Choose a file from the rail — or \(open)."
+            : "Choose a file to edit — or \(open)."
+    }
+
     /// What the header's × is called to VoiceOver. Names the file, because the button sits at the
     /// far end of the row from the name it acts on.
     static func closeTitle(name: String) -> String {
@@ -1091,14 +1114,7 @@ public struct EditorWorkspaceView: View {
             // already written for a reader.
             caption(refused)
         } else if document.path == nil {
-            // "From the rail" only while there is one. Without it the list is the source pane, or
-            // — under "Just the text" — nothing at all until the spine's rung brings it back, and
-            // this view cannot tell those two apart; a sentence that names neither is right in both.
-            caption(folder.isEmpty
-                    ? "Pick a folder in the sidebar, then choose a file to edit."
-                    : showsRail
-                        ? "Choose a file from the rail, or press \(AppChord.newTextFile.display) to make one."
-                        : "Choose a file to edit, or press \(AppChord.newTextFile.display) to make one.")
+            caption(Self.emptyCaption(hasFolder: !folder.isEmpty, showsRail: showsRail))
         } else {
             VStack(spacing: 0) {
                 if let reason = document.readOnlyReason {

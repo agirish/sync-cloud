@@ -5703,3 +5703,34 @@ window — no defaults key, no file format, no change to what `handOffToEditor` 
 that makes the drawn test possible is worth keeping for the next audit: `NSHostingView.menu(for:)`
 with a synthesized right-click answers the real `NSMenu` SwiftUI builds for the point, by item
 title, and answers nil for a `.contextMenu` whose builder is empty (macOS 27).
+
+## Edit's empty page keeps its header; the capsule sheds its words for the name; six doors in Help (TE34, and round-2 amendments to TE43 / TE45 / TE46)
+
+`main` only, and **not owed anywhere** — Edit is `main`-only. No maintenance line has the workspace
+view, the Edit Help topic or the ⌘O chord these describe, so there is nothing on them to amend.
+
+```sh
+# main is the positive control.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s workspace=%s help-editor=%s openInEditor=%s\n' $l \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/HelpBook.swift 2>/dev/null | grep -c 'editor-workspace')" \
+    "$(git show origin/$l:Modules/Design/Sources/Design/AppChord.swift 2>/dev/null | grep -c 'static let openInEditor')"
+done
+# measured 2026-09-25, before this landed:
+# main   workspace=1 help-editor=2 openInEditor=1
+# v4.x   workspace=0 help-editor=0 openInEditor=0
+# v3.x   workspace=0 help-editor=0 openInEditor=0
+# v2.x   workspace=0 help-editor=0 openInEditor=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **The empty page keeps the header card** at `LiquidGlass.headerHeight`: "No document open", the ＋, "Just the text" while lit, and the pane's folder (`editorFolder`) as the location with its own level as words, not a door | No Edit workspace | No Edit workspace | RECORDED — not owed |
+| **The ＋ looks greyed with no folder** (tertiary glyph) — `.disabled` alone drew it pixel-identical to a live one | No Edit workspace | No Edit workspace | RECORDED — not owed |
+| **The mode capsule shows its words only when the whole file name fits beside them** (`nameRow`, `ViewThatFits` over two rows) | No Edit workspace | No Edit workspace | RECORDED — not owed |
+| **The empty caption offers ⌘O and no longer ⌘N**; **Help counts six doors** and names the ways back (rail row menu, location, ＋, ×, Close Document); README names the two new ones | No Edit workspace or topic | Same | RECORDED — not owed |
+| **The ⌘/ reference's height comments corrected** to the measured 734pt (6pt headroom) — comments only | `v4.x`'s reference is its own and was not re-measured here | Same | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** Nothing here is stored: no defaults key, no file
+format. The location builder's new `paneFolder:` input reads `editorFolder`, which already existed.

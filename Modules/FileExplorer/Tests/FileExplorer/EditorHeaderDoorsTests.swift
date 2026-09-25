@@ -377,6 +377,42 @@ import Design
         print("[words] \(report.joined(separator: " "))")
     }
 
+    // MARK: The empty page's caption
+
+    /// **The empty page says how to OPEN a file, in one sentence, ending on ⌘O** — and no longer
+    /// says ⌘N, which the header's ＋ above it carries (TE34). Both chords are read from `AppChord`,
+    /// never typed, so the test compares against the same source the caption uses. Mutations: put
+    /// ⌘N back in a variant, drop ⌘O from one, join two sentences, or say "in any tab" — each fails a
+    /// line.
+    @Test func theEmptyCaptionSaysHowToOpenAFileInOneSentence() throws {
+        let open = AppChord.openInEditor.display
+        let new = AppChord.newTextFile.display
+        let variants = [(false, false), (false, true), (true, false), (true, true)].map {
+            ($0, $1, EditorWorkspaceView.emptyCaption(hasFolder: $0, showsRail: $1))
+        }
+        for (hasFolder, showsRail, caption) in variants {
+            #expect(caption.contains("press \(open) on a text file in Browse, Compare or Organize"),
+                    "folder \(hasFolder), rail \(showsRail): “\(caption)” does not offer ⌘O")
+            #expect(!caption.contains(new),
+                    "folder \(hasFolder), rail \(showsRail): “\(caption)” repeats the header's ＋")
+            // "Tab" names two things in this app — a pane's tabs and the workspace switcher — so
+            // the caption names the workspaces instead.
+            #expect(!caption.localizedCaseInsensitiveContains("tab"),
+                    "folder \(hasFolder), rail \(showsRail): “\(caption)” says “tab”, which could mean a pane's tab")
+            // One sentence: one full stop, at the end.
+            #expect(caption.hasSuffix(".") && caption.dropLast().allSatisfy { $0 != "." },
+                    "folder \(hasFolder), rail \(showsRail): “\(caption)” is not one sentence")
+        }
+        #expect(EditorWorkspaceView.emptyCaption(hasFolder: true, showsRail: true).contains("from the rail"))
+        #expect(!EditorWorkspaceView.emptyCaption(hasFolder: true, showsRail: false).contains("rail"),
+                "with no rail on screen the caption sends the reader to one")
+        #expect(EditorWorkspaceView.emptyCaption(hasFolder: false, showsRail: true).hasPrefix("Pick a folder"))
+        // The page draws THIS caption — a scan of the one call site, comments stripped.
+        let code = try Self.headerSource()
+        #expect(code.contains("caption(Self.emptyCaption(hasFolder: !folder.isEmpty, showsRail: showsRail))"),
+                "the empty page does not draw `emptyCaption`")
+    }
+
     // MARK: Source helpers
 
     static func headerSource() throws -> String {

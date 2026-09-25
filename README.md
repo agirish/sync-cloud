@@ -113,7 +113,7 @@ it — but you rarely need to: the editor **autosaves** a couple of seconds afte
 whenever the document leaves the screen. A save is staged and swapped like
 every other write here, goes back in the encoding the file was read in, and asks first if the file
 changed underneath you. A file that is not valid text opens read-only rather than risking its bytes.
-**⌘O** opens the text file selected in any pane here — so does **Open in Edit**, first in a file pane's right-click menu, by the file's name in the preview, and in the Info inspector.
+**⌘O** opens the text file selected in any pane here — so does **Open in Edit**, first in a file pane's right-click menu, by the file's name in the preview, in the Info inspector, and in the right-click menus of Compare's differences and Organize's duplicate copies. Above the document, **＋** makes a new file and **×** puts the open one away.
 
 ### 🤖 AI-assisted filing (optional)
 Organize's suggestions start from a fast, fully-offline engine (your existing folder names + filename

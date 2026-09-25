@@ -161,8 +161,10 @@ enum ShortcutsReference {
         // a heading about panes reads as an app-wide key that saves something in Browse.
         Group(title: "Edit", items: [
             // **⌘O shares ⌘N's row, on the ⌘S/⌘P and ⌘F precedents directly below.** The
-            // reference had 21pt of headroom in its 740pt window and a row costs ~30pt, so a row of
-            // its own does not fit — and neither does a SECOND LINE on this one: the action column
+            // reference has 6pt of headroom in its 740pt window (734pt of rows, measured 2026-09-25
+            // — see `windowSize`) and a row costs ~30pt, so a row of its own does not fit — and
+            // neither does a row for any of Edit's other doors, which Help lists instead. Nor does
+            // a SECOND LINE on this one: the action column
             // here holds about 35 characters, and every longer wording tried ("…— or open the
             // selected one", "…/ open the selected file") wrapped and measured 749pt, which
             // `theReferenceFitsItsWindowWithoutScrolling` refuses. "New or selected" maps onto the
@@ -339,9 +341,17 @@ struct ShortcutsReferenceView: View {
     /// keeps this a 19pt raise instead of a 40pt one — its action text wraps to a second line, so
     /// it costs about half a row rather than none. **Sideways is no longer the escape it was**: the
     /// width is already three columns, and the groups are atomic, so the tallest column cannot be
-    /// cut below the tallest GROUP however they are dealt. The content **measures 719pt**, so 740
-    /// leaves 21pt — in the same band, under the 60pt ceiling, and still 60pt below the 800pt that
-    /// a 13" display makes the practical limit.
+    /// cut below the tallest GROUP however they are dealt. The content measured 719pt then, so 740
+    /// left 21pt — in the same band, under the 60pt ceiling, and still 60pt below the 800pt that a
+    /// 13" display makes the practical limit.
+    ///
+    /// **It now measures 734pt, leaving 6pt** — measured 2026-09-25 on the v5.4 line by printing
+    /// the height `theReferenceFitsItsWindowWithoutScrolling` reads (TE35 had measured the same 734
+    /// with and without the row it dropped). That is under the 12pt the v4.4 note above judged too
+    /// tight, and the window was deliberately not raised for it: Edit's later doors — the ＋ and ×
+    /// above the document, File ▸ Close Document, Open in Edit in Compare's differences and
+    /// Duplicates' copies — carry no chord of their own and went to Help, not to rows here. The
+    /// next row that has to go in will need about a row's worth, ~36pt, on this number.
     static let windowSize = CGSize(width: 1240, height: 740)
 
     var body: some View {
