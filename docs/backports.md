@@ -5412,3 +5412,27 @@ done
 clicks reach the event stream and hit-testing behaves, so no test can prove the recognizer is
 necessary; that rests on the app measurement above. The viewport rule IS pinned, by a test that
 stages a lying hit-test — its first version passed with the rule deleted.
+
+---
+
+## Hardening the two key-focus commits (review of `50136fe0` and `3f6bccc7`)
+
+**An adversarial re-read of both, 2026-09-25.** Six findings, all on `main` only — the feature itself
+is `main` only, so a line that never takes the rows above has nothing to take here either.
+
+| What the review changed | Why it was wrong |
+|---|---|
+| `ClickNormalizer`'s recognizer now RETAINS its delegate (associated object) | `delegate` is weak and `target` unowned, so the normalizer's only owner was the styler holding it. A released normalizer leaves a recognizer nothing refuses — free to recognize clicks and to send its action to freed memory, the hazard `PaneBackgroundDeselect` documents for its own |
+| `install(on:)` is idempotent | SwiftUI rebuilds the styler; one install per instance stacked a recognizer per rebuild on one table |
+| **Two ownership attempts are recorded as rejected** | Holding it in the styler stacked recognizers; making install idempotent AND uninstalling on window exit let two stylers share one normalizer, so the first to leave took the recognizer the other still needed — measured as a mounted list carrying none |
+| `visibleRect(of:)` falls back to the table's own frame | It answered `.zero` for a table with no scroll view, and both routes test containment against it — such a list could never be claimed |
+| The caret rule lives in ONE place | `target(forHit:)` repeated it; two copies of one rule are two places to keep in step |
+| Right-clicks claim too (`watchedEvents` = left up + right down) | Every other Mac list leaves the keys on the row it opened a menu over. Not available for the differences list: its normalizer watches the primary button only |
+| `MouseDownProbe`'s `[key]` line names navigation keys only | It printed the raw key code of EVERY keystroke, and the trace is armed by a `defaults write` a user may leave on through ordinary typing — `~/sync-cloud.log` would hold a record of what was typed |
+| `[focus]` logs a claim that moves focus | The only other record was the probe's `[fr]` line, which needs the scroll trace armed — and the reports this code exists for arrive with it off |
+
+**Known and deliberately not changed: nothing on screen says which list owns the keyboard.** The
+panes wear an active/inactive wash driven by the app's own focused-pane state, not by first
+responder, so the differences list can hold the keys while a pane still reads as active. Before these
+commits no list held the keys at all, so the question did not arise; it is a design decision rather
+than a defect, and it is the one thing a reader of this row should weigh next.

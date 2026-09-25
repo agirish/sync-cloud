@@ -17,6 +17,7 @@ User-facing changes, newest first. For the full commit history see the
   Organize's list. On macOS 27 a click selected the file but left the keyboard with the window, so
   every key pressed after it did nothing at all; ⇧-click was the only way to select a run of files.
   A click now hands that list the keyboard, and a caret you click into a field is left where it is.
+  A right-click does the same, so the menu's verbs and the arrow keys always mean the same list.
 - **The differences list takes the keyboard too.** Clicking a difference used to leave the keys with
   whichever file pane you had clicked before it, so ⇧↓ grew the *pane's* selection while you were
   looking at the differences — and clicking its top rows was the surest way to see it, because those

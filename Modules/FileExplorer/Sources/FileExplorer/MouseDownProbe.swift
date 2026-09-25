@@ -70,7 +70,7 @@ public enum MouseDownProbe {
             let window = event.window ?? NSApp.keyWindow
             Logger.shared.debug(
                 "[key] w\(window?.windowNumber ?? -1) \(describe(event.modifierFlags))"
-                + "keyCode \(event.keyCode) → firstResponder \(responder(window))")
+                + "\(named(event.keyCode)) → firstResponder \(responder(window))")
             return
         }
         guard let window = event.window else {
@@ -125,6 +125,31 @@ public enum MouseDownProbe {
                     "[fr] 300ms after a click \(landedInTable ? "in a table" : "outside any table"): "
                     + "\(responder(window))")
             }
+        }
+    }
+
+    /// The key, named only where naming it is diagnostic.
+    ///
+    /// **Everything else is "a key", deliberately.** This line exists to say WHICH RESPONDER a
+    /// keystroke reached, and it is armed by a `defaults write` that a user may leave on for a
+    /// session of ordinary work — typing into the Go-to field, a rename row, a document. A key code
+    /// identifies the physical key, so printing every one would make `~/sync-cloud.log` a record of
+    /// what was typed. The navigation keys are the ones any focus investigation needs, and none of
+    /// them carries content.
+    private static func named(_ keyCode: UInt16) -> String {
+        switch keyCode {
+        case 123: return "←"
+        case 124: return "→"
+        case 125: return "↓"
+        case 126: return "↑"
+        case 36, 76: return "return"
+        case 48: return "tab"
+        case 49: return "space"
+        case 51: return "delete"
+        case 53: return "esc"
+        case 116, 121: return "page up/down"
+        case 115, 119: return "home/end"
+        default: return "a key"
         }
     }
 

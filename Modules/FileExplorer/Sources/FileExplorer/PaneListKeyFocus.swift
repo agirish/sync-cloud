@@ -1,4 +1,5 @@
 import AppKit
+import Events
 
 /// Gives a pane's list the keyboard when a click lands in it.
 ///
@@ -19,24 +20,35 @@ import AppKit
 /// its recognizer: that is the one sibling already resolving every pane table — Tree, and each
 /// column of Columns — so registration costs no search of its own.
 ///
-/// **A local monitor, not a recognizer.** The recognizer on the table is consulted for the clicks
-/// it might act on; whether AppKit consults a table's recognizers for a click whose hit view is a
-/// SwiftUI cell deep inside a row is exactly the kind of ancestry question
-/// `PaneBackgroundDeselect` declines to bet on. The event stream sees every click, and returns it
-/// untouched.
+/// **Two parts, and both are needed.** The claim itself reads the app's event stream: one local
+/// monitor, which sees clicks on the pane lists and never consumes them. That stream does NOT see
+/// clicks on the differences `Table` at all — measured 2026-09-25 — and a gesture recognizer on
+/// that table is what puts them into it, which is all `ClickNormalizer` is for. The monitor stays
+/// the only claimant either way: a recognizer that decided for itself which list a click belonged
+/// to raced the monitor and claimed the wrong one.
 @MainActor
 enum PaneListKeyFocus {
+
+    /// What the monitor asks for. Named so a test can hold it: the mask is otherwise unreadable once
+    /// the monitor exists, and a test that only calls `noteClick` directly would pass with either
+    /// button dropped from it.
+    static let watchedEvents: NSEvent.EventTypeMask = [.leftMouseUp, .rightMouseDown]
 
     /// The pane lists. Weak, so a column that closes leaves nothing behind to unregister.
     private static let registered = NSHashTable<NSTableView>.weakObjects()
     private static var monitor: Any?
 
     /// Opts `table` in, and installs the monitor the first time anything does.
+    ///
+    /// **Left on the UP, right on the DOWN.** A left-drag that rubber-bands a selection should claim
+    /// once, when it finishes; the up is that moment. A right-click has no usable up — the context
+    /// menu opens on the down and runs a tracking loop that the matching up belongs to — so the down
+    /// is the only one to read. The claim is deferred either way, which puts it after the menu.
     static func register(_ table: NSTableView) {
         registered.add(table)
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
-            noteMouseUp(event)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: watchedEvents) { event in
+            noteClick(event)
             return event      // never consumed: this only decides who holds the keyboard next
         }
     }
@@ -44,7 +56,12 @@ enum PaneListKeyFocus {
     static func isRegistered(_ table: NSTableView) -> Bool { registered.contains(table) }
 
 
-    /// One click's worth: find the pane list it landed in and claim the keyboard for it.
+    /// One click's worth: find the list it landed in and claim the keyboard for it.
+    ///
+    /// Right-clicks come here too, so a menu opened on a row leaves the keys on that row's list —
+    /// which is what every other Mac list does. The differences list is the exception it cannot help:
+    /// `ClickNormalizer` watches the primary button only, so a right-click there reaches no monitor
+    /// and changes nothing, exactly as before.
     ///
     /// **Two turns late, deliberately.** The monitor runs ahead of the click's own handling, and
     /// that handling queues work of its own — the other pane's selection clear and the Columns
@@ -52,7 +69,7 @@ enum PaneListKeyFocus {
     /// click (`aa9d407`). One hop would put this claim ahead of that queued work; two put it behind,
     /// so the click lands, settles, and only then does focus move. `schedule` is injected so a test
     /// can run the claim without a run loop.
-    static func noteMouseUp(
+    static func noteClick(
         _ event: NSEvent,
         schedule: @escaping (@escaping @MainActor () -> Void) -> Void = { work in
             DispatchQueue.main.async { DispatchQueue.main.async { MainActor.assumeIsolated(work) } }
@@ -75,6 +92,21 @@ enum PaneListKeyFocus {
         schedule { claim(table, in: window) }
     }
 
+    /// Where a list's rows are actually visible, in window coordinates.
+    ///
+    /// **The scroll view's viewport, not the table's own frame.** A table is as tall as its rows, so
+    /// its frame reaches far outside the viewport and a click on whatever sits beyond a long list
+    /// would otherwise count as a click in it (measured 2026-09-25 — it is what let a pane answer
+    /// for clicks on the list below it). A table with no scroll view around it is its own viewport;
+    /// answering `.zero` there would make such a list permanently unclaimable, since both routes
+    /// test containment.
+    static func visibleRect(of table: NSTableView) -> NSRect {
+        guard let clip = table.enclosingScrollView?.contentView else {
+            return table.convert(table.bounds, to: nil)
+        }
+        return clip.convert(clip.bounds, to: nil)
+    }
+
     /// The registered list whose visible rows cover `pointInWindow`, or nil.
     ///
     /// **The fallback for a list that hit-testing cannot see.** Measured 2026-09-25 in the app: a
@@ -84,18 +116,9 @@ enum PaneListKeyFocus {
     /// normally, so this is not a replacement for the hit-test route but the second question asked
     /// when the first comes back empty.
     ///
-    /// Frame containment answers it without the view tree, which is exactly what `PaneListResolver`
-    /// does for the stylers. The CLIP view's rect, not the table's: a table is as tall as its rows,
-    /// so its own frame reaches far below the scroll view and a click under a short list would
-    /// otherwise count. Smallest area wins, so a list inside another surface is preferred to the
-    /// surface around it.
-    /// Where a list's rows are actually visible, in window coordinates — its scroll view's viewport,
-    /// not the table's own frame, which is as tall as its rows.
-    static func visibleRect(of table: NSTableView) -> NSRect {
-        guard let clip = table.enclosingScrollView?.contentView else { return .zero }
-        return clip.convert(clip.bounds, to: nil)
-    }
-
+    /// Frame containment answers it without the view tree, which is what `PaneListResolver` does for
+    /// the stylers. Smallest area wins, so a list inside another surface is preferred to the surface
+    /// around it.
     static func target(covering pointInWindow: NSPoint, in window: NSWindow) -> NSTableView? {
         var best: (table: NSTableView, area: CGFloat)?
         for table in registered.allObjects where table.window === window {
@@ -120,17 +143,14 @@ enum PaneListKeyFocus {
         return false
     }
 
-    /// The registered list a click on `hit` should focus, or nil.
+    /// The registered list a click on `hit` landed in, or nil.
     ///
-    /// **An editable field inside the list keeps the click.** A caret the click put into a text
-    /// field is where the keys belong; handing them to the table would end the edit the user just
-    /// started. Checked on the way up, before the table is reached, so it holds for any field
-    /// embedded in a row however deep.
+    /// **The caret rule is not repeated here.** It used to be, and two copies of one rule are two
+    /// places to keep in step; `noteMouseUp` asks `landedInAnEditableField` before either route, so
+    /// a hit inside a field never reaches this.
     static func target(forHit hit: NSView?) -> NSTableView? {
         var view = hit
         while let step = view {
-            if step is NSText { return nil }
-            if let field = step as? NSTextField, field.isEditable { return nil }
             if let table = step as? NSTableView { return isRegistered(table) ? table : nil }
             view = step.superview
         }
@@ -150,15 +170,43 @@ enum PaneListKeyFocus {
     /// **Do not give this a claim of its own.** A version that decided for itself which list a
     /// click belonged to raced the monitor and claimed this table for clicks belonging to a pane,
     /// which read as the fix working intermittently. One claimant: `noteMouseUp`.
+    /// **It belongs to the table, and that is what makes it safe.** A recognizer's delegate is weak
+    /// and its target unowned, so a normalizer released while its recognizer stayed on a live table
+    /// would leave a recognizer nothing refuses — free to recognize clicks and to send its action to
+    /// freed memory. That is the hazard `PaneBackgroundDeselect` documents for its own recognizer,
+    /// and it is closed here by making the recognizer RETAIN this object: both then live exactly as
+    /// long as the table they are on, and nothing has to remember to take them back.
+    ///
+    /// **Two attempts at that ownership were worse, and are recorded so they are not retried.**
+    /// Holding the normalizer in the styler and installing per instance stacked a recognizer on the
+    /// table for every SwiftUI rebuild. Making `install` idempotent fixed the stacking but let two
+    /// stylers share one normalizer, and then the first of them to leave the window uninstalled the
+    /// recognizer the other was still relying on — measured, as a mounted view carrying none.
     @MainActor
     final class ClickNormalizer: NSObject, NSGestureRecognizerDelegate {
+        private static var associationKey: UInt8 = 0
+
+        /// Installs one, or returns the one this table already has.
         @discardableResult
         static func install(on table: NSTableView) -> ClickNormalizer {
+            if let existing = table.gestureRecognizers
+                .compactMap({ $0.delegate as? ClickNormalizer }).first {
+                return existing
+            }
             let normalizer = ClickNormalizer()
             let recognizer = NSClickGestureRecognizer(target: normalizer, action: #selector(never))
             recognizer.delegate = normalizer
             table.addGestureRecognizer(recognizer)
+            // The retain that closes the orphan hazard: `delegate` and `target` are both non-owning,
+            // so without this the normalizer's only owner would be whoever called `install`.
+            objc_setAssociatedObject(recognizer, &associationKey, normalizer,
+                                     .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
             return normalizer
+        }
+
+        /// How many a table is carrying — for the test that no rebuild stacks them.
+        static func count(on table: NSTableView) -> Int {
+            table.gestureRecognizers.filter { $0.delegate is ClickNormalizer }.count
         }
 
         /// Never called: the recognizer is refused before it can recognize.
@@ -183,6 +231,12 @@ enum PaneListKeyFocus {
            current === table || current.isDescendant(of: table) {
             return false
         }
-        return window.makeFirstResponder(table)
+        let moved = window.makeFirstResponder(table)
+        // Ungated, like `[click]` and `[deselect]`: one line per click that actually MOVES focus,
+        // which is the decision every keystroke after it depends on. The `[fr]` line in
+        // `MouseDownProbe` says the same thing but only while the scroll trace is armed, and the
+        // reports this file exists for arrive with it off.
+        if moved { Logger.shared.debug("[focus] the keyboard moved to a list that was clicked") }
+        return moved
     }
 }

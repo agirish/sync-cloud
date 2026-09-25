@@ -125,7 +125,7 @@ private final class LyingContent: NSView {
         #expect(table.selectedRowIndexes == IndexSet([2]),
                 "⇧↓ extended with the WINDOW focused — the control cannot fail, so nothing below proves anything")
 
-        PaneListKeyFocus.noteMouseUp(mouseUp(onRow: 2, of: table, in: window), schedule: { $0() })
+        PaneListKeyFocus.noteClick(mouseUp(onRow: 2, of: table, in: window), schedule: { $0() })
         #expect(window.firstResponder === table, "the click did not give the differences list focus")
 
         window.sendEvent(key(125, shift: true, in: window))
@@ -185,7 +185,7 @@ private final class LyingContent: NSView {
 
         window.makeFirstResponder(nil)
         #expect(window.firstResponder === window)
-        PaneListKeyFocus.noteMouseUp(mouseUp(onRow: 2, of: table, in: window), schedule: { $0() })
+        PaneListKeyFocus.noteClick(mouseUp(onRow: 2, of: table, in: window), schedule: { $0() })
         #expect(window.firstResponder === table,
                 "with hit-testing blind, the point alone must still find the list")
     }
@@ -262,9 +262,80 @@ private final class LyingContent: NSView {
                                        windowNumber: window.windowNumber, context: nil,
                                        eventNumber: 0, clickCount: 1, pressure: 0)!
         window.makeFirstResponder(nil)
-        PaneListKeyFocus.noteMouseUp(event, schedule: { $0() })
+        PaneListKeyFocus.noteClick(event, schedule: { $0() })
         #expect(window.firstResponder === lower,
                 "the click belongs to the list it landed in, not the one whose hit-test reaches over it")
+    }
+
+    // MARK: The normalizer's lifetime
+
+    /// **A rebuild must not stack recognizers.** SwiftUI recreates the styler that holds the
+    /// normalizer, and the first version installed one per instance — each outliving the object
+    /// whose delegate call refuses it, on a table that keeps them all.
+    @Test("Installing a normalizer twice leaves one recognizer, not two")
+    func installIsIdempotent() async {
+        guard let (_, table) = await mountedAndRegistered() else { return }
+        let first = PaneListKeyFocus.ClickNormalizer.install(on: table)
+        let countAfterFirst = PaneListKeyFocus.ClickNormalizer.count(on: table)
+        let second = PaneListKeyFocus.ClickNormalizer.install(on: table)
+        #expect(PaneListKeyFocus.ClickNormalizer.count(on: table) == countAfterFirst,
+                "a second install added a recognizer (now \(PaneListKeyFocus.ClickNormalizer.count(on: table)))")
+        #expect(second === first, "the second install should adopt the recognizer already there")
+    }
+
+    /// **The retain that closes the orphan hazard.** The recognizer's `delegate` is weak and its
+    /// `target` unowned, so nothing but this association keeps the normalizer alive — and a
+    /// recognizer whose delegate has gone stops being refused, begins recognizing clicks, and sends
+    /// its action to freed memory. Dropping every reference the test holds must not collect it.
+    @Test("The recognizer keeps its normalizer alive on its own")
+    func theRecognizerOwnsItsNormalizer() {
+        let table = NSTableView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        do {
+            let normalizer = PaneListKeyFocus.ClickNormalizer.install(on: table)
+            #expect(PaneListKeyFocus.ClickNormalizer.count(on: table) == 1)
+            _ = normalizer
+        }
+        // Nothing in this test holds it now; only the recognizer does.
+        #expect(PaneListKeyFocus.ClickNormalizer.count(on: table) == 1,
+                "the normalizer was collected, leaving a recognizer nothing refuses")
+        let recognizer = table.gestureRecognizers.first { $0.delegate is PaneListKeyFocus.ClickNormalizer }
+        #expect(recognizer?.delegate != nil, "a nil delegate is exactly the orphan this guards against")
+    }
+
+    /// The recognizer stays with the TABLE across a styler that comes and goes — the opposite of
+    /// what an earlier version did, where the styler leaving the window took the recognizer with it
+    /// and left a mounted list carrying none (measured, and the reason ownership moved).
+    @Test("A styler leaving the window leaves the list's recognizer in place")
+    func leavingTheWindowKeepsTheRecognizer() async {
+        guard let (window, table) = await mountedAndRegistered() else { return }
+        #expect(PaneListKeyFocus.ClickNormalizer.count(on: table) == 1,
+                "the mounted view should carry exactly one")
+        window.contentView = NSView(frame: window.contentView!.bounds)   // the styler leaves the window
+        _ = await LayoutPumpWait.pump(window, upTo: 2) { false }
+        #expect(PaneListKeyFocus.ClickNormalizer.count(on: table) == 1,
+                "the list still needs its clicks normalized; only the styler went")
+    }
+
+    /// A list with no scroll view around it is its own viewport. Answering `.zero` would make such a
+    /// list permanently unclaimable, since both routes test containment against this rect.
+    @Test("A list with no scroll view reports its own frame as its viewport")
+    func visibleRectFallsBackToTheTableFrame() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let bare = NSTableView(frame: NSRect(x: 10, y: 20, width: 120, height: 60))
+        window.contentView?.addSubview(bare)
+        window.contentView?.layoutSubtreeIfNeeded()
+        #expect(bare.enclosingScrollView == nil, "the fixture needs a table with no scroll view")
+
+        // A table with no columns shrinks to fit its content, so the point comes FROM the rect
+        // rather than from the frame it was created with (measured: it resized to 20x15).
+        let rect = PaneListKeyFocus.visibleRect(of: bare)
+        #expect(!rect.isEmpty, "an empty rect would make this list unclaimable by either route")
+        #expect(rect == bare.convert(bare.bounds, to: nil), "got \(NSStringFromRect(rect))")
+
+        PaneListKeyFocus.register(bare)
+        #expect(PaneListKeyFocus.target(covering: NSPoint(x: rect.midX, y: rect.midY), in: window) === bare)
     }
 
     /// A table nobody registered is invisible to the frame route too — otherwise every `NSTableView`
@@ -305,7 +376,7 @@ private final class LyingContent: NSView {
                 "the field must be what hit-testing finds, or this stages nothing (got \(hit.map { String(describing: type(of: $0)) } ?? "nil"))")
 
         window.makeFirstResponder(nil)
-        PaneListKeyFocus.noteMouseUp(mouseUp(onRow: 2, of: table, in: window), schedule: { $0() })
+        PaneListKeyFocus.noteClick(mouseUp(onRow: 2, of: table, in: window), schedule: { $0() })
         #expect(window.firstResponder !== table,
                 "a click that put a caret in a field must leave the keys with the field")
     }

@@ -85,7 +85,7 @@ import Sync
                 "\(mode): ⇧↓ extended with the WINDOW focused — the control cannot fail, so nothing below proves anything")
 
         // The click, through the monitor's own entry point, with the deferral run in line.
-        PaneListKeyFocus.noteMouseUp(mouseUp(onRow: 4, of: table, in: window), schedule: { $0() })
+        PaneListKeyFocus.noteClick(mouseUp(onRow: 4, of: table, in: window), schedule: { $0() })
         #expect(window.firstResponder === table, "\(mode): the click did not give the list focus")
 
         window.sendEvent(key(125, shift: true, in: window))
@@ -96,23 +96,33 @@ import Sync
 
     // MARK: - Where the claim stops
 
-    /// A caret in a field inside the list keeps the keys. The field sits in a REGISTERED table, so
-    /// the field check is the only thing that can refuse — without that ordering, an unregistered
-    /// table would return nil for its own reason and this would pass with the check deleted.
+    /// A caret in a field inside the list keeps the keys — driven through the DOOR, because the
+    /// caret rule lives in one place now. `target(forHit:)` no longer repeats it, so asking that
+    /// function about a field would pass whatever the door does.
     @Test("A click into an editable field inside the list does not take its keys")
     func editableFieldKeepsTheClick() async {
-        guard let (_, _, table) = await mountedPane(.tree) else { return }
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 80, height: 20))
+        guard let (_, window, table) = await mountedPane(.tree) else { return }
+        let rect = table.rect(ofRow: 3)
+        let inWindow = table.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+        let field = NSTextField(frame: NSRect(x: inWindow.x - 40, y: inWindow.y - 11, width: 80, height: 22))
         field.isEditable = true
-        table.addSubview(field)
+        // On the window, not inside the table: the point is in window coordinates, and a field
+        // parented to the table would sit somewhere else entirely (measured — the click missed it).
+        window.contentView?.addSubview(field)
         defer { field.removeFromSuperview() }
+        #expect(unfocused(window))
 
-        #expect(PaneListKeyFocus.target(forHit: table) === table, "control: the table itself is a target")
-        #expect(PaneListKeyFocus.target(forHit: field) == nil)
+        let hit = window.contentView?.hitTest(window.contentView!.convert(inWindow, from: nil))
+        #expect(PaneListKeyFocus.landedInAnEditableField(hit),
+                "the field must be what the click lands on, or this stages nothing")
+        PaneListKeyFocus.noteClick(mouseUp(onRow: 3, of: table, in: window), schedule: { $0() })
+        #expect(window.firstResponder !== table, "a caret keeps the keys the click gave it")
 
+        // The control: the same click with the field not editable is the list's.
         field.isEditable = false
-        #expect(PaneListKeyFocus.target(forHit: field) === table,
-                "a label that cannot be edited is just row content, and the click is the list's")
+        PaneListKeyFocus.noteClick(mouseUp(onRow: 3, of: table, in: window), schedule: { $0() })
+        #expect(window.firstResponder === table,
+                "a label that cannot be edited is row content, so the refusal above was the caret")
     }
 
     /// The same protection after the fact: a field editor already inside the table is a descendant,
@@ -149,6 +159,32 @@ import Sync
         #expect(other.firstResponder === other)
         #expect(PaneListKeyFocus.claim(table, in: window),
                 "control: the same table in its own window is claimable, so the refusal was the window check")
+    }
+
+    /// The monitor has to ASK for both buttons; `noteClick` being right about a right-click proves
+    /// nothing if no right-click ever reaches it.
+    @Test("The monitor watches the left button's up and the right button's down")
+    func theMonitorWatchesBothButtons() {
+        #expect(PaneListKeyFocus.watchedEvents.contains(.leftMouseUp))
+        #expect(PaneListKeyFocus.watchedEvents.contains(.rightMouseDown))
+        #expect(!PaneListKeyFocus.watchedEvents.contains(.leftMouseDown),
+                "the left DOWN would claim mid-drag, before the selection it is about exists")
+    }
+
+    /// A right-click leaves the keys on the list it opened a menu over, which is what every other
+    /// Mac list does — and what makes the menu's verbs and the keys agree about their subject.
+    @Test("A right-click on a row gives that list the keyboard too")
+    func rightClickClaims() async {
+        guard let (_, window, table) = await mountedPane(.tree) else { return }
+        #expect(unfocused(window))
+        let rect = table.rect(ofRow: 2)
+        let point = table.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+        let rightDown = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [],
+                                          timestamp: ProcessInfo.processInfo.systemUptime,
+                                          windowNumber: window.windowNumber, context: nil,
+                                          eventNumber: 0, clickCount: 1, pressure: 0)!
+        PaneListKeyFocus.noteClick(rightDown, schedule: { $0() })
+        #expect(window.firstResponder === table)
     }
 
     @Test("A table nobody registered is not a target")

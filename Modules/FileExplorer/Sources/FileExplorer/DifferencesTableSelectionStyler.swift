@@ -84,9 +84,12 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
             // And a recognizer, whose only job is to make this table's clicks visible to the app at
             // all — see `PaneListKeyFocus.ClickNormalizer`. Registration alone is not enough: with
             // no recognizer the click reaches nothing that can claim the keyboard.
+            // Idempotent, and the recognizer belongs to the TABLE rather than to this view — a
+            // rebuilt styler adopts the one already there, and nothing here has to take it back.
+            // The guard is an economy only: this runs on every layout pass.
             if normalizedTable !== table {
                 normalizedTable = table
-                normalizer = PaneListKeyFocus.ClickNormalizer.install(on: table)
+                PaneListKeyFocus.ClickNormalizer.install(on: table)
             }
         }
 
@@ -129,8 +132,7 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
             }
         }
         private weak var observedTable: NSTableView?
-        /// The click normalizer and the table it is on — see `tableIsCurrent(_:)`.
-        private var normalizer: PaneListKeyFocus.ClickNormalizer?
+        /// The table this view has already normalized — see `tableIsCurrent(_:)`.
         private weak var normalizedTable: NSTableView?
         private weak var observedClip: NSClipView?
 
