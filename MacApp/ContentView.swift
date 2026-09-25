@@ -4765,6 +4765,9 @@ struct ContentView: View {
                 onChooseFolder: { chooseFolderSource { leftProviderId = $0 } },
                 onCompareCopies: reviewCoordinator.compareCopies,
                 onCompareFilePair: { compareFilePair = $0 },
+                // A duplicate copy's row menu hands a text copy to Edit through the same act as
+                // every other door — settle, re-root the left pane, switch, open.
+                onOpenInEditor: { handOffToEditor($0) },
                 onRequestDestination: { presentDestination($0) },
                 revealRequest: duplicateRevealRequest,
                 // Retire an ANSWERED request. The lens's own applied-id is @State and dies with

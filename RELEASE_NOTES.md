@@ -34,7 +34,6 @@ User-facing changes, newest first. For the full commit history see the
   Get Info and Reveal in Finder; an **Edit** button by the file's name in the preview (⇧⌘P) — beside
   it, or under it when the name is long; and **Open in Edit first among the Info inspector's
   actions** (⌘I). Until now the right-click menu was the only way, and it was easy to miss.
-  Duplicates' copies do not offer it yet.
 - **Compare's list of differences offers it too, once for each side.** Right-click a row whose
   file is text and **Open in Edit** sits directly under Compare…, named for the pane it opens from
   — both panes' copies when the file is on both, the one that exists when it is missing from a
@@ -44,10 +43,11 @@ User-facing changes, newest first. For the full commit history see the
   list is showing, so moving it would re-run the comparison and forget what you had set aside with
   Ignore in Comparison. The folder name above the document says where the file lives; click it when
   you do want the pane there.
-- **Each one is offered for a text file and never for a folder** — all four ask the question the
-  right-click menu always asked, so they agree about what a text file is. The preview is the one
-  that holds back further: for a file whose content is still in the cloud it goes on offering
-  Download, because previewing that file is exactly what would start the download.
+- **Each one is offered for a text file and never for a folder** — all six, those four and the rows
+  in Compare's differences and Duplicates' copies, ask the question the right-click menu always
+  asked, so they agree about what a text file is. The preview is the one that holds back further:
+  for a file whose content is still in the cloud it goes on offering Download, because previewing
+  that file is exactly what would start the download.
 - **⌘O was free, and it is the key most people try first.** It is the only one of File's row verbs
   with a key, and the ⌘/ shortcuts list shows it beside ⌘N.
 - **And a way back out, from any file in Edit's Text Files list.** Right-click a file there for
@@ -56,6 +56,11 @@ User-facing changes, newest first. For the full commit history see the
   Reveal in Browse was offered only on the open file's own name above the document. A file Edit will not
   open — too large, or still in the cloud — keeps the menu, since that is when you most want to see
   it somewhere else. Reveal in Browse leaves the open document as it was: ⌘4 comes back to it.
+- **A duplicate that is a text file opens in Edit from its right-click menu.** In Organize's
+  duplicates, right-click a copy's row and **Open in Edit** comes first, above Compare with keeper —
+  on every copy, the one being kept included, whose row had no right-click menu at all until now. A
+  copy that is not a text file keeps the menu it had. Those rows also answer a right-click anywhere
+  along them now, where some answered only over the file's name and picture.
 - **The Info inspector's row of actions now wraps instead of squeezing.** At the inspector's usual
   width those buttons had been shrinking until their labels were a letter and an ellipsis — "Reve…",
   "Cop…" — and adding a fourth would have left two with no letters at all. Each one now keeps its

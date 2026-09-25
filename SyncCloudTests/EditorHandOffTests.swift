@@ -224,6 +224,41 @@ import FileExplorer
                 "a second DifferencesView construction appeared — scan it too")
     }
 
+    /// **A duplicate copy's row menu reaches the real hand-off, through both hops.**
+    ///
+    /// `DuplicateRowMenuTests` drives the card with its own recorder, which is the exact shape the
+    /// review found twice: a door whose tests inject their own closure stays green when the app's
+    /// closure is `{ _ in }`. The card's parameter has no default, so the lens cannot forget to pass
+    /// SOMETHING — but it can pass nil, and the lens's own parameter does default to nil, so the app
+    /// can forget outright. Both hops are read here: the app hands the lens `handOffToEditor`, and the
+    /// lens hands the card what it was given, deciding nothing on the way.
+    @Test func theDuplicateRowMenuIsWiredToTheRealHandOff() throws {
+        let content = try Self.macApp("ContentView.swift")
+        let lensStart = try #require(content.range(of: "LensWorkspaceView("),
+                                     "the lens workspace is no longer built in ContentView")
+        let lensEnd = try #require(content[lensStart.upperBound...].range(of: "session: lensSession"),
+                                   "the lens construction no longer ends where this scan expects")
+        let lens = String(content[lensStart.upperBound..<lensEnd.lowerBound])
+        #expect(lens.contains("onCompareCopies: reviewCoordinator.compareCopies"),
+                "the slice is not the lens workspace's construction")
+        #expect(lens.contains("onOpenInEditor: { handOffToEditor($0) }"),
+                "the duplicate row's Open in Edit is not wired to handOffToEditor")
+
+        let view = try Self.source("LensWorkspaceView.swift")
+        #expect(view.contains("self.onOpenInEditor = onOpenInEditor"),
+                "the lens drops the hand-off it is given")
+        let cardStart = try #require(view.range(of: "private func duplicateCard("),
+                                     "the lens's card builder is gone or renamed")
+        let cardEnd = try #require(view[cardStart.upperBound...].range(of: ".id(group.id)"),
+                                   "the card builder no longer ends where this scan expects")
+        let card = String(view[cardStart.upperBound..<cardEnd.lowerBound])
+        #expect(card.contains("DuplicateGroupCard("), "the slice is not the card's construction")
+        #expect(card.contains("onOpenInEditor: onOpenInEditor,"),
+                "the lens builds its cards without forwarding the hand-off")
+        #expect(!card.contains("EditableText") && !card.contains("PairContentKind"),
+                "the lens has started deciding for itself what the editor opens")
+    }
+
     /// A file in `MacApp/`, read from disk.
     static func macApp(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)

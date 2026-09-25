@@ -322,7 +322,7 @@ import Sync
                 densityMetrics: ListDensity.comfortable.metrics,
                 timeZone: Self.pinnedZone,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-                onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
+                onChooseKeeper: { _ in }, onMerge: {}, onOpenInEditor: nil, headerLayout: .row)
                 .padding(12),
             size: CGSize(width: 640, height: 72),
             named: "collapsed-versions")
@@ -356,7 +356,7 @@ import Sync
                 densityMetrics: ListDensity.comfortable.metrics,
                 timeZone: Self.pinnedZone,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-                onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
+                onChooseKeeper: { _ in }, onMerge: {}, onOpenInEditor: nil, headerLayout: .row)
                 .padding(12),
             size: CGSize(width: 640, height: 470),
             named: "expanded-same-text")
@@ -382,7 +382,7 @@ import Sync
                 densityMetrics: ListDensity.comfortable.metrics,
                 timeZone: Self.pinnedZone,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-                onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
+                onChooseKeeper: { _ in }, onMerge: {}, onOpenInEditor: nil, headerLayout: .row)
                 .padding(12),
             size: CGSize(width: 640, height: 330),
             named: "expanded-identical-folders")
@@ -407,7 +407,7 @@ import Sync
                 densityMetrics: ListDensity.compact.metrics,
                 timeZone: Self.pinnedZone,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-                onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
+                onChooseKeeper: { _ in }, onMerge: {}, onOpenInEditor: nil, headerLayout: .row)
                 .padding(12),
             size: CGSize(width: 640, height: 330),
             named: "expanded-identical-folders-compact")

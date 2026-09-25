@@ -5663,3 +5663,43 @@ done
 existing items do. Those lines also lack **Compare…** at the head of this menu (0 on all three for
 `Label("Compare…"`), so "directly under Compare…" has no anchor there anyway — on those lines the
 group would lead the menu, which is what a one-sided row does on `main`.
+
+---
+
+## Open in Edit on a duplicate copy's row menu (TE32)
+
+`main` only, and **not owed anywhere** — the surface and the verb are both missing off `main`, in
+different amounts per line. `v4.x` has `DuplicateGroupCard` but no row context menu on it (no
+"Compare with keeper", no `isRowPickable` whole-row picker) and none of the editor: no
+`handOffToEditor`, no `EditableText`. `v3.x` and `v2.x` have no `DuplicateGroupCard.swift` at all.
+
+```sh
+# main is the positive control; every other count is 0 except v4.x's card file.
+F=Modules/FileExplorer/Sources/FileExplorer/DuplicateGroupCard.swift
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s card=%s compareWithKeeper=%s rowPickable=%s contextMenu=%s handOff=%s editableText=%s\n' $l \
+    "$(git ls-tree -r --name-only origin/$l -- $F | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:$F 2>/dev/null | grep -c 'Compare with keeper')" \
+    "$(git show origin/$l:$F 2>/dev/null | grep -c 'func isRowPickable')" \
+    "$(git show origin/$l:$F 2>/dev/null | grep -c '\.contextMenu')" \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/ContentView+Editor.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PairContentKind.swift 2>/dev/null | grep -c 'enum EditableText')"
+done
+# measured 2026-09-25, before this landed:
+# main   card=1 compareWithKeeper=1 rowPickable=1 contextMenu=2 handOff=1 editableText=1
+# v4.x   card=1 compareWithKeeper=0 rowPickable=0 contextMenu=0 handOff=0 editableText=0
+# v3.x   card=0 compareWithKeeper=0 rowPickable=0 contextMenu=0 handOff=0 editableText=0
+# v2.x   card=0 compareWithKeeper=0 rowPickable=0 contextMenu=0 handOff=0 editableText=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **"Open in Edit" in the copy row's menu**, above "Compare with keeper", on every text row including the keeper's; `DuplicateGroupCard.onOpenInEditor` (no default) ← `LensWorkspaceView.onOpenInEditor` ← `handOffToEditor` | No row menu and no editor to hand to | No card | RECORDED — not owed |
+| **The row menu is attached only when it has an item** (`RowMenu`, gated on `hasRowMenu`) — replaces a `.contextMenu` whose builder was empty on the keeper's row | No row menu to gate | No card | RECORDED — not owed |
+| **The non-pickable row's hit shape is the whole row** (`.contentShape(Rectangle())`), so its menu answers a right-click anywhere along it. Measured: without it the keeper's menu answered only over its ink, and a sweep down the row's middle found nothing. On `main` before this, the only rows it touched with an item were the non-keeper rows of a group that allows no keeper choice | No row menu, so no right-click to miss | No card | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** Nothing here is stored or observable outside the
+window — no defaults key, no file format, no change to what `handOffToEditor` does. The measurement
+that makes the drawn test possible is worth keeping for the next audit: `NSHostingView.menu(for:)`
+with a synthesized right-click answers the real `NSMenu` SwiftUI builds for the point, by item
+title, and answers nil for a `.contextMenu` whose builder is empty (macOS 27).

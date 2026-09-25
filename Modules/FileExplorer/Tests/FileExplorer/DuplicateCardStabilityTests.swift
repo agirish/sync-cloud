@@ -104,7 +104,7 @@ import Testing
                                    scanRoot: "/", densityMetrics: ListDensity.comfortable.metrics,
                                    onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
                                    onChooseKeeper: { _ in }, onMerge: {},
-                                   headerLayout: .row),
+                                   onOpenInEditor: nil, headerLayout: .row),
                 width: 620, height: 64)
         }
         let before = try #require(header(first))
@@ -148,7 +148,7 @@ import Testing
                 group: g, isExpanded: true, providerName: "iCloud", scanRoot: "/Docs",
                 densityMetrics: ListDensity.comfortable.metrics,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-                onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .stacked)
+                onChooseKeeper: { _ in }, onMerge: {}, onOpenInEditor: nil, headerLayout: .stacked)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { reported = $0 }
             let host = NSHostingView(rootView: card.frame(width: 460))
             host.frame = NSRect(x: 0, y: 0, width: 460, height: 1200)
@@ -190,7 +190,7 @@ import Testing
                 group: group, isExpanded: false, providerName: "iCloud", scanRoot: "/",
                 densityMetrics: ListDensity.comfortable.metrics,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-                onChooseKeeper: { _ in }, onMerge: {}, headerLayout: layout)
+                onChooseKeeper: { _ in }, onMerge: {}, onOpenInEditor: nil, headerLayout: layout)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { reported = $0 }
             let host = NSHostingView(rootView: card.frame(width: offered))
             host.layoutSubtreeIfNeeded()

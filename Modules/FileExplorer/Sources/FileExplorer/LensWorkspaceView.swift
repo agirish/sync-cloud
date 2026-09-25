@@ -516,6 +516,10 @@ public struct LensWorkspaceView: View {
     private let onCompareCopies: (DuplicateCopy, DuplicateCopy) -> Void
     /// Opens two copies of a duplicate FILE group in the in-window Compare Copies surface.
     private let onCompareFilePair: (DuplicateComparePair) -> Void
+    /// "Open in Edit" from a duplicate copy's row menu: the app's `handOffToEditor`. nil (tests,
+    /// previews) withholds the item, which is `DuplicateGroupCard`'s own rule — this view only
+    /// forwards it, and does not decide what the editor opens.
+    private let onOpenInEditor: ((String) -> Void)?
     /// A "Find duplicates of this" handoff from a pane row: the file whose group to reveal. nil is
     /// the ordinary case — nobody has asked. See `DuplicateReveal`, which owns every decision this
     /// view makes about it.
@@ -569,6 +573,7 @@ public struct LensWorkspaceView: View {
         onChooseFolder: (() -> Void)? = nil,
         onCompareCopies: @escaping (DuplicateCopy, DuplicateCopy) -> Void = { _, _ in },
         onCompareFilePair: @escaping (DuplicateComparePair) -> Void = { _ in },
+        onOpenInEditor: ((String) -> Void)? = nil,
         onRequestDestination: @escaping (PendingDestination) -> Void = { _ in },
         revealRequest: DuplicateRevealRequest? = nil,
         onRevealHandled: ((UUID) -> Void)? = nil,
@@ -626,6 +631,7 @@ public struct LensWorkspaceView: View {
         self.onChooseFolder = onChooseFolder
         self.onCompareCopies = onCompareCopies
         self.onCompareFilePair = onCompareFilePair
+        self.onOpenInEditor = onOpenInEditor
         self.onRequestDestination = onRequestDestination
         self.revealRequest = revealRequest
         self.onRevealHandled = onRevealHandled
@@ -4851,6 +4857,7 @@ public struct LensWorkspaceView: View {
             onMerge: { merge(group) },
             onCompareCopies: { keep, other in compareCopies(keep: keep, other: other, in: group) },
             isMerging: syncManager.mergingGroupIDs.contains(group.id),
+            onOpenInEditor: onOpenInEditor,
             headerLayout: .forCard(width: cardWidth, isExpanded: expanded.contains(group.id))
         )
         .id(group.id)

@@ -44,7 +44,7 @@ import Testing
             group: group, isExpanded: true, providerName: "iCloud", scanRoot: "/d",
             densityMetrics: ListDensity.comfortable.metrics,
             onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-            onChooseKeeper: onChoose, onMerge: {}, headerLayout: .row), copies)
+            onChooseKeeper: onChoose, onMerge: {}, onOpenInEditor: nil, headerLayout: .row), copies)
     }
 
     // MARK: The row acts

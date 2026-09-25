@@ -39,6 +39,16 @@ struct DuplicateGroupCard: View {
     /// a second click mid-merge would re-plan against the half-merged keeper and mint " 2"
     /// copies. `var` with a default so existing call sites/tests are unaffected.
     var isMerging: Bool = false
+    /// Hands one copy's path to the Edit workspace — the app's `handOffToEditor`, the same act as
+    /// the pane row's "Open in Edit". nil withholds the item: a host with no editor to hand to
+    /// (a preview, a test) offers nothing rather than a menu item that does nothing.
+    ///
+    /// **No default, for the reason `headerLayout` has none.** Defaulted to nil, deleting the
+    /// argument in `LensWorkspaceView` would compile, drop the item from every duplicate row, and
+    /// leave every suite green — which is exactly how two of the four earlier doors shipped wired
+    /// to nothing. Declared here, just above `headerLayout`, so the memberwise argument sits in
+    /// the one place every call site already has to write something.
+    let onOpenInEditor: ((String) -> Void)?
     /// How the header lays itself out — see ``DuplicateCardHeaderLayout``.
     ///
     /// **No default, for the reason ``DuplicateThumbnailView/onChoose`` has none.** Defaulted to
@@ -394,26 +404,82 @@ struct DuplicateGroupCard: View {
             // truncates and omits the file name.
             .help("Keep this copy instead — \(copy.path)")
             .accessibilityHint("Keeps this copy instead")
-            .contextMenu { compareWithKeeperItem(copy) }
+            .modifier(RowMenu(isAttached: hasRowMenu(copy)) { rowMenu(copy) })
         } else {
             // No action to describe, so the tooltip is the path alone — still on the row, so a
             // reader gets the same answer wherever they rest the pointer.
-            copyRowContent(copy).help(copy.path)
-                .contextMenu { compareWithKeeperItem(copy) }
+            //
+            // **The shape is the whole row, as the pickable branch's is.** Without it only the
+            // row's ink took a right-click: the keeper's Open in Edit answered on the name and the
+            // thumbnail and on nothing in the wide gap between the name and the fate chip — so the
+            // same gesture found a menu on one row and nothing on the row above it.
+            copyRowContent(copy).contentShape(Rectangle()).help(copy.path)
+                .modifier(RowMenu(isAttached: hasRowMenu(copy)) { rowMenu(copy) })
         }
     }
 
-    /// The row's secondary way in to Compare — the whole row is already a keeper-pick `Button`, so
-    /// a competing click gesture on it would collide (which is why the ⌘-double-click idea was
-    /// dropped). A context menu adds no gesture to the row at all.
+    /// The row's context menu — **the only place on a copy row that adds no gesture.** The whole
+    /// row is already a keeper-pick `Button`, so a competing click gesture on it would collide
+    /// (which is why the ⌘-double-click idea was dropped); a context menu adds nothing to the row's
+    /// own click at all. That is why both of its items live here and nowhere else on the row.
     ///
-    /// Absent on the keeper's own row: comparing the keeper with the keeper is not a thing, and a
-    /// menu item that no-ops is worse than no menu.
+    /// **Open in Edit first**, as it leads the pane row's single-file branch: it is the one item
+    /// that means the same thing on every row, keeper included, so it is the one a hand finds
+    /// without reading. Compare with keeper follows, and only on rows it means something on.
+    ///
+    /// Internal, not private, so a test can host it and read what is drawn and in what order — the
+    /// `keeperAction(for:)` precedent.
     @ViewBuilder
-    private func compareWithKeeperItem(_ copy: DuplicateCopy) -> some View {
-        if !copy.isRecommendedKeeper, copy.id != group.keeper.id {
+    func rowMenu(_ copy: DuplicateCopy) -> some View {
+        if offersOpenInEditor(copy) {
+            Button(action: openInEditorAction(for: copy)) {
+                // The exact label and glyph of the four doors already shipped — one verb, one name.
+                Label("Open in Edit", systemImage: "square.and.pencil")
+            }
+        }
+        if offersCompareWithKeeper(copy) {
             Button("Compare with keeper") { onCompareCopies(group.keeper, copy) }
         }
+    }
+
+    /// Whether this copy's row offers "Open in Edit".
+    ///
+    /// **On every row, the keeper's included** — the copy you are keeping is the one you are most
+    /// likely to want to open. Gated on the same public predicate the Info inspector and File ▸
+    /// Open in Edit ask (`EditableText.isText`), so this row cannot come to call something text
+    /// that the pane row's menu does not. A folder group never offers it, whatever its copies are
+    /// named: a folder called `notes.md` is not a document. Cloud-only copies ARE offered, as the
+    /// pane row menu offers them — the editor's own load says what it can and cannot read.
+    func offersOpenInEditor(_ copy: DuplicateCopy) -> Bool {
+        onOpenInEditor != nil && !group.isDirectory && !copy.isDirectory
+            && EditableText.isText(path: copy.path)
+    }
+
+    /// Whether this copy's row offers "Compare with keeper". Absent on the keeper's own row:
+    /// comparing the keeper with the keeper is not a thing, and a menu item that no-ops is worse
+    /// than no menu.
+    func offersCompareWithKeeper(_ copy: DuplicateCopy) -> Bool {
+        !copy.isRecommendedKeeper && copy.id != group.keeper.id
+    }
+
+    /// Whether the row gets a context menu AT ALL.
+    ///
+    /// **Not attached when it would be empty.** The keeper's row always carried a context menu
+    /// whose builder produced nothing there, which leaves "does this row have a menu" to whatever
+    /// SwiftUI makes of an empty builder. Measured on macOS 27 it makes nothing — the hosting
+    /// view's `menu(for:)` answers nil — but that is SwiftUI's behaviour today, not this card's
+    /// decision, and an empty `NSMenu` or a swallowed right-click is what an empty menu costs
+    /// wherever it is not. Now that the keeper row can have an item, the case that has none (a
+    /// non-text keeper) is decided here instead.
+    func hasRowMenu(_ copy: DuplicateCopy) -> Bool {
+        offersOpenInEditor(copy) || offersCompareWithKeeper(copy)
+    }
+
+    /// The "Open in Edit" item's action — named, so what it hands over (the copy's PATH, to the
+    /// card's hand-off) is reachable from a test rather than written inline in a menu nothing can
+    /// click.
+    func openInEditorAction(for copy: DuplicateCopy) -> () -> Void {
+        { onOpenInEditor?(copy.path) }
     }
 
     private func copyRowContent(_ copy: DuplicateCopy) -> some View {
@@ -1154,4 +1220,22 @@ private struct PointingHandCursor: ViewModifier {
 extension View {
     /// See ``PointingHandCursor``.
     func pointingHandCursor() -> some View { modifier(PointingHandCursor()) }
+}
+
+/// A context menu that is attached only when it has something in it.
+///
+/// `.contextMenu { }` has no "absent" form: the modifier is either on the view or it is not, and a
+/// builder that produces nothing still leaves it on. So the choice is made here, once, outside the
+/// builder — see ``DuplicateGroupCard/hasRowMenu(_:)`` for why an empty one is not harmless.
+struct RowMenu<Items: View>: ViewModifier {
+    let isAttached: Bool
+    @ViewBuilder let items: () -> Items
+
+    func body(content: Content) -> some View {
+        if isAttached {
+            content.contextMenu { items() }
+        } else {
+            content
+        }
+    }
 }

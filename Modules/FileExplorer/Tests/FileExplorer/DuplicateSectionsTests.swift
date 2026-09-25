@@ -93,7 +93,7 @@ import Testing
                                providerName: nil, scanRoot: nil,
                                densityMetrics: ListDensity.comfortable.metrics,
                                onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-                               onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
+                               onChooseKeeper: { _ in }, onMerge: {}, onOpenInEditor: nil, headerLayout: .row)
         }
         // Identical allows a choice: the redundant row is pickable, the kept one is not.
         let identical = card(.identical)
@@ -143,7 +143,7 @@ import Testing
             return DuplicateGroupCard(group: g, isExpanded: true, providerName: nil, scanRoot: nil,
                                       densityMetrics: ListDensity.comfortable.metrics,
                                       onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-                                      onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
+                                      onChooseKeeper: { _ in }, onMerge: {}, onOpenInEditor: nil, headerLayout: .row)
         }
         // Keeper first, then the folded copies' unique counts.
         #expect(card([0, 0]).mergeCopiesNothing, "the folded copy is wholly inside the keeper")

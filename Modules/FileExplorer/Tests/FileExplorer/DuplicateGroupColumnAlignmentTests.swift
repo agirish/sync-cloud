@@ -38,7 +38,7 @@ import Design
             group: group, isExpanded: false, providerName: "iCloud Drive", scanRoot: "/d",
             densityMetrics: ListDensity.comfortable.metrics,
             onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-            onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
+            onChooseKeeper: { _ in }, onMerge: {}, onOpenInEditor: nil, headerLayout: .row)
             .padding(12)
     }
 
