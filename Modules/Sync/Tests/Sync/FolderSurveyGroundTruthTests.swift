@@ -181,7 +181,7 @@ struct FolderSurveyGroundTruthTests {
         #expect(r.expected(axis: "fiscalYear") > 100)
         #expect(r.expected(axis: "jurisdiction") > 500)
         #expect(r.foldersWithAnchors > 2_000)
-        #expect(r.refusals >= 39, "the profile records 39 inbox folders that refuse files")
+        #expect(r.refusals >= 39, "the profile records at least 39 inbox folders that refuse files")
     }
 
     // MARK: - The walk
@@ -201,12 +201,21 @@ struct FolderSurveyGroundTruthTests {
 
     // MARK: - acceptsNewFiles
 
-    /// Agreement is measured over the *refusals*, not over the whole field: 2,968 of 3,013 entries
-    /// record nothing there, so a builder that always answered nil would score 98.5% on a naive
-    /// count. What matters is that every inbox is refused and nothing else is.
+    /// Agreement is measured over the *refusals*, not over the whole field: 3,035 of the active
+    /// profile's 3,081 entries record nothing there (measured 2026-09-25; the hand-built profile was
+    /// 2,968 of 3,013), so a builder that always answered nil would score 98.5% on a naive count.
+    /// What matters is that every inbox is refused and nothing else is.
+    ///
+    /// **Over the shared folders only, like every other agreement here.** An inbox the profile
+    /// records but the tree no longer has cannot be caught, because the builder never sees it. When
+    /// the denominator was the whole profile, one such folder read as "an inbox the builder let
+    /// through". That happened on 2026-09-25: `TODO/TODO` was merged into `TODO` by hand, acting
+    /// on the survey's own Mirrored inbox finding, and the check reported 39 of 40 with every
+    /// surviving inbox refused.
     @Test func everyInboxIsRefusedAndNothingElseIs() throws {
         let r = try #require(FolderSurveyGroundTruth.report)
-        #expect(r.refusalsCaught == r.refusals, "an inbox the builder let through")
+        #expect(r.sharedRefusals > 0, "no inbox in both the profile and the tree — the check is vacuous")
+        #expect(r.refusalsCaught == r.sharedRefusals, "an inbox the builder let through")
         #expect(r.falseRefusals == 0, "a folder refused that the profile allows")
         // The six it does not claim are the `outbound-pack` refusals — judgement, not shape.
         #expect(r.rate(.acceptsNewFiles) >= 0.99)
@@ -352,7 +361,12 @@ enum FolderSurveyGroundTruth {
         var distinctRoles = 0
         var expectedAxisValues: [String: Int] = [:]
         var foldersWithAnchors = 0
+        /// Inbox refusals the profile records, whether or not the tree still has the folder — the
+        /// size of the profile, for the floor in ``theComparisonCoversTheWholeRealProfile``.
         var refusals = 0
+        /// The subset of ``refusals`` whose folder the walk also found: the only ones the builder
+        /// could have caught, so the denominator for ``refusalsCaught``.
+        var sharedRefusals = 0
         var refusalsCaught = 0
         var falseRefusals = 0
 
@@ -460,8 +474,9 @@ enum FolderSurveyGroundTruth {
 
             guard let got = built.folders[path] else { continue }
             r.shared += 1
-            if refuses && FolderProfile.isInboxPath(path), got.acceptsNewFiles == false {
-                r.refusalsCaught += 1
+            if refuses && FolderProfile.isInboxPath(path) {
+                r.sharedRefusals += 1
+                if got.acceptsNewFiles == false { r.refusalsCaught += 1 }
             }
             if got.acceptsNewFiles == false && want.acceptsNewFiles != false && want.role != .inbox {
                 r.falseRefusals += 1
