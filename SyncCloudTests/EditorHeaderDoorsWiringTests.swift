@@ -3,7 +3,8 @@ import Foundation
 import FileExplorer
 @testable import SyncCloud
 
-/// The app side of the header's ＋ (TE45): what `ContentView` actually hands the button.
+/// The app side of the header's ＋ (TE45) and × (TE46), and of File ▸ Close Document: what
+/// `ContentView` actually hands the buttons and the menu item.
 ///
 /// **The lesson of the TE27–TE30 review, applied.** `EditorHeaderDoorsTests` builds the view with
 /// closures of its own, so nothing there can see what the APP passes — replacing the real closure
@@ -42,6 +43,77 @@ import FileExplorer
                 "editorLayout no longer mounts the workspace through the one builder in both arms")
         #expect(source.components(separatedBy: "EditorWorkspaceView(").count - 1 == 1,
                 "a second EditorWorkspaceView construction site appeared in ContentView+Editor")
+    }
+
+    // MARK: The × and File ▸ Close Document (TE46)
+
+    /// **The × and the menu item reach the same close**, and the menu's is gated on the close's
+    /// own rule. Mutations: `onCloseDocument: {}`, or `shortcutCloseDocument` returning `{}` or
+    /// asking `EditorVerbs.isOffered` instead, each fail one line.
+    @Test func bothDoorsReachTheOneClose() throws {
+        let source = try Self.editor()
+        let workspace = try Self.memberBody("func editorWorkspace(showsRail: Bool)", in: source)
+        #expect(workspace.contains("onCloseDocument: { closeEditorDocument() }"),
+                "the header's × is not wired to closeEditorDocument")
+        let menu = try Self.memberBody("var shortcutCloseDocument: (() -> Void)?", in: source)
+        #expect(menu.contains("EditorDocumentClose.isOffered("), "Close Document is offered without the close's rule")
+        #expect(menu.contains("return { closeEditorDocument() }"), "File ▸ Close Document does not run closeEditorDocument")
+        let publisher = try Self.source("ShortcutCommands.swift")
+        #expect(publisher.contains("closeDocument: shortcutCloseDocument,"),
+                "the chord publisher is not handed shortcutCloseDocument")
+    }
+
+    /// **The close is handed the window's REAL pieces.** `EditorDocumentCloseTests` runs the act
+    /// with pieces of its own, which proves nothing about these: the settle must be
+    /// `settleEditorDocument()` (the one place the unsaved-changes question is asked), the selection
+    /// the LEFT pane's (the pane TE41 opens from), and the log the app's. Mutations: `settle: {
+    /// true }`, `selectedRightPaths`, or `log: { _ in }` each fail.
+    @Test func theCloseIsHandedTheWindowsRealSettleSelectionAndLog() throws {
+        let body = try Self.memberBody("func closeEditorDocument()", in: Self.editor())
+        #expect(body.contains("EditorDocumentClose.run("), "closeEditorDocument no longer runs the shared close")
+        #expect(body.contains("undoStore: editorUndoStore"), "the close puts the undo stack away in the wrong store")
+        #expect(body.contains("settle: { settleEditorDocument() }"), "the close does not settle the buffer first")
+        #expect(body.contains("paneSelection: { syncManager.selectedLeftPaths }"),
+                "the close reads a selection other than the left pane's")
+        #expect(body.contains("setPaneSelection: { syncManager.selectedLeftPaths = $0 }"),
+                "the close writes a selection other than the left pane's — clicking the row will not reopen it")
+        #expect(body.contains("log: { Logger.shared.info($0) }"), "the close no longer logs")
+    }
+
+    /// **A close moves nothing but the document.** Not the workspace, not the pane's folder, not
+    /// the pane's collapse, not "Just the text". Named rather than inferred, so the list is the
+    /// claim. Mutation: add `selectedWorkspace = .browse` to the body and it fails.
+    @Test func theCloseMovesNothingButTheDocument() throws {
+        let body = try Self.memberBody("func closeEditorDocument()", in: Self.editor())
+        for forbidden in ["selectedWorkspace", "focusPaneOnFolder", "editorRailHidden",
+                          "togglePanesForCurrentTab", "toggleJustTheText", "focusOn("] {
+            #expect(!body.contains(forbidden), "closeEditorDocument touches \(forbidden)")
+        }
+        let act = try Self.source("EditorDocumentClose.swift")
+        for forbidden in ["selectedWorkspace", "focusOn(", "editorRailHidden"] {
+            #expect(!act.contains(forbidden), "EditorDocumentClose touches \(forbidden)")
+        }
+    }
+
+    /// **The menu item has no key, and greys on `nil`.** Sliced to the command's own type body, so
+    /// a neighbour's `.keyboardShortcut` cannot satisfy or trip it. The drawn half — where it sits
+    /// and that no key reached AppKit — is `theFileMenuIsInTheRoadmapsOrder`.
+    @Test func closeDocumentHasNoKeyAndGreysWithNothingToClose() throws {
+        let source = try Self.source("ShortcutCommands.swift")
+        let start = try #require(source.range(of: "struct CloseDocumentCommand: View {"))
+        let rest = source[start.upperBound...]
+        let end = try #require(rest.range(of: "\n}"))
+        let body = String(rest[..<end.lowerBound])
+        #expect(body.contains("Button(\"Close Document\") { close?() }"), "the item's title or act changed")
+        #expect(body.contains(".disabled(close == nil)"), "Close Document no longer greys with nothing to close")
+        #expect(!body.contains("keyboardShortcut"), "Close Document has acquired a key — ⌘W is Close Tab's, ⌥ is forbidden")
+        let app = try Self.source("SyncCloudApp.swift")
+        let group = try #require(app.range(of: "CommandGroup(replacing: .saveItem) {"))
+        let groupEnd = try #require(app.range(of: "}", range: group.upperBound..<app.endIndex))
+        let groupBody = app[group.upperBound..<groupEnd.lowerBound]
+        let close = try #require(groupBody.range(of: "CloseDocumentCommand()"), "Close Document is not in the .saveItem group")
+        let save = try #require(groupBody.range(of: "SaveDocumentCommand()"))
+        #expect(close.lowerBound < save.lowerBound, "Close Document is declared after Save")
     }
 
     /// The positive control: the scans are reading the real file.

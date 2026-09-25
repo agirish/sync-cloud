@@ -697,6 +697,8 @@ struct SyncCloudApp: App {
             // this out puts "Close" and "Close All" back, with two items claiming ⌘W. Save is the
             // one item that belongs here on AppKit's own terms, and it arrived with the Editor —
             // the group is a replacement rather than an emptying now, but for the same reason.
+            // Close Document (TE46) joined it above Save, where AppKit's Close sat: it is Close's
+            // job for the editor's document, without Close's key.
             //
             // **Close All (⌥⌘W) goes with it, and that is the price.** This app is one window plus
             // three utility windows, so the loss is small; putting it back by hand is not an option
@@ -709,6 +711,9 @@ struct SyncCloudApp: App {
             // closing brace rather than against anything new. `Group` changes nothing in the bar.
             Group {
                 CommandGroup(replacing: .saveItem) {
+                    // Where AppKit's Close lived, above Save as it was — with no key: ⌘W is Close
+                    // Tab's, and ⌥⌘W is an ⌥ chord (TE46).
+                    CloseDocumentCommand()      // no chord — see the type
                     SaveDocumentCommand()       // ⌘S
                 }
                 // File ▸ the document on paper (roadmap RD9). **`.printItem` rather than more rows

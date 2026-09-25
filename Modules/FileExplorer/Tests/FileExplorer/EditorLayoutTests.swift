@@ -609,7 +609,8 @@ import Design
             location: nil,
             onLocationDoor: { _ in },
             onToggleJustTheText: {},
-            onNewTextFile: {})
+            onNewTextFile: {},
+            onCloseDocument: {})
     }
 
     /// **A `.md` and a `.txt` header must be the same height**, or the document column below them
@@ -765,7 +766,8 @@ import Design
             location: nil,
             onLocationDoor: { _ in },
             onToggleJustTheText: {},
-            onNewTextFile: {})
+            onNewTextFile: {},
+            onCloseDocument: {})
     }
 
     /// The workspace mounted at a fixed width, so the columns divide a known number.

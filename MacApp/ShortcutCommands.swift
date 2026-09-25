@@ -404,6 +404,10 @@ private struct NewTextFileKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct CloseDocumentKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 private struct DocumentPrintKey: FocusedValueKey {
     typealias Value = DocumentPrintActions
 }
@@ -682,6 +686,13 @@ extension FocusedValues {
         set { self[NewTextFileKey.self] = newValue }
     }
 
+    /// File ▸ Close Document — puts the editor's open document away (TE46). `nil` outside Edit or
+    /// with nothing open, which is what greys the item.
+    var closeDocument: (() -> Void)? {
+        get { self[CloseDocumentKey.self] }
+        set { self[CloseDocumentKey.self] = newValue }
+    }
+
     /// File ▸ Print… and File ▸ Export as PDF… — the open document as pages (roadmap RD9). `nil`
     /// outside Edit, or with nothing openable open, which is what greys both items.
     var documentPrint: DocumentPrintActions? {
@@ -850,6 +861,9 @@ struct ShortcutValuePublisher: ViewModifier {
     let newFolder: (() -> Void)?
     let saveDocument: (() -> Void)?
     let newTextFile: (() -> Void)?
+    /// File ▸ Close Document. Suspended with the rest: closing the document under a destination
+    /// pick can raise the unsaved-changes question over a window already waiting on an answer.
+    let closeDocument: (() -> Void)?
     /// ⌘P and Export as PDF…. Suspended with the rest: the print panel is a sheet, and putting one
     /// up over a destination picker that is itself waiting on an answer stacks two modal questions
     /// on one window.
@@ -941,6 +955,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveNewFolder: (() -> Void)? { suspended ? nil : newFolder }
     var effectiveSaveDocument: (() -> Void)? { suspended ? nil : saveDocument }
     var effectiveNewTextFile: (() -> Void)? { suspended ? nil : newTextFile }
+    var effectiveCloseDocument: (() -> Void)? { suspended ? nil : closeDocument }
     var effectiveDocumentPrint: DocumentPrintActions? { suspended ? nil : documentPrint }
     var effectiveHiddenFiles: Binding<Bool>? { suspended ? nil : hiddenFiles }
     var effectivePreviewColumn: Binding<Bool>? { suspended ? nil : previewColumn }
@@ -987,6 +1002,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.newFolderInFocusedPane, effectiveNewFolder) // ⇧⌘N
             .focusedSceneValue(\.saveDocument, effectiveSaveDocument)       // ⌘S
             .focusedSceneValue(\.newTextFile, effectiveNewTextFile)         // ⌘N
+            .focusedSceneValue(\.closeDocument, effectiveCloseDocument)     // File ▸ Close Document
             .focusedSceneValue(\.documentPrint, effectiveDocumentPrint)    // ⌘P, Export as PDF…
             .focusedSceneValue(\.showHiddenFiles, effectiveHiddenFiles)      // ⇧⌘.
             .focusedSceneValue(\.previewColumn, effectivePreviewColumn)      // ⇧⌘P
@@ -1027,6 +1043,7 @@ extension ContentView {
             newFolder: shortcutNewFolder,
             saveDocument: shortcutSaveDocument,
             newTextFile: shortcutNewTextFile,
+            closeDocument: shortcutCloseDocument,
             documentPrint: shortcutDocumentPrint,
             hiddenFiles: $syncManager.showHiddenFiles,
             previewColumn: shortcutPreviewColumn,
@@ -1791,6 +1808,23 @@ struct SaveDocumentCommand: View {
         Button("Save") { save?() }
             .keyboardShortcut(AppChord.saveDocument.key, modifiers: AppChord.saveDocument.modifiers)
             .disabled(save == nil)
+    }
+}
+
+/// File ▸ Close Document — puts the editor's open document away (TE46), the header's × as a
+/// menu item.
+///
+/// **No key, and that is two decisions.** ⌘W is Close Tab, which took AppKit's Close with it (see
+/// the `.saveItem` note in `SyncCloudApp`); and an ⌥ chord — ⌥⌘W, the obvious neighbour — is the
+/// one kind that fires through the ⌥-hold reveal, which nothing in this app may register. **No
+/// ellipsis either**: like AppKit's own Close, it may ask about unsaved changes, but it opens no
+/// dialog of its own. Greyed outside Edit and with nothing open, the way Download greys.
+struct CloseDocumentCommand: View {
+    @FocusedValue(\.closeDocument) private var close
+
+    var body: some View {
+        Button("Close Document") { close?() }
+            .disabled(close == nil)
     }
 }
 

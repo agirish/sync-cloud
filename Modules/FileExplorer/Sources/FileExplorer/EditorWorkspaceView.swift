@@ -107,6 +107,10 @@ public struct EditorWorkspaceView: View {
     /// the exact "second ⌘N did nothing" the counter was added for. `nil` when there is no folder
     /// to create in — the same `nil` that greys File ▸ New Text File….
     let onNewTextFile: (() -> Void)?
+    /// The header's × (TE46): settle the buffer, then unload the document to the empty state. The
+    /// host owns both halves — the unsaved-changes question is asked in `ContentView+Editor` and
+    /// nowhere else — so this view only reports the press.
+    let onCloseDocument: () -> Void
     /// Passed straight through to the rail's empty caption — see
     /// ``EditorFileRailView/otherFileCount``. Defaulted for the same reason it is defaulted there.
     var otherFileCount: Int?
@@ -253,9 +257,10 @@ public struct EditorWorkspaceView: View {
                 onLocationDoor: @escaping (EditorDocumentLocation.Door) -> Void,
                 // No default, so every construction site is read: the two in tests pass `{}`.
                 onToggleJustTheText: @escaping () -> Void,
-                // No default either, for the same reason: a construction site that forgot it would
-                // draw a ＋ that does nothing.
+                // No defaults either, for the same reason: a construction site that forgot one
+                // would draw a ＋ or a × that does nothing.
                 onNewTextFile: (() -> Void)?,
+                onCloseDocument: @escaping () -> Void,
                 onAutosaveResumed: @escaping () -> Void = {}) {
         self._railFilter = railFilter
         self._railFilterIsExpanded = railFilterIsExpanded
@@ -274,6 +279,7 @@ public struct EditorWorkspaceView: View {
         self.railIsHidden = railIsHidden
         self.onToggleJustTheText = onToggleJustTheText
         self.onNewTextFile = onNewTextFile
+        self.onCloseDocument = onCloseDocument
         self.accent = accent
         self.onAccent = onAccent
         self._mode = mode
@@ -308,6 +314,12 @@ public struct EditorWorkspaceView: View {
     /// carries the folder. A static for the reason ``justTheTextTitle(railIsHidden:)`` is one.
     static func newTextFileTitle(folderName: String) -> String {
         folderName.isEmpty ? "Pick a folder in the sidebar first" : "New text file in \(folderName)"
+    }
+
+    /// What the header's × is called to VoiceOver. Names the file, because the button sits at the
+    /// far end of the row from the name it acts on.
+    static func closeTitle(name: String) -> String {
+        name.isEmpty ? "Close this document" : "Close \(name)"
     }
 
     /// The mode actually being drawn — `.edit` on a file with nothing to preview, whatever the
@@ -474,87 +486,137 @@ public struct EditorWorkspaceView: View {
     @ViewBuilder
     var headerContent: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                // **Three states, because two of them are the point.**
-                //
-                // This briefly drew only the stopped state, on the reasoning that an unsaved buffer
-                // is now ordinary and a dot tracking it would be a light that is always on. That
-                // was wrong about what the light is FOR: it is on while you type and for the couple
-                // of seconds after, and off the rest of the time — so watching it go out is the
-                // only evidence on screen that autosave is working at all. Removing it left a
-                // header that said "saved" whether or not anything had been written, which is
-                // exactly the reassurance nobody should take on trust.
-                //
-                // Accent while the write is pending, amber when writing has STOPPED, nothing when
-                // the file matches the buffer. The two coloured states are never both true: a stop
-                // is only interesting because the document is dirty under it.
-                Circle()
-                    .fill(dotColour ?? .clear)
-                    .frame(width: 6, height: 6)
-                    // **A column, not just a dot** — and the same width is reserved on the row
-                    // below. The title used to start one dot-and-a-gap further right than the line
-                    // under it, so the header's two rows had two different left edges.
-                    .frame(width: Self.dotColumnWidth, alignment: .leading)
-                    .opacity(dotColour == nil ? 0 : 1)
-                    .accessibilityHidden(dotColour == nil)
-                    .accessibilityLabel(status.isWarning ? "Not saving" : "Not saved yet")
-                Text(document.name)
-                    .scaledFont(.system(size: 13, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    // The way back. The hand-off into this workspace comes from a file row, so the
-                    // filename is where a user looks to ask "where is this?" — and it is one item,
-                    // on the one element that names the file.
-                    .contextMenu {
-                        if let path = document.path {
-                            Button(action: { onRevealInBrowse(path) }) {
-                                Label("Reveal in Browse", systemImage: "folder")
-                            }
+            nameRow
+            metaRow
+        }
+    }
+
+    /// **The name row, and which of the capsule's two rungs it draws: the file's name decides.**
+    ///
+    /// The row holds the name, then ＋ · Find · Just the text · the capsule · ×, and the name is the
+    /// only thing in it that gives. Left to its own `ViewThatFits`, the capsule kept its words
+    /// whenever IT fitted — so from a ~560pt column up, a long name paid for "Source", "Preview"
+    /// and "Split": measured 2026-09-25 on a 55-character `.md` name at 100%, a 580pt column left
+    /// 214pt of name beside the words where the icons alone leave it 338. The name is what the row
+    /// is for, so
+    /// the rule is TE28's, the preview's Edit button beside a long name: **the words are drawn only
+    /// when the WHOLE name fits beside them.** Otherwise the capsule is icons alone — pencil, eye,
+    /// split — with each mode's name kept as its tooltip and its accessibility label.
+    ///
+    /// `ViewThatFits` asks each row for its IDEAL width, which for the worded row is the name at
+    /// full length, so a name that would truncate beside the words picks the second row; that one
+    /// is laid out in the width there actually is, where the name truncates if it still must.
+    /// Both rungs are the same height (`bothCapsuleRungsAreTheSameHeight`), so the choice never
+    /// moves the row. A plain-text file has no capsule to choose for and reserves its height with
+    /// a hidden one, as before.
+    @ViewBuilder
+    private var nameRow: some View {
+        if document.isMarkdown {
+            ViewThatFits(in: .horizontal) {
+                nameRow(capsule: .labelled)
+                nameRow(capsule: .glyphOnly)
+            }
+        } else {
+            nameRow(capsule: nil)
+        }
+    }
+
+    /// One reading of the name row — with the capsule at `rung`, or with only its height reserved
+    /// (`nil`, a file with nothing to preview).
+    private func nameRow(capsule rung: EditorModeBar.Rung?) -> some View {
+        HStack(spacing: 6) {
+            // **Three states, because two of them are the point.**
+            //
+            // This briefly drew only the stopped state, on the reasoning that an unsaved buffer
+            // is now ordinary and a dot tracking it would be a light that is always on. That
+            // was wrong about what the light is FOR: it is on while you type and for the couple
+            // of seconds after, and off the rest of the time — so watching it go out is the
+            // only evidence on screen that autosave is working at all. Removing it left a
+            // header that said "saved" whether or not anything had been written, which is
+            // exactly the reassurance nobody should take on trust.
+            //
+            // Accent while the write is pending, amber when writing has STOPPED, nothing when
+            // the file matches the buffer. The two coloured states are never both true: a stop
+            // is only interesting because the document is dirty under it.
+            Circle()
+                .fill(dotColour ?? .clear)
+                .frame(width: 6, height: 6)
+                // **A column, not just a dot** — and the same width is reserved on the row
+                // below. The title used to start one dot-and-a-gap further right than the line
+                // under it, so the header's two rows had two different left edges.
+                .frame(width: Self.dotColumnWidth, alignment: .leading)
+                .opacity(dotColour == nil ? 0 : 1)
+                .accessibilityHidden(dotColour == nil)
+                .accessibilityLabel(status.isWarning ? "Not saving" : "Not saved yet")
+            Text(document.name)
+                .scaledFont(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                // The way back. The hand-off into this workspace comes from a file row, so the
+                // filename is where a user looks to ask "where is this?" — and it is one item,
+                // on the one element that names the file.
+                .contextMenu {
+                    if let path = document.path {
+                        Button(action: { onRevealInBrowse(path) }) {
+                            Label("Reveal in Browse", systemImage: "folder")
                         }
                     }
-                Spacer(minLength: 0)
-                // ＋ — see ``newTextFileButton``; the empty page's header draws the same one.
-                newTextFileButton
-                // **Beside the capsule, not in it.** The capsule chooses which representation you
-                // are looking at; this acts on the one you are in. It is withheld in `.preview`,
-                // where there is no text view to search — the preview is a rendering, and a find
-                // bar over it would be searching a copy of the document rather than the document.
-                if resolvedMode != .preview {
-                    Button { findRequest &+= 1 } label: {
-                        Image(systemName: "magnifyingglass")
-                            .scaledFont(.system(size: 11, weight: .semibold))
-                            .frame(width: 18, height: 18)
-                    }
-                    .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-                    .accessibilityLabel("Find in this document")
-                    .help("Find and replace in this document")
                 }
-                // "Just the text" — one view, drawn by the empty page's header too.
-                justTheTextButton
-                // **Only for files that have something to preview.** `PairContentKind` already
-                // owns which extensions are Markdown; a capsule on a `.txt` would offer two modes
-                // that render the same thing.
-                //
-                // **But its HEIGHT is reserved either way**, which is the same bargain the rail
-                // strikes for its unsaved dot. The capsule is the tallest thing in this row, so a
-                // header without one was measurably shorter — a `.txt` and a `.md` side by side sat
-                // at different heights, and the whole document column below them started at
-                // different places. Reserved by hiding a real capsule rather than by naming a
-                // number: the number would be the capsule's own metrics copied to a second place,
-                // where it could go stale the next time that control's padding moved.
-                //
-                // `.frame(width: 0)` so only the height is reserved. Reserving the width too would
-                // hold a capsule-shaped gap at the end of every plain-text header, and truncate the
-                // file name earlier for nothing.
-                if document.isMarkdown {
-                    EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
-                } else {
-                    EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
-                        .hidden()
-                        .frame(width: 0)
+            Spacer(minLength: 0)
+            // ＋ — see ``newTextFileButton``; the empty page's header draws the same one.
+            newTextFileButton
+            // **Beside the capsule, not in it.** The capsule chooses which representation you
+            // are looking at; this acts on the one you are in. It is withheld in `.preview`,
+            // where there is no text view to search — the preview is a rendering, and a find
+            // bar over it would be searching a copy of the document rather than the document.
+            if resolvedMode != .preview {
+                Button { findRequest &+= 1 } label: {
+                    Image(systemName: "magnifyingglass")
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .frame(width: 18, height: 18)
                 }
+                .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+                .accessibilityLabel("Find in this document")
+                .help("Find and replace in this document")
             }
-            metaRow
+            // "Just the text" — one view, drawn by the empty page's header too.
+            justTheTextButton
+            // **Only for files that have something to preview.** `PairContentKind` already
+            // owns which extensions are Markdown; a capsule on a `.txt` would offer two modes
+            // that render the same thing.
+            //
+            // **But its HEIGHT is reserved either way**, which is the same bargain the rail
+            // strikes for its unsaved dot. The capsule is the tallest thing in this row, so a
+            // header without one was measurably shorter — a `.txt` and a `.md` side by side sat
+            // at different heights, and the whole document column below them started at
+            // different places. Reserved by hiding a real capsule rather than by naming a
+            // number: the number would be the capsule's own metrics copied to a second place,
+            // where it could go stale the next time that control's padding moved.
+            //
+            // `.frame(width: 0)` so only the height is reserved. Reserving the width too would
+            // hold a capsule-shaped gap at the end of every plain-text header, and truncate the
+            // file name earlier for nothing.
+            if let rung {
+                EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent, forcedRung: rung)
+            } else {
+                EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
+                    .hidden()
+                    .frame(width: 0)
+            }
+            // **×, at the far end** (TE46). The one way to put the document away — File ▸
+            // Close Document is the other door, with no key, because ⌘W is Close Tab. Last,
+            // after the capsule, because it acts on the whole document rather than on a view of
+            // it. The host settles the buffer first, so Cancel leaves everything as it was. Not
+            // withheld in Preview, nor on a read-only or refused file: each of those is still
+            // a document somebody may want off the screen.
+            Button(action: onCloseDocument) {
+                Image(systemName: "xmark")
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+            .accessibilityLabel(Self.closeTitle(name: document.name))
+            .help("Close this document")
         }
     }
 
@@ -733,7 +795,7 @@ public struct EditorWorkspaceView: View {
     ///
     /// **What it offers is what makes sense with nothing open.** The ＋ — ``newTextFileButton``, the
     /// same view the document's header draws, greyed with no folder — and no Find (nothing to
-    /// search) and no capsule (nothing to view three ways).
+    /// search), no capsule (nothing to view three ways) and no Close (nothing to close).
     ///
     /// "Just the text" is drawn only while it is LIT: with the rail and the pane both put away
     /// there is no list of files anywhere on screen, and the lit glyph is both the reason why and

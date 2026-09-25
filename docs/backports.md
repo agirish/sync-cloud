@@ -5568,3 +5568,15 @@ done
 | What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
 |---|---|---|---|
 | **TE45 — the header's ＋**: `EditorWorkspaceView.onNewTextFile` (required, no default), handed `shortcutNewTextFile` itself by `editorWorkspace(showsRail:)`; `newTextFileTitle(folderName:)` for its tooltip | Not owed — no editor, no header, no ⌘N | Same | RECORDED — not owed |
+| **TE46 — the header's ×** (`EditorWorkspaceView.onCloseDocument`, required; `closeTitle(name:)`) **and File ▸ Close Document** (`CloseDocumentCommand` in the `.saveItem` group above Save, no key; `FocusedValues.closeDocument`; `ShortcutValuePublisher.closeDocument`, suspended with the rest) | Not owed. `v4.x` HAS the `.saveItem` group — emptied, `CommandGroup(replacing: .saveItem) { }` — but no Save in it and no editor document to close | Same; `v3.x`/`v2.x` do not replace the group at all | RECORDED — not owed |
+| **`EditorDocumentClose`** — `isOffered` (Edit + a document, refused ones included), `paneSelection(afterClosing:selection:)` (clears a left-pane selection of exactly the closed file, so TE41's on-change open fires on the next click), `run` (settle → undo stack put away → `EditorDocument.close()` → selection → one log line) | Not owed — no `EditorDocument`, no TE41 one-click open | Same | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** No defect fix rides along. `EditorDocument.close()`
+already existed on `main` with no caller; this is its first. The one shared surface touched is the
+File menu's `.saveItem` group, and on `v4.x` that group stays empty — Close Tab keeps ⌘W on every
+line.
+
+**Measured, and left for a decision rather than fixed here:** the two glyphs cost the file name 48pt.
+At the narrowest document column (260pt) a 55-character `.md` name went from 44–69pt of ink to
+10–12pt (an ellipsis) across the four text sizes; at the 760pt window floor's column (~391pt) it keeps
+134–153pt. Pinned in `EditorHeaderDoorsTests.theNameRowFitsWithALongNameAtEveryTextSize`.

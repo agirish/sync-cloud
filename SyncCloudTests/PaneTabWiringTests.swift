@@ -2273,6 +2273,17 @@ import Sync
         #expect(closers.count == 1, "\(closers.count) items register ⌘W")
         #expect(closers.first?.title == "Close Tab")
 
+        // **Close Document sits where AppKit's Close sat — directly above Save — with no key**
+        // (TE46). ⌘W stays Close Tab's (the check above), and ⌥⌘W would fire through the ⌥-hold
+        // reveal. Read off the real menu, so an item that landed in the wrong group, or grew a
+        // chord, fails here rather than shipping.
+        let closeDocument = try #require(titles.firstIndex(of: "Close Document"), "File ▸ Close Document is gone")
+        let save = try #require(titles.firstIndex(of: "Save"), "File ▸ Save is gone")
+        #expect(closeDocument + 1 == save,
+                "the File menu reads \(titles[min(closeDocument, save)...max(closeDocument, save)]) — Close Document belongs directly above Save")
+        let closeItem = try #require(file.items.first { $0.title == "Close Document" })
+        #expect(closeItem.keyEquivalent.isEmpty, "Close Document has acquired a chord: '\(closeItem.keyEquivalent)'")
+
         // Reopen Closed Tab has no chord on purpose: ⇧⌘T is the Tab Bar, and an ⌥ chord is the one
         // kind that can fire through the ⌥-hold reveal.
         let reopen = try #require(file.items.first { $0.title == "Reopen Closed Tab" })

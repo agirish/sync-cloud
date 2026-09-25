@@ -104,7 +104,12 @@ struct EditorModeBar: View {
     @Binding var mode: EditorMode
     let accent: Color
     let onAccent: Color
-    /// Forces a rung, for the tests that measure each one. `nil` picks by width.
+    /// Forces a rung. `nil` picks by width, which is what the hidden height reservation relies on.
+    ///
+    /// **The document header forces one too**, because it asks a different question from this
+    /// view's own `ViewThatFits`: not "does the capsule fit?" but "does the file's whole NAME still
+    /// fit beside the words?" — see `EditorWorkspaceView.nameRow`. The tests that measure each rung
+    /// force it for the reason they always have.
     var forcedRung: Rung?
 
     /// The two rungs, named so a test can ask for one rather than trying to provoke it.

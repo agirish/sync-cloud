@@ -272,7 +272,8 @@ import Testing
             location: nil,
             onLocationDoor: { _ in },
             onToggleJustTheText: {},
-            onNewTextFile: {})
+            onNewTextFile: {},
+            onCloseDocument: {})
     }
 
     /// **The header really branches on the door, at render time.**

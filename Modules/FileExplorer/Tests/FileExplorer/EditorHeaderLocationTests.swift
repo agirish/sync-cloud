@@ -74,7 +74,8 @@ import Design
             location: location,
             onLocationDoor: { _ in },
             onToggleJustTheText: {},
-            onNewTextFile: {})
+            onNewTextFile: {},
+            onCloseDocument: {})
     }
 
     private func host<V: View>(_ view: V, width: CGFloat, height: CGFloat? = nil) -> NSHostingView<AnyView> {

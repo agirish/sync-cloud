@@ -80,6 +80,15 @@ User-facing changes, newest first. For the full commit history see the
   does — it opens the name field, in the folder its tooltip names — in every layout: with the
   source pane open, with the Text Files list showing, and under Just the text. The Text Files list
   keeps its own ＋; this one stays on screen when the list steps aside.
+- **A × at the other end of that row closes the document**, and so does the new **File ▸ Close
+  Document**. There was no way to put a document away before: it stayed open until another replaced
+  it. Closing saves the way leaving a file always does and asks only when autosave cannot write it —
+  Cancel keeps the file open — then leaves Edit's empty page, whose header stays with its ＋ in it,
+  and the folder, the file pane and Just the text as they were. Clicking the same file in the pane
+  opens it again. Close Document has no key: ⌘W closes the tab, as it always has.
+- **A long file name keeps its letters before Source, Preview and Split keep their words.** With
+  the ＋ and × in the row, those three now show their words only when the whole name fits beside
+  them, and are just their icons otherwise — the names stay in their tooltips.
 
 ### Folders merge, and Cancel stops the copy it is in
 

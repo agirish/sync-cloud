@@ -4,7 +4,8 @@ import AppKit
 import Design
 @testable import FileExplorer
 
-/// The document header's ＋ (TE45): where it is drawn, what it calls, and what it says.
+/// The document header's ＋ (TE45) and × (TE46): where they are drawn, what they call, what they
+/// say, and what they cost the file name.
 ///
 /// **Drawn, not read.** A hosted SwiftUI tree exposes neither labels nor tooltips under
 /// `swift test`, and a synthetic click does not reach a SwiftUI `Button` in this harness (see
@@ -12,8 +13,9 @@ import Design
 /// in the host's coordinates once converted — so the row's buttons can be counted and ordered —
 /// and pixels, which tell identical-looking 18pt glyphs apart by what each one alone does.
 ///
-/// What the ＋ DOES is the host's ⌘N closure, handed over as-is; that wiring lives in the app target
-/// and is scanned there (`EditorHeaderDoorsWiringTests`).
+/// What the ＋ DOES is the host's ⌘N closure, and what the × does is the host's close; both are
+/// wired in the app target and scanned there (`EditorHeaderDoorsWiringTests`), and the close itself
+/// is run there against a real document (`EditorDocumentCloseTests`).
 @MainActor
 @Suite(.serialized) struct EditorHeaderDoorsTests {
 
@@ -29,7 +31,7 @@ import Design
 
     private func workspace(_ document: EditorDocument, mode: EditorMode = .edit,
                            railIsHidden: Bool = false,
-                           newTextFile: (() -> Void)?) -> EditorWorkspaceView {
+                           newTextFile: (() -> Void)? = {}) -> EditorWorkspaceView {
         EditorWorkspaceView(
             document: document,
             autosavePolicy: EditorAutosavePolicy(),
@@ -56,7 +58,8 @@ import Design
             location: nil,
             onLocationDoor: { _ in },
             onToggleJustTheText: {},
-            onNewTextFile: newTextFile)
+            onNewTextFile: newTextFile,
+            onCloseDocument: {})
     }
 
     // MARK: What it says
@@ -170,6 +173,206 @@ import Design
         #expect(chain.contains(".foregroundStyle(onNewTextFile == nil"), "the header's ＋ no longer LOOKS greyed without a folder")
         #expect(chain.contains(".disabled(onNewTextFile == nil)"), "the header's ＋ no longer greys without a folder")
         #expect(chain.contains("AppChord.newTextFile.display"), "the header's ＋ no longer shows ⌘N")
+    }
+
+    // MARK: The ×
+
+    /// VoiceOver hears which file the × closes; the tooltip says what it does. Mutation: drop the
+    /// name and the first line fails.
+    @Test func theCloseButtonNamesTheFileItCloses() {
+        #expect(EditorWorkspaceView.closeTitle(name: "note.md") == "Close note.md")
+        #expect(EditorWorkspaceView.closeTitle(name: "") == "Close this document")
+    }
+
+    /// **The × is the last button in the row — after the capsule — and stays in Preview.**
+    ///
+    /// Told apart from the capsule by width (a segment is wider than an 18pt glyph, measured on the
+    /// row itself rather than hard-coded) and from the other glyphs by position: every ring that is
+    /// not glyph-sized sits to its left. In Preview it draws the same pixels, so it was not withheld.
+    @Test func theCloseButtonIsLastAfterTheCapsuleAndStaysInPreview() throws {
+        let doc = try document(named: "note.md")
+        let edit = try #require(Rendered(workspace(doc).headerContent))
+        let preview = try #require(Rendered(workspace(doc, mode: .preview).headerContent))
+        let row = edit.nameRowRings
+        try #require(row.count >= 7, "the name row draws \(row.count) buttons — ＋, Find, Just the text, three segments and × expected")
+        let glyph = row[0].width
+        let last = try #require(row.last)
+        #expect(abs(last.width - glyph) <= 2,
+                "the last button is \(last.width)pt wide, not a glyph like the ＋ (\(glyph)pt) — the × is not last")
+        let segments = row.filter { abs($0.width - glyph) > 2 }
+        try #require(!segments.isEmpty, "no capsule segment found — the width tell is not telling anything")
+        #expect(segments.allSatisfy { $0.maxX <= last.minX + 0.5 },
+                "a capsule segment sits right of the × — the × is not after the capsule")
+        #expect(last.maxX <= edit.size.width + 0.5, "the × is drawn past the header's edge at \(last.maxX)")
+        let pLast = try #require(preview.nameRowRings.last)
+        #expect(edit.samePixels(last, as: preview, pLast), "the × in Preview is not the × in Source — it was withheld or replaced")
+    }
+
+    /// **Closed, the document column is the empty page — and its header stays, with the ＋ alone.**
+    /// `EditorDocument.close()` is what the host's close ends in; this is what it leaves on screen:
+    /// one button, drawing the pixels the open header's ＋ drew, and no Find, capsule or ×.
+    @Test func aClosedDocumentLeavesTheEmptyPageWithThePlusAlone() throws {
+        let doc = try document(named: "note.md")
+        let size = CGSize(width: 600, height: 300)
+        let open = try #require(Rendered(workspace(doc), size: size))
+        let openRow = open.nameRowRings
+        try #require(openRow.count >= 7, "the open document drew \(openRow.count) header buttons — the control is about nothing")
+        doc.close()
+        let closed = try #require(Rendered(workspace(doc), size: size))
+        #expect(closed.rings.count == 1, "\(closed.rings.count) buttons are drawn over a closed document — the ＋ alone expected")
+        if let plus = closed.rings.first {
+            #expect(closed.samePixels(plus, as: open, openRow[0]), "the one button left after a close is not the ＋")
+        }
+        #expect(doc.path == nil && doc.text.isEmpty && doc.refusal == nil, "close() left a document behind")
+    }
+
+    /// The × acts through the host's closure and nothing else, and is not inside Find's Preview
+    /// guard. A scan of the ×'s own chain, comments stripped. Mutations: `Button {}` or wrapping it
+    /// in `if resolvedMode != .preview` each fail.
+    @Test func theCloseButtonCallsTheHostsClose() throws {
+        let code = try Self.headerSource()
+        let chain = try Self.chain(from: "Image(systemName: \"xmark\")", in: code)
+        #expect(chain.contains("Button(action: onCloseDocument)"), "the header's × does not call the host's close")
+        #expect(chain.contains("Self.closeTitle(name: document.name)"), "the × no longer names the file")
+        let header = try #require(code.range(of: "var headerContent: some View"))
+        let capsule = try #require(code.range(of: "EditorModeBar(", range: header.upperBound..<code.endIndex))
+        let xmark = try #require(code.range(of: "\"xmark\"", range: header.upperBound..<code.endIndex))
+        #expect(capsule.lowerBound < xmark.lowerBound, "the × is declared before the capsule")
+    }
+
+    // MARK: What the two glyphs cost the file name
+
+    /// **The name row still fits with a long name, at every text size** — the check the 09-16
+    /// review found missing when an 8-character fixture hid a squeeze.
+    ///
+    /// The ＋ and × cost the name 48pt: two 18pt buttons and two 6pt gaps. Measured 2026-09-25 on a
+    /// 55-character `.md` name, name ink at the NARROWEST document column (`minDocumentWidth`, less
+    /// the header's padding — 232pt), at text sizes 0.9 · 1.0 · 1.25 · 1.35: **67 · 69 · 60 · 44pt
+    /// before them, 10 · 11 · 12 · 10pt after** — the ellipsis and little else. At the ~391pt column
+    /// the 760pt window floor gives (`splitFraction`'s measurement) it keeps 153 · 149 · 135 · 134.
+    ///
+    /// **The capsule is icons-only at BOTH widths, and was before the name-first rule too** —
+    /// measured by the ring widths, at every size. So shedding its words, which is all the header
+    /// may shed, buys nothing at 260 or 390: the 10–12pt there is what the row's fixed chrome — the
+    /// dot's column, four 18pt glyphs, the 82–99pt icon capsule and the gaps — leaves of 232pt.
+    /// Where the words DID cost the name is wider, and ``theCapsuleKeepsItsWordsOnlyWhenTheWholeNameFits``
+    /// holds that.
+    ///
+    /// What is held here is what stays true at both widths — nothing is drawn past the edge (the ×
+    /// included), and the row never wraps (a long name leaves the header the height a short one
+    /// has) — plus a floor on the name at each. See the two constants for the floors and why.
+    /// Mutation: force the worded capsule in the name row and 260pt fails at every size — the
+    /// capsule alone is 198–251pt there, and the name is pushed out.
+    @Test func theNameRowFitsWithALongNameAtEveryTextSize() throws {
+        let long = try document(named: "Quarterly household budget reconciliation notes for 2026.md")
+        let short = try document(named: "a.md")
+        let padding = 2 * EditorDocumentHeader<EmptyView>.horizontalPadding
+        let cases: [(column: CGFloat, minimumInk: CGFloat)] = [
+            (EditorLayoutMetrics.minDocumentWidth, Self.minimumNameInkAtTheNarrowestColumn),
+            (Self.floorWindowDocumentColumn, Self.minimumNameInkAtTheFloorWindow),
+        ]
+        var report: [String] = []
+        for (column, minimumInk) in cases {
+            let width = column - padding
+            for scale in FontSize.allCases.map(\.scale) {
+                let size = CGSize(width: width, height: 60)
+                let longRow = try #require(Rendered(workspace(long).headerContent, size: size, fontScale: scale))
+                let hLong = NSHostingView(rootView: AnyView(workspace(long).headerContent
+                    .environment(\.appFontScale, scale).frame(width: width))).fittingSize.height
+                let hShort = NSHostingView(rootView: AnyView(workspace(short).headerContent
+                    .environment(\.appFontScale, scale).frame(width: width))).fittingSize.height
+                #expect(abs(hLong - hShort) < 0.51,
+                        "at \(column)pt, scale \(scale), a long name makes the header \(hLong)pt against \(hShort)pt — the row wrapped")
+                let row = longRow.nameRowRings
+                let last = try #require(row.last, "no buttons in the row at \(column)pt, scale \(scale)")
+                #expect(last.maxX <= width + 0.5,
+                        "at \(column)pt, scale \(scale), the × ends at \(last.maxX), past the header's \(width)")
+                // The name's ink: from the dot column to the first button, on the row's own band.
+                let first = try #require(row.first)
+                let nameStart = EditorWorkspaceView.dotColumnWidth + 6
+                let band = CGRect(x: nameStart, y: first.minY, width: first.minX - nameStart, height: first.height)
+                let ink = (longRow.inkRight(in: band) ?? nameStart) - nameStart
+                report.append("\(Int(column))pt@\(scale): \(Int(ink.rounded()))pt")
+                #expect(ink >= minimumInk,
+                        "at \(column)pt, scale \(scale), the long name keeps \(ink)pt of ink — under \(minimumInk)pt")
+            }
+        }
+        print("[name-fit] \(report.joined(separator: " · "))")
+    }
+
+    /// The document column at the 760pt window floor — the width
+    /// `EditorLayoutMetrics.splitFraction`'s note measures ("~391pt"). Rounded down.
+    static let floorWindowDocumentColumn: CGFloat = 390
+
+    /// **The floor at the narrowest column (260pt), at all four text sizes: the name is DRAWN — at
+    /// least 6pt of ink, which is its ellipsis.** Measured 10 · 11 · 12 · 10pt.
+    ///
+    /// Why no higher: at 260 the capsule is already icons-only, so the words are not there to give
+    /// up, and the only other way to buy the name back is to drop or fold a glyph — which the
+    /// round-2 decision ruled out ("everything else stays"). So the floor pins what that decision
+    /// leaves: a name that is never pushed out entirely (a pushed-out name draws no ink at all, and
+    /// that is what the worded capsule does here) and cannot get silently worse than its ellipsis.
+    static let minimumNameInkAtTheNarrowestColumn: CGFloat = 6
+
+    /// At the floor-window column the name keeps a real run of characters either side of the
+    /// ellipsis. Measured 134–153pt; 60 is roughly ten characters.
+    static let minimumNameInkAtTheFloorWindow: CGFloat = 60
+
+    /// **The capsule's words are drawn only when the WHOLE file name fits beside them** — TE28's
+    /// rule for the preview's Edit button, applied to the name row (see `nameRow`).
+    ///
+    /// Swept across the columns where the worded capsule itself would fit (from ~560pt), at every
+    /// text size, on a 55-character `.md` name: wherever the words are drawn the name's ink is its
+    /// whole width — measured on the same header given room to spare — and at 700pt, where the old
+    /// rule drew the words over a truncated name at every size, the icons are drawn instead. The
+    /// positive control: a short name keeps the words at the narrowest of those columns, so the
+    /// rule is not "never".
+    ///
+    /// Mutations: let the capsule choose by its own width again (`forcedRung` nil in the worded
+    /// row), and the sweep finds words over a cut name; force the icons everywhere, and the short
+    /// name loses its words.
+    @Test func theCapsuleKeepsItsWordsOnlyWhenTheWholeNameFits() throws {
+        let long = try document(named: "Quarterly household budget reconciliation notes for 2026.md")
+        let short = try document(named: "a.md")
+        let padding = 2 * EditorDocumentHeader<EmptyView>.horizontalPadding
+        let nameStart = EditorWorkspaceView.dotColumnWidth + 6
+        func measure(_ doc: EditorDocument, column: CGFloat, scale: CGFloat) throws -> (worded: Bool, ink: CGFloat) {
+            let width = column - padding
+            let r = try #require(Rendered(workspace(doc).headerContent,
+                                          size: CGSize(width: width, height: 60), fontScale: scale))
+            let row = r.nameRowRings
+            let first = try #require(row.first, "no buttons at \(column)pt, \(scale)")
+            // A worded segment is far wider than two glyph buttons; an icon segment is not.
+            let worded = row.contains { $0.width > 2 * first.width }
+            let band = CGRect(x: nameStart, y: first.minY, width: first.minX - nameStart, height: first.height)
+            return (worded, (r.inkRight(in: band) ?? nameStart) - nameStart)
+        }
+        var shedForTheName = 0
+        var report: [String] = []
+        for scale in FontSize.allCases.map(\.scale) {
+            let whole = try measure(long, column: 1_600, scale: scale)
+            try #require(whole.worded, "at 1,600pt, \(scale), the long name still has no words beside it — the sweep would be about nothing")
+            for column in stride(from: CGFloat(560), through: 900, by: 20) {
+                let m = try measure(long, column: column, scale: scale)
+                if m.worded {
+                    #expect(m.ink >= whole.ink - 1,
+                            "at \(column)pt, \(scale), the words are drawn over a cut name: \(m.ink)pt of its \(whole.ink)pt")
+                }
+                // 700pt is a column where the capsule's own rule drew the words at every size
+                // (measured before this rule: 349 · 338 · 308 · 292pt of name beside them) and
+                // the whole name does not fit beside them at any — so the name decides, and the
+                // icons are drawn.
+                if column == 700 {
+                    #expect(!m.worded, "at 700pt, \(scale), the words are drawn beside a name that does not fit")
+                    if !m.worded { shedForTheName += 1 }
+                }
+                report.append("\(Int(column))@\(scale):\(m.worded ? "W" : "g")\(Int(m.ink.rounded()))")
+            }
+            let control = try measure(short, column: 560, scale: scale)
+            #expect(control.worded, "at 560pt, \(scale), a four-character name loses the words — they are shed for nothing")
+        }
+        #expect(shedForTheName == 4, "the words were shed for the name at 700pt at \(shedForTheName) of the four sizes")
+        print("[words] \(report.joined(separator: " "))")
     }
 
     // MARK: Source helpers

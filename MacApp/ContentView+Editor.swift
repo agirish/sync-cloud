@@ -295,6 +295,7 @@ extension ContentView {
             // The header's ＋ IS ⌘N — the same closure, so it opens the row and bumps the focus
             // counter, and greys out on the same `nil` the menu item does.
             onNewTextFile: shortcutNewTextFile,
+            onCloseDocument: { closeEditorDocument() },
             onAutosaveResumed: { runAutosave() })
         // The rail is re-listed on arrival and whenever the folder or the hidden-files preference
         // moves — `.task(id:)` restarts on either.
@@ -500,6 +501,32 @@ extension ContentView {
         }
         syncManager.focusOn(relativePath: relative, isLeft: isLeft)
         return true
+    }
+
+    // MARK: - Closing
+
+    /// File ▸ Close Document's action, or `nil` — which greys the item — unless Edit is on screen
+    /// with a document open. See ``EditorDocumentClose/isOffered(workspace:hasDocument:)``.
+    var shortcutCloseDocument: (() -> Void)? {
+        guard EditorDocumentClose.isOffered(workspace: selectedWorkspace,
+                                            hasDocument: editorDocument.path != nil) else { return nil }
+        return { closeEditorDocument() }
+    }
+
+    /// The header's × and File ▸ Close Document: settle, unload to the empty state, and clear the
+    /// pane selection that named the file so clicking its row opens it again. The act itself is
+    /// ``EditorDocumentClose/run(document:undoStore:settle:paneSelection:setPaneSelection:log:)``;
+    /// this supplies the window's own pieces and clears what was ABOUT the closed document — a
+    /// stop, or a diff overlay, left standing over the empty editor would describe nothing.
+    func closeEditorDocument() {
+        guard EditorDocumentClose.run(
+            document: editorDocument, undoStore: editorUndoStore,
+            settle: { settleEditorDocument() },
+            paneSelection: { syncManager.selectedLeftPaths },
+            setPaneSelection: { syncManager.selectedLeftPaths = $0 },
+            log: { Logger.shared.info($0) }) else { return }
+        editorAutosaveStop = nil
+        editorDivergenceReview = nil
     }
 
     /// The reverse hand-off: Browse, pointed at the open file's folder.
