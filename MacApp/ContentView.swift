@@ -121,6 +121,9 @@ struct ContentView: View {
     /// Bumped by ⌘N so the naming row takes focus even when it is already open — a pure signal,
     /// never read for its value.
     @State var editorNamingFocus = 0
+    /// A file ⌘N just created, owed a selection in the left pane once the pane's re-read lists it
+    /// — see ``showCreatedFileInPane(_:)``. `nil` whenever nothing is owed.
+    @State var editorPaneSelectionOwed: String?
     /// What is typed into the rail's filter, and whether its field is showing. **Here for the
     /// reason `editorTypedName` is here**: both are things the user typed, and the editor's view is
     /// rebuilt from nothing by every workspace switch.
@@ -1270,6 +1273,10 @@ struct ContentView: View {
         .onChange(of: syncManager.selectedLeftPaths) { _, paths in
             openSelectedPaneFileInEditor(paths)
         }
+        // A file ⌘N created is selected in the pane once the pane's re-read lists it — the tree is
+        // what changes, so the tree is what is watched. The rule is `owedPaneSelection`; this only
+        // supplies the trigger, and it returns at once when nothing is owed.
+        .onChange(of: syncManager.leftPaneTree) { _, _ in settleOwedPaneSelection() }
         // Dismissing the panel by hand nils the binding without going through `toggleQuickLook`,
         // so the origin flag has to be cleared here or the NEXT preview — opened from a Differences
         // row — would inherit "follows the panes" from this one and be yanked by a pane click.
@@ -4224,7 +4231,10 @@ struct ContentView: View {
     ///
     /// Both halves of that, and why each is necessary, live in `PaneLogic.applySelectionWrite` —
     /// where the ORDERING can be tested rather than only the arithmetic.
-    private func paneSelectionBinding(isLeft: Bool) -> Binding<Set<String>> {
+    ///
+    /// Not `private`: ⌘N's owed selection (`settleOwedPaneSelection`) writes through this same
+    /// setter, so a programmatic pick keeps every rule a click keeps.
+    func paneSelectionBinding(isLeft: Bool) -> Binding<Set<String>> {
         Binding(
             get: { isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths },
             set: { newSelection in

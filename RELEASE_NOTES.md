@@ -60,6 +60,10 @@ User-facing changes, newest first. For the full commit history see the
 - **⌘N follows the list.** With no list on screen, the new file's name is typed at the top of the
   document instead, with the folder it will be created in named beside the field. Return creates and
   opens it; Escape puts it away.
+- **The file ⌘N makes shows up in the list, selected.** With the source pane open, the new file
+  appears in the folder it was created in and is selected there, the way a file you click is, so the
+  list says where the document lives. A PDF you export into the folder is listed there too. The pane
+  used to go on listing the folder as it was until something else re-read it.
 
 ### Folders merge, and Cancel stops the copy it is in
 

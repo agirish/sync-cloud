@@ -5465,3 +5465,50 @@ done
 
 The guard test is not owed on its own either: on `v4.x` it would fail against a row that is correct
 there.
+
+---
+
+## ⌘N's new file shows in the pane, selected, and Export as PDF re-reads it too (TE44)
+
+**The defect.** Since TE36 the open source pane is Edit's file list and the rail beside it is
+withheld. ⌘N (`createTextFile`) and File ▸ Export as PDF refreshed only the rail, so with the pane
+open the file was on disk — and for ⌘N, open — while the column it landed in went on listing the
+folder as it was. Reported 2026-09-25 in the app: iCloud › Documents › Finance, ⌘N "Test", the log
+said `Editor created …/Finance/Test.md`, the column still listed `IN` and `US`. The rail-only refresh
+itself predates TE36 (v5.3's `createTextFile` is the same), but there the rail was drawn beside the
+pane and listed the file.
+
+**The fix.** Both writes now take the re-read every queued file operation gets —
+`prepareForcedRescan()` then `refreshSubject.send(.both)` (`rereadPanesAfterEditorWrite`) — and ⌘N
+owes the pane a selection of the new file, paid on the left-tree publish that lists it
+(`settleOwedPaneSelection`, rule `owedPaneSelection`), through the pane's own selection setter. The
+selection lands on the open document, so TE41's one-click open finds it already open: one
+`Editor opened` line per create.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s createTextFile=%s workspaceEditor=%s paneSelectionOpens=%s prepareForcedRescan=%s\n' "$l" \
+    "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -c 'func createTextFile')" \
+    "$(git show origin/$l:MacApp/Workspace.swift 2>/dev/null | grep -c 'case editor')" \
+    "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -c 'static func paneSelectionOpens')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift 2>/dev/null | grep -c 'public func prepareForcedRescan')"
+done
+# measured 2026-09-25, before this landed:
+# main   createTextFile=1 workspaceEditor=1 paneSelectionOpens=1 prepareForcedRescan=1
+# v4.x   createTextFile=0 workspaceEditor=0 paneSelectionOpens=0 prepareForcedRescan=1
+# v3.x   createTextFile=0 workspaceEditor=0 paneSelectionOpens=0 prepareForcedRescan=1
+# v2.x   createTextFile=0 workspaceEditor=0 paneSelectionOpens=0 prepareForcedRescan=1
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| `rereadPanesAfterEditorWrite` from `createTextFile` and `exportEditorDocumentAsPDF` | Not owed — no Edit workspace, no ⌘N file, no export from it | Same | CHECKED — not owed |
+| The owed pane selection (`editorPaneSelectionOwed`, `owedPaneSelection`, `settleOwedPaneSelection`, the `leftPaneTree` observer); `paneSelectionBinding` no longer `private` | Not owed — its only writer is ⌘N in Edit | Same | CHECKED — not owed |
+| `OutOfQueueWriteRereadTests` (Sync) | Would compile: `prepareForcedRescan` and `refreshTreesAndScan` are there. Not owed — it pins why an out-of-queue writer needs the preparation, and those lines have no such writer in Edit. Whether any other out-of-queue writer exists there was not checked | Same | RECORDED — not owed |
+
+**Boundaries a future audit should not re-derive:** autosave and ⌘S deliberately do NOT re-read the
+pane — they rewrite a file it already lists, and a two-pane walk per autosave is the cost the rail's
+own changed-only guard exists to avoid. The pane does not scroll a new file into view: a folder long
+enough to put it off-screen shows it selected but not visible (no scroll-to-selection exists outside
+search reveals). The rail click and the hand-off do not write the pane's selection either — a
+different cause (no selection write at all, no missing re-read), left alone.

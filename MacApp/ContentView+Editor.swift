@@ -811,11 +811,109 @@ extension ContentView {
             let path = try EditorFileStore.createEmptyFile(named: name, in: folder)
             Logger.shared.info("Editor created \(path)")
             loadIntoEditor(path: path)
+            // Both lists, whichever is on screen: the rail for the collapsed arm, the pane for the
+            // expanded one — and the pane is re-read even while collapsed, so it is current when
+            // it is next opened.
             Task { await refreshEditorRail() }
+            showCreatedFileInPane(path)
             return true
         } catch {
             syncManager.banner = .error("Couldn't create the file — \(error.localizedDescription)")
             return false
+        }
+    }
+
+    /// Makes the left pane list a file ⌘N just created, and select it once it does.
+    ///
+    /// **Since TE36 the open pane IS Edit's file list**, and the rail beside it is withheld — so
+    /// `refreshEditorRail()` alone, which is all ⌘N used to do, refreshed a list nobody could see.
+    /// The file was on disk and open, and the column it was created in went on listing the folder
+    /// as it was, with nothing on screen saying where the document lived (TE44, 2026-09-25).
+    ///
+    /// **The selection is owed, not written now.** The node does not exist until the re-read
+    /// publishes, and a selection naming a row the list does not hold is at the mercy of the
+    /// `List` and of `pruneSelection`. So it is recorded here and written by
+    /// ``settleOwedPaneSelection()`` on the tree publish that lists it — including a column's
+    /// graft, which arrives on its own publish after the walk.
+    func showCreatedFileInPane(_ path: String) {
+        editorPaneSelectionOwed = path
+        rereadPanesAfterEditorWrite()
+    }
+
+    /// The re-read every file operation already gets, for a file Edit put on disk itself.
+    ///
+    /// **Not a second refresh path.** `enqueueFileOperation` ends each write by dropping the
+    /// prefetch cache, bumping the scan-config epoch and sending `.both` down `refreshSubject`,
+    /// which `ContentView` turns into the reload. `prepareForcedRescan()` is the public spelling of
+    /// the first two, and neither is optional: without the drop a pane that has finished a deep
+    /// walk is served that walk — the one taken before the file existed (measured,
+    /// `OutOfQueueWriteRereadTests`) — and without the epoch a same-target refresh already in
+    /// flight swallows this one as a duplicate. `.both`, as for any file operation: the right pane
+    /// can be standing in the same folder, and Compare would show it stale.
+    ///
+    /// Edit's writes do not go through the queue itself, deliberately — a new note must not wait
+    /// behind a long copy. **For writes that ADD a file only** (⌘N, Export as PDF): an autosave
+    /// rewrites a file the pane already lists, and a two-pane walk twice a sentence would be the
+    /// cost the rail's own "only when the listing changed" guard exists to avoid.
+    func rereadPanesAfterEditorWrite() {
+        syncManager.prepareForcedRescan()
+        syncManager.refreshSubject.send(.both)
+    }
+
+    /// What to do with an owed pane selection, as a rule — see ``owedPaneSelection(owed:openDocument:paneFolder:isListed:)``.
+    enum OwedPaneSelection: Equatable {
+        /// Nothing is owed.
+        case nothing
+        /// Not listed yet: keep it owed and ask again on the next publish.
+        case wait
+        /// Listed: select it, and the debt is paid.
+        case select(String)
+        /// No longer wanted: forget it without selecting anything.
+        case drop
+    }
+
+    /// **Selecting the created file is right only while it is still the open document in the
+    /// folder the pane shows**, and each guard is a case in `EditorNewFilePaneTests`.
+    ///
+    /// - The open document moved on: dropped. In Edit a single selected text file OPENS
+    ///   (`paneSelectionOpens`), so selecting the new file after the user had opened another one
+    ///   would drag them back to it — the one outcome worse than the bug.
+    /// - The pane moved to another folder: dropped. Selecting a row the pane is not showing would
+    ///   select something invisible, and the pane's own navigation already cleared its selection.
+    /// - Not listed yet: wait. The reload has not published, or published a shallow first paint.
+    ///
+    /// Selecting the open document cannot open it a second time: `openInEditor`'s first guard
+    /// returns for the path that is already open, so the pane's one-click open is a no-op here.
+    static func owedPaneSelection(owed: String?, openDocument: String?, paneFolder: String,
+                                  isListed: Bool) -> OwedPaneSelection {
+        guard let owed else { return .nothing }
+        guard owed == openDocument,
+              PaneBrowsePath.normalized((owed as NSString).deletingLastPathComponent)
+                == PaneBrowsePath.normalized(paneFolder)
+        else { return .drop }
+        return isListed ? .select(owed) : .wait
+    }
+
+    /// Pays an owed pane selection once the pane lists the file — called on every left-tree
+    /// publish, and a single `nil` test when nothing is owed.
+    ///
+    /// **Through `paneSelectionBinding`, the setter a click goes through**, so the one-pane
+    /// invariant and the focused-pane move are the ones a click gets, not a copy of them.
+    func settleOwedPaneSelection() {
+        guard let owed = editorPaneSelectionOwed else { return }
+        let decision = Self.owedPaneSelection(
+            owed: owed, openDocument: editorDocument.path, paneFolder: editorFolder,
+            isListed: !syncManager.leftNodes(for: [owed]).isEmpty)
+        switch decision {
+        case .nothing, .wait:
+            return
+        case .drop:
+            editorPaneSelectionOwed = nil
+        case .select(let path):
+            editorPaneSelectionOwed = nil
+            if syncManager.selectedLeftPaths != [path] {
+                paneSelectionBinding(isLeft: true).wrappedValue = [path]
+            }
         }
     }
 }
