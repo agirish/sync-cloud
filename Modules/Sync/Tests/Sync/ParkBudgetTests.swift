@@ -256,15 +256,15 @@ import Testing
             "FileSyncManagerDuplicatesTests.swift": ["if mustWait { semaphore.wait() }"],
             "ScanSupersedenceTests.swift": [
                 "Thread.sleep(forTimeInterval: delay)",
-                "mockFM.enumeratorDelay = 0.15", "mockFM.enumeratorDelay = 0.05",
+                "mockFM.enumeratorDelay = 0.05",
             ],
             // `MockFileManager`'s per-entry sleep blocks the walk's thread too, but its LENGTH
-            // lives at the call sites, so those are registered as well: a sixth one, or a longer
+            // lives at the call sites, so those are registered as well: a fourth one, or a longer
             // one, is a new thread-hog that no reader of `MockFileManager.swift` would see.
-            // The five below run 50-150 ms per entry and always finish on their own, which is why
-            // they hold no reservation — a gate, by contrast, is held until its test lets go.
+            // The three (one above, two below) run 50-100 ms per entry and always finish on their
+            // own, which is why they hold no reservation — a gate, by contrast, is held until its
+            // test lets go.
             "MockFileManager.swift": ["Thread.sleep(forTimeInterval: enumeratorDelay)"],
-            "BulkOperationsTests.swift": ["mockFM.enumeratorDelay = 0.05"],
             "ProgressiveLoadTests.swift": ["mockFM.enumeratorDelay = 0.05", "mockFM.enumeratorDelay = 0.1"],
             "MergeCancelMidCopyTests.swift": ["Thread.sleep(forTimeInterval: 0.005)"],
             // `ScriptedObservedCopy` polls for the run's Progress from the copying worker, a pool

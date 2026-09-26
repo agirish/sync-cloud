@@ -232,9 +232,15 @@ import Foundation
     }
 
     @MainActor
-    @Test func testLatestQueuedScanWins() async throws {
+    @Test(.parksAThread) func testLatestQueuedScanWins() async throws {
         let mockFM = MockFileManager()
-        mockFM.enumeratorDelay = 0.05
+        // The first scan's walk parks here until released, so it holds the scan slot for as long
+        // as the test needs — a state, where `enumeratorDelay` gave only a window. Waiting to SEE
+        // that window lost the race on a loaded run (CI 36242263462, 2026-09-26): 243 polls and
+        // never one inside the first scan's ~50ms, so the second request found the slot free and
+        // ran inline, and the queue this test is named for went unexercised.
+        let gate = ParkGate()
+        mockFM.enumeratorGate = gate
         let manager = FileSyncManager(fileManager: mockFM)
 
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src1"), withIntermediateDirectories: true)
@@ -252,11 +258,12 @@ import Foundation
 
         // The test's whole premise is that the second request arrives while the first scan holds
         // the slot, so it is QUEUED rather than run. `executeScan` sets `isScanning` synchronously
-        // on entry, which makes that precondition directly observable — where the flat 10ms this
-        // replaces was only a guess at how long the Task takes to start. Losing that guess did not
-        // fail the test, which is what made it worth fixing: the two scans just ran in sequence
-        // and every assertion below still held, with the queue never exercised at all.
-        await waitUntil("the first scan holds the scan slot") { manager.isScanning }
+        // on entry, before the walk now parked at the gate, so the precondition is a fact here and
+        // is asserted rather than waited for. The flat 10ms this once slept only guessed at it, and
+        // losing that guess did not fail the test: the two scans ran in sequence and every
+        // assertion below still held, with the queue never exercised at all.
+        await awaitSignal(gate.entered, "the first scan never reached its walk — nothing held the slot")
+        #expect(manager.isScanning, "the first scan is parked in its walk but does not hold the scan slot")
 
         // Queued, not run — `runOrQueueScan` takes its queue branch and returns without scanning,
         // so this call needs no Task of its own and the pending request is observable right after
@@ -266,7 +273,9 @@ import Foundation
         await manager.scanDirectories(left: source, leftPath: "/src2", right: destination, rightPath: "/dst2")
         #expect(manager.pendingScanRequest != nil, "the second request must queue behind the in-flight scan")
 
+        gate.release.signal()
         await firstScan.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the first scan was never actually held in flight")
 
         // The queued scan is drained on a fresh task (so it can't inherit a superseded scan's
         // cancellation); wait for it to settle rather than piggybacking on the first task. All

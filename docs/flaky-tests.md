@@ -283,6 +283,19 @@ wait can *be* the precondition. Waiting on it also collapsed the test: with the 
 Dropping the wait now fails three assertions *deterministically*, where the sleep made the same
 mistake only under load.
 
+**…and that wait was still a race, because the precondition it waited for is TRANSIENT — CORRECTED
+2026-09-26.** `isScanning` is true only while the first scan runs, and that scan was merely slowed
+(`enumeratorDelay = 0.05`), so the wait had to catch a ~50ms window rather than read a state. On a
+loaded CI run (36242263462) it gave up after 243 polls without once landing inside it; the second
+request found the slot free and ran inline, and both assertions failed. The helpers read hundreds of
+polls as "genuinely disproved"; that holds only for a state that stays true once reached, and a
+transient one can be missed by any number of polls. **Hold a precondition you depend on; do not wait
+to see it.** The first walk now parks at `MockFileManager.enumeratorGate` — whose own doc warns off
+exactly this delay-and-wait pairing — the test asserts the held slot, and releases it after
+queueing, so the never-queue mutation fails at its assertion in 4ms instead of only under load.
+`ScanSupersedenceTests.testScanQueuedFromCancelledPredecessorStillPublishes` had the same shape and
+missed its window in a local full-package run the same day.
+
 Convert the hand-rolled `while … Date() < deadline` settle loops when you meet them, too: bounded,
 so never a hang, but wall-clock rather than `ContinuousClock`, and a loop whose exit condition has
 more clauses than the assertions after it passes on timeout for the clauses nobody re-checks.

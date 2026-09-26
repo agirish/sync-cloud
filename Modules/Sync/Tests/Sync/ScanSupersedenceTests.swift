@@ -22,9 +22,15 @@ import Testing
     /// task that does NOT inherit A's cancellation, or B's fresh differences are silently dropped
     /// and the list keeps showing the previous folder's rows.
     @MainActor
-    @Test func testScanQueuedFromCancelledPredecessorStillPublishes() async throws {
+    @Test(.parksAThread) func testScanQueuedFromCancelledPredecessorStillPublishes() async throws {
         let mockFM = MockFileManager()
-        mockFM.enumeratorDelay = 0.15
+        // A's walk parks here until released, so A holds the scanning slot while B arrives — the
+        // precondition this test is about. `enumeratorDelay = 0.15` made that likely, not certain:
+        // on a loaded full-package run (2026-09-26) the wait to SEE A's ~150ms window gave up after
+        // 50 polls without catching it, the way `BulkOperationsTests.testLatestQueuedScanWins`
+        // failed on CI that day.
+        let gate = ParkGate()
+        mockFM.enumeratorGate = gate
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/oldL"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/oldR"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/newL"), withIntermediateDirectories: true)
@@ -38,7 +44,7 @@ import Testing
         let scanA = Task {
             await manager.scanDirectories(left: Self.left, leftPath: "/oldL", right: Self.right, rightPath: "/oldR")
         }
-        await waitUntil("scan starts") { manager.isScanning }
+        await awaitSignal(gate.entered, "scan A never reached its walk — nothing held the slot")
         #expect(manager.isScanning)
 
         // Refresh B: cancel A (as refreshTreesAndScan does), then request the new folders while
@@ -48,7 +54,9 @@ import Testing
         #expect(manager.pendingScanRequest != nil)
 
         // A unwinds and drains the queued request.
+        gate.release.signal()
         await scanA.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: scan A was never actually held in flight")
         await waitUntil("queued scan drains and publishes") { manager.hasScanned && !manager.isScanning && manager.pendingScanRequest == nil }
 
         // The queued scan's results must be published, not silently discarded.
