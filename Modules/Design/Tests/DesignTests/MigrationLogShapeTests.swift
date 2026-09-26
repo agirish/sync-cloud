@@ -9,9 +9,7 @@ import Foundation
     /// an `if let` in `MacApp` that no package test can execute — what can be checked is that the
     /// values it interpolates are the honest ones.
     @Test func theMigrationReportsWhatWasOnDisk() {
-        let suite = "MigrationLogShapeTests"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ScratchDefaults("MigrationLogShapeTests")
 
         defaults.set("extraLarge", forKey: FontSize.defaultsKey)
         let migrated = FontSize.migrateLegacyValue(in: defaults)

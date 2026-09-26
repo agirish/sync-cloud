@@ -14,13 +14,9 @@ import Foundation
 /// `~/Library/Preferences` domain, which is shared with other projects on this machine.
 @Suite(.serialized) struct OrganizeScopeStorageTests {
 
-    /// A throwaway defaults suite, removed afterwards.
+    /// A throwaway defaults suite: fresh, so it starts empty, and removed — plist too — afterwards.
     static func withSuite(_ name: String, _ body: (UserDefaults) throws -> Void) rethrows {
-        let suiteName = "OrganizeScopeStorageTests.\(name)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        try body(defaults)
+        try body(ScratchDefaults("OrganizeScopeStorageTests.\(name)"))
     }
 
     static let root = "/Users/x/Documents"

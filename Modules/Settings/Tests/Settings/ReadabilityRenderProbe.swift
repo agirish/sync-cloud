@@ -14,9 +14,7 @@ import AppKit
     @MainActor
     private func laidOut(_ size: FontSize, _ density: ListDensity, name: String,
                          appearance: NSAppearance.Name = .aqua) -> CGFloat {
-        let suite = "ReadabilityProbe.\(name)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ScratchDefaults("ReadabilityProbe.\(name)")
         defaults.set(size.percent, forKey: FontSize.defaultsKey)
         defaults.set(density.rawValue, forKey: ListDensity.defaultsKey)
 
