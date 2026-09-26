@@ -41,6 +41,40 @@ import Foundation
         #expect(subject.current !== edited, "a stale stack was handed back")
     }
 
+    /// **Equal strings, different bytes — and the stack is refused.**
+    ///
+    /// The fingerprint hashes the buffer's UTF-8 rather than the `String`, which is what took a
+    /// 4 MiB file switch from 162 ms to 19 ms — see ``EditorUndoStore/Fingerprint``. This is the
+    /// behaviour that bought: Swift compares and hashes strings for Unicode canonical equivalence,
+    /// so these two are `==` and used to fingerprint alike, and the length field cannot separate
+    /// them either because both are five UTF-8 bytes. Only the hash can, and now it does.
+    ///
+    /// **Refusing is the point, not a regression.** The bytes on disk differ, so a save of one over
+    /// the other writes a different file — and this type's rule is that refusing costs a lost
+    /// history while replaying a stale stack costs the app.
+    @Test func aStackIsRefusedWhenTheBytesChangedUnderAnEqualString() {
+        // q + dot-below + dot-above, against q + dot-above + dot-below.
+        let first = "q\u{0323}\u{0307}"
+        let second = "q\u{0307}\u{0323}"
+        // The premise, asserted rather than assumed: Swift cannot tell these apart, and neither can
+        // the length. If either of these ever stops holding, this test is measuring nothing.
+        #expect(first == second, "fixture: these must be canonically equivalent")
+        #expect(Array(first.utf8) != Array(second.utf8), "fixture: their bytes must differ")
+        #expect(first.utf8.count == second.utf8.count, "fixture: the length must not separate them")
+
+        let subject = store()
+        subject.activate(path: "/n/a.md", text: first)
+        let stack = subject.current
+        subject.remember(text: first)
+
+        subject.activate(path: "/n/b.md", text: "elsewhere")
+        subject.remember(text: "elsewhere")
+
+        subject.activate(path: "/n/a.md", text: second)
+        #expect(subject.current !== stack,
+                "a stack was handed back to a buffer holding different bytes")
+    }
+
     /// The same text at the same path is the same buffer, whatever route it arrived by.
     @Test func anIdenticalBufferKeepsItsStack() {
         let subject = store()

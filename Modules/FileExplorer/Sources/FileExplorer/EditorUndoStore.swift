@@ -55,13 +55,36 @@ public final class EditorUndoStore: ObservableObject {
     /// Length and hash rather than the text: keeping a second copy of every document's contents to
     /// protect their undo stacks would cost more memory than the stacks do. The length is in there
     /// because it is free and rules out the overwhelming majority of mismatches on its own.
+    ///
+    /// **The hash is over the BYTES rather than the `String`, and that is a measurement rather than
+    /// a preference.** `String.hashValue` hashes for Unicode canonical equivalence, which means
+    /// walking the buffer grapheme by grapheme and normalising as it goes — and the buffer this is
+    /// handed is the one `NSTextView` gave back, bridged from UTF-16 text storage, so there is no
+    /// native representation for it to fast-path. Measured at 4 MiB, which is exactly what
+    /// ``BoundedTextRead/maxBytes`` lets the editor open: **162 ms against 19 ms**, on the main
+    /// actor, on every file switch.
+    ///
+    /// That made it the largest main-thread cost in the editor by some sixty times, which is not
+    /// obvious and is worth writing down: assigning a 4 MiB buffer into the text view measures
+    /// 0.6 ms and drawing it 2.5 ms, because TextKit 2 lays out only the viewport — and the
+    /// Markdown parse, the word counts and the line table were all moved off the main actor
+    /// already. Everything else about a large document is single-digit milliseconds; this was the
+    /// stall.
+    ///
+    /// **It also narrows what counts as the same buffer, deliberately.** Two strings that are
+    /// canonically equivalent while holding different bytes — the same combining marks in a
+    /// different order, say — used to fingerprint alike and now do not, so a stack kept against one
+    /// is refused when the other comes back. Refusing is the safe direction by this type's own
+    /// rule, and here it is also the more honest answer: the bytes differ, so saving one over the
+    /// other really does write a different file. Pinned by
+    /// `EditorUndoStoreTests.aStackIsRefusedWhenTheBytesChangedUnderAnEqualString`.
     struct Fingerprint: Equatable {
         var length: Int
         var hash: Int
 
         init(_ text: String) {
             length = text.utf8.count
-            hash = text.hashValue
+            hash = Data(text.utf8).hashValue
         }
     }
 
