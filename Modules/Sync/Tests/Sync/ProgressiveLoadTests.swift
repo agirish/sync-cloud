@@ -88,9 +88,13 @@ import Testing
     /// cancel-and-restart the first — that race could strand a pane's load, leaving it blank
     /// until the user re-navigated.
     @MainActor
-    @Test func testConcurrentIdenticalRefreshIsDedupedSoNeitherPaneIsStranded() async throws {
+    @Test(.parksAThread) func testConcurrentIdenticalRefreshIsDedupedSoNeitherPaneIsStranded() async throws {
         let mockFM = MockFileManager()
-        mockFM.enumeratorDelay = 0.05
+        // The first refresh's first listing parks here until released, so the duplicate provably
+        // arrives while the first holds its key and is still loading. This slept 10ms and hoped:
+        // `enumeratorDelay` kept the first in flight, and the sleep guessed that it had started.
+        let gate = ParkGate()
+        mockFM.enumeratorGate = gate
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/left"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/right"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/left/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
@@ -103,9 +107,15 @@ import Testing
         let right = CloudProvider(id: "R", displayName: "R", imageName: "folder", rootPath: "/right", type: .iCloud)
 
         async let first: Void = manager.refreshTreesAndScan(left: left, right: right)
-        try await Task.sleep(nanoseconds: 10_000_000)   // let the first register its key and start loading
-        async let second: Void = manager.refreshTreesAndScan(left: left, right: right)
-        _ = await (first, second)
+        await awaitSignal(gate.entered, "the first refresh never reached its walk — nothing was in flight")
+        #expect(manager.activeRefreshKey != nil, "the first refresh is loading but holds no dedupe key")
+
+        // The duplicate, while the first is held mid-load. Deduped, it returns without loading;
+        // cancel-restarting the first would load both panes again.
+        await manager.refreshTreesAndScan(left: left, right: right)
+        gate.release.signal()
+        _ = await first
+        try #require(!gate.releasedByTimeout, "the gate timed out: the first refresh was never actually held in flight")
 
         // Deduped: each pane loaded exactly once (the first refresh only, not restarted).
         #expect(manager.leftLoadGeneration == 1)
@@ -124,13 +134,23 @@ import Testing
     /// the strand race the dedupe exists to close. Sequence: A(K1) superseded by B(K2), C(K1)
     /// registers K1 again, A finally unwinds; A must not release C's key.
     @MainActor
-    @Test func testStaleRefreshUnwindKeepsNewerSameKeyRefreshDeduped() async throws {
+    @Test(.parksThreads(3)) func testStaleRefreshUnwindKeepsNewerSameKeyRefreshDeduped() async throws {
         final class CompletionFlag { var done = false }
 
         let mockFM = MockFileManager()
-        mockFM.enumeratorDelay = 0.1
-        // Give K1's left root a subdirectory so C's deep walk takes several enumerator passes —
-        // C must still be mid-flight when the stale A unwinds.
+        // Each refresh is HELD at its own left root's listing until the test lets it go, so the
+        // interleaving below is a fact rather than a race: A parks at /left, B at /left2, C at
+        // /left again, each armed only once the one before it has parked. This ran on
+        // `enumeratorDelay = 0.1`, waited to SEE each refresh's key — windows, B's one listing
+        // long — and then required C to be walking still after A and B had unwound, which only a
+        // slow enough walk made true.
+        let armed = LockedBox<[String: ParkGate]>([:])
+        mockFM.onEnumerate = { url in
+            // Taken out under the lock, parked outside it: the park blocks this walk's thread only.
+            armed.withLock { $0.removeValue(forKey: url.path) }?.park()
+        }
+        let holdA = ParkGate(), holdB = ParkGate(), holdC = ParkGate()
+        // K1's left root has a subdirectory, so C's deep walk goes on past the held listing.
         for dir in ["/left", "/left/sub", "/right", "/left2", "/right2"] {
             try mockFM.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
         }
@@ -143,23 +163,33 @@ import Testing
         let l2 = CloudProvider(id: "L2", displayName: "L2", imageName: "folder", rootPath: "/left2", type: .iCloud)
         let r2 = CloudProvider(id: "R2", displayName: "R2", imageName: "folder", rootPath: "/right2", type: .iCloud)
 
-        // A (K1) — superseded below while its detached walks are still sleeping.
+        // A (K1) — held mid-load, to be superseded while its detached walk is still out.
+        armed.withLock { $0["/left"] = holdA }
         let a = Task { await manager.refreshTreesAndScan(left: l1, right: r1) }
-        await waitUntil("first refresh becomes active") { manager.activeRefreshKey != nil }
+        await awaitSignal(holdA.entered, "A never reached its walk")
+        #expect(manager.activeRefreshKey?.leftId == "L1")
 
-        // B (K2) cancels A; C (K1) cancels B and re-registers A's key.
+        // B (K2) cancels A; C (K1) cancels B and re-registers A's key. Each is held mid-load too.
+        armed.withLock { $0["/left2"] = holdB }
         let b = Task { await manager.refreshTreesAndScan(left: l2, right: r2) }
-        await waitUntil("L2 refresh supersedes") { manager.activeRefreshKey?.leftId == "L2" }
+        await awaitSignal(holdB.entered, "B never reached its walk")
+        #expect(manager.activeRefreshKey?.leftId == "L2")
         let flag = CompletionFlag()
+        armed.withLock { $0["/left"] = holdC }
         let c = Task {
             await manager.refreshTreesAndScan(left: l1, right: r1)
             flag.done = true
         }
-        await waitUntil("L1 refresh re-runs") { manager.activeRefreshKey?.leftId == "L1" }
+        await awaitSignal(holdC.entered, "C never reached its walk")
+        #expect(manager.activeRefreshKey?.leftId == "L1")
 
-        // The stale refreshes unwind while C still runs; neither may release C's dedupe key.
+        // The stale refreshes unwind while C is still held; neither may release C's dedupe key.
+        holdA.release.signal()
+        holdB.release.signal()
         await a.value
         await b.value
+        try #require(!holdA.releasedByTimeout && !holdB.releasedByTimeout,
+                     "a stale refresh was let go by its gate's timeout, not by this test")
         try #require(!flag.done) // C must still be mid-flight for the pin below to mean anything
         #expect(manager.activeRefreshKey != nil)
 
@@ -169,7 +199,9 @@ import Testing
         await manager.refreshTreesAndScan(left: l1, right: r1)
         #expect(manager.leftLoadGeneration == generationBefore)
 
+        holdC.release.signal()
         await c.value
+        try #require(!holdC.releasedByTimeout, "the gate timed out: C was never actually held in flight")
         #expect(flag.done)
         #expect(manager.activeRefreshKey == nil)
     }

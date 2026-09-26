@@ -294,7 +294,11 @@ to see it.** The first walk now parks at `MockFileManager.enumeratorGate` — wh
 exactly this delay-and-wait pairing — the test asserts the held slot, and releases it after
 queueing, so the never-queue mutation fails at its assertion in 4ms instead of only under load.
 `ScanSupersedenceTests.testScanQueuedFromCancelledPredecessorStillPublishes` had the same shape and
-missed its window in a local full-package run the same day.
+missed its window in a local full-package run the same day. `ProgressiveLoadTests`' two
+refresh-dedupe tests, which had not failed yet, went the same way on 2026-09-27; the one that
+interleaves three refreshes needs a hold per refresh, which `enumeratorGate` (first listing only)
+cannot give, so it arms a `ParkGate` per path through `onEnumerate` — taken out of a `LockedBox`
+under its lock, parked outside it.
 
 Convert the hand-rolled `while … Date() < deadline` settle loops when you meet them, too: bounded,
 so never a hang, but wall-clock rather than `ContinuousClock`, and a loop whose exit condition has
