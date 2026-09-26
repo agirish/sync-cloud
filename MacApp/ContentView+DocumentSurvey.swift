@@ -111,6 +111,17 @@ extension ContentView {
     /// **The walk is what produces the count the offer card could not know**, so it runs first and
     /// its answer reaches the card before a single document is opened — which is exactly what the
     /// uncounted offer promises.
+    /// Starts the survey on a folder setup has just learned.
+    ///
+    /// **It moves the Organize scope to that folder first**, and that is the point rather than a
+    /// side effect: the survey card and the lens strip both read the scope, so a survey started on
+    /// `~/Documents` while Organize was scoped somewhere else would run invisibly — the card would
+    /// go on offering a read that was already happening.
+    func startDocumentSurvey(learnedRoot: URL) {
+        organizeScopePath = learnedRoot.path
+        startDocumentSurveyAction()
+    }
+
     func startDocumentSurveyAction() {
         guard let root = documentSurveyRoot else { return }
         Task { @MainActor in

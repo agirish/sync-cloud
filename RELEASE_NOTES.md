@@ -159,12 +159,56 @@ User-facing changes, newest first. For the full commit history see the
   left" under the file's name once it has been copying for a second. It stays off for a bulk sync,
   where several copies share the line.
 
+### Setting up is a guided sheet
+
+- **Ten screens instead of a five-step form**, and the order is the change: SyncCloud reads your
+  folder second, so the three questions after it can be asked with your own folder names in front
+  of you. Reading is names only and takes seconds — no document is opened at that stage.
+- **A screen that shows what it found.** Structure draws the tree SyncCloud read with its reading
+  of each folder beside it — "a year", "files go here", "inbox: nothing will be filed here" — and a
+  second view placing the loose files at the top of your folder where To File would put them. It is
+  on screen *before* anything is written, so going back to fix a name, a country or the folder
+  itself costs nothing.
+- **Nothing is written until you press Save.** The profile is built in memory and rebuilt whenever
+  you change an answer; Back from Structure mints nothing on disk.
+- **The likely countries arrive ticked, and "likely" is measured.** A short folder name pre-ticks
+  only when it is a real country code *and* it splits five or more different parent folders — the
+  bar the reference tree set. `EMP`, `IT` and `PRD` are offered unticked, because a count alone
+  cannot tell a country from a department.
+- **The name question asks for the forms, not the name.** Surname-first is its own suggestion
+  because the matcher is positional; initials are offered and left unticked; an accented name is
+  offered in both spellings. The surname builds the forms and is not saved on its own.
+- **The text-size control is on every screen**, so somebody who needs bigger text can get it on
+  screen 1 rather than screen 9. It steps through all ten sizes, the same stops View ▸ Text Size
+  reaches.
+- **Setup no longer estimates how long it takes.** The only duration it quotes is the document
+  read's own "About 3 h for N documents", which is measured from a real count and is work you
+  choose.
+
+### Reading documents says so wherever you are
+
+- **A line under Organize's header on every lens** while documents are being read, with Pause and
+  Stop on it. The card that offers the read lives on one lens; a three-hour background job needed
+  to be visible from the other five.
+
+### Settings
+
+- **General has "Run setup again…"** and **Advanced has "Reset setup…"**, which forgets that setup
+  has run so it offers itself again on the next launch. The Reset All Settings alert now says the
+  same thing about itself.
+
 ### Fixes
 
 - **The ⌘/ shortcuts list no longer offers ⌘-double-click.** Its Tabs group went on saying that
   ⌘-double-clicking a folder opens it in a new tab for the whole of v5.3, which had taken that
   gesture out so that ⌘-click and ⇧-click could select in Columns. The row is gone. To open a folder
   in a new tab, right-click it, or select it and choose File ▸ Open in New Tab.
+- **A Mac that had never learned a folder tree could not learn one.** The app only told its engine
+  where profiles live *after* finding a profile there, so on a fresh install the first walk refused
+  with "no profiles directory was configured" before reading a single folder. Found by rehearsing a
+  first run with the profiles directory moved aside.
+- **Organize's Help page said six sections and listed five** — Storage was missing from the list,
+  and two more sentences on the page agreed with the wrong number.
 
 ---
 

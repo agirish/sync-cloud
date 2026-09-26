@@ -61,8 +61,8 @@ import Design
     /// test stayed green through it. A preset row narrower than its content does not shrink far
     /// enough to survive — it truncates — so the rule is that it is never given a fixed width.
     @Test func theSetupFormUsesTheSpecimenTilesAndDoesNotPinTheirWidth() throws {
-        let source = try Self.appSource("SetupSheet.swift")
-        let statement = try #require(Self.expression(containing: "SizePresetRow(fontSize: setupFontSize",
+        let source = try Self.appSource("Setup/AppearanceScreen.swift")
+        let statement = try #require(Self.expression(containing: "SizePresetRow(fontSize: $fontSize",
                                                     in: source))
 
         #expect(statement.contains("style: .specimen"),

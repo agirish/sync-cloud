@@ -191,7 +191,9 @@ import Testing
         // scan exists for. Row spacing, one control below it, is still segmented and still here.
         // 7 since the Compare Copies surface gained its side-by-side / swipe / onion / difference
         // mode picker.
-        #expect(sites == 7, "expected 7 segmented pickers in the app, found \(sites)")
+        // 8 since setup's Structure screen gained "Your folders / Where loose files would go" —
+        // and setup's Appearance screen re-uses the light/dark picker that was already counted.
+        #expect(sites == 8, "expected 8 segmented pickers in the app, found \(sites)")
     }
 
     /// Every Swift file the SHIPPING app is built from: each module's `Sources`, plus `MacApp`.

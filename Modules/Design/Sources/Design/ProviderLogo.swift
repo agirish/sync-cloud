@@ -29,6 +29,8 @@ import AppKit
 public struct ProviderLogo: View {
     private let imageName: String
     private let size: CGFloat
+    /// The box's width. Equal to `size` for the square initializer; wider for `capHeight:`.
+    private let width: CGFloat
     private let isMonochrome: Bool
     private let isInAppKitLabel: Bool
 
@@ -66,9 +68,34 @@ public struct ProviderLogo: View {
                 inAppKitLabel: Bool = false) {
         self.imageName = imageName
         self.size = size
+        self.width = size
         self.isMonochrome = monochrome
         self.isInAppKitLabel = inAppKitLabel
     }
+
+    /// A mark fitted to a common **cap height**, in a column wide enough for the widest of them.
+    ///
+    /// **`size:` fits a square, and these four marks are not one shape.** Measured at `size: 24`,
+    /// iCloud's cloud and OneDrive's come out 24×16 while Drive's triangle and Dropbox's box come
+    /// out 24×22 — the clouds are half again as wide as they are tall, so they hit the box's width
+    /// first and stop 6pt short of its height, 3pt below its top edge. A list carrying all four
+    /// draws two marks at one size and two at another, sitting on two different lines. That is
+    /// fine for a lone mark in a header; it is the whole impression in a column of them.
+    ///
+    /// Fitting inside `capHeight * columnAspect` by `capHeight` fixes it without a per-asset table:
+    /// a 1.5:1 cloud fills the width and the height together, and a squarer mark fits on height and
+    /// centres in what is left. Every mark then shares a cap height and a column.
+    public init(_ imageName: String, capHeight: CGFloat, monochrome: Bool = false) {
+        self.imageName = imageName
+        self.size = capHeight
+        self.width = capHeight * Self.columnAspect
+        self.isMonochrome = monochrome
+        self.isInAppKitLabel = false
+    }
+
+    /// How much wider than tall the mark column is — the aspect of the widest asset, measured.
+    /// iCloud's and OneDrive's are 1.5:1; Drive's and Dropbox's are near 1.1:1.
+    public static let columnAspect: CGFloat = 1.5
 
     public var body: some View {
         if hasBundledAsset {
@@ -110,12 +137,12 @@ public struct ProviderLogo: View {
             // A symbol fills its frame edge-to-edge where a logo asset carries its own padding; at
             // 0.82 the folder sits on the same optical rung as the brand marks.
             .frame(width: size * 0.82, height: size * 0.82)
-            .frame(width: size, height: size)
+            .frame(width: width, height: size)
         }
     }
 
-    /// The brand mark as SwiftUI draws it everywhere but an AppKit-rendered label: resizable, fitted
-    /// into a `size` square.
+    /// The brand mark as SwiftUI draws it everywhere but an AppKit-rendered label: resizable,
+    /// fitted into the box the initializer chose — a `size` square, or a `capHeight` column.
     private var resizableAsset: some View {
         Image(imageName)
             .resizable()
@@ -123,7 +150,7 @@ public struct ProviderLogo: View {
             // choice at the call site instead of one branch and one absence.
             .renderingMode(isMonochrome ? .template : .original)
             .scaledToFit()
-            .frame(width: size, height: size)
+            .frame(width: width, height: size)
     }
 
     /// A private copy of the brand asset carrying `size` as its own size, aspect preserved — the

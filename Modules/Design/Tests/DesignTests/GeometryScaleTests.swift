@@ -129,22 +129,31 @@ import Testing
     /// sit inert under the pointer: the accent swatches, "Make primary", "Remove", the person and
     /// place capsules, "Change", and a chip's dismiss glyph.
     ///
-    /// Scoped to this one file rather than the whole app because two sites elsewhere are
+    /// Scoped to the setup sheet's own directory rather than the whole app because two sites
+    /// elsewhere are
     /// deliberately unconverted (`TidyGroupCard`'s keeper radio pushes an `NSCursor`;
     /// `DifferencesView`'s count pill gates hover on `hasScanned`), and an app-wide assertion
     /// would need an allow-list — which is a registry, and a registry is exactly what stops
     /// covering the whole set the moment someone adds a file to it.
     @Test func theSetupSheetHasNoChromelessButtonWithoutAHoverAffordance() throws {
-        let sheet = try Self.appSwiftSources()
-            .first { $0.path.hasSuffix("MacApp/SetupSheet.swift") }
-        let path = try #require(sheet, "SetupSheet.swift was not found — the scan cannot prove anything")
-        let text = try String(contentsOf: path, encoding: .utf8)
+        // **The sheet is a directory now.** Scanning only `SetupSheet.swift` after the split would
+        // read the host, which draws no button of its own, and report a clean sweep of nothing.
+        let files = try Self.appSwiftSources().filter {
+            $0.path.contains("/MacApp/Setup/") || $0.path.hasSuffix("MacApp/SetupSheet.swift")
+        }
+        #expect(files.count >= 10,
+                "the setup sheet is \(files.count) file(s) — the scan is looking at the wrong place")
+        let text = try files.map { try String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
 
-        // Prove the file read is the real one before asserting anything about its absences: an
-        // empty or wrong file has no `.plain` in it either, and would pass this silently.
+        // Prove the read is the real one before asserting anything about its absences: an empty or
+        // wrong set of files has no `.plain` in it either, and would pass this silently.
         #expect(text.contains("struct SetupSheet"), "that is not the setup sheet")
+        #expect(text.contains("struct SetupScreenCard"), "the sheet's chrome was not read")
         let affordances = text.components(separatedBy: ".buttonStyle(.hoverAffordance(").count - 1
-        #expect(affordances >= 7,
+        // Re-derived from where the affordances actually ended up after the split: the accent
+        // swatch, the two chip rows (people and countries), the name forms, the outline rows in the
+        // tree, More options, the found-name chips and the Start-with buttons.
+        #expect(affordances >= 8,
                 "only \(affordances) hover affordances in the setup sheet — the conversion regressed")
 
         let plain = text.components(separatedBy: ".buttonStyle(.plain)").count - 1

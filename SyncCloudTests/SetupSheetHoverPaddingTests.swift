@@ -30,14 +30,32 @@ import Testing
         var outside: [String: Int] = [:]
     }
 
+    /// Every source file the sheet is made of, as one stream of lines.
+    ///
+    /// **The sheet is a directory now, not a file.** Scanning only `SetupSheet.swift` after the
+    /// split would have looked at the host — which has no affordance in it at all — and reported a
+    /// clean sweep of nothing, which is why the floor below is a floor.
     static func setupSheetSource() throws -> [String] {
-        let url = URL(fileURLWithPath: #filePath)      // …/SyncCloudTests/<this>.swift
+        let repo = URL(fileURLWithPath: #filePath)     // …/SyncCloudTests/<this>.swift
             .deletingLastPathComponent()               // …/SyncCloudTests
             .deletingLastPathComponent()               // repo root
-            .appendingPathComponent("MacApp/SetupSheet.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read SetupSheet.swift — every check below would be vacuous")
-        return text.components(separatedBy: .newlines)
+        let directory = repo.appendingPathComponent("MacApp/Setup")
+        let files = try #require(try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil), "cannot read MacApp/Setup")
+            .filter { $0.pathExtension == "swift" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            + [repo.appendingPathComponent("MacApp/SetupSheet.swift")]
+        try #require(files.count >= 10, "the setup directory has \(files.count) files — this scan is looking at the wrong place")
+        var lines: [String] = []
+        for file in files {
+            let text = try #require(try? String(contentsOf: file, encoding: .utf8),
+                                    "cannot read \(file.lastPathComponent) — every check below would be vacuous")
+            lines += text.components(separatedBy: .newlines)
+            // A file boundary the backward scan cannot walk across: without it the last button of
+            // one file would collect paddings from the next.
+            lines.append("Button {")
+        }
+        return lines
     }
 
     /// `(edgeKey, magnitude, isNegative)` for a `.padding(…)` line, or nil if it is not one with a
@@ -90,9 +108,13 @@ import Testing
         let all = Self.sites(lines)
         #expect(all.count >= 7, "expected the sheet's hover-affordance buttons, saw \(all.count)")
 
+        // **Two, and the number came down honestly.** The form this replaced compensated four
+        // controls; two of them — the card's own dismiss glyph and a Change link — are now a
+        // `CloseButton` from `Design` and a plain button, neither of which needs the idiom. What is
+        // left is the accent swatch and the remove glyph inside a chip.
         let compensated = all.filter { !$0.outside.isEmpty }
-        #expect(compensated.count == 4, """
-            expected 4 compensated controls (hue swatch, Remove, Change, dismiss glyph), \
+        #expect(compensated.count == 2, """
+            expected 2 compensated controls (the accent swatch, a chip's remove glyph), \
             saw \(compensated.count) at lines \(compensated.map(\.line))
             """)
 
@@ -117,12 +139,12 @@ import Testing
         // mutated nothing that any site could see, and reported that the scan was blind when it
         // was the mutation that had missed.
         let styleLine = try #require(lines.firstIndex {
-            $0.contains(".buttonStyle(.hoverAffordance") && $0.contains("shape: .circle")
-        }, "the hue swatch's button style moved — retarget this mutation")
+            $0.contains(".buttonStyle(.hoverAffordance(.circular")
+        }, "the accent swatch's button style moved — retarget this mutation")
         let target = try #require((0..<styleLine).reversed().first {
-            lines[$0].trimmingCharacters(in: .whitespaces) == ".padding(4)"
-        }, "the hue swatch's inside padding moved — retarget this mutation")
-        lines[target] = lines[target].replacingOccurrences(of: ".padding(4)", with: ".padding(6)")
+            lines[$0].trimmingCharacters(in: .whitespaces) == ".padding(3)"
+        }, "the accent swatch's inside padding moved — retarget this mutation")
+        lines[target] = lines[target].replacingOccurrences(of: ".padding(3)", with: ".padding(6)")
 
         let drifted = Self.sites(lines).filter { site in
             site.outside.contains { key, count in site.inside[key, default: 0] < count }

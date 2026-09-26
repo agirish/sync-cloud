@@ -120,8 +120,10 @@ import Testing
     /// extracted for testability is one revert from being unused.
     @Test func theFormHandsTheWalkTheHouseholdItCollected() throws {
         let source = try Self.setupSheetSource()
-        #expect(source.contains("registry: walkRegistry"),
-                "the walk is no longer handed the draft household")
+        // Both call sites: the preview Structure reads, and the write Save performs. A household
+        // handed to one and not the other is a screen showing a profile the save would not produce.
+        #expect(source.components(separatedBy: "registry: walkRegistry").count - 1 >= 2,
+                "the walk is no longer handed the draft household at both the preview and the write")
         #expect(!source.contains("registry: roster?.registry"),
                 "the walk is back to passing a roster that is nil on a fresh machine")
     }
@@ -160,13 +162,21 @@ import Testing
         #expect(!stripped.contains("not a read"), "the stripper is keeping comments")
     }
 
+    /// The file the two defects this suite is about would recur in.
+    ///
+    /// **Re-pointed from `SetupSheet.swift` to `SetupModel.swift`** when the sheet became a host
+    /// and the rules moved to a model: the captured-store bug and the registry hand-off both live
+    /// wherever the roster is read and the walk is called, which is now here. The size floor came
+    /// down with it — the model is the rules, not the rules plus ten screens — and it is still a
+    /// floor rather than nothing, so a scan of a file that has been emptied fails instead of
+    /// passing vacuously.
     private static func setupSheetSource() throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/SetupSheet.swift")
+            .appendingPathComponent("MacApp/Setup/SetupModel.swift")
         let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read SetupSheet.swift — this scan would be vacuous")
-        try #require(source.count > 5000, "SetupSheet.swift is implausibly short")
+                                  "cannot read SetupModel.swift — this scan would be vacuous")
+        try #require(source.count > 5000, "SetupModel.swift is implausibly short")
         return source
     }
 
@@ -179,9 +189,9 @@ import Testing
     /// when it is reached instead.
     @Test func seedingTheRootDoesNotStartAWalk() throws {
         let source = try Self.setupSheetSource()
-        let body = try #require(Self.bodyOf("private func seedWalkRoot()", in: source))
-        #expect(!body.contains("proposePlaces()"), "seeding walks for places again")
-        #expect(!body.contains("proposePeople()"), "seeding walks for people again")
+        let body = try #require(Self.bodyOf("func seedWalkRoot()", in: source))
+        #expect(!body.contains("startWalk()"), "seeding reads the tree again")
+        #expect(!body.contains("walkForSetup"), "seeding reads the tree again")
         #expect(body.contains("invalidateProposals()"), "seeding no longer drops the old tree's work")
     }
 

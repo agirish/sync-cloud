@@ -70,6 +70,44 @@ public enum JurisdictionCandidates {
     /// is a folder, not an axis. This is also the bar `Singapore` fails on the reference tree.
     public static let minimumDistinctParents = 3
 
+    /// How many distinct parents a value needs before setup **pre-ticks** it.
+    ///
+    /// Proposing and pre-ticking are different acts, and the bar is different for the same reason:
+    /// a proposal costs the user one glance and a tick costs them a wrong profile they approved.
+    /// ``minimumDistinctParents`` is the bar to be *asked about*; this is the bar to be *answered
+    /// for*, so it sits above it and is measured rather than argued —
+    /// `JurisdictionConfidenceGroundTruthTests` checks every pre-ticked value against the
+    /// hand-built profile's own jurisdiction set on the reference tree.
+    ///
+    /// **Five is measured, and it is also the ceiling.** On the reference tree (2026-09-08, display
+    /// held awake) the proposer offers `US`, `HPE`, `IN`, `IND`, `PRD` and `IT`; at five, exactly
+    /// `US` (30 distinct parents) and `IN` (5) pre-tick, and both are in the hand-built profile's
+    /// jurisdiction set. Six would drop `IN`, which is a country this tree really is organised by,
+    /// so the bar cannot go up without losing a right answer and cannot go down without admitting
+    /// the ones below it. `IND` and `HPE` are three letters and fail the region check whatever
+    /// their parent count; `IT` and `PRD` sit under the bar.
+    ///
+    /// Raise it only if a run of that test names a value the profile does not carry, and record
+    /// what it named.
+    public static let confidentDistinctParents = 5
+
+    /// Whether setup should offer this candidate already ticked.
+    ///
+    /// Two conditions, and neither alone is enough. The parent count says the value behaves like
+    /// an axis on this tree; the region check says it is a country rather than an employer, a
+    /// department or a product stage — `EMP`, `IT` and `PRD` all clear the parent bar on the
+    /// reference tree, and `IT` is the one that shows why a count cannot settle it alone.
+    ///
+    /// **Alpha-2 only, which is a real limit and not a rounding.** `Locale.Region.isoRegions`
+    /// carries two-letter codes, while ``componentLength`` admits three — so `USA`, `UAE` and
+    /// `IND` are proposed and can never be pre-ticked, no matter how many parents they split. That
+    /// is a tick the user has to make by hand; the alternative is an alpha-3 table this file would
+    /// then have to keep current.
+    public static func isConfident(_ candidate: JurisdictionCandidate) -> Bool {
+        guard candidate.parents.count >= confidentDistinctParents else { return false }
+        return Locale.Region.isoRegions.contains(Locale.Region(candidate.value))
+    }
+
     /// Candidate jurisdiction values found in `tree`, strongest first.
     ///
     /// - Parameters:

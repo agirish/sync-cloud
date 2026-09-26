@@ -5994,3 +5994,25 @@ files the render suites open (removed when the test process exits), and the focu
 test files had copied; the header render helper reads its bitmap's bytes once and closes its window.
 `EditorWorkspaceView` exists only on `main` (`workspace=0` on every maintenance line in TE33's
 measurement above): **not owed**.
+
+---
+
+## The guided setup sheet (v5.4)
+
+Recorded while the work sat unlanded in a worktree, because a record written now is the only one
+that carries the per-file reasoning; reconstructing it from a squashed branch later is the
+expensive half. **Not a to-do list** — [`CLAUDE.md`](../CLAUDE.md)'s standing direction is `main`
+only.
+
+| What is on `main`'s successor branch | `v4.x` | `v3.x` | `v2.x` | Status |
+|---|---|---|---|---|
+| **`SetupWalk` + `walkForSetup`, and the split of `deriveFolderProfile` into `writeWalkProfile` + `previewProfile`** — one read of the tree held for the life of the sheet, and a profile built in memory before anything is written | **Applies in substance.** `FolderSurveyBuilder`, `PersonCandidates` and `JurisdictionCandidates` are all there, and `build` is pure on that line too, so the preview has something to build and the split has something to split. What differs is the caller: `v4.x`'s setup form is the five-step one, which walks three times by design | **Does not apply.** No `FolderSurveyBuilder`, no filing profile | **Does not apply**, same reason | RECORDED — not owed (`main` only) |
+| **`FolderReading`, `SetupLooseFileRouting`, `JurisdictionCandidates.isConfident`** — words for the profile's roles, name-only routing of the root's loose files, and the measured bar for pre-ticking a country | **Applies in substance for the first two** (`StructureDivergence` and `FilingRouter` are both present); `isConfident` applies as written. All three are new files with no call site on that line, so picking them would add code nothing runs | **Does not apply** | **Does not apply** | RECORDED — not owed |
+| **The sheet itself** — `SetupFlow.Screen` recut to ten cases, `SetupModel`, `MacApp/Setup/` (chrome plus ten screens), and the retirement of the five-step form | **Does not apply as written.** It replaces a file `v4.x` carries in a different shape, and every test in `§5` of the plan would have to be settled against that line's own copy. A v4 user's setup is the form that shipped with v4 | **Does not apply.** No setup form at all | **Does not apply**, same reason | RECORDED — not owed |
+| **`FilingArtifacts.attach` hands over `filingProfilesDirectory` before it reads a profile** | **Applies cleanly, and is the one thing here worth sending on its own merits if the direction ever changes.** It is a one-line reordering that fixes a real defect that line shares: on a Mac with no profile the directory was never handed over, so the walk that creates the first profile refused with `no profiles directory was configured` before reading a folder. `v4.x` has both `FilingArtifacts.attach` and a setup step that runs that walk, so the defect reproduces there verbatim | **Does not apply.** No `FilingArtifacts` | **Does not apply**, same reason | RECORDED — not owed, but the only defect fix in this batch (`v4.x`) |
+| **`DocumentSurveyStrip`** — the reading line on every Organize lens | **Does not apply.** `v4.x` has no document survey to report (see the rows above), so there is no run for a strip to announce | **Does not apply** | **Does not apply** | RECORDED — not owed |
+| **`ProviderOptionRows`, `GeneralRows`, `LaunchAtLoginRow`, `NotifyInBackgroundRow`, `OpenAtRefusal`** — Settings rows extracted so setup and Settings are one control | **Applies in substance**, and is behaviour-preserving on its own: it moves code without changing what any control does. Only worth picking as groundwork for the sheet, which is not owed | **Does not apply.** `SettingsView` is a different shape | **Does not apply** | RECORDED — not owed |
+
+**Checked and not owed is the finding here**, not an omission: every row above was read against the
+maintenance lines rather than assumed, and the one that would have been worth sending — the
+`attach` reordering — is named as such so a future audit does not have to find it again.

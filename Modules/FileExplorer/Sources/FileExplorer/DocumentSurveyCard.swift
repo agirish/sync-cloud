@@ -133,8 +133,10 @@ public enum DocumentSurveyCardText {
                 return opening + "It runs in the background over a few hours and can be paused. "
                     + "It counts the documents first and says how many before it opens any."
             }
-            return opening + "About 3 h for \(documents.formatted()) documents, in the "
-                + "background. Pausable; only new documents are read next time."
+            // The figure itself lives in ``DocumentSurveyCost``: setup's Structure screen offers
+            // the same read, and one number worded twice becomes two promises.
+            return opening + DocumentSurveyCost.offerClause(documents: documents)
+                + " Pausable; only new documents are read next time."
         case .running(_, _, let folder, let seconds, let pause):
             if let pause {
                 return pause.resumesOnItsOwn ? "\(pause.sentence) Resumes on its own."

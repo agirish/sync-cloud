@@ -244,16 +244,28 @@ struct SizePresetSpecimen: View {
     /// The tile face's fixed height, so every `%` label in the row sits on one baseline no matter
     /// what the preset draws above it.
     ///
-    /// **14pt, and the number is a budget rather than a taste.** This row goes on the setup form's
-    /// You step, which shares one card with People and Done and is measured against what a
-    /// 1280×800 display can show without scrolling (`SetupSheetFitTests.everyBoundedStepFitsThe
-    /// CardTheyShare`). The first draft drew a 26pt face with its own label line and caption and
-    /// put the step 88pt over that ceiling.
-    static let faceHeight: CGFloat = 14
+    /// **26pt, and the number is a budget rather than a taste — it was 14 for a step that no
+    /// longer exists.** The 14 was bought from the retired setup *form*, where this row shared one
+    /// card with two other steps and 12pt of face was the difference between fitting a 1280×800
+    /// display and not. The guided sheet gives Appearance a screen of its own with 180pt spare
+    /// (`SetupSheetFitTests`), and 14pt was not paying for itself there: `SizePreset.all` holds two
+    /// presets at 100% — compact rows and comfortable ones — and the whole job of drawing the
+    /// difference rather than naming it falls on this picture, because the two tiles' labels both
+    /// read `100%`. At 14pt that difference is three bars against two, three pixels apart, and the
+    /// row offers the reader two tiles they cannot tell apart. At 24 — with `maximumRows` moved to
+    /// match — it is a stack of single bars against a stack of paired ones, which is what compact
+    /// rows and comfortable ones actually look like.
+    static let faceHeight: CGFloat = 24
 
-    /// Never draw more than this many rows, however small the type gets — past four the bars stop
+    /// Never draw more than this many rows, however small the type gets — past this the bars stop
     /// reading as rows of text and start reading as a texture.
-    static let maximumRows = 4
+    ///
+    /// **Seven, and it moves with `faceHeight`.** What the cap is really about is bars per point of
+    /// face, so raising the face without raising the cap does not make the picture bigger — it lets
+    /// the *comfortable* presets climb to the ceiling the compact ones were already sitting at, and
+    /// the two 100% tiles come out with four bars each. The pair (24, 7) holds the same texture the
+    /// pair (14, 4) did, at a size a person can actually read.
+    static let maximumRows = 7
 
     /// The height of one miniature row at `preset`: a name bar, plus the size-and-date bar when
     /// this density shows one.

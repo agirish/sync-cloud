@@ -25,7 +25,9 @@ enum SetupArt {
     /// the other direction: `everyPanelsArtworkIsDrawn` fails on a panel whose art nothing renders.
     // CaseIterable so the render suite covers every page's art by construction — a case added
     // here is rendered by `testEveryTourPagePaintsItsIllustration` without anyone remembering to.
-    enum Art: Hashable, Sendable, CaseIterable { case welcome, browse, compare, transfer, duplicates, filing }
+    enum Art: Hashable, Sendable, CaseIterable {
+        case welcome, browse, compare, transfer, duplicates, filing, edit
+    }
 }
 // MARK: - The illustrations
 
@@ -80,6 +82,7 @@ struct SetupIllustration: View {
         case .transfer: TransferArt(leftName: leftName, rightName: rightName)
         case .duplicates: DuplicatesArt()
         case .filing:   FilingArt()
+        case .edit:     EditArt()
         }
     }
 }
@@ -372,3 +375,48 @@ private struct FilingArt: View {
     }
 }
 
+/// A page of text with a caret in it, and a heading rule above — the editor, said in shapes.
+///
+/// Drawn rather than screenshotted for the reason every illustration here is: it has to survive a
+/// text-size change and both appearance modes, and it must paint something at any size the render
+/// suite asks it for.
+private struct EditArt: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+    @State private var caretOn = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            // The heading, in the tint: Markdown's one visible structure.
+            Capsule().fill(AnyShapeStyle(.tint)).frame(width: 62, height: 7)
+            ForEach(0..<4, id: \.self) { index in
+                HStack(spacing: 4) {
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.45))
+                        .frame(width: [96.0, 80.0, 88.0, 54.0][index], height: 5)
+                    if index == 3 {
+                        // The caret sits at the end of the last line, where typing would be.
+                        Rectangle()
+                            .fill(AnyShapeStyle(.tint))
+                            .frame(width: 2, height: 12)
+                            .opacity(caretOn ? 1 : 0.15)
+                    }
+                }
+                .opacity(appeared ? 1 : 0)
+                .offset(x: appeared ? 0 : -8)
+                .animation(reduceMotion ? nil
+                           : .easeOut(duration: 0.32).delay(0.07 * Double(index)),
+                           value: appeared)
+            }
+        }
+        .padding(.leading, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear {
+            guard !reduceMotion else { appeared = true; caretOn = true; return }
+            withAnimation(.easeOut(duration: 0.4)) { appeared = true }
+            withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
+                caretOn = true
+            }
+        }
+    }
+}

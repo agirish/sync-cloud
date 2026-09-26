@@ -31,23 +31,29 @@ enum FilingArtifacts {
     ///   value that answers that, and it is what the setup form reads.
     @discardableResult
     static func attach(to manager: FileSyncManager, recordingTrend: Bool = false) -> Bool {
-        guard let profiles = FilingProfileStore.defaultDirectory(),
-              let loaded = FilingProfileStore.active(in: profiles) else { return false }
+        guard let profiles = FilingProfileStore.defaultDirectory() else { return false }
+
+        // **Handed over before the profile is read, and that is a fix rather than a tidy-up.**
+        // These two are *where things live*, not things that were found: the path is known on any
+        // Mac, profile or no profile. They used to be set below the `active(in:)` guard, so a
+        // machine that had never been surveyed — the one machine setup exists for — got a nil
+        // `filingProfilesDirectory`, and the walk that setup runs to CREATE the first profile
+        // failed with `.noProfilesDirectory` before it read a single folder. Nothing said so
+        // anywhere: the guard is the first line of `deriveFolderProfile`, so the failure arrived
+        // as a refusal with no walk behind it. Found by a fresh-machine rehearsal on 2026-09-08,
+        // with the profiles directory moved aside.
+        manager.filingProfilesDirectory = profiles
+        // Where the byte-hash and PDF-fingerprint indexes live, for the same reason.
+        manager.contentIndexDirectory = profiles.deletingLastPathComponent()
+
+        guard let loaded = FilingProfileStore.active(in: profiles) else { return false }
 
         manager.filingFolderProfile = loaded.profile
         manager.filingMemory = loaded.memory
-        // Where a re-survey writes the memory back — the same directory it was just read from,
-        // for the same reason it is read here and not in `Sync`.
-        manager.filingProfilesDirectory = profiles
         // …and the id it was read UNDER, so the re-survey writes back to the same folder. The four
         // stores below already take `loaded.id` for this reason; `resurveyFilingMemory` runs inside
         // `Sync` and had no way to reach it, so it fell back to the field inside the artifact.
         manager.filingProfileDirectoryId = loaded.id
-        // Where the byte-hash and PDF-fingerprint indexes live, so the filing queue can say
-        // "the tree already holds this document" and demote a folder's own copy stash. Handed
-        // over here for the same reason the line above is: `Sync` does not go looking for a
-        // home directory of its own.
-        manager.contentIndexDirectory = profiles.deletingLastPathComponent()
         // The roster is the one filing artifact the user edits, so it is handed over as a
         // STORE rather than a value — Settings writes through it, and the manager's
         // subscription recompiles the registry and the fingerprint without a relaunch.

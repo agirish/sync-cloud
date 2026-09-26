@@ -10,45 +10,18 @@ import Testing
 /// did it.
 @Suite struct PersonCandidatesTests {
 
-    private static func tree(_ paths: [String]) -> [FileNode] {
-        // Builds a nested tree from `A/B/C` strings, sharing parents.
-        var roots: [String: FileNode] = [:]
-        func insert(_ parts: ArraySlice<String>, into node: FileNode?) -> FileNode {
-            let name = String(parts.first!)
-            let rest = parts.dropFirst()
-            let existingChildren = node?.children ?? []
-            if rest.isEmpty {
-                return FileNode(id: "/root/" + name, name: name, isDirectory: true,
-                                children: existingChildren)
-            }
-            var children = existingChildren
-            let childName = String(rest.first!)
-            let existing = children.first { $0.name == childName }
-            let rebuilt = insert(rest, into: existing)
-            children.removeAll { $0.name == childName }
-            children.append(rebuilt)
-            return FileNode(id: "/root/" + name, name: name, isDirectory: true, children: children)
-        }
-        for path in paths {
-            let parts = path.split(separator: "/").map(String.init)
-            let top = parts[0]
-            roots[top] = insert(parts[...], into: roots[top])
-        }
-        return roots.values.sorted { $0.name < $1.name }
-    }
-
     // MARK: - What qualifies
 
     /// A direct child of a household folder is a person, on that folder's word alone.
     @Test func aChildOfAHouseholdFolderIsProposed() {
-        let proposals = PersonCandidates.propose(tree: Self.tree(["Family/Daughter", "Family/Son"]))
+        let proposals = PersonCandidates.propose(tree: FixtureTree.of(["Family/Daughter", "Family/Son"]))
         #expect(Set(proposals.map(\.name)) == ["Daughter", "Son"])
     }
 
     /// **A descendant is not a child**, which is the clause that took the reference tree from 79
     /// proposals to 28. `Family` says what its children are; it says nothing about its grandchildren.
     @Test func aDescendantOfAHouseholdFolderIsNotProposed() {
-        let proposals = PersonCandidates.propose(tree: Self.tree(["Family/Photos/Reference"]))
+        let proposals = PersonCandidates.propose(tree: FixtureTree.of(["Family/Photos/Reference"]))
         #expect(!proposals.map(\.name).contains("Reference"),
                 "matching anywhere in the path is what proposed Reference(41) on the real tree")
         // `Photos` IS a direct child of `Family`, so proposing it is the rule working — and it is
@@ -62,7 +35,7 @@ import Testing
     /// The rule this replaced proposed on it, and on a real document tree `Reference`, `Application`
     /// and `Statements` outranked every member of the household.
     @Test func aNameRepeatedAcrossBranchesIsNotProposedOnThatAlone() {
-        let proposals = PersonCandidates.propose(tree: Self.tree([
+        let proposals = PersonCandidates.propose(tree: FixtureTree.of([
             "Finance/Statements", "Immigration/Statements", "Legal/Statements",
         ]))
         #expect(proposals.isEmpty)
@@ -70,7 +43,7 @@ import Testing
 
     @Test func everyHouseholdParentNameWorks() {
         for parent in PersonCandidates.householdParents {
-            let proposals = PersonCandidates.propose(tree: Self.tree(["\(parent)/Daughter"]))
+            let proposals = PersonCandidates.propose(tree: FixtureTree.of(["\(parent)/Daughter"]))
             #expect(proposals.map(\.name) == ["Daughter"], "\(parent) did not read as a household folder")
         }
     }
@@ -98,7 +71,7 @@ import Testing
     }
 
     @Test func theStoplistCoversWordsThatLookLikeNames() {
-        let proposals = PersonCandidates.propose(tree: Self.tree(["Family/Archive", "Family/Shared"]))
+        let proposals = PersonCandidates.propose(tree: FixtureTree.of(["Family/Archive", "Family/Shared"]))
         #expect(proposals.isEmpty)
     }
 
@@ -106,7 +79,7 @@ import Testing
 
     /// Somebody already on the roster is not proposed again, in any spelling.
     @Test func aKnownPersonIsNotOfferedBack() {
-        let tree = Self.tree(["Family/Daughter", "Family/Son"])
+        let tree = FixtureTree.of(["Family/Daughter", "Family/Son"])
         let proposals = PersonCandidates.propose(tree: tree, known: ["daughter"])
         #expect(proposals.map(\.name) == ["Son"], "offered a name the roster already has")
     }
@@ -114,7 +87,7 @@ import Testing
     /// A name nested under itself is one branch, not two — the correction
     /// `JurisdictionCandidates` needed for the same reason.
     @Test func aNameUnderItselfDoesNotCountTwice() {
-        let proposals = PersonCandidates.propose(tree: Self.tree(["Family/Daughter/Daughter"]))
+        let proposals = PersonCandidates.propose(tree: FixtureTree.of(["Family/Daughter/Daughter"]))
         #expect(proposals.map(\.name) == ["Daughter"])
         #expect(proposals.first?.folderCount == 1, "the nested copy was counted as a second folder")
     }
@@ -129,7 +102,7 @@ import Testing
     @Test func householdEvidenceOutranksFolderCount() {
         var paths = ["Family/Mother", "People/Mother", "Family/Reference"]
         paths += (1...12).map { "Work/Project\($0)/Reference" }
-        let proposals = PersonCandidates.propose(tree: Self.tree(paths))
+        let proposals = PersonCandidates.propose(tree: FixtureTree.of(paths))
 
         let names = proposals.map(\.name)
         #expect(names.first == "Mother",
@@ -140,7 +113,7 @@ import Testing
     }
 
     @Test func theOrderDoesNotWobbleBetweenRuns() {
-        let tree = Self.tree(["Family/Daughter", "Family/Son", "People/Daughter"])
+        let tree = FixtureTree.of(["Family/Daughter", "Family/Son", "People/Daughter"])
         let first = PersonCandidates.propose(tree: tree).map(\.name)
         for _ in 0..<5 {
             #expect(PersonCandidates.propose(tree: tree).map(\.name) == first)
@@ -151,7 +124,7 @@ import Testing
 
     /// Each proposal carries the parents that justify it, which is what the dialog shows.
     @Test func aProposalCarriesItsEvidence() throws {
-        let proposals = PersonCandidates.propose(tree: Self.tree(["Family/Daughter", "People/Daughter"]))
+        let proposals = PersonCandidates.propose(tree: FixtureTree.of(["Family/Daughter", "People/Daughter"]))
         let daughter = try #require(proposals.first)
         #expect(daughter.parents == ["Family", "People"])
         #expect(daughter.folderCount == 2)
@@ -168,7 +141,7 @@ import Testing
     /// `Bulk` sits under ONE household folder and eight ordinary ones, `Nadia` under TWO and no
     /// others — so evidence-first puts Nadia ahead and size-first puts Bulk ahead.
     @Test func theOrderIsEvidenceFirstNotSizeFirst() throws {
-        let tree = Self.tree(["Family/Nadia", "People/Nadia"]
+        let tree = FixtureTree.of(["Family/Nadia", "People/Nadia"]
                              + ["Family/Bulk"]
                              + (1...8).map { "Work/Project\($0)/Bulk" })
         let proposals = PersonCandidates.propose(tree: tree)
@@ -189,7 +162,7 @@ import Testing
     /// Ties on both evidence and size break by name, ascending — the third key, which the
     /// comparator spells by swapping its operands rather than by negating.
     @Test func aTieBreaksByNameAscending() {
-        let tree = Self.tree(["Family/Zoya", "Family/Amara"])
+        let tree = FixtureTree.of(["Family/Zoya", "Family/Amara"])
         let names = PersonCandidates.propose(tree: tree).map(\.name)
         #expect(names == ["Amara", "Zoya"], "ordered \(names) — the name tie-break is inverted")
     }

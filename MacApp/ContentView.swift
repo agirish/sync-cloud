@@ -2454,10 +2454,30 @@ struct ContentView: View {
         settings.resetAllSettings()
         (setLogLevel ?? { Logger.shared.minimumLevel = $0 })(.debug)
         syncManager.clearAllIgnoredItems()
+        // **The one thing the defaults domain does not carry.** `resetAllSettings()` drops all
+        // three setup flags with `removePersistentDomain`, so the alert's "Setup will offer itself
+        // again" needs no code behind it — but the draft is a file beside the profiles, and a reset
+        // that left it would have setup open on a fresh machine with a household already in it.
+        if let draft = SetupDraftStore.defaultURL() { SetupDraftStore.clear(at: draft) }
     }
 
     private func resetAllSettingsAction() {
         Self.applyFullSettingsReset(settings: settings, syncManager: syncManager)
+    }
+
+    /// Forgets that setup has run, and opens it at the beginning.
+    ///
+    /// The three keys and the draft, which is everything that says "this machine has been through
+    /// setup". Nothing else is touched: the profile, the roster and every preference stay.
+    private func resetSetupAction() {
+        hasCompletedSetup = false
+        hasSeenFirstRunWelcome = false
+        UserDefaults.standard.removeObject(forKey: SetupFlow.primarySourceDefaultsKey)
+        if let draft = SetupDraftStore.defaultURL() { SetupDraftStore.clear(at: draft) }
+        Logger.shared.info("Setup reset — the guided sheet will offer itself again")
+        showSettings = false
+        setupDismissedThisSession = false
+        showSetup = true
     }
 
     /// The in-window Help overlay (Help ▸ SyncCloud Help / ⌘?). HelpOverlay owns the backdrop,
@@ -2499,12 +2519,19 @@ struct ContentView: View {
                 availableSize: proxy.size,
                 hasFilingProfile: syncManager.filingFolderProfile != nil,
                 syncManager: syncManager,
+                // `showSetup` is the explicit route — the Help menu item and Settings' "Run setup
+                // again…". `shouldAutoShowSetup` is the app offering itself on launch. Only the
+                // first is an ask, and only an ask opens on the welcome card.
+                wasAskedFor: showSetup,
                 // A profile the user just produced has to take effect without a relaunch: this is
                 // the same read the app does at launch, run again now that there is something new
                 // on disk to read.
                 // A walk just wrote a profile — a new survey, and the one moment besides launch
                 // and a landing that O16's line should record.
                 onProfileWritten: { FilingArtifacts.attach(to: syncManager, recordingTrend: true) },
+                // Setup writes the profile and then offers to read the documents in it. The scope
+                // moves with it, so the strip on every Organize lens reports the run setup started.
+                onStartSurvey: { root in startDocumentSurvey(learnedRoot: root) },
                 // Through the one door, not by writing the latch here: `openSettings(on:)` stashes
                 // the tab it displaces so a refused open — one landing mid-destination-pick — can
                 // put it back. Presetting the tab and raising the latch by hand is the pairing that
@@ -2514,7 +2541,8 @@ struct ContentView: View {
                     openSettings(on: tab)
                 },
                 onFinish: { finishSetup() },
-                onDismiss: { dismissSetup() }
+                onDismiss: { dismissSetup() },
+                onStartWith: { start in openAfterSetup(start) }
             )
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
@@ -2530,6 +2558,26 @@ struct ContentView: View {
     private func dismissSetup() {
         setupDismissedThisSession = true
         showSetup = false
+    }
+
+    /// What a Start-with button on setup's Summary opens.
+    ///
+    /// **The workspace is set before the sheet closes**, so the app is already showing the thing
+    /// the button named when the card fades rather than a beat afterwards. Compare is only offered
+    /// when two locations are enabled — the button is hidden otherwise rather than opening two
+    /// copies of one account.
+    private func openAfterSetup(_ start: SetupStart) {
+        switch start {
+        case .toFile:
+            selectedWorkspace = .filing
+            selectedOrganizeLens = .toFile
+        case .compare:
+            let enabled = settings.enabledProviders
+            guard enabled.count >= 2 else { return }
+            selectedWorkspace = .compare
+            leftProviderId = enabled[0].id
+            rightProviderId = enabled[1].id
+        }
     }
 
     /// The user reached the end of the form.
@@ -2647,6 +2695,14 @@ struct ContentView: View {
             onClose: { showSettings = false },
             syncManager: syncManager,
             onResetAllSettings: { resetAllSettingsAction() },
+            // Unconditional, like the Help entry: setup has things to offer a machine that has
+            // already been through it, and finding it should not depend on the gate.
+            onRunSetup: {
+                showSettings = false
+                setupDismissedThisSession = false
+                showSetup = true
+            },
+            onResetSetup: { resetSetupAction() },
             // Settings ▸ People's "Show Their Files": the same gather ⌘K's People rows reach,
             // with the sheet closed first so the answer lands on a pane the user can see.
             onShowPerson: { person in

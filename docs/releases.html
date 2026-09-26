@@ -138,7 +138,7 @@
   <!-- v5.4 — DRAFT, not released. Keep the Latest badge on v5.3 until v5.4 is cut. -->
   <article class="rel draft">
     <div class="rel-head"><span class="v">v5.4</span><span class="tag draft">In development</span></div>
-    <p class="lede"><b>Not released yet</b> &#8212; this is what is on <code>main</code> since v5.3, and it may still change before v5.4 is cut. So far: <b>six ways to open a file in Edit</b>, including <code>&#8984;O</code> from any pane and a right-click in Compare&#8217;s differences and Duplicates&#8217; copies; <b>Edit shows one list of files, never two</b>; <b>a folder that already exists at the destination can be merged</b> rather than replaced; and <b>Cancel stops the copy it is in</b>, however large.</p>
+    <p class="lede"><b>Not released yet</b> &#8212; this is what is on <code>main</code> since v5.3, and it may still change before v5.4 is cut. So far: <b>setting up is a guided sheet of ten screens</b> that shows you what it made of your folders before it writes anything; <b>six ways to open a file in Edit</b>, including <code>&#8984;O</code> from any pane and a right-click in Compare&#8217;s differences and Duplicates&#8217; copies; <b>Edit shows one list of files, never two</b>; <b>a folder that already exists at the destination can be merged</b> rather than replaced; and <b>Cancel stops the copy it is in</b>, however large.</p>
     <div class="grp">
       <h3>The keyboard reaches the file panes</h3>
       <ul class="flist">
@@ -188,9 +188,28 @@
       </ul>
     </div>
     <div class="grp">
+      <h3>Setting up is a guided sheet</h3>
+      <ul class="flist">
+        <li><span class="ic">&#128203;</span><span><b>Ten screens, one question each.</b> Locations, the folder to learn from, your name, other people, countries &#8212; then Structure, Workspaces, Appearance and a summary. Five of them ask something; the rest confirm, show or offer.</span></li>
+        <li><span class="ic">&#127968;</span><span><b>A screen that shows what it found.</b> Structure draws the tree SyncCloud read with its reading of each folder beside it &#8212; &#8220;a year&#8221;, &#8220;files go here&#8221;, &#8220;inbox: nothing will be filed here&#8221; &#8212; and a second view placing the loose files at the top of your folder where To File would put them. Nothing has been written at that point, so going back to fix a name, a country or the folder costs nothing.</span></li>
+        <li><span class="ic">&#127758;</span><span><b>The likely countries arrive ticked, and &#8220;likely&#8221; is measured.</b> A short folder name pre-ticks only when it is a real country code <i>and</i> it splits five or more different parent folders. <code>EMP</code>, <code>IT</code> and <code>PRD</code> are offered unticked, because a count alone cannot tell a country from a department.</span></li>
+        <li><span class="ic">&#128100;</span><span><b>The name question asks for the forms, not the name.</b> Surname-first is its own suggestion because the matcher is positional; initials are offered and left unticked; an accented name is offered in both spellings. The surname builds the forms and is not saved on its own.</span></li>
+        <li><span class="ic">A</span><span><b>The text-size control is on every screen</b>, so somebody who needs bigger text can get it on screen 1 rather than screen 9. Setup no longer estimates how long it takes; the only duration it quotes is the document read&#8217;s own, measured from a real count.</span></li>
+      </ul>
+    </div>
+<div class="grp">
+      <h3>Reading documents says so wherever you are</h3>
+      <ul class="flist">
+        <li><span class="ic">&#128214;</span><span><b>A line under Organize&#8217;s header on every lens</b> while documents are being read, with Pause and Stop on it. The card that offers the read lives on one lens; a three-hour background job needed to be visible from the other five.</span></li>
+      </ul>
+    </div>
+<div class="grp">
       <h3>Fixes</h3>
       <ul class="flist">
         <li><span class="ic">&#8984;</span><span><b>The <code>&#8984;/</code> shortcuts list no longer offers <code>&#8984;</code>-double-click.</b> Its Tabs group went on saying that <code>&#8984;</code>-double-clicking a folder opens it in a new tab for the whole of v5.3, which had taken that gesture out so that <code>&#8984;</code>-click and <code>&#8679;</code>-click could select in Columns. The row is gone. To open a folder in a new tab, right-click it, or select it and choose File &#9656; Open in New Tab.</span></li>
+              <li><span class="ic">&#128295;</span><span><b>A Mac that had never learned a folder tree could not learn one.</b> The app only told its engine where profiles live <i>after</i> finding a profile there, so on a fresh install the first walk refused before reading a single folder. Found by rehearsing a first run with the profiles directory moved aside.</span></li>
+        <li><span class="ic">&#128295;</span><span><b>Organize&#8217;s Help page said six sections and listed five.</b> Storage was missing from the list, and two more sentences agreed with the wrong number.</span></li>
+      
       </ul>
     </div>
     <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v5.3...main">v5.3...main</a></p>

@@ -477,12 +477,16 @@ import Testing
     /// what a wrong answer looks like when it is caught.
     @MainActor
     private func mustFitTabs(_ settings: SettingsManager) -> [(SettingsView.SettingsTab, AnyView)] {
-        [(.general, AnyView(GeneralSettingsTab().environmentObject(settings))),
+        // **Non-nil closures, or the new sections are not measured.** Both setup buttons are
+        // drawn only when their closure is there, so a tab built with nils measures a tab without
+        // them — which is how Advanced's reset section went unmeasured for as long as it did.
+        [(.general, AnyView(GeneralSettingsTab(onRunSetup: {}).environmentObject(settings))),
          (.appearance, AnyView(AppearanceSettingsTab())),
          (.readability, AnyView(ReadabilitySettingsTab())),
          (.sync, AnyView(SyncSettingsTab(syncManager: nil).environmentObject(settings))),
          (.duplicates, AnyView(DuplicatesSettingsTab())),
-         (.advanced, AnyView(AdvancedSettingsTab(syncManager: nil, onResetAllSettings: nil)))]
+         (.advanced, AnyView(AdvancedSettingsTab(syncManager: nil, onResetAllSettings: {},
+                                                 onResetSetup: {})))]
     }
 
     // MARK: - Organize: the tab whose height is its user's data

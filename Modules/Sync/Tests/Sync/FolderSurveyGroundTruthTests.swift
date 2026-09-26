@@ -444,15 +444,27 @@ enum FolderSurveyGroundTruth {
         return "RAN — the survey rules were checked against the live tree"
     }
 
-    static let report: Report? = {
-        guard let expected = LiveProfile.profile else { return nil }
+    /// The real tree, walked **once** for every suite that needs it.
+    ///
+    /// Hoisted out of ``report`` when a second machine-pinned suite arrived
+    /// (`JurisdictionConfidenceGroundTruthTests`): two lazy statics each walking an iCloud-backed
+    /// `~/Documents` would double the one cost this file is organised around, and double the
+    /// exposure to the display going to sleep mid-run that the gates exist for.
+    static let liveWalk: (tree: [FileNode], stalled: Bool) = {
+        guard let expected = LiveProfile.profile else { return ([], false) }
         let root = (expected.root as NSString).expandingTildeInPath
-        guard let directory = FilingProfileStore.defaultDirectory() else { return nil }
-        let registry = FilingProfileStore.personRegistry(id: expected.profileId, profile: expected,
-                                                         in: directory)
         var stalled = false
         let tree = walk(URL(fileURLWithPath: root),
                         deadline: Date().addingTimeInterval(walkBudget), stalled: &stalled)
+        return (tree, stalled)
+    }()
+
+    static let report: Report? = {
+        guard let expected = LiveProfile.profile else { return nil }
+        guard let directory = FilingProfileStore.defaultDirectory() else { return nil }
+        let registry = FilingProfileStore.personRegistry(id: expected.profileId, profile: expected,
+                                                         in: directory)
+        let (tree, stalled) = liveWalk
         let built = FolderSurveyBuilder.build(tree: tree, root: expected.root,
                                               profileId: expected.profileId, registry: registry,
                                               jurisdictionValues: declaredJurisdictions)

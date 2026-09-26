@@ -1088,6 +1088,19 @@ public struct LensWorkspaceView: View {
             // scanned. The `sourceBar` sits below it (and only ever appears when the source rail
             // is collapsed, i.e. when there's no pane left to line up with anyway).
             lensHeaderCard(rows: rows, counts: counts, scopeFolders: scopeFolders)
+            // The reading is a three-hour background job and its card lives on one lens; the strip
+            // is how the other five say it is happening. Padded like `sourceBar`, below the header
+            // card whose 81pt this must not touch.
+            if let documentSurveyCard, DocumentSurveyStrip.isShown(for: documentSurveyCard) {
+                DocumentSurveyStrip(state: documentSurveyCard,
+                                    onResume: onResumeDocumentSurvey,
+                                    onPause: onPauseDocumentSurvey,
+                                    onStop: onStopDocumentSurvey)
+                    // The source bar's own inset, so the strip lines up with the row below it
+                    // rather than sitting on an inset of its own.
+                    .padding(.horizontal, LiquidGlass.cardInset + 12)
+                    .padding(.top, LiquidGlass.cardInset)
+            }
             if showSourcePicker { sourceBar }
             lensBody(rows: rows, counts: counts, scopeFolders: scopeFolders)
         }

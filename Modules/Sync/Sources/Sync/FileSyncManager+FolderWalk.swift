@@ -91,11 +91,18 @@ extension FileSyncManager {
     ///
     /// Returns the report, or the reason it could not run. **Never throws for "there was already a
     /// profile"** — that is a successful walk whose result is not in use, and the report says so.
+    ///
+    /// **The guided setup sheet no longer calls this**: it reads the tree once with
+    /// ``walkForSetup(root:known:)``, shows the user what a profile of it would say, and writes
+    /// with ``writeWalkProfile(tree:root:jurisdictionValues:registry:now:)`` when they approve.
+    /// This stays as the one-call form — walk and write, no preview — and as the behaviour net
+    /// under that split: `FolderWalkTests` measures the profile it produces, and A2 was verified
+    /// by diffing its output byte for byte across the change.
     public func deriveFolderProfile(root: URL,
                                     jurisdictionValues: Set<String> = [],
                                     registry: PersonRegistry? = nil,
                                     now: Date = Date()) async -> Result<FolderWalkReport, FolderWalkFailure> {
-        guard let directory = filingProfilesDirectory else {
+        guard filingProfilesDirectory != nil else {
             return .failure(.noProfilesDirectory)
         }
 
@@ -120,12 +127,35 @@ extension FileSyncManager {
         // The same walk the panes do. Names and counts only — no document is opened.
         //
         // **Unbounded, and deliberately so — a setup-scope decision, not an oversight.** The
-        // three setup walks (this one, `proposePlaces`, `proposePeople`) run over the profile
-        // root the user just pointed the sheet at, in a flow where three consecutive size prompts
-        // would cost more than they protect. The four Organize/Storage passes and the folder-
-        // memory re-survey all gate through `largeWalkConfirmer`; if setup ever grows a path onto
-        // an unvetted root, these three join them.
+        // setup walks run over the profile root the user just pointed the sheet at, in a flow
+        // where a size prompt would cost more than it protects. The four Organize/Storage passes
+        // and the folder-memory re-survey all gate through `largeWalkConfirmer`; if setup ever
+        // grows a path onto an unvetted root, these join them.
         let tree = await Self.buildTree(url: root, sortOption: .name)
+
+        return await writeWalkProfile(tree: tree, root: root,
+                                      jurisdictionValues: jurisdictionValues,
+                                      registry: registry, now: now)
+    }
+
+    /// Builds a profile from a tree already in hand and writes it.
+    ///
+    /// **Split out of ``deriveFolderProfile(root:jurisdictionValues:registry:now:)`` so the tree
+    /// and the write stop being one step.** The guided setup sheet reads the tree once, at Learn,
+    /// and shows the user what a profile of it would say several screens before anything is
+    /// written — so the write has to be reachable without walking again, and the preview has to be
+    /// reachable without writing. `deriveFolderProfile` is now this plus the walk, and produces a
+    /// byte-identical `folder-profile.json` for the same tree and the same `now`.
+    ///
+    /// - Parameter tree: the root's children, as ``buildTree(url:sortOption:fileManager:maxDepth:budget:linkedFolders:)``
+    ///   returns them.
+    public func writeWalkProfile(tree: [FileNode], root: URL,
+                                 jurisdictionValues: Set<String> = [],
+                                 registry: PersonRegistry? = nil,
+                                 now: Date = Date()) async -> Result<FolderWalkReport, FolderWalkFailure> {
+        guard let directory = filingProfilesDirectory else {
+            return .failure(.noProfilesDirectory)
+        }
 
         let recordedRoot = Self.recordedRoot(for: root)
         let profileId = Self.availableWalkProfileId(now: now, in: directory)
@@ -177,45 +207,26 @@ extension FileSyncManager {
         return .success(report)
     }
 
-    /// Walks `root` and proposes the folder names that might be places, with their evidence.
+    /// What the profile would say about a walked tree, without writing anything.
     ///
-    /// **A separate call from the derivation, and it walks again rather than holding the tree.** The
-    /// proposals have to be *confirmed* before a profile is built — used as-is the rule agrees with
-    /// the hand-built profile on 83.2% of folders, and every point of that gap is an invention
-    /// (`EMP` is an employer, `IT` a department, `PRD` a product stage) — so the user sees the list
-    /// between the two calls. A walk is seconds and a 3,000-folder tree held across a user decision
-    /// is state that can go stale while they think; walking twice is the cheaper mistake.
-    public func proposePlaces(root: URL) async -> [JurisdictionCandidate] {
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else { return [] }
-        let tree = await Self.buildTree(url: root, sortOption: .name)
-        let recordedRoot = Self.recordedRoot(for: root)
-        let proposals = await Task.detached(priority: .userInitiated) {
-            JurisdictionCandidates.propose(tree: tree, root: recordedRoot)
-        }.value
-        Logger.shared.info("Folder walk: \(proposals.count) place candidate(s) in \(root.path) — "
-                           + "\(proposals.map(\.value).joined(separator: ", "))")
-        return proposals
+    /// **The Structure screen's whole content, and it touches no disk.** Writing a profile per
+    /// preview would mint a directory each time the user pressed Back to fix a name, refuse over
+    /// an existing id inside the same second, and churn the fingerprint that cached verdicts hang
+    /// off. ``FolderSurveyBuilder/build(tree:root:profileId:registry:jurisdictionValues:)`` is
+    /// pure, so the preview is the same computation with an id that is never written.
+    public static func previewProfile(walk: SetupWalk,
+                                      registry: PersonRegistry?,
+                                      jurisdictionValues: Set<String>) -> FolderProfile {
+        FolderSurveyBuilder.build(tree: walk.tree,
+                                  root: recordedRoot(for: walk.root),
+                                  profileId: previewProfileId,
+                                  registry: registry,
+                                  jurisdictionValues: jurisdictionValues)
     }
 
-    /// Walks `root` and proposes household names from what it finds, with their evidence.
-    ///
-    /// The companion to ``proposePlaces(root:)``, and the People step's whole reason for having
-    /// anything to show on a fresh machine. `known` is the roster as it stands, so somebody already
-    /// added is not offered back.
-    public func proposePeople(root: URL, known: Set<String> = []) async -> [PersonCandidate] {
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else { return [] }
-        let tree = await Self.buildTree(url: root, sortOption: .name)
-        let proposals = await Task.detached(priority: .userInitiated) {
-            PersonCandidates.propose(tree: tree, known: known)
-        }.value
-        Logger.shared.info("Folder walk: \(proposals.count) household candidate(s) in \(root.path) "
-                           + "— \(proposals.prefix(8).map(\.name).joined(separator: ", "))")
-        return proposals
-    }
+    /// The id a preview carries. Never minted, never written — a profile on disk under this id
+    /// would mean the preview escaped.
+    public static let previewProfileId = "setup-preview"
 
     /// How the profile records the tree it describes.
     ///

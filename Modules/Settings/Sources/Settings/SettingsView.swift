@@ -257,6 +257,10 @@ public struct SettingsView: View {
     /// Runs the full settings reset (defaults wipe plus the host's re-seeding of live state).
     /// Provided by the host; the Reset control hides when nil.
     private let onResetAllSettings: (() -> Void)?
+    /// Opens the guided setup sheet from General.
+    private let onRunSetup: (() -> Void)?
+    /// Forgets that setup has run, from Advanced.
+    private let onResetSetup: (() -> Void)?
     /// Hands a person to the app's gather — "everything that is Daughter's", the same surface ⌘K's
     /// People rows reach. nil where there is no app behind the sheet (tests, previews), which
     /// hides the button rather than offering one that does nothing.
@@ -307,6 +311,8 @@ public struct SettingsView: View {
         onClose: @escaping () -> Void,
         syncManager: FileSyncManager? = nil,
         onResetAllSettings: (() -> Void)? = nil,
+        onRunSetup: (() -> Void)? = nil,
+        onResetSetup: (() -> Void)? = nil,
         onShowPerson: ((Person) -> Void)? = nil,
         onOpenHelp: ((String) -> Void)? = nil,
         availableSize: CGSize? = nil
@@ -315,6 +321,8 @@ public struct SettingsView: View {
         self.onClose = onClose
         self.syncManager = syncManager
         self.onResetAllSettings = onResetAllSettings
+        self.onRunSetup = onRunSetup
+        self.onResetSetup = onResetSetup
         self.onShowPerson = onShowPerson
         self.onOpenHelp = onOpenHelp
         self.availableSize = availableSize
@@ -374,7 +382,7 @@ public struct SettingsView: View {
         } else {
             switch selectedTab {
             case .general:
-                GeneralSettingsTab()
+                GeneralSettingsTab(onRunSetup: onRunSetup)
             case .appearance:
                 AppearanceSettingsTab()
             case .readability:
@@ -392,7 +400,8 @@ public struct SettingsView: View {
             case .intelligence:
                 IntelligenceSettingsTab(syncManager: syncManager, onOpenHelp: onOpenHelp)
             case .advanced:
-                AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings)
+                AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings,
+                                    onResetSetup: onResetSetup)
             }
         }
     }
@@ -503,6 +512,22 @@ enum SettingsSearchIndex {
               keywords: ["rename", "name", "provider name", "custom name", "label"]),
         .init(tab: .providers, title: "Synchronized path",
               keywords: ["path", "location", "root", "folder", "directory", "sync path", "browse"]),
+        // The two per-location rows the setup sheet also offers, under More options on its
+        // Locations screen. Indexed under their own labels because that is what the row says now:
+        // they used to be an unlabelled field in the header and a `Text` above a picker, neither
+        // of which the label scan could see.
+        .init(tab: .general, title: "Run setup again",
+              keywords: ["setup", "guided setup", "first run", "onboarding", "welcome",
+                         "run setup", "set up syncCloud"]),
+        .init(tab: .advanced, title: "Reset setup",
+              keywords: ["reset setup", "setup", "first run", "onboarding", "forget setup",
+                         "run setup again", "start over"]),
+        .init(tab: .providers, title: "Display name",
+              keywords: ["rename", "display name", "name", "provider name", "custom name",
+                         "label", "setup"]),
+        .init(tab: .providers, title: "Open at",
+              keywords: ["open at", "landing", "starting folder", "opens at", "default folder",
+                         "where panes open", "setup"]),
         .init(tab: .providers, title: "Enable or disable a source",
               keywords: ["enable", "disable", "show", "hide", "toggle provider",
                          "toggle source"]),
@@ -707,59 +732,16 @@ private struct SettingsSearchResults: View {
 /// background notifications, and the quit safety guard.
 struct GeneralSettingsTab: View {
     @EnvironmentObject var settings: SettingsManager
-    /// Mirrors `SMAppService.mainApp.status`. Deliberately not seeded in the initializer:
-    /// the status getter is a synchronous XPC call, which must not run on the main thread —
-    /// `.task` kicks off a detached read once the view is up (and app activation re-reads,
-    /// since approval happens over in System Settings).
-    @State private var launchAtLogin = false
-    /// The login item is registered but awaits the user's consent in System Settings →
-    /// Login Items; shown distinctly so a pending approval doesn't read as a broken toggle.
-    @State private var loginItemNeedsApproval = false
-    /// Tells a user's flip apart from the echo of a programmatic set, keeps the register /
-    /// unregister calls serialised to one at a time, and decides what a finished round-trip
-    /// owes the user — see `LoginItemEchoGuard`, where the whole state machine lives so it can
-    /// be tested without an SMAppService round-trip.
-    @State private var loginItemEcho = LoginItemEchoGuard()
+    /// Opens the guided setup sheet. **Defaulted**: this tab is memberwise-only and is built bare
+    /// in `SettingsLayoutTests.mustFitTabs`.
+    var onRunSetup: (() -> Void)? = nil
     @AppStorage(GeneralSettings.showHiddenByDefaultKey) private var showHiddenByDefault: Bool = false
     @AppStorage(GeneralSettings.warnBeforeQuitKey) private var warnBeforeQuit: Bool = true
     @AppStorage(GeneralSettings.restoreLastFocusKey) private var restoreLastFocus: Bool = true
-    @AppStorage(GeneralSettings.notifyOnBackgroundCompletionKey) private var notifyInBackground: Bool = false
-    /// Whether the system has DENIED notification permission while the toggle is on — the one
-    /// state where the feature looks enabled here but can never fire. Surfaced in the footer
-    /// (mirroring the login-item "Approval needed" hint) and re-checked on toggle and app
-    /// re-activation, since the user flips the real switch over in System Settings.
-    @State private var notificationsDenied = false
 
     var body: some View {
         SettingsPage {
-            SettingsSection {
-                Toggle("Launch SyncCloud at login", isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, enabled in
-                        guard loginItemEcho.shouldStartRoundTrip(for: enabled, at: .now) else {
-                            // Echo of a programmatic set, or a gesture the in-flight call will
-                            // carry in its `settle`. Logged because the second case is the one
-                            // shape of this guard the user can FEEL — the switch moves and
-                            // nothing happens — and with no line here a guard stuck shut was
-                            // invisible in the log by construction.
-                            Logger.shared.debug("Launch-at-login: no round-trip started for \(enabled) (echo, or one already in flight)")
-                            return
-                        }
-                        updateLoginItem(enabled)
-                    }
-            } caption: {
-                if loginItemNeedsApproval {
-                    HStack(spacing: 4) {
-                        Text("Approval needed — allow SyncCloud in Login Items settings.")
-                        Button("Open Login Items Settings") {
-                            SMAppService.openSystemSettingsLoginItems()
-                        }
-                        .buttonStyle(.link)
-                        .controlSize(.small)
-                    }
-                } else {
-                    Text("Automatically start SyncCloud when you log in to your Mac.")
-                }
-            }
+            LaunchAtLoginRow()
 
             SettingsSection(
                 "Startup",
@@ -767,6 +749,13 @@ struct GeneralSettingsTab: View {
             ) {
                 Toggle("Show hidden files by default", isOn: $showHiddenByDefault)
                 Toggle("Reopen panes where I left off", isOn: $restoreLastFocus)
+                if let onRunSetup {
+                    SettingsRow("Setup") {
+                        Button("Run setup again…", action: onRunSetup)
+                            .controlSize(.small)
+                    }
+                    .help("Reopens the guided setup sheet with your current answers filled in. Nothing is reset.")
+                }
                 SettingsRow("Sort panes by") {
                     Picker("Sort panes by", selection: $settings.defaultSortOption) {
                         ForEach(SortOption.allCases, id: \.self) { option in
@@ -778,163 +767,14 @@ struct GeneralSettingsTab: View {
                 }
             }
 
-            SettingsSection {
-                Toggle("Notify when operations finish in the background", isOn: $notifyInBackground)
-                    .onChange(of: notifyInBackground) { _, enabled in
-                        if enabled {
-                            // Capture the result: a denied request used to vanish, leaving the
-                            // toggle on and the user waiting for notifications that never come.
-                            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                                Task { @MainActor in notificationsDenied = !granted }
-                            }
-                        } else {
-                            // The hint only matters while the feature is on.
-                            notificationsDenied = false
-                        }
-                    }
-            } caption: {
-                if notifyInBackground && notificationsDenied {
-                    Text("Notifications are disabled in System Settings — allow SyncCloud under Notifications to see these alerts.")
-                        .foregroundStyle(.orange)
-                } else {
-                    Text("Shows a system notification when a copy, sync, or verify finishes while SyncCloud isn't the active app. Requires notification permission.")
-                }
-            }
+            NotifyInBackgroundRow()
 
             SettingsSection(caption: "Shows a confirmation if you try to quit while a copy, move, or delete is still running.") {
                 Toggle("Warn before quitting during file operations", isOn: $warnBeforeQuit)
             }
         }
-        .task {
-            readLoginItemState()
-            readNotificationAuthorization()
-        }
-        // Approving the login item (and notification permission) happens in System Settings,
-        // so these footers' hints go stale exactly while this tab is still open. Coming back
-        // to the app re-activates it — re-read so the hints clear without reopening the tab.
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            readLoginItemState()
-            readNotificationAuthorization()
-        }
     }
 
-    /// Reflects the real notification authorization into the footer hint. Only `denied` shows
-    /// the warning: `notDetermined` means the request prompt is still ahead, and provisional/
-    /// authorized both deliver.
-    private func readNotificationAuthorization() {
-        guard notifyInBackground else { return }
-        UNUserNotificationCenter.current().getNotificationSettings { notificationSettings in
-            let denied = notificationSettings.authorizationStatus == .denied
-            Task { @MainActor in notificationsDenied = denied }
-        }
-    }
-
-    /// Reflects the real service state into the toggle and approval hint. A pending
-    /// approval counts as "on": the item *is* registered, just not yet consented to.
-    ///
-    /// Dated against the echo guard: this runs on `.task` and on EVERY app re-activation, so
-    /// without the epoch check a cmd-tab away and back mid-gesture published a service state
-    /// that predated the user's flip, moving the toggle out from under the running round-trip.
-    /// That call then settled against the "moved" toggle and drove the service back, losing a
-    /// registration that had succeeded.
-    private func readLoginItemState() {
-        Task {
-            let epoch = loginItemEcho.epoch
-            let status = await Self.readStatusOffMain()
-            guard loginItemEcho.mayPublishStatus(readAt: epoch, at: .now) else { return }
-            applyLoginItemState(status)
-        }
-    }
-
-    /// Publishes just the approval hint, leaving the toggle where the user put it. Used when a
-    /// failing round-trip's status re-read is the freshest thing we know but the toggle has
-    /// already moved on — `applyLoginItemState` would overwrite that move.
-    private func applyApprovalHint(_ status: SMAppService.Status) {
-        loginItemNeedsApproval = (status == .requiresApproval)
-    }
-
-    /// Publishes a freshly read service status to the view state. Marking the value applied in
-    /// the same main-actor turn as the toggle keeps `onChange` from treating the programmatic
-    /// set as a user gesture (initial read, failure revert).
-    ///
-    /// `adoptedStatus` rather than `markApplied`: this write TAKES the toggle, so any round-trip
-    /// whose claim had already expired must stop speaking for it — see `adoptedStatus`.
-    private func applyLoginItemState(_ status: SMAppService.Status) {
-        launchAtLogin = (status == .enabled || status == .requiresApproval)
-        loginItemNeedsApproval = (status == .requiresApproval)
-        loginItemEcho.adoptedStatus(launchAtLogin)
-    }
-
-    /// Registers/unregisters the login item, reverting the toggle to the real service state on
-    /// failure so the UI never claims a state the system rejected.
-    private func updateLoginItem(_ enabled: Bool) {
-        // Synchronously, before the `Task` is even scheduled: two `onChange` turns must not
-        // both pass `shouldStartRoundTrip` and start a call apiece.
-        let token = loginItemEcho.beginRoundTrip(at: .now)
-        Task {
-            do {
-                let needsApproval = try await Self.applyLoginItemOffMain(enabled)
-                // A superseded settle (nil) owns nothing, so it publishes nothing: this hint was
-                // sampled off-main and lands an actor hop later, and whatever superseded the call
-                // — a fresher status read, a later gesture — knows better than it does.
-                guard let followUp = loginItemEcho.settle(
-                    token: token, applied: enabled, toggle: launchAtLogin, succeeded: true) else { return }
-                loginItemNeedsApproval = needsApproval
-                if needsApproval {
-                    Logger.shared.info("Login item registered; awaiting user approval in Login Items settings")
-                }
-                perform(followUp, status: nil)
-            } catch {
-                // Logged before the ownership test: the call really did fail, and that is worth
-                // a line whether or not this round-trip still speaks for the toggle.
-                Logger.shared.error("Failed to \(enabled ? "register" : "unregister") launch-at-login item: \(error.localizedDescription)")
-                let status = await Self.readStatusOffMain()
-                guard let followUp = loginItemEcho.settle(
-                    token: token, applied: enabled, toggle: launchAtLogin, succeeded: false) else { return }
-                perform(followUp, status: status)
-            }
-        }
-    }
-
-    /// Carries out what `LoginItemEchoGuard.settle` decided. `status` is the freshly re-read
-    /// service status, available only on the failure path.
-    private func perform(_ followUp: LoginItemFollowUp, status: SMAppService.Status?) {
-        switch followUp {
-        case .settled:
-            break
-        case .adoptServiceState:
-            if let status { applyLoginItemState(status) }
-        case .reapply(let value, let refreshApprovalHint):
-            if refreshApprovalHint, let status { applyApprovalHint(status) }
-            updateLoginItem(value)
-        }
-    }
-
-    /// Reads `SMAppService.mainApp.status` detached: the getter is a synchronous XPC call
-    /// that must not run on the main thread (the same hazard that defers the initial read
-    /// out of view init).
-    private static func readStatusOffMain() async -> SMAppService.Status {
-        await Task.detached(priority: .userInitiated) {
-            SMAppService.mainApp.status
-        }.value
-    }
-
-    /// Runs the status check plus register/unregister round-trip detached — all three are
-    /// synchronous XPC calls. Returns whether the item now awaits approval in Login Items.
-    private static func applyLoginItemOffMain(_ enabled: Bool) async throws -> Bool {
-        try await Task.detached(priority: .userInitiated) {
-            let status = SMAppService.mainApp.status
-            if enabled {
-                if status != .enabled {
-                    try SMAppService.mainApp.register()
-                }
-            } else if status == .enabled || status == .requiresApproval {
-                // Unregistering a pending-approval item withdraws it from Login Items.
-                try SMAppService.mainApp.unregister()
-            }
-            return SMAppService.mainApp.status == .requiresApproval
-        }.value
-    }
 }
 
 // MARK: - Appearance
@@ -1876,22 +1716,10 @@ struct ProviderSettingsSection: View {
             fileURLWithPath: (settings.landingPath(for: provider.id) as NSString).expandingTildeInPath)
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        switch settings.setOpenAt(url.path, for: provider.id) {
-        case .changed, .unchanged:
-            openAtRefusal = nil
-        case .refusedOutsideRoot:
-            openAtRefusal = "That folder is outside \(provider.displayName). "
-                + "Pick one inside the root shown above."
-        case .refusedUnknownSource:
-            openAtRefusal = "\(provider.displayName) isn't available right now, so its opening "
-                + "folder wasn't changed."
-        case .refusedDuplicate:
-            // Unreachable from this picker — a landing folder is not a source and cannot collide
-            // with one — but named rather than defaulted, so adding a case to the enum keeps
-            // failing here until someone decides what this row should say about it.
-            openAtRefusal = "That folder couldn't be used as \(provider.displayName)'s "
-                + "opening folder."
-        }
+        // The words live in ``OpenAtRefusal``: setup's Locations screen offers the same pick, and
+        // two wordings of one refusal teach two different things about one rule.
+        openAtRefusal = OpenAtRefusal.message(settings.setOpenAt(url.path, for: provider.id),
+                                              provider: provider.displayName)
     }
 
     private func openInFinder(_ path: String) {
@@ -3675,6 +3503,13 @@ struct FilingSpendHistorySheet: View {
 struct AdvancedSettingsTab: View {
     let syncManager: FileSyncManager?
     let onResetAllSettings: (() -> Void)?
+    /// Clears the three setup flags and the draft, then opens the guided sheet at its first screen.
+    ///
+    /// **Defaulted, and that is load-bearing.** This tab has no explicit `init` — its stored
+    /// properties are served by the memberwise one — so a new parameter without a default breaks
+    /// every construction site at once, including `SettingsLayoutTests.mustFitTabs`, which builds
+    /// the tab views directly.
+    var onResetSetup: (() -> Void)? = nil
 
     @AppStorage(Logger.minimumLevelDefaultsKey) private var minimumLevelRaw: String = LogLevel.debug.rawValue
     /// Human-readable size of the log file, refreshed on appear and after Clear Log.
@@ -3803,6 +3638,16 @@ struct AdvancedSettingsTab: View {
                 .help("The last Storage analysis for each folder, shown while a fresh one runs. Clearing means Storage starts from an empty panel again.")
             }
 
+            if let onResetSetup {
+                SettingsSection(
+                    caption: "Forgets that setup has run, so it opens again on the next launch. On a Mac with no folder profile yet this also discards the name and household answers setup was holding for one; everything already saved stays."
+                ) {
+                    Button("Reset setup…", role: .destructive) {
+                        confirmResetSetup(onResetSetup)
+                    }
+                }
+            }
+
             if let onResetAllSettings {
                 SettingsSection(
                     caption: "Restores defaults for appearance, sync behavior, and source names and paths, and clears the folders you added as sources. Your files aren't affected."
@@ -3839,6 +3684,28 @@ struct AdvancedSettingsTab: View {
 
     /// Confirmation ahead of the defaults wipe; Cancel is the default button (Return must
     /// not reset, same convention as the permanent-delete alert).
+    /// Asks before forgetting that setup has run.
+    ///
+    /// Its own alert rather than the general one, because what it destroys is different and the
+    /// difference matters on exactly one kind of machine: without a folder profile there is nowhere
+    /// but the draft for the name and household answers to live, so clearing it loses them.
+    private func confirmResetSetup(_ reset: () -> Void) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Run setup again from the beginning?"
+        alert.informativeText = "SyncCloud forgets that setup has run and opens it again on the next launch. On a Mac that has not learned a folder tree yet, the name and household answers setup was holding are discarded with it. Nothing already saved is affected, and no file is touched."
+        alert.addButton(withTitle: "Reset")
+        alert.addButton(withTitle: "Cancel")
+        if let resetButton = alert.buttons.first {
+            resetButton.hasDestructiveAction = true
+            resetButton.keyEquivalent = ""
+        }
+        alert.buttons.last?.keyEquivalent = "\r"
+        if alert.runModal() == .alertFirstButtonReturn {
+            reset()
+        }
+    }
+
     private func confirmReset(_ reset: () -> Void) {
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -3846,7 +3713,7 @@ struct AdvancedSettingsTab: View {
         // Names the folder list explicitly. "Files on disk are not affected" is true and used to be
         // the whole of the reassurance, which read as "nothing you care about is lost" while the
         // curated list of folder sources went with the defaults domain.
-        alert.informativeText = "Appearance, sync behavior, ignored items, and source names and paths return to their defaults, and any folders you added as sources are removed from the list. Files on disk are not affected."
+        alert.informativeText = "Appearance, sync behavior, ignored items, and source names and paths return to their defaults, and any folders you added as sources are removed from the list. Setup will offer itself again on the next launch. Files on disk are not affected."
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
         if let resetButton = alert.buttons.first {

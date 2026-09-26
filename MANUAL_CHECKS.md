@@ -308,3 +308,52 @@ cloud-only files the better. `tail -f ~/sync-cloud.log` beside it for the load l
   takes the room back with no animation. Switch to Compare, Organize or Edit — the item is greyed,
   because none of them draws the bar. Switch back to Browse and it is live again, still unticked.
   Quit and relaunch: the preference survives.
+
+## The guided setup sheet (v5.4)
+
+**Rehearse it on a fresh machine, not on yours.** Every screen after the first behaves differently
+on a Mac that has never been surveyed, and that is the one machine nobody working on this app is
+using. Move the profiles directory aside and put it back afterwards; the draft file goes with it:
+
+```sh
+defaults delete com.abhishekgirish.SyncCloud hasCompletedSetup
+defaults delete com.abhishekgirish.SyncCloud hasSeenFirstRunWelcome
+mv ~/Library/Application\ Support/SyncCloud ~/Library/Application\ Support/SyncCloud.aside
+open -a SyncCloud && tail -f ~/sync-cloud.log
+# afterwards: rm -rf the directory the rehearsal created, mv the .aside back, and set both flags true
+```
+
+- [ ] **It opens on Welcome, and the log says so.** `Setup opened on Welcome` within a second of
+  the launch line. On a Mac that has been through setup it opens on Locations instead, with the
+  answers filled in — that is the re-run path, and Back is absent there.
+- [ ] **Learn advances at once.** Press Learn and the sheet moves to You immediately; You shows
+  "Reading names…" where the found names go, and the names appear in place when the walk lands.
+  **Continue never waits** — People and Countries are reachable before the walk is done.
+- [ ] **The walk really runs on a machine with no profile.** `Setup walk read N folder(s)…` in the
+  log. This is the check that fresh-install path exists at all: it refused with `no profiles
+  directory was configured` until 2026-09-08, because nothing handed the app a profiles directory
+  until a profile was already there.
+- [ ] **Back from Structure writes nothing.** `ls ~/Library/Application\ Support/SyncCloud/profiles`
+  before and after going Back to Countries and forward again — the directory list must be identical.
+  Every press of Back rebuilds the preview in memory; a new `walk-…` directory means it did not.
+- [ ] **Save writes exactly one profile**, and the log says `Setup saved profile 'walk-…'`. With the
+  reading switch on, the button reads "Save and start reading" and a survey starts; with it off it
+  reads "Save" and nothing is read.
+- [ ] **The reading strip is on every Organize lens.** Switch through To File, Duplicates, Renames,
+  Restructure, Rules and Storage while the survey runs: the line is under the header on all six,
+  with Pause and Stop. Quit and relaunch mid-survey: it comes back as the interrupted strip with
+  Resume.
+- [ ] **Skip on Learn drops two screens.** The crumb strip loses Countries and Structure, and
+  Locations through People keep the numbers 1 to 4 — no gap, no renumbering. Summary then reads
+  "You have not learned a folder tree yet" with a Learn button.
+- [ ] **The text-size stepper works on every screen** and moves through all ten sizes, not four.
+  Check that View ▸ Text Size ▸ Bigger agrees with it afterwards.
+- [ ] **Esc persists nothing.** Press it on any screen, quit, relaunch: setup offers itself again.
+  What each screen already committed — preferences, the location list, the draft — stays.
+- [ ] **Settings ▸ General ▸ Run setup again…** opens the sheet at Locations.
+  **Settings ▸ Advanced ▸ Reset setup…** asks first, then opens it at Welcome and makes it offer
+  itself on the next launch.
+- [ ] **Do not time it.** Setup claims no duration anywhere, by decision, so there is no number to
+  confirm and none to add. The reading offer's "About 3 h for N documents" is a different claim and
+  is checked against the count it names.
+

@@ -223,6 +223,7 @@ import Testing
 
         "SetupArtwork.swift/appeared": .gatedByHand,
         "SetupArtwork.swift/breathe": .gatedByHand,
+        "SetupArtwork.swift/caretOn": .gatedByHand,
         "SetupArtwork.swift/drift": .gatedByHand,
         "LensWorkspaceView.swift/railLens": .gatedByHand,
         "LensWorkspaceView.swift/setScope": .gatedByHand,
@@ -237,7 +238,7 @@ import Testing
         "OperationBannerView.swift/countdown": .reportsRatherThanTravels,
         "LensWorkspaceView.swift/glow": .reportsRatherThanTravels,
 
-        "SetupSheet.swift/screen": .overlayCrossFade,             // .transition(.opacity)
+        "SetupModel.swift/screen": .overlayCrossFade,             // the same card, cross-fading
         "ContentView.swift/pane": .overlayCrossFade,              // the bar edge flip
 
         "DifferencesView.swift/isCountPillHovered": .hoverOrPressLadder,
