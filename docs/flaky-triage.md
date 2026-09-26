@@ -68,6 +68,7 @@ machine state at all.
 | A test that failed **every** run of a batch stops failing partway through, on unchanged code — and the batch has been running for minutes | [20](flaky-tests.md#20-the-display-fell-asleep-mid-batch-so-a-suite-left-the-denominator--a-vacuous-green) | It did not start passing; a gated suite stopped running. `grep '\[ground-truth\]'` each run — a skip is not a pass, and it makes a constant failure look intermittent |
 | Red **fast** (~2s) under `--filter` on an **idle** machine, on the commit in front of you **and every commit behind it**, and the failing value is a framework's **class name, coordinate origin or ordering** | [21](flaky-tests.md#21-an-os-upgrade-repealed-a-framework-convention-a-test-had-pinned--a-red-about-no-commit-at-all) | Check `sw_vers` against the last green CI date before bisecting anything. A convention is not a contract — restate the claim, do not widen the assertion to accept both |
 | `signal code 6` with **no `Test run with` line at all**, `CIAreaAverage` / `perceptuallyCompare` in the crashing thread, every run, idle | [23](flaky-tests.md#23-a-snapshot-mismatch-that-aborts-the-process-instead-of-failing--a-red-with-no-verdict) | Not a load flake. The compare died on an image that merely was not byte-identical — which may even be a pass. Check the helper still calls `installPerceptualCompareShim()`, then read the real verdict before re-recording anything |
+| A test reads back what it **itself just stored** in an `NSCache` and gets `nil`, while its **miss** assertions pass; `--filter` green in milliseconds, a same-SHA re-run green | [24](flaky-tests.md#24-an-nscache-emptied-by-memory-pressure-between-a-store-and-the-next-line--fixed) — **fixed 2026-09-26** | `log show` for a memory-pressure *warning* before the **issue's** timestamp — CI stamps UTC, `log show` local time. The test's duration is not the tell. Inject the storage; never store-then-peek through an `NSCache` |
 
 ## 2. Check what else is running
 
@@ -113,7 +114,7 @@ machine state* and calling the difference a regression.
 
 ## The silent half — read before writing any absence assertion
 
-**Five mechanisms here can leave an assertion passing having examined nothing.** A false failure is
+**Six mechanisms here can leave an assertion passing having examined nothing.** A false failure is
 noisy and costs you a day; a vacuous pass is silent and permanent, so it costs you nothing to notice
 and everything to miss.
 
@@ -129,10 +130,13 @@ and everything to miss.
 - [22](flaky-tests.md#22-a-probe-gated-on-a-notification-measures-nothing-unless-it-waits-for-delivery--a-vacuous-green)
   — a phase entered by someone else's callback, asserted on the line after the post. Observe that
   the phase was entered; posting the notification is not entering it.
+- [24](flaky-tests.md#24-an-nscache-emptied-by-memory-pressure-between-a-store-and-the-next-line--fixed)
+  — a miss read from a cache the OS emptied. "This key answers nil" holds for every key once the
+  entry it is contrasted with is gone; `#require` a hit on the same store first.
 
-The first three are visible in the test's own source, as is the fifth. The fourth fires on the
-volume of unrelated suites, so the same test is honest or vacuous depending on what else was
-scheduled beside it.
+The first three are visible in the test's own source, as are the fifth and sixth. The fourth fires
+on the volume of unrelated suites, so the same test is honest or vacuous depending on what else was
+scheduled beside it — and the sixth, though visible, is armed by the machine's memory.
 
 ---
 

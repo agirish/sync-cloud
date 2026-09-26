@@ -19,15 +19,44 @@ import Design
 /// `NSImage(data:)` is lazy, which is to say during the scroll that asked for it. Neither half was
 /// wanted; both existed to satisfy `Sendable`, and an immutable reference satisfies it for free.
 enum DuplicateThumbnail {
-    /// Bounded, self-purging cache of decoded previews — an unbounded dict would grow with every
-    /// duplicate file viewed across a session, and `NSCache` also drops entries under memory
-    /// pressure. Keyed by path + size + scale + modification time, so a re-scan where a file's
-    /// content changed regenerates rather than serving a stale preview.
-    @MainActor private static let imageCache: NSCache<NSString, NSImage> = {
-        let cache = NSCache<NSString, NSImage>()
-        cache.countLimit = 256
-        return cache
-    }()
+    /// Where decoded previews are kept between the task that stores one and the peek that reads it
+    /// back. The shelf only — what an entry is filed *under* is ``key(path:side:scale:modified:)``'s
+    /// alone, and every store and peek goes through it whichever shelf they are handed.
+    ///
+    /// **A protocol because the app's shelf can be emptied by the OS between two lines.** It is an
+    /// `NSCache` (``PurgingStorage``), and on macOS that is libcache underneath: a memory-pressure
+    /// *warn* freezes each cache at the number of entries it holds at that moment, so one that is
+    /// empty when the warning lands evicts every `setObject` before the next line can read it, until
+    /// the pressure clears. Right for the app, and fatal to a test that stores and peeks through it
+    /// — `DuplicateThumbnailCacheTests` went red that way on 2026-09-26 with no code changed. So the
+    /// tests hand in a shelf of their own; see "An NSCache emptied by memory pressure between a store
+    /// and the next line" in docs/flaky-tests.md.
+    @MainActor protocol Storage: AnyObject, Sendable {
+        func image(forKey key: String) -> NSImage?
+        func setImage(_ image: NSImage, forKey key: String)
+    }
+
+    /// The app's shelf: bounded and self-purging — an unbounded dict would grow with every duplicate
+    /// file viewed across a session, and `NSCache` also drops entries under memory pressure.
+    @MainActor private final class PurgingStorage: Storage {
+        private let cache = NSCache<NSString, NSImage>()
+
+        init(countLimit: Int) { cache.countLimit = countLimit }
+
+        func image(forKey key: String) -> NSImage? { cache.object(forKey: key as NSString) }
+
+        func setImage(_ image: NSImage, forKey key: String) {
+            cache.setObject(image, forKey: key as NSString)
+        }
+    }
+
+    /// The one shelf every tile shares, and the only one the app makes. Keyed by path + size + scale
+    /// + modification time, so a re-scan where a file's content changed regenerates rather than
+    /// serving a stale preview.
+    ///
+    /// `static`, so it outlives every view — which is what lets a tile built fresh after a workspace
+    /// switch find the picture an earlier one stored; see ``DuplicateThumbnailView/previews``.
+    @MainActor static let imageCache: any Storage = PurgingStorage(countLimit: 256)
 
     /// Keys QuickLook has already declined, so a file it cannot preview isn't re-requested every
     /// time its card scrolls back into view.
@@ -37,6 +66,9 @@ enum DuplicateThumbnail {
     /// while dropping the memory of a REFUSAL costs a full generator round-trip that is already
     /// known to fail. Bounded by the same rule `DetailsMetadataCache.warnedPaths` uses — cleared
     /// wholesale at the cap, which is O(1) and costs at most one repeated request per key after.
+    ///
+    /// One set whichever ``Storage`` the caller hands ``image``: a refusal is a fact about the file,
+    /// not about the shelf its picture would have gone on.
     @MainActor private static var declined: Set<String> = []
     private static let maxDeclined = 512
 
@@ -64,8 +96,9 @@ enum DuplicateThumbnail {
     /// Deliberately does **not** consult ``declined``: a refusal means "there is no image", which is
     /// what returning nil already says, and the caller's fallback is the same either way.
     @MainActor
-    static func cached(path: String, side: CGFloat, scale: CGFloat, modified: Date?) -> NSImage? {
-        imageCache.object(forKey: key(path: path, side: side, scale: scale, modified: modified) as NSString)
+    static func cached(path: String, side: CGFloat, scale: CGFloat, modified: Date?,
+                       in storage: any Storage) -> NSImage? {
+        storage.image(forKey: key(path: path, side: side, scale: scale, modified: modified))
     }
 
     /// Puts one rendered preview in the cache.
@@ -73,15 +106,19 @@ enum DuplicateThumbnail {
     /// Extracted from ``image`` rather than written beside it so a test can warm the cache through
     /// the **production** store — a test that inserted by its own spelling of the key would prove
     /// only that it agrees with itself, which is precisely the failure ``key`` exists to prevent.
+    /// The shelf is a parameter for the same test: it warms one of its own, because the app's may
+    /// drop the entry before the peek on the next line can see it — see ``Storage``.
     @MainActor
-    static func store(_ image: NSImage, path: String, side: CGFloat, scale: CGFloat, modified: Date?) {
-        imageCache.setObject(image, forKey: key(path: path, side: side, scale: scale, modified: modified) as NSString)
+    static func store(_ image: NSImage, path: String, side: CGFloat, scale: CGFloat, modified: Date?,
+                      in storage: any Storage) {
+        storage.setImage(image, forKey: key(path: path, side: side, scale: scale, modified: modified))
     }
 
     @MainActor
-    static func image(path: String, side: CGFloat, scale: CGFloat, modified: Date?) async -> NSImage? {
+    static func image(path: String, side: CGFloat, scale: CGFloat, modified: Date?,
+                      in storage: any Storage) async -> NSImage? {
         let key = Self.key(path: path, side: side, scale: scale, modified: modified)
-        if let hit = imageCache.object(forKey: key as NSString) { return hit }
+        if let hit = storage.image(forKey: key) { return hit }
         // The key carries the modification date, so a file whose CONTENT changed gets a new key
         // and a fresh attempt — a refusal is remembered for one version of one file, not forever.
         if declined.contains(key) { return nil }
@@ -97,7 +134,7 @@ enum DuplicateThumbnail {
         // keeps that an observation rather than something to re-verify.
         let image = NSImage(cgImage: rendered.cgImage,
                             size: CGSize(width: rendered.cgImage.width, height: rendered.cgImage.height))
-        store(image, path: path, side: side, scale: scale, modified: modified)
+        store(image, path: path, side: side, scale: scale, modified: modified, in: storage)
         return image
     }
 
@@ -174,6 +211,16 @@ struct DuplicateThumbnailView: View {
     /// generations the moment it is expanded. The tile is still the picker either way — only the
     /// picture is skipped.
     var loadsPreview: Bool = true
+    /// Where this tile keeps and looks up its previews: ``DuplicateThumbnail/imageCache``, always, in
+    /// the app.
+    ///
+    /// **The default is load-bearing; the parameter is for the tests.** The peek in ``shownImage``
+    /// only removes the icon flash because every tile looks on the one shelf that outlived the last
+    /// one — a tile given a shelf of its own would find nothing on the way back to Duplicates, which
+    /// is why `DuplicateThumbnailCacheTests` pins this default by identity. The tests pass their own
+    /// because the app's is an `NSCache` the OS may empty between a store and the next line — see
+    /// ``DuplicateThumbnail/Storage``.
+    var previews: any DuplicateThumbnail.Storage = DuplicateThumbnail.imageCache
 
     @State private var image: NSImage?
 
@@ -187,8 +234,9 @@ struct DuplicateThumbnailView: View {
     /// ``DuplicateThumbnail/imageCache`` is `static` and survives, so for a tile that has been shown
     /// before the answer is already in hand and the generic icon never has to be drawn at all.
     ///
-    /// Reads the same `side` and `scale` the task asks with, because a peek keyed differently from
-    /// the store is a permanent miss — see ``DuplicateThumbnail/key(path:side:scale:modified:)``.
+    /// Reads the same `side`, `scale` and shelf the task stores with, because a peek keyed
+    /// differently from the store — or looking on another shelf — is a permanent miss; see
+    /// ``DuplicateThumbnail/key(path:side:scale:modified:)``.
     ///
     /// Non-private so `DuplicateThumbnailCacheTests` can pin it, on the same reasoning
     /// `FileTreeView.expansionPruned` is: the alternative is a decision reachable only by rendering
@@ -198,7 +246,7 @@ struct DuplicateThumbnailView: View {
         if let image { return image }
         guard loadsPreview else { return nil }
         return DuplicateThumbnail.cached(path: path, side: side,
-                                         scale: previewScale, modified: modified)
+                                         scale: previewScale, modified: modified, in: previews)
     }
 
     /// The scale a preview for this tile is rendered and looked up at.
@@ -259,7 +307,8 @@ struct DuplicateThumbnailView: View {
             guard loadsPreview else { return }
             // `previewScale`, not a second `max(1, displayScale)` — see that member for what the
             // second copy costs the peek above.
-            image = await DuplicateThumbnail.image(path: path, side: side, scale: previewScale, modified: modified)
+            image = await DuplicateThumbnail.image(path: path, side: side, scale: previewScale,
+                                                   modified: modified, in: previews)
         }
         // **No tooltip here at all.** An inner `.help` wins over its container's, so a `.help` on
         // the tile would carve the one part of a clickable row that refuses to say what clicking

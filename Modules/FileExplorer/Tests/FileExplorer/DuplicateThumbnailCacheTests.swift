@@ -18,16 +18,36 @@ import Testing
 /// and the store can spell the key differently. That failure is invisible in the worst way: the
 /// cache still fills, `cached` still returns nil, the tile still draws the icon, and nothing
 /// anywhere reports a miss. These tests exist to hold the two ends together.
+///
+/// **Every test here stores on a shelf of its own, never on the app's.** The app's is an `NSCache`,
+/// and the OS may empty it between a store and the very next line: on 2026-09-26 a memory-pressure
+/// warning froze it at the zero entries it held, and two of these tests went red on CI blaming the
+/// key — while the three asserting a *miss* passed, having examined nothing. Only where an entry is
+/// kept is the test's. Every store and peek still goes through the production `store` and `cached`,
+/// so the key at both ends is production's spelling, and every miss asserted here is paired with a
+/// hit on the same shelf. See "An NSCache emptied by memory pressure between a store and the next
+/// line" in docs/flaky-tests.md.
 @MainActor
 @Suite struct DuplicateThumbnailCacheTests {
+
+    /// A shelf that keeps everything it is handed for as long as the test runs — what `NSCache`
+    /// promises not to do.
+    ///
+    /// One per test: Swift Testing builds the suite afresh for each, so no test's store can answer
+    /// another's peek, and nothing here touches the process-wide shelf other suites render from.
+    @MainActor private final class RetainingStorage: DuplicateThumbnail.Storage {
+        private var images: [String: NSImage] = [:]
+        func image(forKey key: String) -> NSImage? { images[key] }
+        func setImage(_ image: NSImage, forKey key: String) { images[key] = image }
+    }
+
+    private let storage = RetainingStorage()
 
     /// A 1×1 image — the content is never examined, only its identity.
     private static func image() -> NSImage {
         NSImage(size: NSSize(width: 1, height: 1))
     }
 
-    /// A path per test, so one test's warm cache cannot answer another's lookup. The cache is
-    /// process-wide `static` state and the suite runs in one process.
     private static func path(_ name: String) -> String { "/tmp/duplicate-thumbnail-tests/\(name).pdf" }
 
     // MARK: The two ends of the lookup
@@ -36,16 +56,28 @@ import Testing
     @Test func aStoredPreviewIsFoundByTheSynchronousPeek() {
         let path = Self.path("stored")
         let stamp = Date(timeIntervalSince1970: 1_000)
-        DuplicateThumbnail.store(Self.image(), path: path, side: 54, scale: 2, modified: stamp)
+        let image = Self.image()
+        DuplicateThumbnail.store(image, path: path, side: 54, scale: 2, modified: stamp, in: storage)
 
-        #expect(DuplicateThumbnail.cached(path: path, side: 54, scale: 2, modified: stamp) != nil,
+        #expect(DuplicateThumbnail.cached(path: path, side: 54, scale: 2, modified: stamp,
+                                          in: storage) === image,
                 "the peek missed an entry the store just wrote — the two spell the key differently")
     }
 
     /// A key nobody has written answers nil rather than someone else's picture.
-    @Test func anUnknownFileIsACleanMiss() {
+    ///
+    /// Asked with someone else's picture on the shelf, and that picture found first: against an
+    /// empty shelf every key answers nil, whatever the key is made of.
+    @Test func anUnknownFileIsACleanMiss() throws {
+        let known = Self.image()
+        DuplicateThumbnail.store(known, path: Self.path("known"), side: 54, scale: 2, modified: nil,
+                                 in: storage)
+        try #require(DuplicateThumbnail.cached(path: Self.path("known"), side: 54, scale: 2,
+                                               modified: nil, in: storage) === known,
+                     "the stored picture was not found — the nil below would say nothing about the key")
+
         #expect(DuplicateThumbnail.cached(path: Self.path("never-seen"), side: 54, scale: 2,
-                                          modified: nil) == nil)
+                                          modified: nil, in: storage) == nil)
     }
 
     /// **Every component of the key is load-bearing**, so a tile that changed size, moved to another
@@ -53,18 +85,26 @@ import Testing
     ///
     /// Written as three separate lookups against one stored entry rather than three stored entries,
     /// because what is being pinned is that each field REACHES the key — an implementation that
-    /// dropped `side` would still pass a test that only ever varied `path`.
-    @Test func eachPartOfTheKeySeparatesEntries() {
+    /// dropped `side` would still pass a test that only ever varied `path`. The exact lookup goes
+    /// first: the three misses mean something only while the entry they are contrasted with is there.
+    @Test func eachPartOfTheKeySeparatesEntries() throws {
         let path = Self.path("varying")
         let stamp = Date(timeIntervalSince1970: 2_000)
-        DuplicateThumbnail.store(Self.image(), path: path, side: 54, scale: 2, modified: stamp)
+        let image = Self.image()
+        DuplicateThumbnail.store(image, path: path, side: 54, scale: 2, modified: stamp, in: storage)
+        try #require(DuplicateThumbnail.cached(path: path, side: 54, scale: 2, modified: stamp,
+                                               in: storage) === image,
+                     "the exact key missed — every nil below would pass with the entry gone")
 
-        #expect(DuplicateThumbnail.cached(path: path, side: 96, scale: 2, modified: stamp) == nil,
+        #expect(DuplicateThumbnail.cached(path: path, side: 96, scale: 2, modified: stamp,
+                                          in: storage) == nil,
                 "a different tile size was served the picture rendered for another one")
-        #expect(DuplicateThumbnail.cached(path: path, side: 54, scale: 1, modified: stamp) == nil,
+        #expect(DuplicateThumbnail.cached(path: path, side: 54, scale: 1, modified: stamp,
+                                          in: storage) == nil,
                 "a different display scale was served the picture rendered for another one")
         #expect(DuplicateThumbnail.cached(path: path, side: 54, scale: 2,
-                                          modified: Date(timeIntervalSince1970: 3_000)) == nil,
+                                          modified: Date(timeIntervalSince1970: 3_000),
+                                          in: storage) == nil,
                 "a rewritten file was served the preview of its previous contents")
     }
 
@@ -82,13 +122,14 @@ import Testing
     @Test func theTilePaintsFromTheCacheBeforeAnyTaskRuns() {
         let path = Self.path("first-pass")
         let tile = DuplicateThumbnailView(path: path, name: "first-pass.pdf",
-                                          isKeeper: false, modified: nil)
-        #expect(tile.shownImage == nil, "the cache was warm before this test wrote to it")
+                                          isKeeper: false, modified: nil, previews: storage)
+        #expect(tile.shownImage == nil, "the tile drew a picture before anything was stored")
 
-        DuplicateThumbnail.store(Self.image(), path: path, side: tile.side,
-                                 scale: tile.previewScale, modified: nil)
+        let image = Self.image()
+        DuplicateThumbnail.store(image, path: path, side: tile.side,
+                                 scale: tile.previewScale, modified: nil, in: storage)
 
-        #expect(tile.shownImage != nil,
+        #expect(tile.shownImage === image,
                 "a returning tile drew the file-type icon over a preview already in the cache")
     }
 
@@ -97,14 +138,39 @@ import Testing
     /// `loadsPreview` is the cap on a forty-copy group — the tile is still the picker, only the
     /// picture is skipped. A peek placed ahead of that guard would reinstate the pictures it exists
     /// to withhold, for every copy whose preview some other card had already caused to be rendered.
-    @Test func aTileThatSkipsPreviewsStaysOnItsIcon() {
+    ///
+    /// A twin that does load previews finds the entry first, so the nil is the guard speaking, not a
+    /// store that landed somewhere this tile was never going to look.
+    @Test func aTileThatSkipsPreviewsStaysOnItsIcon() throws {
         let path = Self.path("no-preview")
-        let tile = DuplicateThumbnailView(path: path, name: "no-preview.pdf",
-                                          isKeeper: false, modified: nil, loadsPreview: false)
-        DuplicateThumbnail.store(Self.image(), path: path, side: tile.side,
-                                 scale: tile.previewScale, modified: nil)
+        let tile = DuplicateThumbnailView(path: path, name: "no-preview.pdf", isKeeper: false,
+                                          modified: nil, loadsPreview: false, previews: storage)
+        let twin = DuplicateThumbnailView(path: path, name: "no-preview.pdf", isKeeper: false,
+                                          modified: nil, previews: storage)
+        let image = Self.image()
+        DuplicateThumbnail.store(image, path: path, side: tile.side,
+                                 scale: tile.previewScale, modified: nil, in: storage)
+        try #require(twin.shownImage === image,
+                     "a tile that does load previews missed the entry — the nil below would be vacuous")
 
         #expect(tile.shownImage == nil,
                 "the cache peek ran ahead of the loadsPreview guard")
+    }
+
+    // MARK: The shelf the app uses
+
+    /// **A tile looks on the one shared shelf unless it is handed another.**
+    ///
+    /// Every test above hands the tile a shelf of its own, so none of them can see the default —
+    /// and the default is the fix: `DuplicateThumbnail.imageCache` is `static` and outlives the
+    /// views, which is the only reason a tile built after a workspace switch has anything to find.
+    /// A default that gave each tile a fresh shelf would pass every test above and flash the icon on
+    /// every return. Pinned by identity rather than by storing into it, because what is stored
+    /// there is exactly what the OS may take back.
+    @Test func aTileLooksOnTheSharedShelfUnlessHandedAnother() {
+        let tile = DuplicateThumbnailView(path: Self.path("default"), name: "default.pdf",
+                                          isKeeper: false, modified: nil)
+        #expect(tile.previews === DuplicateThumbnail.imageCache,
+                "a tile no longer reads the shared cache — it will find nothing after a workspace switch")
     }
 }

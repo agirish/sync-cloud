@@ -13,7 +13,7 @@ half — with the measurements behind each and the fix pattern for each.
 [flaky-triage.md](flaky-triage.md)**, not here: it is one page, it tells the mechanisms apart, and
 it links back to each section below. Come here once you know which one you have — or when you are
 about to write an assertion that something did *not* happen, in which case read mechanism 12 and the
-three beside it in [the silent half](flaky-triage.md#the-silent-half--read-before-writing-any-absence-assertion).
+rest of [the silent half](flaky-triage.md#the-silent-half--read-before-writing-any-absence-assertion).
 
 **Mechanism 13 is not a flake**, and is filed here anyway because this is where you will look: it
 is a *build* failure that reports itself as exit 65 and `** TEST FAILED **`, exactly like a red
@@ -2637,3 +2637,116 @@ re-recording, not after:
 
 Only then were the eight references re-recorded, and the recorded PNGs checked pixel-identical to
 the renders the diff above was run on.
+
+### 24. An NSCache emptied by memory pressure between a store and the next line — FIXED
+
+**Symptom.** A test stores into an `NSCache`, reads the entry straight back — synchronously, on one
+actor, nothing between the two lines — and finds nothing. Seen 2026-09-26 on CI (run 36212077493,
+`424577cd`, a commit that touched no package code):
+
+```
+✘ Test aStoredPreviewIsFoundByTheSynchronousPeek() recorded an issue at DuplicateThumbnailCacheTests.swift:41:9: Expectation failed: DuplicateThumbnail.cached(path: path, side: 54, scale: 2, modified: stamp) != nil
+✘ Test theTilePaintsFromTheCacheBeforeAnyTaskRuns() recorded an issue at DuplicateThumbnailCacheTests.swift:91:9: Expectation failed: tile.shownImage != nil
+```
+
+The first assertion's message blames the key — "the two spell the key differently" — which is the
+regression that suite exists to catch, so the red reads as real. It was not:
+`git diff dd1b24aa 424577cd -- Modules SyncCloudCLI` is empty and `dd1b24aa` was green; the suite
+passes 5/5 in 0.001 s under `--filter` at the red SHA; and a `workflow_dispatch` re-run on the same
+SHA (36213193763) went green with identical counts.
+
+**Mechanism.** On macOS an `NSCache` keeps its entries in a libcache `cache_t` (its `_cache` ivar),
+and libcache's `cache.h` is blunt about the contract: the cache "may remove keys at any time". *When*
+is its memory-pressure policy, read out of `libcache.dylib` on macOS 27.0 (26A428) and then
+reproduced below:
+
+- Any system memory-pressure event other than *normal* sets a process-wide "under pressure" flag,
+  and while it is set a cache's effective count limit **stops growing**.
+- *Critical* sets every cache's limit to **0**. *Warn* freezes it at **however many entries the
+  cache holds at that moment**.
+- So a cache that is **empty when a warn arrives** is frozen at zero, and until the *normal* event
+  every `setObject` is evicted before the next line can read it. A cache holding even one entry is
+  frozen at one and evicts the *older* entry instead, so a fresh store survives — which is why this
+  needs the cache to be empty, and why it is rare.
+
+`DuplicateThumbnail.imageCache` was exactly that cache. Suites such as `DuplicateCardStabilityTests`
+host duplicate cards for paths that do not exist (`/c0/…`); each tile's first body pass peeks the
+cache, which creates it, and QuickLook renders none of those paths, so nothing is stored. A miss
+under *warn* happens in that state only — a cache holding one entry, or created after the event,
+keeps a fresh store — so the red itself says the cache was there, empty, when this Mac went to
+*warn* at **08:13:52 IST** (`modelmanagerd`, 08:13:52: "Received dispatch memory pressure event:
+warning"; `bluetoothd`, 08:14:23: "Memory pressure changed from 1 to 2"). It stayed there until
+*normal* at 08:17:48–08:18:19. Both store→peek pairs ran at **08:15:22** — the "recorded an issue" timestamp,
+02:45:22Z in the CI log, which stamps UTC where `log show` stamps local time — inside it. No pressure
+event appears between the return to *normal* and the end of the re-run's suite at 08:33:38.
+
+**Reproduced in-process, without loading the machine.** libcache exports
+`cache_simulate_memory_warning_event(uint64_t)` — absent from `cache.h`, but
+`dyld_info -exports /usr/lib/system/libcache.dylib` lists it — which delivers an event to the calling
+process's caches and to no one else's:
+
+```swift
+typealias Simulate = @convention(c) (UInt64) -> Void
+let simulate = unsafeBitCast(dlsym(dlopen("/usr/lib/system/libcache.dylib", RTLD_NOW),
+                                   "cache_simulate_memory_warning_event")!, to: Simulate.self)
+simulate(2); usleep(300_000)   // DISPATCH_MEMORYPRESSURE_WARN — applied on libcache's own queue
+// ...store, then peek...
+simulate(1)                    // DISPATCH_MEMORYPRESSURE_NORMAL
+```
+
+A throwaway test that primed the shared cache empty (one `cached(…)` call), simulated *warn* and ran
+the suite's five bodies failed on exactly the two CI lines, with the CI messages, 3 runs of 3.
+Standalone, 100 store→peek pairs per case, 3 runs each: a cache empty at the *warn* keeps **0**; one
+already holding an entry keeps 100; one created after the event keeps 100; after *normal*, 100.
+*Critical* evicts what the cache held within 0.3 s and then keeps **0**, whatever it held. Do not reach for `memory_pressure -S` instead: it needs
+root, and it puts the whole Mac — the CI runner included — into the simulated state.
+
+**Tell.**
+
+1. The failing assertion reads back something the test **itself just stored** into an `NSCache` (or
+   anything else built on libcache), and the miss assertions around it passed.
+2. `--filter` is green in milliseconds, and so is a re-run on the same SHA.
+3. The system was at *warn* or *critical* at the **"recorded an issue" timestamp**:
+
+   ```bash
+   /usr/bin/log show --style compact --start '<issue − 10 min>' --end '<issue + 5 min>' \
+     --predicate 'eventMessage CONTAINS[c] "Received dispatch memory pressure event" OR eventMessage CONTAINS[c] "Memory pressure changed"'
+   ```
+
+   A *warning* before the issue with no *normal* between them is the state. **The duration is not
+   the tell**: these tests reported 142 s in the red run, and 100.8 s (`dd1b24aa`) and 104.7 s (the
+   re-run) when green — main-actor queueing in a ~400 s package, not the cache. Read the issue's own
+   timestamp: in the red run the tests were *started* at 08:13:24, and the failing bodies ran two
+   minutes later.
+
+**The silent half.** The same state makes every *miss* assertion vacuous — "another key answers nil"
+holds when every key answers nil — and in the red run the suite's three such tests passed having
+examined nothing. Measured: with `cached` forced to answer nil, the old suite fails its two positive
+tests and passes all three miss tests, the CI pattern exactly. That half is the more expensive one,
+and a re-run cannot show it to you.
+
+**Fix — keep the key production's, and take the shelf away from the OS.** A verdict must not depend
+on retention by a cache the system is allowed to empty. `DuplicateThumbnail.store`, `cached` and
+`image` now take the `DuplicateThumbnail.Storage` they use, and `DuplicateThumbnailView` takes one as
+`previews`, defaulting to the shared `imageCache` — still an `NSCache` in the app, unchanged. The
+tests hand in a dictionary-backed shelf of their own, so every store and peek still goes through
+production's `key(path:side:scale:modified:)`; only *where* an entry is kept is the test's. Do not
+fix it by inserting under a key the test spells itself: that proves only that the test agrees with
+itself, the exact failure the suite exists to catch.
+
+The injection opens two gaps, and both are closed. A tile handed its own shelf would pass every test
+and flash the icon again in the app, so `aTileLooksOnTheSharedShelfUnlessHandedAnother` pins the
+default by identity. And every miss now follows a `#require`d hit on the same shelf, so a peek that
+finds nothing fails instead of passing. Under the harness above, the rewritten suite is green 3 runs
+of 3 while a control in the same test shows the app's shelf still losing a fresh store. Mutation-tested,
+each killed by a named test: `store` or `cached` spelling the key their own way; the tile peeking at
+another scale, or on the shared shelf instead of `previews`; the peek moved ahead of the
+`loadsPreview` guard; `key` dropping `side`; `imageCache` turned into a fresh shelf per access; and
+`cached` answering nil for everything.
+
+**Nothing else is exposed today.** `NSCache` appears nowhere else in the repo — not in the seven
+packages, `MacApp/` or `SyncCloudTests/`. A new test that stores into one and reads it back has this
+failure available to it from its first run; inject the storage from the start.
+
+**See.** `Modules/FileExplorer/Sources/FileExplorer/DuplicateThumbnail.swift` (`DuplicateThumbnail.Storage`);
+`Modules/FileExplorer/Tests/FileExplorer/DuplicateThumbnailCacheTests.swift`.
