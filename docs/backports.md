@@ -6040,3 +6040,9 @@ done
 pages (no `.edit`), so a v4 page whose art stops drawing can pass there too. No product file changed,
 so no line has a defect to send — what `v4.x` lacks is a suite that can tell a blank page from a
 painted one. **`v3.x` and `v2.x`: do not apply** — neither has the suite.
+
+**2026-09-27 — the control's reveal gap, same verdict.** `testTheRendererSeesAShippedIllustration`
+now also requires `DuplicatesArt`'s check mark, the one part only its `onAppear` reveal draws;
+`painted > 500` alone held with every reveal suppressed (8,723 pixels). `v4.x` carries the same
+control over the same `DuplicatesArt` gating (`git show origin/v4.x:MacApp/SetupArtwork.swift`), so
+it applies there — RECORDED, not owed.

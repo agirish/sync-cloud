@@ -6,17 +6,18 @@ import AppKit
 /// Does the tour's artwork actually paint?
 ///
 /// The illustrations are the one part of the welcome card no assertion could previously reach:
-/// they are decorative, `accessibilityHidden`, and every one of them starts at `opacity(0)` and
-/// only becomes visible from an `onAppear`. A page whose art never arrives renders as a 120pt
-/// blank band above the copy and nothing else changes — the card still lays out, the titles still
-/// read, and the suite stays green.
+/// they are decorative and `accessibilityHidden`, and most of them reveal some or all of their
+/// drawing from an `onAppear` — Welcome and Browse draw nothing at all until it runs. A page whose
+/// art never arrives renders as a 120pt blank band above the copy and nothing else changes — the
+/// card still lays out, the titles still read, and the suite stays green.
 ///
 /// **The harness validates itself against a shipped illustration first.** `ImageRenderer` is not
 /// obliged to run `onAppear`, so a blank result here would be indistinguishable from art that is
 /// genuinely broken — and "assert ink > 0" against a renderer that paints nothing is a test that
 /// can only ever fail for the wrong reason. `testTheRendererSeesAShippedIllustration` is the
 /// control: if the renderer cannot see `DuplicatesArt`, which has shipped since the tour existed, then
-/// it cannot see any of them and the Browse check below is not evidence.
+/// it cannot see any of them and the Browse check below is not evidence. It must see it *revealed*,
+/// too: a renderer that skipped `onAppear` would read every page before its reveal.
 ///
 /// **And against a blank one, because the renderer can fail the other way too.** Its own image is
 /// a buffer it recycles, and a render with nothing to draw handed that buffer back holding an
@@ -45,7 +46,8 @@ import AppKit
     /// freed. Measured 2026-09-26 with Browse's art replaced by `Color.clear`: the blank page read
     /// 18,351 painted pixels, `.duplicates`' exact count, and each of the three Browse tests passed,
     /// in one run or another, on a page that drew nothing. Art whose reveal never ran is the same
-    /// case — everything at `opacity(0)` draws nothing — which is the failure this suite exists for.
+    /// case wherever all of it waits for the reveal, as Welcome's and Browse's does — everything at
+    /// `opacity(0)` draws nothing.
     ///
     /// `render(rasterizationScale:renderer:)` is the same renderer, `onAppear` included; only the
     /// destination is ours. An unattached `NSHostingView` is no substitute: through `cacheDisplay`
@@ -94,12 +96,38 @@ import AppKit
         return (painted, tinted)
     }
 
+    /// Pixels whose green stands clear of both other channels — on `DuplicatesArt`, its check mark
+    /// and nothing else. Asked once per distinct pixel value, like `ink`.
+    static func greenInk(_ bitmap: NSBitmapImageRep) -> Int {
+        let isGreen = PixelMemo(bitmap) { colour -> Bool in
+            guard let colour, colour.alphaComponent > 0.02,
+                  let rgb = colour.usingColorSpace(.deviceRGB) else { return false }
+            return rgb.greenComponent - rgb.redComponent > 0.15 && rgb.greenComponent - rgb.blueComponent > 0.15
+        }
+        var green = 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide where isGreen(x, y) { green += 1 }
+        }
+        return green
+    }
+
     /// The control. If this fails, nothing else in this file is evidence of anything.
+    ///
+    /// **It counts the reveal, not just the drawing.** `DuplicatesArt` paints its documents before
+    /// its `onAppear` runs — 8,723 pixels with every reveal suppressed, measured 2026-09-27 — so
+    /// `painted > 500` held whether or not the renderer ran `onAppear` at all. Its check mark is the
+    /// one part only the reveal draws: 1,423 green pixels revealed, none before, and nothing else it
+    /// draws is green. It heads no panel any more, so nothing edits it for a page's sake, which is
+    /// what lets it stand as the reference.
     @MainActor
     @Test func testTheRendererSeesAShippedIllustration() throws {
-        let (painted, _) = Self.ink(try Self.render(.duplicates))
+        let bitmap = try Self.render(.duplicates)
+        let (painted, _) = Self.ink(bitmap)
         #expect(painted > 500,
                 "the renderer cannot see DuplicatesArt, which ships — every check below would be vacuous")
+        let checkMark = Self.greenInk(bitmap)
+        #expect(checkMark > 200,
+                "DuplicatesArt rendered without its check mark, which only its onAppear reveal draws — the renderer is reading pages before their reveal, so a blank page below would be the harness, not the art")
     }
 
     /// The other control: a page that paints nothing reads as nothing — straight after one that
@@ -160,10 +188,13 @@ import AppKit
     /// Every page's art paints — by construction, not by roll-call. This suite rendered 2 of 6
     /// cases for its first weeks, so a blank illustration on four tour pages (or on whatever case
     /// is added next — `Art` is `CaseIterable` for exactly this loop) would have shipped with the
-    /// suite green. The floor is far below any shipped illustration's ink but far above the noise
-    /// of an art view that never ran its `onAppear` reveal or lost its body: the two controls
-    /// above establish that the renderer sees a shipped illustration at all and that a blank reads
-    /// as blank, so a blank here is the ART, not the harness — and a pass is not an earlier page.
+    /// suite green. The floor is far below any shipped illustration's ink and far above a page that
+    /// lost its body. It catches a reveal that never runs only where a page draws nothing before
+    /// it — Welcome and Browse. Compare, Duplicates, Filing and Edit already paint before it (1,712
+    /// to 73,664 pixels with every reveal suppressed, measured 2026-09-27), and Transfer has no
+    /// reveal. The two controls above establish that the renderer sees a shipped illustration,
+    /// revealed, and that a blank reads as blank, so a blank here is the ART, not the harness — and
+    /// a pass is not an earlier page.
     @MainActor
     @Test(arguments: SetupArt.Art.allCases)
     func testEveryTourPagePaintsItsIllustration(art: SetupArt.Art) throws {
