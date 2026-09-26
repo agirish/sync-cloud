@@ -80,9 +80,17 @@ import FileExplorer
     /// whole duration, so nothing SwiftUI or `Task.sleep` enqueued onto the main actor can run —
     /// and written that way every test here failed while the code was correct, including a control
     /// that did nothing but sleep. Suspending is what lets the work under test actually happen.
+    ///
+    /// **So it runs no run loop of its own either.** A nested `CFRunLoopRunInMode` inside a
+    /// main-actor job is that synchronous pump in miniature: GCD does not drain the main queue from
+    /// inside one of its own callouts, so while it runs no main-actor job does — this suite's
+    /// `.task` included. It used to spend 5 ms of every turn there, and two sampled full runs on
+    /// 2026-09-26 caught the main thread idle inside it 106 and 168 times at 5 ms intervals, time
+    /// every other suite waited through. Releasing the actor hands the thread back to the app's own
+    /// run loop, which lays the window out and starts the `.task` unaided: the suite is as fast
+    /// without it, and a driver that never writes or never restarts still turns it red.
     private func turn(_ window: NSWindow) async {
         window.layoutIfNeeded()
-        _ = CFRunLoopRunInMode(.defaultMode, 0.005, false)
         try? await Task.sleep(for: .milliseconds(5))
     }
 
@@ -99,12 +107,21 @@ import FileExplorer
     /// suites run in parallel on the machine that is also the CI runner, so a budget tight enough
     /// to be quick when the machine is idle is a red when it is not. This returns the instant the
     /// thing happens and only spends the ceiling when it does not.
+    ///
+    /// **Bounded by TURNS as well as by seconds** — at least `waitPollFloor` of them, the floor the
+    /// target's `waitUntil` uses. What this waits for is the driver's `.task` starting and then
+    /// resuming after its sleep, and each of those is a job at the back of the FIFO main queue,
+    /// behind every other suite's main-actor work. So the budget has to count passes through that
+    /// queue, not wall time. In the CI runs that went red on 2026-09-26, other suites held the main
+    /// thread for 7–12 s at a stretch, and the ten seconds ran out with the `.task` still queued.
     @discardableResult
     private func wait(_ window: NSWindow, upTo seconds: Double = 10,
                       until condition: () -> Bool) async -> Bool {
+        var turns = 0
         let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
+        while turns < waitPollFloor || Date() < deadline {
             if condition() { return true }
+            turns += 1
             await turn(window)
         }
         return condition()

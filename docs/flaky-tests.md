@@ -161,6 +161,42 @@ a test is a bet that the machine will not be busy, and this repo's runner IS the
 `ContinuousClock` deadlines; they have not misfired, and they are not swept here on that basis, but
 they are where to look first if either goes red under load.
 
+**A third spelling, in the app target — `EditorAutosaveDriverTests`, 2026-09-26 — FIXED, and
+REPRODUCED.** Three CI runs on `main` in a row (638edd11, 08597a94, 3eabd911) went red on one
+assertion with every package green: the suite's harness control,
+`aDirtyDocumentIsWrittenByTheModifiersFirstTask`, `writes.count >= 1`, after 10.7, 15.0 and 20.6 s.
+Its wait was a hand-rolled `Date()` deadline over the autosave modifier's first `.task`.
+
+*The tell looks like **Leaked defaults suites** and is not.* Every app-target run on CI, green ones
+included, has a stretch of roughly 6–12 s in which next to no test completes, then several hundred
+finish within a second, and the app's own main-thread log lines stop for the same stretch — ~430
+tests over 10 s in the GREEN runs, and 1,721 scratch plists under an hour old in
+`~/Library/Preferences` that day. But `cfprefsd` measured fast (cold `defaults domains` 0.42 s at
+2,259 plists), and `sample` of the test host inside the stretch finds the main thread **busy, not
+blocked**: CPU in other suites' test bodies — pixel diffs, layout measurement, and until 6170108e
+the scan lexer. Long main-actor tests share the FIFO main queue, so none finishes until all do.
+**Sample the host before naming a freeze.**
+
+*Why this wait lost.* The driver's `.task` must start, sleep and resume — two jobs at the back of that
+queue — and the test must look once more. With the main thread held 7–12 s at a stretch, ten seconds
+could run out with the `.task` still queued. 638edd11's lexer lengthened the stretches (6170108e took
+that away); the green runs before it passed only because the test finished before the stretch began,
+at 2.5 and 3.4 s, and the first green after 6170108e passed at 12.8 s — inside it, barely.
+
+*Reproduced, with load of the right shape.* A scratch suite of four main-actor tests holding the
+main thread in 2.5 s synchronous chunks, `await Task.yield()` between: beside it the seconds-only
+wait failed at the same line after 10.03 s, with the driver untouched. Floored at `waitPollFloor`
+turns it passed after 20.1 s, and alone the control still takes 0.05 s. A driver that never writes
+still fails all three tests; one whose `.task` id ignores the text version fails both keystroke
+tests and passes the control.
+
+*The harness's own pump was part of the load.* Its turn ran `CFRunLoopRunInMode(.defaultMode, 0.005,
+false)` inside a main-actor job, and GCD does not drain the main queue from inside its own callout —
+measured: a main-actor job enqueued before a 50 ms nested loop runs only after it. So each turn held
+all main-actor work for 5 ms, its own `.task` included; two sampled full runs caught the main thread
+idle there 106 and 168 times at 5 ms intervals. Releasing the actor is enough: the app's run loop
+lays the window out and starts the `.task`.
+
 **A pump that never pumps — `RunLoop.main.run(until:)` with no window in the process, 2026-08-21.**
 `MergeUndoGroupingAndGateTests` and `DuplicateBatchRedesignTests` each carried a
 `closeTheUndoEventGroup()` helper — `RunLoop.main.run(until: Date().addingTimeInterval(0.02))` —
