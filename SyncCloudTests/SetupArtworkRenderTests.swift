@@ -38,16 +38,23 @@ import AppKit
     }
 
     /// Pixels that are not fully transparent, and how many of them carry a hue rather than grey.
+    ///
+    /// Each distinct pixel value is asked once (`PixelMemo`), the question unchanged — this used to
+    /// convert every painted pixel of every page to device RGB, on the main actor.
     static func ink(_ bitmap: NSBitmapImageRep) -> (painted: Int, tinted: Int) {
+        let classify = PixelMemo(bitmap) { colour -> (painted: Bool, tinted: Bool) in
+            guard let colour, colour.alphaComponent > 0.02 else { return (false, false) }
+            guard let rgb = colour.usingColorSpace(.deviceRGB) else { return (true, false) }
+            // Blue tint against a grey ramp: a real hue separates its channels.
+            return (true, rgb.blueComponent - rgb.redComponent > 0.15)
+        }
         var painted = 0
         var tinted = 0
-        for x in 0..<bitmap.pixelsWide {
-            for y in 0..<bitmap.pixelsHigh {
-                guard let colour = bitmap.colorAt(x: x, y: y), colour.alphaComponent > 0.02 else { continue }
-                painted += 1
-                guard let rgb = colour.usingColorSpace(.deviceRGB) else { continue }
-                // Blue tint against a grey ramp: a real hue separates its channels.
-                if rgb.blueComponent - rgb.redComponent > 0.15 { tinted += 1 }
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                let pixel = classify(x, y)
+                if pixel.painted { painted += 1 }
+                if pixel.tinted { tinted += 1 }
             }
         }
         return (painted, tinted)
@@ -81,12 +88,11 @@ import AppKit
     @MainActor
     @Test func testTheBrowseIllustrationDrawsThreeSeparateColumns() throws {
         let bitmap = try Self.render(.browse)
+        let inked = PixelMemo(bitmap) { ($0?.alphaComponent ?? 0) > 0.02 }
         var runs = 0
         var inRun = false
         for x in 0..<bitmap.pixelsWide {
-            let painted = (0..<bitmap.pixelsHigh).contains { y in
-                (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.02
-            }
+            let painted = (0..<bitmap.pixelsHigh).contains { y in inked(x, y) }
             if painted && !inRun { runs += 1 }
             inRun = painted
         }

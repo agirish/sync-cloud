@@ -91,15 +91,26 @@ import Testing
     }
 
     /// Pixels where two renders of the same panel differ.
+    ///
+    /// **Bytes first.** Between two bitmaps of one format, a pixel whose bytes match is the same
+    /// colour and cannot count, so a matching row is skipped whole and a matching pixel singly;
+    /// every other pixel is compared exactly as before, on the components `colorAt` gives it — read
+    /// once per distinct pixel value (`PixelMemo`). This asked `colorAt` of all ~240,000 pixels of
+    /// both renders, seven pairs a run, on the main actor.
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
+        let components: (NSColor?) -> [CGFloat]? = { colour in
+            colour.map { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent] }
+        }
+        let pa = PixelMemo(a, components), pb = PixelMemo(b, components)
+        let sameFormat = pa.sameFormat(as: pb)
         var count = 0
         for y in 0..<min(a.pixelsHigh, b.pixelsHigh) {
+            if sameFormat, pa.rowMatches(y, in: pb) { continue }
             for x in 0..<min(a.pixelsWide, b.pixelsWide) {
-                guard let p = a.colorAt(x: x, y: y), let q = b.colorAt(x: x, y: y) else { continue }
-                if abs(p.redComponent - q.redComponent) > 0.02
-                    || abs(p.greenComponent - q.greenComponent) > 0.02
-                    || abs(p.blueComponent - q.blueComponent) > 0.02
-                    || abs(p.alphaComponent - q.alphaComponent) > 0.02 { count += 1 }
+                if sameFormat, let key = pa.key(x, y), key == pb.key(x, y) { continue }
+                guard let p = pa(x, y), let q = pb(x, y) else { continue }
+                if abs(p[0] - q[0]) > 0.02 || abs(p[1] - q[1]) > 0.02
+                    || abs(p[2] - q[2]) > 0.02 || abs(p[3] - q[3]) > 0.02 { count += 1 }
             }
         }
         return count

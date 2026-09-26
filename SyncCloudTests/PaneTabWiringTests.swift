@@ -70,7 +70,7 @@ import Sync
     /// third implementation of this is how the three copies of `declarationBody` came to disagree.
     /// `theCommentStripperIsTheCorrectedOne` is the proof that this file gets that behaviour, and
     /// that the file it scans stays inside the stripper's stated limits.
-    private static func codeOnly(_ source: String) -> String {
+    nonisolated fileprivate static func codeOnly(_ source: String) -> String {
         SyncCloudTests.strippingComments(source)
     }
 
@@ -257,7 +257,7 @@ import Sync
     /// callers keep their own floor on the count, which is also what covers the other half of this
     /// — `enumerator(at:)` answers NON-NIL and yields nothing for a directory it cannot list, so a
     /// zero here is not distinguishable from an empty tree except by that floor.
-    static func swiftFiles(under root: URL) -> [URL] {
+    nonisolated static func swiftFiles(under root: URL) -> [URL] {
         var found: [URL] = []
         let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
         while let url = walk?.nextObject() as? URL {
@@ -360,7 +360,7 @@ import Sync
     /// `<=`, `>=`, `==`); the lookahead refuses one that is the head of `==`. Horizontal whitespace
     /// only — `\s` would swallow newlines and join two statements into one. Pinned by
     /// ``theWriteScanTellsAnAssignmentFromAComparison``, which is the fixture this had none of.
-    static func normalizingAssignments(_ source: String) -> String {
+    nonisolated static func normalizingAssignments(_ source: String) -> String {
         source.replacingOccurrences(of: #"(?<![-+*/%<>!=])[ \t]*=[ \t]*(?!=)"#,
                                     with: " = ", options: .regularExpression)
     }
@@ -1830,67 +1830,6 @@ import Sync
                 "a call in a shape the reader does not understand is silently dropped instead of reported")
     }
 
-    /// **`focusedPaneSide` has one writer in the host, and it is the manager's door.**
-    ///
-    /// Five places wrote the property bare and none of them logged — a strip verb, a row selection,
-    /// ⌃⇥, a pin and a reorder. The value decides whether ⌘W closes a tab or the WINDOW, so a user
-    /// auditing a log that shows a window closing had nothing at all saying which pane the chords
-    /// were aimed at. The door writes the line; a sixth bare writer would be silent again.
-    ///
-    /// Scanned as an ABSENCE across every file in `MacApp/`, not per known site: a per-site check
-    /// passes the moment a new one appears, which is exactly how this got to five.
-    ///
-    /// **Recursively, and over the modules and the CLI too.** The walk was
-    /// `contentsOfDirectory(at: MacApp)` — one level deep, `MacApp/*.swift` only — and
-    /// `focusedPaneSide` is a `@Published public var`, writable from `Sync`, `FileExplorer`,
-    /// `Settings`, `Dashboard` and `SyncCloudCLI`. No bare writer lives outside `MacApp/` today, so
-    /// this widening breaks nothing; what it removes is the gap that opens the moment anybody makes
-    /// a `MacApp/Tabs/` folder or reaches for the property from a module.
-    ///
-    /// The **one** production file allowed to write it is the one that DECLARES the door. Named
-    /// rather than pattern-matched, so a second file cannot join it by resembling it. Test sources
-    /// are out of scope — `SwapPanesTests` sets the property directly to build a starting state,
-    /// which is a fixture, not a silent move.
-    @Test func theHostWritesTheFocusedPaneSideOnlyThroughTheManagersDoor() throws {
-        let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let macApp = repo.appendingPathComponent("MacApp")
-        let hostFiles = Self.swiftFiles(under: macApp)
-        #expect(hostFiles.count > 20,
-                "the host scan found \(hostFiles.count) Swift files — it is reading the wrong folder, or the enumerator yielded nothing")
-
-        // Every shipping source outside the host, minus the tests: `Tests` directories hold
-        // fixtures that legitimately seed the property.
-        let elsewhere = (Self.swiftFiles(under: repo.appendingPathComponent("Modules"))
-                         + Self.swiftFiles(under: repo.appendingPathComponent("SyncCloudCLI")))
-            .filter { !$0.pathComponents.contains("Tests") }
-        // The floor is near today's measured 285, not a round number well under it: a loose floor
-        // is passed by a walk that has stopped reading most of the tree.
-        #expect(elsewhere.count >= 250,
-                "the module scan found \(elsewhere.count) Swift files where ~285 are expected — it is reading the wrong folder, or the walk stopped early")
-
-        /// The file that declares the door, and the only place the property may be written bare.
-        let declaringFile = "FileSyncManager+Navigation.swift"
-        var doors = 0
-        var declaredWrites = 0
-        for file in hostFiles + elsewhere {
-            let code = Self.normalizingAssignments(
-                Self.codeOnly(try String(contentsOf: file, encoding: .utf8)))
-            let writes = code.components(separatedBy: "focusedPaneSide = ").count - 1
-            if file.lastPathComponent == declaringFile {
-                declaredWrites += writes
-            } else {
-                #expect(writes == 0,
-                        "\(file.lastPathComponent) writes focusedPaneSide itself rather than through noteFocusedPane — the move is silent, and the log cannot say which pane ⌘W was aimed at")
-            }
-            doors += code.components(separatedBy: "noteFocusedPane(").count - 1
-        }
-        #expect(declaredWrites == 1,
-                "\(declaredWrites) bare writes inside \(declaringFile) where 1 is expected — the door either stopped writing the property or grew a second path that skips its log line")
-        #expect(doors >= 5,
-                "\(doors) calls to the door across the shipping sources — the strip verb, the row selection, ⌃⇥ and the swap each need one, so this scan has stopped finding them and the absence above is vacuous")
-    }
-
     /// **A focus move is logged with its cause, and a move that moves nothing says nothing.**
     ///
     /// `focusedPaneSide` decides whether ⌘W closes a tab or the window — this feature's one
@@ -3117,5 +3056,77 @@ import Sync
                 "the tab mirror invented its own link test")
         #expect(try Self.source("ContentView.swift").contains(predicate),
                 "the mirrored drill's link test moved — the two have drifted apart")
+    }
+}
+
+/// **The focused pane's one door, scanned across every shipping source — off the main actor.**
+///
+/// **Not `@MainActor`, and that is the point of it being a suite of its own.** The scan reads ~330
+/// files through a character-level comment stripper and a regex, text in and text out; inside
+/// `PaneTabWiringTests`, which is main-actor for its window tests, it ran on the main thread —
+/// sampled 2026-09-26 at over half a second of every full app-target run, held up behind it every
+/// main-actor wait in the process, `EditorAutosaveDriverTests`' among them. Marking the test
+/// `nonisolated` inside that suite is not enough: it was measured still running on main.
+@Suite struct PaneFocusDoorWiringTests {
+
+    /// **`focusedPaneSide` has one writer in the host, and it is the manager's door.**
+    ///
+    /// Five places wrote the property bare and none of them logged — a strip verb, a row selection,
+    /// ⌃⇥, a pin and a reorder. The value decides whether ⌘W closes a tab or the WINDOW, so a user
+    /// auditing a log that shows a window closing had nothing at all saying which pane the chords
+    /// were aimed at. The door writes the line; a sixth bare writer would be silent again.
+    ///
+    /// Scanned as an ABSENCE across every file in `MacApp/`, not per known site: a per-site check
+    /// passes the moment a new one appears, which is exactly how this got to five.
+    ///
+    /// **Recursively, and over the modules and the CLI too.** The walk was
+    /// `contentsOfDirectory(at: MacApp)` — one level deep, `MacApp/*.swift` only — and
+    /// `focusedPaneSide` is a `@Published public var`, writable from `Sync`, `FileExplorer`,
+    /// `Settings`, `Dashboard` and `SyncCloudCLI`. No bare writer lives outside `MacApp/` today, so
+    /// this widening breaks nothing; what it removes is the gap that opens the moment anybody makes
+    /// a `MacApp/Tabs/` folder or reaches for the property from a module.
+    ///
+    /// The **one** production file allowed to write it is the one that DECLARES the door. Named
+    /// rather than pattern-matched, so a second file cannot join it by resembling it. Test sources
+    /// are out of scope — `SwapPanesTests` sets the property directly to build a starting state,
+    /// which is a fixture, not a silent move.
+    @Test func theHostWritesTheFocusedPaneSideOnlyThroughTheManagersDoor() throws {
+        let repo = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let macApp = repo.appendingPathComponent("MacApp")
+        let hostFiles = PaneTabWiringTests.swiftFiles(under: macApp)
+        #expect(hostFiles.count > 20,
+                "the host scan found \(hostFiles.count) Swift files — it is reading the wrong folder, or the enumerator yielded nothing")
+
+        // Every shipping source outside the host, minus the tests: `Tests` directories hold
+        // fixtures that legitimately seed the property.
+        let elsewhere = (PaneTabWiringTests.swiftFiles(under: repo.appendingPathComponent("Modules"))
+                         + PaneTabWiringTests.swiftFiles(under: repo.appendingPathComponent("SyncCloudCLI")))
+            .filter { !$0.pathComponents.contains("Tests") }
+        // The floor is near today's measured 285, not a round number well under it: a loose floor
+        // is passed by a walk that has stopped reading most of the tree.
+        #expect(elsewhere.count >= 250,
+                "the module scan found \(elsewhere.count) Swift files where ~285 are expected — it is reading the wrong folder, or the walk stopped early")
+
+        /// The file that declares the door, and the only place the property may be written bare.
+        let declaringFile = "FileSyncManager+Navigation.swift"
+        var doors = 0
+        var declaredWrites = 0
+        for file in hostFiles + elsewhere {
+            let code = PaneTabWiringTests.normalizingAssignments(
+                PaneTabWiringTests.codeOnly(try String(contentsOf: file, encoding: .utf8)))
+            let writes = code.components(separatedBy: "focusedPaneSide = ").count - 1
+            if file.lastPathComponent == declaringFile {
+                declaredWrites += writes
+            } else {
+                #expect(writes == 0,
+                        "\(file.lastPathComponent) writes focusedPaneSide itself rather than through noteFocusedPane — the move is silent, and the log cannot say which pane ⌘W was aimed at")
+            }
+            doors += code.components(separatedBy: "noteFocusedPane(").count - 1
+        }
+        #expect(declaredWrites == 1,
+                "\(declaredWrites) bare writes inside \(declaringFile) where 1 is expected — the door either stopped writing the property or grew a second path that skips its log line")
+        #expect(doors >= 5,
+                "\(doors) calls to the door across the shipping sources — the strip verb, the row selection, ⌃⇥ and the swap each need one, so this scan has stopped finding them and the absence above is vacuous")
     }
 }

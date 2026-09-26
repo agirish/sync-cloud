@@ -45,6 +45,16 @@ import Testing
     /// Where a rendered view has ink, row by row.
     struct Ink {
         let rep: NSBitmapImageRep
+        var threshold: CGFloat = 0.35
+
+        /// Each pixel's alpha as `colorAt` reports it, asked once per distinct pixel value
+        /// (`PixelMemo`) rather than of every pixel of every scanned row, on the main actor.
+        private let alpha: PixelMemo<CGFloat?>
+
+        init(rep: NSBitmapImageRep) {
+            self.rep = rep
+            alpha = PixelMemo(rep) { $0?.alphaComponent }
+        }
 
         /// `(first, last)` ink column for one row, or nil for a row with no ink — or one that is a
         /// divider.
@@ -57,9 +67,7 @@ import Testing
             var first: Int?, last: Int?
             var inked = 0
             for x in 0..<rep.pixelsWide {
-                guard let colour = rep.colorAt(x: x, y: y), colour.alphaComponent > threshold else {
-                    continue
-                }
+                guard let level = alpha(x, y), level > threshold else { continue }
                 if first == nil { first = x }
                 last = x
                 inked += 1
@@ -69,8 +77,6 @@ import Testing
             return (first, last)
         }
 
-        var threshold: CGFloat = 0.35
-
         /// Runs of ink in one row, split wherever there is a clear gap of `gap` pixels — Back, the
         /// lock line and the buttons, as three groups.
         func clusters(row y: Int, gap: Int) -> [(first: Int, last: Int)] {
@@ -78,7 +84,7 @@ import Testing
             var start: Int?
             var lastInk: Int?
             for x in 0..<rep.pixelsWide {
-                let inked = (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > threshold
+                let inked = (alpha(x, y) ?? 0) > threshold
                 if inked {
                     if start == nil { start = x }
                     lastInk = x
