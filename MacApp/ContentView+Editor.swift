@@ -405,36 +405,23 @@ extension ContentView {
 
     /// Reads a file and puts it on screen. No prompt: callers have already dealt with the buffer.
     func loadIntoEditor(path: String) {
-        // **The outgoing document's undo stack is put away BEFORE the buffer is replaced**, and
-        // this is the only moment its registrations and the text they name are known to agree. See
-        // `EditorUndoStore`.
-        editorUndoStore.remember(text: editorDocument.text)
-        editorUndoStore.forgetMissingFiles()
-        // One call, not open-then-hand-over: the encoding a file was read in travels with the text
-        // it produced, which is what stops a save transcoding it. See `EditorFileStore.load`.
-        let result = EditorFileStore.load(path: path, into: editorDocument)
-        // And the incoming one's is fetched against what was actually loaded — a stack that does
-        // not fit the buffer is dropped rather than handed back.
-        editorUndoStore.activate(path: editorDocument.path, text: editorDocument.text)
-        // **The remembered mode is NOT narrowed here**, and that is the fix rather than the
-        // omission. `EditorMode.resolved` is a display filter — `EditorWorkspaceView` already
-        // applies it on the way into `surfaces(for:)`, so a `.txt` file cannot show a preview
-        // whatever the stored mode says. Writing the narrowed value BACK, as this line used to,
+        // **The ordering the undo stacks need is stated and tested where it lives** — see
+        // `EditorDocumentLoad`, which exists because this sequence could not be run from a test
+        // while it sat inline here.
+        //
+        // **The remembered mode is NOT narrowed on the way through**, and that is the fix rather
+        // than the omission. `EditorMode.resolved` is a display filter — `EditorWorkspaceView`
+        // already applies it on the way into `surfaces(for:)`, so a `.txt` file cannot show a
+        // preview whatever the stored mode says. Writing the narrowed value BACK, as this used to,
         // made one non-Markdown file destroy the setting for the rest of the session: read three
         // notes in Preview, open a `.txt` in between, and the third note opens in Edit. The type
         // that owns the rule says the opposite in its own doc comment.
-        Logger.shared.info(Self.loadLogLine(path: path, result: result))
+        EditorDocumentLoad.run(path: path, document: editorDocument, undoStore: editorUndoStore,
+                               log: { Logger.shared.info($0) })
     }
 
     /// The one line every load writes — opened, read-only or refused. A function of its own so a
     /// test can count "Editor opened" lines through the same words the app writes (TE47).
-    static func loadLogLine(path: String, result: EditorFileStore.OpenResult) -> String {
-        switch result {
-        case .refused(let reason): return "Editor could not open \(path) — \(reason)"
-        case .readOnly(let reason): return "Editor opened \(path) read-only — \(reason)"
-        case .opened: return "Editor opened \(path)"
-        }
-    }
 
     /// Settles the buffer before it is replaced — by WRITING it, not by asking about it.
     ///

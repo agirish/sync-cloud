@@ -113,6 +113,38 @@ import FileExplorer
         #expect(close.lowerBound < save.lowerBound, "Close Document is declared after Save")
     }
 
+    // MARK: The load
+
+    /// **`loadIntoEditor` runs the shared load, and is handed the window's real pieces.**
+    ///
+    /// `EditorDocumentLoadTests` runs `EditorDocumentLoad.run` with a document and store of its own,
+    /// so nothing there can see what the APP passes — the whole lesson this suite was built on.
+    /// Swapping in a fresh `EditorUndoStore()` here would leave that suite green while every file
+    /// switch silently lost its undo history.
+    @Test func theLoadIsHandedTheWindowsRealDocumentAndUndoStore() throws {
+        let body = try Self.memberBody("func loadIntoEditor(path: String)", in: Self.editor())
+        #expect(body.contains("EditorDocumentLoad.run("),
+                "loadIntoEditor no longer runs the shared load — the ordering is untested again")
+        let call = try Self.call("EditorDocumentLoad.run(", in: body)
+        #expect(call.passes("path", "path"), "the load is handed a path other than the one asked for")
+        #expect(call.passes("document", "editorDocument"),
+                "the load is handed a document other than the window's")
+        #expect(call.passes("undoStore", "editorUndoStore"),
+                "the load is handed an undo store other than the window's — undo would not survive a switch")
+    }
+
+    /// **And the load is the ONLY thing `loadIntoEditor` does to the stacks.** A `remember` or
+    /// `activate` left behind here would be a second, unordered copy of the sequence the extraction
+    /// exists to own.
+    @Test func loadIntoEditorTouchesTheUndoStoreOnlyThroughTheSharedLoad() throws {
+        let body = try Self.memberBody("func loadIntoEditor(path: String)", in: Self.editor())
+        for forbidden in ["editorUndoStore.remember", "editorUndoStore.activate",
+                          "editorUndoStore.forgetMissingFiles", "EditorFileStore.load("] {
+            #expect(!body.contains(forbidden),
+                    "loadIntoEditor still does \(forbidden) itself, beside the shared load")
+        }
+    }
+
     /// The positive control: the scans are reading the real file.
     @Test func theScanCanActuallyFail() throws {
         let source = try Self.editor()

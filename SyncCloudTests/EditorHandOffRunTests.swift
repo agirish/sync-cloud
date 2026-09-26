@@ -98,7 +98,7 @@ import FileExplorer
 
     /// **A refused file is never logged as opened.** The `.staysPut` line is written before the
     /// load, so it may only name the decision; the load's own line — the real one, through
-    /// `EditorFileStore.load` and `loadLogLine` — says the file could not be opened, and nothing
+    /// `EditorDocumentLoad.run` — says the file could not be opened, and nothing
     /// above it may say it was. It read "<path> opened without moving the left pane" until
     /// 2026-09-25, a false "opened" over the refusal.
     @Test func aRefusedFileFromTheDifferencesListIsNeverLoggedAsOpened() throws {
@@ -109,12 +109,15 @@ import FileExplorer
         let path = dir.appendingPathComponent("binary.md").path
         try Data([0x61, 0x00, 0x62, 0x00]).write(to: URL(fileURLWithPath: path))
         let document = EditorDocument()
+        let undoStore = EditorUndoStore()
         var log: [String] = []
         EditorHandOffRun.run(
             path, pane: .staysPut, syncManager: FileSyncManager(), paneRoot: dir.path,
             openDocument: nil, isRefused: false, paneFolder: { dir.path }, settle: { true },
             endNaming: {}, showEdit: {},
-            load: { log.append(ContentView.loadLogLine(path: $0, result: EditorFileStore.load(path: $0, into: document))) },
+            // The real act `loadIntoEditor` performs, not a transcription of it.
+            load: { EditorDocumentLoad.run(path: $0, document: document, undoStore: undoStore,
+                                           log: { log.append($0) }) },
             log: { log.append($0) })
         #expect(log.count == 2, "a .staysPut hand-off writes its decision and the load's line: \(log)")
         #expect(log.last?.hasPrefix("Editor could not open \(path)") == true, "the fixture was not refused: \(log)")

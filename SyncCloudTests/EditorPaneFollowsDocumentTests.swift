@@ -185,10 +185,13 @@ import FileExplorer
             .write(to: URL(fileURLWithPath: path))
 
         let document = EditorDocument()
+        let undoStore = EditorUndoStore()
         var log: [String] = []
         var settles = 0
         func load(_ p: String) {
-            log.append(ContentView.loadLogLine(path: p, result: EditorFileStore.load(path: p, into: document)))
+            // The real act `loadIntoEditor` performs, not a transcription of it.
+            EditorDocumentLoad.run(path: p, document: document, undoStore: undoStore,
+                                   log: { log.append($0) })
         }
         // The hand-off.
         EditorHandOffRun.run(path, pane: .followsTheFile, syncManager: FileSyncManager(),
