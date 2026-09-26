@@ -12,6 +12,15 @@ import Foundation
 /// test targets before this was caught, at which point `defaults domains` — which enumerates the
 /// whole directory — took minutes. Unlinking the file is the only thing that actually reclaims it.
 ///
+/// **And the unlink only holds once cfprefsd has let go of the domain** (measured 2026-09-26).
+/// cfprefsd keeps its own copy of every domain a process writes and puts it back on disk on its
+/// own schedule — about every 10 s here — so an unlinked plist came back within one tick, as `{}`
+/// or with its old keys, whether the test process was still running or not: all 46 suites a run of
+/// four app-target suites wrote, and 68 across the full app target. Flushing cfprefsd's cache for
+/// the suite before the unlink is what keeps the file gone. That call is SPI — the `defaults` tool
+/// makes the same one, with the same two arguments — so it is looked up rather than linked, and an
+/// OS without it falls back to the ledger below.
+///
 /// Mirrored verbatim in every test target, since they are separate SPM packages with no shared
 /// test-support module; keep the copies in step.
 func wipeDefaultsSuite(_ name: String) {
@@ -24,10 +33,16 @@ func wipeDefaultsSuite(_ name: String) {
     UserDefaults.standard.removePersistentDomain(forName: name)
     UserDefaults.standard.removeSuite(named: name)
     CFPreferencesAppSynchronize(name as CFString)
+    flushPreferencesCache?(name as CFString, kCFPreferencesCurrentUser)
     let path = (NSHomeDirectory() as NSString)
         .appendingPathComponent("Library/Preferences/\(name).plist")
     try? FileManager.default.removeItem(atPath: path)
 }
+
+/// `_CFPreferencesFlushCachesForIdentifier(domain, user)`; nil on an OS that no longer exports it.
+private let flushPreferencesCache =
+    dlsym(dlopen(nil, RTLD_NOW), "_CFPreferencesFlushCachesForIdentifier")
+        .map { unsafeBitCast($0, to: (@convention(c) (CFString, CFString) -> Void).self) }
 
 /// Finishes the cleanup that the previous test run could not.
 ///

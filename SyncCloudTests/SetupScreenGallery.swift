@@ -42,7 +42,7 @@ import Testing
             "GoogleDrive-personal@example.com",
             "GoogleDrive-work@example.com",
         ].map { URL(fileURLWithPath: "/private/tmp/render/CloudStorage/\($0)") }
-        let defaults = UserDefaults(suiteName: "render-\(UUID().uuidString)")!
+        let defaults = ScratchDefaults("render")
         let m = SettingsManager(autoDiscover: false, userDefaults: defaults,
                                 cloudStorageLister: { CloudStorageAccounts(folders: folders, rootWasReadable: true) },
                                 pathValidator: { _ in true })
@@ -77,7 +77,7 @@ import Testing
                         settings: settings, peopleStore: people, glassHue: .blue,
                         glassLevel: .frosted, surfaceTint: 0, availableSize: host,
                         hasFilingProfile: false,
-                        defaults: UserDefaults(suiteName: "render-d-\(UUID().uuidString)")!,
+                        defaults: ScratchDefaults("render-d"),
                         walk: SetupSheetFitTests.realisticWalk, startScreen: screen,
                         onOpenSettings: { _ in }, onFinish: {}, onDismiss: {})
                     let w = host.width, h = host.height
@@ -122,7 +122,7 @@ import Testing
         let sheet = SetupSheet(
             settings: settings, peopleStore: people, glassHue: .blue, glassLevel: .frosted,
             surfaceTint: 0, availableSize: host, hasFilingProfile: false,
-            defaults: UserDefaults(suiteName: "render-m-\(UUID().uuidString)")!,
+            defaults: ScratchDefaults("render-m"),
             walk: SetupSheetFitTests.realisticWalk, startScreen: .welcome,
             onOpenSettings: { _ in }, onFinish: {}, onDismiss: {})
         print("[gallery] ceiling \(Int(ceiling))")

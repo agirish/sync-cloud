@@ -63,9 +63,7 @@ import Sync
     /// A kept name is silenced, and a name with the identical hazard beside it is not — a keep is
     /// about one name, not about the hazard class.
     @Test func aKeptNameIsSilencedAndItsNeighbourIsNot() {
-        let suite = "PaneKept-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ScratchDefaults("PaneKept")
 
         let manager = FileSyncManager()
         let store = KeptNamesStore(userDefaults: defaults)
@@ -87,9 +85,7 @@ import Sync
     /// have changed your mind) while losing its badge — and that divergence is asserted rather than
     /// left to be discovered.
     @Test func theMenuStillOffersToFixAKeptName() {
-        let suite = "PaneKeptMenu-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ScratchDefaults("PaneKeptMenu")
 
         let manager = FileSyncManager()
         let store = KeptNamesStore(userDefaults: defaults)

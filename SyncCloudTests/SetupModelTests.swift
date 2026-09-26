@@ -13,7 +13,7 @@ import Testing
 @Suite struct SetupModelTests {
 
     private func settings() async -> SettingsManager {
-        let defaults = UserDefaults(suiteName: "setup-model-\(UUID().uuidString)")!
+        let defaults = ScratchDefaults("setup-model")
         let manager = SettingsManager(
             autoDiscover: false,
             userDefaults: defaults,
@@ -30,7 +30,7 @@ import Testing
     private func model(walk: SetupWalk? = nil, syncManager: FileSyncManager? = nil) async -> SetupModel {
         SetupModel(settings: await settings(), peopleStore: nil, syncManager: syncManager,
                    hasFilingProfile: false,
-                   defaults: UserDefaults(suiteName: "setup-model-d-\(UUID().uuidString)")!,
+                   defaults: ScratchDefaults("setup-model-d"),
                    walk: walk)
     }
 

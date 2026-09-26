@@ -293,7 +293,7 @@ import FileExplorer
     // MARK: Migration is one-shot, and writes both halves
 
     private func defaults(_ name: String) -> UserDefaults {
-        UserDefaults(suiteName: "WorkspaceTests.\(name).\(UUID().uuidString)")!
+        ScratchDefaults("WorkspaceTests.\(name)")
     }
 
     @Test func testMigrationWritesBothKeys() {

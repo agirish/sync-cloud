@@ -700,10 +700,22 @@ occasionally a test reading a previous run's value. **At enough scale it stops b
 starts failing tests** — see the stall below.
 
 **Mechanism.** A defaults suite outlives the test that made it; `cfprefsd` rewrites the backing
-plist after the process exits.
+plist after the process exits. It also keeps its own copy of every domain a process has written
+and puts it back on disk on its own schedule — about every 10 s — so an unlinked plist returns,
+as `{}` or with its old keys, whether the test process is still running or not.
 
-**Fix.** Tear the suite down *and* delete its backing plist; record every wiped suite in the
-ledger, and sweep by SHAPE as well as by name (below).
+**Fix.** Tear the suite down *and* delete its backing plist — after flushing `cfprefsd`'s cache
+for it, or the delete does not hold; record every wiped suite in the ledger, and sweep by SHAPE as
+well as by name (below).
+
+**The delete alone had stopped holding — measured 2026-09-26.** Every suite a run wrote came back:
+46 of 46 from one `-only-testing` run of four app-target suites, all within 24 ms, 3 s after the
+last test finished; 68 from a full app-target run. `wipeDefaultsSuite` now calls
+`_CFPreferencesFlushCachesForIdentifier` before the unlink — SPI, the call the `defaults` tool
+makes, looked up with `dlsym` so an OS without it falls back to the ledger. The same two runs then
+left 0, and 1: a suite `SettingsManager` wrote to after its test had wiped it, which the ledger
+sweeps. **The tell:** 42-byte `{}` files whose mtimes share one instant, seconds after the tests
+ended.
 
 **"Bounded and self-clearing" was wrong — 3,551 had accumulated by 2026-08-03.** This entry used
 to say the count oscillates rather than grows, and to measure across several runs before believing

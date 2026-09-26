@@ -39,7 +39,7 @@ import Testing
         let folders = (0..<providerCount).map {
             URL(fileURLWithPath: "/private/tmp/setup-fit/CloudStorage/GoogleDrive-fixture\($0)@example.com")
         }
-        let defaults = UserDefaults(suiteName: "setup-fit-\(UUID().uuidString)")!
+        let defaults = ScratchDefaults("setup-fit")
         let manager = SettingsManager(
             autoDiscover: false,
             userDefaults: defaults,
