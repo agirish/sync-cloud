@@ -430,7 +430,7 @@ extension FileSyncManager {
     ///   **A skipped comparison is owed, not cancelled.** The caller that asks for one must arrange
     ///   for the comparison to be made before anything displays it — the pane focus has moved, so
     ///   the differences in hand describe a folder the left pane is no longer on, and showing them
-    ///   in Compare would be worse than showing none. `ContentView.comparisonAwaitsRescan` is that
+    ///   in Compare would be worse than showing none. `ContentView.owedComparison` is that
     ///   arrangement.
     public func refreshTreesAndScan(left: CloudProvider, right: CloudProvider,
                                     reloading requested: PaneReloadScope = .both,

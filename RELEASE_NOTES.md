@@ -28,7 +28,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ### Getting a file into Edit
 
-- **Four ways in, and all four do the same thing.** A text file in a file pane can now be opened
+- **Four ways in from a file pane.** A text file in a file pane can now be opened
   in Edit from four places: **File ▸ Open in Edit, on ⌘O**, for the text file selected in the
   focused pane; **Open in Edit at the top of a file's right-click menu**, where it used to sit below
   Get Info and Reveal in Finder; an **Edit** button by the file's name in the preview (⇧⌘P) — beside
@@ -42,7 +42,8 @@ User-facing changes, newest first. For the full commit history see the
   way in takes the pane to the file's folder: in Compare that pane is half of the comparison the
   list is showing, so moving it would re-run the comparison and forget what you had set aside with
   Ignore in Comparison. The folder name above the document says where the file lives; click it when
-  you do want the pane there.
+  you do want the pane there. Edit the file and go back to Compare, and the comparison runs again,
+  so the row describes the file as you left it rather than offering to copy the old version over it.
 - **Each one is offered for a text file and never for a folder** — all six, those four and the rows
   in Compare's differences and Duplicates' copies, ask the question the right-click menu always
   asked, so they agree about what a text file is. The preview is the one that holds back further:
@@ -60,7 +61,9 @@ User-facing changes, newest first. For the full commit history see the
   duplicates, right-click a copy's row and **Open in Edit** comes first, above Compare with keeper —
   on every copy, the one being kept included, whose row had no right-click menu at all until now. A
   copy that is not a text file keeps the menu it had. Those rows also answer a right-click anywhere
-  along them now, where some answered only over the file's name and picture.
+  along them now, where some answered only over the file's name and picture. Like the other ways
+  in, it takes the left pane to the copy's folder — so back in Organize the duplicates are still
+  listed, and their Rescan button offers to point Organize at that folder instead.
 - **The Info inspector's row of actions now wraps instead of squeezing.** At the inspector's usual
   width those buttons had been shrinking until their labels were a letter and an ellipsis — "Reve…",
   "Cop…" — and adding a fourth would have left two with no letters at all. Each one now keeps its
@@ -88,21 +91,30 @@ User-facing changes, newest first. For the full commit history see the
   file's folder. With the source pane open it reads "in Finance": click it and the pane goes to that
   folder with the file selected. With the pane folded away it spells out the whole path the pane's
   breadcrumb would show — "iCloud › Documents › Finance" — and each part is a place to go: the folded
-  pane moves there, without opening, and the Text Files list follows it. A long path folds its middle
-  and keeps the source and the folder. The header is now a card of its own, as tall as the pane's
-  toolbar card beside it, so the text starts level with the list — and it stays with no document
-  open, reading "No document open" and naming the folder a new file would be made in, so the page
-  does not move when a file opens.
+  pane moves there, without opening, and the Text Files list follows it. Under Just the text, with
+  neither on screen, the move shows when you bring the list or the pane back. A long path folds its
+  middle first — the "…" lists the folders it hides, each a place to go — and keeps the source and
+  the folder for as long as they fit, then the folder alone. A file in another of your sources, such
+  as the right-hand copy opened from Compare's list of differences, is named from that source — "in
+  Dropbox › Backup" — as words, not places to go. The header is now as tall as the pane's toolbar
+  card beside it — a card of its own when the window draws cards — so the text starts level with the
+  list, and it stays level when the pane shows its tabs. It stays with no document open, reading "No
+  document open" and naming the folder a new file would be made in — "iCloud" at the top of iCloud
+  Drive — so the page does not move when a file opens.
 - **The file you open is selected in the source pane, and scrolled into view.** Open a file from the
   Text Files list, from any Open in Edit, with ⌘N or from the folder name above the document, and
   the pane selects it where it lives and brings it on screen — the 140th file of a long folder as
   much as the first, in Columns and in the list view. Reveal in Browse lands with the file selected
   too. It happens as the file is opened and not afterwards: a file you then select yourself, a
-  folder you move the pane to, and a set of several files you have selected are all left as you
-  made them. With the pane folded away the file is selected in it all the same, and brought into
-  view when you open the pane. Compare's list of differences leaves the pane where it is, so there
-  the file is selected only if the pane is already showing its folder. Until now opening a file
-  selected nothing in the pane, and nothing outside a search scrolled a selected file into view.
+  folder you move the pane to, and a set of several files you have selected in the pane are all left
+  as you made them — and so is every other workspace: move to one before the pane has listed the
+  file, and nothing is selected there behind you. Like a click in the pane, it lets go of whatever
+  is selected in the other one, so the two never both hold a selection. With the pane folded away
+  the file is selected in it all the same, and brought into view when you open the pane — once:
+  scroll away from it and the pane stays where you put it. Compare's list of differences leaves the
+  pane where it is, so there the file is selected only if the pane is already showing its folder.
+  Until now opening a file selected nothing in the pane, and nothing outside a search scrolled a
+  selected file into view.
 
 ### New and Close, above the document
 

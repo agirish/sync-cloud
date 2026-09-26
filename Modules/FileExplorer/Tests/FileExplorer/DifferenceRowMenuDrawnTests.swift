@@ -27,11 +27,11 @@ import Sync
     private let names = PaneProviderNames(leftName: "iCloud", rightName: "Dropbox")
 
     private func row(_ type: FileDifference.DifferenceType, name: String,
-                     enclosedItemCount: Int? = nil) -> FileDifference {
+                     enclosedItemCount: Int? = nil, leftIsDirectory: Bool = false) -> FileDifference {
         FileDifference(relativePath: "docs/\(name)", leftItemPath: "/icloud/docs/\(name)",
                        rightItemPath: "/dropbox/docs/\(name)", type: type,
                        action: type == .missingOnLeft ? .copyToLeft : .copyToRight, description: "d",
-                       enclosedItemCount: enclosedItemCount)
+                       enclosedItemCount: enclosedItemCount, leftIsDirectory: leftIsDirectory)
     }
 
     /// The menu for `difference`, in drawn order, as widths.
@@ -94,7 +94,7 @@ import Sync
     /// would add a width, and a divider on its own draws nothing to compare — which is why the
     /// divider is also pinned by the source order in `DifferenceRowMenuOrderScanTests`.
     @Test func aFolderRowDrawsNoEditorItem() {
-        let folder = row(.missingOnRight, name: "notes.md", enclosedItemCount: 4)
+        let folder = row(.missingOnRight, name: "notes.md", enclosedItemCount: 4, leftIsDirectory: true)
         #expect(drawn(folder) == drawn(folder, offersEditor: false),
                 "a folder row named notes.md draws an Open in Edit item")
     }

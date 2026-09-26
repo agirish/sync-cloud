@@ -188,9 +188,10 @@ import Foundation
                 "the Differences preview now follows the PANE selection — a pane click would move it")
         #expect(!line.contains("followsPane: true"))
 
-        // **The Edit rail's row menu (TE33).** A rail row is not the pane's selection — with the
-        // pane open beside it the two can name different files — so a pane click must not retarget
-        // or close a preview opened from the rail.
+        // **The Edit rail's row menu (TE33).** A rail row is not the pane's selection: the rail is
+        // drawn only while the pane is folded away, and the row right-clicked need not be the file
+        // the folded pane has selected. So if the pane is expanded while that preview is still up,
+        // a pane click must not retarget or close it.
         let editor = try Self.source("ContentView+Editor.swift")
         let workspace = try Self.argumentList(after: "EditorWorkspaceView(", in: editor)
         #expect(workspace.contains("onQuickLook: { path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) }"),

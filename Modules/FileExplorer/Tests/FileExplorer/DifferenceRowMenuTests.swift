@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 import Sync
 @testable import FileExplorer
 
@@ -53,12 +54,14 @@ import Sync
 
     // MARK: Which sides offer Open in Edit (TE31)
 
-    private func textRow(_ type: FileDifference.DifferenceType, enclosedItemCount: Int? = nil) -> FileDifference {
+    private func textRow(_ type: FileDifference.DifferenceType, enclosedItemCount: Int? = nil,
+                         leftIsDirectory: Bool = false, rightIsDirectory: Bool = false) -> FileDifference {
         FileDifference(
             relativePath: "docs/notes.md", leftItemPath: "/icloud/docs/notes.md",
             rightItemPath: "/dropbox/docs/notes.md", type: type,
             action: type == .missingOnLeft ? .copyToLeft : .copyToRight, description: "d",
-            enclosedItemCount: enclosedItemCount
+            enclosedItemCount: enclosedItemCount,
+            leftIsDirectory: leftIsDirectory, rightIsDirectory: rightIsDirectory
         )
     }
 
@@ -92,16 +95,59 @@ import Sync
         }
     }
 
-    /// **A folder is refused on the scan's folder marker, not on its name.** Named like a text
-    /// file on purpose: `EditableText.isText` answers true for a directory called `notes.md`, so
-    /// a fixture called `Notes` would be refused by the extension and never reach the folder
-    /// rule — the test would pass with the rule deleted.
+    /// **A folder is refused on the scan's folder fact, not on its name.** Named like a text file
+    /// on purpose: `EditableText.isText` answers true for a directory called `notes.md`, so a
+    /// fixture called `Notes` would be refused by the extension and never reach the folder rule —
+    /// the test would pass with the rule deleted.
     @Test func aFolderRowOffersTheEditorOnNeitherSideEvenWhenNamedLikeText() {
         #expect(EditableText.isText(path: "/icloud/docs/notes.md"),
                 "the premise: the fixture's name alone would be offered")
-        #expect(DifferenceRowMenu.editableSides(for: textRow(.missingOnRight, enclosedItemCount: 3),
+        #expect(DifferenceRowMenu.editableSides(for: textRow(.missingOnRight, enclosedItemCount: 3,
+                                                             leftIsDirectory: true),
                                                 paneNames: names).isEmpty,
                 "a folder row offers Open in Edit")
+        // An EMPTY folder carries no count — the case the count could not see.
+        #expect(DifferenceRowMenu.editableSides(for: textRow(.missingOnLeft, rightIsDirectory: true),
+                                                paneNames: names).isEmpty,
+                "an empty folder row offers Open in Edit")
+        #expect(DifferenceRowMenu.editableSides(for: textRow(.nameConflict, leftIsDirectory: true,
+                                                             rightIsDirectory: true),
+                                                paneNames: names).isEmpty,
+                "a name-conflicted folder pair offers Open in Edit")
+    }
+
+    /// **A folder against a file offers the FILE side, and only that side** — each side is asked
+    /// its own question. The row's count (set when the folder has contents) says nothing about
+    /// which side is the folder.
+    @Test func aFolderAgainstAFileOffersOnlyTheFile() {
+        #expect(DifferenceRowMenu.editableSides(for: textRow(.differentDates, enclosedItemCount: 2,
+                                                             leftIsDirectory: true),
+                                                paneNames: names)
+                == [.init(paneName: "Dropbox", path: "/dropbox/docs/notes.md")])
+        #expect(DifferenceRowMenu.editableSides(for: textRow(.differentDates, rightIsDirectory: true),
+                                                paneNames: names)
+                == [.init(paneName: "iCloud", path: "/icloud/docs/notes.md")])
+    }
+
+    // MARK: Rows as the scan builds them
+
+    /// **The same four shapes, built by the real engine rather than by hand** — so the folder
+    /// facts the menu reads are the ones a comparison actually records. Each of these was wrong on
+    /// the count the menu used to ask (2026-09-25): the empty folder and the name-conflicted pair
+    /// carry no count and were offered; the non-empty folder against a file carries one and its
+    /// file side was withheld; the empty folder against a file offered the folder.
+    @Test func rowsTheEngineBuildsOfferOnlyTheirTextFiles() throws {
+        let rows = EngineRows()
+        #expect(DifferenceRowMenu.editableSides(for: try rows.emptyFolderMissingOnRight(), paneNames: names)
+                .isEmpty, "an empty folder named notes.md is offered to Edit")
+        #expect(DifferenceRowMenu.editableSides(for: try rows.nameConflictedFolders(), paneNames: names)
+                .isEmpty, "a name-conflicted folder pair is offered to Edit")
+        #expect(DifferenceRowMenu.editableSides(for: try rows.folderAgainstFile(folderHasContents: true),
+                                                paneNames: names).map(\.path) == ["/R/docs/notes.md"],
+                "a non-empty folder against a text file does not offer the text file")
+        #expect(DifferenceRowMenu.editableSides(for: try rows.folderAgainstFile(folderHasContents: false),
+                                                paneNames: names).map(\.path) == ["/R/docs/notes.md"],
+                "an empty folder against a text file offers the folder")
     }
 
     // MARK: Ignore toggle
@@ -159,5 +205,50 @@ import Sync
         let d = diff(.differentDates)
         #expect(DifferenceRowMenu.isIgnored(d, ignoredPaths: ["docs"]))
         #expect(!DifferenceRowMenu.isIgnored(d, ignoredPaths: ["docs/rep"]))
+    }
+}
+
+/// Differences built by `FileDiffEngine.computeDifferences` from hand-made scan maps: a left root
+/// `/L` and a right root `/R`, each holding `docs`, and a `notes.md` inside it shaped per case.
+struct EngineRows {
+    private let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", rootPath: "/L", type: .iCloud)
+    private let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", rootPath: "/R", type: .iCloud)
+
+    private func info(_ path: String, directory: Bool) -> FileDiffEngine.FileInfo {
+        FileDiffEngine.FileInfo(url: URL(fileURLWithPath: path, isDirectory: directory),
+                                modificationDate: Date(timeIntervalSince1970: 1_000),
+                                fileSize: directory ? nil : 10, isDirectory: directory)
+    }
+
+    private func row(left l: [String: Bool], right r: [String: Bool]) throws -> FileDifference {
+        var leftInfo = ["docs": info("/L/docs", directory: true)]
+        var rightInfo = ["docs": info("/R/docs", directory: true)]
+        for (key, isDir) in l { leftInfo[key] = info("/L/\(key)", directory: isDir) }
+        for (key, isDir) in r { rightInfo[key] = info("/R/\(key)", directory: isDir) }
+        let rows = FileDiffEngine.computeDifferences(
+            left: left, leftURL: URL(fileURLWithPath: "/L"), right: right, rightURL: URL(fileURLWithPath: "/R"),
+            leftFilesInfo: leftInfo, rightFilesInfo: rightInfo)
+        return try #require(rows.count == 1 ? rows.first : nil, "expected one row, got \(rows.map(\.relativePath))")
+    }
+
+    /// An empty folder `docs/notes.md` on the left, nothing on the right: no count.
+    func emptyFolderMissingOnRight() throws -> FileDifference {
+        try row(left: ["docs/notes.md": true], right: [:])
+    }
+
+    /// Two empty folders whose names differ by a trailing space: one `.nameConflict` row, no count.
+    func nameConflictedFolders() throws -> FileDifference {
+        let d = try row(left: ["docs/notes.md": true], right: ["docs/notes.md ": true])
+        #expect(d.type == .nameConflict, "the fixture is not a name conflict")
+        return d
+    }
+
+    /// A folder `docs/notes.md` on the left against a FILE of that name on the right.
+    func folderAgainstFile(folderHasContents: Bool) throws -> FileDifference {
+        var l = ["docs/notes.md": true]
+        if folderHasContents { l["docs/notes.md/inner.txt"] = false }
+        let d = try row(left: l, right: ["docs/notes.md": false])
+        #expect((d.enclosedItemCount != nil) == folderHasContents, "the fixture's count is not what it claims")
+        return d
     }
 }

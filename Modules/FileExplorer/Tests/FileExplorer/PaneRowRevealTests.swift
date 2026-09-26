@@ -29,11 +29,25 @@ import Sync
 
     // MARK: Fixtures
 
-    final class Box: ObservableObject {
+    @MainActor final class Box: ObservableObject {
         @Published var selection: Set<String> = []
         @Published var browsePath = PaneBrowsePath()
         @Published var reveal: PaneRowReveal?
         private var token = 0
+        /// Every report the pane made (`onRowRevealed`), in order. Not published: recording one
+        /// must not re-render the pane that made it.
+        var answered: [PaneRowReveal] = []
+        /// Whether this host retires a reveal once it is answered, as the app does — on the next
+        /// turn, after both of Columns' halves have acted in the same update.
+        var retiresAnswered = false
+
+        func answer(_ reveal: PaneRowReveal) {
+            answered.append(reveal)
+            guard retiresAnswered else { return }
+            DispatchQueue.main.async {
+                if self.reveal == reveal { self.reveal = nil }
+            }
+        }
 
         /// The host's act: the selection written, and a fresh reveal asked for it.
         func reveal(_ path: String) {
@@ -84,6 +98,7 @@ import Sync
                 isLeft: true,
                 delegate: Stub(),
                 rowReveal: box.reveal,
+                onRowRevealed: { box.answer($0) },
                 viewMode: viewMode,
                 // Off, so selecting a file raises no preview: the preview's arrival is itself a
                 // trigger that reveals the deepest column, and with it on, the Columns control
@@ -159,22 +174,45 @@ import Sync
         return frame.minX >= clip.minX - 1 && frame.maxX <= clip.maxX + 1
     }
 
-    /// Pumps until a marker queued now — past both reveal attempts — has fired, and reports whether
-    /// `condition` ever held on the way. How an ABSENCE is bounded by the queue rather than a clock
-    /// (see `ColumnPreviewRevealTests.maxOriginDrift`).
-    static func everHolds(_ window: NSWindow, _ condition: () -> Bool) async -> Bool {
+    /// Pumps until a marker queued now — past both reveal attempts — has fired, then drains a
+    /// fixed number of real main-queue turns so a `scrollTo` issued by the last attempt has been
+    /// applied, and reports whether `condition` ever held on the way. How an ABSENCE is bounded by
+    /// the QUEUE rather than a clock (see `ColumnPreviewRevealTests.quiesceReveals`, the same shape).
+    ///
+    /// **The marker firing is asserted, not assumed.** This returned whatever it had seen when the
+    /// pump's wall-clock ceiling ran out, so under full-suite load — where a main-actor turn has
+    /// been measured at seconds — a starved wait gave up BEFORE the reveal attempts had run, and a
+    /// negative control ("the row never came into view") passed for the machine's slowness rather
+    /// than for the code. The ceiling is now generous (it bounds a block queued ~0.55s out, not a
+    /// render chain), and a wait that still expires fails the test instead of passing it.
+    static func everHolds(_ window: NSWindow, _ condition: () -> Bool,
+                          sourceLocation: SourceLocation = #_sourceLocation) async -> Bool {
         final class Marker { var fired = false }
         let marker = Marker()
         DispatchQueue.main.asyncAfter(deadline: .now() + FileTreeView.searchRevealRetryDelay + 0.3) {
             MainActor.assumeIsolated { marker.fired = true }
         }
         var held = false
-        _ = await LayoutPumpWait.pump(window, upTo: 30) {
+        let drained = await LayoutPumpWait.pump(window, upTo: 120) {
             if condition() { held = true }
             return marker.fired
         }
+        #expect(drained.held, "the reveal marker never drained (\(drained.pumps) pumps) — this absence was bounded by the clock",
+                sourceLocation: sourceLocation)
+        for _ in 0..<Self.applyTurns {
+            window.layoutIfNeeded()
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+            if condition() { held = true }
+        }
         return held || condition()
     }
+
+    /// Real main-queue turns an issued `scrollTo` is given to reach the clip after the marker —
+    /// `ColumnPreviewRevealTests.applyTurns`' figure and reasoning (measured at one; turns are the
+    /// unit that scales under load).
+    static let applyTurns = 12
 
     // MARK: The rule
 
@@ -218,9 +256,13 @@ import Sync
             Self.rowIsVisible(window, index: Self.targetIndex)
         }
         #expect(revealed.held, "the revealed row is still below the fold (\(revealed.pumps) pumps)")
+        // …and the host is told it was answered, once — which is what lets it retire the request.
+        #expect(mounted.box.answered == [mounted.box.reveal].compactMap { $0 },
+                "the pane reported \(mounted.box.answered.count) answers for one reveal")
     }
 
-    /// **Never fight the user.** A request for a row the user has since moved off is not answered.
+    /// **Never fight the user.** A request for a row the user has since moved off is not answered
+    /// — nor reported as answered.
     @Test func theTreeIgnoresARevealForARowThatIsNotTheSelection() async throws {
         let mounted = Self.mount(.tree)
         let window = mounted.window
@@ -229,6 +271,7 @@ import Sync
         mounted.box.reveal(Self.target(depth: 0))
         let moved = await Self.everHolds(window) { Self.rowIsVisible(window, index: Self.targetIndex) }
         #expect(!moved, "the pane scrolled to a row the user is not on")
+        #expect(mounted.box.answered.isEmpty, "a reveal the pane refused was reported as answered")
     }
 
     /// A pane that was not on screen when the reveal was asked for — Edit's pane folded behind the
@@ -243,6 +286,34 @@ import Sync
             Self.rowIsVisible(window, index: Self.targetIndex)
         }
         #expect(revealed.held, "a pane mounted with the reveal standing opened at the top (\(revealed.pumps) pumps)")
+        #expect(box.answered == [box.reveal].compactMap { $0 }, "the appearance's answer was not reported")
+    }
+
+    /// **Answered once** (TE47 review): a host that retires the reveal when told — as the app does
+    /// — gets a pane that, mounted again with the row still selected, does NOT scroll back to it.
+    /// Before, the reveal stood while its row was selected, and every appearance (Browse and back,
+    /// the pane collapsed and expanded) jumped the pane back to the document. The control is the
+    /// test above: the same mount with the reveal still standing does scroll.
+    @Test func theTreeDoesNotScrollBackToAnAnsweredRevealWhenItReappears() async throws {
+        let box = Box()
+        box.retiresAnswered = true
+        let target = Self.target(depth: 0)
+        let first = Self.mount(.tree, box: box).window
+        let listed = await LayoutPumpWait.pump(first, upTo: 10) { Self.table(listing: Self.rowCount, in: first) != nil }
+        try #require(listed.held, "the tree never listed its rows")
+        box.selection = [target]
+        box.reveal(target)
+        let retired = await LayoutPumpWait.pump(first, upTo: 10) {
+            Self.rowIsVisible(first, index: Self.targetIndex) && box.reveal == nil
+        }
+        try #require(retired.held, "the reveal was not answered and retired (visible \(Self.rowIsVisible(first, index: Self.targetIndex)), reveal \(String(describing: box.reveal)))")
+        first.contentView = nil   // the pane goes away — Browse and back, a collapse
+
+        let again = Self.mount(.tree, box: box).window
+        _ = await LayoutPumpWait.pump(again, upTo: 10) { Self.table(listing: Self.rowCount, in: again) != nil }
+        #expect(box.selection == [target], "the fixture lost its selection — the remount below proves nothing")
+        let jumped = await Self.everHolds(again) { Self.rowIsVisible(again, index: Self.targetIndex) }
+        #expect(!jumped, "the pane scrolled back to a reveal it had already answered")
     }
 
     // MARK: Columns
@@ -268,6 +339,8 @@ import Sync
             Self.rowIsVisible(window, index: Self.targetIndex)
         }
         #expect(revealed.held, "the revealed row is still below the fold (\(revealed.pumps) pumps)")
+        #expect(mounted.box.answered == [mounted.box.reveal].compactMap { $0 },
+                "the column reported \(mounted.box.answered.count) answers for one reveal")
     }
 
     /// **The column itself must be on screen**, or the row's scroll shows nothing. Four columns
@@ -321,6 +394,7 @@ import Sync
         mounted.box.reveal(Self.target(depth: 0))
         let moved = await Self.everHolds(window) { Self.rowIsVisible(window, index: Self.targetIndex) }
         #expect(!moved, "the column scrolled to a row the user is not on")
+        #expect(mounted.box.answered.isEmpty, "a reveal the column refused was reported as answered")
     }
 
     @Test func theColumnsAnswerAStandingRevealWhenTheyAppear() async throws {
@@ -333,6 +407,30 @@ import Sync
             Self.rowIsVisible(window, index: Self.targetIndex)
         }
         #expect(revealed.held, "a column mounted with the reveal standing opened at the top (\(revealed.pumps) pumps)")
+        #expect(box.answered == [box.reveal].compactMap { $0 }, "the appearance's answer was not reported")
+    }
+
+    /// Columns' half of `theTreeDoesNotScrollBackToAnAnsweredRevealWhenItReappears`.
+    @Test func theColumnsDoNotScrollBackToAnAnsweredRevealWhenTheyReappear() async throws {
+        let box = Box()
+        box.retiresAnswered = true
+        let target = Self.target(depth: 0)
+        let first = Self.mount(.columns, box: box).window
+        let listed = await LayoutPumpWait.pump(first, upTo: 10) { Self.table(listing: Self.rowCount, in: first) != nil }
+        try #require(listed.held, "the column never listed its rows")
+        box.selection = [target]
+        box.reveal(target)
+        let retired = await LayoutPumpWait.pump(first, upTo: 10) {
+            Self.rowIsVisible(first, index: Self.targetIndex) && box.reveal == nil
+        }
+        try #require(retired.held, "the reveal was not answered and retired (visible \(Self.rowIsVisible(first, index: Self.targetIndex)), reveal \(String(describing: box.reveal)))")
+        first.contentView = nil   // the pane goes away — Browse and back, a collapse
+
+        let again = Self.mount(.columns, box: box).window
+        _ = await LayoutPumpWait.pump(again, upTo: 10) { Self.table(listing: Self.rowCount, in: again) != nil }
+        #expect(box.selection == [target], "the fixture lost its selection — the remount below proves nothing")
+        let jumped = await Self.everHolds(again) { Self.rowIsVisible(again, index: Self.targetIndex) }
+        #expect(!jumped, "the column scrolled back to a reveal it had already answered")
     }
 
     // MARK: The gate

@@ -129,8 +129,13 @@ struct ContentView: View {
     /// selection change it causes has been seen — so the pane's one-click open does not answer the
     /// app's own write as a click. See `paneSelectionOpens`.
     @State var editorPaneSelectionPaid: String?
+    /// Set when that same write cleared the RIGHT pane's selection, until the change it causes has
+    /// been seen — so the clear does not retire a Get Info target as a click there would. See
+    /// `clearInfoTargetAfterRightSelection`.
+    @State var editorPaneRightClearPaid = false
     /// The left pane's standing row reveal — the row the app selected on the user's behalf, to be
-    /// scrolled into view. Retired when the selection moves off it. See `PaneRowReveal`.
+    /// scrolled into view. Retired once the pane has answered it (`retireAnsweredRowReveal`), or
+    /// when the selection moves off it. See `PaneRowReveal`.
     @State var paneRowReveal: PaneRowReveal?
     /// Makes each reveal a new request, even for the same path.
     @State var paneRowRevealToken = 0
@@ -347,13 +352,13 @@ struct ContentView: View {
     /// rule `MountedVolumeMemory` applies are one rule.
     @State var folderSidebarDetachablePaths: Set<String> = []
     @State var folderSidebarShortcutRows: [SidebarSourceRow] = []
-    /// **A comparison that was skipped and is owed**, set when a refresh runs without its scan and
-    /// cleared by the next one that does. See `settleDeferredComparisonIfNeeded`.
+    /// **The comparison Compare owes, and why** — one record for every way Compare's list falls
+    /// behind the disk, paid in one place (`payOwedComparisonIfNeeded`). See `OwedComparison`.
     ///
     /// View `@State` rather than manager state because the fact it records is a fact about the
     /// *workspace* — nothing in `FileSyncManager` knows which workspace is on screen, and the debt
     /// exists only because a single-source workspace cannot display the answer.
-    @State private var comparisonAwaitsRescan = false
+    @State var owedComparison = OwedComparison()
 
     /// **The two switches the refresh coalescing and the lens-entry skip turn on**, in a box the
     /// view holds rather than as two `@State` values.
@@ -732,8 +737,17 @@ struct ContentView: View {
     /// the missed one would show Browse in the rail's stack and write the user's choice into the
     /// rail's key, which is the exact bug the separate key exists to prevent, arriving silently.
     func resolvedViewMode(isLeft: Bool) -> PaneViewMode {
-        if selectedWorkspace == .browse { return browseViewMode }
-        return layoutMode == .singleSource ? railViewMode : paneViewMode(isLeft: isLeft)
+        viewMode(in: selectedWorkspace, isLeft: isLeft)
+    }
+
+    /// The presentation `workspace` draws its pane in, whichever workspace is on screen — for the
+    /// acts that move the pane on ANOTHER workspace's behalf: a hand-off into Edit asks Edit's
+    /// (`railViewMode`), Reveal in Browse asks Browse's. Reading `resolvedViewMode` there answered
+    /// for the workspace being left, and the two can disagree about the same pane — the column
+    /// stack is shared and only parked while Tree is drawn.
+    func viewMode(in workspace: Workspace, isLeft: Bool) -> PaneViewMode {
+        if workspace == .browse { return browseViewMode }
+        return TopPaneVisibility.mode(for: workspace) == .singleSource ? railViewMode : paneViewMode(isLeft: isLeft)
     }
 
     /// Whether that presentation draws the pane's column stack.
@@ -1281,6 +1295,8 @@ struct ContentView: View {
         // file opens. The rule and its guards are `paneSelectionOpens`; this only supplies the
         // trigger.
         .onChange(of: syncManager.selectedLeftPaths) { _, paths in
+            // FIRST: it reads the paid marker, which the next line consumes.
+            clearInfoTargetAfterLeftSelection(paths)
             openSelectedPaneFileInEditor(paths)
             // A selection the user moved retires what the app owed or was revealing (TE47).
             retirePaneSelectionDebts(after: paths)
@@ -1544,8 +1560,10 @@ struct ContentView: View {
                                        rightProviderId: rightProviderId) { saveBrowseTabs(isLeft: $0) })
         .modifier(EditorAutosaveDriver(document: editorDocument,
                                        buffer: editorDocument.buffer) { runAutosave() })
-        .onChange(of: syncManager.selectedLeftPaths) { _, _ in infoPath = nil }
-        .onChange(of: syncManager.selectedRightPaths) { _, _ in infoPath = nil }
+        // The LEFT pane's clear is in the selection handler above, where it can tell the app's own
+        // write from the user's — see `clearInfoTargetAfterLeftSelection`; this one skips the
+        // clear that same write makes here.
+        .onChange(of: syncManager.selectedRightPaths) { _, paths in clearInfoTargetAfterRightSelection(paths) }
         // The Get-Info override also goes stale when the comparison context changes underneath it:
         // a provider switch (its file is on the old provider) or a tab switch (Organize is single-source
         // and shows its own selection). Without these, `DetailsSidebar` — which prefers `overridePath`
@@ -1603,13 +1621,18 @@ struct ContentView: View {
             autoRescanLensIfShowing()
             // **Compare is the only workspace that displays a comparison, so it is where one that
             // is owed gets paid.** Entering a lens re-homes the source rail and skips the scan that
-            // move would otherwise trigger; this is the other half of that, and it no-ops whenever
-            // nothing was skipped.
+            // move would otherwise trigger, and the editor writes files a comparison describes;
+            // this is the other half of both, and it no-ops whenever nothing is owed here.
             //
             // Here rather than in `workspaceSelection`'s setter for the reason `clearPersonScope`
             // is: every programmatic switch — `show(_:)`, the duplicate-review handoff — goes
             // around the binding, and Compare is exactly where those land.
-            if workspace == .compare { settleDeferredComparisonIfNeeded() }
+            if workspace == .compare { payOwedComparisonIfNeeded() }
+            // A selection the left pane still owes belongs to the workspace it was owed in, so
+            // leaving that workspace drops it now (with its line), rather than whenever the next
+            // publish happens to ask — a debt recorded AFTER a switch (Reveal in Browse switches
+            // first, then owes) is for this workspace, and may pay here. See `owedPaneSelection`.
+            settleOwedPaneSelection()
         }
         // The workspace is @AppStorage, so quitting on Storage means the next launch STARTS there
         // and `onChange` never fires — the restore has to be attempted on appearance too, or the
@@ -2015,7 +2038,7 @@ struct ContentView: View {
         // a full double walk and about a second, paid on every entry into a lens.
         //
         // Set-and-clear around this one call, not a mode: see `SidebarRefreshState.isReHomingForLensEntry` for why
-        // the clear is load-bearing rather than tidy, and `comparisonAwaitsRescan` for how the
+        // the clear is load-bearing rather than tidy, and `owedComparison` for how the
         // skipped comparison is made good before Compare can display it.
         sidebarRefresh.isReHomingForLensEntry = true
         syncManager.focusOn(relativePath: "", isLeft: true)
@@ -2064,12 +2087,12 @@ struct ContentView: View {
     /// Saying so is half the fix; the caller completing it when the source arrives is the other
     /// half (see `launchRefreshPending`).
     /// - Parameter comparing: whether the reload is followed by the two-pane comparison. Defaults
-    ///   to `true`, so every existing caller is unchanged. The one caller that passes `false` is
-    ///   the `refreshSubject` handler while `presentLensRail`'s re-home is in flight — see
-    ///   `comparisonAwaitsRescan`, which is what makes the skipped comparison owed rather than
-    ///   lost.
+    ///   to `true`, so every existing caller is unchanged. Two callers pass `false`: the
+    ///   `refreshSubject` handler while `presentLensRail`'s re-home is in flight, and Edit's re-read
+    ///   after a file it made itself, outside Compare (`rereadPanesAfterEditorWrite`) — see
+    ///   `owedComparison`, which is what makes the skipped comparison owed rather than lost. Not `private` for that second caller, which lives in `ContentView+Editor`.
     @discardableResult
-    private func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both,
+    func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both,
                                comparing: Bool = true) -> Bool {
         guard let leftProvider = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
               let rightProvider = settings.enabledProviders.first(where: { $0.id == rightProviderId }) else {
@@ -2080,10 +2103,17 @@ struct ContentView: View {
                 + "\(missing.count == 1 ? "is" : "are") not among the enabled sources yet")
             return false
         }
-        // **Written on the way out, both ways.** A refresh that compares settles the debt whatever
-        // put it there, and one that does not takes it on — so the flag always describes the last
-        // thing that actually happened rather than accumulating.
-        comparisonAwaitsRescan = !comparing
+        // **Written on the way out, both ways.** A refresh that compares settles the whole debt,
+        // whatever put it there, and one that does not takes the comparison on — so the record
+        // always describes what has actually happened since the last comparison.
+        if comparing {
+            // Its scan reads every file the editor wrote: the cached walks that list their folders
+            // go first, or the scan's in-memory fast path compares the walk taken before the write.
+            for path in owedComparison.unreadWrites { syncManager.prepareReread(afterWritingAt: path) }
+            owedComparison = OwedComparison()
+        } else if owedComparison.skipped == nil {
+            owedComparison.skipped = OwedComparison.skippedByARefresh
+        }
         Task {
             await syncManager.refreshTreesAndScan(left: leftProvider, right: rightProvider,
                                                   reloading: reloading, comparing: comparing)
@@ -2091,35 +2121,125 @@ struct ContentView: View {
         return true
     }
 
-    /// **The comparison a lens entry deferred, made before Compare can display it.**
+    /// **What Compare's list owes the disk, and why** — ONE record for every way the list falls
+    /// behind, paid in ONE place (`payOwedComparisonIfNeeded`).
     ///
-    /// Entering a lens from the workspace bar re-homes the source rail to the provider root, and
-    /// that pane move is a refresh — which was walking both providers and diffing them on the way
-    /// into a workspace that draws no differences at all (`FileTreeView` empties the difference
-    /// index for every single-source workspace). The scan is skipped there and recorded here.
+    /// Compare's list of differences is the last scan's answer, and nothing in this app watches the
+    /// disk. Two things leave it behind:
     ///
-    /// **Nothing scanned on entering Compare before this, and that is why the debt has to be
-    /// settled.** `presentLensRail` early-returns for Compare (it has no lens), so the differences
-    /// list has always shown whatever the last scan left. Left alone, it would now show a
-    /// comparison of a folder the left pane was moved off — stale rows under correct pane headers,
-    /// which is worse than the "not scanned" card.
+    /// - **A refresh that skipped its comparison** (`refreshAction(comparing: false)`) — the lens
+    ///   entry's re-home, which moves the pane on the way into a workspace that draws no
+    ///   differences, and Edit's re-read after ⌘N or Export as PDF outside Compare. The trees that
+    ///   refresh loaded are current; only the comparison is owed (`skipped`, with its reason).
+    ///   Left alone, Compare would draw a comparison of a folder the left pane was moved off —
+    ///   stale rows under correct pane headers, worse than the "not scanned" card.
+    /// - **A file the editor wrote over** — ⌘S and Save Anyway, background autosave, the flush on
+    ///   the way to another document (`noteEditorWrote`). A document opened from a differences row
+    ///   (`.staysPut`, so the comparison stays as it was) and edited came back to its pre-edit row,
+    ///   "Dropbox is newer → copy to left", offering to overwrite what had just been written. The
+    ///   cached walks listing the file's folder still hold its old size and date, so the pane(s)
+    ///   holding it are re-read before the comparison (`unreadWrites`).
     ///
-    /// `scanDirectories` rather than another `refreshAction`: the trees were loaded by the refresh
-    /// that skipped the comparison, and only the comparison is owed. It walks the two folders
-    /// itself, so it does not depend on that load having finished.
+    /// ⌘N's new file and an exported PDF are writes too, but their pane is re-read at once
+    /// (`rereadPanesAfterEditorWrite`), so outside Compare they owe only the comparison — as a
+    /// `skipped` naming the file, not as an unread write that would walk the pane a second time.
     ///
-    /// The flag is cleared only once the providers resolve — during bootstrap they may not yet,
-    /// and a debt dropped there would leave Compare on stale rows for the session.
-    private func settleDeferredComparisonIfNeeded() {
-        guard comparisonAwaitsRescan,
-              let leftProvider = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
-              let rightProvider = settings.enabledProviders.first(where: { $0.id == rightProviderId })
-        else { return }
-        comparisonAwaitsRescan = false
-        Task {
-            await syncManager.scanDirectories(left: leftProvider, leftPath: currentLeftPath,
-                                              right: rightProvider, rightPath: currentRightPath)
+    /// Any refresh that compares settles all of it (`refreshAction`). **A write under neither
+    /// compared folder is not recorded at all** (`recordWrite`): it cannot change the comparison,
+    /// and kept here it made the next comparing refresh drop cached walks the comparison does not
+    /// show. Its caller drops those walks at the moment of the write instead
+    /// (`noteEditorWrote`), so a pane moved to that folder later still reads the write.
+    struct OwedComparison: Equatable {
+        /// Why a refresh skipped the comparison, for the line that pays it — `nil` when none did.
+        var skipped: String?
+        /// Files the editor wrote over since the last comparison that nothing has re-read.
+        var unreadWrites: Set<String> = []
+
+        /// Records a file the editor wrote over — **only when it is under either compared
+        /// folder** (`ContentView.panesHolding`, links included), since nothing else can change
+        /// what Compare shows. Returns whether it was recorded; a caller told `false` owns the
+        /// write's stale cached walks itself.
+        mutating func recordWrite(_ path: String, leftFolder: String, rightFolder: String,
+                                  links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> Bool {
+            guard ContentView.panesHolding(path, leftFolder: leftFolder, rightFolder: rightFolder,
+                                           links: links) != nil else { return false }
+            unreadWrites.insert(path)
+            return true
         }
+
+        /// The reason `refreshAction` records for a refresh that skipped its comparison.
+        static let skippedByARefresh = "the pane moved outside Compare without a comparison"
+
+        /// The reason for a file the editor wrote — the one `payOwedComparisonIfNeeded` logs.
+        static func editorWrote(_ path: String) -> String {
+            "the editor wrote \(path) since the last comparison"
+        }
+
+        enum Payment: Equatable {
+            /// The editor wrote files under the compared folders: re-read the pane(s) holding them,
+            /// and compare. That refresh settles a skipped comparison with it.
+            case reread(FileSyncManager.PaneReloadScope, because: String)
+            /// Only the comparison — a refresh skipped it, and the trees it loaded are current.
+            case compare(because: String)
+
+            var because: String {
+                switch self {
+                case .reread(_, let because), .compare(let because): return because
+                }
+            }
+        }
+
+        /// What arriving in Compare pays, or `nil` when nothing is owed THERE: nothing recorded,
+        /// or only writes outside both compared folders (a pane moved off them since the write
+        /// was recorded). Each pane is re-read when it holds any
+        /// written file (`ContentView.panesHolding`, which knows iCloud Drive's linked
+        /// `Documents`); the first such file in path order is the one named, so the line does not
+        /// depend on set order.
+        func payment(leftFolder: String, rightFolder: String,
+                     links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> Payment? {
+            var scope: FileSyncManager.PaneReloadScope?
+            var named: String?
+            for path in unreadWrites.sorted() {
+                guard let held = ContentView.panesHolding(path, leftFolder: leftFolder,
+                                                          rightFolder: rightFolder, links: links)
+                else { continue }
+                named = named ?? path
+                scope = scope.map { $0 == held ? $0 : .both } ?? held
+            }
+            if let scope, let named { return .reread(scope, because: Self.editorWrote(named)) }
+            return skipped.map { .compare(because: $0) }
+        }
+    }
+
+    /// **Pays the comparison Compare owes** — the one place it is paid, with one line saying why.
+    /// Called on arriving in Compare, which is the only workspace that displays a comparison, and
+    /// on each editor write while Compare is on screen (an autosave's debounce can fire after the
+    /// switch). Returns at once when nothing is owed there. See `OwedComparison`.
+    ///
+    /// A re-read goes through `refreshAction`, whose comparing refresh drops the written folders'
+    /// cached walks and settles the record. A skipped comparison alone is `scanDirectories` rather
+    /// than another refresh: the trees were loaded by the refresh that skipped it, and it walks the
+    /// two folders itself, so it does not depend on that load having finished.
+    ///
+    /// Nothing is cleared until the providers resolve — during bootstrap they may not yet, and a
+    /// debt dropped there would leave Compare on stale rows for the session.
+    func payOwedComparisonIfNeeded() {
+        guard let payment = owedComparison.payment(leftFolder: currentLeftPath,
+                                                   rightFolder: currentRightPath) else { return }
+        switch payment {
+        case .reread(let scope, _):
+            guard refreshAction(reloading: scope) else { return }
+        case .compare:
+            guard let leftProvider = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
+                  let rightProvider = settings.enabledProviders.first(where: { $0.id == rightProviderId })
+            else { return }
+            owedComparison = OwedComparison()
+            Task {
+                await syncManager.scanDirectories(left: leftProvider, leftPath: currentLeftPath,
+                                                  right: rightProvider, rightPath: currentRightPath)
+            }
+        }
+        Logger.shared.info("Compare rescans: \(payment.because)")
     }
 
     /// Swaps the left and right panes entirely — providers, focused folders, selections,
@@ -2220,6 +2340,40 @@ struct ContentView: View {
     func showInfo(for path: String) {
         infoPath = path
         withAnimation(.easeInOut(duration: 0.15)) { showInspector = true }
+    }
+
+    /// A change of the left pane's selection retires an explicit Get Info target, so the inspector
+    /// follows the new selection — unless the change is the app's own payment of an owed selection
+    /// (TE47), marked `editorPaneSelectionPaid` before it is written. That payment can land a
+    /// moment after the open it was owed for, once the pane's tree publishes; by then the user may
+    /// have used a rail row's Get Info on another file, and a write they did not make must not
+    /// jump the inspector to the document. **Called before `openSelectedPaneFileInEditor`**, which
+    /// consumes the marker.
+    func clearInfoTargetAfterLeftSelection(_ paths: Set<String>) {
+        if Self.leftSelectionClearsInfoTarget(paths, paidSelection: editorPaneSelectionPaid) {
+            infoPath = nil
+        }
+    }
+
+    /// The rule: every change but the one the app marked as its own write.
+    static func leftSelectionClearsInfoTarget(_ paths: Set<String>, paidSelection: String?) -> Bool {
+        guard let paidSelection else { return true }
+        return paths != [paidSelection]
+    }
+
+    /// The right pane's half. Paying an owed selection clears the right pane — whatever it holds,
+    /// as a left-pane click would (his decision, 2026-09-26) — and that clear is a change the user
+    /// did not make either, so it keeps a Get Info target just as the left-pane write does. The
+    /// marker is one-shot: consumed by the change it announced.
+    func clearInfoTargetAfterRightSelection(_ paths: Set<String>) {
+        let paid = editorPaneRightClearPaid
+        editorPaneRightClearPaid = false
+        if Self.rightSelectionClearsInfoTarget(paths, clearWasPaid: paid) { infoPath = nil }
+    }
+
+    /// The rule: every change but the app's own clear.
+    static func rightSelectionClearsInfoTarget(_ paths: Set<String>, clearWasPaid: Bool) -> Bool {
+        !(clearWasPaid && paths.isEmpty)
     }
 
     /// Opens each pane at its source's landing folder. Runs once, inside the first-appearance
@@ -4244,11 +4398,10 @@ struct ContentView: View {
     /// Both halves of that, and why each is necessary, live in `PaneLogic.applySelectionWrite` —
     /// where the ORDERING can be tested rather than only the arithmetic.
     ///
-    /// Not `private`: two callers outside this file select through it — ⌘N's owed selection
-    /// (`settleOwedPaneSelection`) and the Edit header's "in Finance" door, which selects the open
-    /// document in the pane (`ContentView+Editor`). A selection written from outside the pane goes
-    /// through the same write a click does, so a programmatic pick keeps every rule a click keeps.
-    func paneSelectionBinding(isLeft: Bool) -> Binding<Set<String>> {
+    /// Private, because its one caller is the pane it binds (`treeView`) — the app's own selection
+    /// on the user's behalf (TE47) writes through `PaneLogic.payOwedSelection` instead, since this
+    /// setter resolves a Compare-with pick, claims the selection surface and moves the focus.
+    private func paneSelectionBinding(isLeft: Bool) -> Binding<Set<String>> {
         Binding(
             get: { isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths },
             set: { newSelection in
@@ -4459,6 +4612,9 @@ struct ContentView: View {
             // The row the app selected on the user's behalf — the open document — brought into
             // view (TE47). The left pane's alone: it is the only pane Edit reads and moves.
             rowReveal: pane.isLeft ? paneRowReveal : nil,
+            // Answered once: the pane says when it has scrolled to the row, and the request is
+            // retired, so its next appearance does not scroll back (see `retireAnsweredRowReveal`).
+            onRowRevealed: pane.isLeft ? { retireAnsweredRowReveal($0) } : nil,
             // Which pane the action bar is acting on — the same predicate that decides where the bar
             // renders, so the strong selection wash and the bar can never point at different panes.
             // The tab strip above takes it too, from the same helper.

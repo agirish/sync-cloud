@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Sync
 @testable import SyncCloud
 
 /// **A file made with ⌘N appears in the pane, selected** — TE44's wiring.
@@ -48,23 +49,50 @@ import Foundation
                 "the pane is asked to select the file before it is the open document")
     }
 
-    /// **The re-read is the one every file operation gets** — the prefetch cache and the epoch
-    /// (`prepareForcedRescan`), then `.both` down `refreshSubject` — not a second refresh path.
-    @Test func theReReadIsTheFileOperationsOwn() throws {
+    /// **The re-read is targeted** (TE47 review): the walks listing the file's folder are dropped
+    /// and the epoch bumped (`prepareReread`), then only the pane(s) whose folder holds the file
+    /// are reloaded, compared only in Compare — where it was a file operation's whole-cache drop
+    /// and a `.both` refresh with a full comparison scan, on every ⌘N and export.
+    @Test func theReReadIsTargetedAtThePaneThatShowsTheFile() throws {
         let show = try Self.body(of: "func showCreatedFileInPane(_ path: String) {",
                                  in: "ContentView+Editor.swift")
         #expect(show.contains("owePaneSelection(path)"),
                 "the selection is no longer owed — nothing will select the file")
-        #expect(show.contains("rereadPanesAfterEditorWrite()"),
+        #expect(show.contains("rereadPanesAfterEditorWrite(path)"),
                 "⌘N no longer re-reads the pane — the new file is not listed")
-        let body = try Self.body(of: "func rereadPanesAfterEditorWrite() {",
+        let body = try Self.body(of: "func rereadPanesAfterEditorWrite(_ path: String) {",
                                  in: "ContentView+Editor.swift")
-        let prepare = try #require(body.range(of: "syncManager.prepareForcedRescan()"),
+        let prepare = try #require(body.range(of: "syncManager.prepareReread(afterWritingAt: path)"),
                                    "the cache is not dropped — the re-read is served the pre-create walk")
-        let send = try #require(body.range(of: "syncManager.refreshSubject.send(.both)"),
-                                "the pane is never re-read — the new file is not listed")
-        #expect(prepare.lowerBound < send.lowerBound,
+        // Outside Compare the reload without its comparison; in Compare the write is paid at once,
+        // which re-reads the same pane(s) and compares (`OwedComparisonTests`).
+        let reload = try #require(body.range(of: "refreshAction(reloading: scope, comparing: false)"),
+                                  "the pane is never re-read, or a comparison runs outside Compare")
+        #expect(prepare.lowerBound < reload.lowerBound,
                 "the refresh is sent before the cache is dropped — it can serve the pre-create tree")
+        #expect(body.contains("Self.panesHolding(path, leftFolder: currentLeftPath,"),
+                "the reload is not scoped to the pane that shows the file")
+        for gone in ["prepareForcedRescan()", "refreshSubject.send(.both)"] {
+            #expect(!body.contains(gone), "the re-read is a whole-cache, two-pane one again: \(gone)")
+        }
+    }
+
+    /// Which panes are re-read: each whose folder holds the file, deep — and neither for a file
+    /// saved outside both (an export to Downloads). The iCloud container's pane holds a file in
+    /// `~/Documents` through its link (synthetic table).
+    @Test func onlyThePanesThatHoldTheFileAreReRead() {
+        func scope(_ path: String, left: String = "/a/Finance", right: String = "/b",
+                   links: PathBoundary.LinkedFolders = [:]) -> FileSyncManager.PaneReloadScope? {
+            ContentView.panesHolding(path, leftFolder: left, rightFolder: right, links: links)
+        }
+        #expect(scope("/a/Finance/Test.md") == .leftOnly)
+        #expect(scope("/a/Finance/IN/Test.md") == .leftOnly, "a file below the pane's folder is listed by its deep walk")
+        #expect(scope("/b/x/Test.pdf") == .rightOnly)
+        #expect(scope("/a/Finance/Test.md", right: "/a") == .both)
+        #expect(scope("/Users/me/Downloads/Test.pdf") == nil, "an export saved outside both panes re-read them")
+        #expect(scope("/a/Fin/Test.md") == nil, "a sibling sharing the folder's opening is another folder")
+        let links: PathBoundary.LinkedFolders = ["/c": ["Documents": "/h/Documents"]]
+        #expect(scope("/h/Documents/Finance/Test.md", left: "/c", links: links) == .leftOnly)
     }
 
     /// **Export as PDF adds a file to the folder too**, and refreshed only the rail for the same
@@ -73,21 +101,24 @@ import Foundation
         let body = try Self.body(of: "func exportEditorDocumentAsPDF() {", in: "EditorPrinting.swift")
         let write = try #require(body.range(of: "try EditorFileStore.write(data, toPath: url.path)"),
                                  "the export no longer writes — this slice is not the member it claims to be")
-        let reread = try #require(body.range(of: "rereadPanesAfterEditorWrite()"),
+        let reread = try #require(body.range(of: "rereadPanesAfterEditorWrite(url.path)"),
                                   "the export no longer re-reads the pane — the PDF is not listed beside the document")
         #expect(write.lowerBound < reread.lowerBound, "the pane is re-read before the PDF exists")
     }
 
-    /// The debt is paid on the tree publish, through the setter a click uses, under the rule.
-    @Test func theOwedSelectionIsPaidOnPublishThroughTheClicksSetter() throws {
+    /// The debt is paid on the tree publish, under the rule — and NOT through the setter a click
+    /// uses, whose Compare-with pick, focus move and surface claim are a click's (TE47 review).
+    @Test func theOwedSelectionIsPaidOnPublishAsTheAppsOwnWrite() throws {
         let content = try EditorDivergenceWiringTests.source("ContentView.swift")
         #expect(content.contains(".onChange(of: syncManager.leftPaneTree) { _, _ in settleOwedPaneSelection() }"),
                 "nothing pays the owed selection when the pane's tree publishes")
         let body = try Self.body(of: "func settleOwedPaneSelection() {", in: "ContentView+Editor.swift")
         #expect(body.contains("Self.owedPaneSelection("),
                 "the settle no longer asks the tested rule")
-        #expect(body.contains("paneSelectionBinding(isLeft: true).wrappedValue = [path]"),
-                "the selection is not written through the pane's own setter")
+        #expect(body.contains("PaneLogic.payOwedSelection(path, state: syncManager,"),
+                "the selection is not written as the app's own write")
+        #expect(!body.contains("paneSelectionBinding"),
+                "the app's write goes through the click's setter — it would resolve a Compare-with pick")
         #expect(body.contains("openDocument: editorDocument.path"),
                 "the rule is not told which document is open — it could drag the reader back")
     }

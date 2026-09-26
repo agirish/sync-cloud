@@ -137,16 +137,6 @@ public struct DifferencesView: View {
         // left untouched, so the pane re-collapses when the review ends.
         storedCollapse && !isReviewing
     }
-    /// - Parameters:
-    ///   - reviewStore: The host-owned guided-review state (`@StateObject` at the host, NOT
-    ///     created inline here — a per-render store would reset the session every render).
-    ///   - onQuickLook: Presents a Quick Look preview for the given file. The app routes this
-    ///     to the same `quickLookPreview` binding the spacebar shortcut uses, so there is a
-    ///     single presenter; `nil` hides the Quick Look menu items.
-    ///   - onGetInfo: Shows the Info inspector for a file path (the "Get Info" row action).
-    ///   - onOpenInEditor: Hands a file path to the Edit workspace (the "Open in Edit" row
-    ///     action, one per side that holds a text file). The app routes this to the same
-    ///     `handOffToEditor` every other door uses; `nil` hides the items.
     /// Opens the shared file-pair viewer on a changed row — ROADMAP §11's diff pane.
     ///
     /// **A closure to the WINDOW, not an overlay of its own.** macOS clamps a sheet to its host
@@ -156,6 +146,17 @@ public struct DifferencesView: View {
     /// `ContentView` presents it against the live window.
     private let onCompareFilePair: (DifferencePair) -> Void
 
+    /// - Parameters:
+    ///   - reviewStore: The host-owned guided-review state (`@StateObject` at the host, NOT
+    ///     created inline here — a per-render store would reset the session every render).
+    ///   - onQuickLook: Presents a Quick Look preview for the given file. The app routes this
+    ///     to the same `quickLookPreview` binding the spacebar shortcut uses, so there is a
+    ///     single presenter; `nil` hides the Quick Look menu items.
+    ///   - onGetInfo: Shows the Info inspector for a file path (the "Get Info" row action).
+    ///   - onOpenInEditor: Hands a file path to the Edit workspace (the "Open in Edit" row
+    ///     action, one per side that holds a text file). The app routes this to the same
+    ///     `handOffToEditor` every other door uses, told to leave the left pane where it is —
+    ///     here it is half of the comparison; `nil` hides the items.
     public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, paneRules: PaneProviderRules = .strictest, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, onOpenInEditor: ((String) -> Void)? = nil, isCollapsed: Binding<Bool>? = nil, shortcutsSuspended: Bool = false, onCompareFilePair: @escaping (DifferencePair) -> Void = { _ in }, session: DifferencesSession? = nil) {
         self.syncManager = syncManager
         self.reviewStore = reviewStore

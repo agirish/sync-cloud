@@ -96,6 +96,9 @@ struct PaneColumnsView: View {
     /// column that lists the row scrolls to it and the stack brings that column into view, while
     /// the row is still the selection; see `FileTreeView.revealsRow`.
     var rowReveal: PaneRowReveal?
+    /// Told when the column holding `rowReveal`'s row has scrolled to it — the hosting
+    /// `FileTreeView`'s `onRowRevealed`, passed straight through.
+    var onRowRevealed: ((PaneRowReveal) -> Void)?
 
     /// The `NotificationCenter` this pane's downloads are announced on, handed straight to the
     /// preview column so its Download button posts where the pane that owns it is LISTENING.
@@ -496,6 +499,21 @@ struct PaneColumnsView: View {
         }
     }
 
+    /// Brings the column holding a host-revealed row into view — when that column is the deepest
+    /// one, which is the only column the host ever asks about (it reveals a file in the folder the
+    /// pane is showing, and in Columns that is the deepest column). A row in a shallower column
+    /// is already one the user walked past, and the stack is left where they put it.
+    ///
+    /// **`revealDeepestColumn` itself**, hold deferral and retry included, rather than a second
+    /// horizontal scroll with its own idea of when the layout has settled.
+    private func revealColumnHolding(_ reveal: PaneRowReveal?, _ proxy: ScrollViewProxy) {
+        guard let path = FileTreeView.revealsRow(reveal, selection: selection),
+              let deepest = directories.last,
+              PaneBrowsePath.normalized((path as NSString).deletingLastPathComponent)
+                == PaneBrowsePath.normalized(deepest) else { return }
+        revealDeepestColumn(proxy)
+    }
+
     /// Brings the deepest column back to the trailing edge of whatever room the stack has — the
     /// seam the preview sits against, or the pane's own edge when there is none.
     ///
@@ -575,21 +593,6 @@ struct PaneColumnsView: View {
     /// generation the gate stamps each reveal with, which is what extends "replaces" to cover the
     /// two uncancellable attempts an earlier reveal has already queued. See
     /// `PaneColumnHoldGate.beginReveal()`, `deferReveal(generation:by:_:)` and `revealHoldChecks`.
-    /// Brings the column holding a host-revealed row into view — when that column is the deepest
-    /// one, which is the only column the host ever asks about (it reveals a file in the folder the
-    /// pane is showing, and in Columns that is the deepest column). A row in a shallower column
-    /// is already one the user walked past, and the stack is left where they put it.
-    ///
-    /// **`revealDeepestColumn` itself**, hold deferral and retry included, rather than a second
-    /// horizontal scroll with its own idea of when the layout has settled.
-    private func revealColumnHolding(_ reveal: PaneRowReveal?, _ proxy: ScrollViewProxy) {
-        guard let path = FileTreeView.revealsRow(reveal, selection: selection),
-              let deepest = directories.last,
-              PaneBrowsePath.normalized((path as NSString).deletingLastPathComponent)
-                == PaneBrowsePath.normalized(deepest) else { return }
-        revealDeepestColumn(proxy)
-    }
-
     private func revealDeepestColumn(_ proxy: ScrollViewProxy) {
         let animation = revealAnimation
         let gate = holdGate
@@ -833,12 +836,8 @@ struct PaneColumnsView: View {
         .onAppear { revealRow(searchRevealTarget, in: rows, proxy: proxy) }
         // The host's row reveal, row half — the same scroll, for a row the host selected on the
         // user's behalf (TE47), and only while it is still the selection.
-        .onChange(of: rowReveal) { _, reveal in
-            revealRow(FileTreeView.revealsRow(reveal, selection: selection), in: rows, proxy: proxy)
-        }
-        .onAppear {
-            revealRow(FileTreeView.revealsRow(rowReveal, selection: selection), in: rows, proxy: proxy)
-        }
+        .onChange(of: rowReveal) { _, reveal in answerRowReveal(reveal, in: rows, proxy: proxy) }
+        .onAppear { answerRowReveal(rowReveal, in: rows, proxy: proxy) }
         // **On appear, and again when the pane's walk finishes.** A column opened while the deep
         // walk is still running must not ask — every directory is unexplored during the shallow
         // first paint, so asking then would queue a listing for each one and duplicate the walk
@@ -924,6 +923,17 @@ struct PaneColumnsView: View {
     /// reader's scope is a documented no-op, so the columns that do not hold the hit would simply
     /// queue two blocks each and do nothing with them. Every open column runs this on every walk,
     /// so the check is worth keeping — but it is not what makes the reveal correct.
+    /// The host's row reveal, answered by the column that lists its row — scrolled to, and the
+    /// host told (`onRowRevealed`) so it retires the request and a later appearance does not
+    /// scroll back. The stack half (`revealColumnHolding`) answers the same request in the same
+    /// update and needs no report of its own: the host retires on the next turn, after both.
+    private func answerRowReveal(_ reveal: PaneRowReveal?, in rows: [PaneRow], proxy: ScrollViewProxy) {
+        guard let reveal, let path = FileTreeView.revealsRow(reveal, selection: selection),
+              rows.contains(where: { $0.id == path }) else { return }
+        revealRow(path, in: rows, proxy: proxy)
+        onRowRevealed?(reveal)
+    }
+
     private func revealRow(_ target: String?, in rows: [PaneRow], proxy: ScrollViewProxy) {
         guard let target, rows.contains(where: { $0.id == target }) else { return }
         let animation = revealAnimation

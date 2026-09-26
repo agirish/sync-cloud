@@ -91,6 +91,55 @@ import SwiftUI
                 "showFindInterface no longer hides a row — showFindBar can go back to it")
     }
 
+    // MARK: A press answered once
+
+    /// The real editor, mounted in a window (the find bar needs one), holding `findRequest`.
+    private func mountedEditor(findRequest: Int)
+        -> (host: NSHostingView<PlainTextEditor>, window: NSWindow) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let host = NSHostingView(rootView: editor(findRequest: findRequest))
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        return (host, window)
+    }
+
+    private func editor(findRequest: Int) -> PlainTextEditor {
+        PlainTextEditor(text: .constant("one two three\n"), isEditable: true, fontScale: 1,
+                        documentID: "/a/b.md", undoManager: UndoManager(),
+                        findRequest: findRequest)
+    }
+
+    private func markedScroll(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView, scroll.identifier == EditorDocumentSurface.identifier {
+            return scroll
+        }
+        for sub in view.subviews { if let found = markedScroll(in: sub) { return found } }
+        return nil
+    }
+
+    /// **A text view built after a Find press does not replay it.** The counter is the workspace's
+    /// and outlives the text view — × and Close Document, a refused file and Preview each take the
+    /// view down — so Find once, close, open any file used to put the find bar up by itself: the new
+    /// coordinator started at 0 and read the standing count as a fresh press.
+    @Test func aTextViewBuiltAfterAFindPressDoesNotOpenTheBar() {
+        let (host, window) = mountedEditor(findRequest: 3)
+        guard let scroll = markedScroll(in: host) else {
+            Issue.record("the editor mounted no marked scroll view")
+            return
+        }
+        #expect(!scroll.isFindBarVisible,
+                "a text view mounted under a standing find request opened the find bar by itself")
+
+        // The positive control: the next press, made while this view is on screen, still opens it —
+        // so the assertion above is not passing because the bar cannot open here at all.
+        host.rootView = editor(findRequest: 4)
+        host.layoutSubtreeIfNeeded()
+        #expect(scroll.isFindBarVisible, "a press made while the text view was on screen was lost")
+        _ = window
+    }
+
     // MARK: Whose caret is it
 
     /// The distinction the whole routing rests on: a field editor is an `NSTextView`, and it is not

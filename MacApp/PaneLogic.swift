@@ -420,6 +420,42 @@ enum PaneLogic {
         }
     }
 
+    /// **The app's own selection of one row in the LEFT pane — not a click** (TE47's owed
+    /// selection, paid by `ContentView.settleOwedPaneSelection`).
+    ///
+    /// It went through the pane's selection binding, the setter a click goes through, and so got
+    /// everything a click gets — which is what was wrong with it. That setter resolves a standing
+    /// Compare-with pick on any single-path write (and the pick survives a workspace switch), so
+    /// opening a document in Edit after arming "Compare with…" in Browse opened the pair overlay
+    /// on the document; it claims `lastSelectionSurface` for the panes and moves the keyboard's
+    /// focus to the left pane, answering "where is the user working" with a place the user did not
+    /// go; and it logs a `[click]`, which the log reader then attributes to the user.
+    ///
+    /// So this writes the selection and nothing else. The left pane is written synchronously —
+    /// there is no `List` commit in flight to protect, since no click started this — marked first
+    /// as the app's own (`markPaid`), so the pane's one-click open in Edit does not answer it.
+    ///
+    /// **The one-pane-selected invariant still holds**: the right pane's selection is cleared,
+    /// whatever it holds — one file or several — exactly as a click in the left pane clears it. The
+    /// app never keeps selections in both panes (his decision, 2026-09-26); only a set in the LEFT
+    /// pane is protected, and the owed-selection rule drops the debt for that before this is ever
+    /// called (`ContentView.owedPaneSelection`). The clear is marked too (`markRightCleared`), so
+    /// it does not retire a Get Info target the way a click in the right pane does. Nothing
+    /// touches the selection sequencer: a click's deferred clear still queued behind this is newer
+    /// intent than the app's, and is left to win.
+    @MainActor
+    static func payOwedSelection(_ path: String, state: PaneSelectionState,
+                                 markPaid: (String) -> Void, markRightCleared: () -> Void) {
+        if state.selectedLeftPaths != [path] {
+            markPaid(path)
+            state.selectedLeftPaths = [path]
+        }
+        if !state.selectedRightPaths.isEmpty {
+            markRightCleared()
+            state.selectedRightPaths = []
+        }
+    }
+
     /// One decimal place, so a log line reads `412.4ms` rather than `412.35917663574219ms`.
     static func ms(_ value: Double) -> String { String(format: "%.1fms", value) }
 

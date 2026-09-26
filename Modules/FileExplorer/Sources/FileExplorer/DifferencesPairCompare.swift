@@ -71,17 +71,19 @@ enum DifferencesPairCompare {
     /// immediately: a viewer given a path that is not there shows an empty pane and a "no longer
     /// at its scanned location" caption, which is a worse answer than not offering the item.
     ///
-    /// **And folders are out.** A folder pair has nothing this viewer can render — Quick Look
-    /// draws an icon, there is no page to raster and no text to diff — and Compare already has a
-    /// whole workspace for two folders. `enclosedItemCount` is the scan's own folder marker: it is
-    /// recorded only for a folder (its contents sync with it rather than being listed as separate
-    /// rows), so a non-nil count is the one fact the row carries that says "directory".
+    /// **And folders are out — a folder on EITHER side.** A folder pair has nothing this viewer can
+    /// render — Quick Look draws an icon, there is no page to raster and no text to diff — and
+    /// Compare already has a whole workspace for two folders; a folder against a file is not a
+    /// pair of files at all. The row carries the scan's answer per side (`leftIsDirectory` /
+    /// `rightIsDirectory`). This asked `enclosedItemCount` until 2026-09-25, which is `nil` for an
+    /// empty folder and for a pair of folders whose names differ only invisibly, so those two
+    /// were offered Compare… on a pair of directories.
     static func pair(for difference: FileDifference,
                      paneNames: PaneProviderNames) -> DifferencePair? {
         guard difference.type != .missingOnLeft, difference.type != .missingOnRight else {
             return nil
         }
-        guard difference.enclosedItemCount == nil else { return nil }
+        guard !difference.leftIsDirectory, !difference.rightIsDirectory else { return nil }
         // Unchanged output: the two files are the same file on two roots, so the relative path's
         // last component IS both their names, and the subtitle is the two panes.
         return DifferencePair(leftPath: difference.leftItemPath,

@@ -113,6 +113,15 @@ extension ContentView {
             })
     }
 
+    /// Whether the source pane beside Edit's document is drawing its tab strip, which pushes the
+    /// pane's toolbar card down — see `EditorWorkspaceView.paneShowsTabStrip`. The pane's own rule,
+    /// and only while the pane is open: collapsed, no strip is on screen. Here rather than in
+    /// `ContentView+Editor.swift` because it reads the strip: this file's readers are called from
+    /// the files `everyTabVerbTheHostWiresReachesTheFocusDoorUnconditionally` walks.
+    var editorPaneShowsTabStrip: Bool {
+        !panesHiddenForCurrentTab && paneShowsTabStrip(isLeft: true)
+    }
+
     /// Whether this pane draws a strip at all — see `PaneTabStripVisibility` for the rule, which is
     /// not the plain "does this pane have two tabs" it started as.
     func paneShowsTabStrip(isLeft: Bool) -> Bool {

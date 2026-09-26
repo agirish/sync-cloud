@@ -248,10 +248,19 @@ import FileExplorer
         // not looking at. It lived in a different file, which is exactly why the count is now taken
         // over the whole of `MacApp/` rather than over `ContentView.swift`: a fourth copy in a fifth
         // file is the same defect, and counting one file could not see it.
+        //
+        // Since 2026-09-25 the read resolver is `viewMode(in:isLeft:)`, which answers for any
+        // workspace (a hand-off asks Edit's, Reveal in Browse asks Browse's) and which
+        // `resolvedViewMode` hands the workspace on screen — so the count matches the ternary's
+        // tail, which both spellings share, and `resolvedViewMode` must delegate.
         let occurrences = Self.codeOnly(content)
-            .components(separatedBy: "layoutMode == .singleSource ? railViewMode").count - 1
+            .components(separatedBy: ".singleSource ? railViewMode").count - 1
         #expect(occurrences == 2,
-                "the rail-or-pane ternary appears \(occurrences) times in MacApp/ — it belongs in `resolvedViewMode` and `resolvedViewModeBinding` and nowhere else")
+                "the rail-or-pane ternary appears \(occurrences) times in MacApp/ — it belongs in `viewMode(in:isLeft:)` and `resolvedViewModeBinding` and nowhere else")
+        #expect(content.contains("TopPaneVisibility.mode(for: workspace) == .singleSource ? railViewMode"),
+                "the read resolver no longer holds the ternary")
+        #expect(content.contains("viewMode(in: selectedWorkspace, isLeft: isLeft)"),
+                "resolvedViewMode answers on its own again — two read resolvers")
         #expect(content.contains("PaneViewMode.browseDefaultsKey"),
                 "Browse has no key of its own — flipping it to Tree restacks the Organize rail")
     }

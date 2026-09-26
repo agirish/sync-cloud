@@ -118,9 +118,10 @@ extension ContentView {
             Logger.shared.info("Editor exported \(job.name) as PDF to \(url.path)")
             syncManager.banner = .success("Exported “\(url.lastPathComponent)”")
             // The rail lists the folder it is reading, and the export may have landed in it — and
-            // with the pane open the PANE is Edit's list, so it is re-read too (TE44).
+            // with the pane open the PANE is Edit's list, so it is re-read too (TE44): the pane
+            // whose folder holds the PDF, if either does.
             Task { await refreshEditorRail() }
-            rereadPanesAfterEditorWrite()
+            rereadPanesAfterEditorWrite(url.path)
         } catch {
             // Banner rather than log-only, on the save path's own argument: a write the user asked
             // for that silently did nothing is the failure they will not notice until it matters.

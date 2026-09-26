@@ -2000,7 +2000,8 @@ public class FileSyncManager: ObservableObject {
     /// cycle- or depth-capped directory inside a deep tree: it carries `isUnexplored: true`,
     /// and `subtree(atPath:in:)` treats it as a miss so a drill-down re-walks from that path
     /// instead of serving its artificial empty children. Cleared by file operations, sort
-    /// changes, and force refresh.
+    /// changes, and force refresh — and, only the walks listing one folder, by a file Edit writes
+    /// itself (`prepareReread(afterWritingAt:)`).
     public var prefetchedTrees: [String: [FileNode]] = [:]
     /// The cache entries whose deep walk `paneNodeBudget` STOPPED — provenance the trees
     /// themselves cannot carry, because a budget-stopped directory and a permission-denied one
@@ -2024,12 +2025,53 @@ public class FileSyncManager: ObservableObject {
 
     /// Drops every cached pane tree AND its walk-stopped provenance — one verb, so the two stores
     /// cannot part company at an invalidation site. Every invalidation of `prefetchedTrees` goes
-    /// through here; a site that cleared the trees alone would leave provenance bits to be
-    /// re-read the next time the same focus path is cached by a slice.
+    /// through here or through its one-folder form, ``dropPrefetchedTrees(holding:links:)``; a
+    /// site that cleared the trees alone would leave provenance bits to be re-read the next time
+    /// the same focus path is cached by a slice.
     public func dropPrefetchedTrees() {
         prefetchedTrees.removeAll()
         prefetchedTreeWalkStopped.removeAll()
         prefetchedTreeReadAt.removeAll()
+    }
+
+    /// Drops only the cached walks that list `folder` — its ancestor chain, and any walk that
+    /// reaches it through a linked folder — with their provenance, and keeps every other entry.
+    ///
+    /// **For a write that adds one file**, which makes exactly those entries stale: a walk of a
+    /// folder the file is not under still describes it truly. `dropPrefetchedTrees()` empties the
+    /// lot, which is right for a file operation (it can touch many folders on both sides) and a
+    /// sort change, and was paid by Edit's ⌘N and Export as PDF on every use — so the next
+    /// navigation anywhere, in either pane, was a cold walk.
+    ///
+    /// "Lists" is `PathBoundary.contains`, links included: the iCloud container's walk lists
+    /// `~/Documents` under the link's name, so a file created in `~/Documents/Finance` makes the
+    /// CONTAINER's entry stale though its key is no prefix of the file's path. The folder is also
+    /// asked in its symlink-resolved spelling, for a path handed over by a save panel rather than
+    /// composed by a pane. Returns how many entries went, for the caller's log line.
+    @discardableResult
+    public func dropPrefetchedTrees(holding folder: String,
+                                    links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> Int {
+        let stale = prefetchedTrees.keys.filter { Self.folder($0, holds: folder, links: links) }
+        for key in stale {
+            prefetchedTrees[key] = nil
+            prefetchedTreeWalkStopped.remove(key)
+            prefetchedTreeReadAt[key] = nil
+        }
+        return stale.count
+    }
+
+    /// Whether `path` is `folder` itself or anything under it — a pane's folder or a cached walk's
+    /// root, asked about a file the app just wrote. `PathBoundary.contains`, links included, with
+    /// `path` also tried in its symlink-resolved spelling (an iCloud link-side path resolves to the
+    /// real `~/Documents/…` one).
+    public nonisolated static func folder(_ folder: String, holds path: String,
+                                          links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> Bool {
+        let expanded = PathBoundary.normalizedRoot(folder)
+        guard !expanded.isEmpty, !path.isEmpty else { return false }
+        let raw = PathBoundary.normalizedRoot(path)
+        if PathBoundary.contains(raw, under: expanded, links: links) { return true }
+        let resolved = URL(fileURLWithPath: raw).resolvingSymlinksInPath().path
+        return resolved != raw && PathBoundary.contains(resolved, under: expanded, links: links)
     }
     /// Focused-folder path each pane's published tree was last loaded for; distinguishes a
     /// same-focus refresh (keep showing the current tree while rebuilding) from a focus
@@ -2445,6 +2487,24 @@ public class FileSyncManager: ObservableObject {
     public func prepareForcedRescan() {
         dropPrefetchedTrees()
         noteScanConfigChanged()
+    }
+
+    /// Prepares the re-read after the app wrote ONE file itself, outside the file-operation queue
+    /// (Edit's ⌘N and Export as PDF): the cached walks that list its folder are dropped — only
+    /// those (``dropPrefetchedTrees(holding:links:)``) — and the epoch is bumped, for
+    /// `prepareForcedRescan`'s reason: a same-target refresh already in flight, walked before the
+    /// file existed, would otherwise swallow the re-read as a duplicate.
+    ///
+    /// Without the drop a pane that finished a deep walk is served that walk, taken before the file
+    /// existed — `OutOfQueueWriteRereadTests` measures it.
+    public func prepareReread(afterWritingAt path: String,
+                              links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) {
+        let folder = (path as NSString).deletingLastPathComponent
+        let before = prefetchedTrees.count
+        let dropped = dropPrefetchedTrees(holding: folder, links: links)
+        noteScanConfigChanged()
+        Logger.shared.debug("[reread] \(path) was written outside the queue; dropped \(dropped) of "
+                            + "\(before) cached walk(s) listing its folder")
     }
 
     /// The dedupe identity for a refresh of the given targets under the current config epoch.

@@ -22,12 +22,21 @@ public enum DifferenceRowMenu {
     /// The sides of a difference that exist on disk, left first. A "missing on X"
     /// difference has no item on X, so only the opposite side is returned.
     public static func existingSides(for difference: FileDifference, paneNames: PaneProviderNames) -> [Side] {
-        var sides: [Side] = []
+        existing(for: difference, paneNames: paneNames).map(\.side)
+    }
+
+    /// The sides that exist, each with the scan's answer to "is it a folder" — one walk, so the
+    /// editor's filter below cannot pair a side with the other side's fact.
+    private static func existing(for difference: FileDifference,
+                                 paneNames: PaneProviderNames) -> [(side: Side, isDirectory: Bool)] {
+        var sides: [(side: Side, isDirectory: Bool)] = []
         if difference.type != .missingOnLeft {
-            sides.append(Side(paneName: paneNames.left, path: difference.leftItemPath))
+            sides.append((Side(paneName: paneNames.left, path: difference.leftItemPath),
+                          difference.leftIsDirectory))
         }
         if difference.type != .missingOnRight {
-            sides.append(Side(paneName: paneNames.right, path: difference.rightItemPath))
+            sides.append((Side(paneName: paneNames.right, path: difference.rightItemPath),
+                          difference.rightIsDirectory))
         }
         return sides
     }
@@ -39,16 +48,19 @@ public enum DifferenceRowMenu {
     /// pane row menu, the Info inspector and File ▸ Open in Edit apply — so this list cannot offer
     /// a PDF the editor would then refuse, nor withhold a `.md` the rail would list.
     ///
-    /// **A folder row offers nothing, whatever it is called.** `isText` cannot tell a folder from a
+    /// **A folder side offers nothing, whatever it is called.** `isText` cannot tell a folder from a
     /// file (it has no disk to ask; a directory named `notes.md` answers true), and its own doc
-    /// leaves that test to every caller that can have a directory in hand. A differences row
-    /// carries no `isDirectory`, so this asks the one fact it does carry: `enclosedItemCount`,
-    /// the scan's folder marker, which `DifferencesPairCompare.pair` withholds Compare… on for the
-    /// same reason. Both sides of the row share one relative path, so the marker answers for both.
+    /// leaves that test to every caller that can have a directory in hand. The row carries the
+    /// scan's answer for each side (`leftIsDirectory` / `rightIsDirectory`), so each side is asked
+    /// on its own: a folder named like text is refused whether or not it is empty, and a
+    /// folder-versus-file row still offers its FILE side. It asked `enclosedItemCount` until
+    /// 2026-09-25, which is `nil` for an empty folder and set on both sides of a mismatch — so an
+    /// empty folder called `notes.md` was offered, and the real text file opposite a non-empty
+    /// folder was withheld.
     public static func editableSides(for difference: FileDifference, paneNames: PaneProviderNames) -> [Side] {
-        guard difference.enclosedItemCount == nil else { return [] }
-        return existingSides(for: difference, paneNames: paneNames)
-            .filter { EditableText.isText(path: $0.path) }
+        existing(for: difference, paneNames: paneNames)
+            .filter { !$0.isDirectory && EditableText.isText(path: $0.side.path) }
+            .map(\.side)
     }
 
     /// Whether this difference is hidden by the current ignore set. Uses the same

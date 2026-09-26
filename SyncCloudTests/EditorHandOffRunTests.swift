@@ -44,6 +44,7 @@ import FileExplorer
                 openDocument: openDocument, isRefused: isRefused,
                 paneFolder: { self.paneFolder },
                 settle: { self.steps.append("settle"); return settles },
+                endNaming: { self.steps.append("endNaming") },
                 showEdit: { self.steps.append("showEdit") },
                 load: { self.steps.append("load \($0)") },
                 log: { self.log.append($0) })
@@ -63,7 +64,7 @@ import FileExplorer
         let stack = scene.manager.leftBrowsePath
         let outcome = scene.handOff(Self.file, pane: .staysPut)
         #expect(outcome == .opened)
-        #expect(scene.steps == ["settle", "showEdit", "load \(Self.file)"])
+        #expect(scene.steps == ["settle", "endNaming", "showEdit", "load \(Self.file)"])
         #expect(scene.manager.leftRelativePath == "Documents", "the comparison was re-scoped")
         #expect(scene.manager.leftHistory == history, "the pane's history moved")
         #expect(scene.manager.leftBrowsePath == stack, "the pane's column stack moved")
@@ -88,11 +89,95 @@ import FileExplorer
         let scene = Scene()
         scene.handOff(Self.file, pane: .staysPut)
         #expect(scene.log == [
-            "Editor hand-off: \(Self.file) opened without moving the left pane — it stays on /c/Documents",
+            "Editor hand-off to \(Self.file) leaves the left pane on /c/Documents — Compare's list of differences does not move it",
         ])
         let ordinary = Scene()
         ordinary.handOff(Self.file, pane: .followsTheFile)
         #expect(ordinary.log.isEmpty, "the ordinary hand-off's line is the load's own, written by loadIntoEditor")
+    }
+
+    /// **A refused file is never logged as opened.** The `.staysPut` line is written before the
+    /// load, so it may only name the decision; the load's own line — the real one, through
+    /// `EditorFileStore.load` and `loadLogLine` — says the file could not be opened, and nothing
+    /// above it may say it was. It read "<path> opened without moving the left pane" until
+    /// 2026-09-25, a false "opened" over the refusal.
+    @Test func aRefusedFileFromTheDifferencesListIsNeverLoggedAsOpened() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("handoff-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appendingPathComponent("binary.md").path
+        try Data([0x61, 0x00, 0x62, 0x00]).write(to: URL(fileURLWithPath: path))
+        let document = EditorDocument()
+        var log: [String] = []
+        EditorHandOffRun.run(
+            path, pane: .staysPut, syncManager: FileSyncManager(), paneRoot: dir.path,
+            openDocument: nil, isRefused: false, paneFolder: { dir.path }, settle: { true },
+            endNaming: {}, showEdit: {},
+            load: { log.append(ContentView.loadLogLine(path: $0, result: EditorFileStore.load(path: $0, into: document))) },
+            log: { log.append($0) })
+        #expect(log.count == 2, "a .staysPut hand-off writes its decision and the load's line: \(log)")
+        #expect(log.last?.hasPrefix("Editor could not open \(path)") == true, "the fixture was not refused: \(log)")
+        #expect(!log.contains { $0.contains("opened") }, "a refused file was logged as opened: \(log)")
+    }
+
+    // MARK: ⌘N's naming row
+
+    /// **A hand-off lands on a document, never on ⌘N's naming row.** ⌘N, then leaving Edit and
+    /// choosing a file elsewhere, used to land with the row still open over the handed-off
+    /// document and its field taking the keyboard — only the rail's click put it away. Put away
+    /// after the settle (never on Cancel, which must change nothing) and on the already-open exit.
+    @Test func aHandOffPutsTheNamingRowAwayUnlessCancelled() {
+        for pane in [EditorHandOffRun.Pane.staysPut, .followsTheFile] {
+            let opened = Scene()
+            opened.handOff(Self.file, pane: pane)
+            #expect(Array(opened.steps.prefix(2)) == ["settle", "endNaming"], "\(pane): \(opened.steps)")
+            let already = Scene()
+            already.handOff(Self.file, pane: pane, openDocument: Self.file)
+            #expect(already.steps == ["endNaming", "showEdit"], "\(pane): \(already.steps)")
+            let cancelled = Scene()
+            cancelled.handOff(Self.file, pane: pane, openDocument: "/c/Documents/draft.md", settles: false)
+            #expect(!cancelled.steps.contains("endNaming"), "\(pane): the naming row went on Cancel")
+        }
+    }
+
+    // MARK: Which folder "already there" asks about
+
+    /// **The guard asks the folder EDIT will show, not the folder on screen.** Browse drawing
+    /// Columns at Documents › Finance, Edit drawing Tree: the pane's stack is shared and parked
+    /// while Tree is drawn, so the same pane shows `Documents/Finance` in Browse and `Documents` in
+    /// Edit. A hand-off of a file in Finance from Browse read Browse's folder, took "already
+    /// there", skipped the re-root — and Edit's Tree showed Documents, with the file's owed
+    /// selection dropped for naming a folder the pane was not showing (2026-09-25).
+    @Test func theHandOffAsksTheFolderEditWillShow() {
+        let scene = Scene()
+        scene.manager.navigatePane(isLeft: true, toCombinedPath: "Documents/Finance", drawsColumns: true)
+        #expect(scene.manager.leftRelativePath == "Documents", "the premise: a browse move, not a re-root")
+        let tree = "/c/\(scene.manager.leftRelativePath)"
+        let browse = ContentView.paneFolder(treeRoot: tree, browsePath: scene.manager.leftBrowsePath,
+                                            drawsColumns: true)
+        let edit = ContentView.paneFolder(treeRoot: tree, browsePath: scene.manager.leftBrowsePath,
+                                          drawsColumns: false)
+        #expect(browse == "/c/Documents/Finance")
+        #expect(edit == "/c/Documents")
+        let file = "/c/Documents/Finance/budget.md"
+        EditorHandOffRun.run(
+            file, pane: .followsTheFile, syncManager: scene.manager, paneRoot: Self.root,
+            openDocument: nil, isRefused: false, paneFolder: { edit }, settle: { true },
+            endNaming: {}, showEdit: {}, load: { _ in }, log: { _ in })
+        #expect(scene.manager.leftRelativePath == "Documents/Finance",
+                "Edit's Tree was left on Documents — the rail and the pane list the wrong folder")
+    }
+
+    /// The app hands the act Edit's folder, through the one member that reads each workspace's
+    /// view mode — `resolvedViewMode` is that member for the workspace on screen.
+    @Test func theAppAsksForEditsFolder() throws {
+        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        #expect(editor.contains("var editorFolder: String { leftPaneFolder(in: selectedWorkspace) }"))
+        #expect(editor.contains("drawsColumns: viewMode(in: workspace, isLeft: true) == .columns)"))
+        let content = try OpenInEditorMenuTests.macApp("ContentView.swift")
+        #expect(content.contains("viewMode(in: selectedWorkspace, isLeft: isLeft)"),
+                "resolvedViewMode no longer delegates — two answers to one question")
     }
 
     // MARK: Shared with the ordinary hand-off
@@ -116,7 +201,7 @@ import FileExplorer
         for pane in [EditorHandOffRun.Pane.staysPut, .followsTheFile] {
             let scene = Scene()
             #expect(scene.handOff(Self.file, pane: pane, openDocument: Self.file) == .alreadyOpen)
-            #expect(scene.steps == ["showEdit"])
+            #expect(scene.steps == ["endNaming", "showEdit"])
             #expect(scene.log == ["Editor hand-off: \(Self.file) is already open — showing Edit"])
             #expect(scene.manager.leftRelativePath == "Documents")
         }
@@ -141,7 +226,7 @@ import FileExplorer
             style: .folderName, help: "")
         let columns = Scene()
         var owed: [String] = []
-        EditorLocationDoors(syncManager: columns.manager, drawsColumns: true, selectInPane: { owed.append($0) })
+        EditorLocationDoors(syncManager: columns.manager, drawsColumns: true, log: { _ in }, selectInPane: { owed.append($0) })
             .open(.showInPane, documentPath: Self.file, location: location)
         #expect(columns.manager.leftRelativePath == "Documents")
         #expect(columns.manager.combinedRelativePath(isLeft: true) == "Documents/Finance/Tax")
@@ -150,7 +235,7 @@ import FileExplorer
         #expect(owed == [Self.file])
 
         let tree = Scene()
-        EditorLocationDoors(syncManager: tree.manager, drawsColumns: false, selectInPane: { _ in })
+        EditorLocationDoors(syncManager: tree.manager, drawsColumns: false, log: { _ in }, selectInPane: { _ in })
             .open(.showInPane, documentPath: Self.file, location: location)
         #expect(tree.manager.leftRelativePath == "Documents/Finance/Tax")
         #expect(tree.manager.ignoredPaths.isEmpty)
@@ -167,12 +252,13 @@ import FileExplorer
             in: "ContentView+Editor.swift")
         for piece in ["EditorHandOffRun.run(", "path, pane: pane,", "syncManager: syncManager,",
                       "openDocument: editorDocument.path, isRefused: editorDocument.refusal != nil,",
-                      "paneFolder: { editorFolder },", "settle: { settleEditorDocument() },",
+                      "paneFolder: { leftPaneFolder(in: .editor) },", "settle: { settleEditorDocument() },",
+                      "endNaming: { editorIsNaming = false },",
                       "showEdit: { if selectedWorkspace != .editor { selectedWorkspace = .editor } },",
                       "load: { loadIntoEditor(path: $0) },", "log: { Logger.shared.info($0) })"] {
             #expect(body.contains(piece), "handOffToEditor no longer hands the act \(piece)")
         }
-        #expect(!body.contains("focusOn(") && !body.contains("focusPaneOnFolder("),
+        #expect(!body.contains("focusOn(") && !body.contains("focusPane("),
                 "handOffToEditor moves the pane itself — the variant's decision is bypassed")
     }
 
@@ -184,5 +270,151 @@ import FileExplorer
             count += source.components(separatedBy: "pane: .staysPut").count - 1
         }
         #expect(count == 1, "\(count) callers leave the pane where it is — expected exactly the differences list")
+    }
+
+    // MARK: Reveal in Browse (header and rail rows)
+
+    /// **Already there: nothing moves.** Columns drilled to Documents › Finance › Tax, revealing a
+    /// file in Tax: it re-rooted at Tax until 2026-09-25 — the stack reset, a history entry, the
+    /// session's ignores cleared and a refresh sent, to arrive where the pane already was.
+    @Test func revealingAFileInTheFolderBrowseShowsMovesNothing() {
+        let scene = Scene()
+        scene.manager.navigatePane(isLeft: true, toCombinedPath: "Documents/Finance/Tax", drawsColumns: true)
+        let history = scene.manager.leftHistory, stack = scene.manager.leftBrowsePath
+        EditorRevealInBrowse.movePane(to: Self.file, from: .railRow, syncManager: scene.manager,
+                                      sourceRoot: Self.root, drawsColumns: true, links: [:],
+                                      log: { scene.log.append($0) })
+        #expect(scene.manager.leftRelativePath == "Documents")
+        #expect(scene.manager.leftHistory == history)
+        #expect(scene.manager.leftBrowsePath == stack)
+        #expect(scene.manager.ignoredPaths == ["Finance/old.md"])
+        #expect(scene.refreshes.isEmpty)
+        #expect(scene.log == ["Reveal in Browse from a rail row's menu: \(Self.file) — Browse already shows its folder"])
+    }
+
+    /// **Edit in Tree, Browse in Columns with its stack parked deeper.** Revealing a file in the
+    /// scope Edit's Tree shows: `focusOn` of that scope was a no-op, so Browse opened on the parked
+    /// folder, the file not in it and its selection dropped. Browse's own route is a browse move
+    /// back to the scope — no re-scope, no scan.
+    @Test func aParkedStackDeeperThanTheFileIsBroughtBack() {
+        let scene = Scene()
+        scene.manager.navigatePane(isLeft: true, toCombinedPath: "Documents/Finance", drawsColumns: true)
+        let file = "/c/Documents/letter.md"
+        EditorRevealInBrowse.movePane(to: file, from: .header, syncManager: scene.manager,
+                                      sourceRoot: Self.root, drawsColumns: true, links: [:],
+                                      log: { scene.log.append($0) })
+        #expect(scene.manager.paneLocation(isLeft: true, drawsColumns: true) == "Documents",
+                "Browse still shows the parked folder")
+        #expect(scene.manager.leftRelativePath == "Documents")
+        #expect(scene.manager.ignoredPaths == ["Finance/old.md"])
+        #expect(scene.refreshes.isEmpty)
+        #expect(scene.log == ["Reveal in Browse from the header's file name: \(file) — Browse moves to /c/Documents"])
+    }
+
+    /// The breadcrumb's route in every other case: inside the scope a browse move, above it — or
+    /// anywhere in Tree — a re-root; outside the source nothing, and a line saying so.
+    @Test func revealTakesTheBreadcrumbsRouteForBrowsesMode() {
+        let columns = Scene()
+        EditorRevealInBrowse.movePane(to: Self.file, from: .header, syncManager: columns.manager,
+                                      sourceRoot: Self.root, drawsColumns: true, links: [:], log: { _ in })
+        #expect(columns.manager.leftRelativePath == "Documents")
+        #expect(columns.manager.combinedRelativePath(isLeft: true) == "Documents/Finance/Tax")
+        #expect(columns.refreshes.isEmpty)
+
+        let tree = Scene()
+        EditorRevealInBrowse.movePane(to: Self.file, from: .header, syncManager: tree.manager,
+                                      sourceRoot: Self.root, drawsColumns: false, links: [:], log: { _ in })
+        #expect(tree.manager.leftRelativePath == "Documents/Finance/Tax")
+        #expect(tree.refreshes == [.leftOnly])
+
+        let above = Scene()
+        EditorRevealInBrowse.movePane(to: "/c/Other/a.md", from: .header, syncManager: above.manager,
+                                      sourceRoot: Self.root, drawsColumns: true, links: [:], log: { _ in })
+        #expect(above.manager.leftRelativePath == "Other")
+
+        let outside = Scene()
+        EditorRevealInBrowse.movePane(to: "/elsewhere/a.md", from: .railRow, syncManager: outside.manager,
+                                      sourceRoot: Self.root, drawsColumns: true, links: [:],
+                                      log: { outside.log.append($0) })
+        #expect(outside.manager.leftRelativePath == "Documents")
+        #expect(outside.refreshes.isEmpty)
+        #expect(outside.log == ["Reveal in Browse from a rail row's menu: /elsewhere/a.md is outside the left source — Browse stays where it is"])
+    }
+
+    /// The app runs the shared act (`EditorRevealInBrowse.reveal`, whose order is
+    /// `revealInBrowseFromEditLandsWithTheFileSelected`) in BROWSE's mode, with the real switch
+    /// and the real debt — and each door passes its own name.
+    @Test func theAppRevealsThroughBrowsesModeAndNamesTheDoor() throws {
+        let body = try EditorNewFilePaneWiringTests.body(
+            of: "func revealInBrowse(_ path: String, from door: EditorRevealInBrowse.Door) {",
+            in: "ContentView+Editor.swift")
+        #expect(body.contains("EditorRevealInBrowse.reveal("), "the app no longer runs the tested act")
+        #expect(body.contains("drawsColumns: viewMode(in: .browse, isLeft: true) == .columns,"),
+                "Reveal in Browse asks some other workspace's view mode")
+        #expect(body.contains("path, from: door,"))
+        #expect(body.contains("showBrowse: { selectedWorkspace = .browse },"), "the act does not switch to Browse")
+        #expect(body.contains("owe: { owePaneSelection($0) },"), "the act owes nothing — Browse lands with no selection")
+        #expect(!body.contains("focusOn(") && !body.contains("focusPane("), "Reveal re-roots again")
+        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        #expect(editor.contains("onRevealInBrowse: { path in revealInBrowse(path, from: .header) },"))
+        #expect(editor.contains("onRevealRowInBrowse: { path in revealInBrowse(path, from: .railRow) },"))
+    }
+
+    /// **Reveal in Browse from Edit ends with the file selected in Browse** — the notes' promise,
+    /// driven through the functions the app runs, on a real manager over a real folder: the act
+    /// (`EditorRevealInBrowse.reveal`), the debt as `owePaneSelection` records it (the workspace on
+    /// screen at that moment), the rule `settleOwedPaneSelection` asks with the pane's own
+    /// answers, and the app's write. Columns (a browse move, listed at once) and Tree (a re-root,
+    /// listed once the walk the refresh asks for lands). The file is a rail row that is NOT the
+    /// open document, the case only Browse can pay; and the right pane holds a set, which the
+    /// payment clears (2026-09-26). With the switch after the debt, it is Edit's and is dropped.
+    @MainActor @Test(arguments: [true, false])
+    func revealInBrowseFromEditLandsWithTheFileSelected(browseDrawsColumns: Bool) async throws {
+        // The REAL path (`realpath`, which keeps `/private`): a walk names its nodes by it, and the
+        // temporary directory is reached through the `/var` link.
+        let made = FileManager.default.temporaryDirectory
+            .appendingPathComponent("reveal-\(UUID().uuidString)", isDirectory: true).path
+        try FileManager.default.createDirectory(atPath: "\(made)/Documents/Finance/Tax", withIntermediateDirectories: true)
+        let root = try #require(realpath(made, nil).map { String(cString: $0) })
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let tax = "\(root)/Documents/Finance/Tax"
+        let file = "\(tax)/notes.md", open = "\(root)/Documents/letter.md"
+        for path in [file, open] { try Data("x\n".utf8).write(to: URL(fileURLWithPath: path)) }
+
+        // Edit, with its pane (Tree) on Documents and a document open there; a set in the right
+        // pane. `loadTree` takes the SOURCE's root and walks the pane's folder under it, as the
+        // app's refresh does.
+        let manager = FileSyncManager()
+        manager.focusOn(relativePath: "Documents", isLeft: true)
+        var paneFolder: String { PaneLogic.fullPath(root: root, relativePath: manager.leftRelativePath) }
+        await manager.loadTree(path: root, isLeft: true)
+        manager.selectedRightPaths = ["/d/a.md", "/d/b.md"]
+        var workspace = Workspace.editor
+        var debt: ContentView.PaneSelectionDebt?
+
+        EditorRevealInBrowse.reveal(file, from: .railRow, syncManager: manager, sourceRoot: root,
+                                    drawsColumns: browseDrawsColumns, links: [:],
+                                    showBrowse: { workspace = .browse },
+                                    owe: { debt = .init(path: $0, document: open, workspace: workspace) },
+                                    log: { _ in })
+        #expect(workspace == .browse)
+        #expect(debt?.workspace == .browse, "the selection was owed before the switch — it is Edit's, and Browse drops it")
+        // Tree re-roots; the app's refresh walks the new folder, and the tree publish pays the debt.
+        if !browseDrawsColumns { await manager.loadTree(path: root, isLeft: true) }
+
+        let decision = ContentView.owedPaneSelection(
+            owed: debt, openDocument: open, workspace: workspace,
+            paneFolder: ContentView.paneFolder(treeRoot: paneFolder, browsePath: manager.leftBrowsePath,
+                                               drawsColumns: browseDrawsColumns),
+            paneIsCurrent: ContentView.treeIsCurrent(readAt: manager.paneTreeFolder(isLeft: true),
+                                                     paneFolder: paneFolder),
+            isListed: !manager.leftNodes(for: [file]).isEmpty,
+            selection: manager.selectedLeftPaths,
+            selectingOpens: workspace == .editor)
+        #expect(decision == .select(file), "Browse did not select the revealed file: \(decision)")
+        guard case .select(let path) = decision else { return }
+        PaneLogic.payOwedSelection(path, state: manager, markPaid: { _ in }, markRightCleared: {})
+        #expect(manager.selectedLeftPaths == [file])
+        #expect(manager.selectedRightPaths.isEmpty, "the app left selections in both panes")
     }
 }

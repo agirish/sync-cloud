@@ -5483,7 +5483,8 @@ pane and listed the file.
 owes the pane a selection of the new file, paid on the left-tree publish that lists it
 (`settleOwedPaneSelection`, rule `owedPaneSelection`), through the pane's own selection setter. The
 selection lands on the open document, so TE41's one-click open finds it already open: one
-`Editor opened` line per create.
+`Editor opened` line per create. (Both the whole-cache `.both` re-read and the write through the
+pane's setter are superseded by the review of TE47, at the end of this file.)
 
 ```sh
 for l in main v4.x v3.x v2.x; do
@@ -5778,7 +5779,8 @@ done
 
 **Checked and not owed, the other direction.** Nothing stored: no defaults key, no file format. The
 pane's selection itself is unchanged in kind — written through `paneSelectionBinding`, the setter a
-click uses. Boundaries a future audit should not re-derive: the rule applies at the MOMENT of an
+click uses (**superseded by the review below**: the app's write is `PaneLogic.payOwedSelection` now,
+because that setter is a click's). Boundaries a future audit should not re-derive: the rule applies at the MOMENT of an
 open, create, reveal or location click, never continuously, so returning to Browse with a document
 open selects nothing; the pane's own click owes nothing (its row is already under the pointer, and a
 reveal would scroll it to the middle); and from Compare's differences list the pane is not moved,
@@ -5786,3 +5788,190 @@ so the file is selected only if the pane already shows its folder. What the head
 does to a comparison after such an open is measured in `EditorHandOffRunTests`: in Columns a browse
 move inside the scope (no re-scope, ignores kept, no refresh); in Tree a re-root (re-scoped, session
 ignores cleared, a `.leftOnly` refresh), because that is the pane breadcrumb's own route there.
+
+## Review fixes to the Edit doors (hand-off, Reveal in Browse, differences rows) — main only
+
+A review round on the TE31–TE47 batch. Every fix is to code that exists only on `main`; the one
+piece that touches a type every line carries (`FileDifference`) adds two stored facts that nothing
+off `main` would read.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s pairCompare=%s editableSides=%s handOffRun=%s revealInBrowse=%s paidMarker=%s leftInfoClear=%s\n' $l \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/DifferencesPairCompare.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferenceRowMenu.swift 2>/dev/null | grep -c 'static func editableSides')" \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/EditorHandOffRun.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -c 'func revealInBrowse')" \
+    "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'editorPaneSelectionPaid')" \
+    "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'onChange(of: syncManager.selectedLeftPaths) { _, _ in infoPath = nil }')"
+done
+# measured 2026-09-25 (origin/main dd1b24aa, before this change):
+# main   pairCompare=1 editableSides=1 handOffRun=1 revealInBrowse=1 paidMarker=1 leftInfoClear=1
+# v4.x   pairCompare=0 editableSides=0 handOffRun=0 revealInBrowse=0 paidMarker=0 leftInfoClear=1
+# v3.x   pairCompare=0 editableSides=0 handOffRun=0 revealInBrowse=0 paidMarker=0 leftInfoClear=1
+# v2.x   pairCompare=0 editableSides=0 handOffRun=0 revealInBrowse=0 paidMarker=0 leftInfoClear=1
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`FileDifference.leftIsDirectory` / `rightIsDirectory`**, recorded by `FileDiffEngine` per side and swapped by `mirrored()`; "Open in Edit" (`DifferenceRowMenu.editableSides`) and Compare… (`DifferencesPairCompare.pair`) gate on them instead of `enclosedItemCount`, which is `nil` for an empty folder, a name-conflicted folder pair and a folder-vs-file row with an empty folder | Would compile. Not owed — neither reader exists there (no differences-row editor item, no pair viewer) | Same | RECORDED — not owed |
+| **The hand-off asks the folder EDIT will show** (`leftPaneFolder(in: .editor)`, over a new `viewMode(in:isLeft:)` that `resolvedViewMode` now delegates to) | Not owed — no hand-off | Same | CHECKED — not owed |
+| **Reveal in Browse takes the breadcrumb's route for Browse's mode** (`EditorRevealInBrowse.movePane` → `navigatePane`), nothing when Browse already shows the folder, one `.info` line naming the door (header / rail row); `focusPaneOnFolder` removed | Not owed — no Edit workspace | Same | CHECKED — not owed |
+| **A hand-off puts ⌘N's naming row away** (`endNaming`), and `.staysPut` logs its decision rather than a premature "opened" | Not owed — no hand-off | Same | CHECKED — not owed |
+| **Compare rescans after the editor wrote under it** (recorded, settled on arriving in Compare or at once while it is on screen — since the integration below, through `OwedComparison`) | Not owed — no editor writes files there | Same | CHECKED — not owed |
+| **The app's paid selection keeps a Get Info target** (`leftSelectionClearsInfoTarget`; the left pane's clear moved into the selection handler, before the marker is consumed) | The unconditional clear is there, but nothing writes the left selection on the user's behalf after a delay — not owed | Same | CHECKED — not owed |
+
+**Checked and not owed, the other direction.** Nothing stored: `FileDifference` is not persisted
+(no `Codable`), so the two new fields change no format. The rail row menu's attachment test is now a
+drawn read (`NSHostingView.menu(for:)` in a window) rather than a source scan — tests only.
+
+---
+
+## Review of TE47: the app's own write, a workspace-bound debt, a targeted re-read, a reveal answered once
+
+`main` only, **not owed** — every change here is to TE44/TE47 machinery that exists only on `main`
+(the table below says which pieces would compile elsewhere). Five review findings, each confirmed
+before it was fixed:
+
+1. **The payment went through the click's setter.** `settleOwedPaneSelection` wrote
+   `paneSelectionBinding(isLeft: true)`, whose setter resolves a standing Compare-with pick on any
+   single-path write (the pick survives a workspace switch), claims `lastSelectionSurface` for the
+   panes, moves the keyboard's focus to the left pane, logs `[click]` and "a row was picked in the
+   left pane", and clears the right pane's selection whatever it held. Arm "Compare with…" in Browse,
+   open a document in Edit, and the pair overlay opened on it; select five files in Compare's right
+   pane, open from Edit's rail, and they were gone. Now `PaneLogic.payOwedSelection`: the left
+   selection (marked first, as before), and the right pane cleared only of a SINGLE selection (the
+   one-pane invariant) — a set there drops the debt (`otherSelection` in the rule). **Superseded
+   2026-09-26 by his decision** (integration section below): the right pane is cleared whatever it
+   holds, and `otherSelection` is gone from the rule.
+2. **A debt never expired.** ⌘N's debt waits for the re-read; switch workspace before it publishes
+   and it paid in Compare or Browse later. `PaneSelectionDebt` carries the workspace it was owed in
+   (read after the door's own switch — Reveal in Browse switches, then owes), a mismatch drops it,
+   and a workspace switch settles at once so the drop is logged when it happens.
+3. **The re-read after ⌘N / Export as PDF was a file operation's.** `prepareForcedRescan()` emptied
+   the whole prefetch cache and `.both` down `refreshSubject` ran a full comparison scan — restarting
+   one in flight — in any workspace, and an export saved outside both sources re-read both. Now
+   `prepareReread(afterWritingAt:)` drops only the walks that list the folder
+   (`dropPrefetchedTrees(holding:links:)`, links included, so the iCloud container's walk goes for a
+   file in `~/Documents`), `ContentView.panesHolding` reloads only the pane(s) whose folder holds the
+   file (none for neither), and `refreshAction(…comparing: selectedWorkspace == .compare)` owes the
+   comparison outside Compare (then `comparisonAwaitsRescan`, as a lens entry does; since the
+   integration below, `OwedComparison.skipped`). `refreshAction` is
+   no longer `private` for this caller.
+4. **The reveal re-scrolled on every appearance** while its row stayed selected. The pane now
+   reports an answer (`FileTreeView.onRowRevealed`, passed through to `PaneColumnsView`) and the host
+   retires it on the next turn (`retireAnsweredRowReveal`, rule `revealAfterAnswer`); a reveal
+   issued while the pane is not on screen still waits for it to appear.
+5. **Logging**: one `.info` `[pane-follow]` line per selection and per drop, with its reason
+   (`DropReason`); the owed selection no longer reads as a click.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s dropAll=%s dropHolding=%s prepareReread=%s payOwed=%s bindingPick=%s onRowRevealed=%s\n' $l \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift 2>/dev/null | grep -c 'public func dropPrefetchedTrees()')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift 2>/dev/null | grep -c 'func dropPrefetchedTrees(holding')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift 2>/dev/null | grep -c 'func prepareReread(afterWritingAt')" \
+    "$(git show origin/$l:MacApp/PaneLogic.swift 2>/dev/null | grep -c 'static func payOwedSelection')" \
+    "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'if let pick = comparePick, newSelection.count == 1')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift 2>/dev/null | grep -c 'onRowRevealed')"
+done
+# measured 2026-09-25, origin/main dd1b24aa, before this landed:
+# main   dropAll=1 dropHolding=0 prepareReread=0 payOwed=0 bindingPick=1 onRowRevealed=0
+# v4.x   dropAll=1 dropHolding=0 prepareReread=0 payOwed=0 bindingPick=0 onRowRevealed=0
+# v3.x   dropAll=0 dropHolding=0 prepareReread=0 payOwed=0 bindingPick=0 onRowRevealed=0
+# v2.x   dropAll=0 dropHolding=0 prepareReread=0 payOwed=0 bindingPick=0 onRowRevealed=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| `PaneLogic.payOwedSelection`; the rule's `workspace` guard (and an `otherSelection` guard, removed again 2026-09-26); `DropReason`; the settle on a workspace switch | Not owed — no owed selection (TE44/TE47 are `main`-only) | Same | CHECKED — not owed |
+| `dropPrefetchedTrees(holding:links:)`, `FileSyncManager.folder(_:holds:links:)`, `prepareReread(afterWritingAt:)` (Sync) | Would compile on `v4.x` (`dropPrefetchedTrees()` and `PathBoundary.contains` are there). Not owed — its only caller is Edit's re-read; `v4.x`'s file operations keep the whole-cache drop, which is right for them | `v3.x`/`v2.x` lack `dropPrefetchedTrees()` itself | RECORDED — not owed |
+| `rereadPanesAfterEditorWrite(_:)` targeted (`panesHolding`, comparing only in Compare) | Not owed — no Edit workspace | Same | CHECKED — not owed |
+| `FileTreeView.onRowRevealed` / `PaneColumnsView.onRowRevealed`, `retireAnsweredRowReveal` | Not owed — no `PaneRowReveal` there | Same | CHECKED — not owed |
+| `PaneRowRevealTests.everHolds` bounded by its marker (asserted) and drained turns, not a 30s pump | Not owed — the suite is TE47's | Same | CHECKED — not owed |
+
+**Boundaries a future audit should not re-derive.** A selection in the right pane IS cleared by a
+payment (the one-pane-selected invariant, as a click clears it) — as written here, a single one only;
+since 2026-09-26, a set too (integration section below). Only a set in the LEFT pane is protected.
+Payment never touches the selection sequencer: a click's deferred cross-pane clear still queued
+behind it is newer intent and is left to win. A file saved outside both panes still drops the cached
+walks that list its folder — cheap, and a later navigation there would otherwise be served the
+pre-write walk — but re-reads neither pane.
+
+---
+
+## Review fixes to Edit's header (TE43 / TE45 / TE46 follow-ups)
+
+`main` only, **not owed** on any line — every change is to Edit's header, its location doors or the
+text view Edit mounts, and none of those exists on a maintenance line. Checked 2026-09-25:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  echo "$l $(git ls-tree -r --name-only origin/$l -- \
+    Modules/FileExplorer/Sources/FileExplorer/PlainTextEditor.swift \
+    Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift \
+    MacApp/EditorLocationDoors.swift | wc -l | tr -d ' ') of 3 files"
+done
+# main 3 of 3 files · v4.x 0 · v3.x 0 · v2.x 0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **The find bar no longer opens by itself** — `PlainTextEditor.makeCoordinator` seeds `lastFindRequest` from the standing `findRequest`, so a text view built after a Find press (after ×, a refused file, or Preview) does not replay it | Not owed — no editor text view | Same | CHECKED — not owed |
+| **`EditorLocationDoors` logs at INFO** through an injected `log` (one line per press: browsed / re-rooted — with the re-scope and cleared ignores said — / already there, and both refusals) | Not owed — no doors | Same | RECORDED — not owed |
+| **Under the pane's tab strip the document column leaves the strip's slot empty** (`EditorWorkspaceView.paneShowsTabStrip`, `PaneTabStripLadder.slotHeight(_:)`, host `editorPaneShowsTabStrip`) | Not owed — no document column beside the pane | Same | RECORDED — not owed |
+| **The ＋, naming row and rail name the folder as the breadcrumb does** (`folderDisplayName`, `EditorHeaderLocation.folderName`) — "iCloud", not "com~apple~CloudDocs"; **a folder under another enabled source reads from that source's name**, as words (`otherSources`, `EditorDocumentLocation.otherSourceName`) | Not owed — no header | Same | RECORDED — not owed |
+| **The crumb's folded "…" is a menu of the levels it hides** (`EditorDocumentLocation.Part.folded`) | Not owed — no header | Same | RECORDED — not owed |
+
+**Checked and not owed, the other direction.** Nothing stored: no defaults key, no format.
+`navigatePane`, `focusOn` and `PaneLogic.relativePath` are reused unchanged. One reviewer claim was
+measured and **refuted**, recorded so it is not re-derived: a read-only or refused document drops
+the autosave switch from the meta row, but the kind word ("Markdown" / "Plain text") keeps the row
+at the switch's height — the header rows measured 35 / 38 / 44 / 46pt at the four text sizes for an
+ordinary, a read-only and a refused `.md` and `.txt` alike, and the title's first ink row did not
+move by a pixel. No reservation was added.
+
+---
+
+## Integrating the three review fixes: one owed comparison, the right pane always cleared — main only
+
+The Edit-doors, pane-follow and header review fixes landed together (2026-09-26), and where they met
+three things changed. All three are to machinery that exists only on `main`: **not owed**, measured
+per line.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s owedComparison=%s payOwed=%s rightMarker=%s revealAct=%s awaits=%s\n' $l \
+    "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'struct OwedComparison')" \
+    "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'func payOwedComparisonIfNeeded')" \
+    "$(git show origin/$l:MacApp/PaneLogic.swift 2>/dev/null | grep -c 'markRightCleared')" \
+    "$(git show origin/$l:MacApp/EditorHandOffRun.swift 2>/dev/null | grep -c 'static func reveal(')" \
+    "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'comparisonAwaitsRescan')"
+done
+# measured 2026-09-26, origin/main dd1b24aa, before this landed:
+# main   owedComparison=0 payOwed=0 rightMarker=0 revealAct=0 awaits=6
+# v4.x   owedComparison=0 payOwed=0 rightMarker=0 revealAct=0 awaits=0
+# v3.x   owedComparison=0 payOwed=0 rightMarker=0 revealAct=0 awaits=0
+# v2.x   owedComparison=0 payOwed=0 rightMarker=0 revealAct=0 awaits=0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **One owed comparison** (`ContentView.OwedComparison`, paid only by `payOwedComparisonIfNeeded`, one `.info` line "Compare rescans: <why>"). Replaces the lens entry's `comparisonAwaitsRescan` and the doors review's `editorWritesSinceComparison`. Saves are unread writes (the pane holding them re-read, targeted, then compared — no longer the whole-cache forced rescan); ⌘N / Export as PDF outside Compare owe only the comparison, naming the file; any comparing refresh drops the written folders' cached walks before it settles the record | Not owed — `v4.x` has no lens-entry skip (`awaits=0`) and no editor that writes | Same | CHECKED — not owed |
+| **The owed selection clears the right pane whatever it holds** (his decision, 2026-09-26): only a LEFT-pane set drops the debt; `otherSelection` is gone from the rule, and the drop line says "the left pane holds a selection of several items". The clear is marked (`markRightCleared` → `editorPaneRightClearPaid`) so it keeps a Get Info target, as the left write already did | Not owed — no owed selection | Same | CHECKED — not owed |
+| **Reveal in Browse's order is one tested act** (`EditorRevealInBrowse.reveal`: move, switch, then owe), measured landing with the file selected in Browse on a real manager over a real folder, Columns and Tree; `paneSelectionBinding` is `private` (one caller) | Not owed — no Edit workspace | Same | CHECKED — not owed |
+
+**Checked and not owed, the other direction.** Nothing persisted changed: the record is view
+`@State`, and no log line a reader greps for was removed — "Compare rescans: the editor wrote … since
+the last comparison" is kept word for word, and the lens entry's payment, silent before, now writes
+"Compare rescans: the pane moved outside Compare without a comparison".
+
+## A write outside both compared folders is not owed to Compare — main only
+
+Follow-up to the integration above (2026-09-26). `OwedComparison.recordWrite` records a file the
+editor wrote only when a compared folder holds it (`ContentView.panesHolding`, links included); one
+anywhere else cannot change the comparison, and recorded it made the next comparing refresh drop
+cached walks that comparison does not show. `noteEditorWrote` drops such a write's cached walks at
+the write instead (`prepareReread`), so a pane moved to that folder later still reads it. The record
+exists only on `main` (`owedComparison=0` on every maintenance line in the table above): **not
+owed**, nothing persisted, no log line changed.

@@ -305,8 +305,10 @@ import FileExplorer
                                "the builder no longer ends at the rail survey's task")
         let site = String(rest[..<end.lowerBound])
         #expect(site.contains("EditorWorkspaceView("), "the slice is not the workspace's construction")
-        #expect(site.contains("onRevealInBrowse: { path in revealInBrowse(path) }"),
-                "Reveal in Browse (header and rail rows) is not wired to revealInBrowse")
+        #expect(site.contains("onRevealInBrowse: { path in revealInBrowse(path, from: .header) }"),
+                "the header's Reveal in Browse is not wired to revealInBrowse")
+        #expect(site.contains("onRevealRowInBrowse: { path in revealInBrowse(path, from: .railRow) }"),
+                "the rail rows' Reveal in Browse is not wired to revealInBrowse as its own door")
         #expect(site.contains("onGetInfo: { path in showInfo(for: path) }"),
                 "the rail row menu's Get Info is not wired to the Info inspector")
         // `followsPane: false`: a rail row is not the pane's selection, so a pane click must not
@@ -322,14 +324,13 @@ import FileExplorer
     /// workspace and nothing else.
     @Test func revealInBrowseMovesThePaneAndTheWorkspaceAndNotTheDocument() throws {
         let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
-        let start = try #require(editor.range(of: "func revealInBrowse(_ path: String) {"),
+        let start = try #require(editor.range(of: "func revealInBrowse(_ path: String, from door: EditorRevealInBrowse.Door) {"),
                                  "revealInBrowse is gone or renamed")
         let rest = editor[start.upperBound...]
         let end = try #require(rest.range(of: "\n    }\n"), "revealInBrowse never closes")
         let body = String(rest[..<end.lowerBound])
-        #expect(body.contains("(path as NSString).deletingLastPathComponent"),
-                "Reveal in Browse no longer goes to the folder of the path it was handed")
-        #expect(body.contains("focusPaneOnFolder(folder)"), "Reveal in Browse no longer moves the pane")
+        #expect(body.contains("EditorRevealInBrowse.reveal(\n            path, from: door,"),
+                "Reveal in Browse no longer moves the pane to the path it was handed")
         #expect(body.contains("selectedWorkspace = .browse"), "Reveal in Browse no longer switches to Browse")
         for touch in ["editorDocument", "settleEditorDocument", "loadIntoEditor", "openInEditor"] {
             #expect(!body.contains(touch),

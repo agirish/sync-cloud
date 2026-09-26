@@ -151,11 +151,80 @@ import Design
         #expect(crumb.parts(rung: [0]) == [.text("Scratch", help: "~/Scratch")])
     }
 
-    /// The folded middle is a word, not a door, and its tooltip is the whole path it folds.
-    @Test func theFoldedMiddleIsNotADoor() {
+    /// **Another source's folder reads from that source's name**, in words: "in Dropbox › Backup"
+    /// with the pane open, the whole path as text in the crumb. Mutation: drop `otherSourceName`
+    /// from the folder-name reading and the first line reads "in Backup".
+    @Test func aFolderInAnotherSourceSaysWhichSource() {
+        let segments: [EditorDocumentLocation.Segment] = [
+            .init(name: "Dropbox", target: nil), .init(name: "Archive", target: nil),
+            .init(name: "Backup", target: nil),
+        ]
+        let open = EditorDocumentLocation(segments: segments, style: .folderName,
+                                          help: "Dropbox › Archive › Backup", otherSourceName: "Dropbox")
+        #expect(open.parts(rung: []) == [.text("in Dropbox › Backup", help: "Dropbox › Archive › Backup")])
+        // At that source's own top the folder IS the source: "in Dropbox", not "in Dropbox › Dropbox".
+        let top = EditorDocumentLocation(segments: [.init(name: "Dropbox", target: nil)], style: .folderName,
+                                         help: "Dropbox", otherSourceName: "Dropbox")
+        #expect(top.parts(rung: []) == [.text("in Dropbox", help: "Dropbox")])
+        let crumb = EditorDocumentLocation(segments: segments, style: .crumb,
+                                           help: "Dropbox › Archive › Backup", otherSourceName: "Dropbox")
+        #expect(crumb.parts(rung: [0, nil, 2]) == [
+            .text("Dropbox", help: "Dropbox › Archive › Backup"), .chevron,
+            .text("…", help: "Dropbox › Archive › Backup"), .chevron,
+            .text("Backup", help: "Dropbox › Archive › Backup"),
+        ])
+    }
+
+    /// **The ＋'s tooltip and the naming row use the host's word for the folder** — "iCloud" at the
+    /// top of iCloud Drive, not the container's "com~apple~CloudDocs" — and fall back to the last
+    /// component without one. Mutation: `folderName` ignoring `folderDisplayName` fails the first.
+    @Test func theFolderIsNamedByTheHostsWord() throws {
+        let doc = try document(named: "n.md")
+        var named = workspace(doc, location: nil)
+        named.folderDisplayName = "iCloud"
+        #expect(named.folderName == "iCloud")
+        #expect(EditorWorkspaceView.newTextFileTitle(folderName: named.folderName) == "New text file in iCloud")
+        #expect(workspace(doc, location: nil).folderName == "Finance")
+    }
+
+    /// **The folded middle is a menu of exactly the levels it folds**, shallowest first, as the pane
+    /// breadcrumb's is — so no level of a long path is more than a click away — and its tooltip is
+    /// the whole path. It used to be the word "…" alone: the one part of the crumb that named
+    /// nothing and went nowhere. With no folded level the pane can reach (another source's path) it
+    /// stays a word. Mutations: `.text("…")` for every fold fails the first two; folding one level
+    /// too many or too few fails the second.
+    @Test func theFoldedMiddleIsAMenuOfTheLevelsItFolds() {
         let parts = Self.location(Self.finance, .crumb).parts(rung: [0, nil, 2])
-        #expect(parts[2] == .text("…", help: "iCloud › Documents › Finance"))
-        #expect(parts.filter { if case .control = $0 { return true } else { return false } }.count == 2)
+        #expect(parts[2] == .folded([.init(name: "Documents", target: "Documents")],
+                                    help: "iCloud › Documents › Finance"))
+        let deep = Self.location(Self.deep, .crumb).parts(rung: [0, nil, 3, 4])
+        #expect(deep[2] == .folded(Array(Self.deep[1...2]),
+                                   help: Self.deep.map(\.name).joined(separator: " › ")))
+        let wordsOnly = Self.deep.map { EditorDocumentLocation.Segment(name: $0.name, target: nil) }
+        #expect(Self.location(wordsOnly, .crumb).parts(rung: [0, nil, 4])[2]
+                == .text("…", help: wordsOnly.map(\.name).joined(separator: " › ")))
+    }
+
+    /// **The folded middle is drawn as a control, and costs the row no height.** A rung that folds
+    /// two levels draws its two doors and the menu — three controls, where the "…" as a word drew
+    /// two — and the row is the height of the same rung with nothing folded, at every text size: a
+    /// `Menu` drawn with AppKit's pop-up chrome would have grown a row the pinned header depends on.
+    /// Mutation: `.text("…")` in place of `.folded` draws two controls.
+    @Test func theFoldedMiddleIsDrawnAsAMenuThatCostsNoHeight() {
+        let location = Self.location(Self.deep, .crumb)
+        let label = EditorLocationLabel(location: location, accent: .blue, onDoor: { _ in })
+        for scale in scales {
+            let folded = host(label.row(location.parts(rung: [0, nil, 4]), compressible: false)
+                                .scaledFont(.system(size: 10)).environment(\.appFontScale, scale),
+                              width: 900)
+            let whole = host(label.row(location.parts(rung: [0, 1, 2, 3, 4]), compressible: false)
+                                .scaledFont(.system(size: 10)).environment(\.appFontScale, scale),
+                             width: 900)
+            #expect(controls(in: folded) == 3,
+                    "at \(scale) the folded rung drew \(controls(in: folded)) controls — two doors and the menu expected")
+            #expect(abs(folded.fittingSize.height - whole.fittingSize.height) < 0.01,
+                    "at \(scale) the folded rung is \(folded.fittingSize.height)pt, the whole path \(whole.fittingSize.height)pt")
+        }
     }
 
     // MARK: Fitting a long path

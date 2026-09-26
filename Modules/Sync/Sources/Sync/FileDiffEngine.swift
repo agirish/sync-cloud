@@ -691,7 +691,9 @@ public struct FileDiffEngine {
                                 rightName: rightLeaf, rightProvider: right.displayName
                             ),
                             leftFileSize: leftFile.fileSize,
-                            rightFileSize: rightFile.fileSize
+                            rightFileSize: rightFile.fileSize,
+                            leftIsDirectory: leftFile.isDirectory,
+                            rightIsDirectory: rightFile.isDirectory
                         ))
                         continue
                     }
@@ -717,7 +719,9 @@ public struct FileDiffEngine {
                         action: resolution.action,
                         description: resolution.description + caseNote,
                         leftFileSize: leftFile.fileSize,
-                        rightFileSize: rightFile.fileSize
+                        rightFileSize: rightFile.fileSize,
+                        leftIsDirectory: leftFile.isDirectory,
+                        rightIsDirectory: rightFile.isDirectory
                     ))
                     continue
                 }
@@ -812,7 +816,8 @@ public struct FileDiffEngine {
                     description: leftFile.isDirectory ? "Folder missing on right (\(right.displayName))" : "Missing on right (\(right.displayName))",
                     // The item exists on the left; carry its size so the Differences list can show it.
                     // Directories report a nil fileSize, so folders stay sizeless (shown as "—").
-                    leftFileSize: leftFile.fileSize
+                    leftFileSize: leftFile.fileSize,
+                    leftIsDirectory: leftFile.isDirectory
                 ))
             }
         }
@@ -839,7 +844,8 @@ public struct FileDiffEngine {
                     action: .copyToLeft,
                     description: rightFile.isDirectory ? "Folder missing on left (\(left.displayName))" : "Missing on left (\(left.displayName))",
                     // The item exists on the right; carry its size so the Differences list can show it.
-                    rightFileSize: rightFile.fileSize
+                    rightFileSize: rightFile.fileSize,
+                    rightIsDirectory: rightFile.isDirectory
                 ))
             }
         }
@@ -879,7 +885,9 @@ public struct FileDiffEngine {
                     isSyncing: diff.isSyncing,
                     leftFileSize: diff.leftFileSize,
                     rightFileSize: diff.rightFileSize,
-                    enclosedItemCount: diff.enclosedItemCount
+                    enclosedItemCount: diff.enclosedItemCount,
+                    leftIsDirectory: diff.leftIsDirectory,
+                    rightIsDirectory: diff.rightIsDirectory
                 )
             }
         }
@@ -961,7 +969,9 @@ public struct FileDiffEngine {
                 isSyncing: diff.isSyncing,
                 leftFileSize: diff.leftFileSize,
                 rightFileSize: diff.rightFileSize,
-                enclosedItemCount: count
+                enclosedItemCount: count,
+                leftIsDirectory: diff.leftIsDirectory,
+                rightIsDirectory: diff.rightIsDirectory
             )
         }
     }

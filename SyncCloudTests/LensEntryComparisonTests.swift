@@ -83,6 +83,7 @@ import Foundation
     /// **Every other caller still compares**, which is what makes this a narrowing rather than a
     /// change of behaviour: a file operation, a forced rescan, a provider switch and ordinary
     /// navigation all reach `refreshAction` without naming `comparing`, and its default is `true`.
+    /// Edit's re-read after a file it wrote itself is the one opt-out outside this file (TE47 review).
     @Test func skippingTheComparisonIsOptInAtExactlyOneCallSite() throws {
         let code = try Self.source("ContentView.swift")
         #expect(code.contains("comparing: Bool = true"),
@@ -90,6 +91,16 @@ import Foundation
         let optOuts = code.components(separatedBy: "comparing: !").count - 1
         #expect(optOuts == 1,
                 "\(optOuts) call sites opt out of the comparison; exactly one — the lens-entry re-home — is meant to")
+        // The one other opt-out, in Edit (TE47 review): its re-read after a file it made itself
+        // compares only in Compare, and owes the comparison anywhere else.
+        let editor = try Self.source("ContentView+Editor.swift")
+        let reread = try Self.body(of: "func rereadPanesAfterEditorWrite(_ path: String) {", in: editor)
+        #expect(reread.contains("if selectedWorkspace == .compare {")
+                && reread.contains("refreshAction(reloading: scope, comparing: false)"),
+                "Edit's re-read no longer compares only in Compare")
+        #expect(editor.components(separatedBy: "comparing: false").count - 1 == 1
+                && !editor.contains("comparing: !"),
+                "Edit opts out of the comparison somewhere else too")
     }
 
     /// **A skipped comparison is owed, not cancelled.** The pane focus has moved, so the
@@ -99,19 +110,25 @@ import Foundation
     /// correct pane headers — worse than the "not scanned" card.
     @Test func theSkippedComparisonIsRecordedAndSettledOnEnteringCompare() throws {
         let code = try Self.source("ContentView.swift")
-        let refresh = try Self.body(of: "private func refreshAction(reloading:", in: code)
-        #expect(refresh.contains("comparisonAwaitsRescan = !comparing"),
+        let refresh = try Self.body(of: "func refreshAction(reloading:", in: code)
+        #expect(refresh.contains("owedComparison.skipped = OwedComparison.skippedByARefresh"),
                 "a refresh that skips its comparison does not record the debt, so Compare would show a comparison of a folder the left pane was moved off")
 
-        let settle = try Self.body(of: "private func settleDeferredComparisonIfNeeded() {", in: code)
-        #expect(settle.contains("guard comparisonAwaitsRescan,"),
-                "the settle no longer checks whether anything is owed, so it scans on every entry into Compare")
+        // The one record and the one payment are `OwedComparisonTests`; what matters here is that
+        // a lens entry's debt, alone, is settled with a comparison of the folders the panes are on.
+        #expect(ContentView.OwedComparison(skipped: ContentView.OwedComparison.skippedByARefresh)
+                    .payment(leftFolder: "/c", rightFolder: "/d", links: [:])
+                == .compare(because: ContentView.OwedComparison.skippedByARefresh),
+                "a skipped comparison alone is not paid with a comparison")
+        let settle = try Self.body(of: "func payOwedComparisonIfNeeded() {", in: code)
         #expect(settle.contains("syncManager.scanDirectories("),
                 "the debt is settled with something other than a comparison")
         #expect(settle.contains("leftPath: currentLeftPath"),
                 "the settling scan is aimed at a path the panes are not on")
 
-        #expect(code.contains("if workspace == .compare { settleDeferredComparisonIfNeeded() }"),
+        let arrive = try #require(code.range(of: "if workspace == .compare {"),
+                                  "nothing runs on the way into Compare")
+        #expect(code[arrive.upperBound...].prefix(80).contains("payOwedComparisonIfNeeded()"),
                 "nothing settles the debt on the way into Compare — the one workspace that displays a comparison")
     }
 
@@ -121,7 +138,7 @@ import Foundation
     @Test func theSettleRidesTheWorkspaceChangeNotTheBarBinding() throws {
         let code = try Self.source("ContentView.swift")
         let binding = try Self.body(of: "var workspaceSelection: Binding<Workspace> {", in: code)
-        #expect(!binding.contains("settleDeferredComparisonIfNeeded"),
+        #expect(!binding.contains("payOwedComparisonIfNeeded"),
                 "the settle hangs off the workspace bar, so ⌘K and the duplicate-review handoff into Compare skip it")
     }
 }

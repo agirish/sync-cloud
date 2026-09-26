@@ -282,6 +282,17 @@ import Testing
         // Not since Compare's list of differences stopped moving the pane.
         #expect(!text.contains("all do the same thing"),
                 "Edit's article says the doors all do the same thing — the differences list leaves the pane put")
+        // **The release notes too, both copies.** The v5.4 draft's heading said "Four ways in, and
+        // all four do the same thing" after the book had stopped saying it — a heading nothing
+        // checked, over a section whose own later bullet says the differences list does not move
+        // the pane. Mutation: put the old heading back in either file and its line fails.
+        for notes in ["RELEASE_NOTES.md", "docs/releases.html"] {
+            let body = try LinkedMoveTranslationTests.repoFile(notes)
+            #expect(body.contains("Open in Edit"), "\(notes) does not mention Open in Edit — this check would be vacuous")
+            for stale in ["all four do the same thing", "all do the same thing"] {
+                #expect(!body.contains(stale), "\(notes) still says “\(stale)” — the differences list leaves the pane put")
+            }
+        }
     }
 
     /// The small numbers Help spells out. Above six the copy should be using digits, and this

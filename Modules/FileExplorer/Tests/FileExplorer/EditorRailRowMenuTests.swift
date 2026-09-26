@@ -9,11 +9,12 @@ import Design
 ///
 /// **What is pinned, and how.** The order and the words by calling ``EditorRailRowMenu/items(for:actions:)``
 /// and, separately, by reading the menu as it is DRAWN; that every act receives the ROW's path by
-/// running each item; that the row really carries the menu, dim rows included, by scanning the
-/// row's builder — a SwiftUI context menu attached inside a hosting view is not reachable from a
-/// test (measured: neither the hosting view nor any subview exposes an `NSMenu`, and
-/// `menu(for:)` on a synthesised right-click answers an empty one). The app-side closures are
-/// scanned in `SyncCloudTests/EditorHandOffTests.swift`, beside the other doors' wiring.
+/// running each item; and that every row of a real rail carries the menu, dim rows included, by
+/// READING it off a hosted rail — `NSHostingView.menu(for:)` on a synthesised right-click, inside a
+/// window, answers the real `NSMenu` SwiftUI built for the row under the event (the technique
+/// `DuplicateRowMenuTests` measured; TE33 believed a hosted context menu unreadable, having asked a
+/// host with no window). The app-side closures are scanned in
+/// `SyncCloudTests/EditorHandOffTests.swift`, beside the other doors' wiring.
 @MainActor
 @Suite struct EditorRailRowMenuTests {
 
@@ -53,8 +54,11 @@ import Design
     }
 
     /// **The workspace hands the rail its own closures, each to the right act.** The header's
-    /// Reveal in Browse and the rail's are one verb: both must reach `onRevealInBrowse`.
-    @Test func theWorkspaceForwardsItsClosuresToTheRowMenu() {
+    /// Reveal in Browse and the rail's are one verb: with no row door of its own the rail reaches
+    /// `onRevealInBrowse`, and given one (`onRevealRowInBrowse`, the app's, so its log can tell the
+    /// two doors apart) it reaches that instead.
+    @Test(arguments: [false, true])
+    func theWorkspaceForwardsItsClosuresToTheRowMenu(rowDoor: Bool) {
         var calls: [String] = []
         let workspace = EditorWorkspaceView(
             document: EditorDocument(), autosavePolicy: EditorAutosavePolicy(),
@@ -69,10 +73,12 @@ import Design
             location: nil, onLocationDoor: { _ in },
             onGetInfo: { calls.append("info \($0)") },
             onQuickLook: { calls.append("quicklook \($0)") },
+            onRevealRowInBrowse: rowDoor ? { calls.append("row browse \($0)") } : nil,
             onToggleJustTheText: {}, onNewTextFile: {}, onCloseDocument: {})
         let items = EditorRailRowMenu.items(for: Self.rowPath, actions: workspace.railRowActions)
         for item in items where item.title != "Reveal in Finder" { item.perform() }
-        #expect(calls == ["browse \(Self.rowPath)", "info \(Self.rowPath)", "quicklook \(Self.rowPath)"],
+        #expect(calls == ["\(rowDoor ? "row " : "")browse \(Self.rowPath)", "info \(Self.rowPath)",
+                          "quicklook \(Self.rowPath)"],
                 "the workspace forwarded \(calls)")
     }
 
@@ -97,34 +103,35 @@ import Design
                 "the rail is built without the workspace's row actions")
     }
 
-    /// **The row carries the menu — every row, dim or not, bound to the ROW's path.**
-    ///
-    /// Scanned, because a context menu inside a hosting view cannot be read back (see the suite's
-    /// doc). The exact expression is the claim: `selectedPath` in place of `entry.path` would aim
-    /// every row's menu at the open document, and an `if !entry.isDimmed` inside the block would
-    /// strip it from the files it matters most on. Neither changes a pixel of the rail.
+    /// **The row carries the menu — every row, dim or not, bound to the ROW's path — READ off a
+    /// hosted rail.** A right-click swept down the rail's middle answers, row by row, the menu
+    /// SwiftUI built there; each is the four items in order, and its first item, performed, reveals
+    /// that row's own file. The second row is dim (cloud-only): the files the editor cannot show
+    /// are the ones most worth revealing, so an `if !entry.isDimmed` around the menu fails here, as
+    /// do `selectedPath` in place of `entry.path` and a menu taken off the row.
     @Test func everyRowCarriesTheMenuDimRowsIncluded() throws {
-        let rail = try Self.source("EditorFileRailView.swift")
-        let start = try #require(rail.range(of: "private func row(_ entry: EditorRailEntry) -> some View {"),
-                                 "the rail's row builder is gone or renamed")
-        let rest = rail[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }\n"), "the row builder never closes")
-        let row = String(rest[..<end.lowerBound])
-        #expect(row.contains("onOpen(entry)"), "the slice is not the row builder")
-        let menu = ".contextMenu { EditorRailRowMenu(path: entry.path, actions: rowActions) }"
-        #expect(row.components(separatedBy: menu).count == 2,
-                "the row does not carry exactly one ungated menu on its own path")
-        // Not gated on the row's state anywhere around it: the one other mention of dimness is the
-        // opacity, which is not a condition on the menu.
-        #expect(!row.contains("if entry.isDimmed") && !row.contains("if !entry.isDimmed")
-                && !row.contains("isDimmed ?"),
-                "the row branches on dimness, so a dim row may be drawn without its menu")
-        // …and the menu itself takes no row state it could gate on: a path, and the acts.
-        let source = try Self.source("EditorRailRowMenu.swift")
-        let body = try #require(source.range(of: "struct EditorRailRowMenu: View {"))
-        let tail = String(source[body.upperBound...])
-        #expect(!tail.contains("isDimmed") && !tail.contains("isCloudOnly") && !tail.contains("isTooLarge"),
-                "the menu has learned about the row's state, so a dim row can lose items")
+        let recorder = Recorder()
+        let entries = [EditorRailEntry(path: "/Users/me/Notes/ideas.md", name: "ideas.md", size: 10, isCloudOnly: false),
+                       EditorRailEntry(path: "/Users/me/Notes/cloud.md", name: "cloud.md", size: 10, isCloudOnly: true)]
+        #expect(entries.map(\.isDimmed) == [false, true], "the premise: one ordinary row, one dim row")
+        let rail = EditorFileRailView(
+            folderName: "Notes", entries: entries, selectedPath: entries[0].path, accent: .blue,
+            onAccent: .white, tab: .constant(.files), isNaming: .constant(false),
+            typedName: .constant(""), prefilledName: { "" }, refusal: { _ in nil },
+            filter: .constant(""), filterIsExpanded: .constant(false),
+            outlineAnchors: .constant([:]), onOpen: { _ in }, onCreate: { _ in true },
+            rowActions: recorder.actions)
+        // Two rows' menus read the same, so each is told apart by what its first item does: it is
+        // performed at every probe, and a run is a stretch of the same titles AND the same path.
+        let menus = Self.drawnMenus(AnyView(rail), width: 260, height: 420) { menu in
+            menu.performActionForItem(at: 0)
+            return recorder.calls.last
+        }
+        let four = ["Reveal in Browse", "Get Info", "Reveal in Finder", "Quick Look"]
+        #expect(menus.map(\.titles) == [four, four],
+                "the rail's rows draw these menus, top to bottom: \(menus.map(\.titles))")
+        #expect(menus.map(\.act) == entries.map { "browse \($0.path)" },
+                "each row's Reveal in Browse ran as \(menus.map(\.act))")
     }
 
     /// **Reveal in Finder's default is Finder, not nothing.** It is the one act the host does not
@@ -155,6 +162,34 @@ import Design
     }
 
     // MARK: - Helpers
+
+    /// A right-click swept down `view`'s middle, 2pt at a time, in a window: each run of the same
+    /// non-empty menu, once, top to bottom — the `DuplicateRowMenuTests` technique. `act` says what
+    /// the menu under each probe does, so two rows whose menus read alike are still two runs.
+    private static func drawnMenus(_ view: AnyView, width: CGFloat, height: CGFloat,
+                                   act: (NSMenu) -> String?) -> [(titles: [String], act: String?)] {
+        let host = NSHostingView(rootView: view.frame(width: width, height: height))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        var found: [(titles: [String], act: String?)] = []
+        var fromTop: CGFloat = 1
+        while fromTop < height {
+            let event = NSEvent.mouseEvent(
+                with: .rightMouseDown, location: NSPoint(x: width / 2, y: height - fromTop),
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: 1)
+            if let menu = event.flatMap({ host.menu(for: $0) }), !menu.items.isEmpty {
+                let probe = (titles: menu.items.map(\.title), act: act(menu))
+                if found.last.map({ $0.titles != probe.titles || $0.act != probe.act }) ?? true {
+                    found.append(probe)
+                }
+            }
+            fromTop += 2
+        }
+        return found
+    }
 
     private static func focusRingWidths(_ view: AnyView) -> [CGFloat] {
         let host = NSHostingView(rootView: AnyView(

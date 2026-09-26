@@ -85,6 +85,11 @@ public struct EditorWorkspaceView: View {
     /// The folder the sidebar has selected. Empty when there is none.
     let folder: String
     let entries: [EditorRailEntry]
+    /// **What the ＋'s tooltip, the naming row and the rail call `folder`** — the pane breadcrumb's
+    /// word for it, built by the host ("iCloud" at the top of iCloud Drive, where the folder's own
+    /// last component is "com~apple~CloudDocs"). `nil` falls back to that last component, which is
+    /// right for every folder but a source's top — and is what a test with no pane beside it gets.
+    var folderDisplayName: String?
     /// Whether the file rail is drawn beside the document at all.
     ///
     /// **Decided by the host, not here** — `TopPaneVisibility.editorRailIsDrawn` is the rule, and
@@ -167,9 +172,14 @@ public struct EditorWorkspaceView: View {
     /// naming row can stay open with the name still in it.
     let onCreate: (String) -> Bool
     /// The reverse of "Open in Edit": shows a file where it lives. Called with the open document's
-    /// path by the header's filename menu, and with a ROW's path by the rail's row menu — one verb,
-    /// two doors, and neither closes the document.
+    /// path by the header's filename menu — and with a ROW's path by the rail's row menu, unless
+    /// the host gives that door its own closure (`onRevealRowInBrowse`). Neither closes the
+    /// document.
     let onRevealInBrowse: (String) -> Void
+    /// The rail row menu's Reveal in Browse, when the host tells the two doors apart — the app
+    /// does, so its log says which one was pressed. `nil` falls back to `onRevealInBrowse`: the
+    /// same act, so the item is never drawn wired to nothing.
+    let onRevealRowInBrowse: ((String) -> Void)?
     /// Where the open document lives, for the header's meta row — or, with no document open, the
     /// folder a new file would be made in, which is what the empty page's header names instead.
     /// `nil` when there is nothing to place: no document and no folder. Built by the host from the
@@ -185,6 +195,14 @@ public struct EditorWorkspaceView: View {
     /// Called when autosave is switched back on for the open document, so the host can write what
     /// is already pending rather than waiting for the next keystroke.
     var onAutosaveResumed: () -> Void = {}
+    /// **Whether the source pane beside this column is drawing its tab strip** — two tabs, or View ▸
+    /// Tab Bar. The strip sits above the pane's toolbar card and pushes it down by
+    /// ``PaneTabStripLadder/slotHeight(_:)``, so the header card here leaves the same slot empty
+    /// above itself to stay level with it (TE43's rule: the two cards share their edges, and the
+    /// text starts where the list does). `false` whenever the pane is collapsed — there is no strip
+    /// on screen then — which is also why it defaults to `false`: every other construction site is
+    /// a test of a workspace with no pane beside it.
+    var paneShowsTabStrip: Bool = false
 
     @Environment(\.appFontScale) private var fontScale
 
@@ -265,13 +283,17 @@ public struct EditorWorkspaceView: View {
                 // nothing would draw, and do nothing, at any site that forgot them.
                 onGetInfo: @escaping (String) -> Void,
                 onQuickLook: @escaping (String) -> Void,
+                // Defaulted, unlike its neighbours: `nil` is the header's own act, never nothing.
+                onRevealRowInBrowse: ((String) -> Void)? = nil,
                 // No default, so every construction site is read: the two in tests pass `{}`.
                 onToggleJustTheText: @escaping () -> Void,
                 // No defaults either, for the same reason: a construction site that forgot one
                 // would draw a ＋ or a × that does nothing.
                 onNewTextFile: (() -> Void)?,
                 onCloseDocument: @escaping () -> Void,
-                onAutosaveResumed: @escaping () -> Void = {}) {
+                onAutosaveResumed: @escaping () -> Void = {},
+                paneShowsTabStrip: Bool = false,
+                folderDisplayName: String? = nil) {
         self._railFilter = railFilter
         self._railFilterIsExpanded = railFilterIsExpanded
         self._railTab = railTab
@@ -309,7 +331,10 @@ public struct EditorWorkspaceView: View {
         self.onLocationDoor = onLocationDoor
         self.onGetInfo = onGetInfo
         self.onQuickLook = onQuickLook
+        self.onRevealRowInBrowse = onRevealRowInBrowse
         self.onAutosaveResumed = onAutosaveResumed
+        self.paneShowsTabStrip = paneShowsTabStrip
+        self.folderDisplayName = folderDisplayName
     }
 
     /// What the "Just the text" glyph says — its label and its tooltip, one string. Names the
@@ -364,15 +389,19 @@ public struct EditorWorkspaceView: View {
         EditorMode.resolved(mode, isMarkdown: document.isMarkdown)
     }
 
-    private var folderName: String {
-        folder.isEmpty ? "" : (folder as NSString).lastPathComponent
+    /// The folder as the header, the naming row and the rail name it — see ``folderDisplayName``.
+    var folderName: String {
+        guard !folder.isEmpty else { return "" }
+        if let folderDisplayName, !folderDisplayName.isEmpty { return folderDisplayName }
+        return (folder as NSString).lastPathComponent
     }
 
-    /// The rail row menu's acts. Reveal in Browse is the header's own closure — the same verb from
-    /// a second door — and Reveal in Finder is the menu's in-package default.
+    /// The rail row menu's acts. Reveal in Browse is the row door's own closure where the host gave
+    /// one, the header's otherwise — the same verb from a second door — and Reveal in Finder is
+    /// the menu's in-package default.
     var railRowActions: EditorRailRowActions {
-        EditorRailRowActions(revealInBrowse: onRevealInBrowse, getInfo: onGetInfo,
-                             quickLook: onQuickLook)
+        EditorRailRowActions(revealInBrowse: onRevealRowInBrowse ?? onRevealInBrowse,
+                             getInfo: onGetInfo, quickLook: onQuickLook)
     }
 
     /// **Two cards, not one region with a rule down it.**
@@ -449,8 +478,15 @@ public struct EditorWorkspaceView: View {
     /// says with nothing to name. It used to fall back to one card with the caption in it, which
     /// moved the caption's card up by a header and a gutter on every close and left the header's
     /// controls unreachable on the one page that has nothing else to press.
+    ///
+    /// **Under the pane's tab strip, the strip's slot is left empty** (``paneShowsTabStrip``), the
+    /// way each style draws the strip: in `.cards` a gap above the header card where the strip's own
+    /// card stands in the pane, so the two header cards share their top edge as well as their bottom;
+    /// in `.unified` a band inside the region above the header, so the two regions' tops stay level
+    /// as the pane's strip is flush inside its region.
     @ViewBuilder
     private var documentColumn: some View {
+        let stripSlot = paneShowsTabStrip ? PaneTabStripLadder.slotHeight(surfaceStyle) : 0
         if surfaceStyle == .cards {
             VStack(spacing: 0) {
                 headerCard
@@ -459,8 +495,10 @@ public struct EditorWorkspaceView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
             }
+            .padding(.top, stripSlot)
         } else {
             VStack(spacing: 0) {
+                Color.clear.frame(height: stripSlot)
                 // The rule the header always had, drawn OVER its bottom edge rather than under it,
                 // so it costs no height: the pane's list starts flush at the header's pinned edge
                 // and so must this column's text.

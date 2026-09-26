@@ -59,10 +59,18 @@ public struct EditorDocumentLocation: Equatable, Sendable {
     /// or — for a folder outside the pane's source, which has no crumbs — its `~`-abbreviated path.
     public let help: String
 
-    public init(segments: [Segment], style: Style, help: String) {
+    /// **The source a folder outside the pane's lies in, when it is one of the user's other
+    /// sources** — the Dropbox copy opened from the differences list while the left pane shows
+    /// iCloud. The segments then start from that source's name, as words, and the folder-name
+    /// reading carries it too ("in Dropbox › Backup"), since "in Backup" alone does not say which
+    /// cloud. `nil` for a folder in the pane's own source, and for one in no source at all.
+    public let otherSourceName: String?
+
+    public init(segments: [Segment], style: Style, help: String, otherSourceName: String? = nil) {
         self.segments = segments
         self.style = style
         self.help = help
+        self.otherSourceName = otherSourceName
     }
 
     /// Between two crumbs in a tooltip. The drawn crumb uses the pane's chevron glyph instead.
@@ -88,8 +96,12 @@ public struct EditorDocumentLocation: Equatable, Sendable {
     enum Part: Equatable {
         /// A word that is a door, with its tooltip.
         case control(title: String, door: Door, help: String)
-        /// A word that is not — a level the pane cannot reach, or the folded middle of a long path.
+        /// A word that is not — a level the pane cannot reach, or the folded middle of a path none
+        /// of whose levels it can.
         case text(String, help: String)
+        /// The folded middle of a long crumb, "…", as a menu of the levels it folds — each a door
+        /// where the pane can go, the pane breadcrumb's own folded middle. Shallowest first.
+        case folded([Segment], help: String)
         /// The glyph between two levels, the pane breadcrumb's own.
         case chevron
     }
@@ -107,7 +119,9 @@ public struct EditorDocumentLocation: Equatable, Sendable {
         switch style {
         case .folderName:
             guard let folder = segments.last else { return [] }
-            let title = "in \(folder.name)"
+            // Another source's name before the folder, unless the folder IS that source's top.
+            let title = otherSourceName.map { segments.count > 1 ? "in \($0)\(Self.separator)\(folder.name)" : "in \($0)" }
+                ?? "in \(folder.name)"
             return folder.target == nil
                 ? [.text(title, help: help)]
                 : [.control(title: title, door: .showInPane, help: help)]
@@ -116,8 +130,16 @@ public struct EditorDocumentLocation: Equatable, Sendable {
             for (position, index) in rung.enumerated() {
                 if position > 0 { parts.append(.chevron) }
                 guard let index, segments.indices.contains(index) else {
-                    // The folded middle says what it folds, in the tooltip — the whole path.
-                    parts.append(.text("…", help: help))
+                    // The folded middle says what it folds, in the tooltip — the whole path — and
+                    // lists it as a menu, so every level stays one click away as it is in the pane's
+                    // own breadcrumb. Words alone when no folded level is a door (another source's
+                    // path): a menu of items that do nothing would be a control that does nothing.
+                    let before = rung[..<position].compactMap { $0 }.max() ?? -1
+                    let after = rung[(position + 1)...].compactMap { $0 }.min() ?? segments.count
+                    let folded = segments.indices.filter { $0 > before && $0 < after }.map { segments[$0] }
+                    parts.append(folded.contains { $0.target != nil }
+                                 ? .folded(folded, help: help)
+                                 : .text("…", help: help))
                     continue
                 }
                 let segment = segments[index]
@@ -192,8 +214,10 @@ struct EditorLocationLabel: View {
         }
     }
 
+    /// One rung, laid out. Internal so a test can draw a chosen rung rather than whichever one
+    /// `ViewThatFits` picks at the width it was given.
     @ViewBuilder
-    private func row(_ parts: [EditorDocumentLocation.Part], compressible: Bool) -> some View {
+    func row(_ parts: [EditorDocumentLocation.Part], compressible: Bool) -> some View {
         HStack(spacing: 2) {
             ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                 piece(part, compressible: compressible)
@@ -212,6 +236,30 @@ struct EditorLocationLabel: View {
         case .text(let words, let help):
             label(words, compressible: compressible)
                 .help(help)
+        case .folded(let levels, let help):
+            // **The pane breadcrumb's folded middle, drawn in this row's words.** A `Menu` in the
+            // button style takes the button style's label as drawn, so the "…" keeps the row's
+            // 10pt text and the doors' hover wash rather than AppKit's pop-up chrome, which would
+            // grow a row the header's pinned height depends on.
+            Menu {
+                ForEach(Array(levels.enumerated()), id: \.offset) { _, level in
+                    if let target = level.target {
+                        Button(level.name) { onDoor(.goTo(target)) }
+                    } else {
+                        Text(level.name)
+                    }
+                }
+            } label: {
+                label("…", compressible: compressible)
+                    .padding(.horizontal, 4)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.button)
+            .buttonStyle(.hoverAffordance(.segment, tint: accent))
+            .menuIndicator(.hidden)
+            .padding(.horizontal, -4)
+            .help(help)
+            .accessibilityLabel("Collapsed folders")
         case .control(let title, let door, let help):
             Button { onDoor(door) } label: {
                 label(title, compressible: compressible)

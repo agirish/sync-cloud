@@ -155,8 +155,9 @@ struct PlainTextEditor: NSViewRepresentable {
         var onVisibleLineChange: ((Int) -> Void)?
         /// The last request acted on, so the same one is not replayed on every render pass.
         var lastScrollRequest: EditorScrollRequest?
-        /// The last find request acted on. `0` is "never asked", which is why the request is a
-        /// counter starting there rather than an optional.
+        /// The last find request acted on — **seeded with the request standing when this view was
+        /// built**, so a text view answers only presses made while it is on screen. See
+        /// ``PlainTextEditor/makeCoordinator()`` for the find bar that opened by itself without it.
         var lastFindRequest: Int = 0
         /// The last line reported upward, so an ordinary scroll does not publish the same number
         /// sixty times a second.
@@ -539,9 +540,16 @@ struct PlainTextEditor: NSViewRepresentable {
         MainActor.assumeIsolated { coordinator.stopWatchingScrolling() }
     }
 
+    /// **The find request is taken as already answered.** The counter lives in the workspace, which
+    /// outlives this text view: closing the document, a refused file, or Preview each take the text
+    /// view down and leave the counter where the last Find press put it. A new coordinator that
+    /// started at `0` read any count above that as a fresh press, so one Find, then ×, then opening
+    /// any file, put the find bar up over a document nobody had asked to search.
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, undoManager: undoManager, documentID: documentID,
-                    onSelectionChange: onSelectionChange)
+        let coordinator = Coordinator(text: $text, undoManager: undoManager, documentID: documentID,
+                                      onSelectionChange: onSelectionChange)
+        coordinator.lastFindRequest = findRequest
+        return coordinator
     }
 
     func makeNSView(context: Context) -> NSScrollView {

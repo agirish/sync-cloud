@@ -15,11 +15,13 @@ import Testing
 
     private func difference(type: FileDifference.DifferenceType = .differentDates,
                             enclosed: Int? = nil,
+                            leftIsDirectory: Bool = false, rightIsDirectory: Bool = false,
                             left: String = "/L/Reports/Q3.pdf",
                             right: String = "/R/Reports/Q3.pdf") -> FileDifference {
         FileDifference(relativePath: "Reports/Q3.pdf", leftItemPath: left, rightItemPath: right,
                        type: type, action: .copyToRight, description: "differs",
-                       enclosedItemCount: enclosed)
+                       enclosedItemCount: enclosed,
+                       leftIsDirectory: leftIsDirectory, rightIsDirectory: rightIsDirectory)
     }
 
     // MARK: What can be compared
@@ -42,11 +44,27 @@ import Testing
                                             paneNames: paneNames) == nil)
     }
 
-    /// **And a folder is out.** There is no page to raster, no text to diff, and Quick Look draws
-    /// an icon — while Compare already has a whole workspace for two folders. `enclosedItemCount`
-    /// is the row's own folder marker.
+    /// **And a folder is out, on either side.** There is no page to raster, no text to diff, and
+    /// Quick Look draws an icon — while Compare already has a whole workspace for two folders. The
+    /// row's per-side folder facts decide, not `enclosedItemCount`, which an empty folder lacks.
     @Test func aFolderRowIsNotOffered() {
-        #expect(DifferencesPairCompare.pair(for: difference(enclosed: 42),
+        #expect(DifferencesPairCompare.pair(for: difference(enclosed: 42, leftIsDirectory: true),
+                                            paneNames: paneNames) == nil)
+        #expect(DifferencesPairCompare.pair(for: difference(rightIsDirectory: true),
+                                            paneNames: paneNames) == nil,
+                "a folder with no count (empty) against a file is offered Compare…")
+        #expect(DifferencesPairCompare.pair(for: difference(type: .nameConflict, leftIsDirectory: true,
+                                                            rightIsDirectory: true),
+                                            paneNames: paneNames) == nil,
+                "a name-conflicted folder pair is offered Compare…")
+    }
+
+    /// The same, on rows the real engine builds: two empty folders whose names differ invisibly
+    /// carry no count and were offered Compare… on a pair of directories (2026-09-25).
+    @Test func engineBuiltFolderRowsAreNotOffered() throws {
+        let rows = EngineRows()
+        #expect(DifferencesPairCompare.pair(for: try rows.nameConflictedFolders(), paneNames: paneNames) == nil)
+        #expect(DifferencesPairCompare.pair(for: try rows.folderAgainstFile(folderHasContents: false),
                                             paneNames: paneNames) == nil)
     }
 

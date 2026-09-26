@@ -26,6 +26,18 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
     /// For a folder missing on one side: how many items it contains, all of which sync with the
     /// folder itself (folder copies are recursive, so they are not listed as separate differences).
     public let enclosedItemCount: Int?
+    /// Whether the item on the LEFT is a folder, as the scan found it — `false` where the left has
+    /// no item at all (a row missing on the left).
+    ///
+    /// **The folder fact, per side, and not `enclosedItemCount`.** That count is recorded only for
+    /// a folder whose contents were collapsed into its row, so it is `nil` for an EMPTY folder
+    /// missing on one side, for a pair of folders whose names differ only invisibly
+    /// (`.nameConflict`), and for a folder-versus-file mismatch whose folder is empty; and where it
+    /// is set it cannot say WHICH side is the folder — a folder-versus-file row has a real file on
+    /// the other side. The engine knows both answers when it builds the row, so it records them.
+    public let leftIsDirectory: Bool
+    /// Whether the item on the RIGHT is a folder — see `leftIsDirectory`.
+    public let rightIsDirectory: Bool
     
     /// True when both sides report the same file size (and both are non-nil). Use for optional checksum verification.
     public var sizesMatch: Bool {
@@ -33,7 +45,7 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
         return l == r
     }
     
-    public init(id: UUID = UUID(), relativePath: String, leftItemPath: String, rightItemPath: String, type: DifferenceType, action: SyncAction, description: String, isSyncing: Bool = false, leftFileSize: Int? = nil, rightFileSize: Int? = nil, enclosedItemCount: Int? = nil) {
+    public init(id: UUID = UUID(), relativePath: String, leftItemPath: String, rightItemPath: String, type: DifferenceType, action: SyncAction, description: String, isSyncing: Bool = false, leftFileSize: Int? = nil, rightFileSize: Int? = nil, enclosedItemCount: Int? = nil, leftIsDirectory: Bool = false, rightIsDirectory: Bool = false) {
         self.id = id
         self.relativePath = relativePath
         self.leftItemPath = leftItemPath
@@ -45,6 +57,8 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
         self.leftFileSize = leftFileSize
         self.rightFileSize = rightFileSize
         self.enclosedItemCount = enclosedItemCount
+        self.leftIsDirectory = leftIsDirectory
+        self.rightIsDirectory = rightIsDirectory
     }
     
     /// Describes how the two panes differ for this path.
@@ -112,7 +126,9 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
             isSyncing: isSyncing,
             leftFileSize: rightFileSize,
             rightFileSize: leftFileSize,
-            enclosedItemCount: enclosedItemCount
+            enclosedItemCount: enclosedItemCount,
+            leftIsDirectory: rightIsDirectory,
+            rightIsDirectory: leftIsDirectory
         )
     }
 

@@ -12,10 +12,13 @@ import Foundation
 /// bare path would compare equal the second time, so `.onChange` would never fire for it — the
 /// reason the search reveal moved to a nonce as well.
 ///
-/// **A request, not a standing order.** The pane acts on it when it arrives and when the pane
-/// appears — and in both cases only while the row it names is the pane's whole selection
-/// (`FileTreeView.revealsRow`). The host retires it the moment the selection moves off that row,
-/// so a later remount cannot scroll the pane back to a file the user has since walked away from.
+/// **A request, answered once.** The pane acts on it when it arrives, or — if it was folded away
+/// or not yet mounted then — when it appears, and in both cases only while the row it names is the
+/// pane's whole selection (`FileTreeView.revealsRow`). Having acted, it tells the host
+/// (`FileTreeView.onRowRevealed`), which retires it: left standing, it was answered again on every
+/// appearance while the row stayed selected, and the pane jumped back to the document after every
+/// scroll-away and Browse-and-back. The host also retires it the moment the selection moves off
+/// that row, so a remount cannot scroll the pane back to a file the user has walked away from.
 public struct PaneRowReveal: Equatable, Sendable {
     /// The row's path — a `FileNode.id`.
     public let path: String

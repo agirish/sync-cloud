@@ -42,6 +42,18 @@ public enum PaneTabStripLadder {
     /// The strip card's height. 34pt, which is the provider capsule's height on the header below
     /// it, so the two chrome rows above the file list read as one rhythm.
     public static let stripHeight: CGFloat = 34
+
+    /// **How far the strip pushes the pane's toolbar card down** — what a column beside the pane
+    /// has to leave empty for its own header to stay level with the pane's (Edit's document column,
+    /// see `EditorWorkspaceView.paneShowsTabStrip`).
+    ///
+    /// The strip at its pinned height, plus, in `.cards`, the gutter between its card and the
+    /// header's: `paneColumn` cards the strip with `paneCardIfNeeded`, which insets by `cardInset`
+    /// on every side, so the strip's card costs its height and one whole gutter. In `.unified` the
+    /// strip is flush inside the pane's one region and costs its height alone.
+    public static func slotHeight(_ style: SurfaceStyle) -> CGFloat {
+        stripHeight + (style == .cards ? LiquidGlass.cardGutter : 0)
+    }
     /// The chip's own height inside that card.
     public static let tabHeight: CGFloat = 26
     /// A tab never grows past this, however few there are: a strip of two 400pt tabs reads as a

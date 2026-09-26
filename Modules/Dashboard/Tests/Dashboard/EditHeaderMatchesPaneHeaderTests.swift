@@ -37,17 +37,34 @@ import Design
             viewMode: .constant(.columns), onNewFolder: {})
     }
 
+    /// The pane's tab strip, as `paneColumn` draws it above the header: two tabs, washed and
+    /// carded the same way.
+    private static func tabStrip() -> some View {
+        PaneTabStrip(
+            items: [
+                .init(id: UUID(), title: "Finance", markImageName: "icloud-logo", isActive: true,
+                      fullPath: "/Users/test/iCloud/Documents/Finance"),
+                .init(id: UUID(), title: "Photos", markImageName: "icloud-logo", isActive: false,
+                      fullPath: "/Users/test/iCloud/Photos"),
+            ],
+            onSelect: { _ in }, onClose: { _ in }, onCloseOthers: { _ in }, onDuplicate: { _ in },
+            onCopyPath: { _ in }, onNew: {})
+            .contentSurface(hue: .blue, tint: 0)
+    }
+
     @ViewBuilder
-    private static func pane(_ style: SurfaceStyle) -> some View {
+    static func pane(_ style: SurfaceStyle, tabStrip showsStrip: Bool = false) -> some View {
         let list = List { Text("Test.md"); Text("Budget.md") }
         switch style {
         case .cards:
             VStack(spacing: 0) {
+                if showsStrip { tabStrip().paneCardIfNeeded(.cards, level: .solid) }
                 paneHeader().paneCardIfNeeded(.cards, level: .solid)
                 list.paneCardIfNeeded(.cards, level: .solid)
             }
         case .unified:
             VStack(spacing: 0) {
+                if showsStrip { tabStrip() }
                 paneHeader()
                 list
             }
@@ -67,7 +84,8 @@ import Design
 
     static func workspace(_ document: EditorDocument, style: EditorDocumentLocation.Style,
                           segments: [EditorDocumentLocation.Segment]? = nil,
-                          showsRail: Bool = false, railIsHidden: Bool = false) -> EditorWorkspaceView {
+                          showsRail: Bool = false, railIsHidden: Bool = false,
+                          paneShowsTabStrip: Bool = false) -> EditorWorkspaceView {
         let segments = segments ?? [
             .init(name: "iCloud", target: ""), .init(name: "Documents", target: "Documents"),
             .init(name: "Finance", target: "Documents/Finance"),
@@ -88,17 +106,18 @@ import Design
                 help: segments.map(\.name).joined(separator: " › ")),
             onLocationDoor: { _ in }, onGetInfo: { _ in }, onQuickLook: { _ in },
             onToggleJustTheText: {}, onNewTextFile: {},
-            onCloseDocument: {})
+            onCloseDocument: {}, paneShowsTabStrip: paneShowsTabStrip)
     }
 
     /// Both halves in one window, the way `editorLayout`'s expanded arm puts them.
-    private static func mount(_ document: EditorDocument, style: SurfaceStyle, scale: CGFloat,
-                              defaults: UserDefaults) -> NSHostingView<AnyView> {
+    static func mount(_ document: EditorDocument, style: SurfaceStyle, scale: CGFloat,
+                      defaults: UserDefaults, tabStrip: Bool = false) -> NSHostingView<AnyView> {
         let size = CGSize(width: paneWidth + editorWidth, height: height)
         let host = NSHostingView(rootView: AnyView(
             HStack(spacing: 0) {
-                pane(style).frame(width: paneWidth)
-                workspace(document, style: .folderName).frame(width: editorWidth)
+                pane(style, tabStrip: tabStrip).frame(width: paneWidth)
+                workspace(document, style: .folderName, paneShowsTabStrip: tabStrip)
+                    .frame(width: editorWidth)
             }
             .frame(width: size.width, height: size.height)
             .defaultAppStorage(defaults)
@@ -115,7 +134,7 @@ import Design
 
     /// The top of the pane's list and of the document's text, in the window's coordinates — each is
     /// the first thing in its card, so its top IS the card's content top.
-    private static func tops(in host: NSView) -> (list: CGFloat?, text: CGFloat?) {
+    static func tops(in host: NSView) -> (list: CGFloat?, text: CGFloat?) {
         var list: CGFloat?
         var text: CGFloat?
         func walk(_ v: NSView) {
@@ -133,7 +152,7 @@ import Design
         return (list, text)
     }
 
-    private static func defaults(_ style: SurfaceStyle) -> ScratchDefaults {
+    static func defaults(_ style: SurfaceStyle) -> ScratchDefaults {
         let defaults = ScratchDefaults("EditHeaderMatchesPaneHeaderTests")
         defaults.set(style.rawValue, forKey: LiquidGlass.surfaceStyleKey)
         defaults.set(GlassLevel.solid.rawValue, forKey: LiquidGlass.levelKey)
@@ -158,6 +177,29 @@ import Design
                     #expect(abs(listTop - textTop) < 0.51,
                             "\(style), \(doc.name), \(size.percent)%: list at \(listTop), text at \(textTop)")
                 }
+            }
+        }
+    }
+
+    /// **With the pane's tab strip up, the text still starts where the list does.** Two tabs, or
+    /// View ▸ Tab Bar, put the strip above the pane's toolbar card and push it — and the list — down
+    /// by the strip's slot: its 34pt, plus the gutter under its card in `.cards`. The document
+    /// column has no strip, and until it was told about the pane's its header card and its text
+    /// stayed where they were, one strip-and-a-gutter above the pane's. Both styles, every text
+    /// size. Mutation: the slot without the gutter fails `.cards`; not passing the strip's
+    /// presence fails both.
+    @Test func theTextStartsWhereTheListDoesUnderThePanesTabStrip() throws {
+        let markdown = try Self.document("Budget.md")
+        for style in [SurfaceStyle.cards, .unified] {
+            let defaults = Self.defaults(style)
+            for size in FontSize.allCases {
+                let host = Self.mount(markdown, style: style, scale: size.scale, defaults: defaults,
+                                      tabStrip: true)
+                let (list, text) = Self.tops(in: host)
+                let listTop = try #require(list, "no pane list mounted (\(style)) — vacuous")
+                let textTop = try #require(text, "no text view mounted (\(style)) — vacuous")
+                #expect(abs(listTop - textTop) < 0.51,
+                        "\(style), tab strip, \(size.percent)%: list at \(listTop), text at \(textTop)")
             }
         }
     }
