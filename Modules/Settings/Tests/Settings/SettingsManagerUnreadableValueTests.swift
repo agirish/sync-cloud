@@ -27,7 +27,6 @@ import Sync
     @MainActor
     @Test func aForeignTypedDisabledProviderListIsPreservedNotDestroyed() {
         let test = TestDefaults()
-        defer { test.wipe() }
         test.defaults.set(Data([0x00, 0x01]), forKey: "disabledProviderIds")
 
         let settings = makeManager(test)
@@ -39,7 +38,6 @@ import Sync
     @MainActor
     @Test func aForeignTypedIgnorePatternListIsPreservedNotDestroyed() {
         let test = TestDefaults()
-        defer { test.wipe() }
         test.defaults.set("*.tmp,*.bak", forKey: "ignorePatterns")   // a String where [String] belongs
 
         let settings = makeManager(test)
@@ -54,7 +52,6 @@ import Sync
     @MainActor
     @Test func anUnrecognizedSortOptionIsPreservedNotDestroyed() {
         let test = TestDefaults()
-        defer { test.wipe() }
         test.defaults.set("fromTheFuture", forKey: "defaultSortOption")
 
         let settings = makeManager(test)
@@ -66,7 +63,6 @@ import Sync
     @MainActor
     @Test func anUnrecognizedConflictPolicyIsPreservedNotDestroyed() {
         let test = TestDefaults()
-        defer { test.wipe() }
         test.defaults.set("fromTheFuture", forKey: ConflictPolicy.defaultsKey)
 
         let settings = makeManager(test)
@@ -77,7 +73,6 @@ import Sync
     @MainActor
     @Test func anUnrecognizedFolderNameRuleIsPreservedNotDestroyed() {
         let test = TestDefaults()
-        defer { test.wipe() }
         test.defaults.set("fromTheFuture", forKey: "folderNameRuleProvider")
 
         let settings = makeManager(test)
@@ -92,7 +87,6 @@ import Sync
     @MainActor
     @Test func aReadableValueStillDecodesWithNoBackup() {
         let test = TestDefaults()
-        defer { test.wipe() }
         test.defaults.set(["*.tmp"], forKey: "ignorePatterns")
 
         let value = SettingsManager.readSetting("ignorePatterns", from: test.defaults,
@@ -107,7 +101,6 @@ import Sync
     @MainActor
     @Test func anAbsentValueLeavesNoBackup() {
         let test = TestDefaults()
-        defer { test.wipe() }
         let value = SettingsManager.readSetting("defaultSortOption", from: test.defaults,
                                                 describing: "default sort order") {
             $0.string(forKey: "defaultSortOption").flatMap(SortOption.init(rawValue:))
@@ -122,7 +115,6 @@ import Sync
     @MainActor
     @Test func theDidSetOverwriteNoLongerDestroysTheOriginal() {
         let test = TestDefaults()
-        defer { test.wipe() }
         test.defaults.set("fromTheFuture", forKey: "defaultSortOption")
 
         let settings = makeManager(test)
@@ -137,7 +129,6 @@ import Sync
     @MainActor
     @Test func rereadingDoesNotRewriteTheBackup() {
         let test = TestDefaults()
-        defer { test.wipe() }
         test.defaults.set(Data([0x00]), forKey: "disabledProviderIds")
 
         func readOnce() -> Set<String>? {

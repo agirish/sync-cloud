@@ -4,7 +4,6 @@ import Testing
 @MainActor
 @Test func testResetPathKeepsProviderDiscoverable() async throws {
     let test = TestDefaults()
-    defer { test.wipe() }
     let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
 
     settings.resetPath(for: "iCloud")

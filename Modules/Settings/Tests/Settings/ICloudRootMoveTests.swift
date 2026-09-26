@@ -92,7 +92,7 @@ struct ICloudRootMoveTests {
 
     @Test("Both tab strips, pins, the Favorites order and filing destinations move together")
     func theStoresAreRebased() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let d = test.defaults
         d.set(RootsMigrationTests.oneTab(providerId: "iCloud", relativePath: "Family"),
               forKey: RootsMigration.leftTabsKey)
@@ -132,7 +132,7 @@ struct ICloudRootMoveTests {
 
     @Test("A stored landing override is rewritten on disk")
     func theLandingOverrideIsWritten() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         test.defaults.set("Family", forKey: SettingsManager.openAtOverrideKeyPrefix + "iCloud")
         Self.move(test.defaults)
         #expect(test.defaults.string(forKey: SettingsManager.openAtOverrideKeyPrefix + "iCloud") == "Documents/Family")
@@ -140,7 +140,7 @@ struct ICloudRootMoveTests {
 
     @Test("Without the link, the root override is written and no position moves")
     func noLinkWritesTheRootOverride() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let d = test.defaults
         d.set(RootsMigrationTests.oneTab(providerId: "iCloud", relativePath: "Family"),
               forKey: RootsMigration.leftTabsKey)
@@ -152,7 +152,7 @@ struct ICloudRootMoveTests {
 
     @Test("Running twice changes nothing the second time — App.init can run more than once")
     func theStampMakesItIdempotent() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         test.defaults.set(RootsMigrationTests.oneTab(providerId: "iCloud", relativePath: "Family"),
                           forKey: RootsMigration.leftTabsKey)
         #expect(Self.move(test.defaults) != .alreadyDone)
@@ -167,7 +167,7 @@ struct ICloudRootMoveTests {
     /// the first leaves iCloud where it found it, the second moves it — once.
     @Test("After the first migration's frozen mapping, the second moves iCloud exactly once")
     func theTwoMigrationsCompose() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let d = test.defaults
         d.set(RootsMigrationTests.oneTab(providerId: "iCloud", relativePath: "Family"),
               forKey: RootsMigration.leftTabsKey)

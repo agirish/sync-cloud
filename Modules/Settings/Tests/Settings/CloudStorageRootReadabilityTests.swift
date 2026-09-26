@@ -77,7 +77,7 @@ import Sync
 
     @MainActor
     @Test func anUnreadableRootDoesNotDeleteTheAccountsAlreadyFound() async {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let readable = Mutable(true)
         let settings = SettingsManager(
             autoDiscover: false,
@@ -107,7 +107,7 @@ import Sync
         // The other direction, and the one that decides whether the guard above is a fix or an
         // outage: a user who really does unlink every account must see them go. Only an UNREADABLE
         // root is refused, and a root that lost its accounts is readable and empty.
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let mounted = Mutable(true)
         let settings = SettingsManager(
             autoDiscover: false,
@@ -134,7 +134,7 @@ import Sync
         // cannot read the root still re-stats every provider's path, and that answer must reach
         // the UI: the earlier shape REFUSED THE WHOLE PUBLISH, so a provider whose folder had been
         // deleted went on showing a valid badge for as long as the root stayed unreadable.
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let readable = Mutable(true)
         let dropboxIsValid = Mutable(true)
         let settings = SettingsManager(
@@ -167,7 +167,7 @@ import Sync
         // that accounts had been dropped: lose one account and gain one folder source and the
         // count is unchanged. `addFolderSource` calls `discoverProviders()` itself, so this is the
         // ordinary sequence rather than a contrived one.
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let readable = Mutable(true)
         let settings = SettingsManager(
             autoDiscover: false,
@@ -193,7 +193,7 @@ import Sync
     @MainActor
     @Test func removingAFolderSourceWhileTheRootIsUnreadableStillTakesEffect() async {
         // The same count rule in the other direction: a legitimate shrink, refused.
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let readable = Mutable(true)
         let settings = SettingsManager(
             autoDiscover: false,

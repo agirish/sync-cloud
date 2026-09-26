@@ -15,12 +15,6 @@ import Sync
 @MainActor
 @Suite struct CloudCoverageTests {
 
-    private struct Defaults {
-        let name = "CloudCoverage-\(UUID().uuidString)"
-        var defaults: UserDefaults { UserDefaults(suiteName: name)! }
-        func wipe() { UserDefaults.standard.removePersistentDomain(forName: name) }
-    }
-
     private func settings(_ defaults: UserDefaults) async -> SettingsManager {
         // Built inside the closure: a `@MainActor` static cannot be captured by a Sendable one.
         let manager = SettingsManager(
@@ -35,7 +29,7 @@ import Sync
 
     /// The discovered providers are covered, and their paths are the ones the classifier sees.
     @Test func discoveredProvidersAreCovered() async {
-        let test = Defaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let manager = await settings(test.defaults)
         let coverage = manager.cloudCoverage
         #expect(coverage.roots.map(\.providerId).sorted() == ["Dropbox", "iCloud"])
@@ -48,7 +42,7 @@ import Sync
     /// a file inside it still has a second copy. Mutation seam: change `cloudCoverage` to read
     /// `enabledProviders` and this fails.
     @Test func aDisabledProvidersFolderIsStillCoverage() async {
-        let test = Defaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let manager = await settings(test.defaults)
         let file = "/Users/test/Library/CloudStorage/Dropbox/Documents/a.txt"
         #expect(FileLocation.outsideEveryCloudFolder(path: file, in: manager.cloudCoverage) == false)
@@ -63,7 +57,7 @@ import Sync
     /// A folder source the user added is never coverage, through this property as through the
     /// classifier — it is the thing being asked about, not a cloud.
     @Test func aFolderSourceIsNotCoverageHereEither() async {
-        let test = Defaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let manager = await settings(test.defaults)
         _ = manager.addFolderSource(path: "/Users/test/Projects")
         // `addFolderSource` records it; `availableProviders` is rebuilt by a discovery pass.

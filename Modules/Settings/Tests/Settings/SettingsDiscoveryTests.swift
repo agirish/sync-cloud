@@ -5,18 +5,21 @@ import Sync
 
 // MARK: - Shared test helpers
 
-/// A fresh UserDefaults suite isolated from .standard; callers must call `wipe()` when done.
+/// A fresh UserDefaults suite isolated from .standard, wiped when the last thing holding it lets
+/// go rather than when the test returns — see `ScratchDefaults`.
+///
+/// **There is deliberately no `wipe()`.** A `SettingsManager` starts
+/// `Task { await discoverProviders() }` from `init` (unless `autoDiscover` is false) and from the
+/// methods that change a source, and the pass writes `lastKnownAccountFolders` when it lands —
+/// often after the test body has returned. A `defer { wipe() }` therefore wiped first, and the
+/// late write put the plist back. The task holds the manager and the manager holds this suite, so
+/// riding the lifetime puts the wipe after the last write.
 struct TestDefaults {
-    let suiteName: String
-    let defaults: UserDefaults
+    let defaults: ScratchDefaults
+    var suiteName: String { defaults.scratchSuiteName }
 
     init(_ function: String = #function) {
-        self.suiteName = "SettingsTests-\(function)-\(UUID().uuidString)"
-        self.defaults = UserDefaults(suiteName: suiteName)!
-    }
-
-    func wipe() {
-        wipeDefaultsSuite(suiteName)
+        self.defaults = ScratchDefaults("SettingsTests-\(function)")
     }
 }
 
@@ -299,7 +302,6 @@ private func noOverrides(_ id: String) -> String? { nil }
     @MainActor
     @Test func testDiscoverProvidersUsesInjectedListerAndDefaults() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         test.defaults.set("/Volumes/External/OneDrive", forKey: "root_override_OneDrive-Personal")
 
         let settings = SettingsManager(
@@ -316,7 +318,6 @@ private func noOverrides(_ id: String) -> String? { nil }
     @MainActor
     @Test func testSetPathResetPathRoundTripWithoutGlobalState() async {
         let test = TestDefaults()
-        defer { test.wipe() }
 
         let settings = SettingsManager(
             autoDiscover: false,
@@ -339,7 +340,6 @@ private func noOverrides(_ id: String) -> String? { nil }
     @MainActor
     @Test func testSetCustomNameRoundTripAndClearRestoresDefaultName() async {
         let test = TestDefaults()
-        defer { test.wipe() }
 
         let settings = SettingsManager(
             autoDiscover: false,
@@ -362,7 +362,6 @@ private func noOverrides(_ id: String) -> String? { nil }
     @MainActor
     @Test func testIgnoreGoogleDriveFlagRoundTripsThroughInjectedDefaults() {
         let test = TestDefaults()
-        defer { test.wipe() }
 
         let a = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
         a.ignoreGoogleDriveNewerDateOnly = true // didSet persists
@@ -376,7 +375,6 @@ private func noOverrides(_ id: String) -> String? { nil }
     @MainActor
     @Test func testAutoDiscoverFalseNeverListsAndExplicitDiscoveryListsOnce() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         let counter = CallCounter()
 
         let settings = SettingsManager(
@@ -395,7 +393,6 @@ private func noOverrides(_ id: String) -> String? { nil }
     @MainActor
     @Test func testStaleDiscoveryPassFinishingLastDoesNotOverwriteNewerResult() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         let lister = BlockingFirstCallLister(
             firstResult: [folder("Dropbox")],
             laterResults: [folder("OneDrive-Personal")])
@@ -432,7 +429,6 @@ private func noOverrides(_ id: String) -> String? { nil }
     @MainActor
     @Test func testSetCustomNameStripsInteriorControlCharacters() async {
         let test = TestDefaults()
-        defer { test.wipe() }
 
         let settings = SettingsManager(
             autoDiscover: false,
@@ -459,7 +455,6 @@ private func noOverrides(_ id: String) -> String? { nil }
     @MainActor
     @Test func testDiscoverProvidersRevalidatesPathsEvenWhenProvidersAreUnchanged() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         let counter = CallCounter()
 
         let settings = SettingsManager(

@@ -31,7 +31,6 @@ import Sync
     /// system coalescing two genuinely different outcomes into one notification.
     @Test func postIfEnabledBuildsTheRequestFromTheBanner() {
         let test = TestDefaults()
-        defer { test.wipe() }
         test.defaults.set(true, forKey: GeneralSettings.notifyOnBackgroundCompletionKey)
         let banner = OperationBanner(message: "Copied 3 items", severity: .warning)
 
@@ -52,7 +51,6 @@ import Sync
     @Test(arguments: [(false, false), (false, true), (true, true)])
     func postIfEnabledIsSilentUnlessOptedInAndBackground(enabled: Bool, active: Bool) {
         let test = TestDefaults()
-        defer { test.wipe() }
         test.defaults.set(enabled, forKey: GeneralSettings.notifyOnBackgroundCompletionKey)
 
         var postCount = 0
@@ -67,7 +65,6 @@ import Sync
     /// and a future migration could seed the key.
     @Test func anUnsetPreferenceMeansNo() {
         let test = TestDefaults()
-        defer { test.wipe() }
         var postCount = 0
         OperationNotifier.postIfEnabled(for: OperationBanner(message: "x", severity: .success),
                                         defaults: test.defaults, appIsActive: false,

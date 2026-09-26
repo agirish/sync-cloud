@@ -20,7 +20,7 @@ import Foundation
 
     @MainActor
     @Test func aRestoredPaneFindsItsCloudAccountBeforeDiscoveryRuns() async {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         // A previous session's discovery, as it would have left the record.
         test.defaults.set(["/CloudStorage/GoogleDrive-someone@example.com",
                            "/CloudStorage/Dropbox"], forKey: key)
@@ -41,7 +41,7 @@ import Foundation
 
     @MainActor
     @Test func withNoRecordTheSeedIsUnchanged() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         // A first launch after install: nothing recorded, so nothing invented.
         let settings = SettingsManager(
             autoDiscover: false,
@@ -60,7 +60,7 @@ import Foundation
     /// did we last actually see", which a change-guard would skip for an unchanged pass.
     @MainActor
     @Test func aReadableDiscoveryRecordsWhatItSaw() async {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
@@ -82,7 +82,7 @@ import Foundation
     /// started empty every time.
     @MainActor
     @Test func anUnreadableRootLeavesTheRecordAlone() async {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         test.defaults.set(["/CloudStorage/Dropbox"], forKey: key)
 
         let settings = SettingsManager(

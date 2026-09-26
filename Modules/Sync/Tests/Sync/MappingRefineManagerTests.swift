@@ -20,8 +20,7 @@ import Testing
     private func makeManager(route: String, calls: Calls) -> FileSyncManager {
         let manager = FileSyncManager()
         manager.filingBackendIdentity = { _ in route }
-        manager.filingContentDefaults = UserDefaults(
-            suiteName: "MappingRefineManagerTests-\(UUID().uuidString)")!
+        manager.filingContentDefaults = ScratchDefaults("MappingRefineManagerTests")
         manager.mappingRefiner = { _ in
             calls.refined += 1
             return [MappingRefineProposal(source: "Petition",

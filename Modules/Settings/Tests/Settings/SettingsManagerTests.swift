@@ -7,7 +7,6 @@ import Sync
 
     @Test @MainActor func testDefaultICloudProvider() {
         let test = TestDefaults()
-        defer { test.wipe() }
         let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
 
         // SettingsManager starts with 1 default iCloud provider, before any discovery
@@ -25,7 +24,6 @@ import Sync
     /// rendered pre-discovery flashes the default path, default name, and a wrong badge.
     @Test @MainActor func testInitSeedHonorsPersistedICloudOverrides() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         let overridePath = "/Volumes/External/iCloudDocs"
         test.defaults.set(overridePath, forKey: "root_override_iCloud")
         test.defaults.set("My iCloud", forKey: "name_override_iCloud")
@@ -52,7 +50,6 @@ import Sync
 
     @Test @MainActor func testPathForMissingProvider() {
         let test = TestDefaults()
-        defer { test.wipe() }
         let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
         #expect(settings.rootPath(for: "NonExistent") == "")
     }

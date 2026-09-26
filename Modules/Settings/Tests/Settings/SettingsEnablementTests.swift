@@ -63,7 +63,6 @@ import Sync
 
     @Test @MainActor func testProvidersDefaultToEnabled() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
@@ -77,7 +76,6 @@ import Sync
 
     @Test @MainActor func testDisableFiltersEnabledProvidersButKeepsAvailable() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
@@ -94,7 +92,6 @@ import Sync
 
     @Test @MainActor func testReEnableRestoresProvider() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
@@ -110,7 +107,6 @@ import Sync
 
     @Test @MainActor func testDisabledStatePersistsAcrossManagerInstances() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         let lister: SettingsManager.CloudStorageLister = { .read([
             URL(fileURLWithPath: "/Users/test/Library/CloudStorage/Dropbox")
         ]) }
@@ -128,7 +124,6 @@ import Sync
 
     @Test @MainActor func testLastEnabledProviderCannotBeDisabled() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
@@ -147,7 +142,6 @@ import Sync
 
     @Test @MainActor func testNewlyDiscoveredProviderDefaultsToEnabledDespiteOtherDisables() async {
         let test = TestDefaults()
-        defer { test.wipe() }
 
         let settings = SettingsManager(
             autoDiscover: false,

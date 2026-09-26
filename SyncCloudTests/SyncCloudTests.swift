@@ -295,7 +295,6 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     @MainActor
     @Test func testBothCollisionSeamsAreWiredToTheStandingPolicy() throws {
         let test = TestDefaults()
-        defer { test.wipe() }
 
         for policy in [ConflictPolicy.replace, .skip, .keepBoth] {
             let spy = PromptSpy()
@@ -319,7 +318,6 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     @MainActor
     @Test func testFolderCollisionsStillPromptUnderEveryAutoPolicy() {
         let test = TestDefaults()
-        defer { test.wipe() }
 
         // Replacing a folder trashes everything in it, including items that exist ONLY there, so
         // no standing policy may automate it away. An inverted `isDirectory` gate would answer
@@ -341,7 +339,6 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     @MainActor
     @Test func testAskPolicyAlwaysReachesThePrompt() {
         let test = TestDefaults()
-        defer { test.wipe() }
         let spy = PromptSpy()
         let manager = wiredManager(policy: .ask, defaults: test.defaults, spy: spy)
 
@@ -360,7 +357,6 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     @MainActor
     @Test func testPolicyIsRereadForEveryCollisionSoASettingsChangeAppliesImmediately() {
         let test = TestDefaults()
-        defer { test.wipe() }
         let spy = PromptSpy()
         // Wired ONCE, up front — exactly as `App.init` does it. Reading the policy at wiring time
         // instead of per collision would pin the app to whatever was set at launch.
@@ -382,7 +378,6 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     @MainActor
     @Test func testResetAllSettingsWipesDefaultsResetsTheLogGateAndClearsIgnores() throws {
         let test = TestDefaults()
-        defer { test.wipe() }
         // A key nothing re-writes on reset, so its disappearance proves the domain was wiped.
         test.defaults.set(true, forKey: "openSettingsOnLaunch")
 

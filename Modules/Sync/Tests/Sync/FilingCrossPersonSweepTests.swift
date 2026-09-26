@@ -183,7 +183,7 @@ import Testing
     @Test func theScanRefusesAnotherPersonsFolder() async throws {
         let (m, root) = try Self.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
-        let log = PersonVetoLog(userDefaults: UserDefaults(suiteName: "sweep-\(UUID().uuidString)")!)
+        let log = PersonVetoLog(userDefaults: ScratchDefaults("sweep"))
         m.filingPersonVetoLog = log
 
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
@@ -211,7 +211,7 @@ import Testing
     @Test func aNamePastTheSampleCutDoesNotDecideTheScan() async throws {
         let (m, root) = try Self.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
-        let log = PersonVetoLog(userDefaults: UserDefaults(suiteName: "sweep-\(UUID().uuidString)")!)
+        let log = PersonVetoLog(userDefaults: ScratchDefaults("sweep"))
         m.filingPersonVetoLog = log
         // A nameless scan, whose page names Daughter only after 400 characters of filler.
         try Self.write(root.appendingPathComponent("Downloads/Scan 2026-08-02.pdf"))
@@ -242,7 +242,7 @@ import Testing
     @Test func theOCRReReadRefusesAnotherPersonsFolder() async throws {
         let (m, root) = try Self.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
-        let log = PersonVetoLog(userDefaults: UserDefaults(suiteName: "sweep-\(UUID().uuidString)")!)
+        let log = PersonVetoLog(userDefaults: ScratchDefaults("sweep"))
         m.filingPersonVetoLog = log
         m.filingMemory = FilingMemory(profileId: "t", salt: "s", folders: [
             "Documents/Immigration/OCI/Son": FilingMemoryEntry(

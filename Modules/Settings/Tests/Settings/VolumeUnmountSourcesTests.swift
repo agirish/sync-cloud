@@ -27,7 +27,7 @@ import Sync
 
     @MainActor
     @Test func unmountingRemovesEveryFolderSourceOnThatVolume() {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         let root = settings.addFolderSource(path: "/Volumes/CARD")
         let nested = settings.addFolderSource(path: "/Volumes/CARD/DCIM")
@@ -46,7 +46,7 @@ import Sync
     /// connect the loss to the eject.
     @MainActor
     @Test func unmountingOneCardLeavesASimilarlyNamedOneAlone() {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         settings.addFolderSource(path: "/Volumes/CARD")
         let other = settings.addFolderSource(path: "/Volumes/CARD 2/DCIM")
@@ -66,7 +66,7 @@ import Sync
     /// this suite did until a mutation showed it. A source AT `/` matches on equality and is taken.
     @MainActor
     @Test func anUnmountReportedAsTheRootRemovesNothing() {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         settings.addFolderSource(path: "/")
         settings.addFolderSource(path: "/Users/u/Downloads")
@@ -84,7 +84,7 @@ import Sync
     /// to something the path cannot produce.
     @MainActor
     @Test func theRemovedSourceIsNamedAsTheUserNamedIt() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         let id = settings.addFolderSource(path: "/Volumes/CARD")
         settings.setCustomName("Wedding shoot", for: id)
@@ -97,7 +97,7 @@ import Sync
     /// to an id nothing holds would attach itself to whatever id came next.
     @MainActor
     @Test func unmountingClearsTheNameOverrideAndTheEnabledFlag() {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         let id = settings.addFolderSource(path: "/Volumes/CARD")
         settings.setCustomName("Wedding shoot", for: id)
@@ -123,7 +123,7 @@ import Sync
     /// `SettingsDiscoveryTests` uses to count passes.
     @MainActor
     @Test func unmountingACardRunsOneDiscoveryRatherThanOnePerSource() async throws {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let counter = CallCounter()
         let settings = SettingsManager(autoDiscover: false,
                                        userDefaults: defaults.defaults,
@@ -178,7 +178,7 @@ import Sync
 
     @MainActor
     @Test func unmountingAVolumeWithNoSourcesChangesNothing() {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         settings.addFolderSource(path: "/Users/u/Downloads")
         let before = settings.folderSources

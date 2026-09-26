@@ -91,7 +91,6 @@ import Testing
     @MainActor
     private func tallestMustFitMargin(at scale: CGFloat) -> CGFloat {
         let test = TestDefaults("tallest-\(scale)")
-        defer { test.wipe() }
         let settings = SettingsManager(autoDiscover: false,
                                        userDefaults: test.defaults,
                                        cloudStorageLister: { .read([]) })
@@ -143,7 +142,6 @@ import Testing
                                   at scale: CGFloat,
                                   available: CGSize? = nil) -> CGFloat {
         let test = TestDefaults("hue-\(hue.rawValue)-\(scale)")
-        defer { test.wipe() }
         test.defaults.set(hue.rawValue, forKey: LiquidGlass.hueKey)
 
         let height = laidOutHeight(AppearanceSettingsTab().defaultAppStorage(test.defaults),
@@ -493,16 +491,14 @@ import Testing
 
     /// An Organize tab carrying `count` kept names, laid out through the real store the tab reads.
     ///
-    /// The defaults suite is a scratch `TestDefaults` wiped before this returns: `KeptNamesStore`
-    /// persists to whatever `UserDefaults` it is handed, and a fixture that reached `.standard`
-    /// would both inherit the machine's kept names and write test junk into a domain shared with
-    /// the user's other projects. `wipe()` rather than `removePersistentDomain` because only the
-    /// former unlinks the plist cfprefsd leaves behind — see `wipeDefaultsSuite`.
+    /// The defaults suite is a scratch `TestDefaults`, wiped plist and all once the store and the
+    /// manager holding it let go: `KeptNamesStore` persists to whatever `UserDefaults` it is
+    /// handed, and a fixture that reached `.standard` would both inherit the machine's kept names
+    /// and write test junk into a domain shared with the user's other projects.
     @MainActor
     private func organizeTab(keptNames count: Int,
                              _ body: (AnyView) -> Void) {
         let test = TestDefaults("keptNames-\(count)")
-        defer { test.wipe() }
 
         let store = KeptNamesStore(userDefaults: test.defaults)
         // Short, single-line names on purpose: a name long enough to wrap would make the row cost
@@ -578,7 +574,6 @@ import Testing
     @MainActor
     @Test func everyTabIsEitherFitTestedOrExplicitlyExempt() async throws {
         let test = TestDefaults()
-        defer { test.wipe() }
         let settings = SettingsManager(autoDiscover: false,
                                        userDefaults: test.defaults,
                                        cloudStorageLister: { .read([]) })
@@ -607,7 +602,6 @@ import Testing
     @MainActor
     @Test func everyMustFitTabFitsTheClampedOpening() async throws {
         let test = TestDefaults()
-        defer { test.wipe() }
         let settings = SettingsManager(autoDiscover: false,
                                        userDefaults: test.defaults,
                                        cloudStorageLister: { .read([]) })
@@ -1178,7 +1172,6 @@ import Testing
     @Test func aStoredSizeOutsideTheRangeIsClampedBeforeItReachesTheControls() async throws {
         for stored in [-40, 0, 89, 200, 10_000] {
             let test = TestDefaults("out-of-range-\(stored)")
-            defer { test.wipe() }
             test.defaults.set(stored, forKey: FontSize.defaultsKey)
 
             let fed = ReadabilitySettingsTab.sliderValue(forStored: stored)

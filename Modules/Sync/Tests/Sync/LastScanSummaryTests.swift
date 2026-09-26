@@ -56,12 +56,7 @@ import Testing
 
     // MARK: Persistence
 
-    private func freshDefaults() -> UserDefaults {
-        let suite = "LastScanSummaryTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        return defaults
-    }
+    private func freshDefaults() -> ScratchDefaults { ScratchDefaults("LastScanSummaryTests") }
 
     @Test func testItSurvivesARelaunch() {
         let defaults = freshDefaults()

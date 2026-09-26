@@ -19,17 +19,15 @@ import Sync
 /// methods, which nothing short of driving the rendered control could show.
 @Suite struct KeptNamesSettingsTests {
 
-    private func scratch(_ name: String) -> (UserDefaults, String) {
-        let suite = "KeptNamesSettings-\(name)-\(UUID().uuidString)"
-        return (UserDefaults(suiteName: suite)!, suite)
+    private func scratch(_ name: String) -> ScratchDefaults {
+        ScratchDefaults("KeptNamesSettings-\(name)")
     }
 
     /// Removing one row withdraws that keep and only that keep — and it survives the relaunch,
     /// which is the whole point of the store being durable in the first place.
     @MainActor
     @Test func removingARowWithdrawsThatKeepFromThePersistedSet() {
-        let (defaults, suite) = scratch("remove")
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratch("remove")
 
         let store = KeptNamesStore(userDefaults: defaults)
         store.keep("report ")
@@ -51,8 +49,7 @@ import Sync
     /// Clear All empties the set, durably.
     @MainActor
     @Test func clearAllWithdrawsEveryKeep() {
-        let (defaults, suite) = scratch("clear")
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratch("clear")
 
         let store = KeptNamesStore(userDefaults: defaults)
         for name in ["a ", "b:", "c\u{200B}d"] { store.keep(name) }
@@ -68,8 +65,7 @@ import Sync
     /// the same set do not shuffle the rows under the user's cursor mid-removal.
     @MainActor
     @Test func theListPresentsEveryKeptNameInAStableOrder() {
-        let (defaults, suite) = scratch("order")
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratch("order")
 
         let store = KeptNamesStore(userDefaults: defaults)
         for name in ["zulu ", "alpha ", "mike:"] { store.keep(name) }
@@ -89,8 +85,7 @@ import Sync
     /// and dropped.
     @MainActor
     @Test func theSectionLaysOutItsRowsWhenNamesAreKept() {
-        let (defaults, suite) = scratch("layout")
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratch("layout")
 
         let store = KeptNamesStore(userDefaults: defaults)
         let manager = FileSyncManager()

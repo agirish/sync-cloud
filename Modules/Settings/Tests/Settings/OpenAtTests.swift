@@ -56,7 +56,7 @@ struct OpenAtTests {
 
     @Test("A folder inside the root is stored relative to it")
     func aChoiceInsideTheRootIsStoredRelative() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let tree = try Tree(); defer { tree.wipe() }
         let manager = Self.manager(test, tree)
 
@@ -67,7 +67,7 @@ struct OpenAtTests {
 
     @Test("Picking the root itself stores the empty string, rather than clearing the choice")
     func theRootIsAStoredChoiceAndNotAnAbsentOne() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let tree = try Tree(); defer { tree.wipe() }
         let manager = Self.manager(test, tree)
 
@@ -81,7 +81,7 @@ struct OpenAtTests {
 
     @Test("A folder outside the root is refused, and nothing is written")
     func aChoiceOutsideTheRootIsRefused() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let tree = try Tree(); defer { tree.wipe() }
         let manager = Self.manager(test, tree)
 
@@ -93,7 +93,7 @@ struct OpenAtTests {
 
     @Test("A folder reached through a symlink into the root is accepted, keeping its own spelling")
     func aChoiceReachedThroughALinkIsInsideTheRoot() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let tree = try Tree(); defer { tree.wipe() }
         let link = tree.base.appendingPathComponent("LinkToAccount")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: tree.root)
@@ -109,7 +109,7 @@ struct OpenAtTests {
 
     @Test("A source with no root refuses rather than reporting success")
     func anUnknownSourceRefusesAudibly() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let tree = try Tree(); defer { tree.wipe() }
         let manager = Self.manager(test, tree)
 
@@ -138,7 +138,7 @@ struct OpenAtTests {
 
     @Test("A landing folder that is gone degrades to the root, and the choice is kept")
     func anUnreachableLandingFolderOpensAtTheRoot() async throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let base = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("OpenAtDegrade-\(UUID().uuidString)")
         let account = base.appendingPathComponent("OneDrive-Acct")
@@ -162,7 +162,7 @@ struct OpenAtTests {
 
     @Test("A source published before the pass that measures it still opens at its landing folder")
     func anUnmeasuredSourceIsNotTreatedAsMissing() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let tree = try Tree(); defer { tree.wipe() }
         test.defaults.set("Documents/Reports",
                           forKey: SettingsManager.openAtOverrideKeyPrefix + "Acct")
@@ -182,7 +182,7 @@ struct OpenAtTests {
 
     @Test("Reset clears a chosen landing folder, and does nothing when there is none")
     func resetOnlyActsWhenThereIsSomethingToReset() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let tree = try Tree(); defer { tree.wipe() }
         let manager = Self.manager(test, tree)
 
@@ -200,7 +200,7 @@ struct OpenAtTests {
 
     @Test("A root override is visible to the row that has to offer a way out of it")
     func aRootOverrideIsReportedAndClearable() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let tree = try Tree(); defer { tree.wipe() }
         let manager = Self.manager(test, tree)
 

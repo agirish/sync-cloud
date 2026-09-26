@@ -81,7 +81,7 @@ import Sync
 
     @MainActor
     @Test func addingAFolderPublishesItAsASelectableSource() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
 
         let id = settings.addFolderSource(path: "/Users/u/Projects")
@@ -96,7 +96,7 @@ import Sync
     /// The curated list is the thing the user built; it has to survive a relaunch.
     @MainActor
     @Test func theFolderListSurvivesARelaunch() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let first = manager(defaults)
         let id = first.addFolderSource(path: "/Users/u/Projects")
         await first.discoverProviders()
@@ -113,7 +113,7 @@ import Sync
     /// and the id coming back is what lets "Choose Folder…" still point the pane at it.
     @MainActor
     @Test func addingAFolderThatIsAlreadyASourceSelectsItInsteadOfDuplicating() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
 
         let first = settings.addFolderSource(path: "/Users/u/Projects")
@@ -132,7 +132,7 @@ import Sync
     /// published list would mint a second row for one folder in exactly that window.
     @MainActor
     @Test func addingTwiceWithoutWaitingForDiscoveryStillSelects() {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
 
         let first = settings.addFolderSource(path: "/Users/u/Projects")
@@ -146,7 +146,7 @@ import Sync
     /// `inferredType` resolves the overlap. Only an EXACT repeat is refused.
     @MainActor
     @Test func nestedFoldersAreStillTwoSources() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
 
         let parent = settings.addFolderSource(path: "/Users/u")
@@ -161,7 +161,7 @@ import Sync
     /// throw away — its name rules, its date behaviour. Adding its root selects the account.
     @MainActor
     @Test func addingACloudProvidersOwnRootSelectsThatProvider() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults, cloudStorage: [dropboxAccount])
         await settings.discoverProviders()
 
@@ -178,7 +178,7 @@ import Sync
 
     @MainActor
     @Test func removingAFolderTakesItsNameAndItsDisabledStateWithIt() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults, cloudStorage: [dropboxAccount])
         let id = settings.addFolderSource(path: "/Users/u/Projects")
         await settings.discoverProviders()
@@ -200,7 +200,7 @@ import Sync
 
     @MainActor
     @Test func removingIgnoresIdsThatAreNotFolderSources() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults, cloudStorage: [dropboxAccount])
         await settings.discoverProviders()
 
@@ -218,7 +218,7 @@ import Sync
     /// the new one, and Remove would clear only one of them.
     @MainActor
     @Test func movingAFolderSourceRewritesTheListRatherThanAddingAnOverride() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         let id = settings.addFolderSource(path: "/Users/u/Projects")
         await settings.discoverProviders()
@@ -241,7 +241,7 @@ import Sync
     /// editing a Location was a way to make exactly the duplicate the add door prevents.
     @MainActor
     @Test func movingAFolderSourceOntoAnotherSourcesFolderIsRefused() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         let projects = settings.addFolderSource(path: "/Users/u/Projects")
         let archive = settings.addFolderSource(path: "/Users/u/Archive")
@@ -263,7 +263,7 @@ import Sync
     /// folder, so spelling the collision differently must not slip past.
     @MainActor
     @Test func movingOntoAnotherSourcesFolderIsRefusedCaseInsensitively() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         let projects = settings.addFolderSource(path: "/Users/u/Projects")
         let archive = settings.addFolderSource(path: "/Users/u/Archive")
@@ -280,7 +280,7 @@ import Sync
     /// silently swapping that account's ruleset for the folder default.
     @MainActor
     @Test func movingAFolderSourceOntoACloudAccountsRootIsRefused() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults, cloudStorage: [dropboxAccount])
         let archive = settings.addFolderSource(path: "/Users/u/Archive")
         await settings.discoverProviders()
@@ -298,7 +298,7 @@ import Sync
     /// `ignoring:` every edit would refuse itself. Re-spelling a path in place still lands.
     @MainActor
     @Test func respellingASourcesOwnPathIsNotRefusedAsADuplicateOfItself() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         let id = settings.addFolderSource(path: "/Users/u/Projects")
         await settings.discoverProviders()
@@ -311,7 +311,7 @@ import Sync
     /// the add door. `~` and `~/Projects` are both reasonable things to point a source at.
     @MainActor
     @Test func movingAFolderSourceUnderAnotherSourceIsStillAllowed() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         let parent = settings.addFolderSource(path: "/Users/u")
         let other = settings.addFolderSource(path: "/Users/u/Archive")
@@ -327,7 +327,7 @@ import Sync
     /// a new rule rather than this fix, and `setPath` says so.
     @MainActor
     @Test func repointingACloudAccountOntoAFolderSourceIsStillAllowed() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults, cloudStorage: [dropboxAccount])
         settings.addFolderSource(path: "/Users/u/Projects")
         await settings.discoverProviders()
@@ -339,7 +339,7 @@ import Sync
     /// message is cleared by a blur that committed nothing.
     @MainActor
     @Test func recommittingTheSamePathIsUnchanged() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         let id = settings.addFolderSource(path: "/Users/u/Projects")
         await settings.discoverProviders()
@@ -354,7 +354,7 @@ import Sync
 
     @MainActor
     @Test func namesUnderAFolderAreCheckedAgainstTheChosenRuleset() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults, cloudStorage: [dropboxAccount])
         let id = settings.addFolderSource(path: "/Users/u/Projects")
         await settings.discoverProviders()
@@ -377,14 +377,14 @@ import Sync
     /// against OneDrive, so a name that would break a sync never passes unflagged.
     @MainActor
     @Test func anUnresolvableSourceStillOverReports() {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         #expect(settings.nameRuleType(for: "nothing-by-this-name") == .oneDrive)
     }
 
     @MainActor
     @Test func theChosenRulesetSurvivesARelaunch() {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         settings.folderNameRule = .dropBox
         #expect(manager(defaults).folderNameRule == .dropBox)
@@ -406,7 +406,7 @@ import Sync
     /// on the next write and lose them on the next launch.
     @MainActor
     @Test func resetAllSettingsClearsTheFolderListAndSaysSo() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         settings.addFolderSource(path: "/Users/u/Projects")
         settings.folderNameRule = .dropBox
@@ -458,7 +458,7 @@ import Sync
     /// the cheapest statement that the rows reached the screen rather than being built and dropped.
     @MainActor
     @Test func theTabLaysOutTheFolderRowsItIsGiven() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         await settings.discoverProviders()
 
@@ -480,7 +480,7 @@ import Sync
     /// buttons. Expanding one must actually add that height.
     @MainActor
     @Test func expandingARowRevealsItsLocationControls() async {
-        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let defaults = TestDefaults()
         let settings = manager(defaults)
         await settings.discoverProviders()
         let provider = try! #require(settings.availableProviders.first)

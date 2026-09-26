@@ -730,6 +730,19 @@ left 0, and 1: a suite `SettingsManager` wrote to after its test had wiped it, w
 sweeps. **The tell:** 42-byte `{}` files whose mtimes share one instant, seconds after the tests
 ended.
 
+**What the flush left was written after its wipe, or never wiped — measured 2026-09-26.** A Settings
+run left 42, twice over: 35 `TestDefaults` suites that a `SettingsManager` discovery pass (started
+as a `Task` by `init` and by the methods that change a source) wrote `lastKnownAccountFolders` into
+after the test's `defer` had wiped them, and 7 torn down with `removePersistentDomain`, which
+empties a domain and leaves its file. Sync left 18 that never reached `wipeDefaultsSuite` at all,
+and the app target 1 of the first kind. `TestDefaults` now wraps a `ScratchDefaults` and has no
+`wipe()`, so the wipe waits for the last reference (the manager, and the task holding the manager),
+and the other sites use `ScratchDefaults` directly: 0, 0 and 0. **The tell:** a plist that vanishes
+at the wipe and is back within a second, holding only a key the code under test writes late. The
+lifetime has a limit of its own: a suite still referenced when the process exits is never wiped.
+Dashboard's one straggler is that, a `PaneBarOverflowMenuTests` `ScratchDefaults` never deallocated
+before exit; `ScratchDefaults` records its name at creation, so the next run's sweep takes it.
+
 **"Bounded and self-clearing" was wrong — 3,551 had accumulated by 2026-08-03.** This entry used
 to say the count oscillates rather than grows, and to measure across several runs before believing
 the mechanism was broken. Do not trust that: it is exactly the advice that lets a real leak sit.

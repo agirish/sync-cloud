@@ -57,7 +57,6 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
     @MainActor
     @Test func testFolderDeletedExternallyFlipsInvalidOnRefreshDespiteUnchangedPath() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         let validPaths = ValidPaths([dropboxDocs])
         let settings = makeSettings(test, validPaths: validPaths)
 
@@ -75,7 +74,6 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
     @MainActor
     @Test func testFolderCreatedExternallyFlipsValidOnRefresh() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         let validPaths = ValidPaths([])
         let settings = makeSettings(test, validPaths: validPaths)
 
@@ -92,7 +90,6 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
     @MainActor
     @Test func testPathOverrideAndResetRevalidateAgainstTheActivePath() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         let external = "/Volumes/External/Dropbox"
         let validPaths = ValidPaths([external]) // default Documents folder does not exist
         let settings = makeSettings(test, validPaths: validPaths)
@@ -115,7 +112,6 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
     @MainActor
     @Test func testValidUnchangedPathStaysValidAcrossRefreshes() async {
         let test = TestDefaults()
-        defer { test.wipe() }
         let settings = makeSettings(test, validPaths: ValidPaths([dropboxDocs]))
 
         await settings.discoverProviders()
@@ -132,7 +128,6 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
     @MainActor
     @Test func testInitialProvidersAreValidatedBeforeFirstDiscovery() {
         let test = TestDefaults()
-        defer { test.wipe() }
         let iCloudDefaultPath = SettingsManager.iCloudDefaultPath
         let settings = SettingsManager(
             autoDiscover: false,

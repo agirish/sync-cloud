@@ -10,15 +10,13 @@ import Combine
 /// dismissal cannot serve: it lasts only as long as the scan results do.
 @Suite struct KeptNamesStoreTests {
 
-    private func scratch(_ name: String) -> (UserDefaults, String) {
-        let suite = "KeptNames-\(name)-\(UUID().uuidString)"
-        return (UserDefaults(suiteName: suite)!, suite)
+    private func scratch(_ name: String) -> ScratchDefaults {
+        ScratchDefaults("KeptNames-\(name)")
     }
 
     @MainActor
     @Test func aKeptNameSurvivesTheStoreBeingRebuilt() {
-        let (defaults, suite) = scratch("persist")
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratch("persist")
 
         let store = KeptNamesStore(userDefaults: defaults)
         #expect(store.isKept("Q3: final.pdf") == false)
@@ -34,8 +32,7 @@ import Combine
 
     @MainActor
     @Test func withdrawingAKeepIsAlsoDurable() {
-        let (defaults, suite) = scratch("withdraw")
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratch("withdraw")
 
         let store = KeptNamesStore(userDefaults: defaults)
         store.keep("report ")
@@ -49,8 +46,7 @@ import Combine
 
     @MainActor
     @Test func theLastKeepWithdrawnLeavesNothingBehind() {
-        let (defaults, suite) = scratch("empty")
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratch("empty")
 
         let store = KeptNamesStore(userDefaults: defaults)
         store.keep("only one")
@@ -67,8 +63,7 @@ import Combine
     /// `theLastKeepWithdrawnLeavesNothingBehind` checks it for the one-at-a-time path.
     @MainActor
     @Test func clearingEveryKeepIsDurableAndLeavesNothingBehind() {
-        let (defaults, suite) = scratch("clearall")
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratch("clearall")
 
         let store = KeptNamesStore(userDefaults: defaults)
         for name in ["report ", "Q3: final.pdf", "memo\u{200B}.txt"] { store.keep(name) }
@@ -86,8 +81,7 @@ import Combine
     /// the same spurious-publish trap the manager's keep subscription documents.
     @MainActor
     @Test func clearingWhenNothingIsKeptPublishesNothing() async {
-        let (defaults, suite) = scratch("clearall-empty")
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratch("clearall-empty")
 
         let store = KeptNamesStore(userDefaults: defaults)
         var publishes = 0
@@ -105,8 +99,7 @@ import Combine
     /// a question the user already answered.
     @MainActor
     @Test func keepingANameCoversEveryFileWithThatName() {
-        let (defaults, suite) = scratch("byname")
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratch("byname")
 
         let store = KeptNamesStore(userDefaults: defaults)
         store.keep("scan 001 .pdf")
@@ -128,9 +121,7 @@ import Combine
 
     @MainActor
     @Test func reportableDropsKeptNamesAndOnlyThose() {
-        let suite = "KeptFilter-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ScratchDefaults("KeptFilter")
 
         let manager = FileSyncManager()
         let store = KeptNamesStore(userDefaults: defaults)
@@ -154,9 +145,7 @@ import Combine
     /// otherwise the user keeps a name from a pane row and Organize goes on offering to rename it.
     @MainActor
     @Test func keepingANameDropsItFromAlreadyPublishedResults() async throws {
-        let suite = "KeptLive-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ScratchDefaults("KeptLive")
 
         let manager = FileSyncManager()
         let store = KeptNamesStore(userDefaults: defaults)
@@ -182,9 +171,7 @@ import Combine
     /// announcement existed — it would be pinning the accident rather than the contract.
     @MainActor
     @Test func keepingANameAnnouncesOnTheManagerEvenWithNothingToRemove() async throws {
-        let suite = "KeptAnnounce-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ScratchDefaults("KeptAnnounce")
 
         let manager = FileSyncManager()
         let store = KeptNamesStore(userDefaults: defaults)
@@ -206,9 +193,7 @@ import Combine
     /// re-attaches, which is exactly this order.
     @MainActor
     @Test func attachingAStoreFiltersWhatIsAlreadyPublished() {
-        let suite = "KeptAttach-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ScratchDefaults("KeptAttach")
 
         let manager = FileSyncManager()
         manager.riskyNames = [risky("kept "), risky("other ")]

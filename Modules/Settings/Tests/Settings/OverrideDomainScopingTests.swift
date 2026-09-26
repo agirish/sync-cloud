@@ -12,7 +12,6 @@ import Sync
     @MainActor
     @Test func testSearchListOnlyOverrideKeysAreNotHonored() async throws {
         let test = TestDefaults()
-        defer { test.wipe() }
 
         // A real override, persisted to the suite's own domain.
         test.defaults.set("/real/override", forKey: "root_override_OneDrive-Work")
@@ -22,7 +21,6 @@ import Sync
         // unlike register(defaults:), whose registration domain is process-global and would
         // leak into the other, parallel-running Settings tests.)
         let globalStandIn = TestDefaults()
-        defer { globalStandIn.wipe() }
         globalStandIn.defaults.set("/global/evil", forKey: "root_override_Dropbox")
         globalStandIn.defaults.set("Evil Name", forKey: "name_override_Dropbox")
         test.defaults.addSuite(named: globalStandIn.suiteName)
@@ -62,11 +60,9 @@ import Sync
     @MainActor
     @Test func testSearchListOnlyOpenAtKeysDoNotLookLikeAChoice() async throws {
         let test = TestDefaults()
-        defer { test.wipe() }
         test.defaults.set("Work", forKey: "openAt_override_OneDrive-Work")
 
         let globalStandIn = TestDefaults()
-        defer { globalStandIn.wipe() }
         globalStandIn.defaults.set("Evil", forKey: "openAt_override_Dropbox")
         test.defaults.addSuite(named: globalStandIn.suiteName)
 
@@ -98,10 +94,8 @@ import Sync
     @Test func testEmptyOwnDomainMeansNoOverridesNotSearchListFallback() async throws {
         // Nothing is ever written to the suite's own domain in this test.
         let test = TestDefaults()
-        defer { test.wipe() }
 
         let globalStandIn = TestDefaults()
-        defer { globalStandIn.wipe() }
         globalStandIn.defaults.set("/global/evil", forKey: "root_override_Dropbox")
         globalStandIn.defaults.set("Evil Name", forKey: "name_override_Dropbox")
         test.defaults.addSuite(named: globalStandIn.suiteName)
@@ -128,7 +122,6 @@ import Sync
     @MainActor
     @Test func testNilDomainNameFallsBackToMergedList() async throws {
         let test = TestDefaults()
-        defer { test.wipe() }
         test.defaults.set("/suite/override", forKey: "root_override_Dropbox")
 
         let settings = SettingsManager(

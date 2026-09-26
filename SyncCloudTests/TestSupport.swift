@@ -698,18 +698,15 @@ struct CallArguments {
 
 /// A throwaway `UserDefaults` suite, so a test can pin a defaults-driven decision without writing
 /// into the app's real domain — which, when the test host IS the app, is the user's live settings.
-/// Mirrors `Modules/Settings/Tests/Settings`' helper of the same name. Always `defer { wipe() }`.
+/// Mirrors `Modules/Settings/Tests/Settings`' helper of the same name, including having no
+/// `wipe()`: the suite goes when the last thing holding it does, so a `SettingsManager`'s
+/// discovery pass landing after the test returns still writes before the wipe, not after it.
 struct TestDefaults {
-    let suiteName: String
-    let defaults: UserDefaults
+    let defaults: ScratchDefaults
+    var suiteName: String { defaults.scratchSuiteName }
 
     init(_ function: String = #function) {
-        self.suiteName = "SyncCloudTests-\(function)-\(UUID().uuidString)"
-        self.defaults = UserDefaults(suiteName: suiteName)!
-    }
-
-    func wipe() {
-        wipeDefaultsSuite(suiteName)
+        self.defaults = ScratchDefaults("SyncCloudTests-\(function)")
     }
 }
 
@@ -738,7 +735,7 @@ struct TestDefaults {
 /// test-support module; keep the copies in step.
 func wipeDefaultsSuite(_ name: String) {
     // Recorded here rather than at the call sites because this is the one funnel every cleanup
-    // path — `defer`, `TestDefaults.wipe()`, `ScratchDefaults.deinit` — already goes through.
+    // path — `defer` and `ScratchDefaults.deinit` — already goes through.
     // Recording only in `ScratchDefaults` missed the 46 `defer` sites, which build their suite
     // with a plain `UserDefaults(suiteName:)`, and Sync's leftovers grew 58 -> 89 -> 135 over
     // three runs because nothing was there to re-delete what cfprefsd had resurrected.
@@ -868,6 +865,11 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
 /// A `UserDefaults` on a throwaway suite that cleans itself up — domain *and* plist — once its last
 /// reference goes away. Prefer it to a bare `UserDefaults(suiteName:)`: teardown rides on the
 /// object's lifetime rather than on a `defer` that a test added later can forget.
+///
+/// The lifetime is also what lets it outlast work the test started. A manager whose task is still
+/// running holds the suite, so that task's last write lands before the wipe instead of recreating
+/// the plist after it, which is the race a `defer` loses: 35 of the 42 plists a Settings run left
+/// on 2026-09-26 were suites a `SettingsManager` discovery pass wrote to after their test wiped.
 final class ScratchDefaults: UserDefaults {
     let scratchSuiteName: String
 

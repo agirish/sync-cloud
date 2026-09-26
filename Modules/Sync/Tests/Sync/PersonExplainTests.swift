@@ -166,9 +166,7 @@ import Testing
 
     @MainActor
     @Test func theVetoLogCountsAndRemembersPerPerson() {
-        let suite = "veto-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ScratchDefaults("veto")
         let log = PersonVetoLog(userDefaults: defaults)
 
         log.record(PersonVetoEvent(namedPerson: "daughter", proposedPerson: "son",
@@ -191,10 +189,7 @@ import Testing
     @Test func theVetoLogForgetsTheOldest() {
         // Cleaned up like every sibling in this file: a UUID-named suite with no teardown leaves a
         // plist in the shared `~/Library/Preferences` on every run, for as long as the suite exists.
-        let name = "veto-cap-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defer { defaults.removePersistentDomain(forName: name) }
-        let log = PersonVetoLog(userDefaults: defaults)
+        let log = PersonVetoLog(userDefaults: ScratchDefaults("veto-cap"))
         for i in 0..<(PersonVetoLog.capacity + 10) {
             log.record(PersonVetoEvent(namedPerson: "daughter", proposedPerson: "son",
                                        fileName: "\(i).pdf", destination: "d",

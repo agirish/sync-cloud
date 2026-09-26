@@ -491,7 +491,7 @@ final class FirstStatGate: FileManaging, @unchecked Sendable {
 /// test-support module; keep the copies in step.
 func wipeDefaultsSuite(_ name: String) {
     // Recorded here rather than at the call sites because this is the one funnel every cleanup
-    // path — `defer`, `TestDefaults.wipe()`, `ScratchDefaults.deinit` — already goes through.
+    // path — `defer` and `ScratchDefaults.deinit` — already goes through.
     // Recording only in `ScratchDefaults` missed the 46 `defer` sites, which build their suite
     // with a plain `UserDefaults(suiteName:)`, and Sync's leftovers grew 58 -> 89 -> 135 over
     // three runs because nothing was there to re-delete what cfprefsd had resurrected.
@@ -621,6 +621,11 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
 /// A `UserDefaults` on a throwaway suite that cleans itself up — domain *and* plist — once its last
 /// reference goes away. Prefer it to a bare `UserDefaults(suiteName:)`: teardown rides on the
 /// object's lifetime rather than on a `defer` that a test added later can forget.
+///
+/// The lifetime is also what lets it outlast work the test started. A manager whose task is still
+/// running holds the suite, so that task's last write lands before the wipe instead of recreating
+/// the plist after it, which is the race a `defer` loses: 35 of the 42 plists a Settings run left
+/// on 2026-09-26 were suites a `SettingsManager` discovery pass wrote to after their test wiped.
 final class ScratchDefaults: UserDefaults {
     let scratchSuiteName: String
 

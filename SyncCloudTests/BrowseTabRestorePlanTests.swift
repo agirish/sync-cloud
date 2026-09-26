@@ -172,7 +172,6 @@ import Sync
     /// values it had just built.
     @Test func aStoredV42StripRestoresFromItsRawBytes() throws {
         let test = TestDefaults()
-        defer { test.wipe() }
         let raw = """
         [{"providerId":"iCloud","relativePath":"Documents/Taxes/2025","stackDepth":1,"pinned":true},
          {"providerId":"iCloud","relativePath":"Desktop","stackDepth":0,"pinned":false},

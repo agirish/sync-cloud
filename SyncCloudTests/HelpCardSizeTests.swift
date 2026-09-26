@@ -161,7 +161,6 @@ import Testing
     @MainActor
     @Test func theCardLaysOutAtTheSizeTheRuleGivesIt() {
         let store = TestDefaults()
-        defer { store.wipe() }
         store.defaults.set(1200.0, forKey: HelpCardSize.widthDefaultsKey)
         store.defaults.set(900.0, forKey: HelpCardSize.heightDefaultsKey)
 

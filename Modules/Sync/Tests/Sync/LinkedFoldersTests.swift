@@ -195,9 +195,7 @@ import Testing
     }
 
     @Test func aDestinationUnderTheLinkedFolderIsRememberedForItsProvider() throws {
-        let suite = "LinkedFoldersTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ScratchDefaults("LinkedFoldersTests")
         // `load` keeps only folders that exist, so the linked target is a real temp folder here.
         let fm = FileManager.default
         let base = try makeCanonicalTempRoot(prefix: "LinkedFoldersTests")

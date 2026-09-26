@@ -16,7 +16,6 @@ import Foundation
     @MainActor
     @Test func testDefaultsMatchHistoricalBehavior() {
         let test = TestDefaults()
-        defer { test.wipe() }
         let settings = makeManager(test)
         #expect(settings.dateToleranceSeconds == 1)
         #expect(settings.autoVerifySameSizeDuringScan == false)
@@ -29,7 +28,6 @@ import Foundation
     @MainActor
     @Test func testNewSettingsPersistAcrossInstances() {
         let test = TestDefaults()
-        defer { test.wipe() }
 
         let a = makeManager(test)
         a.dateToleranceSeconds = 5
@@ -50,7 +48,6 @@ import Foundation
 
     @Test func testShouldRestoreLastFocusDefaultsToTrue() {
         let test = TestDefaults()
-        defer { test.wipe() }
         #expect(GeneralSettings.shouldRestoreLastFocus(test.defaults))
         test.defaults.set(false, forKey: GeneralSettings.restoreLastFocusKey)
         #expect(!GeneralSettings.shouldRestoreLastFocus(test.defaults))
@@ -59,7 +56,6 @@ import Foundation
     @MainActor
     @Test func testAddIgnorePatternNormalizesAndDeduplicates() {
         let test = TestDefaults()
-        defer { test.wipe() }
         let settings = makeManager(test)
 
         #expect(settings.addIgnorePattern("  *.tmp \n"))
@@ -75,7 +71,6 @@ import Foundation
 
     @Test func testShouldConfirmBeforeDeleteDefaultsToTrue() {
         let test = TestDefaults()
-        defer { test.wipe() }
         #expect(GeneralSettings.shouldConfirmBeforeDelete(test.defaults))
         test.defaults.set(false, forKey: GeneralSettings.confirmBeforeDeleteKey)
         #expect(!GeneralSettings.shouldConfirmBeforeDelete(test.defaults))
@@ -86,7 +81,6 @@ import Foundation
     @Test func testShouldConfirmBeforeTransferDefaultsToTrue() {
         // Default-true semantics like the delete flag: an unset key must confirm, not skip.
         let test = TestDefaults()
-        defer { test.wipe() }
         #expect(GeneralSettings.shouldConfirmBeforeTransfer(test.defaults))
         test.defaults.set(false, forKey: GeneralSettings.confirmBeforeTransferKey)
         #expect(!GeneralSettings.shouldConfirmBeforeTransfer(test.defaults))
@@ -97,7 +91,6 @@ import Foundation
     @MainActor
     @Test func testResetAllSettingsWipesTheDomainAndRepublishesDefaults() {
         let test = TestDefaults()
-        defer { test.wipe() }
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,

@@ -127,7 +127,7 @@ struct RootsMigrationTests {
     /// Any rebased store answers this; the strip is the one whose entries carry a relative path.
     @Test("Running twice changes nothing the second time — App.init can run more than once")
     func theStampMakesItIdempotent() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         test.defaults.set(Self.oneTab(providerId: "OneDrive-Personal", relativePath: "Family"),
                           forKey: RootsMigration.leftTabsKey)
 
@@ -142,7 +142,7 @@ struct RootsMigrationTests {
 
     @Test("An unreadable CloudStorage root defers rather than stamping a plan about nothing")
     func anUnreadableRootDefers() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         test.defaults.set(Self.oneTab(providerId: "OneDrive-Personal", relativePath: "Family"),
                           forKey: RootsMigration.leftTabsKey)
 
@@ -189,7 +189,7 @@ struct RootsMigrationTests {
     /// and answering "pending" there would refuse every CLI run on a machine that has no problem.
     @Test("Only an unstamped domain that actually holds legacy state is reported as pending")
     func legacyStateIsReportedOnlyWhenThereIsSome() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let key = "\(SettingsManager.legacyPathOverrideKeyPrefix)OneDrive-Personal"
 
         // Unstamped and empty — a fresh install. Nothing to migrate, so nothing to refuse over.
@@ -215,7 +215,7 @@ struct RootsMigrationTests {
 
     @Test("Every tab moves by its own source's prefix, and unknown fields survive")
     func tabsAreRebasedPerEntryAndKeepUnknownFields() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let stored = """
         [{"providerId":"OneDrive-Personal","relativePath":"Family/Photos","stackDepth":1,"pinned":true},\
         {"providerId":"iCloud","relativePath":"Legal","stackDepth":0,"pinned":false},\
@@ -250,7 +250,7 @@ struct RootsMigrationTests {
     /// would be unrecoverable, since nothing records that it was guessed.
     @Test("A tab naming a source the plan does not cover is left untouched")
     func anUnknownProviderIdOnATabIsLeftAlone() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let stored = """
         [{"providerId":"OneDrive-Personal","relativePath":"Family","stackDepth":0,"pinned":false},\
         {"providerId":"SomeSourceThatIsGone","relativePath":"Family","stackDepth":0,"pinned":false}]
@@ -276,7 +276,7 @@ struct RootsMigrationTests {
     /// `string(forKey:)` and read as absent, which is the one outcome that says nothing at all.
     @Test("A strip stored under the wrong type is reported, not silently passed over")
     func aTabStripOfTheWrongTypeIsReportedAsUnreadable() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         test.defaults.set(Data("[]".utf8), forKey: RootsMigration.leftTabsKey)
         let line = Self.migrate(test.defaults).logLine
         #expect(line?.contains(RootsMigration.leftTabsKey) == true,
@@ -290,7 +290,7 @@ struct RootsMigrationTests {
     /// entry keeps its place in the order, which is the half a `compactMap` would quietly lose.
     @Test("A malformed Favorites entry keeps its exact bytes and its position")
     func aFavoritesEntryWithTheWrongNumberOfHalvesIsCarriedAcross() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let oldRoot = "\(Self.cloudStorage)/OneDrive-Personal/Documents"
         let good = "\(oldRoot)\u{0}Family"
         let noSeparator = "somethingWithNoNul"
@@ -328,7 +328,7 @@ struct RootsMigrationTests {
 
     @Test("Pins and recents are re-keyed onto the new root and their paths move with them")
     func jumpFoldersMoveKeyAndValueTogether() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let oldRoot = "\(Self.cloudStorage)/OneDrive-Personal/Documents"
         let payload: [String: [[String: Any]]] = [
             oldRoot: [["relativePath": "Family", "name": "Family", "visitedAt": 12345.5]],
@@ -353,7 +353,7 @@ struct RootsMigrationTests {
 
     @Test("The Favorites order rewrites both halves of its composite key")
     func favoriteOrderMovesRootAndPath() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let oldRoot = "\(Self.cloudStorage)/OneDrive-Personal/Documents"
         test.defaults.set(["\(oldRoot)\u{0}Family", "/Users/u/Documents\u{0}Legal"],
                           forKey: RootsMigration.favoriteOrderKey)
@@ -370,7 +370,7 @@ struct RootsMigrationTests {
 
     @Test("Filing destinations are re-keyed but their absolute paths are not touched")
     func destinationRecentsMoveKeyOnly() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let oldRoot = "\(Self.cloudStorage)/OneDrive-Personal/Documents"
         test.defaults.set([oldRoot: ["\(oldRoot)/Invoices/2026"]],
                           forKey: RootsMigration.destinationRecentsKey)
@@ -400,7 +400,7 @@ struct RootsMigrationTests {
 
     @Test("The legacy Location key is never rewritten, so an older build still reads its setting")
     func theLegacyOverrideSurvivesUntouched() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let legacy = "\(Self.cloudStorage)/GoogleDrive-a@b.com/My Drive"
         let key = SettingsManager.legacyPathOverrideKeyPrefix + "GoogleDrive-a@b.com"
         test.defaults.set(legacy, forKey: key)
@@ -420,7 +420,7 @@ struct RootsMigrationTests {
 
     @Test("A migrated install lands exactly where it was, in absolute terms")
     func theMigratedLandingNamesTheSameFolderAsTheOldRoot() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let legacy = "\(Self.cloudStorage)/GoogleDrive-a@b.com/My Drive"
         Self.migrate(test.defaults, accountFolders: ["GoogleDrive-a@b.com"],
                      legacyOverrides: ["GoogleDrive-a@b.com": legacy])
@@ -459,7 +459,7 @@ struct RootsMigrationTests {
 
     @Test("A source that is signed out at migration time is picked up by a later launch, not lost")
     func anUnmountedSourceIsMigratedWhenItComesBack() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         // A tab on an account that is not mounted right now — an ordinary state, not an exotic one.
         test.defaults.set(#"[{"providerId":"OneDrive-Work","relativePath":"Clients/Acme"}]"#,
                           forKey: RootsMigration.leftTabsKey)
@@ -503,7 +503,7 @@ struct RootsMigrationTests {
     /// which they have, and which can never clear it.
     @Test("A folder source is settled, not waited for")
     func aFolderSourceDoesNotHoldTheStampOpen() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let folderId = FolderSource.idPrefix + "F4008545-0F87-4E94-A355-9795214B2246"
         // Exactly the shape this developer's own install is in: the left pane on a folder source,
         // the right on an account, and a tab strip naming the folder source too.
@@ -529,7 +529,7 @@ struct RootsMigrationTests {
 
     @Test("An outstanding source is named in the log line, so the wait is visible rather than silent")
     func theLogLineNamesASourceItIsStillWaitingFor() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         test.defaults.set(#"[{"providerId":"OneDrive-Work","relativePath":"Clients"}]"#,
                           forKey: RootsMigration.leftTabsKey)
         let line = Self.migrate(test.defaults, accountFolders: ["Dropbox"]).logLine
@@ -576,7 +576,7 @@ struct RootsMigrationTests {
 
     @Test("A Location inside a DIFFERENT account cannot claim that account's remap key")
     func aLocationAimedAtAnotherAccountBecomesItsOwnRootInstead() throws {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         // Re-pointing an account's Location was deliberately unrestricted, so this is reachable:
         // OneDrive-Personal aimed at Dropbox's documents folder. It is also the only shape in which
         // two sources could ever name one legacy root — and it does NOT collide, because a path
@@ -610,7 +610,7 @@ struct RootsMigrationTests {
 
     @Test("Durable ignore entries move down with the root they are measured from")
     func ignoredItemsAreRebasedByTheAnchorSourcesPrefix() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let key = "ignoredItems_v1_Dropbox|OneDrive-Personal"
         test.defaults.set(["Archive/big.zip", "Scratch"], forKey: key)
 
@@ -635,7 +635,7 @@ struct RootsMigrationTests {
     /// and push every entry a level down into a folder the anchor knows nothing about.
     @Test("An ignore set anchored on a source that did not move is left exactly as it is")
     func ignoredItemsFollowTheKeysLeadingIdEvenWhenItDidNotMove() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         // "Aaa-folder" sorts ahead of "OneDrive-Personal", so it is what `pairKey` names first.
         let key = "ignoredItems_v1_Aaa-folder|OneDrive-Personal"
         test.defaults.set(["Archive/big.zip"], forKey: key)
@@ -648,7 +648,7 @@ struct RootsMigrationTests {
 
     @Test("A pair whose roots did not move keeps its ignore entries exactly as they are")
     func ignoredItemsForAnUnmovedPairAreLeftAlone() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         // iCloud's root did not move and a folder source is its own root, so nothing in this pair's
         // coordinate system changed — rebasing would be the corruption here.
         let key = "ignoredItems_v1_iCloud|folder-abc"
@@ -663,7 +663,7 @@ struct RootsMigrationTests {
 
     @Test("A fresh install is not told its folder positions moved, because it had none")
     func nothingStoredMeansNothingMoved() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let line = Self.migrate(test.defaults).logLine
         // The first draft described the PLAN, so an install with no stored state at all announced
         // that its positions "were moved down into (Dropbox → Documents, …)" — naming folders it
@@ -674,7 +674,7 @@ struct RootsMigrationTests {
 
     @Test("A store that is present and unreadable is named, not silently skipped")
     func anUnreadableTabStripIsReported() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         test.defaults.set("{not json", forKey: RootsMigration.leftTabsKey)
         let line = Self.migrate(test.defaults).logLine
         // Present-and-unreadable is not the same as absent, and it is the case that loses data in
@@ -687,7 +687,7 @@ struct RootsMigrationTests {
 
     @Test("A Location the app's own domain does not own is not adopted as this install's")
     func applyAtLaunchReadsOnlyItsOwnPersistentDomain() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let legacyKey = SettingsManager.legacyPathOverrideKeyPrefix + "OneDrive-Personal"
         // The registration domain is the honest stand-in for a stray NSGlobalDomain key: it is in
         // `dictionaryRepresentation()` and answers `string(forKey:)`, and it is NOT in
@@ -711,7 +711,7 @@ struct RootsMigrationTests {
 
     @Test("Filing destinations merged onto one key keep the store's own cap")
     func mergedDestinationRecentsStayWithinTheStoresLimit() {
-        let test = TestDefaults(); defer { test.wipe() }
+        let test = TestDefaults()
         let old = "\(Self.cloudStorage)/OneDrive-Personal/Documents"
         let new = "\(Self.cloudStorage)/OneDrive-Personal"
         test.defaults.set([old: ["/a", "/b", "/c", "/d"], new: ["/e", "/f", "/g"]],
