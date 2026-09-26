@@ -83,7 +83,7 @@ import Sync
 
     /// Every capture of `group` for `pattern` in `source`. The seam that lets a scan derive its
     /// subject from the code rather than keeping a list beside it.
-    private static func matches(_ pattern: String, in source: String, group: Int) -> [String] {
+    nonisolated private static func matches(_ pattern: String, in source: String, group: Int) -> [String] {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let text = source as NSString
         return regex.matches(in: source, range: NSRange(location: 0, length: text.length))
@@ -100,8 +100,10 @@ import Sync
     /// spelling. That hole was real: the invariant over the one door counted `"isLeft: "` against
     /// `"isLeft: isLeft"`, and any identifier with that prefix balanced the two. Capturing the
     /// identifier (with any leading `!`) makes the comparison a token comparison.
-    /// Pinned by ``theArgumentScanReadsATokenAndNotAPrefix``.
-    static func argumentTokens(labelled label: String, in source: String) -> [String] {
+    /// Pinned by ``theArgumentScanReadsATokenAndNotAPrefix``. `nonisolated`, like the three
+    /// `ShortcutCommandsTests` readers: text in, text out, so a scan elsewhere need not run on the
+    /// main thread to use it.
+    nonisolated static func argumentTokens(labelled label: String, in source: String) -> [String] {
         matches(#"\#(label):[ \t]*(!?[ \t]*[A-Za-z_][A-Za-z0-9_]*)"#, in: source, group: 1)
             .map { $0.replacingOccurrences(of: " ", with: "")
                      .replacingOccurrences(of: "\t", with: "") }

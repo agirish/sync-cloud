@@ -150,49 +150,58 @@ func textBetween(_ source: String, from: String.Index, to: String.Index) -> Stri
 /// An unterminated single-line string ends at its line, so a stray quote cannot swallow a file.
 enum SwiftLexeme: UInt8 { case code, string, comment }
 
-/// `bytes`' lexemes, one per byte.
+/// `bytes`' lexemes, one per byte. Uncached — the scans go through ``lexed(_:)``, which runs this
+/// once per distinct text.
 func swiftLexemes(_ bytes: [UInt8]) -> [SwiftLexeme] {
-    let lexer = SwiftLexer(bytes)
-    _ = lexer.scanCode(from: 0, closingParen: false, mark: true)
-    return lexer.roles
+    var roles = [SwiftLexeme](repeating: .code, count: bytes.count)
+    bytes.withUnsafeBufferPointer { b in
+        roles.withUnsafeMutableBufferPointer { r in
+            guard let bytes = b.baseAddress, let roles = r.baseAddress else { return }   // empty
+            _ = SwiftLexer(b: bytes, count: b.count, roles: roles)
+                .scanCode(from: 0, closingParen: false, mark: true)
+        }
+    }
+    return roles
 }
 
-private final class SwiftLexer {
-    let b: [UInt8]
-    var roles: [SwiftLexeme]
+/// **Raw pointers on purpose.** The test target builds at `-Onone`, where an `Array` subscript —
+/// and above all a write into an array held by a class — costs a bounds check, a uniqueness check
+/// and an exclusivity check per byte. At 1.7 MB (all of `MacApp/`) that was ~0.3 s a lex, many
+/// times over, and the scans that paid it held the cooperative pool the rest of the run needed.
+private struct SwiftLexer {
+    let b: UnsafePointer<UInt8>
+    let count: Int
+    let roles: UnsafeMutablePointer<SwiftLexeme>
 
     static let quote = UInt8(ascii: "\""), hash = UInt8(ascii: "#"), slash = UInt8(ascii: "/"),
                star = UInt8(ascii: "*"), newline = UInt8(ascii: "\n"), backslash = UInt8(ascii: "\\"),
                open = UInt8(ascii: "("), close = UInt8(ascii: ")")
 
-    init(_ bytes: [UInt8]) {
-        b = bytes
-        roles = [SwiftLexeme](repeating: .code, count: bytes.count)
-    }
-
     private func fill(_ from: Int, _ to: Int, _ role: SwiftLexeme) {
-        for k in from..<min(to, b.count) { roles[k] = role }
+        var k = from
+        let end = min(to, count)
+        while k < end { roles[k] = role; k += 1 }
     }
 
-    private func byte(_ i: Int) -> UInt8? { i < b.count ? b[i] : nil }
+    private func byte(_ i: Int) -> UInt8? { i < count ? b[i] : nil }
 
     /// Code from `start`. With `closingParen`, stops after the `)` that closes an interpolation
     /// opened just before `start`, and returns the index after it. `mark` is false inside an
     /// interpolation: the literal around it is marked `.string` whole.
     func scanCode(from start: Int, closingParen: Bool, mark: Bool) -> Int {
         var i = start, depth = 0
-        while i < b.count {
+        while i < count {
             let c = b[i]
             if c == Self.slash, byte(i + 1) == Self.slash {
                 var j = i
-                while j < b.count, b[j] != Self.newline { j += 1 }
+                while j < count, b[j] != Self.newline { j += 1 }
                 if mark { fill(i, j, .comment) }
                 i = j
                 continue
             }
             if c == Self.slash, byte(i + 1) == Self.star {
                 var j = i + 2, level = 1
-                while j < b.count, level > 0 {
+                while j < count, level > 0 {
                     if b[j] == Self.slash, byte(j + 1) == Self.star { level += 1; j += 2 }
                     else if b[j] == Self.star, byte(j + 1) == Self.slash { level -= 1; j += 2 }
                     else { j += 1 }
@@ -215,7 +224,7 @@ private final class SwiftLexer {
             }
             i += 1
         }
-        return b.count
+        return count
     }
 
     /// The index after the literal opening at `i`, or `nil` when none does (`#if`, `#selector`).
@@ -225,7 +234,7 @@ private final class SwiftLexer {
         guard byte(j) == Self.quote else { return nil }
         let multiline = byte(j + 1) == Self.quote && byte(j + 2) == Self.quote
         j += multiline ? 3 : 1
-        while j < b.count {
+        while j < count {
             if b[j] == Self.backslash, hashesFollow(j + 1, hashes) {
                 let k = j + 1 + hashes
                 if byte(k) == Self.open {
@@ -242,13 +251,78 @@ private final class SwiftLexer {
             if !multiline, b[j] == Self.newline { return j }
             j += 1
         }
-        return b.count
+        return count
     }
 
-    private func hashesFollow(_ i: Int, _ count: Int) -> Bool {
-        guard count > 0 else { return true }
-        guard i + count <= b.count else { return false }
-        return b[i..<(i + count)].allSatisfy { $0 == Self.hash }
+    private func hashesFollow(_ i: Int, _ hashes: Int) -> Bool {
+        guard hashes > 0 else { return true }
+        guard i + hashes <= count else { return false }
+        var k = i
+        while k < i + hashes { if b[k] != Self.hash { return false }; k += 1 }
+        return true
+    }
+}
+
+// MARK: Once per text
+
+/// A text's UTF-8 bytes and their lexemes, as the scan readers share them.
+final class LexedSource: Sendable {
+    let bytes: [UInt8]
+    let roles: [SwiftLexeme]
+
+    init(_ text: String) {
+        bytes = Array(text.utf8)
+        roles = swiftLexemes(bytes)
+    }
+}
+
+/// `text` lexed — **once per distinct text per process**, however many scans ask.
+///
+/// Why it is memoised (2026-09-26): ~30 app-target suites read the same few files of `MacApp/` —
+/// and `macAppSources()` reads all of it — through these readers, and each read lexed from
+/// scratch: ~2,000 lexes and ~25 s of CPU a run, 38 of them of `ContentView.swift` alone. Swift
+/// Testing runs those scans on the cooperative pool, and seconds-long synchronous scans on every
+/// pool thread starved everything else that needed one — so a main-actor `.task` a harness waited
+/// on for 10 s did not run, and 475 tests reported more than 10 s.
+///
+/// Keyed by the text's exact bytes, not by path or by `String` equality: a caller may pass any
+/// slice it likes, and `String` compares canonically, so two spellings of an `é` would share an
+/// answer that differs by byte. A text is immutable, so an answer can never go stale.
+func lexed(_ text: String) -> LexedSource { lexedMemo.value(for: text) { LexedSource(text) } }
+
+private let lexedMemo = ScanMemo<LexedSource>()
+private let codeOnlyMemo = ScanMemo<String>()
+private let normalizedMemo = ScanMemo<String>()
+
+/// A thread-safe memo keyed by a text's exact UTF-8 bytes. Concurrent askers of one text wait for
+/// ONE computation rather than each doing it — which is the common case, since parallel suites
+/// start at once and many of them open with the same file.
+final class ScanMemo<Value>: @unchecked Sendable {
+    private final class Slot {
+        let lock = NSLock()
+        var value: Value?
+    }
+
+    private let lock = NSLock()
+    private var slots: [Data: Slot] = [:]
+
+    func value(for text: String, _ compute: () -> Value) -> Value {
+        let key = Data(text.utf8)
+        lock.lock()
+        let slot: Slot
+        if let existing = slots[key] {
+            slot = existing
+        } else {
+            slot = Slot()
+            slots[key] = slot
+        }
+        lock.unlock()
+        slot.lock.lock()
+        defer { slot.lock.unlock() }
+        if let value = slot.value { return value }
+        let value = compute()
+        slot.value = value
+        return value
     }
 }
 
@@ -279,31 +353,48 @@ private func isWordByte(_ c: UInt8) -> Bool {
 /// that was only comment (and indentation) is dropped whole, as it always was; a line that loses
 /// a trailing comment loses the whitespace before it; every other line is untouched.
 func sourceCodeOnly(_ source: String) -> String {
-    let b = Array(source.utf8)
-    let roles = swiftLexemes(b)
+    codeOnlyMemo.value(for: source) { stripComments(lexed(source)) }
+}
+
+private func stripComments(_ source: LexedSource) -> String {
+    let n = source.bytes.count
     var out: [UInt8] = []
-    out.reserveCapacity(b.count)
-    var emittedALine = false
-    func emit(_ from: Int, _ to: Int) {
-        var kept: [UInt8] = []
-        var hadComment = false
-        for k in from..<to {
-            if roles[k] == .comment { hadComment = true } else { kept.append(b[k]) }
+    out.reserveCapacity(n)
+    source.bytes.withUnsafeBufferPointer { bytes in
+        source.roles.withUnsafeBufferPointer { roles in
+            guard let b = bytes.baseAddress, let r = roles.baseAddress else { return }   // empty
+            var emittedALine = false
+            func emit(_ from: Int, _ to: Int) {
+                var hadComment = false
+                var k = from
+                while k < to { if r[k] == .comment { hadComment = true; break }; k += 1 }
+                guard hadComment else {
+                    if emittedALine { out.append(newlineByte) }
+                    emittedALine = true
+                    out.append(contentsOf: UnsafeBufferPointer(start: b + from, count: to - from))
+                    return
+                }
+                var kept: [UInt8] = []
+                k = from
+                while k < to { if r[k] != .comment { kept.append(b[k]) }; k += 1 }
+                if kept.allSatisfy(isHorizontalSpace) { return }
+                while let last = kept.last, isHorizontalSpace(last) { kept.removeLast() }
+                if emittedALine { out.append(newlineByte) }
+                emittedALine = true
+                out += kept
+            }
+            var lineStart = 0
+            var k = 0
+            while k < n {
+                if b[k] == newlineByte {
+                    emit(lineStart, k)
+                    lineStart = k + 1
+                }
+                k += 1
+            }
+            emit(lineStart, n)
         }
-        if hadComment {
-            if kept.allSatisfy(isHorizontalSpace) { return }
-            while let last = kept.last, isHorizontalSpace(last) { kept.removeLast() }
-        }
-        if emittedALine { out.append(newlineByte) }
-        emittedALine = true
-        out += kept
     }
-    var lineStart = 0
-    for k in 0..<b.count where b[k] == newlineByte {
-        emit(lineStart, k)
-        lineStart = k + 1
-    }
-    emit(lineStart, b.count)
     return String(decoding: out, as: UTF8.self)
 }
 
@@ -315,22 +406,34 @@ func sourceCodeOnly(_ source: String) -> String {
 /// different indentation normalise to the same text, and a scan built on this cannot be turned
 /// red by a reformat. Use it through ``CodeText`` or ``CallArguments`` rather than directly.
 func normalizedCode(_ text: String) -> String {
-    let b = Array(text.utf8)
-    let roles = swiftLexemes(b)
+    normalizedMemo.value(for: text) { normalize(lexed(text)) }
+}
+
+private func normalize(_ source: LexedSource) -> String {
+    let n = source.bytes.count
     var out: [UInt8] = []
-    out.reserveCapacity(b.count)
-    var pendingSpace = false
-    for k in 0..<b.count {
-        let c = b[k]
-        switch roles[k] {
-        case .comment:
-            pendingSpace = true
-        case .code where isSpace(c):
-            pendingSpace = true
-        case .code, .string:
-            if pendingSpace, let last = out.last, isWordByte(last), isWordByte(c) { out.append(spaceByte) }
-            pendingSpace = false
-            out.append(c)
+    out.reserveCapacity(n)
+    source.bytes.withUnsafeBufferPointer { bytes in
+        source.roles.withUnsafeBufferPointer { roles in
+            guard let b = bytes.baseAddress, let r = roles.baseAddress else { return }   // empty
+            var pendingSpace = false
+            var last: UInt8?
+            var k = 0
+            while k < n {
+                let c = b[k]
+                switch r[k] {
+                case .comment:
+                    pendingSpace = true
+                case .code where isSpace(c):
+                    pendingSpace = true
+                case .code, .string:
+                    if pendingSpace, let last, isWordByte(last), isWordByte(c) { out.append(spaceByte) }
+                    pendingSpace = false
+                    out.append(c)
+                    last = c
+                }
+                k += 1
+            }
         }
     }
     return String(decoding: out, as: UTF8.self)
@@ -470,8 +573,8 @@ func declarationBody(of declaration: String, in source: String,
     let start = try #require(code.range(of: declaration),
                              "counted \(declaration) once but could not find it — the reader is broken, not the app",
                              sourceLocation: sourceLocation)
-    let b = Array(code.utf8)
-    let roles = swiftLexemes(b)
+    let lexedCode = lexed(code)
+    let b = lexedCode.bytes, roles = lexedCode.roles
     let from = code.utf8.distance(from: code.startIndex, to: start.lowerBound)
     let afterDeclaration = from + declaration.utf8.count
     let open = try #require(openingBrace(ofDeclarationAt: from, in: b, roles: roles),
@@ -504,8 +607,8 @@ func argumentList(of callee: String, in source: String,
 func argumentLists(of callee: String, in source: String) -> [String] {
     let name = Array((callee.hasSuffix("(") ? String(callee.dropLast()) : callee).utf8)
     guard !name.isEmpty else { return [] }
-    let b = Array(source.utf8)
-    let roles = swiftLexemes(b)
+    let lexedSource = lexed(source)
+    let b = lexedSource.bytes, roles = lexedSource.roles
     var lists: [String] = []
     var i = 0
     while i + name.count <= b.count {
@@ -541,8 +644,8 @@ struct CallArguments {
 
     /// `list` is the text between a call's parentheses — ``argumentList(of:in:sourceLocation:)``.
     init(_ list: String) {
-        let b = Array(list.utf8)
-        let roles = swiftLexemes(b)
+        let lexedList = lexed(list)
+        let b = lexedList.bytes, roles = lexedList.roles
         var pieces: [String] = []
         var depth = 0
         var start = 0

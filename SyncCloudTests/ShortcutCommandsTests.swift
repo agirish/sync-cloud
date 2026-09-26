@@ -133,7 +133,7 @@ import Foundation
     }
 
     /// The publisher's own source, named so a rename fails loudly rather than emptying the scan.
-    static func publisherSource() throws -> String {
+    nonisolated static func publisherSource() throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -152,7 +152,7 @@ import Foundation
     /// The shared stripper — see ``sourceCodeOnly(_:)``. Four suites in this target carried a
     /// byte-identical copy of it; consolidating `body(of:in:)` and leaving the thing it depends on
     /// duplicated would have been half a fix.
-    static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
+    nonisolated static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
 
     /// While the destination picker is up its overlay blocks the mouse from every control these
     /// chords mirror; the keyboard must not tunnel under it. One flag silences all twelve.
@@ -285,7 +285,7 @@ import Foundation
     /// One member's body: its declaration to the first closing brace at member indentation. The
     /// same slicer `PaneTabWiringTests` uses, and for the same reason — a fixed window goes stale
     /// as the file grows and starts answering with a neighbour's text.
-    static func memberBody(_ declaration: String, in source: String) throws -> String {
+    nonisolated static func memberBody(_ declaration: String, in source: String) throws -> String {
         let start = try #require(source.range(of: declaration),
                                  "\(declaration) is gone — this scan would be vacuous")
         let rest = source[start.upperBound...]

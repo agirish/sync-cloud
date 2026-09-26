@@ -246,8 +246,12 @@ import FileExplorer
             "Edit header folder name pressed with no document open — nothing to show",
         ])
     }
+}
 
-    // MARK: The real wiring
+/// **The real wiring**, read from `MacApp/`. A suite of its own so that it is not `@MainActor`:
+/// the scans touch no AppKit or SwiftUI, and on the main thread they held up every main-actor test
+/// in the process (see `EditorHandOffRunWiringTests`).
+@Suite struct EditorHeaderLocationWiringTests {
 
     /// **Edit's document column is told when the pane beside it draws its tab strip** — by the
     /// pane's own rule, and only while the pane is open — and moves with the strip's curve. The

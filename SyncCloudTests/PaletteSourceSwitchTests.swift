@@ -206,10 +206,6 @@ import FileExplorer
     /// `aimedAtRight` is computed over the layout, so re-reading it per statement is how
     /// `aimOrganize` came to reveal a right-pane scope into the left pane. Both writes have to name
     /// the same side, and the side has to be a binding rather than the expression twice.
-    /// `@MainActor` for one reason and one only: `PaneTabWiringTests.argumentTokens` is a member of
-    /// a `@MainActor` suite. Written on the test rather than on this suite so nothing else here
-    /// silently inherits an isolation it does not need.
-    @MainActor
     @Test func bothWritesNameTheSameCapturedPane() throws {
         let body = try declarationBody(
             of: "private func switchSourceAndReveal(providerId: String, path: String) {",

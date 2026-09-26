@@ -13,7 +13,6 @@ import Foundation
 /// somewhere that outlives it, and `ContentView` is the only view in the app that does — it is
 /// mounted once for the window's life. These scans hold the call sites, because nothing rendered
 /// notices a host quietly going back to keeping nothing.
-@MainActor
 @Suite struct WorkspaceSessionHoistTests {
 
     /// **`@State`, not `@StateObject`, and the difference is a window-wide re-render.**

@@ -135,7 +135,7 @@ import FileExplorer
     /// constructed, which is the same reason `BrowseWorkspaceCallSiteTests` scans rather than
     /// drives. The `#require`s are its positive controls — a renamed member or a truncated read
     /// fails loudly instead of passing an empty scan.
-    @MainActor @Test func theEnclosingFolderChordIsNotWiredToTheFocusHistory() throws {
+    @Test func theEnclosingFolderChordIsNotWiredToTheFocusHistory() throws {
         let source = try ShortcutCommandsTests.publisherSource()
         let body = ShortcutCommandsTests.codeOnly(
             try ShortcutCommandsTests.memberBody("var shortcutEnclosingFolder", in: source))
@@ -148,7 +148,7 @@ import FileExplorer
 
     /// The same for ⌘↓: it must go through the rule, and through `applyColumnNavigation` rather
     /// than writing the binding, so the seam link mirrors it exactly as it mirrors a column click.
-    @MainActor @Test func theOpenChordGoesThroughTheSameDoorAColumnClickUses() throws {
+    @Test func theOpenChordGoesThroughTheSameDoorAColumnClickUses() throws {
         let source = try ShortcutCommandsTests.publisherSource()
         let body = ShortcutCommandsTests.codeOnly(
             try ShortcutCommandsTests.memberBody("var shortcutOpenSelectedFolder", in: source))
