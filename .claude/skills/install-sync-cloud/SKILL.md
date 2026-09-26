@@ -1,6 +1,6 @@
 ---
 name: install-sync-cloud
-description: Copy the latest built SyncCloud.app to /Applications, verify it actually launched, and sweep stale build debris. Use when the user asks to install, deploy, or copy SyncCloud to Applications.
+description: Copy the latest built SyncCloud.app to /Applications — signed with this Mac's Apple Development identity so macOS privacy grants survive rebuilds — verify it actually launched, and sweep stale build debris. Use when the user asks to install, deploy, or copy SyncCloud to Applications.
 ---
 
 Install the most recent SyncCloud build into /Applications.
@@ -59,25 +59,30 @@ Every check below is here because it failed once and reported success anyway —
    ```
 4. **Sign the build with this Mac's stable identity**, replace the installed copy, and **record a fingerprint of what you just installed** — step 9 needs it to prove the bundle in /Applications is still yours. Fingerprint the *installed* copy, not `$APP` (that is what "still yours" is a claim about, and it keeps working after step 5 deletes `$APP`), and take it immediately: the window in which an overwrite can slip past unnoticed is exactly the gap between the copy and this line.
    ```bash
-   # Exactly one valid Apple Development identity: sign with it. None, or several to choose
-   # between: keep Xcode's ad-hoc signature and say so. The app runs either way; ad-hoc only
-   # means the next launch asks for Documents access again.
-   SIGN_IDS=$(security find-identity -v -p codesigning | awk '/"Apple Development: /{print $2}' | sort -u)
-   if [ "$(printf '%s' "$SIGN_IDS" | grep -c .)" -eq 1 ]; then
-     codesign --force --sign "$SIGN_IDS" --timestamp=none --preserve-metadata=entitlements,flags "$APP" & CS=$!
+   # Sign with this Mac's Apple Development identity. Every valid one must carry the SAME
+   # certificate name — a renewal overlaps the old certificate for a while, and one name means one
+   # designated requirement, so either will do. None, or two different names: keep Xcode's ad-hoc
+   # signature and say so. The app runs either way; ad-hoc only means its first launch asks for
+   # Documents access again.
+   SIGN_LINES=$(security find-identity -v -p codesigning | grep '"Apple Development: ')
+   SIGN_NAMES=$(printf '%s\n' "$SIGN_LINES" | sed -n 's/.*"\(Apple Development: .*\)"$/\1/p' | sort -u)
+   SIGN_ID=$(printf '%s\n' "$SIGN_LINES" | awk 'NF { print $2; exit }')
+   if [ -n "$SIGN_ID" ] && [ "$(printf '%s\n' "$SIGN_NAMES" | grep -c .)" -eq 1 ]; then
+     codesign --force --sign "$SIGN_ID" --timestamp=none --preserve-metadata=entitlements,flags "$APP" & CS=$!
      for _ in $(seq 1 30); do kill -0 $CS 2>/dev/null || break; sleep 1; done
      kill -0 $CS 2>/dev/null && { kill $CS; echo "WARNING: codesign still waiting after 30s — a keychain prompt? Killed it."; }
      wait $CS || echo "WARNING: signing failed — installing the ad-hoc build"
    else
-     echo "WARNING: $(printf '%s' "$SIGN_IDS" | grep -c .) valid Apple Development identities — installing the ad-hoc build"
+     echo "WARNING: no single Apple Development certificate to sign with (found: $(printf '%s' "${SIGN_NAMES:-none}" | paste -sd ',' -)) — installing the ad-hoc build"
    fi
    codesign -d -r- "$APP" 2>&1 | tail -1   # want: identifier … and anchor apple generic …   (cdhash H"…" = ad-hoc)
 
-   if codesign --verify --strict "$APP"; then
-     rm -rf /Applications/SyncCloud.app && ditto "$APP" /Applications/SyncCloud.app
-   else
-     echo "NOT INSTALLED — \$APP does not verify; rebuild it clean before installing"
+   if ! codesign --verify --strict "$APP"; then
+     echo "NOT INSTALLED — \$APP does not verify, and /Applications still holds the previous build."
+     echo "Stop here: steps 5–10 would fingerprint, relaunch and report on that old build. Rebuild clean, then start over."
+     exit 1
    fi
+   rm -rf /Applications/SyncCloud.app && ditto "$APP" /Applications/SyncCloud.app
 
    bundle_digest() {   # path-independent digest of every binary in the bundle
      find "$1/Contents/MacOS" -type f -print0 | sort -z | xargs -0 shasum -a 256 \
@@ -88,14 +93,16 @@ Every check below is here because it failed once and reported success anyway —
    ```
    It hashes every file under `Contents/MacOS` rather than one named binary because the layout differs by configuration: a Debug build is a ~59 KB `SyncCloud` launcher stub plus the real ~35 MB `SyncCloud.debug.dylib` (and a small `__preview.dylib`), while Release puts the code in `SyncCloud` itself. Hashing the directory covers both, and covers a foreign build whose layout differs entirely.
 
-   **Why the signing: macOS keys a privacy grant to the app's designated requirement, and an ad-hoc app's requirement is its cdhash.** Xcode signs every build here ad-hoc (`project.yml` pins `CODE_SIGN_IDENTITY: "-"`), and the cdhash moves with every build — even the same commit built in another worktree, because a Release binary's debug map records the absolute path of every object file. So every install was a new app to macOS: the first listing of `~/Documents` blocked on the "access files in your Documents folder" dialog, and the iCloud pane stayed blank until someone answered it — 15 of 16 launches on 2026-09-25, from 1.9 s to 46 min (speed audit P16). Re-signed with the Mac's Apple Development identity, the requirement names the certificate instead (`identifier "com.abhishekgirish.SyncCloud" and anchor apple generic and certificate leaf[subject.CN] = …`), which survives rebuilds, so the grant survives too. The first launch after an ad-hoc install asks once more; installs after it do not.
+   **Why the signing: macOS keys a privacy grant to the app's designated requirement, and an ad-hoc app's requirement is its cdhash.** Xcode signs every build here ad-hoc (`project.yml` pins `CODE_SIGN_IDENTITY: "-"`), and the cdhash moves with every build — even identical source built into another folder (another worktree's `.dd`, or shared DerivedData), because a Release binary's debug map records the absolute path of every object file: on 2026-09-26 the same app sources built into two folders came out as `f3763793…` and `026c4410…`. So every install was a new app to macOS: the first listing of `~/Documents` blocked on the "access files in your Documents folder" dialog, and the iCloud pane stayed blank until someone answered it — 15 of 16 launches on 2026-09-25, from 1.9 s to 46 min (speed audit P16). Re-signed with the Mac's Apple Development identity, the requirement names the certificate instead (`identifier "com.abhishekgirish.SyncCloud" and anchor apple generic and certificate leaf[subject.CN] = …`), which survives rebuilds, so the grant survives too. The first launch after an ad-hoc install asks once more; installs after it do not.
    - **tccd says so in as many words, but only live.** At the first launch of a re-signed build on 2026-09-26 it checked the stored Documents grant against the new code and wrote `matchesCodeRequirement: … cdhash H"77461a22…"; status: -67050`, then `Failed to match existing code requirement for subject com.abhishekgirish.SyncCloud and service kTCCServiceSystemPolicyDocumentsFolder`, then `AUTHREQ_PROMPTING` — the stored requirement was the previous install's cdhash. Those lines are debug-level and never persisted, so `log show` finds nothing afterwards; start `/usr/bin/log stream --level debug --predicate 'process == "tccd"'` *before* step 7 to see them.
    - **Only the signature changes.** Stripped of their signatures, an ad-hoc build and its re-signed copy differ in one byte of 63 MB — `__LINKEDIT`'s `vmsize`, reserving room for the larger signature (measured 2026-09-26). `--preserve-metadata=entitlements,flags` keeps Xcode's `get-task-allow` and any hardened-runtime flag a future build turns on; the ad-hoc flag does not carry over.
    - **Sign `$APP`, not the installed copy**, so `/Applications` only ever receives a bundle that verifies, and a failed signing leaves the ad-hoc build intact to install instead.
+   - **A bundle that does not verify stops the whole skill, not just the copy.** The first version of this step only printed "NOT INSTALLED" and carried on, so step 4 went on to fingerprint the *previous* app still in `/Applications`, step 5 deleted the build, step 7 relaunched the old app and step 9 compared that old app's digest with itself and printed "provenance OK" — a full report of success for an install that never happened. `exit 1` ends the phase before any of that runs.
+   - **A renewal is not a conflict.** Renew before the certificate expires and both it and its successor stay valid for a while. The designated requirement names the certificate by its *name*, so two valid identities with one name give one requirement and either will do. Two different names would each give a different requirement, and picking one silently would cost a dialog, so that case installs ad-hoc and prints both names.
    - **Bounded, because `codesign` reads the private key from the login keychain.** A locked keychain answers with a password prompt, and nothing here may type a password: the prompt would hang the step with no error.
    - **A Debug fallback signs the same way.** Its two dylibs keep their ad-hoc signatures, which loads fine without hardened runtime; the grant follows the main executable's requirement.
    - **The Anthropic key in the Keychain has the same problem, and the same fix.** On 2026-09-26 its access list trusted **eight** separate `/Applications/SyncCloud.app` entries, each pinned to a different `cdhash H"…"`, with a matching list of `cdhash:` partition IDs — one per ad-hoc build someone clicked "Always Allow" for (`security dump-keychain -a`, which reads access lists without decrypting anything). Signed, the build is identified by its certificate instead, so the first *read* of the key after the switch — Refine with Claude; `AnthropicKeychain.isConfigured` reads attributes only and never asks — should raise one Keychain prompt, and the answer should then hold across rebuilds. Not exercised: answering it takes the login password, which nothing here may type.
-   - **No identity is not a failure.** The certificate expires **2026-12-01**; after that `find-identity -v` lists nothing, this step installs ad-hoc and says so, and the dialog is back until it is renewed.
+   - **No identity is not a failure.** The certificate expires **2026-12-01**; after that `find-identity -v` lists nothing, this step installs ad-hoc and says so, and the dialog is back until it is renewed. The app says which kind of build it is at every launch — `Code signature: …` right after the `launched` line in `~/sync-cloud.log`.
 5. Unregister the DerivedData copy from LaunchServices AND delete it, so macOS search (Spotlight indexes the bundle on disk) shows only the installed app. The next build recreates it:
    ```bash
    /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -u "$APP" && rm -rf "$APP"
@@ -147,7 +154,7 @@ Every check below is here because it failed once and reported success anyway —
    fi
    ```
    On a mismatch, **report it — do not silently re-`ditto`.** The other session is mid-install and racing it just trades which build loses; and the app you verified in step 7 was launched from a bundle that no longer exists on disk, so that evidence is void too. Say which build is now installed and let the user decide.
-10. Report both timestamps, **the new log lines from step 7**, and **the provenance result from step 9** — the three answer different questions and only together mean "installed successfully": the log lines say the app got through launch, the digest says the bundle in /Applications is the one you installed, and the timestamps say the process is not a survivor of step 3. If step 8 ran, report the blocking frame instead and say plainly that the install did not come up. **Also report the designated requirement from step 4** — a `cdhash H"…"` there means this launch, and the next one, will stop at the Documents-access dialog.
+10. Report both timestamps, **the new log lines from step 7**, and **the provenance result from step 9** — the three answer different questions and only together mean "installed successfully": the log lines say the app got through launch, the digest says the bundle in /Applications is the one you installed, and the timestamps say the process is not a survivor of step 3. If step 8 ran, report the blocking frame instead and say plainly that the install did not come up. **Also report the designated requirement from step 4** — a `cdhash H"…"` there means this install asks for Documents access at its first launch, and so will every install after it until one is signed.
 
 ## Cleanup sweep
 

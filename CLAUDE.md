@@ -402,11 +402,13 @@ macOS keys a privacy grant to the app's designated requirement, and an ad-hoc ap
 which moves with every build. So every install used to be a new app to macOS, and the iCloud pane
 sat blank behind the "access files in your Documents folder" dialog until someone answered it (the
 2026-09-25 speed audit found 15 of 16 launches waiting, from 1.9 s to 46 min). Step 4 of the skill
-re-signs the bundle before copying it, which makes the requirement name the certificate instead. CI never uses the
-certificate, and neither does anyone else building from source. Check an install with
-`codesign -d -r- /Applications/SyncCloud.app`: `cdhash H"…"` there means the next launch will ask
-again. **The certificate expires 2026-12-01.** After that the skill finds no identity, installs
-ad-hoc and says so, and the dialog is back until the certificate is renewed.
+re-signs the bundle before copying it, which makes the requirement name the certificate instead.
+CI never uses the certificate, and neither does anyone else building from source. The app logs
+which kind of build it is right after its `launched` line — `Code signature: team …` or
+`Code signature: ad-hoc …` — and an ad-hoc install asks for Documents access at its first
+launch, as will every install after it until one is signed. **The certificate expires
+2026-12-01.** The skill signs through a renewal while both certificates carry the same name; with
+none, or with two different names, it installs ad-hoc and says so.
 
 ## Correctness bar
 

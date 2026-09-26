@@ -1025,6 +1025,13 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         let build = info?["CFBundleVersion"] as? String ?? "?"
         Logger.shared.info("SyncCloud \(version) (build \(build)) launched")
 
+        // How this build is signed, on the very next line — ad-hoc means its first launch waits
+        // behind the Documents-access dialog, which is the whole of speed audit P16 and was
+        // invisible here. It costs a few milliseconds — the two lines landed 5 ms apart in the
+        // installed app, 2026-09-26 — so it runs inline and keeps them adjacent. See
+        // `LaunchSignature`.
+        Logger.shared.info(LaunchSignature.current().logLine)
+
         // Which state the AppKit display-cycle guard is in, recorded once per launch.
         //
         // The suppression `SyncCloudApp.init` registers is app-GLOBAL and lasts the whole session:
