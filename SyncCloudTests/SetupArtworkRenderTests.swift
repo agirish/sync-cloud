@@ -17,6 +17,12 @@ import AppKit
 /// can only ever fail for the wrong reason. `testTheRendererSeesAShippedIllustration` is the
 /// control: if the renderer cannot see `DuplicatesArt`, which has shipped since the tour existed, then
 /// it cannot see any of them and the Browse check below is not evidence.
+///
+/// **And against a blank one, because the renderer can fail the other way too.** Its own image is
+/// a buffer it recycles, and a render with nothing to draw handed that buffer back holding an
+/// earlier page's pixels — so a page with no art at all passed here, in some runs and not others.
+/// `render` draws into a bitmap of its own for that reason, and
+/// `testABlankPageReadsAsBlankRightAfterAPaintedOne` is the control that keeps it honest.
 @Suite(.machinePinned(.pixelSampling)) struct SetupArtworkRenderTests {
 
     /// Renders one page's artwork at the size the card gives it, and returns the bitmap.
@@ -27,14 +33,42 @@ import AppKit
     /// the control test below exists rather than an assumption that `onAppear` ran.
     @MainActor
     static func render(_ art: SetupArt.Art) throws -> NSBitmapImageRep {
-        let view = SetupIllustration(art: art, leftName: "iCloud", rightName: "Dropbox")
-            .frame(width: 260, height: 120)
-            .tint(.blue)
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = 2
-        let image = try #require(renderer.nsImage, "renderer produced no image for \(art)")
-        let data = try #require(image.tiffRepresentation)
-        return try #require(NSBitmapImageRep(data: data))
+        try render(SetupIllustration(art: art, leftName: "iCloud", rightName: "Dropbox"), named: "\(art)")
+    }
+
+    /// Renders any view the way `render(_:)` renders a page: same size, same tint, same scale.
+    ///
+    /// **Into a bitmap this function allocates and clears — never the renderer's own image.**
+    /// `ImageRenderer`'s `nsImage` and `cgImage` come back in a buffer it recycles between renders
+    /// of the same pixel size, and a render with nothing visible to draw does not clear it: it
+    /// returns whatever the last same-sized render painted, once that render's image has been
+    /// freed. Measured 2026-09-26 with Browse's art replaced by `Color.clear`: the blank page read
+    /// 18,351 painted pixels, `.duplicates`' exact count, and each of the three Browse tests passed,
+    /// in one run or another, on a page that drew nothing. Art whose reveal never ran is the same
+    /// case — everything at `opacity(0)` draws nothing — which is the failure this suite exists for.
+    ///
+    /// `render(rasterizationScale:renderer:)` is the same renderer, `onAppear` included; only the
+    /// destination is ours. An unattached `NSHostingView` is no substitute: through `cacheDisplay`
+    /// it drew Browse and Welcome as nothing at all, captured before their reveals showed.
+    @MainActor
+    static func render(_ content: some View, named name: String) throws -> NSBitmapImageRep {
+        let scale: CGFloat = 2
+        let renderer = ImageRenderer(content: content.frame(width: 260, height: 120).tint(.blue))
+        var image: CGImage?
+        renderer.render(rasterizationScale: scale) { size, draw in
+            let width = Int((size.width * scale).rounded(.up))
+            let height = Int((size.height * scale).rounded(.up))
+            guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: 0, space: space,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return }
+            context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+            context.scaleBy(x: scale, y: scale)
+            draw(context)
+            image = context.makeImage()
+        }
+        return NSBitmapImageRep(cgImage: try #require(image, "the renderer produced no image for \(name)"))
     }
 
     /// Pixels that are not fully transparent, and how many of them carry a hue rather than grey.
@@ -66,6 +100,30 @@ import AppKit
         let (painted, _) = Self.ink(try Self.render(.duplicates))
         #expect(painted > 500,
                 "the renderer cannot see DuplicatesArt, which ships — every check below would be vacuous")
+    }
+
+    /// The other control: a page that paints nothing reads as nothing — straight after one that
+    /// painted, at the same size.
+    ///
+    /// Every floor below is only evidence if a blank reads as blank, and through the renderer's own
+    /// image it did not (see `render(_:named:)`). The two blanks are the two a broken page produces:
+    /// a body that draws nothing, and art held at `opacity(0)` because its reveal never ran. Each
+    /// follows a shipped illustration whose image is freed first, inside its own autorelease pool,
+    /// because a recycled buffer is only handed out once the image holding it is gone.
+    @MainActor
+    @Test func testABlankPageReadsAsBlankRightAfterAPaintedOne() throws {
+        let blanks: [(String, AnyView)] = [
+            ("a body that draws nothing", AnyView(Color.clear)),
+            ("art whose reveal never ran",
+             AnyView(SetupIllustration(art: .duplicates, leftName: "iCloud", rightName: "Dropbox").opacity(0))),
+        ]
+        for (name, blank) in blanks {
+            let before = try autoreleasepool { Self.ink(try Self.render(.duplicates)).painted }
+            try #require(before > 500, "DuplicatesArt painted nothing, so nothing could go stale")
+            let after = try autoreleasepool { Self.ink(try Self.render(blank, named: name)).painted }
+            #expect(after == 0,
+                    "\(name) read as \(after) painted pixels — the render handed back an earlier page's, so every floor here can pass on a blank page")
+        }
     }
 
     /// Browse's own art paints, and paints its tint.
@@ -103,9 +161,9 @@ import AppKit
     /// cases for its first weeks, so a blank illustration on four tour pages (or on whatever case
     /// is added next — `Art` is `CaseIterable` for exactly this loop) would have shipped with the
     /// suite green. The floor is far below any shipped illustration's ink but far above the noise
-    /// of an art view that never ran its `onAppear` reveal or lost its body: the control test
-    /// above establishes that the renderer sees a shipped illustration at all, so a blank here is
-    /// the ART, not the harness.
+    /// of an art view that never ran its `onAppear` reveal or lost its body: the two controls
+    /// above establish that the renderer sees a shipped illustration at all and that a blank reads
+    /// as blank, so a blank here is the ART, not the harness — and a pass is not an earlier page.
     @MainActor
     @Test(arguments: SetupArt.Art.allCases)
     func testEveryTourPagePaintsItsIllustration(art: SetupArt.Art) throws {

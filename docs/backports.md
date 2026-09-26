@@ -6016,3 +6016,27 @@ only.
 **Checked and not owed is the finding here**, not an omission: every row above was read against the
 maintenance lines rather than assumed, and the one that would have been worth sending — the
 `attach` reordering — is named as such so a future audit does not have to find it again.
+
+## The setup art suite could pass on a blank page — `v4.x` carries the same harness
+
+Test-only (2026-09-26). `SetupArtworkRenderTests` read its pixels from `ImageRenderer.nsImage`, a
+buffer the renderer recycles; a page that drew nothing — an empty body, or art whose reveal never ran
+— came back holding an earlier page of the same size, so each of the three Browse checks could pass
+blank. It now renders into a context of its own, and `testABlankPageReadsAsBlankRightAfterAPaintedOne`
+holds that. `docs/flaky-tests.md` gains the mechanism, "An `ImageRenderer` render with nothing to draw
+hands back an earlier render's pixels" — cite it by title; the numbering is per-line.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s suite=%s ownImage=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- SyncCloudTests/SetupArtworkRenderTests.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:SyncCloudTests/SetupArtworkRenderTests.swift 2>/dev/null | grep -c 'renderer.nsImage')"
+done
+# measured 2026-09-26, against origin, before this landed:
+# main suite=1 ownImage=1 · v4.x suite=1 ownImage=1 · v3.x suite=0 ownImage=0 · v2.x suite=0 ownImage=0
+```
+
+**`v4.x`: applies, RECORDED — not owed.** The same harness and the same three Browse checks, over six
+pages (no `.edit`), so a v4 page whose art stops drawing can pass there too. No product file changed,
+so no line has a defect to send — what `v4.x` lacks is a suite that can tell a blank page from a
+painted one. **`v3.x` and `v2.x`: do not apply** — neither has the suite.

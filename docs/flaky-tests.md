@@ -2811,3 +2811,85 @@ failure available to it from its first run; inject the storage from the start.
 
 **See.** `Modules/FileExplorer/Sources/FileExplorer/DuplicateThumbnail.swift` (`DuplicateThumbnail.Storage`);
 `Modules/FileExplorer/Tests/FileExplorer/DuplicateThumbnailCacheTests.swift`.
+
+### 25. An `ImageRenderer` render with nothing to draw hands back an earlier render's pixels — a VACUOUS green, FIXED
+
+**Symptom.** None, and under mutation only sometimes. Found 2026-09-26 by mutation-testing
+`SetupArtworkRenderTests`: with Browse's art replaced by `Color.clear`, so the page drew nothing,
+three runs of the render suites put `testEveryTourPagePaintsItsIllustration(art: .browse)` red in 2
+of 3, while `testTheBrowseIllustrationPaintsColumnsAndASelection` (painted > 500, tinted > 40) and
+`testTheBrowseIllustrationDrawsThreeSeparateColumns` (exactly three runs of ink) each **passed** in
+1 of 3 — on a blank page. A probe that rendered every page in tour order six times read the `.browse`
+bitmap as `[18351, 0, 0, 0, 0, 0]` painted pixels, and 18,351 is `.duplicates`' count exactly.
+Re-measured at `6794379d`, five runs each: with that mutation `…PaintsColumnsAndASelection` passed
+blank 4 of 5 and the `.browse` case 3 of 5; with the realistic regression instead — Browse's `onAppear` never
+revealing, its columns left at `opacity(0)` — 3 of 5 and 2 of 5, and in two of those runs the column
+test was the only red in three suites.
+
+**Mechanism.** `ImageRenderer`'s `nsImage` and `cgImage` come back in a pixel buffer the renderer
+recycles between renders of the same pixel size, and a render with **nothing visible to draw does
+not clear it**. It returns whatever the last same-sized render painted, provided that render's image
+has already been freed. Measured on macOS 27.0 (26A428), a painted render and then a second one:
+
+| Second render | What it reads |
+|---|---|
+| `Color.clear` | the first render, whole: 124,800 of 124,800 pixels |
+| a view at `opacity(0)` — art whose reveal never ran | the same |
+| an invisible `drawingGroup()`, `blur`, `shadow` or blend-mode group | the same |
+| `Color.clear`, the first render's `NSImage` or `ImageRenderer` still alive | clean |
+| `Color.clear`, the first render 1pt wider, or 1pt taller | clean |
+| anything visible: a 1pt dot, `opacity(0.001)`, a half-width fill | clean — the whole buffer is cleared first |
+
+In the app's test host, `.duplicates` and then `Color.clear` at the page's size read **18,351
+painted, 9,599 tinted** — `.duplicates`' own counts — 6 runs of 6. The two renders' pixels sit at
+the same address, and it is not the allocator recycling them: under `MallocScribble` the stale
+pixels keep the first render's colour rather than the fill freed memory gets. The pool is the
+renderer's.
+
+**Why it comes and goes.** A buffer is only handed out again once the image holding it is freed, and
+`nsImage` returns an image that lives until its autorelease pool drains. The same pair in the host:
+with no pool around each render, stale **0 of 6**; with one, **6 of 6**. A full run drains between
+main-actor jobs, so whether a blank page reads blank depends on which test ran before it and when
+its pool emptied — which is why one mutation let a different set of Browse tests through from run to
+run, and why nothing in any green run shows it at all.
+
+**Never partly stale.** Content that paints anything clears the whole buffer first (the dot and
+half-width rows above). Five of the seven setup art pages rendered byte-identically after three
+different predecessors. The two that did not, Welcome and Transfer, run `repeatForever` animations,
+and Transfer differs between two renders after the **same** predecessor; none of its 3,539 differing
+pixels carries the predecessor's value. The buffer leaks through whole or not at all — which is why
+a blank that reads as another page's exact count is the tell.
+
+**Tell.** A pixel suite that stays green under a mutation that blanks its subject, in some runs and
+not others. A "blank" whose ink count equals another page's exactly. Mutation-test a render suite
+more than once, and read the counts, not the verdict.
+
+**Fix — own the buffer, and prove a blank reads as blank.**
+`ImageRenderer.render(rasterizationScale:renderer:)` draws the same view — same renderer, `onAppear`
+included — into a `CGContext` the test allocates and clears, so a page that paints nothing reads as
+nothing: 0 in every row of the table above that went stale, `drawingGroup` and `blur` included.
+`SetupArtworkRenderTests.render(_:named:)` does that now. Its pixels are drawn by Core Graphics
+rather than rasterised on the GPU, so they are not byte-identical to the old harness's: Browse's,
+Compare's and Edit's painted counts are unchanged, the other four pages move by at most 36 pixels,
+and every floor keeps its margin. Do not reach for the other harness in this repo, an unattached
+`NSHostingView` read through `cacheDisplay`: it drew Browse and Welcome as nothing at all, captured
+before their `onAppear` reveals showed.
+
+The blank control is the mirror of the positive one every pixel suite here already has: a floor that
+says "this is not blank" is only evidence if a blank reads as blank **in the same harness, straight
+after a painted render whose image has been freed**. `testABlankPageReadsAsBlankRightAfterAPaintedOne`
+renders both blanks a broken page produces — an empty body, and art at `opacity(0)` — after
+`.duplicates`. Against the old harness it failed 5 runs of 5, both blanks reading 18,351 painted
+pixels. Against the new one, both mutations above put all three Browse tests red in 5 runs of 5,
+reading 0 painted pixels and 0 runs of ink, and the unmutated suites stay green 5 of 5.
+
+**Nothing else is exposed today.** `SetupArtworkRenderTests` was the only suite reading pixels from
+`ImageRenderer`'s own image. The four `SnapshotRendering.swift` copies render through `NSWindow` +
+`NSHostingView`, and `DocumentPDF` and `DocumentPrinting` already draw through `render(...)` into
+PDF contexts of their own — the path that stays clean.
+
+**The general rule:** a render harness that does not own its output buffer can answer with someone
+else's pixels, and the only way to see it is to ask it for a blank.
+
+**See.** `SyncCloudTests/SetupArtworkRenderTests.swift` (`render(_:named:)`,
+`testABlankPageReadsAsBlankRightAfterAPaintedOne`).

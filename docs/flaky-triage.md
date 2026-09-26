@@ -115,7 +115,7 @@ machine state* and calling the difference a regression.
 
 ## The silent half — read before writing any absence assertion
 
-**Six mechanisms here can leave an assertion passing having examined nothing.** A false failure is
+**Seven mechanisms here can leave an assertion passing having examined nothing.** A false failure is
 noisy and costs you a day; a vacuous pass is silent and permanent, so it costs you nothing to notice
 and everything to miss.
 
@@ -134,10 +134,16 @@ and everything to miss.
 - [24](flaky-tests.md#24-an-nscache-emptied-by-memory-pressure-between-a-store-and-the-next-line--fixed)
   — a miss read from a cache the OS emptied. "This key answers nil" holds for every key once the
   entry it is contrasted with is gone; `#require` a hit on the same store first.
+- [An `ImageRenderer` render with nothing to draw hands back an earlier render's pixels](flaky-tests.md#25-an-imagerenderer-render-with-nothing-to-draw-hands-back-an-earlier-renders-pixels--a-vacuous-green-fixed)
+  — a "this is not blank" floor read from the renderer's own image. A page that draws nothing can
+  come back holding the last page of the same size; render into a context you own, and prove a
+  blank reads as blank in the same harness.
 
 The first three are visible in the test's own source, as are the fifth and sixth. The fourth fires
 on the volume of unrelated suites, so the same test is honest or vacuous depending on what else was
-scheduled beside it — and the sixth, though visible, is armed by the machine's memory.
+scheduled beside it — and the sixth, though visible, is armed by the machine's memory. The seventh
+is visible only as a harness that reads `nsImage` or `cgImage`, and it is armed by test order: the
+same blank reads blank or painted depending on whether a same-sized render was freed just before it.
 
 ---
 
