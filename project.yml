@@ -11,6 +11,14 @@ targets:
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: "AppIcon"
+        # Every build is signed ad-hoc, on purpose. This is Xcode's default already; it is spelled
+        # out so the policy lives here rather than in nobody's head. CI must never need a keychain,
+        # and nobody else building this has the developer's certificate. The copy in /Applications
+        # is re-signed at install time instead (install-sync-cloud, step 4): macOS keys privacy
+        # grants to the designated requirement, and an ad-hoc requirement is a cdhash that moves
+        # with every build, so each install used to reopen the Documents-access dialog and leave
+        # the iCloud pane blank until someone answered it. See "Trying an app change" in CLAUDE.md.
+        CODE_SIGN_IDENTITY: "-"
     dependencies:
       - package: Sync
       - package: Events

@@ -397,6 +397,17 @@ debris). It launches and verifies the app itself — **by polling `~/sync-cloud.
 not by `pgrep`**: a silent `open` exit is not proof the app started, and neither is a live pid. The
 app can come up wedged with zero windows and an empty log, which is exactly what `pgrep` cannot see.
 
+**Every build is ad-hoc; the installed copy is signed with this Mac's Apple Development identity.**
+macOS keys a privacy grant to the app's designated requirement, and an ad-hoc app's is its cdhash,
+which moves with every build. So every install used to be a new app to macOS, and the iCloud pane
+sat blank behind the "access files in your Documents folder" dialog until someone answered it (the
+2026-09-25 speed audit found 15 of 16 launches waiting, from 1.9 s to 46 min). Step 4 of the skill
+re-signs the bundle before copying it, which makes the requirement name the certificate instead. CI never uses the
+certificate, and neither does anyone else building from source. Check an install with
+`codesign -d -r- /Applications/SyncCloud.app`: `cdhash H"…"` there means the next launch will ask
+again. **The certificate expires 2026-12-01.** After that the skill finds no identity, installs
+ad-hoc and says so, and the dialog is back until the certificate is renewed.
+
 ## Correctness bar
 
 Refactors must be provably behavior-preserving: build the pre-change binary at `HEAD` and diff
