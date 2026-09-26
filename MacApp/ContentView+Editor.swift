@@ -340,14 +340,15 @@ extension ContentView {
                 editorLocationDoors.open(door, documentPath: editorDocument.path,
                                          location: editorDocumentLocation)
             },
-            // The rail row menu's two acts that need the window: the Info inspector, and the one
-            // Quick Look panel every other surface shares. `followsPane: false` — a rail row is not
-            // the pane's selection, so a pane click must not retarget a preview opened from here.
-            onGetInfo: { path in showInfo(for: path) },
-            onQuickLook: { path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) },
-            // The rail row menu's Reveal in Browse: the same act as the header's, told which door
-            // it came through so the log can say so.
-            onRevealRowInBrowse: { path in revealInBrowse(path, from: .railRow) },
+            railRowActions: EditorRailRowActions(
+                // The rail row menu's Reveal in Browse: the same act as the header's, told which
+                // door it came through so the log can say so.
+                revealInBrowse: { path in revealInBrowse(path, from: .railRow) },
+                // The two acts that need the window: the Info inspector, and the one Quick Look
+                // panel every other surface shares. `followsPane: false` — a rail row is not the
+                // pane's selection, so a pane click must not retarget a preview opened from here.
+                getInfo: { path in showInfo(for: path) },
+                quickLook: { path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) }),
             onToggleJustTheText: { toggleJustTheText() },
             // The header's ＋ IS ⌘N — the same closure, so it opens the row and bumps the focus
             // counter, and greys out on the same `nil` the menu item does.

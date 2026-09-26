@@ -90,13 +90,12 @@ import FileExplorer
     /// would be a menu item that quietly does nothing.
     @Test func theHandOffIsARequirementRatherThanADefaultedMember() throws {
         let source = try Self.source("FileActionDelegate.swift")
-        let body = try #require(source.range(of: "public protocol FileActionDelegate"))
-        let rest = source[body.upperBound...]
-        let end = try #require(rest.range(of: "\n}"))
-        #expect(String(rest[..<end.lowerBound]).contains("func handleOpenInEditor(_ path: String)"),
+        let body = CodeText(try declarationBody(of: "public protocol FileActionDelegate", in: source))
+        #expect(body.contains("func handleOpenInEditor(_ path: String)"),
                 "the hand-off is no longer a protocol requirement — a conformer can now inherit a no-op")
-        // …and there is no default hiding in an extension below.
-        #expect(!source[end.upperBound...].contains("func handleOpenInEditor"),
+        // …and there is no default hiding in an extension — below the protocol or above it: the
+        // requirement is the file's only declaration of it, in code.
+        #expect(CodeText(source).count(of: "func handleOpenInEditor") == 1,
                 "a default implementation of the hand-off was added — conformers can stop answering")
     }
 
@@ -178,25 +177,29 @@ import FileExplorer
     /// `isOffered: { _ in true }` in the inspector, would offer a PDF to a text editor, and the
     /// resolver's own tests cannot see it because they inject `isText` directly.
     @Test func theInspectorAndTheFileMenuAreWiredToTheRealHandOff() throws {
-        let content = try Self.macApp("ContentView.swift")
-        let inspector = try #require(content.range(of: "editorHandOff: EditorHandOff("),
+        let content = sourceCodeOnly(try Self.macApp("ContentView.swift"))
+        // The construction's own argument list, where it was the next 240 characters.
+        let inspector = try #require(argumentLists(of: "EditorHandOff(", in: content).first,
                                      "the Info inspector is built without an editor hand-off")
-        let handOff = String(content[inspector.upperBound...].prefix(240))
-        #expect(handOff.contains("isOffered: { EditableText.isText(path: $0) }"),
+        #expect(CodeText(content).contains("editorHandOff: EditorHandOff("),
+                "the hand-off is built, but not handed to the inspector")
+        let handOff = CallArguments(inspector)
+        #expect(handOff.passes("isOffered", "{ EditableText.isText(path: $0) }"),
                 "the inspector no longer asks the row menu's own predicate what the editor opens")
-        #expect(handOff.contains("open: { handOffToEditor($0) }"),
+        #expect(handOff.passes("open", "{ handOffToEditor($0) }"),
                 "the inspector's Open in Edit is not wired to handOffToEditor")
 
         let shortcuts = try Self.macApp("ShortcutCommands.swift")
-        let verbs = try #require(shortcuts.range(of: "var shortcutPaneRowVerbs"),
-                                 "the row verbs resolver is gone or has moved out of this file")
-        let rest = shortcuts[verbs.upperBound...]
-        let end = try #require(rest.range(of: "\n    }\n"), "shortcutPaneRowVerbs never closes")
-        let resolver = String(rest[..<end.lowerBound])
+        let resolverText = try declarationBody(of: "var shortcutPaneRowVerbs", in: shortcuts)
+        let resolver = CodeText(resolverText)
         #expect(resolver.contains("return PaneRowVerbs("), "the slice is not the resolver's body")
-        #expect(resolver.contains("isText: node.map { EditableText.isText(path: $0.id) } ?? false"),
+        #expect(try CallArguments(of: "PaneRowVerbAvailability.resolve(", in: resolverText)
+                    .passes("isText", "node.map { EditableText.isText(path: $0.id) } ?? false"),
                 "File ▸ Open in Edit no longer asks the row menu's own predicate about the selection")
-        #expect(resolver.contains("? { node.map { delegate.handleOpenInEditor($0.id) } } : nil"),
+        // Of the resolver's two `PaneRowVerbs(`, the one that offers anything — the other is `none`.
+        let offered = argumentLists(of: "PaneRowVerbs(", in: resolverText).map(CallArguments.init)
+            .first { $0.value("openInEditor") != "nil" }
+        #expect(offered?.value("openInEditor")?.contains(normalizedCode("? { node.map { delegate.handleOpenInEditor($0.id) } } : nil")) == true,
                 "File ▸ Open in Edit is not wired to the delegate's hand-off")
     }
 
@@ -209,18 +212,20 @@ import FileExplorer
     /// every package test green; `{ _ in }` in its place draws the items and makes them do nothing.
     /// The drawn tests in `DifferenceRowMenuDrawnTests` inject their own closure and see neither.
     @Test func theDifferencesListIsWiredToTheRealHandOff() throws {
-        let content = try Self.macApp("ContentView.swift")
-        let start = try #require(content.range(of: "DifferencesView(syncManager: syncManager"),
-                                 "the differences list is built somewhere this scan does not look")
-        let rest = content[start.lowerBound...]
-        let line = String(rest[..<(rest.firstIndex(of: "\n") ?? rest.endIndex)])
+        let content = sourceCodeOnly(try Self.macApp("ContentView.swift"))
+        // The construction's own argument list, where it was the rest of the line it starts on —
+        // so the call broken over lines lost every argument after the first.
+        let constructions = argumentLists(of: "DifferencesView(", in: content)
+        let differences = CallArguments(try #require(constructions.first,
+                                                     "the differences list is built somewhere this scan does not look"))
+        #expect(differences.passes("syncManager", "syncManager"), "the slice is not the differences list's construction")
         // `.staysPut`: the differences list opens the file WITHOUT moving the left pane, which is
         // half of the comparison the list is showing (TE31's fixup) — see
         // `EditorHandOffRunTests`, which measures what each variant does to a real pane.
-        #expect(line.contains("onOpenInEditor: { handOffToEditor($0, pane: .staysPut) }"),
+        #expect(differences.passes("onOpenInEditor", "{ handOffToEditor($0, pane: .staysPut) }"),
                 "the differences list's Open in Edit is not wired to the hand-off that leaves the pane where it is")
-        // Exactly one construction, so the line read above is THE one.
-        #expect(content.components(separatedBy: "DifferencesView(").count == 2,
+        // Exactly one construction, so the call read above is THE one.
+        #expect(constructions.count == 1,
                 "a second DifferencesView construction appeared — scan it too")
     }
 
@@ -233,27 +238,22 @@ import FileExplorer
     /// can forget outright. Both hops are read here: the app hands the lens `handOffToEditor`, and the
     /// lens hands the card what it was given, deciding nothing on the way.
     @Test func theDuplicateRowMenuIsWiredToTheRealHandOff() throws {
-        let content = try Self.macApp("ContentView.swift")
-        let lensStart = try #require(content.range(of: "LensWorkspaceView("),
-                                     "the lens workspace is no longer built in ContentView")
-        let lensEnd = try #require(content[lensStart.upperBound...].range(of: "session: lensSession"),
-                                   "the lens construction no longer ends where this scan expects")
-        let lens = String(content[lensStart.upperBound..<lensEnd.lowerBound])
-        #expect(lens.contains("onCompareCopies: reviewCoordinator.compareCopies"),
+        let content = sourceCodeOnly(try Self.macApp("ContentView.swift"))
+        // The construction's own argument list, where it was the text up to `session: lensSession`.
+        let lens = try CallArguments(of: "LensWorkspaceView(", in: content)
+        #expect(lens.passes("onCompareCopies", "reviewCoordinator.compareCopies"),
                 "the slice is not the lens workspace's construction")
-        #expect(lens.contains("onOpenInEditor: { handOffToEditor($0) }"),
+        #expect(lens.passes("onOpenInEditor", "{ handOffToEditor($0) }"),
                 "the duplicate row's Open in Edit is not wired to handOffToEditor")
 
         let view = try Self.source("LensWorkspaceView.swift")
-        #expect(view.contains("self.onOpenInEditor = onOpenInEditor"),
+        #expect(CodeText(view).contains("self.onOpenInEditor = onOpenInEditor"),
                 "the lens drops the hand-off it is given")
-        let cardStart = try #require(view.range(of: "private func duplicateCard("),
-                                     "the lens's card builder is gone or renamed")
-        let cardEnd = try #require(view[cardStart.upperBound...].range(of: ".id(group.id)"),
-                                   "the card builder no longer ends where this scan expects")
-        let card = String(view[cardStart.upperBound..<cardEnd.lowerBound])
+        // The builder's own body, where it was the text up to `.id(group.id)`.
+        let cardBody = try declarationBody(of: "private func duplicateCard(", in: view)
+        let card = CodeText(cardBody)
         #expect(card.contains("DuplicateGroupCard("), "the slice is not the card's construction")
-        #expect(card.contains("onOpenInEditor: onOpenInEditor,"),
+        #expect(try CallArguments(of: "DuplicateGroupCard(", in: cardBody).passes("onOpenInEditor", "onOpenInEditor"),
                 "the lens builds its cards without forwarding the hand-off")
         #expect(!card.contains("EditableText") && !card.contains("PairContentKind"),
                 "the lens has started deciding for itself what the editor opens")
@@ -295,26 +295,36 @@ import FileExplorer
 /// test executing.
 @Suite struct EditorRailRowMenuWiringTests {
 
+    /// The app's one `EditorWorkspaceView` construction, read by label.
+    static func workspaceConstruction() throws -> CallArguments {
+        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        // The construction's own argument list inside the builder, where it was the builder's text
+        // up to the rail survey's `.task`.
+        let builder = try declarationBody(of: "func editorWorkspace(showsRail: Bool) -> some View {", in: editor)
+        return try CallArguments(of: "EditorWorkspaceView(", in: builder)
+    }
+
+    /// The rail row menu's acts, as the workspace is HANDED them — the `EditorRailRowActions(`
+    /// passed as its `railRowActions:`, so a set of actions built and not passed does not count.
+    static func railRowActions() throws -> CallArguments {
+        let passed = try #require(try workspaceConstruction().value("railRowActions"),
+                                  "the workspace is not handed the rail row actions")
+        return try CallArguments(of: "EditorRailRowActions(", in: passed)
+    }
+
     /// The three closures at the app's one `EditorWorkspaceView` construction.
     @Test func theRailRowMenuIsWiredToTheInspectorQuickLookAndBrowse() throws {
-        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
-        let start = try #require(editor.range(of: "func editorWorkspace(showsRail: Bool) -> some View {"),
-                                 "the editor workspace builder is gone or renamed")
-        let rest = editor[start.upperBound...]
-        let end = try #require(rest.range(of: ".task(id: EditorRailKey("),
-                               "the builder no longer ends at the rail survey's task")
-        let site = String(rest[..<end.lowerBound])
-        #expect(site.contains("EditorWorkspaceView("), "the slice is not the workspace's construction")
-        #expect(site.contains("onRevealInBrowse: { path in revealInBrowse(path, from: .header) }"),
+        let site = try Self.workspaceConstruction()
+        #expect(site.passes("onRevealInBrowse", "{ path in revealInBrowse(path, from: .header) }"),
                 "the header's Reveal in Browse is not wired to revealInBrowse")
-        #expect(site.contains("onRevealRowInBrowse: { path in revealInBrowse(path, from: .railRow) }"),
+        let rail = try Self.railRowActions()
+        #expect(rail.passes("revealInBrowse", "{ path in revealInBrowse(path, from: .railRow) }"),
                 "the rail rows' Reveal in Browse is not wired to revealInBrowse as its own door")
-        #expect(site.contains("onGetInfo: { path in showInfo(for: path) }"),
+        #expect(rail.passes("getInfo", "{ path in showInfo(for: path) }"),
                 "the rail row menu's Get Info is not wired to the Info inspector")
         // `followsPane: false`: a rail row is not the pane's selection, so a pane click must not
         // retarget a preview opened from here (`CurrentSelection.previewFollow`).
-        #expect(site.contains(
-            "onQuickLook: { path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) }"),
+        #expect(rail.passes("quickLook", "{ path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) }"),
                 "the rail row menu's Quick Look is not wired to the window's shared panel")
     }
 
@@ -324,12 +334,11 @@ import FileExplorer
     /// workspace and nothing else.
     @Test func revealInBrowseMovesThePaneAndTheWorkspaceAndNotTheDocument() throws {
         let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
-        let start = try #require(editor.range(of: "func revealInBrowse(_ path: String, from door: EditorRevealInBrowse.Door) {"),
-                                 "revealInBrowse is gone or renamed")
-        let rest = editor[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }\n"), "revealInBrowse never closes")
-        let body = String(rest[..<end.lowerBound])
-        #expect(body.contains("EditorRevealInBrowse.reveal(\n            path, from: door,"),
+        let text = try declarationBody(of: "func revealInBrowse(_ path: String, from door: EditorRevealInBrowse.Door) {",
+                                       in: editor)
+        let body = CodeText(text)
+        let reveal = try CallArguments(of: "EditorRevealInBrowse.reveal(", in: text)
+        #expect(reveal.unlabeled == ["path"] && reveal.passes("from", "door"),
                 "Reveal in Browse no longer moves the pane to the path it was handed")
         #expect(body.contains("selectedWorkspace = .browse"), "Reveal in Browse no longer switches to Browse")
         for touch in ["editorDocument", "settleEditorDocument", "loadIntoEditor", "openInEditor"] {
@@ -341,11 +350,7 @@ import FileExplorer
     /// Get Info's destination: the inspector, on the path it was handed.
     @Test func showInfoOpensTheInspectorOnThePathItWasHanded() throws {
         let content = try OpenInEditorMenuTests.macApp("ContentView.swift")
-        let start = try #require(content.range(of: "func showInfo(for path: String) {"),
-                                 "showInfo is gone or renamed")
-        let rest = content[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }\n"), "showInfo never closes")
-        let body = String(rest[..<end.lowerBound])
+        let body = CodeText(try declarationBody(of: "func showInfo(for path: String) {", in: content))
         #expect(body.contains("infoPath = path"), "Get Info no longer aims the inspector at its path")
         #expect(body.contains("showInspector = true"), "Get Info no longer opens the inspector")
     }

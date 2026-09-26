@@ -4,6 +4,7 @@ import Testing
 import Sync
 import Design
 @testable import Dashboard
+import FileExplorerTestSupport
 
 /// Why the Search rung has no "a query is live" tint, pinned as the invariant that makes one
 /// unnecessary rather than as an absence.
@@ -98,12 +99,7 @@ import Design
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        var frames: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("_FocusRingView") { frames.append(v.convert(v.bounds, to: host)) }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(host)
+        let frames = FocusRings.frames(in: host)
         guard let top = frames.map(\.minY).min() else { return 0 }
         return frames.filter { abs($0.minY - top) < 2 }.count
     }

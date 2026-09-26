@@ -4,6 +4,7 @@ import Testing
 import Sync
 @testable import Dashboard
 import Design
+import FileExplorerTestSupport
 
 /// The bar as a *canvas*: the claim that a control can sit anywhere along the pane's row rather than
 /// only at its trailing edge.
@@ -36,14 +37,7 @@ import Design
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        var frames: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("_FocusRingView") {
-                frames.append(v.convert(v.bounds, to: host))
-            }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(host)
+        let frames = FocusRings.frames(in: host)
         return frames
     }
 

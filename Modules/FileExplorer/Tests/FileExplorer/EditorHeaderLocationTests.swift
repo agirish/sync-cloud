@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Design
 @testable import FileExplorer
+import FileExplorerTestSupport
 
 /// Where the open document lives, on the Edit header's meta row — and the header as a card of its
 /// own, the height of the pane's toolbar card (TE43).
@@ -37,47 +38,12 @@ import Design
     }
 
     private func document(named name: String) throws -> EditorDocument {
-        let folder = NSTemporaryDirectory() + "loc-" + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let path = (folder as NSString).appendingPathComponent(name)
-        try "hello".write(toFile: path, atomically: true, encoding: .utf8)
-        let document = EditorDocument()
-        _ = EditorFileStore.load(path: path, into: document)
-        return document
+        try TestTextFiles.document(named: name)
     }
 
     private func workspace(_ document: EditorDocument, location: EditorDocumentLocation?,
                            showsRail: Bool = false) -> EditorWorkspaceView {
-        EditorWorkspaceView(
-            document: document,
-            autosavePolicy: EditorAutosavePolicy(),
-            folder: "/n/Finance",
-            entries: [],
-            showsRail: showsRail,
-            railIsHidden: false,
-            accent: .blue,
-            onAccent: .white,
-            mode: .constant(.edit),
-            splitFraction: .constant(0.5),
-            isNaming: .constant(false),
-            typedName: .constant(""),
-            railFilter: .constant(""),
-            railFilterIsExpanded: .constant(false),
-            railTab: .constant(.files),
-            railOutlineAnchors: .constant([:]),
-            undoManager: UndoManager(),
-            prefilledName: { "Untitled.md" },
-            refusal: { _ in nil },
-            onOpen: { _ in },
-            onCreate: { _ in true },
-            onRevealInBrowse: { _ in },
-            location: location,
-            onLocationDoor: { _ in },
-            onGetInfo: { _ in },
-            onQuickLook: { _ in },
-            onToggleJustTheText: {},
-            onNewTextFile: {},
-            onCloseDocument: {})
+        .fixture(document: document, folder: "/n/Finance", showsRail: showsRail, location: location)
     }
 
     private func host<V: View>(_ view: V, width: CGFloat, height: CGFloat? = nil) -> NSHostingView<AnyView> {
@@ -95,13 +61,7 @@ import Design
 
     /// One `_FocusRingView` per focusable control — see `PaneHeaderHeightTests.buttonCount`.
     private func controls(in host: NSView) -> Int {
-        var count = 0
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("_FocusRingView") { count += 1 }
-            v.subviews.forEach(walk)
-        }
-        walk(host)
-        return count
+        return FocusRings.count(in: host)
     }
 
     private var scales: [CGFloat] { FontSize.allCases.map(\.scale) }

@@ -6,6 +6,9 @@ let package = Package(
     platforms: [.macOS("26.0")],
     products: [
         .library(name: "FileExplorer", targets: ["FileExplorer"]),
+        // Test-only: fixtures shared by this package's tests and Dashboard's (which lays Edit's
+        // header out beside the pane's). The app never links it.
+        .library(name: "FileExplorerTestSupport", targets: ["FileExplorerTestSupport"]),
     ],
     dependencies: [
         .package(path: "../Sync"),
@@ -55,10 +58,13 @@ let package = Package(
                 "Sync", "Events", "Design",
                 .product(name: "Markdown", package: "swift-markdown")
             ]),
+        .target(
+            name: "FileExplorerTestSupport",
+            dependencies: ["FileExplorer"]),
         .testTarget(
             name: "FileExplorerTests",
             dependencies: [
-                "FileExplorer", "Sync", "Design",
+                "FileExplorer", "FileExplorerTestSupport", "Sync", "Design",
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
             ],
             path: "Tests/FileExplorer")

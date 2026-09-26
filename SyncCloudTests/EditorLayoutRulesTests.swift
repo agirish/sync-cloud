@@ -80,9 +80,10 @@ import Foundation
             .appendingPathComponent("MacApp/ContentView.swift")
         let source = try #require(try? String(contentsOf: url, encoding: .utf8),
                                   "cannot read ContentView.swift — this scan would be vacuous")
-        let handler = try #require(source.range(of: ".onChange(of: settings.enabledProviders) {"),
-                                   "the provider-arrival handler is gone or renamed")
-        let body = String(source[handler.upperBound...].prefix(1600))
+        // The handler's own closure (``declarationBody(of:in:sourceLocation:)`` matches its braces),
+        // where it was the next 1,600 characters — a window that a longer handler outgrows and a
+        // shorter one lets run into its neighbour.
+        let body = CodeText(try declarationBody(of: ".onChange(of: settings.enabledProviders) {", in: source))
         let completes = try #require(body.range(of: "launchRefreshPending, refreshAction()"),
                                      "the launch refresh is never completed when its sources arrive")
         let guardsOut = try #require(body.range(of: "guard !isBootstrappingProviders else { return }"),

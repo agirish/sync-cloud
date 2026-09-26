@@ -5,6 +5,7 @@ import Sync
 import Testing
 import UniformTypeIdentifiers
 @testable import FileExplorer
+import FileExplorerTestSupport
 
 /// The preview column's Edit button, as it is actually DRAWN.
 ///
@@ -73,15 +74,7 @@ import UniformTypeIdentifiers
     /// here is several levels deep: read raw, the button below reported `y = 0` in a 620pt column
     /// and a geometry assertion against it would have been about nothing at all.
     private static func focusRings(_ root: NSView) -> [CGRect] {
-        var found: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("FocusRing") {
-                found.append(v.convert(v.bounds, to: root))
-            }
-            v.subviews.forEach(walk)
-        }
-        walk(root)
-        return found.sorted { $0.minY < $1.minY }
+        FocusRings.frames(in: root).sorted { $0.minY < $1.minY }
     }
 
     /// Whether a drawn control is the one whose solo render measured `width`.

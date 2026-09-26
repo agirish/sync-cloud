@@ -4,6 +4,7 @@ import SwiftUI
 import AppKit
 import Sync
 @testable import FileExplorer
+import FileExplorerTestSupport
 
 /// The verb that hands a row to the Editor, and the rows it is offered on.
 ///
@@ -190,13 +191,7 @@ import Sync
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(x: 0, y: 0, width: 260, height: height)
         host.layoutSubtreeIfNeeded()
-        var found: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("FocusRing") { found.append(v.frame) }
-            v.subviews.forEach(walk)
-        }
-        walk(host)
-        return found.sorted { $0.minY < $1.minY }
+        return FocusRings.frames(in: host).sorted { $0.minY < $1.minY }
     }
 
     /// **The delegate the app really wires, forwarding the path to the closure ContentView hands

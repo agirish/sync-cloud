@@ -38,6 +38,7 @@ let package = Package(
                 // FileExplorer for `EditHeaderMatchesPaneHeaderTests`, which lays Edit's document
                 // header out beside the real `PaneHeader` — the one place both views can be seen.
                 "Dashboard", "Sync", "Events", "Design", "FileExplorer",
+                .product(name: "FileExplorerTestSupport", package: "FileExplorer"),
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
             ],
             path: "Tests/Dashboard")

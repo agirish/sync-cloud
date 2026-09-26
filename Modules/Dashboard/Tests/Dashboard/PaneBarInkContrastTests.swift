@@ -4,6 +4,7 @@ import Testing
 import Sync
 import Design
 @testable import Dashboard
+import FileExplorerTestSupport
 
 /// Whether a rung that supplies its own `ink:` is still legible in BOTH appearances.
 ///
@@ -198,14 +199,7 @@ import Design
         // The bar's own band, from the drawn controls — see `barRows`. Rings are in points and the
         // bitmap is in pixels (2x on this display), so the conversion is measured off the two rather
         // than assumed; a hard-coded 2 would silently halve the window on a 1x display.
-        var rings: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("FocusRing") {
-                rings.append(v.convert(v.bounds, to: host))
-            }
-            v.subviews.forEach(walk)
-        }
-        walk(host)
+        let rings = FocusRings.frames(in: host)
         let top = try #require(rings.map(\.minY).min(), "no controls found — the ring oracle broke")
         // The bar is the topmost band of rings; the breadcrumb's own controls sit below it, so take
         // only the rings that start with the first one.

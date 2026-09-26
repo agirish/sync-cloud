@@ -5,6 +5,7 @@ import SwiftUI
 import Sync
 import Testing
 @testable import Dashboard
+import FileExplorerTestSupport
 
 /// The Info inspector's door into Edit — the decision, and the button that carries it.
 ///
@@ -79,15 +80,7 @@ import Testing
     /// Every focus-ring view — one per drawn `Button` — in the root's coordinate space, in READING
     /// order. Sorted by line first: the row wraps, so x alone scrambles the order it is read in.
     private static func focusRings(_ root: NSView) -> [CGRect] {
-        var found: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("FocusRing") {
-                found.append(v.convert(v.bounds, to: root))
-            }
-            v.subviews.forEach(walk)
-        }
-        walk(root)
-        return found.sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
+        FocusRings.frames(in: root).sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
     }
 
     /// Mounts the inspector over a real path and pumps until its action row has drawn.

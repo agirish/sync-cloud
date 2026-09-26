@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Design
 @testable import FileExplorer
+import FileExplorerTestSupport
 
 /// The document header's ＋ (TE45) and × (TE46): where they are drawn, what they call, what they
 /// say, and what they cost the file name.
@@ -20,48 +21,14 @@ import Design
 @Suite(.serialized) struct EditorHeaderDoorsTests {
 
     private func document(named name: String) throws -> EditorDocument {
-        let folder = NSTemporaryDirectory() + "doors-" + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let path = (folder as NSString).appendingPathComponent(name)
-        try "hello".write(toFile: path, atomically: true, encoding: .utf8)
-        let document = EditorDocument()
-        _ = EditorFileStore.load(path: path, into: document)
-        return document
+        try TestTextFiles.document(named: name)
     }
 
     private func workspace(_ document: EditorDocument, mode: EditorMode = .edit,
                            railIsHidden: Bool = false,
                            newTextFile: (() -> Void)? = {}) -> EditorWorkspaceView {
-        EditorWorkspaceView(
-            document: document,
-            autosavePolicy: EditorAutosavePolicy(),
-            folder: "/n/Downloads",
-            entries: [],
-            showsRail: false,
-            railIsHidden: railIsHidden,
-            accent: .blue,
-            onAccent: .white,
-            mode: .constant(mode),
-            splitFraction: .constant(0.5),
-            isNaming: .constant(false),
-            typedName: .constant(""),
-            railFilter: .constant(""),
-            railFilterIsExpanded: .constant(false),
-            railTab: .constant(.files),
-            railOutlineAnchors: .constant([:]),
-            undoManager: UndoManager(),
-            prefilledName: { "Untitled.md" },
-            refusal: { _ in nil },
-            onOpen: { _ in },
-            onCreate: { _ in true },
-            onRevealInBrowse: { _ in },
-            location: nil,
-            onLocationDoor: { _ in },
-            onGetInfo: { _ in },
-            onQuickLook: { _ in },
-            onToggleJustTheText: {},
-            onNewTextFile: newTextFile,
-            onCloseDocument: {})
+        .fixture(document: document, folder: "/n/Downloads", railIsHidden: railIsHidden, mode: mode,
+                 onNewTextFile: newTextFile)
     }
 
     // MARK: What it says
@@ -330,6 +297,13 @@ import Design
     /// positive control: a short name keeps the words at the narrowest of those columns, so the
     /// rule is not "never".
     ///
+    /// **The columns are the boundaries, not every 20pt.** A full 560–900 sweep at four sizes drew
+    /// eighty headers; what it found (2026-09-26) is that the words come back, over the WHOLE name,
+    /// at 720 · 760 · 840 · 880pt for the four sizes and are icons at every column below. So the
+    /// sweep keeps 560 (where the worded capsule first fits), 700 (the column the old rule got
+    /// wrong at every size), and each size's first worded column with the one below it — the place
+    /// a rule that drew the words one step too early would show.
+    ///
     /// Mutations: let the capsule choose by its own width again (`forcedRung` nil in the worded
     /// row), and the sweep finds words over a cut name; force the icons everywhere, and the short
     /// name loses its words.
@@ -354,7 +328,7 @@ import Design
         for scale in FontSize.allCases.map(\.scale) {
             let whole = try measure(long, column: 1_600, scale: scale)
             try #require(whole.worded, "at 1,600pt, \(scale), the long name still has no words beside it — the sweep would be about nothing")
-            for column in stride(from: CGFloat(560), through: 900, by: 20) {
+            for column in Self.capsuleColumns {
                 let m = try measure(long, column: column, scale: scale)
                 if m.worded {
                     #expect(m.ink >= whole.ink - 1,
@@ -376,6 +350,10 @@ import Design
         #expect(shedForTheName == 4, "the words were shed for the name at 700pt at \(shedForTheName) of the four sizes")
         print("[words] \(report.joined(separator: " "))")
     }
+
+    /// See ``theCapsuleKeepsItsWordsOnlyWhenTheWholeNameFits``: the first worded column at each
+    /// text size (720 · 760 · 840 · 880) and the column below each, plus 560 and 700.
+    static let capsuleColumns: [CGFloat] = [560, 700, 720, 740, 760, 820, 840, 860, 880]
 
     // MARK: The empty page's caption
 
@@ -450,9 +428,29 @@ import Design
 /// Shared with the × tests and the fit test, so every one of them reads the same geometry the
 /// same way. Coordinates are points, top-left origin — the hosting view is flipped, and the bitmap
 /// is converted by the backing scale, so a ring's frame and a differing pixel are in one space.
+///
+/// **The pixels are read once, from the bitmap's bytes, and the window is closed.** This used to
+/// ask `colorAt(x:y:)` for every pixel it compared — an `NSColor` each, converted to sRGB — and to
+/// leave every window it drew open: the capsule sweep drew eighty, and took 184s in a loaded full
+/// run. Now the bytes are read directly and each DISTINCT colour is converted once, through the
+/// very same `colorAt` + `usingColorSpace(.sRGB)` path, so every threshold below compares the
+/// values it always did. That path is not a no-op, which is why it is kept rather than reading
+/// the bytes as sRGB: `colorAt` reports this sRGB bitmap's bytes as calibrated (generic) RGB, and
+/// converting that to sRGB moves a component by up to 22 steps of 255 — enough to move ink and
+/// accent counts at the thresholds. Measured 2026-09-26 against the old reader on 40 headers the
+/// suite draws: every ring, ink edge, accent count, differing box and ring-pair comparison equal.
 @MainActor
 struct Rendered {
-    let bitmap: NSBitmapImageRep
+    /// Each distinct colour in the image, in sRGB as the old reader saw it.
+    private struct Colour {
+        let r, g, b: CGFloat
+        let brightness: CGFloat
+    }
+    private let palette: [Colour]
+    /// Per pixel, its colour's index in `palette`; row 0 at the top, as `colorAt` counts rows.
+    private let indices: [Int32]
+    let pixelsWide: Int
+    let pixelsHigh: Int
     let rings: [CGRect]
     let size: CGSize
     private let scale: CGFloat
@@ -473,24 +471,49 @@ struct Rendered {
         window.appearance = NSAppearance(named: .aqua)
         window.colorSpace = .sRGB
         window.contentView = host
+        defer { window.contentView = nil; window.close() }
         host.layoutSubtreeIfNeeded()
         guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
         host.cacheDisplay(in: host.bounds, to: rep)
-        var found: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("FocusRing") {
-                var frame = v.convert(v.bounds, to: host)
-                // Measured in the host's own orientation; normalise to top-left if it is not flipped.
-                if !host.isFlipped { frame.origin.y = size.height - frame.maxY }
-                found.append(frame)
-            }
-            v.subviews.forEach(walk)
+        // Measured in the host's own orientation; normalised to top-left if it is not flipped.
+        self.rings = FocusRings.frames(in: host).map { ring in
+            var frame = ring
+            if !host.isFlipped { frame.origin.y = size.height - frame.maxY }
+            return frame
         }
-        walk(host)
-        self.bitmap = rep
-        self.rings = found
+        // Bytes, 8 bits a sample, interleaved — what `cacheDisplay` gives. Anything else is refused
+        // rather than misread.
+        guard let data = rep.bitmapData, rep.bitsPerSample == 8, !rep.isPlanar,
+              rep.samplesPerPixel >= 3, !rep.bitmapFormat.contains(.floatingPointSamples)
+        else { return nil }
+        let (w, h) = (rep.pixelsWide, rep.pixelsHigh)
+        let stride = rep.bitsPerPixel / 8
+        let first = rep.bitmapFormat.contains(.alphaFirst) ? 1 : 0
+        var palette: [Colour] = []
+        var seen: [UInt32: Int32] = [:]
+        var indices = [Int32](repeating: 0, count: w * h)
+        for y in 0..<h {
+            for x in 0..<w {
+                let o = y * rep.bytesPerRow + x * stride
+                var key = UInt32(data[o + first]) << 16 | UInt32(data[o + first + 1]) << 8 | UInt32(data[o + first + 2])
+                if rep.samplesPerPixel > 3 { key |= UInt32(data[first == 1 ? o : o + 3]) << 24 }
+                if let index = seen[key] { indices[y * w + x] = index; continue }
+                // The first pixel of this colour is converted exactly as the old reader converted
+                // every pixel.
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return nil }
+                let index = Int32(palette.count)
+                palette.append(Colour(r: c.redComponent, g: c.greenComponent, b: c.blueComponent,
+                                      brightness: c.brightnessComponent))
+                seen[key] = index
+                indices[y * w + x] = index
+            }
+        }
+        self.palette = palette
+        self.indices = indices
+        self.pixelsWide = w
+        self.pixelsHigh = h
         self.size = size
-        self.scale = CGFloat(rep.pixelsWide) / size.width
+        self.scale = CGFloat(w) / size.width
     }
 
     /// The name row's buttons, left to right: the rings sharing the topmost row's centre line. The
@@ -500,15 +523,20 @@ struct Rendered {
         return rings.filter { abs($0.midY - top) < 5 }.sorted { $0.minX < $1.minX }
     }
 
+    /// The pixel at (`x`, `y`), top-left origin — `nil` outside the image, as `colorAt` answers.
+    private func colour(_ x: Int, _ y: Int) -> Colour? {
+        guard x >= 0, y >= 0, x < pixelsWide, y < pixelsHigh else { return nil }
+        return palette[Int(indices[y * pixelsWide + x])]
+    }
+
     /// The smallest rectangle, in points, holding every pixel that differs from `other` — `nil`
     /// when none do.
     func differingBox(from other: Rendered) -> CGRect? {
-        guard bitmap.pixelsWide == other.bitmap.pixelsWide,
-              bitmap.pixelsHigh == other.bitmap.pixelsHigh else { return CGRect(origin: .zero, size: size) }
+        guard pixelsWide == other.pixelsWide, pixelsHigh == other.pixelsHigh
+        else { return CGRect(origin: .zero, size: size) }
         var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
-        for x in 0..<bitmap.pixelsWide {
-            for y in 0..<bitmap.pixelsHigh where Self.differs(bitmap.colorAt(x: x, y: y),
-                                                             other.bitmap.colorAt(x: x, y: y)) {
+        for x in 0..<pixelsWide {
+            for y in 0..<pixelsHigh where Self.differs(colour(x, y), other.colour(x, y)) {
                 minX = min(minX, x); maxX = max(maxX, x)
                 minY = min(minY, y); maxY = max(maxY, y)
             }
@@ -530,9 +558,9 @@ struct Rendered {
         var inked = 0
         for dx in 0..<w {
             for dy in 0..<h {
-                let p = bitmap.colorAt(x: ax + dx, y: ay + dy)
-                if Self.differs(p, other.bitmap.colorAt(x: bx + dx, y: by + dy)) { return false }
-                if let c = p?.usingColorSpace(.sRGB), c.brightnessComponent < 0.6 { inked += 1 }
+                let p = colour(ax + dx, ay + dy)
+                if Self.differs(p, other.colour(bx + dx, by + dy)) { return false }
+                if let p, p.brightness < 0.6 { inked += 1 }
             }
         }
         // Two blank patches are "the same" about nothing.
@@ -542,13 +570,13 @@ struct Rendered {
     /// The rightmost x, in points, of any ink darker than the background inside `band` — how far
     /// something drawn in that band actually reaches.
     func inkRight(in band: CGRect) -> CGFloat? {
-        let x0 = max(0, Int(band.minX * scale)), x1 = min(bitmap.pixelsWide, Int(band.maxX * scale))
-        let y0 = max(0, Int(band.minY * scale)), y1 = min(bitmap.pixelsHigh, Int(band.maxY * scale))
+        let x0 = max(0, Int(band.minX * scale)), x1 = min(pixelsWide, Int(band.maxX * scale))
+        let y0 = max(0, Int(band.minY * scale)), y1 = min(pixelsHigh, Int(band.maxY * scale))
         guard x0 < x1, y0 < y1 else { return nil }
-        for x in stride(from: x1 - 1, through: x0, by: -1) {
+        for x in Swift.stride(from: x1 - 1, through: x0, by: -1) {
             for y in y0..<y1 {
-                guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                if c.brightnessComponent < 0.6 { return CGFloat(x + 1) / scale }
+                guard let c = colour(x, y) else { continue }
+                if c.brightness < 0.6 { return CGFloat(x + 1) / scale }
             }
         }
         return nil
@@ -557,22 +585,20 @@ struct Rendered {
     /// How many pixels inside `ring` are the accent — blue well clear of red, which a neutral glyph
     /// or the white ground never is.
     func accentPixels(in ring: CGRect) -> Int {
-        let x0 = max(0, Int(ring.minX * scale)), x1 = min(bitmap.pixelsWide, Int(ring.maxX * scale))
-        let y0 = max(0, Int(ring.minY * scale)), y1 = min(bitmap.pixelsHigh, Int(ring.maxY * scale))
+        let x0 = max(0, Int(ring.minX * scale)), x1 = min(pixelsWide, Int(ring.maxX * scale))
+        let y0 = max(0, Int(ring.minY * scale)), y1 = min(pixelsHigh, Int(ring.maxY * scale))
         var count = 0
         for x in x0..<max(x0, x1) {
             for y in y0..<max(y0, y1) {
-                guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                if c.blueComponent - c.redComponent > 0.1 { count += 1 }
+                guard let c = colour(x, y) else { continue }
+                if c.b - c.r > 0.1 { count += 1 }
             }
         }
         return count
     }
 
-    private static func differs(_ a: NSColor?, _ b: NSColor?) -> Bool {
-        guard let p = a?.usingColorSpace(.sRGB), let q = b?.usingColorSpace(.sRGB) else { return false }
-        return max(abs(p.redComponent - q.redComponent),
-                   max(abs(p.greenComponent - q.greenComponent),
-                       abs(p.blueComponent - q.blueComponent))) > 0.02
+    private static func differs(_ a: Colour?, _ b: Colour?) -> Bool {
+        guard let p = a, let q = b else { return false }
+        return max(abs(p.r - q.r), max(abs(p.g - q.g), abs(p.b - q.b))) > 0.02
     }
 }

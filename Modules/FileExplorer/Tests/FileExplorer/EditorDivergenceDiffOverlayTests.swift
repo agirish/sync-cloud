@@ -4,6 +4,7 @@ import AppKit
 import Design
 import Testing
 @testable import FileExplorer
+import FileExplorerTestSupport
 
 /// The "show me what changed" surface: what its two columns claim, and what it refuses to diff.
 @Suite struct EditorDivergenceColumnTests {
@@ -230,12 +231,7 @@ import Testing
     }
 
     private func document(text: String = "hello") throws -> EditorDocument {
-        let folder = NSTemporaryDirectory() + "status-word-" + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let path = (folder as NSString).appendingPathComponent("note.md")
-        try text.write(toFile: path, atomically: true, encoding: .utf8)
-        let document = EditorDocument()
-        _ = EditorFileStore.load(path: path, into: document)
+        let document = try TestTextFiles.document(named: "note.md", text: text)
         // Dirty, because a stop is only ever interesting under an unsaved buffer — and `stopped`
         // outranks dirtiness in `EditorSaveStatus.resolve`, so this is the state the header draws.
         document.text = text + "typed\n"
@@ -244,38 +240,7 @@ import Testing
 
     private func workspace(_ document: EditorDocument, stopped: String?,
                            door: (() -> Void)?) -> EditorWorkspaceView {
-        EditorWorkspaceView(
-            document: document,
-            autosavePolicy: EditorAutosavePolicy(),
-            folder: "/n",
-            entries: [],
-            showsRail: true,
-            railIsHidden: false,
-            accent: .blue,
-            onAccent: .white,
-            mode: .constant(.edit),
-            splitFraction: .constant(0.5),
-            isNaming: .constant(false),
-            typedName: .constant(""),
-            railFilter: .constant(""),
-            railFilterIsExpanded: .constant(false),
-            railTab: .constant(.files),
-            railOutlineAnchors: .constant([:]),
-            undoManager: UndoManager(),
-            stopped: stopped,
-            onShowWhatChanged: door,
-            prefilledName: { "Untitled.md" },
-            refusal: { _ in nil },
-            onOpen: { _ in },
-            onCreate: { _ in true },
-            onRevealInBrowse: { _ in },
-            location: nil,
-            onLocationDoor: { _ in },
-            onGetInfo: { _ in },
-            onQuickLook: { _ in },
-            onToggleJustTheText: {},
-            onNewTextFile: {},
-            onCloseDocument: {})
+        .fixture(document: document, showsRail: true, stopped: stopped, onShowWhatChanged: door)
     }
 
     /// **The header really branches on the door, at render time.**

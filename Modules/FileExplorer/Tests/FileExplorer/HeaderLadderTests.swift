@@ -4,6 +4,7 @@ import SwiftUI
 import Sync
 import Testing
 @testable import FileExplorer
+import FileExplorerTestSupport
 
 /// The differences header's ladder, now that the rung is **computed** rather than searched.
 ///
@@ -156,14 +157,7 @@ struct HeaderLadderTests {
     /// Every `_FocusRingView` in the laid-out row, as a stable string. This is the "what got drawn"
     /// signal: two rows with the same fingerprint drew the same controls in the same places.
     private func fingerprint(_ host: NSView) -> String {
-        var found: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("_FocusRingView") {
-                found.append(v.convert(v.bounds, to: host))
-            }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(host)
+        let found = FocusRings.frames(in: host)
         return found
             .sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
             .map { "\(Int($0.minX.rounded())),\(Int($0.minY.rounded()))/"
@@ -630,28 +624,14 @@ struct HeaderLadderTests {
 
     /// Every `_FocusRingView` size in reading order, as `WxH` strings.
     private func ringSizes(_ host: NSView) -> [String] {
-        var found: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("_FocusRingView") {
-                found.append(v.convert(v.bounds, to: host))
-            }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(host)
+        let found = FocusRings.frames(in: host)
         return found.sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
             .map { "\(Int($0.width.rounded()))x\(Int($0.height.rounded()))" }
     }
 
     /// The header strip's rings only — the top band of the mounted view, above the table.
     private func headerRingSizes(_ host: NSView) -> [String] {
-        var found: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("_FocusRingView") {
-                found.append(v.convert(v.bounds, to: host))
-            }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(host)
+        let found = FocusRings.frames(in: host)
         guard let top = found.map(\.minY).min() else { return [] }
         return found.filter { $0.minY < top + 10 }
             .sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }

@@ -20,16 +20,18 @@ import Sync
 /// was proved by deleting the line it names and watching it go red.
 @Suite struct EditorNewFilePaneWiringTests {
 
+    /// One member's body in a `MacApp/` file — the shared ``declarationBody(of:in:sourceLocation:)``
+    /// (brace-matched, comment-stripped, unique or it fails) read as ``CodeText``, so every check
+    /// on it is whitespace-insensitive. The Edit suites all slice through here.
+    ///
+    /// It replaced a regex that ended the slice at the next line opening a member at four spaces
+    /// (`///`, `func`, `var`, `enum`) — so a `let`, a `@MainActor func`, an `init` or a `case` after
+    /// the member was read as part of it, and a member it could not find an end for ran to the end
+    /// of the file. It also read the raw text, so a comment could answer a `contains`.
     static func body(of declaration: String, in file: String,
-                     sourceLocation: SourceLocation = #_sourceLocation) throws -> String {
-        let code = try EditorDivergenceWiringTests.source(file)
-        let start = try #require(code.range(of: declaration),
-                                 "\(declaration) is gone — this scan is aimed at nothing",
-                                 sourceLocation: sourceLocation)
-        let rest = String(code[start.upperBound...])
-        let end = rest.range(of: #"\n {4}(///|(private )?(static )?(func|var|enum) )"#,
-                             options: .regularExpression)
-        return end.map { String(rest[..<$0.lowerBound]) } ?? rest
+                     sourceLocation: SourceLocation = #_sourceLocation) throws -> CodeText {
+        CodeText(try declarationBody(of: declaration, in: try EditorDivergenceWiringTests.source(file),
+                                     sourceLocation: sourceLocation))
     }
 
     /// **⌘N re-reads and selects in the pane, not only the rail** — the regression itself. The
@@ -70,7 +72,9 @@ import Sync
                                   "the pane is never re-read, or a comparison runs outside Compare")
         #expect(prepare.lowerBound < reload.lowerBound,
                 "the refresh is sent before the cache is dropped — it can serve the pre-create tree")
-        #expect(body.contains("Self.panesHolding(path, leftFolder: currentLeftPath,"),
+        let holding = try CallArguments(of: "Self.panesHolding(", in: body.normalized)
+        #expect(holding.unlabeled == ["path"] && holding.passes("leftFolder", "currentLeftPath")
+                && holding.passes("rightFolder", "currentRightPath"),
                 "the reload is not scoped to the pane that shows the file")
         for gone in ["prepareForcedRescan()", "refreshSubject.send(.both)"] {
             #expect(!body.contains(gone), "the re-read is a whole-cache, two-pane one again: \(gone)")
@@ -109,17 +113,19 @@ import Sync
     /// The debt is paid on the tree publish, under the rule — and NOT through the setter a click
     /// uses, whose Compare-with pick, focus move and surface claim are a click's (TE47 review).
     @Test func theOwedSelectionIsPaidOnPublishAsTheAppsOwnWrite() throws {
-        let content = try EditorDivergenceWiringTests.source("ContentView.swift")
+        let content = CodeText(try EditorDivergenceWiringTests.source("ContentView.swift"))
         #expect(content.contains(".onChange(of: syncManager.leftPaneTree) { _, _ in settleOwedPaneSelection() }"),
                 "nothing pays the owed selection when the pane's tree publishes")
         let body = try Self.body(of: "func settleOwedPaneSelection() {", in: "ContentView+Editor.swift")
         #expect(body.contains("Self.owedPaneSelection("),
                 "the settle no longer asks the tested rule")
-        #expect(body.contains("PaneLogic.payOwedSelection(path, state: syncManager,"),
+        let pay = try CallArguments(of: "PaneLogic.payOwedSelection(", in: body.normalized)
+        #expect(pay.unlabeled == ["path"] && pay.passes("state", "syncManager"),
                 "the selection is not written as the app's own write")
         #expect(!body.contains("paneSelectionBinding"),
                 "the app's write goes through the click's setter — it would resolve a Compare-with pick")
-        #expect(body.contains("openDocument: editorDocument.path"),
+        #expect(try CallArguments(of: "Self.owedPaneSelection(", in: body.normalized)
+                    .passes("openDocument", "editorDocument.path"),
                 "the rule is not told which document is open — it could drag the reader back")
     }
 
@@ -130,8 +136,11 @@ import Sync
         let body = try Self.body(of: "func openInEditor(path: String, selectsInPane: Bool = false) {",
                                  in: "ContentView+Editor.swift")
         let guardLine = try #require(
-            body.range(of: "guard EditorHandOffRun.opens(path, openDocument: editorDocument.path,"),
+            body.range(of: "guard EditorHandOffRun.opens("),
             "openInEditor no longer returns early for the open document — a ⌘N would open the file twice")
+        let opens = try CallArguments(of: "EditorHandOffRun.opens(", in: body.normalized)
+        #expect(opens.unlabeled == ["path"] && opens.passes("openDocument", "editorDocument.path"),
+                "the guard no longer asks about the path against the open document")
         let load = try #require(body.range(of: "loadIntoEditor(path: path)"))
         #expect(guardLine.lowerBound < load.lowerBound)
         // …and the guard it asks is the one that returns for the open document.

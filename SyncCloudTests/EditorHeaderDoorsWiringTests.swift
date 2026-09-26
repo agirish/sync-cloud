@@ -18,7 +18,7 @@ import FileExplorer
     /// editorIsNaming = true }`, `nil`, or `{}` in its place each fail.
     @Test func theHeaderPlusIsHandedTheNewFileChordItself() throws {
         let body = try Self.memberBody("func editorWorkspace(showsRail: Bool)", in: Self.editor())
-        #expect(body.contains("onNewTextFile: shortcutNewTextFile,") || body.contains("onNewTextFile: shortcutNewTextFile)"),
+        #expect(try Self.call("EditorWorkspaceView(", in: body).passes("onNewTextFile", "shortcutNewTextFile"),
                 "the header's ＋ is not handed ⌘N's closure — it can drift from what the chord does")
     }
 
@@ -39,9 +39,9 @@ import FileExplorer
     @Test func everyEditLayoutMountsTheOneBuilder() throws {
         let source = try Self.editor()
         let layout = try Self.memberBody("func editorLayout(collapsed: Bool, geo: GeometryProxy)", in: source)
-        #expect(layout.components(separatedBy: "editorWorkspace(showsRail:").count - 1 == 2,
+        #expect(layout.count(of: "editorWorkspace(showsRail:") == 2,
                 "editorLayout no longer mounts the workspace through the one builder in both arms")
-        #expect(source.components(separatedBy: "EditorWorkspaceView(").count - 1 == 1,
+        #expect(argumentLists(of: "EditorWorkspaceView(", in: source).count == 1,
                 "a second EditorWorkspaceView construction site appeared in ContentView+Editor")
     }
 
@@ -53,13 +53,14 @@ import FileExplorer
     @Test func bothDoorsReachTheOneClose() throws {
         let source = try Self.editor()
         let workspace = try Self.memberBody("func editorWorkspace(showsRail: Bool)", in: source)
-        #expect(workspace.contains("onCloseDocument: { closeEditorDocument() }"),
+        #expect(try Self.call("EditorWorkspaceView(", in: workspace).passes("onCloseDocument", "{ closeEditorDocument() }"),
                 "the header's × is not wired to closeEditorDocument")
         let menu = try Self.memberBody("var shortcutCloseDocument: (() -> Void)?", in: source)
         #expect(menu.contains("EditorDocumentClose.isOffered("), "Close Document is offered without the close's rule")
         #expect(menu.contains("return { closeEditorDocument() }"), "File ▸ Close Document does not run closeEditorDocument")
         let publisher = try Self.source("ShortcutCommands.swift")
-        #expect(publisher.contains("closeDocument: shortcutCloseDocument,"),
+        #expect(try CallArguments(of: "ShortcutValuePublisher(", in: publisher)
+                    .passes("closeDocument", "shortcutCloseDocument"),
                 "the chord publisher is not handed shortcutCloseDocument")
     }
 
@@ -71,13 +72,14 @@ import FileExplorer
     @Test func theCloseIsHandedTheWindowsRealSettleSelectionAndLog() throws {
         let body = try Self.memberBody("func closeEditorDocument()", in: Self.editor())
         #expect(body.contains("EditorDocumentClose.run("), "closeEditorDocument no longer runs the shared close")
-        #expect(body.contains("undoStore: editorUndoStore"), "the close puts the undo stack away in the wrong store")
-        #expect(body.contains("settle: { settleEditorDocument() }"), "the close does not settle the buffer first")
-        #expect(body.contains("paneSelection: { syncManager.selectedLeftPaths }"),
+        let close = try Self.call("EditorDocumentClose.run(", in: body)
+        #expect(close.passes("undoStore", "editorUndoStore"), "the close puts the undo stack away in the wrong store")
+        #expect(close.passes("settle", "{ settleEditorDocument() }"), "the close does not settle the buffer first")
+        #expect(close.passes("paneSelection", "{ syncManager.selectedLeftPaths }"),
                 "the close reads a selection other than the left pane's")
-        #expect(body.contains("setPaneSelection: { syncManager.selectedLeftPaths = $0 }"),
+        #expect(close.passes("setPaneSelection", "{ syncManager.selectedLeftPaths = $0 }"),
                 "the close writes a selection other than the left pane's — clicking the row will not reopen it")
-        #expect(body.contains("log: { Logger.shared.info($0) }"), "the close no longer logs")
+        #expect(close.passes("log", "{ Logger.shared.info($0) }"), "the close no longer logs")
     }
 
     /// **A close moves nothing but the document.** Not the workspace, not the pane's folder, not
@@ -99,18 +101,13 @@ import FileExplorer
     /// a neighbour's `.keyboardShortcut` cannot satisfy or trip it. The drawn half — where it sits
     /// and that no key reached AppKit — is `theFileMenuIsInTheRoadmapsOrder`.
     @Test func closeDocumentHasNoKeyAndGreysWithNothingToClose() throws {
-        let source = try Self.source("ShortcutCommands.swift")
-        let start = try #require(source.range(of: "struct CloseDocumentCommand: View {"))
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n}"))
-        let body = String(rest[..<end.lowerBound])
+        let body = try Self.memberBody("struct CloseDocumentCommand: View {", in: try Self.source("ShortcutCommands.swift"))
         #expect(body.contains("Button(\"Close Document\") { close?() }"), "the item's title or act changed")
         #expect(body.contains(".disabled(close == nil)"), "Close Document no longer greys with nothing to close")
         #expect(!body.contains("keyboardShortcut"), "Close Document has acquired a key — ⌘W is Close Tab's, ⌥ is forbidden")
-        let app = try Self.source("SyncCloudApp.swift")
-        let group = try #require(app.range(of: "CommandGroup(replacing: .saveItem) {"))
-        let groupEnd = try #require(app.range(of: "}", range: group.upperBound..<app.endIndex))
-        let groupBody = app[group.upperBound..<groupEnd.lowerBound]
+        // The group's own braces — it was read to the first `}` after its opening, which a closure
+        // or an `if` added to the group would have ended early.
+        let groupBody = try Self.memberBody("CommandGroup(replacing: .saveItem) {", in: try Self.source("SyncCloudApp.swift"))
         let close = try #require(groupBody.range(of: "CloseDocumentCommand()"), "Close Document is not in the .saveItem group")
         let save = try #require(groupBody.range(of: "SaveDocumentCommand()"))
         #expect(close.lowerBound < save.lowerBound, "Close Document is declared after Save")
@@ -128,7 +125,8 @@ import FileExplorer
     static func editor() throws -> String { try source("ContentView+Editor.swift") }
 
     /// A MacApp file with its comments removed, so prose describing the wiring cannot satisfy a
-    /// scan for it.
+    /// scan for it — by the shared lexer (``sourceCodeOnly(_:)``), where this cut every line at its
+    /// first `//`, string or not: a `"https://…"` literal lost its tail.
     static func source(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()      // SyncCloudTests
@@ -136,19 +134,21 @@ import FileExplorer
             .appendingPathComponent("MacApp/\(name)")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8), "cannot read \(name)")
         try #require(text.count > 500, "\(name) read as \(text.count) characters — truncated?")
-        return text.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> String in
-                guard let comment = line.range(of: "//") else { return String(line) }
-                return String(line[..<comment.lowerBound])
-            }
-            .joined(separator: "\n")
+        return sourceCodeOnly(text)
     }
 
-    /// One member's body: its declaration to the first closing brace at member indentation.
-    static func memberBody(_ declaration: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: declaration), "\(declaration) is gone — this scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = rest.range(of: "\n    }")
-        return String(rest[..<(end?.upperBound ?? rest.endIndex)])
+    /// One member's body, to its own closing brace — ``declarationBody(of:in:sourceLocation:)``,
+    /// asked whitespace-insensitively. It was the first `"\n    }"` after the declaration, and
+    /// the whole rest of the file when there was none; the type-level slices below were the first
+    /// `"\n}"` and the first `}`.
+    static func memberBody(_ declaration: String, in source: String,
+                           sourceLocation: SourceLocation = #_sourceLocation) throws -> CodeText {
+        CodeText(try declarationBody(of: declaration, in: source, sourceLocation: sourceLocation))
+    }
+
+    /// The call of `callee` inside `body`, read by label.
+    static func call(_ callee: String, in body: CodeText,
+                     sourceLocation: SourceLocation = #_sourceLocation) throws -> CallArguments {
+        try CallArguments(of: callee, in: body.normalized, sourceLocation: sourceLocation)
     }
 }

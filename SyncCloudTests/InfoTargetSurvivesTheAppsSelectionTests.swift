@@ -25,9 +25,11 @@ import Foundation
     /// The clear is read in the selection handler BEFORE the one-click open consumes the mark, and
     /// the unconditional left-pane clear is gone; the right pane's stays.
     @Test func theClearReadsTheMarkBeforeItIsConsumed() throws {
-        let content = try EditorDivergenceWiringTests.source("ContentView.swift")
-        let start = try #require(content.range(of: ".onChange(of: syncManager.selectedLeftPaths) { _, paths in"))
-        let handler = content[start.upperBound...].prefix(400)
+        let source = try EditorDivergenceWiringTests.source("ContentView.swift")
+        let content = CodeText(source)
+        // The handler's own closure, where it was the next 400 characters.
+        let handler = CodeText(try declarationBody(of: ".onChange(of: syncManager.selectedLeftPaths) { _, paths in",
+                                                   in: source))
         let clear = try #require(handler.range(of: "clearInfoTargetAfterLeftSelection(paths)"),
                                  "the left pane's selection no longer clears the Get Info target at all")
         let open = try #require(handler.range(of: "openSelectedPaneFileInEditor(paths)"))
@@ -38,7 +40,8 @@ import Foundation
                 "the right pane's selection no longer reaches the Get Info target's clear")
         let body = try EditorNewFilePaneWiringTests.body(of: "func clearInfoTargetAfterLeftSelection(_ paths: Set<String>) {",
                                                          in: "ContentView.swift")
-        #expect(body.contains("paidSelection: editorPaneSelectionPaid"))
+        #expect(try CallArguments(of: "Self.leftSelectionClearsInfoTarget(", in: body.normalized)
+                    .passes("paidSelection", "editorPaneSelectionPaid"))
     }
 
     /// **The right pane's half** (2026-09-26). Paying the debt now clears the right pane whatever

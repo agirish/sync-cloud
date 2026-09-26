@@ -36,23 +36,6 @@ import Foundation
     /// the sweep actually needs is on its RESULT — that it found call sites at all — which
     /// `testTheScanFindsTheCallSites` asserts, and on the named file `testTheScanCanActuallyFail`
     /// reads through `source(_:)`.
-    /// The balanced argument list following `opening`, so a scan of one call cannot read the next.
-    static func argumentList(after opening: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: opening), "\(opening) is gone — the scan is vacuous")
-        var depth = 1
-        var out = ""
-        for character in source[start.upperBound...] {
-            if character == "(" { depth += 1 }
-            if character == ")" {
-                depth -= 1
-                if depth == 0 { return out }
-            }
-            out.append(character)
-        }
-        Issue.record("\(opening) never closes — the scan would read the rest of the file")
-        return out
-    }
-
     static func readable(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -62,22 +45,23 @@ import Foundation
                             "cannot read \(name) — every check below would be vacuous")
     }
 
-    /// Every call to `toggleQuickLook(` across the app, as written.
+    /// Every call to `toggleQuickLook(` across the app — each as `toggleQuickLook(<its whole
+    /// argument list>)`, whitespace-normalised (``normalizedCode(_:)``).
     ///
     /// **Swept over the whole of `MacApp/`, not a named three.** The doc above promises "a NEW
     /// entry point cannot be added without deciding this question", and a fixed file list cannot
     /// keep that promise: a fifth call in a fourth file is exactly the new entry point it is
     /// about, and it was invisible here.
+    ///
+    /// **A call, not a line** (2026-09-26). A site was the LINE holding `toggleQuickLook(`, so a
+    /// call broken after its URL put `followsPane:` on a line this never read — and two calls on
+    /// one line counted once. ``argumentLists(of:in:)`` reads each call to its own closing paren,
+    /// skips comments and strings, and does not count the definition.
     static func callSites() throws -> [String] {
         var sites: [String] = []
         for file in try Self.macAppSwiftFiles() {
-            for line in try readable(file).components(separatedBy: "\n") {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                // The definition and the doc comment are not call sites.
-                guard trimmed.contains("toggleQuickLook("),
-                      !trimmed.hasPrefix("//"), !trimmed.hasPrefix("///"),
-                      !trimmed.contains("func toggleQuickLook") else { continue }
-                sites.append(trimmed)
+            for list in argumentLists(of: "toggleQuickLook(", in: sourceCodeOnly(try readable(file))) {
+                sites.append("toggleQuickLook(\(normalizedCode(list)))")
             }
         }
         return sites
@@ -118,7 +102,7 @@ import Foundation
                 it owns the pane preview (`followsPane:`) and then update this count:
                 \(sites.joined(separator: "\n"))
                 """)
-        #expect(sites.contains { $0.contains("followsPane: true") },
+        #expect(sites.contains { $0.contains(normalizedCode("followsPane: true")) },
                 "no site claims a pane preview — Space and the row menu both should")
         #expect(sites.contains { !$0.contains("followsPane") },
                 "every site claims a pane preview — the Differences and lens previews should not")
@@ -131,13 +115,11 @@ import Foundation
         // Space, in the one handler every pane surface shares — see `PaneQuickLookScopeTests` for
         // why it is a single function scoped to the file list rather than three column-wide copies.
         let search = try Self.source("ContentView+PaneSearch.swift")
-        let handler = try #require(search.range(of: "func paneQuickLook()"),
-                                   "the pane Space handler is gone or has moved out of this file")
-        // Widened when `paneQuickLook` gained its suspension guard: a source scan whose window is
-        // tighter than the body it reads fails for the wrong reason, and a comment added above the
-        // asserted line is not a regression.
-        let body = String(search[handler.upperBound...].prefix(1_000))
-        #expect(body.contains("toggleQuickLook(URL(fileURLWithPath: targetPath), followsPane: true)"),
+        // The handler's own body. It was a character window — widened once already when
+        // `paneQuickLook` gained its suspension guard, because a window tighter than the body it
+        // reads fails for the wrong reason. A body cannot outgrow its own closing brace.
+        let body = try CallArguments(of: "toggleQuickLook(", in: try declarationBody(of: "func paneQuickLook()", in: search))
+        #expect(body.unlabeled == [normalizedCode("URL(fileURLWithPath: targetPath)")] && body.passes("followsPane", "true"),
                 "Space opens a pane preview that will not follow the selection")
         let content = try Self.source("ContentView.swift")
         // **The whole argument list, not a character budget.** A `prefix(4_000)` window read this
@@ -147,9 +129,10 @@ import Foundation
         // reason that has nothing to do with Quick Look (see the note on `paneQuickLook` above): a
         // window measured in characters has to be re-tuned every time an unrelated argument is
         // added, and it accuses whoever touches the call next rather than whoever wrote the number.
-        // `argumentList` is this suite's own answer to that and stops at the call's closing paren.
-        let call = try Self.argumentList(after: "FileTreeView(", in: content)
-        #expect(call.contains("onQuickLook: { toggleQuickLook($0, followsPane: true) }"),
+        // `argumentList` is the answer to that — now the shared, lexer-backed one, which does not
+        // take a `)` inside a string for the call's end — and stops at the call's closing paren.
+        let call = try CallArguments(of: "FileTreeView(", in: sourceCodeOnly(content))
+        #expect(call.passes("onQuickLook", "{ toggleQuickLook($0, followsPane: true) }"),
                 "the pane's row menu is not routed to the host's panel — it presents its own, which nothing can keep current")
 
         // **The fifth site: File ▸ Quick Look.** The menu item is the row menu's verb reached from
@@ -157,17 +140,12 @@ import Foundation
         // selection — and must follow it for the same reason. Named here rather than left to the
         // count above, which says only that a site exists.
         let shortcuts = try Self.source("ShortcutCommands.swift")
-        let verbs = try #require(shortcuts.range(of: "var shortcutPaneRowVerbs"),
-                                 "the row verbs resolver is gone or has moved out of this file")
         // **To the member's own closing brace, not a 2,000-character window.** That window is the
         // defect the note above names, and it bit exactly as described: TE30 added one resolver
         // argument to an unrelated verb (File ▸ Open in Edit) and pushed `followsPane: true` to
         // character 2,060, turning a Quick Look test red over a change that did not touch Quick
-        // Look. A member cannot outgrow its own closing brace.
-        let rest = shortcuts[verbs.upperBound...]
-        let end = try #require(rest.range(of: "\n    }\n"),
-                               "shortcutPaneRowVerbs never closes at member indentation")
-        let resolver = String(rest[..<end.lowerBound])
+        // Look. A member cannot outgrow its own closing brace — now found by matching braces.
+        let resolver = CodeText(try declarationBody(of: "var shortcutPaneRowVerbs", in: shortcuts))
         #expect(resolver.contains("return PaneRowVerbs("),
                 "the slice is not the resolver's body — the check below would be vacuous")
         #expect(resolver.contains("followsPane: true"),
@@ -179,22 +157,21 @@ import Foundation
     @Test func testTheOtherSurfacesDoNotClaimThePaneSelection() throws {
         let content = try Self.source("ContentView.swift")
         for marker in ["DifferencesView(", "onQuickLook: { toggleQuickLook($0) }"] {
-            #expect(content.contains(marker), "\(marker) is gone — this check has stopped covering it")
+            #expect(CodeText(content).contains(marker), "\(marker) is gone — this check has stopped covering it")
         }
-        // The Differences table's preview, on the line that constructs the view.
-        let differences = try #require(content.range(of: "DifferencesView("))
-        let line = String(content[differences.lowerBound...].prefix(600))
-        #expect(line.contains("onQuickLook: { toggleQuickLook($0) }"),
+        // The Differences table's preview, on the call that constructs the view — its own
+        // argument list, where it was the next 600 characters.
+        let differences = try CallArguments(of: "DifferencesView(", in: sourceCodeOnly(content))
+        #expect(differences.passes("onQuickLook", "{ toggleQuickLook($0) }"),
                 "the Differences preview now follows the PANE selection — a pane click would move it")
-        #expect(!line.contains("followsPane: true"))
+        #expect(!differences.arguments.contains { $0.value.contains(normalizedCode("followsPane: true")) })
 
         // **The Edit rail's row menu (TE33).** A rail row is not the pane's selection: the rail is
         // drawn only while the pane is folded away, and the row right-clicked need not be the file
         // the folded pane has selected. So if the pane is expanded while that preview is still up,
         // a pane click must not retarget or close it.
-        let editor = try Self.source("ContentView+Editor.swift")
-        let workspace = try Self.argumentList(after: "EditorWorkspaceView(", in: editor)
-        #expect(workspace.contains("onQuickLook: { path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) }"),
+        #expect(try EditorRailRowMenuWiringTests.railRowActions()
+                    .passes("quickLook", "{ path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) }"),
                 "the Edit rail's Quick Look now follows the PANE selection — a pane click would move it")
     }
 

@@ -10,8 +10,17 @@ import FileExplorer
 /// its pieces, and which pieces it supplies is scanned separately in `EditorHeaderDoorsWiringTests`
 /// — so a test here that passed its own `settle` proves the ORDER and the CONTRACT, and the scan
 /// proves the app passes the real `settleEditorDocument()`.
+///
+/// **A class, for its `deinit`.** Swift Testing makes one instance per test, so each test's files
+/// live in one folder the instance owns and removes when it goes — where every call used to leave a
+/// folder of its own in the temporary directory, hundreds a run.
 @MainActor
-@Suite struct EditorDocumentCloseTests {
+@Suite final class EditorDocumentCloseTests {
+
+    /// This test's files; removed with the instance.
+    let folder = NSTemporaryDirectory() + "close-" + UUID().uuidString
+
+    deinit { try? FileManager.default.removeItem(atPath: folder) }
 
     /// A pane selection and a log, as the window holds them.
     final class Window {
@@ -22,7 +31,7 @@ import FileExplorer
 
     private func document(named name: String, text: String = "hello\n") throws -> (EditorDocument, String) {
         let doc = EditorDocument()
-        let folder = NSTemporaryDirectory() + "close-" + UUID().uuidString
+        let folder = (self.folder as NSString).appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         let path = (folder as NSString).appendingPathComponent(name)
         try text.write(toFile: path, atomically: true, encoding: .utf8)
@@ -93,7 +102,7 @@ import FileExplorer
     @Test func readOnlyAndRefusedDocumentsClose() throws {
         // Valid text and one byte that is not UTF-8 (and not a NUL): a lossy decode, read-only —
         // the fixture `EditorFileStoreTests.aLossyDecodeOpensReadOnly` uses.
-        let folder = NSTemporaryDirectory() + "close-ro-" + UUID().uuidString
+        let folder = (self.folder as NSString).appendingPathComponent("read-only")
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         let bad = (folder as NSString).appendingPathComponent("lossy.txt")
         var bytes = Data("caf".utf8)

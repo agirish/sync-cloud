@@ -15,7 +15,10 @@ import Sync
 ///
 /// The rule is pure and tested as such; the wiring is read off the source, since `ContentView`
 /// cannot be built in a test (see `BrowseWorkspaceCallSiteTests`). Every wiring check was proved
-/// by removing the line it names and watching it go red.
+/// by removing the line it names and watching it go red. The members are sliced by
+/// `EditorNewFilePaneWiringTests.body` — brace-matched, comment-stripped, and asked
+/// whitespace-insensitively, so a check spanning two lines (a guard's `else`, an `if`'s arms) is
+/// about the code and not its indentation.
 @Suite struct OwedComparisonTests {
 
     typealias Owed = ContentView.OwedComparison
@@ -193,9 +196,10 @@ import Sync
     @Test func arrivingInCompareIsTheOnePlaceItIsPaid() throws {
         let content = try EditorDivergenceWiringTests.source("ContentView.swift")
         let editor = try EditorDivergenceWiringTests.source("ContentView+Editor.swift")
-        #expect(content.contains("if workspace == .compare { payOwedComparisonIfNeeded() }"),
+        #expect(CodeText(content).contains("if workspace == .compare { payOwedComparisonIfNeeded() }"),
                 "nothing pays the debt on the way into Compare — the one workspace that displays a comparison")
-        let calls = (content + editor).components(separatedBy: "payOwedComparisonIfNeeded()").count - 1
+        // Counted in code: a comment naming the payment is not a caller.
+        let calls = CodeText(content + "\n" + editor).count(of: "payOwedComparisonIfNeeded()")
         #expect(calls == 3, "\(calls) mentions of the payment: its declaration, the arrival and a write in Compare are all there should be")
     }
 

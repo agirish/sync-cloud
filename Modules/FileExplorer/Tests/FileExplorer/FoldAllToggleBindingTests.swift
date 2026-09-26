@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Sync
 import Testing
+import FileExplorerTestSupport
 @testable import FileExplorer
 
 /// Proves the header's master disclosure is actually WIRED, and sits where it was put.
@@ -159,7 +160,7 @@ import Testing
     /// inferred differently by two optimization modes.
     private func focusRingSizes(in view: NSView, host: NSView, insideHeader: Bool = false) -> [String] {
         var sizes: [String] = []
-        if insideHeader, String(describing: type(of: view)) == "_FocusRingView" {
+        if insideHeader, FocusRings.isRing(view) {
             sizes.append("\(Int(view.frame.width))x\(Int(view.frame.height))")
         }
         for child in view.subviews {

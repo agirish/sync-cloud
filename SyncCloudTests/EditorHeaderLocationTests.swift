@@ -256,12 +256,13 @@ import FileExplorer
     /// collapse term, or dropping the animation each fail.
     @Test func theDocumentColumnIsToldAboutThePanesTabStrip() throws {
         let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
-        #expect(editor.contains("paneShowsTabStrip: editorPaneShowsTabStrip,"),
+        #expect(try CallArguments(of: "EditorWorkspaceView(", in: sourceCodeOnly(editor))
+                    .passes("paneShowsTabStrip", "editorPaneShowsTabStrip"),
                 "the workspace is not told whether the pane draws its tab strip")
-        let tabs = try OpenInEditorMenuTests.macApp("ContentView+PaneTabs.swift")
+        let tabs = CodeText(try OpenInEditorMenuTests.macApp("ContentView+PaneTabs.swift"))
         #expect(tabs.contains("!panesHiddenForCurrentTab && paneShowsTabStrip(isLeft: true)"),
                 "the strip's presence is not the LEFT pane's own rule, gated on the pane being open")
-        #expect(editor.contains(".designAnimation(.easeOut(duration: 0.18), value: editorPaneShowsTabStrip)"),
+        #expect(CodeText(editor).contains(".designAnimation(.easeOut(duration: 0.18), value: editorPaneShowsTabStrip)"),
                 "the document column does not move with the strip's own animation")
     }
 
@@ -274,50 +275,59 @@ import FileExplorer
     /// collapse bit. And the
     /// doors' body never reaches the pane's visibility or the document — a crumb must not expand
     /// the collapsed pane, and no door may settle or reload the file.
+    ///
+    /// Each argument is read by its label on the call it belongs to (``CallArguments``) — where
+    /// these were substrings of the whole file ending in `,` or `)`, so an argument that became
+    /// the last in its call, or a call broken over one more line, went red with nothing wrong, and
+    /// `log: { Logger.shared.info($0) },` was only the doors' because the other three `log:` in the
+    /// file happened to end in `)`.
     @Test func theHeaderIsWiredToTheRealDoors() throws {
         let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
-        #expect(editor.contains("location: editorDocumentLocation,"),
+        let code = sourceCodeOnly(editor)
+        let workspace = try CallArguments(of: "EditorWorkspaceView(", in: code)
+        #expect(workspace.passes("location", "editorDocumentLocation"),
                 "the header is not handed the document's location")
-        #expect(editor.contains("editorLocationDoors.open(door, documentPath: editorDocument.path,"),
+        let open = try CallArguments(of: "editorLocationDoors.open(", in: code)
+        #expect(open.unlabeled == ["door"] && open.passes("documentPath", "editorDocument.path"),
                 "the header's doors are not wired to EditorLocationDoors")
-        #expect(editor.contains("location: editorDocumentLocation)"),
+        #expect(open.passes("location", "editorDocumentLocation"),
                 "the doors are not handed the live location at press time")
-        #expect(editor.contains("selectInPane: { owePaneSelection($0) }"),
+        let doorsBuilt = try CallArguments(of: "EditorLocationDoors(", in: code)
+        #expect(doorsBuilt.passes("selectInPane", "{ owePaneSelection($0) }"),
                 "the folder door does not select through the one owed-selection rule (TE47)")
-        #expect(editor.contains("otherSources: editorOtherSources)"),
+        let location = try CallArguments(
+            of: "EditorHeaderLocation.location(",
+            in: try declarationBody(of: "var editorDocumentLocation: EditorDocumentLocation? {", in: editor))
+        #expect(location.passes("otherSources", "editorOtherSources"),
                 "the location is not told about the user's other sources")
-        #expect(editor.contains("settings.enabledProviders.filter { $0.id != leftProviderId }"),
+        #expect(CodeText(editor).contains("settings.enabledProviders.filter { $0.id != leftProviderId }"),
                 "the other sources are not every enabled source but the left pane's")
-        #expect(editor.contains("folderDisplayName: editorFolderDisplayName)"),
+        #expect(workspace.passes("folderDisplayName", "editorFolderDisplayName"),
                 "the ＋ and the naming row are not handed the breadcrumb's word for the folder")
-        #expect(editor.contains("log: { Logger.shared.info($0) },"),
+        #expect(doorsBuilt.passes("log", "{ Logger.shared.info($0) }"),
                 "the doors' log does not reach the INFO log the user runs at")
-        #expect(editor.contains("drawsColumns: resolvedViewMode(isLeft: true) == .columns,"),
+        #expect(doorsBuilt.passes("drawsColumns", "resolvedViewMode(isLeft: true) == .columns"),
                 "the doors do not ask the mode the pane is drawn in")
-        #expect(editor.contains("paneIsOpen: !panesHiddenForCurrentTab,"),
+        #expect(location.passes("paneIsOpen", "!panesHiddenForCurrentTab"),
                 "the reading is not keyed on the pane's collapse bit")
         // The empty page names the folder a new file goes in — the SAME `editorFolder` the ＋, ⌘N,
-        // the rail and the naming row all read, not a second idea of "the folder".
-        // Sliced to the location's own builder: `paneFolder: editorFolder,` also appears in the
-        // owed-selection call further down, which would satisfy a scan of the whole file.
-        let builder = try #require(editor.range(of: "var editorDocumentLocation: EditorDocumentLocation? {"))
-        let builderEnd = try #require(editor.range(of: "var editorLocationDoors", range: builder.upperBound..<editor.endIndex))
-        #expect(editor[builder.upperBound..<builderEnd.lowerBound].contains("paneFolder: editorFolder,"),
+        // the rail and the naming row all read, not a second idea of "the folder". Read off the
+        // location's own call: `paneFolder: editorFolder` is passed elsewhere in the file too.
+        #expect(location.passes("paneFolder", "editorFolder"),
                 "the empty page's location is not the folder ⌘N creates in")
 
-        let doors = try OpenInEditorMenuTests.macApp("EditorLocationDoors.swift")
+        let doors = sourceCodeOnly(try OpenInEditorMenuTests.macApp("EditorLocationDoors.swift"))
         let start = try #require(doors.range(of: "struct EditorLocationDoors {"))
         // Comments stripped: the body's own comments explain why `openInEditor` is not reached,
-        // and a scan that matched them would report the explanation as the call.
-        let body = String(doors[start.upperBound...])
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.drop { $0 == " " }.hasPrefix("//") }
-            .joined(separator: "\n")
+        // and a scan that matched them would report the explanation as the call. Read to the end
+        // of the file, as before, so an extension added below the struct is read too.
+        let body = CodeText(String(doors[start.upperBound...]))
         for forbidden in ["togglePanes", "panesHidden", "loadIntoEditor", "openInEditor",
                           "settleEditorDocument", "selectedWorkspace"] {
             #expect(!body.contains(forbidden), "EditorLocationDoors reaches \(forbidden)")
         }
-        #expect(body.contains("syncManager.navigatePane(isLeft: true, toCombinedPath: target,"),
+        let navigate = try CallArguments(of: "syncManager.navigatePane(", in: body.normalized)
+        #expect(navigate.passes("isLeft", "true") && navigate.passes("toCombinedPath", "target"),
                 "a crumb no longer takes the pane breadcrumb's own route")
     }
 }

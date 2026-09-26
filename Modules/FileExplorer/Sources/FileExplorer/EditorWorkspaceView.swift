@@ -172,14 +172,10 @@ public struct EditorWorkspaceView: View {
     /// naming row can stay open with the name still in it.
     let onCreate: (String) -> Bool
     /// The reverse of "Open in Edit": shows a file where it lives. Called with the open document's
-    /// path by the header's filename menu — and with a ROW's path by the rail's row menu, unless
-    /// the host gives that door its own closure (`onRevealRowInBrowse`). Neither closes the
+    /// path by the header's filename menu; the rail's row menu has its own door in
+    /// ``railRowActions``, so the host's log can say which one was pressed. Neither closes the
     /// document.
     let onRevealInBrowse: (String) -> Void
-    /// The rail row menu's Reveal in Browse, when the host tells the two doors apart — the app
-    /// does, so its log says which one was pressed. `nil` falls back to `onRevealInBrowse`: the
-    /// same act, so the item is never drawn wired to nothing.
-    let onRevealRowInBrowse: ((String) -> Void)?
     /// Where the open document lives, for the header's meta row — or, with no document open, the
     /// folder a new file would be made in, which is what the empty page's header names instead.
     /// `nil` when there is nothing to place: no document and no folder. Built by the host from the
@@ -188,10 +184,9 @@ public struct EditorWorkspaceView: View {
     /// A door in that location, pressed. The host decides what each means for the left pane —
     /// the view only says which word was pressed.
     let onLocationDoor: (EditorDocumentLocation.Door) -> Void
-    /// The rail row menu's Get Info: the Info inspector, on that row's file.
-    let onGetInfo: (String) -> Void
-    /// The rail row menu's Quick Look: the window's one shared panel, on that row's file.
-    let onQuickLook: (String) -> Void
+    /// The rail row menu's acts — Reveal in Browse, Get Info, Quick Look, each on that row's file —
+    /// built by the host and handed to the rail as they are.
+    let railRowActions: EditorRailRowActions
     /// Called when autosave is switched back on for the open document, so the host can write what
     /// is already pending rather than waiting for the next keystroke.
     var onAutosaveResumed: () -> Void = {}
@@ -279,12 +274,10 @@ public struct EditorWorkspaceView: View {
                 // leave the header saying nothing again.
                 location: EditorDocumentLocation?,
                 onLocationDoor: @escaping (EditorDocumentLocation.Door) -> Void,
-                // No default, like `onToggleJustTheText`: a rail row menu whose acts defaulted to
-                // nothing would draw, and do nothing, at any site that forgot them.
-                onGetInfo: @escaping (String) -> Void,
-                onQuickLook: @escaping (String) -> Void,
-                // Defaulted, unlike its neighbours: `nil` is the header's own act, never nothing.
-                onRevealRowInBrowse: ((String) -> Void)? = nil,
+                // No default, like `onToggleJustTheText`, and none inside it for the host's three
+                // acts: a rail row menu whose acts defaulted to nothing would draw, and do nothing,
+                // at any site that forgot them.
+                railRowActions: EditorRailRowActions,
                 // No default, so every construction site is read: the two in tests pass `{}`.
                 onToggleJustTheText: @escaping () -> Void,
                 // No defaults either, for the same reason: a construction site that forgot one
@@ -329,9 +322,7 @@ public struct EditorWorkspaceView: View {
         self.onRevealInBrowse = onRevealInBrowse
         self.location = location
         self.onLocationDoor = onLocationDoor
-        self.onGetInfo = onGetInfo
-        self.onQuickLook = onQuickLook
-        self.onRevealRowInBrowse = onRevealRowInBrowse
+        self.railRowActions = railRowActions
         self.onAutosaveResumed = onAutosaveResumed
         self.paneShowsTabStrip = paneShowsTabStrip
         self.folderDisplayName = folderDisplayName
@@ -394,14 +385,6 @@ public struct EditorWorkspaceView: View {
         guard !folder.isEmpty else { return "" }
         if let folderDisplayName, !folderDisplayName.isEmpty { return folderDisplayName }
         return (folder as NSString).lastPathComponent
-    }
-
-    /// The rail row menu's acts. Reveal in Browse is the row door's own closure where the host gave
-    /// one, the header's otherwise — the same verb from a second door — and Reveal in Finder is
-    /// the menu's in-package default.
-    var railRowActions: EditorRailRowActions {
-        EditorRailRowActions(revealInBrowse: onRevealRowInBrowse ?? onRevealInBrowse,
-                             getInfo: onGetInfo, quickLook: onQuickLook)
     }
 
     /// **Two cards, not one region with a rule down it.**

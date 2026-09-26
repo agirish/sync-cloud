@@ -110,9 +110,14 @@ import FileExplorer
     /// identical to Cancel, which is the property Escape has to have.
     @Test func askingToSeeTheDiffStopsAutosaveFirst() throws {
         let editor = try Self.source("ContentView+Editor.swift")
-        let marker = "case .showWhatChanged:"
-        let body = try #require(editor.range(of: marker)).upperBound
-        let window = String(editor[body...].prefix(600))
+        // The `.showWhatChanged` arm and nothing else: from its `case` to the next one, inside the
+        // one function that answers. It was the next 600 characters, which ran on into the
+        // `.cancel` arm — whose own latch then stood in for this one's.
+        let answer = CodeText(try declarationBody(of: "func applyDivergenceAnswer(", in: editor))
+        let arm = try #require(answer.range(of: "case .showWhatChanged:"), "the detour's arm is gone")
+        let next = answer.normalized[arm.upperBound...].range(of: normalizedCode("case ."))?.lowerBound
+            ?? answer.normalized.endIndex
+        let window = CodeText(String(answer.normalized[arm.upperBound..<next]))
         let latch = try #require(window.range(of: "editorAutosaveStop = .diverged(divergence)"),
                                  "the detour does not latch autosave — the debounce could write under the overlay")
         let opens = try #require(window.range(of: "editorDivergenceReview = "),

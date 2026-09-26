@@ -4,6 +4,7 @@ import SwiftUI
 import AppKit
 import Design
 @testable import FileExplorer
+import FileExplorerTestSupport
 
 /// The context menu on a row of Edit's Text Files rail — TE33.
 ///
@@ -53,33 +54,26 @@ import Design
                 "the acts ran as \(recorder.calls)")
     }
 
-    /// **The workspace hands the rail its own closures, each to the right act.** The header's
-    /// Reveal in Browse and the rail's are one verb: with no row door of its own the rail reaches
-    /// `onRevealInBrowse`, and given one (`onRevealRowInBrowse`, the app's, so its log can tell the
-    /// two doors apart) it reaches that instead.
-    @Test(arguments: [false, true])
-    func theWorkspaceForwardsItsClosuresToTheRowMenu(rowDoor: Bool) {
-        var calls: [String] = []
-        let workspace = EditorWorkspaceView(
-            document: EditorDocument(), autosavePolicy: EditorAutosavePolicy(),
-            folder: "/Users/me/Notes", entries: [], showsRail: true, railIsHidden: false,
-            accent: .blue, onAccent: .white, mode: .constant(.edit), splitFraction: .constant(0.5),
-            isNaming: .constant(false), typedName: .constant(""), railFilter: .constant(""),
-            railFilterIsExpanded: .constant(false), railTab: .constant(.files),
-            railOutlineAnchors: .constant([:]), undoManager: UndoManager(),
-            prefilledName: { "Untitled.md" }, refusal: { _ in nil },
-            onOpen: { _ in }, onCreate: { _ in true },
-            onRevealInBrowse: { calls.append("browse \($0)") },
-            location: nil, onLocationDoor: { _ in },
-            onGetInfo: { calls.append("info \($0)") },
-            onQuickLook: { calls.append("quicklook \($0)") },
-            onRevealRowInBrowse: rowDoor ? { calls.append("row browse \($0)") } : nil,
-            onToggleJustTheText: {}, onNewTextFile: {}, onCloseDocument: {})
-        let items = EditorRailRowMenu.items(for: Self.rowPath, actions: workspace.railRowActions)
-        for item in items where item.title != "Reveal in Finder" { item.perform() }
-        #expect(calls == ["\(rowDoor ? "row " : "")browse \(Self.rowPath)", "info \(Self.rowPath)",
-                          "quicklook \(Self.rowPath)"],
-                "the workspace forwarded \(calls)")
+    /// **The workspace hands the rail the host's acts, as they are — READ off a hosted workspace.**
+    /// The host builds the row actions (the app's Reveal in Browse is its own door, so its log can
+    /// tell the rail's press from the header's) and the workspace passes them to the rail it draws:
+    /// right-clicked on the rail's row, the menu there runs the recorder's acts on the row's path.
+    /// Mutation: build the rail with actions of the workspace's own (`{ _ in }`) and it fails.
+    @Test func theWorkspaceHandsTheRailTheHostsActs() {
+        let recorder = Recorder()
+        let entry = EditorRailEntry(path: Self.rowPath, name: "ideas.md", size: 10, isCloudOnly: false)
+        let workspace = EditorWorkspaceView.fixture(folder: "/Users/me/Notes", entries: [entry],
+                                                    showsRail: true, railRowActions: recorder.actions)
+        let menus = Self.drawnMenus(AnyView(workspace), width: 800, height: 420, probeX: 100) { menu in
+            for index in menu.items.indices where menu.items[index].title != "Reveal in Finder" {
+                menu.performActionForItem(at: index)
+            }
+            return recorder.calls.joined(separator: ", ")
+        }
+        #expect(menus.first?.titles == ["Reveal in Browse", "Get Info", "Reveal in Finder", "Quick Look"],
+                "the workspace's rail row draws \(menus.map(\.titles))")
+        #expect(menus.first?.act?.hasPrefix("browse \(Self.rowPath), info \(Self.rowPath), quicklook \(Self.rowPath)") == true,
+                "the rail row's menu ran \(menus.first?.act ?? "nothing") — not the host's acts on the row's path")
     }
 
     /// **The same words and glyphs as the menus these acts already live in.** The pane's row menu
@@ -138,7 +132,7 @@ import Design
     /// supply, so a default of `{ _ in }` would draw the item and do nothing at every real site.
     @Test func revealInFinderDefaultsToFinder() throws {
         let source = try Self.source("EditorRailRowMenu.swift")
-        #expect(source.contains("var revealInFinder: (String) -> Void = EditorRailRowActions.revealInFinder"),
+        #expect(source.contains("revealInFinder: @escaping (String) -> Void = EditorRailRowActions.revealInFinder)"),
                 "Reveal in Finder no longer defaults to the Finder reveal")
         #expect(source.contains("NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])"),
                 "the Finder reveal no longer selects the row's file in Finder")
@@ -166,7 +160,7 @@ import Design
     /// A right-click swept down `view`'s middle, 2pt at a time, in a window: each run of the same
     /// non-empty menu, once, top to bottom — the `DuplicateRowMenuTests` technique. `act` says what
     /// the menu under each probe does, so two rows whose menus read alike are still two runs.
-    private static func drawnMenus(_ view: AnyView, width: CGFloat, height: CGFloat,
+    private static func drawnMenus(_ view: AnyView, width: CGFloat, height: CGFloat, probeX: CGFloat? = nil,
                                    act: (NSMenu) -> String?) -> [(titles: [String], act: String?)] {
         let host = NSHostingView(rootView: view.frame(width: width, height: height))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -177,7 +171,7 @@ import Design
         var fromTop: CGFloat = 1
         while fromTop < height {
             let event = NSEvent.mouseEvent(
-                with: .rightMouseDown, location: NSPoint(x: width / 2, y: height - fromTop),
+                with: .rightMouseDown, location: NSPoint(x: probeX ?? width / 2, y: height - fromTop),
                 modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
                 eventNumber: 0, clickCount: 1, pressure: 1)
             if let menu = event.flatMap({ host.menu(for: $0) }), !menu.items.isEmpty {
@@ -196,13 +190,7 @@ import Design
             VStack(alignment: .leading, spacing: 0) { view }.frame(width: 260)))
         host.frame = NSRect(x: 0, y: 0, width: 260, height: 400)
         host.layoutSubtreeIfNeeded()
-        var found: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("FocusRing") { found.append(v.frame) }
-            v.subviews.forEach(walk)
-        }
-        walk(host)
-        return found.sorted { $0.minY < $1.minY }.map(\.width)
+        return FocusRings.frames(in: host).sorted { $0.minY < $1.minY }.map(\.width)
     }
 
     static func source(_ name: String) throws -> String {

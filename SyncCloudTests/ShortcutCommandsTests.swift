@@ -267,9 +267,9 @@ import Foundation
         // **Bound to the two lists, and to `#expect(` — not to the file.** A whole-file substring
         // search accepted a value whose two forms both sat in the UNSUSPENDED test
         // (`#expect(publisher.effectiveFoo != nil)` beside `#expect(!(publisher.effectiveFoo == nil))`),
-        // which says nothing about suspension; and `sourceCodeOnly` strips only whole comment lines,
-        // so a TRAILING comment naming a value satisfied it too — the decoy this suite's own
-        // `bothReasonsToSuspendTheChordsSurviveInTheExpression` was written to defeat.
+        // which says nothing about suspension; and `sourceCodeOnly` stripped only whole comment
+        // lines until 2026-09-26, so a TRAILING comment naming a value satisfied it too — the decoy
+        // this suite's own `bothReasonsToSuspendTheChordsSurviveInTheExpression` was written to defeat.
         let own = try Self.ownSource()
         let silenced = Self.codeOnly(try Self.memberBody("func suspensionSilencesEveryPublishedValue", in: own))
         let live = Self.codeOnly(try Self.memberBody("func anUnsuspendedPublisherPassesEveryValueThrough", in: own))

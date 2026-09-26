@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Design
 @testable import FileExplorer
+import FileExplorerTestSupport
 
 /// What the Editor's chrome actually measures, at every text size the app offers.
 ///
@@ -574,47 +575,12 @@ import Design
     // MARK: The document header
 
     private func document(named name: String, text: String = "hello") throws -> EditorDocument {
-        let folder = NSTemporaryDirectory() + "hdr-" + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let path = (folder as NSString).appendingPathComponent(name)
-        try text.write(toFile: path, atomically: true, encoding: .utf8)
-        let document = EditorDocument()
-        _ = EditorFileStore.load(path: path, into: document)
-        return document
+        try TestTextFiles.document(named: name, text: text)
     }
 
     private func workspace(_ document: EditorDocument, showsRail: Bool = true,
                            railIsHidden: Bool = false, naming: Bool = false) -> EditorWorkspaceView {
-        EditorWorkspaceView(
-            document: document,
-            autosavePolicy: EditorAutosavePolicy(),
-            folder: "/n",
-            entries: [],
-            showsRail: showsRail,
-            railIsHidden: railIsHidden,
-            accent: .blue,
-            onAccent: .white,
-            mode: .constant(.edit),
-            splitFraction: .constant(0.5),
-            isNaming: .constant(naming),
-            typedName: .constant(""),
-            railFilter: .constant(""),
-            railFilterIsExpanded: .constant(false),
-            railTab: .constant(.files),
-            railOutlineAnchors: .constant([:]),
-            undoManager: UndoManager(),
-            prefilledName: { "Untitled.md" },
-            refusal: { _ in nil },
-            onOpen: { _ in },
-            onCreate: { _ in true },
-            onRevealInBrowse: { _ in },
-            location: nil,
-            onLocationDoor: { _ in },
-            onGetInfo: { _ in },
-            onQuickLook: { _ in },
-            onToggleJustTheText: {},
-            onNewTextFile: {},
-            onCloseDocument: {})
+        .fixture(document: document, showsRail: showsRail, railIsHidden: railIsHidden, isNaming: naming)
     }
 
     /// **A `.md` and a `.txt` header must be the same height**, or the document column below them
@@ -733,47 +699,13 @@ import Design
     private static let size = CGSize(width: 800, height: 400)
 
     private func document(named name: String) throws -> EditorDocument {
-        let folder = NSTemporaryDirectory() + "fewer-" + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let path = (folder as NSString).appendingPathComponent(name)
-        try "hello".write(toFile: path, atomically: true, encoding: .utf8)
-        let document = EditorDocument()
-        _ = EditorFileStore.load(path: path, into: document)
-        return document
+        try TestTextFiles.document(named: name)
     }
 
     private func workspace(_ document: EditorDocument, showsRail: Bool, railIsHidden: Bool = false,
                            naming: Bool = false) -> EditorWorkspaceView {
-        EditorWorkspaceView(
-            document: document,
-            autosavePolicy: EditorAutosavePolicy(),
-            folder: "/n/Downloads",
-            entries: [],
-            showsRail: showsRail,
-            railIsHidden: railIsHidden,
-            accent: .blue,
-            onAccent: .white,
-            mode: .constant(.edit),
-            splitFraction: .constant(0.5),
-            isNaming: .constant(naming),
-            typedName: .constant(""),
-            railFilter: .constant(""),
-            railFilterIsExpanded: .constant(false),
-            railTab: .constant(.files),
-            railOutlineAnchors: .constant([:]),
-            undoManager: UndoManager(),
-            prefilledName: { "Untitled.md" },
-            refusal: { _ in nil },
-            onOpen: { _ in },
-            onCreate: { _ in true },
-            onRevealInBrowse: { _ in },
-            location: nil,
-            onLocationDoor: { _ in },
-            onGetInfo: { _ in },
-            onQuickLook: { _ in },
-            onToggleJustTheText: {},
-            onNewTextFile: {},
-            onCloseDocument: {})
+        .fixture(document: document, folder: "/n/Downloads", showsRail: showsRail,
+                 railIsHidden: railIsHidden, isNaming: naming)
     }
 
     /// The workspace mounted at a fixed width, so the columns divide a known number.

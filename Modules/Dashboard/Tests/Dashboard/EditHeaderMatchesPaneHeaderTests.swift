@@ -5,6 +5,7 @@ import Sync
 import Design
 @testable import Dashboard
 @testable import FileExplorer
+import FileExplorerTestSupport
 
 /// **Edit's document header against the pane's toolbar card, both real, side by side** (TE43).
 ///
@@ -73,13 +74,7 @@ import Design
     }
 
     private static func document(_ name: String) throws -> EditorDocument {
-        let folder = NSTemporaryDirectory() + "edit-vs-pane-" + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let path = (folder as NSString).appendingPathComponent(name)
-        try "# Budget\n\nhello".write(toFile: path, atomically: true, encoding: .utf8)
-        let document = EditorDocument()
-        _ = EditorFileStore.load(path: path, into: document)
-        return document
+        try TestTextFiles.document(named: name, text: "# Budget\n\nhello")
     }
 
     static func workspace(_ document: EditorDocument, style: EditorDocumentLocation.Style,
@@ -90,23 +85,15 @@ import Design
             .init(name: "iCloud", target: ""), .init(name: "Documents", target: "Documents"),
             .init(name: "Finance", target: "Documents/Finance"),
         ]
-        return EditorWorkspaceView(
-            document: document, autosavePolicy: EditorAutosavePolicy(), folder: "/n/Finance",
+        return .fixture(
+            document: document, folder: "/n/Finance",
             entries: [EditorRailEntry(path: "/n/Finance/Test.md", name: "Test.md", size: 12,
                                       isCloudOnly: false)],
-            showsRail: showsRail, railIsHidden: railIsHidden, accent: .blue, onAccent: .white,
-            mode: .constant(.edit), splitFraction: .constant(0.5), isNaming: .constant(false),
-            typedName: .constant(""), railFilter: .constant(""),
-            railFilterIsExpanded: .constant(false), railTab: .constant(.files),
-            railOutlineAnchors: .constant([:]), undoManager: UndoManager(),
-            prefilledName: { "Untitled.md" }, refusal: { _ in nil },
-            onOpen: { _ in }, onCreate: { _ in true }, onRevealInBrowse: { _ in },
+            showsRail: showsRail, railIsHidden: railIsHidden,
             location: EditorDocumentLocation(
                 segments: segments, style: style,
                 help: segments.map(\.name).joined(separator: " › ")),
-            onLocationDoor: { _ in }, onGetInfo: { _ in }, onQuickLook: { _ in },
-            onToggleJustTheText: {}, onNewTextFile: {},
-            onCloseDocument: {}, paneShowsTabStrip: paneShowsTabStrip)
+            paneShowsTabStrip: paneShowsTabStrip)
     }
 
     /// Both halves in one window, the way `editorLayout`'s expanded arm puts them.

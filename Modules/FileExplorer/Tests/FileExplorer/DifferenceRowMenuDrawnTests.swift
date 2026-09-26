@@ -4,6 +4,7 @@ import SwiftUI
 import AppKit
 import Sync
 @testable import FileExplorer
+import FileExplorerTestSupport
 
 /// **Open in Edit on a differences row, as the menu DRAWS it (TE31).**
 ///
@@ -112,13 +113,7 @@ import Sync
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(x: 0, y: 0, width: 320, height: height)
         host.layoutSubtreeIfNeeded()
-        var found: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("FocusRing") { found.append(v.frame) }
-            v.subviews.forEach(walk)
-        }
-        walk(host)
-        return found.sorted { $0.minY < $1.minY }
+        return FocusRings.frames(in: host).sorted { $0.minY < $1.minY }
     }
 }
 
@@ -129,20 +124,10 @@ import Sync
 /// `onOpenInEditor(side.paneName)` would draw identically and hand the editor a name.
 @Suite struct DifferenceRowMenuOrderScanTests {
 
-    /// `DifferenceInspectionMenu`'s body, from its declaration to the next top-level MARK.
+    /// `DifferenceInspectionMenu`'s body — its own braces, matched (``SwiftBlockScan``), where it
+    /// was the text up to the next top-level MARK.
     private static func menuBody() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // Tests/FileExplorer
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // FileExplorer package
-            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read DifferencesView.swift — every check would be vacuous")
-        let start = try #require(source.range(of: "struct DifferenceInspectionMenu: View {"),
-                                 "the menu view is gone or renamed — this scan measures nothing")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n// MARK: - "), "the menu view never ends")
-        return String(rest[..<end.lowerBound])
+        try SwiftBlockScan.block(opening: "struct DifferenceInspectionMenu: View {", in: try viewSource())
     }
 
     static func viewSource() throws -> String {
@@ -157,14 +142,22 @@ import Sync
     /// Compare…, its divider, the editor group, ITS divider, then Get Info — in that order, with
     /// the editor group's divider inside its own `if` so a row that offers nothing draws no
     /// separator of its own.
+    ///
+    /// **About structure, not indentation** (2026-09-26): every snippet is matched
+    /// whitespace-normalised (``SwiftBlockScan/normalized(_:)``), and "the divider is inside the
+    /// gate" is read off the gate's own braces — the `if`'s last statement is `Divider()` — where
+    /// it was the exact text `"\n            Divider()\n        }\n"`, which re-indenting the
+    /// menu, or one blank line, turned red with the divider exactly where it belongs.
     @Test func openInEditSitsBetweenCompareAndGetInfoWithItsOwnDivider() throws {
-        let body = try Self.menuBody()
-        let compare = try #require(body.range(of: "Label(\"Compare…\""), "Compare… is gone")
-        let gate = try #require(body.range(of: "if let onOpenInEditor, !editable.isEmpty {"),
+        let raw = try Self.menuBody()
+        let body = SwiftBlockScan.normalized(raw)
+        func find(_ snippet: String) -> Range<String.Index>? { body.range(of: SwiftBlockScan.normalized(snippet)) }
+        let compare = try #require(find("Label(\"Compare…\""), "Compare… is gone")
+        let gate = try #require(find("if let onOpenInEditor, !editable.isEmpty {"),
                                 "the editor group is no longer gated on both a host and an editable side")
-        let editor = try #require(body.range(of: "Label(\"Open in Edit (\\(side.paneName))\", systemImage: \"square.and.pencil\")"),
+        let editor = try #require(find("Label(\"Open in Edit (\\(side.paneName))\", systemImage: \"square.and.pencil\")"),
                                   "the per-side Open in Edit label is gone or reworded")
-        let getInfo = try #require(body.range(of: "Label(\"Get Info (\\(side.paneName))\""), "Get Info is gone")
+        let getInfo = try #require(find("Label(\"Get Info (\\(side.paneName))\""), "Get Info is gone")
         // `#require`, not `#expect`: the slice below traps on an inverted range, and a trap takes
         // the whole test process — and every drawn test still running beside it — down with it.
         try #require(compare.lowerBound < gate.lowerBound && gate.lowerBound < editor.lowerBound
@@ -175,20 +168,22 @@ import Sync
         #expect(between.contains("Divider()"), "the editor group has no divider before Get Info")
         #expect(between.components(separatedBy: "Divider()").count == 2,
                 "more than one divider between Open in Edit and Get Info")
-        // …and INSIDE the gate: the divider is the gate's last statement, so its closing brace
-        // follows it. Moved out past that brace it still sits between the two labels — and draws
-        // a second separator under Compare… on every row that offers no editor.
-        #expect(between.contains("\n            Divider()\n        }\n"),
+        // …and INSIDE the gate: the divider is the gate's last statement. Moved out past the
+        // gate's closing brace it still sits between the two labels — and draws a second
+        // separator under Compare… on every row that offers no editor.
+        let gateBody = SwiftBlockScan.normalized(
+            try SwiftBlockScan.block(opening: "if let onOpenInEditor, !editable.isEmpty {", in: raw))
+        #expect(gateBody.hasSuffix("Divider()"),
                 "the editor group's divider has left its gate — a non-text row would draw a double separator")
-        #expect(body.contains("ForEach(editable, id: \\.paneName)"),
+        #expect(find("ForEach(editable, id: \\.paneName)") != nil,
                 "the items no longer iterate the editable sides")
-        #expect(body.contains("let editable = DifferenceRowMenu.editableSides(for: difference, paneNames: paneNames)"),
+        #expect(find("let editable = DifferenceRowMenu.editableSides(for: difference, paneNames: paneNames)") != nil,
                 "the editor group no longer asks editableSides which sides it may offer")
     }
 
     /// The item hands over the side's PATH.
     @Test func openInEditHandsTheEditorTheSidesPath() throws {
-        let body = try Self.menuBody()
+        let body = SwiftBlockScan.normalized(try Self.menuBody())
         #expect(body.contains("onOpenInEditor(side.path)"), "Open in Edit does not hand over the side's path")
     }
 
@@ -196,18 +191,150 @@ import Sync
     /// and the view is handed the host's closure rather than one of its own.
     @Test func bothRowMenusBuildTheInspectionItemsWithTheHostsEditor() throws {
         let source = try Self.viewSource()
-        let wrapper = try #require(source.range(of: "private func inspectionMenuItems(for difference: FileDifference) -> some View {"))
-        let wrapperBody = String(source[wrapper.upperBound...].prefix(400))
-        #expect(wrapperBody.contains("DifferenceInspectionMenu(") && wrapperBody.contains("onOpenInEditor: onOpenInEditor"),
+        // Each member's own braces, where they were a 400-character window and "up to the next
+        // `private func` or doc comment at four spaces".
+        let wrapperBody = SwiftBlockScan.normalized(try SwiftBlockScan.block(
+            opening: "private func inspectionMenuItems(for difference: FileDifference) -> some View {", in: source))
+        #expect(wrapperBody.contains("DifferenceInspectionMenu(")
+                && wrapperBody.contains(SwiftBlockScan.normalized("onOpenInEditor: onOpenInEditor")),
                 "the row menus no longer pass the host's editor to the items")
 
         for member in ["private func singleRowMenu(", "private func reviewTable("] {
-            let start = try #require(source.range(of: member), "\(member) is gone")
-            let rest = source[start.upperBound...]
-            let end = rest.range(of: "\n    private func ") ?? rest.range(of: "\n    /// ")
-            let body = String(rest[..<(end?.lowerBound ?? rest.endIndex)])
-            #expect(body.contains("inspectionMenuItems(for: difference)"),
+            let body = SwiftBlockScan.normalized(try SwiftBlockScan.block(opening: member, in: source))
+            #expect(body.contains(SwiftBlockScan.normalized("inspectionMenuItems(for: difference)")),
                     "\(member) no longer builds the shared inspection items — it would lack Open in Edit")
         }
+    }
+}
+
+/// **A block's own braces, and code compared without its layout** — for the scans above.
+///
+/// The app target's `TestSupport.swift` has the full reader (`declarationBody`, `CodeText`,
+/// `CallArguments`); this module cannot see it, so this is the part these scans need: a lexer
+/// that knows comments and string literals (escapes, `\(…)` interpolations, `"""`, `#"…"#`), a
+/// brace matcher over it, and a normaliser that drops whitespace outside strings except between
+/// two word characters. Keep it in step with that one if either learns something.
+private enum SwiftBlockScan {
+    enum Kind { case code, string, comment }
+
+    /// What each byte is part of: code, a string literal (interpolations included), or a comment.
+    static func kinds(_ b: [UInt8]) -> [Kind] {
+        var kinds = [Kind](repeating: .code, count: b.count)
+        func at(_ i: Int) -> UInt8? { i < b.count ? b[i] : nil }
+        let quote = UInt8(ascii: "\""), hash = UInt8(ascii: "#"), slash = UInt8(ascii: "/"),
+            star = UInt8(ascii: "*"), newline = UInt8(ascii: "\n"), backslash = UInt8(ascii: "\\"),
+            open = UInt8(ascii: "("), close = UInt8(ascii: ")")
+        // Code from `i`; with `interpolation`, returns after the `)` that closes it.
+        func code(from start: Int, interpolation: Bool, mark: Bool) -> Int {
+            var i = start, depth = 0
+            while i < b.count {
+                let c = b[i]
+                var end: Int?
+                var kind = Kind.comment
+                if c == slash, at(i + 1) == slash {
+                    var j = i
+                    while j < b.count, b[j] != newline { j += 1 }
+                    end = j
+                } else if c == slash, at(i + 1) == star {
+                    var j = i + 2, level = 1
+                    while j < b.count, level > 0 {
+                        if b[j] == slash, at(j + 1) == star { level += 1; j += 2 }
+                        else if b[j] == star, at(j + 1) == slash { level -= 1; j += 2 }
+                        else { j += 1 }
+                    }
+                    end = j
+                } else if c == quote || c == hash {
+                    end = string(at: i)
+                    kind = .string
+                }
+                if let end {
+                    if mark { for k in i..<min(end, b.count) { kinds[k] = kind } }
+                    i = end
+                    continue
+                }
+                if interpolation, c == open { depth += 1 }
+                if interpolation, c == close {
+                    if depth == 0 { return i + 1 }
+                    depth -= 1
+                }
+                i += 1
+            }
+            return b.count
+        }
+        func string(at i: Int) -> Int? {
+            var j = i, hashes = 0
+            while at(j) == hash { hashes += 1; j += 1 }
+            guard at(j) == quote else { return nil }
+            let multiline = at(j + 1) == quote && at(j + 2) == quote
+            j += multiline ? 3 : 1
+            func hashesAt(_ k: Int) -> Bool { (0..<hashes).allSatisfy { at(k + $0) == hash } }
+            while j < b.count {
+                if b[j] == backslash, hashesAt(j + 1) {
+                    let k = j + 1 + hashes
+                    j = at(k) == open ? code(from: k + 1, interpolation: true, mark: false) : k + 1
+                    continue
+                }
+                if b[j] == quote, !multiline || (at(j + 1) == quote && at(j + 2) == quote) {
+                    let after = j + (multiline ? 3 : 1)
+                    if hashesAt(after) { return after + hashes }
+                }
+                if !multiline, b[j] == newline { return j }
+                j += 1
+            }
+            return b.count
+        }
+        _ = code(from: 0, interpolation: false, mark: true)
+        return kinds
+    }
+
+    /// The text inside the braces of the block `opening` starts — the first `{` in code from the
+    /// start of `opening`, to its match. `opening` must occur exactly once.
+    static func block(opening: String, in source: String,
+                      sourceLocation: SourceLocation = #_sourceLocation) throws -> String {
+        let count = source.components(separatedBy: opening).count - 1
+        try #require(count == 1, "\(opening) occurs \(count)× — the scan would read the wrong block",
+                     sourceLocation: sourceLocation)
+        let start = try #require(source.range(of: opening), sourceLocation: sourceLocation)
+        let b = Array(source.utf8)
+        let kind = kinds(b)
+        var i = source.utf8.distance(from: source.startIndex, to: start.lowerBound)
+        while i < b.count, !(kind[i] == .code && b[i] == UInt8(ascii: "{")) { i += 1 }
+        let open = i
+        var depth = 0
+        while i < b.count {
+            if kind[i] == .code, b[i] == UInt8(ascii: "{") { depth += 1 }
+            if kind[i] == .code, b[i] == UInt8(ascii: "}") {
+                depth -= 1
+                if depth == 0 { return String(decoding: b[(open + 1)..<i], as: UTF8.self) }
+            }
+            i += 1
+        }
+        Issue.record("\(opening) never closes — the scan would read the rest of the file", sourceLocation: sourceLocation)
+        return String(decoding: b[min(open + 1, b.count)...], as: UTF8.self)
+    }
+
+    /// Comments dropped, and whitespace outside string literals dropped except between two word
+    /// characters, where it becomes one space. Strings are kept byte for byte.
+    static func normalized(_ text: String) -> String {
+        let b = Array(text.utf8)
+        let kind = kinds(b)
+        func isWord(_ c: UInt8) -> Bool {
+            (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)
+                || c == UInt8(ascii: "_") || c == UInt8(ascii: "$") || c == UInt8(ascii: "@")
+                || c == UInt8(ascii: "#") || c >= 0x80
+        }
+        var out: [UInt8] = []
+        var pending = false
+        for i in 0..<b.count {
+            let c = b[i]
+            if kind[i] == .comment || (kind[i] == .code && (c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D)) {
+                pending = true
+                continue
+            }
+            if pending, let last = out.last, isWord(last), isWord(c) { out.append(0x20) }
+            pending = false
+            out.append(c)
+        }
+        return String(decoding: out, as: UTF8.self)
     }
 }

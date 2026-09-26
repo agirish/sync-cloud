@@ -345,33 +345,51 @@ import FileExplorer
 
 /// **Every entry point owes through the one rule** — scanned, because `ContentView` cannot be
 /// built in a test and a door wired to nothing would stay green in every suite above.
+///
+/// **Read as code, not as layout** (2026-09-26): each argument is checked by its LABEL on the call
+/// it belongs to (``CallArguments``), and every other snippet whitespace-insensitively
+/// (``CodeText``) — so breaking a call over more lines, or an argument becoming the last and
+/// losing its `,` to a `)`, cannot turn a check red with nothing wrong. Every check here was
+/// re-run against its mutation after the change.
 @Suite struct EditorPaneFollowsDocumentWiringTests {
 
-    static func body(_ declaration: String) throws -> String {
-        try EditorNewFilePaneWiringTests.body(of: declaration, in: "ContentView+Editor.swift")
+    static func body(_ declaration: String,
+                     sourceLocation: SourceLocation = #_sourceLocation) throws -> CodeText {
+        try EditorNewFilePaneWiringTests.body(of: declaration, in: "ContentView+Editor.swift",
+                                              sourceLocation: sourceLocation)
+    }
+
+    /// The call of `callee` inside `body`, read by label.
+    static func call(_ callee: String, in body: CodeText,
+                     sourceLocation: SourceLocation = #_sourceLocation) throws -> CallArguments {
+        try CallArguments(of: callee, in: body.normalized, sourceLocation: sourceLocation)
     }
 
     /// The door itself: the debt carries the document it was recorded against, and is tried now.
     @Test func oweRecordsTheDocumentAndTriesAtOnce() throws {
         let body = try Self.body("func owePaneSelection(_ path: String) {")
-        let record = try #require(
-            body.range(of: "editorPaneSelectionOwed = PaneSelectionDebt(path: path, document: editorDocument.path,"),
-            "the debt no longer records the open document")
-        #expect(body.contains("workspace: selectedWorkspace)"),
+        let record = try #require(body.range(of: "editorPaneSelectionOwed = PaneSelectionDebt("),
+                                  "the open-document debt is no longer what is recorded")
+        let debt = try Self.call("PaneSelectionDebt(", in: body)
+        #expect(debt.passes("path", "path") && debt.passes("document", "editorDocument.path"),
+                "the debt no longer records the open document")
+        #expect(debt.passes("workspace", "selectedWorkspace"),
                 "the debt no longer records the workspace it was owed in — it would pay in another")
         let settle = try #require(body.range(of: "settleOwedPaneSelection()"),
                                   "the debt is not tried at once — a rail click would wait for a publish that never comes")
         #expect(record.lowerBound < settle.lowerBound)
-        // One writer of a debt: every door goes through this function.
-        let editor = try EditorDivergenceWiringTests.source("ContentView+Editor.swift")
-        #expect(editor.components(separatedBy: "PaneSelectionDebt(path:").count == 2,
+        // One writer of a debt: every door goes through this function. Counted as CALLS in code —
+        // a construction spread over lines is still one, a comment naming it is none.
+        let editor = sourceCodeOnly(try EditorDivergenceWiringTests.source("ContentView+Editor.swift"))
+        #expect(argumentLists(of: "PaneSelectionDebt(", in: editor).count == 1,
                 "a second place builds a debt — a second path around the rule")
     }
 
     /// Each door: the rail's click, every hand-off, ⌘N, Reveal in Browse, the header's location.
     @Test func everyEntryPointOwesTheSelection() throws {
         let workspace = try Self.body("func editorWorkspace(showsRail: Bool) -> some View {")
-        #expect(workspace.contains("onOpen: { entry in openInEditor(path: entry.path, selectsInPane: true) },"),
+        #expect(try Self.call("EditorWorkspaceView(", in: workspace)
+                    .passes("onOpen", "{ entry in openInEditor(path: entry.path, selectsInPane: true) }"),
                 "a rail click no longer selects the file in the pane")
 
         let open = try Self.body("func openInEditor(path: String, selectsInPane: Bool = false) {")
@@ -388,15 +406,16 @@ import FileExplorer
         let reveal = try Self.body("func revealInBrowse(_ path: String, from door: EditorRevealInBrowse.Door) {")
         // The order — switch, then owe — is `EditorRevealInBrowse.reveal`'s, and is measured by
         // `EditorHandOffRunTests.revealInBrowseFromEditLandsWithTheFileSelected`.
-        #expect(reveal.contains("showBrowse: { selectedWorkspace = .browse },"))
-        #expect(reveal.contains("owe: { owePaneSelection($0) },"),
+        let act = try Self.call("EditorRevealInBrowse.reveal(", in: reveal)
+        #expect(act.passes("showBrowse", "{ selectedWorkspace = .browse }"))
+        #expect(act.passes("owe", "{ owePaneSelection($0) }"),
                 "Reveal in Browse no longer lands with the file selected")
 
         let created = try Self.body("func showCreatedFileInPane(_ path: String) {")
         #expect(created.contains("owePaneSelection(path)"), "⌘N no longer owes through the rule")
 
         let doors = try Self.body("var editorLocationDoors: EditorLocationDoors {")
-        #expect(doors.contains("selectInPane: { owePaneSelection($0) })"),
+        #expect(try Self.call("EditorLocationDoors(", in: doors).passes("selectInPane", "{ owePaneSelection($0) }"),
                 "the header's location selects around the rule")
     }
 
@@ -408,7 +427,8 @@ import FileExplorer
         #expect(!body.contains("selectsInPane") && !body.contains("owePaneSelection"),
                 "the pane's own click owes a selection — every click would scroll its row to the middle")
         // …and it passes the marker, once.
-        #expect(body.contains("paidSelection: paid)"), "the one-click open is not told what the app wrote")
+        #expect(try Self.call("Self.paneSelectionOpens(", in: body).passes("paidSelection", "paid"),
+                "the one-click open is not told what the app wrote")
         #expect(body.contains("editorPaneSelectionPaid = nil"), "the marker is not consumed — it would swallow a later click")
     }
 
@@ -417,17 +437,21 @@ import FileExplorer
     /// and both outcomes say so at the level the user runs at.
     @Test func theSettleAsksTheRuleAndMarksAndRevealsItsWrite() throws {
         let body = try Self.body("func settleOwedPaneSelection() {")
-        for input in ["openDocument: editorDocument.path, workspace: selectedWorkspace,",
-                      "paneFolder: editorFolder,",
-                      "paneIsCurrent: paneTreeIsCurrent,",
-                      "isListed: !syncManager.leftNodes(for: [owed.path]).isEmpty,",
-                      "selection: syncManager.selectedLeftPaths,",
-                      "selectingOpens: selectedWorkspace == .editor && !panesHiddenForCurrentTab)"] {
-            #expect(body.contains(input), "the rule is no longer handed \(input)")
+        let rule = try Self.call("Self.owedPaneSelection(", in: body)
+        for (label, value) in [("owed", "owed"),
+                               ("openDocument", "editorDocument.path"), ("workspace", "selectedWorkspace"),
+                               ("paneFolder", "editorFolder"),
+                               ("paneIsCurrent", "paneTreeIsCurrent"),
+                               ("isListed", "!syncManager.leftNodes(for: [owed.path]).isEmpty"),
+                               ("selection", "syncManager.selectedLeftPaths"),
+                               ("selectingOpens", "selectedWorkspace == .editor && !panesHiddenForCurrentTab")] {
+            #expect(rule.passes(label, value),
+                    "the rule is no longer handed \(label): \(value) — it is handed \(rule.value(label) ?? "nothing")")
         }
-        #expect(body.contains("markPaid: { editorPaneSelectionPaid = $0 },"),
+        let pay = try Self.call("PaneLogic.payOwedSelection(", in: body)
+        #expect(pay.passes("markPaid", "{ editorPaneSelectionPaid = $0 }"),
                 "the app's write is not marked — the one-click open would answer it")
-        #expect(body.contains("markRightCleared: { editorPaneRightClearPaid = true })"),
+        #expect(pay.passes("markRightCleared", "{ editorPaneRightClearPaid = true }"),
                 "the app's clear of the right pane is not marked — it would retire a Get Info target")
         #expect(!body.contains("selectedRightPaths"),
                 "the right pane's selection is read again — it may not block or drop the debt (2026-09-26)")
@@ -449,22 +473,24 @@ import FileExplorer
     /// The triggers, and the reveal reaching the left pane only.
     @Test func theTriggersAndTheRevealAreWired() throws {
         let content = try EditorDivergenceWiringTests.source("ContentView.swift")
-        // A workspace switch asks too, so a debt owed elsewhere drops at once, with its line.
-        let switched = try #require(content.range(of: ".onChange(of: selectedWorkspace) { _, workspace in"))
-        let switchHandler = content[switched.upperBound...].prefix(4000)
-        let handlerEnd = switchHandler.range(of: "\n        }\n")?.lowerBound ?? switchHandler.endIndex
-        #expect(switchHandler[..<handlerEnd].contains("settleOwedPaneSelection()"),
+        // A workspace switch asks too, so a debt owed elsewhere drops at once, with its line. Each
+        // handler is its closure's own braces — `declarationBody` matches them — where it was a
+        // 4,000- and a 400-character window, and an end found by exact indentation.
+        let switchHandler = CodeText(try declarationBody(of: ".onChange(of: selectedWorkspace) { _, workspace in",
+                                                         in: content))
+        #expect(switchHandler.contains("settleOwedPaneSelection()"),
                 "a workspace switch does not settle the owed selection — a debt from Edit would wait to pay in Compare")
-        #expect(content.contains(".onChange(of: syncManager.leftPaneTree) { _, _ in settleOwedPaneSelection() }"),
+        #expect(CodeText(content).contains(".onChange(of: syncManager.leftPaneTree) { _, _ in settleOwedPaneSelection() }"),
                 "nothing pays a debt when the pane's tree publishes")
-        let start = try #require(content.range(of: ".onChange(of: syncManager.selectedLeftPaths) { _, paths in"))
-        let handler = content[start.upperBound...].prefix(400)
+        let handler = CodeText(try declarationBody(of: ".onChange(of: syncManager.selectedLeftPaths) { _, paths in",
+                                                   in: content))
         #expect(handler.contains("openSelectedPaneFileInEditor(paths)"))
         #expect(handler.contains("retirePaneSelectionDebts(after: paths)"),
                 "a user's selection no longer retires the debt and the reveal — the app would fight them")
-        #expect(content.contains("rowReveal: pane.isLeft ? paneRowReveal : nil,"),
+        let pane = try CallArguments(of: "FileTreeView(", in: sourceCodeOnly(content))
+        #expect(pane.passes("rowReveal", "pane.isLeft ? paneRowReveal : nil"),
                 "the left pane is not handed the reveal")
-        #expect(content.contains("onRowRevealed: pane.isLeft ? { retireAnsweredRowReveal($0) } : nil,"),
+        #expect(pane.passes("onRowRevealed", "pane.isLeft ? { retireAnsweredRowReveal($0) } : nil"),
                 "the pane's answer does not retire the reveal — every appearance would scroll back to it")
         let retire = try Self.body("func retireAnsweredRowReveal(_ answered: PaneRowReveal) {")
         #expect(retire.contains("paneRowReveal = Self.revealAfterAnswer(standing: paneRowReveal, answered: answered)"),

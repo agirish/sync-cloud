@@ -4,6 +4,7 @@ import Testing
 import Sync
 @testable import Dashboard
 import Design
+import FileExplorerTestSupport
 
 /// Measures a view the way AppKit will, in a real (never-ordered-in) window. The identical helper
 /// lives in Modules/Design/Tests/DesignTests/LensHeaderCardTests.swift — SPM offers no clean way
@@ -111,13 +112,7 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        var count = 0
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("_FocusRingView") { count += 1 }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(host)
-        return count
+        return FocusRings.count(in: host)
     }
 
     /// A pane header carrying the view-mode switch — the only kind that can offer the preview toggle.

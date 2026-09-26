@@ -8,14 +8,28 @@ import Design
 /// Browse's pane, the Info inspector, and the window's one Quick Look panel. Reveal in Finder does
 /// not — it hands the file to Finder the same direct way the pane's row menu does — so it is
 /// defaulted to that, and a test passes its own to watch which path arrives.
-struct EditorRailRowActions {
+///
+/// **Built by the host and handed to `EditorWorkspaceView` whole**, which passes it to the rail
+/// untouched. The three host acts have no defaults, so a construction site cannot draw the menu
+/// wired to nothing — the property the workspace's three separate closures used to carry.
+public struct EditorRailRowActions {
     let revealInBrowse: (String) -> Void
     let getInfo: (String) -> Void
     let quickLook: (String) -> Void
-    var revealInFinder: (String) -> Void = EditorRailRowActions.revealInFinder
+    let revealInFinder: (String) -> Void
+
+    public init(revealInBrowse: @escaping (String) -> Void,
+                getInfo: @escaping (String) -> Void,
+                quickLook: @escaping (String) -> Void,
+                revealInFinder: @escaping (String) -> Void = EditorRailRowActions.revealInFinder) {
+        self.revealInBrowse = revealInBrowse
+        self.getInfo = getInfo
+        self.quickLook = quickLook
+        self.revealInFinder = revealInFinder
+    }
 
     /// Finder, selecting the file — the pane row menu's own call, word for word.
-    static func revealInFinder(_ path: String) {
+    public static func revealInFinder(_ path: String) {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 }

@@ -4,6 +4,7 @@ import Testing
 import Sync
 import Design
 @testable import Dashboard
+import FileExplorerTestSupport
 
 /// What the ⋯ menu is for, and what happens to the command it stopped carrying.
 ///
@@ -171,14 +172,7 @@ import Design
     /// bar is the upper of the two focusable rows. That is an exact answer to the question this was
     /// approximating, and it does not move when the arrangement does.
     private static func barRowY(of host: NSView) -> CGFloat {
-        var frames: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("_FocusRingView") {
-                frames.append(v.convert(v.bounds, to: host))
-            }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(host)
+        let frames = FocusRings.frames(in: host)
         guard let top = frames.map(\.minY).min() else {
             Issue.record("the header drew no focusable controls at all")
             return 0

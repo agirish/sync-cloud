@@ -5539,7 +5539,7 @@ done
 |---|---|---|---|
 | **`EditorDocumentLocation`** + `EditorLocationLabel` (the value, its two readings, the fold-the-middle rungs, the doors as data); `EditorWorkspaceView.location` / `onLocationDoor` (required, no defaults) on the meta row after the autosave switch, at `layoutPriority(-1)` | Not owed — no editor workspace, no header to put it on | Same | RECORDED — not owed |
 | **The header as its own card** (`headerCard`, pinned to `LiquidGlass.headerHeight`), the text in a second card in `.cards` and flush under a hairline in `.unified`; ⌘N's row moved into the text card | Not owed. The pin it shares (`PaneHeader` at `headerHeight`) IS on every line, but there is no document column beside it | Same | RECORDED — not owed |
-| **`EditorHeaderLocation.location`** (built from `BreadcrumbTrail`), **`EditorLocationDoors`** (crumb → `navigatePane`, folder → `navigatePane` + the pane's own selection binding); `paneSelectionBinding` private → internal | Not owed — nothing calls them without the header | Same | RECORDED — not owed |
+| **`EditorHeaderLocation.location`** (built from `BreadcrumbTrail`), **`EditorLocationDoors`** (crumb → `navigatePane`, folder → `navigatePane` + the pane's own selection binding); `paneSelectionBinding` private → internal (**superseded** — see "The pane's selection follows the open document, and scrolls it into view (TE47)" and "Integrating the three review fixes": the folder door now OWES the selection (`selectInPane` → `owePaneSelection`, paid by `PaneLogic.payOwedSelection` as the app's own write, not through the binding), and `paneSelectionBinding` is `private` again) | Not owed — nothing calls them without the header | Same | RECORDED — not owed |
 | Dashboard test target gains a `FileExplorer` dependency for `EditHeaderMatchesPaneHeaderTests` | Not owed — the test has no subject there | Same | RECORDED — not owed |
 
 **Checked and not owed, the other direction.** No defect fix rides along: `navigatePane`,
@@ -5616,7 +5616,7 @@ done
 | What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
 |---|---|---|---|
 | `EditorRailRowMenu` + `EditorRailRowActions`, attached in `EditorFileRailView.row(_:)` | no rail — no Edit workspace | same | CHECKED — not owed |
-| `EditorWorkspaceView.onGetInfo` / `onQuickLook` (no defaults) and `railRowActions` | no `EditorWorkspaceView` | same | CHECKED — not owed |
+| `EditorWorkspaceView.onGetInfo` / `onQuickLook` (no defaults) and `railRowActions` (**superseded** — see "Edit's test fixtures shared, and the rail's acts passed whole": the host now builds `EditorRailRowActions` and hands it to the workspace as one argument with no default) | no `EditorWorkspaceView` | same | CHECKED — not owed |
 | App wiring in `ContentView+Editor.swift` (`showInfo`, `toggleQuickLook`) | the two targets exist there, the construction site does not | same | CHECKED — not owed |
 | `EditorRailRowMenuTests` (FileExplorer), `EditorRailRowMenuWiringTests` (app target) | nothing to test | same | CHECKED — not owed |
 
@@ -5626,6 +5626,12 @@ that verb rather than growing a second one. A SwiftUI `.contextMenu` inside an `
 `NSMenu` to a test (measured: neither the host nor a subview carries one, and `menu(for:)` on a
 synthesised right-click answers empty), which is why the row's attachment is pinned by a source
 scan and the menu's order by hosting the menu body alone and reading its focus rings.
+(**Superseded** — see "Review fixes to the Edit doors (hand-off, Reveal in Browse, differences rows)
+— main only" and "Integrating the three review fixes": Reveal in Browse now takes the pane
+breadcrumb's route for Browse's mode (`EditorRevealInBrowse.movePane`; `focusPaneOnFolder` is gone)
+and lands with the row's FILE selected (`EditorRevealInBrowse.reveal`, TE47's owed selection); and
+the menu IS readable — `NSHostingView.menu(for:)` answers it once the host is in a window, which is
+how `EditorRailRowMenuTests` now reads it, so the source scan is gone.)
 
 ---
 
@@ -5975,3 +5981,16 @@ cached walks that comparison does not show. `noteEditorWrote` drops such a write
 the write instead (`prepareReread`), so a pane moved to that folder later still reads it. The record
 exists only on `main` (`owedComparison=0` on every maintenance line in the table above): **not
 owed**, nothing persisted, no log line changed.
+
+## Edit's test fixtures shared, and the rail's acts passed whole — main only
+
+Test and quality cleanup after the review fixes (2026-09-26). One code change: `EditorWorkspaceView`
+takes the rail row menu's acts as one `EditorRailRowActions`, built by the host (now `public`, its
+three host acts still without defaults), in place of `onGetInfo`, `onQuickLook` and the optional
+`onRevealRowInBrowse` it used to rebuild the struct from — the app passes the same three closures,
+so nothing it does changes. The rest is tests: a `FileExplorerTestSupport` library in the
+FileExplorer package (never linked by the app) carries one `EditorWorkspaceView.fixture`, the text
+files the render suites open (removed when the test process exits), and the focus-ring walk fifteen
+test files had copied; the header render helper reads its bitmap's bytes once and closes its window.
+`EditorWorkspaceView` exists only on `main` (`workspace=0` on every maintenance line in TE33's
+measurement above): **not owed**.

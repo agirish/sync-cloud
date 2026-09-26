@@ -25,27 +25,20 @@ import Foundation
         let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
                                "cannot read \(file) — this scan would be vacuous")
         try #require(raw.count > 5000, "\(file) is implausibly short — the scan is vacuous")
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
+        // The shared lexer: this cut every line at its first `//`, inside a string or not.
+        return sourceCodeOnly(raw)
     }
 
-    /// One member's body, from its declaration to the next member declared at the type's own
-    /// indentation. Structural rather than a character budget, for the reason
-    /// `FolderSidebarOpenTargetingTests` gives: a budget is a window that truncates under an
-    /// unrelated edit and then fails a test about something else.
+    /// One member's body, to its own closing brace — the shared
+    /// ``declarationBody(of:in:sourceLocation:)``, asked whitespace-insensitively (``CodeText``).
+    /// Structural rather than a character budget, for the reason `FolderSidebarOpenTargetingTests`
+    /// gives: a budget is a window that truncates under an unrelated edit and then fails a test
+    /// about something else. It replaced a regex that ended at the next line opening a `func` or
+    /// `var` at four spaces, which read on through a `let`, an `init` or a nested type, and to the
+    /// end of the file after the last member.
     private static func body(of declaration: String, in source: String,
-                             sourceLocation: SourceLocation = #_sourceLocation) throws -> String {
-        let start = try #require(source.range(of: declaration),
-                                 "\(declaration) is gone — this scan is aimed at nothing",
-                                 sourceLocation: sourceLocation)
-        let rest = String(source[start.upperBound...])
-        let end = rest.range(of: #"\n {4}(@\w+ )?(private |internal )?(static )?(func|var) "#,
-                             options: .regularExpression)
-        return end.map { String(rest[..<$0.lowerBound]) } ?? rest
+                             sourceLocation: SourceLocation = #_sourceLocation) throws -> CodeText {
+        CodeText(try declarationBody(of: declaration, in: source, sourceLocation: sourceLocation))
     }
 
     /// **The flag is raised and lowered around the one `focusOn`, in that order.**
@@ -126,9 +119,9 @@ import Foundation
         #expect(settle.contains("leftPath: currentLeftPath"),
                 "the settling scan is aimed at a path the panes are not on")
 
-        let arrive = try #require(code.range(of: "if workspace == .compare {"),
-                                  "nothing runs on the way into Compare")
-        #expect(code[arrive.upperBound...].prefix(80).contains("payOwedComparisonIfNeeded()"),
+        // The `if`'s own braces, where it was the next 80 characters.
+        let arrive = try Self.body(of: "if workspace == .compare {", in: code)
+        #expect(arrive.contains("payOwedComparisonIfNeeded()"),
                 "nothing settles the debt on the way into Compare — the one workspace that displays a comparison")
     }
 

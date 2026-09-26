@@ -4,6 +4,7 @@ import Testing
 import Sync
 @testable import Dashboard
 import Design
+import FileExplorerTestSupport
 
 /// The pane bar's narrow-pane ladder, now that the rung is **computed** rather than searched.
 ///
@@ -35,14 +36,7 @@ import Design
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        var found: [CGRect] = []
-        func walk(_ v: NSView) {
-            if String(describing: type(of: v)).contains("_FocusRingView") {
-                found.append(v.convert(v.bounds, to: host))
-            }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(host)
+        let found = FocusRings.frames(in: host)
         return found.sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
     }
 
