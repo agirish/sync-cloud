@@ -518,9 +518,7 @@ public struct FileTreeView: View, Equatable {
     }
 
     private func flipEdgeIfScrolledAcross() {
-        guard let placement, let onBarEdgeFlip else { return }
-        let wasAtTop = placement.atTop
-        guard placement.reresolveAtTop() != wasAtTop else { return }
+        guard let placement, let onBarEdgeFlip, placement.reresolveMovedEdge() else { return }
         DispatchQueue.main.async { onBarEdgeFlip() }
     }
 
@@ -978,12 +976,16 @@ public struct FileTreeView: View, Equatable {
                 placement?.viewportGlobalMinY = frame.minY
                 flipEdgeIfScrolledAcross()
             }
-            .onPreferenceChange(PaneRowBottomsKey.self) { bottoms in
-                placement?.rowBottoms = bottoms
-                flipEdgeIfScrolledAcross()
-            }
+            // No `PaneRowBottomsKey` handler here, unlike the tree: column rows publish no row
+            // preference. Each column's `ColumnRowBottomsProbe` writes the placement from its table
+            // and re-resolves the edge itself, so a sideways scroll of the stack touches no row.
         } else {
             treePresentation
+                // The tree's preference REPLACES the row table wholesale; the columns' probes each
+                // write only their own rows. So leaving the tree must clear what it wrote, or a row
+                // the tree last reported — scrolled away since, or no longer listed at all — would
+                // be read as on screen by the columns' first resolves.
+                .onDisappear { placement?.rowBottoms = [:] }
         }
     }
 

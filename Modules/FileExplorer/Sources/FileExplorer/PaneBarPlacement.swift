@@ -75,6 +75,15 @@ public final class PaneBarPlacement {
         return reresolveAtTop()
     }
 
+    /// Re-resolves after geometry moved, and answers whether that moved the committed edge — the one
+    /// question both presentations' geometry callbacks ask: the tree's row preference in
+    /// `FileTreeView` and the columns' `ColumnRowBottomsProbe`. One method so the two cannot come to
+    /// disagree about what counts as a flip.
+    func reresolveMovedEdge() -> Bool {
+        let wasAtTop = atTop
+        return reresolveAtTop() != wasAtTop
+    }
+
     /// Re-resolves the edge for the selection the host last committed, after geometry moved.
     ///
     /// Same maths as `resolveAtTop(selection:)` — it is the same function; only the source of the

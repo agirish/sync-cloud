@@ -656,6 +656,9 @@ struct ContentView: View {
     /// known synchronously the instant the selection changes — no gate, no show-then-flip.
     @State private var leftPlacement = PaneBarPlacement()
     @State private var rightPlacement = PaneBarPlacement()
+    /// Where each pane's columns were scrolled, kept HERE for the reason `leftTreeExpanded` is: this
+    /// view outlives a workspace switch and the pane does not. See `PaneScrollMemory`.
+    @State private var paneScrollMemory = PaneScrollMemory()
     /// Orders the deferred cross-pane selection clears, so a clear queued by one pane's click can
     /// never wipe a selection a later click made in the other pane. See
     /// `PaneLogic.applySelectionWrite`.
@@ -4694,6 +4697,13 @@ struct ContentView: View {
         // fresh on every one of `ContentView`'s renders, which any of the manager's ~56 published
         // properties can trigger. See the note on `FileTreeView`.
         .equatable()
+        // The pane's scroll offsets, kept across it being rebuilt. The surface is the workspace AND
+        // the side — unlike `hostExpanded` above, which is per side only — because the stack's
+        // sideways offset depends on the pane's width, and Browse's pane is not the width of
+        // Organize's rail. The per-folder vertical offsets inside are shared per side regardless.
+        .environment(\.paneScrollMemory,
+                     PaneScrollMemorySlot(memory: paneScrollMemory,
+                                          surface: "\(selectedWorkspace.rawValue).\(pane.isLeft ? "left" : "right")"))
     }
 
     /// A plain click on a pane's empty space: let the selection go, and — in Columns — close the

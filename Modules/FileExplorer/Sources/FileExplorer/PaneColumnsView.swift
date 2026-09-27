@@ -41,8 +41,9 @@ struct PaneColumnsView: View {
     /// Whether the pane's walk is still running. Defaulted so the many test call sites that
     /// predate it keep compiling and keep asking the question they were written to ask.
     var isLoading: Bool = false
-    /// Shared placement scratch space; column rows report their bottoms into it exactly as tree
-    /// rows do, so the action bar keeps flipping edges. `nil` on surfaces with no action bar.
+    /// Shared placement scratch space. Each column reports its visible rows' bottoms into it through
+    /// a `ColumnRowBottomsProbe` — from the table, never from a per-row geometry reader — so the
+    /// action bar keeps flipping edges. `nil` on surfaces with no action bar.
     let placement: PaneBarPlacement?
     let onBarEdgeFlip: (() -> Void)?
     /// Presents a Quick Look preview; owned by the hosting `FileTreeView`.
@@ -212,6 +213,14 @@ struct PaneColumnsView: View {
     /// `paneColumnRevealHoldChecks`.
     @Environment(\.paneColumnRevealHoldChecks) private var revealHoldChecks
 
+    /// Where this pane's scroll offsets outlive the pane — see `PaneScrollMemory`. `nil`, the
+    /// default, is a pane that scrolls exactly as it always did.
+    @Environment(\.paneScrollMemory) private var scrollMemory
+
+    /// Whether a rebuilt pane may put its remembered offsets back. Not while the host has asked for
+    /// a reveal: a search hit or the open document's row is an explicit navigation, and it wins.
+    private var restoresScroll: Bool { searchRevealTarget == nil && rowReveal == nil }
+
     /// What every navigation guard in this view tests. `nil` is the shipped value and this is then
     /// literally `NSEvent.modifierFlags`, which is what all three call sites read before the pin
     /// existed.
@@ -371,6 +380,8 @@ struct PaneColumnsView: View {
                 // Inside the ScrollView, so the ancestor walk resolves the STACK's scroll view
                 // rather than a column's own list. See `PaneColumnsOverscrollReturn`.
                 .background(PaneColumnsOverscrollReturn(holdGate: holdGate))
+                // Same placement, same reason: the offset this remembers is the STACK's.
+                .background(stackScrollMemoryProbe)
             }
             .scrollDisabled(spansStack)
             // Keep the deepest column in view as you drill, like Finder.
@@ -383,6 +394,11 @@ struct PaneColumnsView: View {
             // never seen the request change.
             .onChange(of: rowReveal) { _, reveal in revealColumnHolding(reveal, proxy) }
             .onAppear { revealColumnHolding(rowReveal, proxy) }
+            // A pane rebuilt over a stack it has no offset for — the first visit to this surface, or
+            // a stack that changed while the pane was away — shows its deepest column, as a drill
+            // would. Without it the rebuilt stack sat at its FIRST column, hiding the one you were in.
+            // A remembered offset is put back by `PaneStackScrollMemoryProbe` instead.
+            .onAppear { revealWhenNothingToRestore(proxy) }
             // The second driver: the preview ARRIVING — the rising edge only.
             //
             // The preview is pinned OUTSIDE the scroll view, so it does not scroll into or out of
@@ -496,6 +512,31 @@ struct PaneColumnsView: View {
             // a queued block holding this view's captures and the `ScrollViewProxy`, and a queued
             // block has no idea the pane is gone — see `PaneColumnHoldGate.cancelPendingReveal`.
             .onDisappear { holdGate.cancelPendingReveal() }
+        }
+    }
+
+    /// The rebuilt pane's reveal, for a stack the memory holds no offset for — see the `.onAppear`
+    /// that calls it. Only with a memory: a host without one mounts exactly as it always did.
+    private func revealWhenNothingToRestore(_ proxy: ScrollViewProxy) {
+        guard let scrollMemory, restoresScroll,
+              scrollMemory.memory.stackOrigin(surface: scrollMemory.surface,
+                                              components: browsePath.components) == nil
+        else { return }
+        revealDeepestColumn(proxy)
+    }
+
+    @ViewBuilder
+    private var stackScrollMemoryProbe: some View {
+        if let scrollMemory {
+            PaneStackScrollMemoryProbe(slot: scrollMemory, components: browsePath.components,
+                                       restores: restoresScroll)
+        }
+    }
+
+    @ViewBuilder
+    private func columnScrollMemoryProbe(directory: String) -> some View {
+        if let scrollMemory {
+            ColumnScrollMemoryProbe(slot: scrollMemory, directory: directory, restores: restoresScroll)
         }
     }
 
@@ -857,6 +898,11 @@ struct PaneColumnsView: View {
         // Instrumentation for the open "first column moves up and down" report — see
         // `PaneColumnJitterProbe`.
         .background(PaneColumnJitterProbe(depth: depth, isLeft: isLeft))
+        // Where this column's rows end, for the action bar — from the table, so the stack's
+        // sideways scroll re-lays out no row. See `ColumnRowBottomsProbe`.
+        .background(rowBottomsProbe(for: rows))
+        // This folder's scroll position, kept while the pane is rebuilt. See `PaneScrollMemory`.
+        .background(columnScrollMemoryProbe(directory: directory))
         .scrollContentBackground(.hidden)
         .environment(\.defaultMinListRowHeight, density.metrics.treeIconSize + 6)
         .onDeleteCommand {
@@ -1018,7 +1064,6 @@ struct PaneColumnsView: View {
                 downloadChannel: downloadChannel
             )
         }
-        .background(rowPositionProbe(for: node))
         .listRowBackground(rowBackground(for: node, isOnPath: isOnPath))
     }
 
@@ -1116,17 +1161,27 @@ struct PaneColumnsView: View {
             .padding(.vertical, 1)
     }
 
-    /// Column rows report their bottom edges exactly as tree rows do, so `PaneBarPlacement` keeps
-    /// resolving the action bar's edge. The math is purely vertical, so a horizontal stack of
-    /// columns needs no change to it — only these probes.
+    /// One column's report of where its rows end, so `PaneBarPlacement` keeps resolving the action
+    /// bar's edge. The placement math is purely vertical, so a horizontal stack of columns needs no
+    /// change to it — only the source of the bottoms, which is per column and read from the table.
+    ///
+    /// **Not a `GeometryReader` per row, as it was.** A `.global` reader on every row subscribed
+    /// every row to the stack's sideways scroll — see `ColumnRowBottomsProbe` for what that cost.
     @ViewBuilder
-    private func rowPositionProbe(for node: FileNode) -> some View {
-        if placement != nil {
-            GeometryReader { proxy in
-                Color.clear.preference(key: PaneRowBottomsKey.self,
-                                       value: [node.id: proxy.frame(in: .global).maxY])
-            }
+    private func rowBottomsProbe(for rows: [PaneRow]) -> some View {
+        if let placement {
+            ColumnRowBottomsProbe(rowIDs: rows.map(\.id), placement: placement,
+                                  onReport: reresolveBarEdge)
         }
+    }
+
+    /// The bar's re-resolve after a column's rows moved — the columns' half of
+    /// `FileTreeView.flipEdgeIfScrolledAcross`, which used to run for them off the row preference.
+    /// Asks the host to re-render only on a genuine flip, and never from inside the report that
+    /// found it: the callback lands on the next turn, exactly as the preference path's did.
+    private func reresolveBarEdge() {
+        guard let placement, let onBarEdgeFlip, placement.reresolveMovedEdge() else { return }
+        DispatchQueue.main.async { onBarEdgeFlip() }
     }
 
     /// The draggable seam between two columns. Writes defaults only when the drag ends, so a drag
@@ -1177,7 +1232,10 @@ enum DeferredColumnNavigation {
 
 /// Preference carrying every visible row's bottom edge in GLOBAL space, keyed by node id.
 ///
-/// Shared by the tree and columns presentations so both feed one `PaneBarPlacement`. Global, not a
+/// The tree's source of `PaneBarPlacement.rowBottoms`. Columns used to publish it too, from a
+/// `GeometryReader` on every row; they now write the placement from each column's table instead
+/// (`ColumnRowBottomsProbe`), because the stack scrolls sideways and a per-row global reader paid for
+/// every frame of it. The tree does not scroll sideways, so its readers only move when rows do. Global, not a
 /// named space: List rows are hosted in their own AppKit subtrees where a named space silently
 /// degrades to global, which is what once flipped the action bar a quarter-viewport early.
 struct PaneRowBottomsKey: PreferenceKey {
