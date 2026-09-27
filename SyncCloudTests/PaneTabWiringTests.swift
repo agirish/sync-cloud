@@ -1841,29 +1841,21 @@ import Sync
     /// the pane you are already working in, and a defect in this exact area logged the most
     /// ordinary gesture in the strip (clicking the chip you are already on) into the log he audits.
     ///
-    /// **Read between this test's own markers, with the cause carrying a token.** `Logger.shared`
-    /// is process-wide and `entries` is a rolled 1000-line window, so the opener is `#require`d as
-    /// the eviction guard and the reason strings are unique to this run — nothing else in the
-    /// process can write a line this reading then counts, in either direction.
-    @Test func aFocusMoveIsLoggedWithItsCauseAndANoOpIsNot() async throws {
+    /// **Read from a capture opened before the moves, with the cause carrying a token.**
+    /// `Logger.shared` is process-wide and `entries` is a rolled 1000-line window, so the reading
+    /// is a `LogCapture`'s, and the reason strings are unique to this run — nothing else in the
+    /// process can write a line this reading then counts, in either direction. The move's own line
+    /// is what keeps the silent half honest: a capture that saw nothing fails the count, so the
+    /// absence cannot pass on its own.
+    @Test func aFocusMoveIsLoggedWithItsCauseAndANoOpIsNot() async {
         let manager = FileSyncManager(fileManager: FileManager.default)
         let token = String(UUID().uuidString.prefix(8))
 
-        await Logger.shared.debug("focus window open \(token)").value
+        let log = LogCapture()
         manager.noteFocusedPane(isLeft: false, because: "moved \(token)")
         // The same side again: nothing changes, so nothing may be said.
         manager.noteFocusedPane(isLeft: false, because: "again \(token)")
-        await Logger.shared.debug("focus window close \(token)").value
-
-        let messages = Logger.shared.entries.map(\.message)
-        let opened = try #require(messages.firstIndex(where: { $0.contains("open \(token)") }),
-                                  "the log window rolled past this test's own marker, so this reading is vacuous")
-        // Sliced from the opener FIRST and searched inside that slice, so the two indices cannot be
-        // found out of order — `messages[a...b]` traps rather than failing when they are.
-        let tail = messages[opened...]
-        let closed = try #require(tail.lastIndex(where: { $0.contains("close \(token)") }),
-                                  "the closing marker never landed — this reading is vacuous")
-        let window = tail[...closed]
+        let window = await log.entries.map(\.message)
 
         let moved = window.filter { $0.contains("moved \(token)") }
         #expect(moved.count == 1,

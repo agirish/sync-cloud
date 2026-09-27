@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Events
+import EventsTestSupport
 @testable import Sync
 
 /// Manager-level coverage for Filing: the end-to-end scan (real folders) and the apply path

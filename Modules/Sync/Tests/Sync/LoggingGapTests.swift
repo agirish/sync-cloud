@@ -1,4 +1,5 @@
 import Events
+import EventsTestSupport
 import Foundation
 import Testing
 @testable import Sync
@@ -17,7 +18,7 @@ import Testing
 @Suite @MainActor struct LoggingGapTests {
     /// Opened per test — Swift Testing builds a fresh suite instance for each — so every
     /// assertion below reads a window that starts before its own test does, and cannot be
-    /// evicted out from under it. See `LogCapture` in `TestSupport.swift`.
+    /// evicted out from under it. See `LogCapture` in `EventsTestSupport`.
     private let log = LogCapture()
 
 

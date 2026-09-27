@@ -2,6 +2,7 @@ import Combine
 import Testing
 import Foundation
 import Events
+import EventsTestSupport
 @testable import Sync
 
 /// Manager-level coverage for the rename pass: the scan that finds drifted folders, the apply path
@@ -421,7 +422,7 @@ import Events
             fm.shouldFailMoveOnTempRename = true
         }
 
-        let log = LogCapture()   // TestSupport
+        let log = LogCapture()
         await manager.applyRenamePlans([plan])
 
         let after = fm.virtualDisk.keys.filter { $0.hasPrefix("/prov/2021/") }
@@ -487,7 +488,7 @@ import Events
             fm.virtualDisk["/prov/2021/01. Mar 2021.pdf"] = stub(20)
         }
 
-        let log = LogCapture()   // TestSupport
+        let log = LogCapture()
         await manager.applyRenamePlans([plan])
 
         let survivor = try #require(

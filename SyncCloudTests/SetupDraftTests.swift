@@ -73,10 +73,10 @@ import Testing
     /// (`clear(at:)` refuses to run until they have reached a roster). That is the one worth a line
     /// in `~/sync-cloud.log`, and the line has to name the path or it cannot be looked at by hand.
     ///
-    /// Read between two of this test's own markers rather than over the whole buffer:
+    /// Read from a capture opened before each read rather than from the whole buffer:
     /// `Logger.shared` is process-wide and `entries` is a rolled 1000-line window, so a bare
-    /// `contains` would let a rolled window pass the absence half for free. The opening marker is
-    /// `#require`d, which is the eviction guard.
+    /// `contains` would let a rolled window pass the absence half for free. Each window `#require`s
+    /// its own closing line from the capture, so one that saw nothing cannot pass it either.
     ///
     /// **Matched on this test's own scratch paths, not on the words the line uses**, and that is
     /// what lets the suite stay unserialized. Two sibling tests here (`garbageIsIgnored…`,
@@ -89,19 +89,16 @@ import Testing
         let dir = try Self.scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        /// Everything logged between two fresh markers, with the read under test run between them.
-        func window(_ act: () -> Void) async throws -> ArraySlice<String> {
-            let token = UUID().uuidString.prefix(8)
-            await Logger.shared.debug("setup-draft window open \(token)").value
+        /// Everything logged while the read under test runs, from a capture opened before it.
+        func window(_ act: () -> Void) async throws -> [String] {
+            let log = LogCapture()
             act()
-            await Logger.shared.debug("setup-draft window close \(token)").value
-            let messages = Logger.shared.entries.map(\.message)
-            let opened = try #require(messages.firstIndex(where: { $0.contains("open \(token)") }),
-                                      "the log window rolled past this test's own marker — this reading is vacuous")
-            let tail = messages[opened...]
-            let closed = try #require(tail.lastIndex(where: { $0.contains("close \(token)") }),
-                                      "the closing marker never landed — this reading is vacuous")
-            return tail[...closed]
+            let close = "setup-draft window close \(UUID().uuidString.prefix(8))"
+            Logger.shared.debug(close)
+            let messages = await log.entries.map(\.message)
+            let closed = messages.contains(close)
+            try #require(closed, "the capture never saw this window's own closing line — this reading is vacuous")
+            return messages
         }
 
         // Absent: the ordinary case, on every launch before the user has answered anything.

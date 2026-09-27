@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Events
+import EventsTestSupport
 @testable import Sync
 
 /// `person-tags.json` — the file, its forward compatibility, and the store that writes it.

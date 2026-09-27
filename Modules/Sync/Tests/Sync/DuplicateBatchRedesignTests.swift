@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Events
+import EventsTestSupport
 @testable import Sync
 
 /// The batch-apply redesign: one `deleteItems` call for the whole batch instead of one per group,

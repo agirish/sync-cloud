@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Events
+import EventsTestSupport
 @testable import Sync
 
 /// Pins the durable ignore store: per-pair persistence round-trips, order-independent pair

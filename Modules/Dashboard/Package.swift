@@ -39,6 +39,7 @@ let package = Package(
                 // header out beside the real `PaneHeader` — the one place both views can be seen.
                 "Dashboard", "Sync", "Events", "Design", "FileExplorer",
                 .product(name: "FileExplorerTestSupport", package: "FileExplorer"),
+                .product(name: "EventsTestSupport", package: "Events"),
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
             ],
             path: "Tests/Dashboard")

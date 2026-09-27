@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Events
+import EventsTestSupport
 @testable import Dashboard
 
 /// Bringing a bar someone arranged on an earlier build forward when a new control ships.
@@ -16,21 +17,18 @@ import Events
 /// writing into it concurrently. Three things do the work, and the suite attribute is only the
 /// third:
 ///
-/// * **A marker window.** Every read of `Logger.shared.entries` here — presence or absence — writes
-///   a UUID marker first and looks only at what follows it. The buffer is capped at 1000 entries, so
-///   a read without one can pass for free once a sibling suite has rolled the window past everything
-///   this test wrote (`docs/flaky-tests.md`, mechanism 12).
+/// * **A capture, not the buffer.** Every log read here — presence or absence — comes from a
+///   `LogCapture` opened before the call under test. The buffer is capped at 1000 entries, so a read
+///   of it can pass for free once a sibling suite has rolled the window past everything this test
+///   wrote ("A log assertion reading a window that has already rolled" in `docs/flaky-tests.md`).
+///   Each absence also asks the capture for a line of the test's own, so one that heard nothing
+///   cannot pass it.
 /// * **Disjoint predicates.** The absences below look for `[panebar] The stored pane-bar
 ///   arrangement`, which nothing outside this file writes, so no other suite's line can land inside
-///   one of these windows and no test here can contradict another's absence.
-/// * `.serialized` on top of both, which keeps the windows short rather than making them sound.
+///   one of these captures and no test here can contradict another's absence.
+/// * `.serialized` on top of both, which keeps the captures short rather than making them sound.
 @MainActor
 @Suite(.serialized) struct PaneBarMigrationTests {
-
-    /// Awaits a fresh log task, so everything enqueued before it is visible in `entries`.
-    private func flushLog() async {
-        await Logger.shared.debug("panebar-migration flush marker").value
-    }
 
     /// A stored bar that predates Search must gain it, at the trailing end, rather than keeping it
     /// in ⋯ forever. This is the reported bug: the magnifier sat in the overflow menu on a bar with
@@ -650,8 +648,7 @@ import Events
     /// launch after the one that migrated is that install, so a bar missing a shipped control is
     /// silent forever unless the report runs independently of whether anything migrated.
     @Test func testAnAlreadyStampedLaunchStillSaysWhatTheBarCannotShow() async {
-        let marker = "panebar-reach-stamped-\(UUID().uuidString)"
-        Logger.shared.info(marker)
+        let log = LogCapture()
 
         let defaults = ScratchDefaults("PaneBarMigrationTests-reach-stamped")
         defaults.set(PaneBarMigration.currentVersion, forKey: PaneBar.migrationKey)
@@ -659,16 +656,12 @@ import Events
 
         #expect(PaneBarMigration.apply(defaults: defaults) == .unchanged, "nothing to migrate on this path")
         PaneBarMigration.reportStoredArrangementReach(defaults: defaults)
-        await flushLog()
 
         // The literal, not a recomputation: a line assembled from the same call the source makes
         // would agree with itself whatever it said. Delete is NOT in it — see `omissionMessage`: a
         // control that declines a migration step is absent from these bars by design, and telling
         // this user to put it back, every launch, is advice about a decision rather than a defect.
-        let entries = Logger.shared.entries
-        #expect(entries.contains { $0.message == marker },
-                "the log window rolled past the marker — read the entries sooner")
-        #expect(entries.drop(while: { $0.message != marker }).contains {
+        #expect(await log.entries.contains {
             $0.message == "[panebar] The stored pane-bar arrangement omits View, Collapse Pane, "
                 + "Back/Forward, New Folder, Hidden Files, Preview, Search"
                 + " — put back from Customize Pane Bar…"
@@ -688,8 +681,7 @@ import Events
     /// This is the assertion that keeps it out: re-adding the `defer` while the delegate still calls
     /// it is a double line per launch, and that is what fails here.
     @Test func testTheMigrationItselfWritesNoReachReport() async {
-        let marker = "panebar-reach-not-from-apply-\(UUID().uuidString)"
-        Logger.shared.info(marker)
+        let log = LogCapture()
 
         // A bar missing almost everything — if `apply` reported at all, this is the fixture that
         // would make it shout.
@@ -702,21 +694,21 @@ import Events
         migrating.set("flexibleSpace,scan,sort", forKey: PaneBar.arrangementKey)
         #expect(PaneBarMigration.apply(defaults: migrating) == .rewritten(added: [.search], removed: []),
                 "the fixture must really migrate")
-        await flushLog()
+        // After both calls, so a capture that holds it was listening across them.
+        let marker = "panebar-reach-not-from-apply-\(UUID().uuidString)"
+        Logger.shared.info(marker)
 
-        let entries = Logger.shared.entries
+        let entries = await log.entries
         #expect(entries.contains { $0.message == marker },
-                "the log window rolled past the marker — this absence proves nothing")
-        let since = entries.drop(while: { $0.message != marker })
+                "the capture never saw this test's own line — this absence proves nothing")
         let reportedFromApply = "PaneBarMigration.apply wrote the reach report; App.init can be "
             + "re-run, so it would repeat for the same launch — the delegate owns this line"
-        #expect(!since.contains { $0.message.hasPrefix("[panebar] The stored pane-bar arrangement") },
+        #expect(!entries.contains { $0.message.hasPrefix("[panebar] The stored pane-bar arrangement") },
                 "\(reportedFromApply)")
         // The positive control for the absence: the same fixture, reported deliberately, does write.
         // Without it "apply said nothing" would also be the reading if the report were gone entirely.
         PaneBarMigration.reportStoredArrangementReach(defaults: stamped)
-        await flushLog()
-        #expect(Logger.shared.entries.drop(while: { $0.message != marker }).contains {
+        #expect(await log.entries.contains {
             $0.message.hasPrefix("[panebar] The stored pane-bar arrangement omits")
         }, "nothing reports this bar at all, so the absence above says nothing about where the report lives")
     }
@@ -729,18 +721,13 @@ import Events
     /// reachable at all — in a correct build nothing is stranded, so the branch that matters is the
     /// branch no honest fixture can produce.
     @Test func testTheStrandedWarningReachesTheLog() async {
-        let marker = "panebar-reach-stranded-\(UUID().uuidString)"
-        Logger.shared.info(marker)
+        let log = LogCapture()
 
         let defaults = ScratchDefaults("PaneBarMigrationTests-reach-stranded")
         defaults.set("flexibleSpace,scan,sort", forKey: PaneBar.arrangementKey)
         PaneBarMigration.reportStoredArrangementReach(defaults: defaults, withoutARoute: [.delete])
-        await flushLog()
 
-        let since = Logger.shared.entries.drop(while: { $0.message != marker })
-        #expect(Logger.shared.entries.contains { $0.message == marker },
-                "the log window rolled past the marker — read the entries sooner")
-        let written = since.last { $0.message.hasPrefix("[panebar] Delete ships") }
+        let written = await log.entries.last { $0.message.hasPrefix("[panebar] Delete ships") }
         // `messageBody`, because `warning` appends its own " | Location: file:line / function" tail
         // — which is itself worth reading here: it names `reportStoredArrangementReach`, so the tail
         // says the line came from the reporting function rather than from a test calling
@@ -757,23 +744,22 @@ import Events
     /// uncustomized install has no stored arrangement at all and is the common case; a line there
     /// would be one per launch for everybody, about nothing.
     @Test func testALaunchOnAnUntouchedBarWritesNothingAboutIt() async {
-        let marker = "panebar-reach-silence-\(UUID().uuidString)"
-        Logger.shared.info(marker)
+        let log = LogCapture()
 
         let uncustomized = ScratchDefaults("PaneBarMigrationTests-reach-fresh")
         PaneBarMigration.reportStoredArrangementReach(defaults: uncustomized)
         let complete = ScratchDefaults("PaneBarMigrationTests-reach-complete")
         complete.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
         PaneBarMigration.reportStoredArrangementReach(defaults: complete)
-        await flushLog()
+        // After both reports, so a capture that holds it was listening across them.
+        let marker = "panebar-reach-silence-\(UUID().uuidString)"
+        Logger.shared.info(marker)
 
-        let entries = Logger.shared.entries
-        // Without this the absence below passes for free the moment the 1000-entry window rolls
-        // past everything these two calls could have written.
+        let entries = await log.entries
+        // Without this the absence below passes for free if the capture heard nothing at all.
         #expect(entries.contains { $0.message == marker },
-                "the log window rolled past the marker — this absence proves nothing")
-        let since = entries.drop(while: { $0.message != marker })
-        #expect(!since.contains { $0.message.hasPrefix("[panebar] The stored pane-bar arrangement") },
+                "the capture never saw this test's own line — this absence proves nothing")
+        #expect(!entries.contains { $0.message.hasPrefix("[panebar] The stored pane-bar arrangement") },
                 "a bar that carries every shipped control was reported as missing something")
     }
 

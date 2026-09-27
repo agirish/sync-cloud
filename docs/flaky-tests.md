@@ -1671,12 +1671,15 @@ buffer evicts: applying it turns "the line is missing" into "the window rolled",
 message and a **redder** test. Measured 2026-08-26 on `FilingRenamePassTests` — the full package
 went from green to failing-with-a-better-message, and the change was reverted.
 
-**Prefer `LogCapture` (`Modules/Sync/Tests/Sync/TestSupport.swift`).** It subscribes to
-`Logger.shared.$entries` and accumulates at publish time, so a later trim cannot take an entry away
-and there is no window to roll. Construct it BEFORE the call under test — it is a window opening,
-not a query:
+**Prefer `LogCapture` (`Modules/Events/Sources/EventsTestSupport/LogCapture.swift`).** It subscribes
+to `Logger.shared.$entries` and accumulates at publish time, so a later trim cannot take an entry
+away and there is no window to roll. A package test target depends on the `EventsTestSupport`
+product and imports it; the app target's tests compile the file in instead, for the reason
+`project.yml` gives. Construct it BEFORE the call under test — it is a window opening, not a query:
 
 ```swift
+import EventsTestSupport
+
 @Suite @MainActor struct MySuite {
     private let log = LogCapture()      // per test: Swift Testing builds a fresh instance for each
     @Test func theThingSaysSo() async {
@@ -1686,14 +1689,15 @@ not a query:
 }
 ```
 
-`LogBufferReadScanTests` enforces this in the Sync test tree: a `Logger.shared.entries` read fails
-it unless an index call bounds it within a few lines — a capture or a disk read elsewhere in the
-file no longer excuses it, and neither does a comment. Sixteen suites predated `LogCapture` and sat
-on an allow-list when the scan was written; a hand count had put them at nine, so do not estimate
-this set, run the scan. The last fifteen were converted on 2026-09-27 and the list was deleted. **It reads only `Modules/Sync/Tests/Sync`:** the app target, `Dashboard` and
-`FileExplorer` still read the buffer directly in places, and cannot import `LogCapture`, which lives
-in the Sync test target — `grep -rn 'Logger\.shared\.entries' SyncCloudTests Modules/*/Tests`
-lists them.
+`LogBufferReadScanTests` enforces this in every test tree — the app target's, each package's
+`Tests`, and the `…TestSupport` libraries: a `Logger.shared.entries` read fails it unless an index
+call bounds it within a few lines — a capture or a disk read elsewhere in the file no longer
+excuses it, and neither does a comment. Sixteen suites predated `LogCapture` and sat on an
+allow-list when the scan was written; a hand count had put them at nine, so do not estimate this
+set, run the scan. The last fifteen were converted on 2026-09-27 and the list was deleted. It read
+only the Sync tree until, the same day, `LogCapture` moved out of the Sync test target into
+`EventsTestSupport` and the nineteen reads the app target, `Dashboard` and `FileExplorer` held
+were converted with it.
 
 The four rules below still apply where a capture is impossible (reading the disk log, or asserting
 about lines written before your test began), and rule 1's *second* half — the awaited flush — is
@@ -1721,7 +1725,7 @@ needed by `LogCapture` too, for the visibility reason it gives.
    rolling the window between the marker and the read — failed on the `#require` instead. The two
    guards are independent and both are load-bearing: the flush cannot see eviction, and the marker
    cannot see the queue. Every implementation in this repo already had the flush; it was the advice
-   that had dropped it, which is why `ContentSignalExtractorTests` below keeps both.
+   that had dropped it, which is why `loggedWindow(_:)` below keeps both.
 2. **For a presence assertion, read strictly BETWEEN two of your own markers** — open, act, close —
    rather than over the buffer. This does three jobs at once: the `#require`d opening marker is the
    eviction guard as above, the *awaited* closing marker is rule 1's flush (which is why this shape
@@ -1923,25 +1927,21 @@ their own failure:
   `loggerContains(_:)`. Its siblings in that same test are presence assertions, so a roll would fail
   *those* loudly while `:40` passed for free — the asymmetry inside one test.
 
-`SyncCloudTests/ContentSignalExtractorTests.swift` used to head this list and no longer belongs on
-it: `9da161d8` converted it, and `aScanThatOCRsCleanlyReportsNoOCRFailure` is now worth copying
-instead. It is the clearest implementation of the corrected rule 1 — a unique marker written and
-awaited *before* the call under test, its index `#require`d with a message naming the reading as
-vacuous, **and** the trailing awaited flush kept, so the interval is both survived and visible. Its
-doc comment also states why it needs no `.serialized`, which is rule 4 answered rather than ignored.
+`SyncCloudTests/ContentSignalExtractorTests.swift` used to head this list: `9da161d8` gave it a
+bounded window. All three now read a `LogCapture` instead — the two above since 2026-09-27, and
+`ContentSignalExtractorTests` with the rest of the app target's log suites the same day.
 
-**Model implementations**, in the order worth copying. Cited by **symbol**, deliberately: two of the
-line ranges this list used to carry were correct when written and silently wrong a commit or two
-later, once a sibling inserted a helper above them. A file whose whole value is being checkable
-cannot afford citations that rot without saying so — `grep -n` costs the reader nothing.
+**Model implementations** of the four rules, for where a capture will not do, in the order worth
+copying. Cited by **symbol**, deliberately: two of the line ranges this list used to carry were
+correct when written and silently wrong a commit or two later, once a sibling inserted a helper
+above them. A file whose whole value is being checkable cannot afford citations that rot without
+saying so — `grep -n` costs the reader nothing.
 
-- `window(_:)` in `SyncCloudTests/ShortcutCommandsTests.swift` — the original two-marker helper,
-  with the reasoning in its doc comment and both halves (presence and absence) read through it.
-- `loggedWindow(_:)` in `Modules/Sync/Tests/Sync/PaneTabsTests.swift` — the Sync-package copy;
-  returns `ArraySlice<LogEntry>` so the level can be asserted too, and computes each index *before*
-  the `#require` so a failure prints an index rather than 152KB of dumped buffer.
-- `aScanThatOCRsCleanlyReportsNoOCRFailure` in `SyncCloudTests/ContentSignalExtractorTests.swift` —
-  the absence case with both of rule 1's guards, marker-then-`#require` *and* the trailing flush.
+- `loggedWindow(_:)` in `Modules/Sync/Tests/Sync/PaneTabsTests.swift` — the two-marker helper,
+  with both halves (presence and absence) read through it and both of rule 1's guards: the opening
+  marker `#require`d, the closing one awaited as the flush. It returns `ArraySlice<LogEntry>` so the
+  level can be asserted too, and computes each index *before* the `#require` so a failure prints an
+  index rather than 152KB of dumped buffer.
 - `wideningAOnePaneRefreshSaysSo` in `Modules/Sync/Tests/Sync/LoggingGapTests.swift` — why to read
   at the decision rather than at completion, which is rule 3 and the one that is easy to talk
   yourself out of.

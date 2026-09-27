@@ -1,5 +1,6 @@
 import Testing
 import Events
+import EventsTestSupport
 import Foundation
 import Sync
 @testable import FileExplorer
@@ -145,12 +146,12 @@ import Sync
 /// and neither used to leave a trace, so "my walkthrough disappeared" was undiagnosable from
 /// `~/sync-cloud.log`.
 ///
-/// `@MainActor` because `Logger.shared.entries` is main-actor state, and `.serialized` because the
-/// three tests assert on (and one asserts the ABSENCE of) the same process-wide log stream —
-/// in-suite parallelism would let one test's retirement line land inside another's window.
-/// `Logger.shared.warning`/`info` are async (they return the flush `Task`); every reading below
-/// awaits its closing marker's task, which drains the FIFO queue behind it, before touching
-/// `entries` — the pattern `DuplicateReviewCoordinatorTests` measured out.
+/// `@MainActor` because `LogCapture` is main-actor state, and `.serialized` because the three tests
+/// assert on (and one asserts the ABSENCE of) the same process-wide log stream — in-suite
+/// parallelism would let one test's retirement line land inside another's window. Every reading
+/// comes from a capture opened before the call, which the shared buffer's 1000-line trim cannot
+/// empty, and `#require`s a closing line of its own from it, so the absence cannot pass on a
+/// capture that heard nothing.
 @MainActor
 @Suite(.serialized) struct FilingWalkthroughLogTests {
 
@@ -161,20 +162,17 @@ import Sync
                             destinationAnchor: URL(fileURLWithPath: "/root"))
     }
 
-    /// Everything logged between two fresh markers, with the call under test run between them.
-    /// The opener is `#require`d as the eviction guard — `entries` is a rolled 1000-line window.
-    private func window(_ act: () -> Void) async throws -> ArraySlice<String> {
-        let marker = UUID().uuidString.prefix(8)
-        await Logger.shared.debug("walkthrough log window open \(marker)").value
+    /// Everything logged while `act` runs, read from a capture opened before it — never from
+    /// `Logger.shared.entries`, which is a rolled 1000-line window.
+    private func window(_ act: () -> Void) async throws -> [String] {
+        let log = LogCapture()
         act()
-        await Logger.shared.debug("walkthrough log window close \(marker)").value
-        let messages = Logger.shared.entries.map(\.message)
-        let opened = try #require(messages.firstIndex(where: { $0.contains("open \(marker)") }),
-                                  "the log window rolled past this test's own marker, so this reading is vacuous")
-        let tail = messages[opened...]
-        let closed = try #require(tail.lastIndex(where: { $0.contains("close \(marker)") }),
-                                  "the closing marker never landed — this reading is vacuous")
-        return tail[...closed]
+        let close = "walkthrough log window close \(UUID().uuidString.prefix(8))"
+        Logger.shared.debug(close)
+        let messages = await log.entries.map(\.message)
+        let closed = messages.contains(close)
+        try #require(closed, "the capture never saw this window's own closing line — this reading is vacuous")
+        return messages
     }
 
     @Test func aDismissalSaysWhereItStoppedAndWhatItDiscarded() async throws {

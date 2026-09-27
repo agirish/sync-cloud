@@ -1,7 +1,7 @@
 import Testing
 import AppKit
 import Design
-import Events
+import EventsTestSupport
 import SwiftUI
 import Sync
 @testable import FileExplorer
@@ -1342,11 +1342,6 @@ import Sync
         var peak: CGFloat { log.origins.map(abs).max() ?? 0 }
     }
 
-    /// Whether any log line recorded since `since` contains `needle`.
-    private func loggedLine(containing needle: String, since: Date) -> Bool {
-        Logger.shared.entries.contains { $0.timestamp >= since && $0.message.contains(needle) }
-    }
-
     /// The end of the budget must be a logged best-effort scroll, not a silent drop.
     ///
     /// This is the branch `revealHoldChecks` was shipped with and nothing exercised: `guard
@@ -1376,7 +1371,7 @@ import Sync
         let held = try holdStack(mounted)
         let trace = OriginTrace(clip)
         defer { trace.stop() }
-        let since = Date()
+        let log = LogCapture()
 
         mounted.box.browsePath = Self.browsePath(depth: 3)
         try #require(await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == 4 },
@@ -1396,10 +1391,10 @@ import Sync
         #expect(content > clip.bounds.width,
                 "the drilled stack does not overflow its \(clip.bounds.width)pt viewport (content \(content)pt) — there is nothing for a reveal to move")
 
-        // 1. The exhaustion is on the record.
-        #expect(await wait(mounted.window, upTo: 10) {
-                    self.loggedLine(containing: "reveal waited out", since: since)
-                },
+        // 1. The exhaustion is on the record. Read once rather than polled: the marker above drains
+        //    after everything the drill scheduled — both reveal attempts — for the reason
+        //    `maxOriginDrift` gives, so the line is written by now if it ever will be.
+        #expect(await log.holds(containing: "reveal waited out"),
                 "the reveal ran out of hold checks and logged nothing — a stuck hold is invisible in ~/sync-cloud.log, which is how this defect reads as 'the column just hides'")
 
         // 2. It scrolled anyway.

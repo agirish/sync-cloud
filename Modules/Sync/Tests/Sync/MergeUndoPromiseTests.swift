@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Events
+import EventsTestSupport
 @testable import Sync
 
 /// The merge path's half of `DeleteOutcome`'s promise, which the type's own suite does not reach.

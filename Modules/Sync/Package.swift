@@ -20,7 +20,7 @@ let package = Package(
         ),
         .testTarget(
             name: "SyncTests",
-            dependencies: ["Sync"],
+            dependencies: ["Sync", .product(name: "EventsTestSupport", package: "Events")],
             path: "Tests/Sync",
             resources: [
                 // Folder names and counts lifted from the live profile and the 6 Aug reorg log —

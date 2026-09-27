@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import Security
 import Events
+import EventsTestSupport
 @testable import Sync
 
 /// An in-memory ``KeychainStore`` holding the single item slot the helper manages, recording the

@@ -203,16 +203,13 @@ import UniformTypeIdentifiers
     /// corrupt-image fixture above never reaches `perform`, it fails at `CGImageSourceCreate…`. So
     /// this pins the half that a test can actually reach and says so rather than pretending.
     ///
-    /// **The absence is read from this test's own marker forward** — mechanism 12 in
-    /// `docs/flaky-tests.md`. `Logger.shared.entries` is one process-wide 1000-line window that
-    /// every suite writes into at once, and the flush marker this used to rely on was written
-    /// *after* the OCR call and never asserted present. That guarantees the line is **visible** if
-    /// it exists — the queue is FIFO, so awaiting a fresh entry's task drains everything enqueued
-    /// before it — and says nothing about whether it **survived**. On a busy run the window can roll
-    /// past the whole call, and an absence measured over a window that no longer holds the interval
-    /// passes having examined nothing: the one failure shape in that file with no symptom at all.
-    /// So a unique marker goes in FIRST, its index is `#require`d, and the filter reads only the
-    /// slice from it onward. A rolled window now fails, loudly, saying the reading was vacuous.
+    /// **The absence is read from a `LogCapture` opened before the call** — "A log assertion
+    /// reading a window that has already rolled" in `docs/flaky-tests.md`. `Logger.shared.entries`
+    /// is one process-wide 1000-line window that every suite writes into at once, and on a busy run
+    /// it can roll past the whole call: an absence measured over a window that no longer holds the
+    /// interval passes having examined nothing, the one failure shape in that file with no symptom
+    /// at all. A capture cannot roll, and a line this test writes after the call is `#require`d
+    /// from it, so a capture that heard nothing fails, loudly, instead of passing the absence.
     ///
     /// No `.serialized` is needed: the fragment carries `clean-scan.png`, a fixture name no other
     /// test in this suite or this repo writes (`imageTextIsExtractedViaOCR` uses `scan.png`), so a
@@ -223,24 +220,22 @@ import UniformTypeIdentifiers
         let path = dir.path("clean-scan.png")
         try Self.writeTextImage("INVOICE 1099", to: path)
 
-        // Before the call under test, so it is older than anything the OCR could write: if this is
-        // still in the window, so is everything after it.
-        let marker = "ocr-failure window open \(UUID().uuidString)"
-        await Logger.shared.debug(marker).value
+        let log = LogCapture()
 
         // The fixture must really OCR, or the no-warning assertion below proves nothing.
         let snippet = try #require(await ContentSignalExtractor.snippet(forFileAt: path))
         #expect(snippet.uppercased().contains("INVOICE"))
 
-        await Logger.shared.debug("ocr-failure-log flush marker").value
-        let entries = Logger.shared.entries
-        // The INDEX is computed before the `#require`, deliberately. `#require`ing anything that
-        // holds the entries themselves prints the whole buffer on failure — measured at 152KB of
-        // `LogEntry` — which buries the one sentence that explains what went wrong.
-        let opened = entries.lastIndex { $0.message == marker }
-        let start = try #require(opened,
-                                 "the 1000-line log window rolled past this test's own marker, so the absence below would have examined nothing — see mechanism 12 in docs/flaky-tests.md")
-        let failures = entries[start...].filter {
+        // After the call under test, so a capture that holds it was listening across all of it.
+        let marker = "ocr-failure window close \(UUID().uuidString)"
+        Logger.shared.debug(marker)
+        let entries = await log.entries
+        // Reduced to a Bool before the `#require`, deliberately: `#require`ing anything that holds
+        // the entries themselves prints every one of them on failure, which buries the one
+        // sentence that explains what went wrong.
+        let heard = entries.contains { $0.message == marker }
+        try #require(heard, "the capture never saw this test's own line, so the absence below would have examined nothing")
+        let failures = entries.filter {
             $0.level == .warning && $0.message.contains("OCR failed on “clean-scan.png”")
         }
         #expect(failures.isEmpty, "a successful OCR logged a failure: \(failures.map(\.message))")
@@ -318,9 +313,9 @@ import UniformTypeIdentifiers
     /// anywhere saying why. The OCR branch beside them already argues exactly that case in prose.
     ///
     /// Driven with real files, because that is the only way to make these reads fail: `chmod 000`
-    /// for the text branch and bytes that are not a PDF for the other. Both are read through the
-    /// marker-and-slice discipline the OCR test above establishes — see mechanism 12 in
-    /// `docs/flaky-tests.md` — and the fixture names are unique to this test for the same reason.
+    /// for the text branch and bytes that are not a PDF for the other. Both are read from a
+    /// `LogCapture` opened before the read, like the OCR test above, and the fixture names are
+    /// unique to this test so that no other test's line can stand in for its own.
     @MainActor
     @Test func aFileThatCannotBeReadSaysSoRatherThanReadingAsEmpty() async throws {
         let dir = FixtureDir()
@@ -329,19 +324,11 @@ import UniformTypeIdentifiers
         try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path) }
 
-        let marker = "unreadable-text window open \(UUID().uuidString)"
-        await Logger.shared.debug(marker).value
-
+        let log = LogCapture()
         #expect(ContentSignalExtractor.extractTextSync(URL(fileURLWithPath: path)).isEmpty,
                 "the fixture is readable after chmod 000 — this test is not exercising a failed read")
 
-        // FIFO, so awaiting a later entry drains everything the read enqueued before it.
-        await Logger.shared.debug("unreadable-text flush marker").value
-        let entries = Logger.shared.entries
-        let opened = entries.lastIndex { $0.message == marker }
-        let from = try #require(opened,
-                                "the 1000-line log window rolled past this test's own marker, so the reading below examined nothing — see mechanism 12 in docs/flaky-tests.md")
-        let said = entries[from...].filter {
+        let said = await log.entries.filter {
             $0.level == .warning && $0.message.contains("unreadable-notes.txt")
         }
         #expect(!said.isEmpty,
@@ -356,16 +343,10 @@ import UniformTypeIdentifiers
         let path = dir.path("unparseable-statement.pdf")
         try Data("this is not a pdf".utf8).write(to: URL(fileURLWithPath: path))
 
-        let marker = "unparseable-pdf window open \(UUID().uuidString)"
-        await Logger.shared.debug(marker).value
-
+        let log = LogCapture()
         #expect(ContentSignalExtractor.extractTextSync(URL(fileURLWithPath: path)).isEmpty)
 
-        await Logger.shared.debug("unparseable-pdf flush marker").value
-        let entries = Logger.shared.entries
-        let from = try #require(entries.lastIndex { $0.message == marker },
-                                "the 1000-line log window rolled past this test's own marker — see mechanism 12 in docs/flaky-tests.md")
-        let said = entries[from...].filter {
+        let said = await log.entries.filter {
             $0.level == .warning && $0.message.contains("unparseable-statement.pdf")
         }
         #expect(!said.isEmpty, "a PDF that will not parse read as a PDF with no text in it")
@@ -382,17 +363,17 @@ import UniformTypeIdentifiers
         try "Declarations Page. Your GEICO auto insurance policy."
             .write(toFile: path, atomically: true, encoding: .utf8)
 
-        let marker = "quiet-read window open \(UUID().uuidString)"
-        await Logger.shared.debug(marker).value
-
+        let log = LogCapture()
         #expect(ContentSignalExtractor.extractTextSync(URL(fileURLWithPath: path)).contains("GEICO"),
                 "the fixture did not read — a silent log would then prove nothing")
 
-        await Logger.shared.debug("quiet-read flush marker").value
-        let entries = Logger.shared.entries
-        let from = try #require(entries.lastIndex { $0.message == marker },
-                                "the 1000-line log window rolled past this test's own marker — see mechanism 12 in docs/flaky-tests.md")
-        let said = entries[from...].filter { $0.message.contains("quiet-notes.txt") }
+        // After the read, so a capture that holds it was listening across the whole read.
+        let marker = "quiet-read window close \(UUID().uuidString)"
+        Logger.shared.debug(marker)
+        let entries = await log.entries
+        let heard = entries.contains { $0.message == marker }
+        try #require(heard, "the capture never saw this test's own line, so the silence below would prove nothing")
+        let said = entries.filter { $0.message.contains("quiet-notes.txt") }
         #expect(said.isEmpty, "a readable file logged \(said.map(\.message)) — the warnings above would be lost in the noise")
     }
 }

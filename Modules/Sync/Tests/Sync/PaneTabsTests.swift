@@ -464,8 +464,7 @@ import Events
     ///
     /// Sliced from the opening marker FIRST and searched inside that slice, so the two indices
     /// cannot be found out of order: `messages[a...b]` on reversed bounds traps rather than
-    /// failing, which turns a rolled buffer into a dead test host. Same shape as
-    /// `SyncCloudTests/ShortcutCommandsTests.swift:425-440`, deliberately.
+    /// failing, which turns a rolled buffer into a dead test host.
     @MainActor
     private func loggedWindow(_ act: () -> Void) async throws -> ArraySlice<LogEntry> {
         let token = UUID().uuidString.prefix(8)

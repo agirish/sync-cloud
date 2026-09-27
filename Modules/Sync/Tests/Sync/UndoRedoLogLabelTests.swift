@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Events
+import EventsTestSupport
 @testable import Sync
 
 /// Pins the direction labels on the delete undo/redo audit trail. The two registrars had them

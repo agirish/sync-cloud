@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Events
+import EventsTestSupport
 @testable import Dashboard
 
 /// What a pane-bar edit leaves behind in `~/sync-cloud.log`.
@@ -15,18 +16,13 @@ import Events
 /// `.serialized` and that is not the mechanism: `.serialized` orders the tests *within this suite*,
 /// while `Logger.shared.entries` is a process-wide buffer every other suite in the run is writing
 /// into at the same time. Two things do the work. Every read below — presence and absence alike —
-/// writes a UUID marker first and looks only at what follows it, because the buffer is capped at
-/// 1000 entries and a read without a window passes for free once a sibling suite has rolled past
-/// what this test wrote (`docs/flaky-tests.md`, mechanism 12). And the predicate is
-/// `[panebar] User …`, which nothing outside this file writes, so no other suite can land a line
-/// inside one of these windows. `.serialized` sits on top of both and keeps the windows short.
+/// comes from a `LogCapture` opened before the edit, because the buffer is capped at 1000 entries
+/// and a read of it passes for free once a sibling suite has rolled past what this test wrote ("A
+/// log assertion reading a window that has already rolled" in `docs/flaky-tests.md`). And the
+/// predicate is `[panebar] User …`, which nothing outside this file writes, so no other suite can
+/// land a line inside one of these captures. `.serialized` sits on top of both and keeps them short.
 @MainActor
 @Suite(.serialized) struct PaneBarEditLogTests {
-
-    /// Awaits a fresh log task, so everything enqueued before it is visible in `entries`.
-    private func flushLog() async {
-        await Logger.shared.debug("panebar-edit-log flush marker").value
-    }
 
     private static let defaultEncoded =
         "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,delete,search"
@@ -103,8 +99,7 @@ import Events
     /// gestures in the surface, and exactly the shape of the strip defect that logged a click on
     /// the already-active chip.
     @Test func testAnEditThatChangesNothingIsNotLogged() async {
-        let marker = "panebar-edit-noop-\(UUID().uuidString)"
-        Logger.shared.info(marker)
+        let log = LogCapture()
 
         let bar = PaneBarArrangement(encoded: "flexibleSpace,scan,sort")
         #expect(PaneBarEditLog.message(from: bar, to: bar) == nil)
@@ -115,32 +110,27 @@ import Events
         refused.remove(at: 1)
         #expect(refused == bar, "the fixture must actually be refused, or this proves nothing")
         #expect(!PaneBarEditLog.record(from: bar, to: refused))
-        await flushLog()
+        // After both calls, so a capture that holds it was listening across them.
+        let marker = "panebar-edit-noop-\(UUID().uuidString)"
+        Logger.shared.info(marker)
 
-        let entries = Logger.shared.entries
+        let entries = await log.entries
         #expect(entries.contains { $0.message == marker },
-                "the log window rolled past the marker — this absence proves nothing")
-        let since = entries.drop(while: { $0.message != marker })
-        #expect(!since.contains { $0.message.hasPrefix("[panebar] User ") },
+                "the capture never saw this test's own line — this absence proves nothing")
+        #expect(!entries.contains { $0.message.hasPrefix("[panebar] User ") },
                 "an edit that changed nothing was written to the log anyway")
     }
 
     /// And the other half: a real edit does reach the log, at `info`, through `record` — the pure
     /// message function being right is worth nothing if nothing calls it.
     @Test func testARealEditReachesTheLog() async {
-        let marker = "panebar-edit-real-\(UUID().uuidString)"
-        Logger.shared.info(marker)
+        let log = LogCapture()
 
         #expect(PaneBarEditLog.record(from: .default, to: Self.withoutDelete))
-        await flushLog()
 
-        let entries = Logger.shared.entries
-        #expect(entries.contains { $0.message == marker },
-                "the log window rolled past the marker — read the entries sooner")
-        // Inside the marker window, not across the whole buffer: an identical line left by an
-        // earlier run of this same test would otherwise stand in for the one this run wrote.
-        let written = entries.drop(while: { $0.message != marker })
-            .last { $0.message.hasPrefix("[panebar] User removed Delete") }
+        // From the capture, not across the whole buffer: an identical line left by an earlier run
+        // of this same test would otherwise stand in for the one this run wrote.
+        let written = await log.entries.last { $0.message.hasPrefix("[panebar] User removed Delete") }
         #expect(written?.message == "[panebar] User removed Delete from the pane bar — it is now "
                 + "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,search")
         #expect(written?.level == .info, "a user rearranging their own bar is not a warning")

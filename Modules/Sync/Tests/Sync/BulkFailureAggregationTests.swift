@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Events
+import EventsTestSupport
 @testable import Sync
 
 /// Pins the bulk-failure alert aggregation: `currentError` holds one error at a time, so a

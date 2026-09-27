@@ -46,6 +46,11 @@ targets:
     platform: macOS
     sources:
       - path: SyncCloudTests
+      # `LogCapture`, compiled in rather than linked. Linking the `EventsTestSupport` product here
+      # makes Xcode build Events as a dynamic framework and embed it in the app (measured
+      # 2026-09-27: `Contents/Frameworks/Events.framework`, where the app otherwise links it
+      # statically), so a test-only dependency would change how the app itself is packaged.
+      - path: Modules/Events/Sources/EventsTestSupport/LogCapture.swift
     dependencies:
       - target: SyncCloud
     settings:

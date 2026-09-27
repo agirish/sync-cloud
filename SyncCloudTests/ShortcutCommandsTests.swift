@@ -474,29 +474,24 @@ import Foundation
     /// The two states that are NOT refusals are asserted silent in the same test, or the line would
     /// arrive under every ordinary ⌘W and mean nothing.
     ///
-    /// **Both halves are read between two of this test's own markers**, never over the whole buffer.
-    /// `Logger.shared` is process-wide and `entries` is a rolled 1000-line window: a bare
+    /// **Both halves are read from a capture opened just before the call**, never from the shared
+    /// buffer. `Logger.shared` is process-wide and `entries` is a rolled 1000-line window: a bare
     /// `contains` would let the sibling suspended test's line satisfy the presence half, and let a
-    /// rolled window pass the absence half for free. The opening marker is `#require`d, which is the
-    /// eviction guard; the suite's `.serialized` trait is what makes the window exclusive.
+    /// rolled window pass the absence half for free. A capture cannot roll, and each window
+    /// `#require`s its own closing line from it, so a capture that saw nothing cannot pass the
+    /// absence half either; the suite's `.serialized` trait is what makes the window exclusive.
     @Test func aSuspendedCloseSaysSoInTheLogAndTheOtherTwoStatesDoNot() async throws {
         let refusal = "⌘W ignored"
-        /// Everything logged between two fresh markers, with the call under test run between them.
-        func window(_ act: () -> Void) async throws -> ArraySlice<String> {
-            let token = UUID().uuidString.prefix(8)
-            await Logger.shared.debug("close-tab window open \(token)").value
+        /// Everything logged while `act` runs, read from a capture opened before it.
+        func window(_ act: () -> Void) async throws -> [String] {
+            let log = LogCapture()
             act()
-            await Logger.shared.debug("close-tab window close \(token)").value
-            let messages = Logger.shared.entries.map(\.message)
-            let opened = try #require(messages.firstIndex(where: { $0.contains("open \(token)") }),
-                                      "the log window rolled past this test's own marker, so this reading is vacuous")
-            // Sliced from the opening marker FIRST and searched inside that slice, so the two
-            // indices cannot be found out of order — `messages[a...b]` traps rather than failing
-            // when they are, which turns a rolled buffer into a crashed test run.
-            let tail = messages[opened...]
-            let closed = try #require(tail.lastIndex(where: { $0.contains("close \(token)") }),
-                                      "the closing marker never landed — this reading is vacuous")
-            return tail[...closed]
+            let close = "close-tab window close \(UUID().uuidString.prefix(8))"
+            Logger.shared.debug(close)
+            let messages = await log.entries.map(\.message)
+            let closed = messages.contains(close)
+            try #require(closed, "the capture never saw this window's own closing line — this reading is vacuous")
+            return messages
         }
 
         // The two live states. Nothing they do is a refusal, so nothing may say one happened.

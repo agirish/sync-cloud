@@ -1,4 +1,5 @@
 import Events
+import EventsTestSupport
 import Foundation
 import Testing
 @testable import Sync

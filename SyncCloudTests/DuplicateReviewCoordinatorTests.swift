@@ -398,24 +398,22 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// clear case is a bare `duplicateReview = nil`, and the strand is represented by no effect at
     /// all — so this delta added a NEW route into a silent state loss.
     ///
-    /// **Read between this test's own markers, with the review's group name and both provider ids
-    /// carrying a token.** `Logger.shared` is process-wide and `entries` is a rolled 1000-line
-    /// window: the opener is `#require`d as the eviction guard, and the tokens are what make both
-    /// the presence and the absence readings exclusive to this run in a parallel suite.
+    /// **Read from a capture opened before each call, with the review's group name and both
+    /// provider ids carrying a token.** `Logger.shared` is process-wide and `entries` is a rolled
+    /// 1000-line window, so each window reads a `LogCapture` instead and `#require`s its own
+    /// closing line from it; the tokens are what make both the presence and the absence readings
+    /// exclusive to this run in a parallel suite.
     @Test func aTabDrivenSourceChangeSaysWhatItDiscardedAndWhatItStranded() async throws {
-        /// Everything logged between two fresh markers, with the call under test run between them.
-        func window(_ act: () -> Void) async throws -> ArraySlice<String> {
-            let marker = UUID().uuidString.prefix(8)
-            await Logger.shared.debug("review window open \(marker)").value
+        /// Everything logged while `act` runs, read from a capture opened before it.
+        func window(_ act: () -> Void) async throws -> [String] {
+            let log = LogCapture()
             act()
-            await Logger.shared.debug("review window close \(marker)").value
-            let messages = Logger.shared.entries.map(\.message)
-            let opened = try #require(messages.firstIndex(where: { $0.contains("open \(marker)") }),
-                                      "the log window rolled past this test's own marker, so this reading is vacuous")
-            let tail = messages[opened...]
-            let closed = try #require(tail.lastIndex(where: { $0.contains("close \(marker)") }),
-                                      "the closing marker never landed — this reading is vacuous")
-            return tail[...closed]
+            let close = "review window close \(UUID().uuidString.prefix(8))"
+            Logger.shared.debug(close)
+            let messages = await log.entries.map(\.message)
+            let closed = messages.contains(close)
+            try #require(closed, "the capture never saw this window's own closing line — this reading is vacuous")
+            return messages
         }
 
         /// A review whose group name and pre-review sources are unique to this run, with both panes
@@ -1022,15 +1020,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     }
 
     // MARK: trashRightCopy — refusal logging, wording, and the queue-wait window
-
-    /// The shared logger's most recent line containing `fragment`, awaiting a flush marker first
-    /// so everything enqueued before it is visible (`Logger` appends asynchronously). Fixtures
-    /// here embed a UUID in every path, so a fragment built from one can never match another
-    /// suite's line.
-    private func loggedLine(containing fragment: String) async -> String? {
-        await Logger.shared.debug("review-coordinator flush marker").value
-        return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
-    }
+    //
+    // The refusal lines below are read from a `LogCapture` opened before the trash, never from the
+    // shared buffer. Fixtures here embed a UUID in every path, so a fragment built from one can
+    // never match another suite's line.
 
     /// **A keep-side refusal reaches the log, not just the banner.** The delete side always
     /// logged both of its refusal variants; the keep side set a banner and wrote NOTHING — a
@@ -1059,12 +1052,13 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         // The KEEPER's contents drift during the open review.
         try FileManager.default.removeItem(at: keep.appendingPathComponent("a.txt"))
 
+        let log = LogCapture()
         harness.coordinator.trashRightCopy(review)
         await waitUntil("the keep-drift refusal surfaces") {
             harness.syncManager.banner?.severity == .warning
         }
 
-        let line = try #require(await loggedLine(containing: "Refused to trash \(review.deletePath)"),
+        let line = try #require(await log.line(containing: "Refused to trash \(review.deletePath)"),
                                 "the keep-side refusal wrote nothing to the log")
         #expect(line.contains(review.keepPath), "the line must name the drifted left copy")
         #expect(line.contains("no longer what the scan saw"))
@@ -1097,6 +1091,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         // Keep side fully checked; the DELETE side carries no baseline.
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: nil)
 
+        let log = LogCapture()
         harness.coordinator.trashRightCopy(review)
         await waitUntil("the delete-side no-baseline refusal surfaces") {
             harness.syncManager.banner?.severity == .warning
@@ -1109,7 +1104,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
                 "the wording claims only unreadability, but the depth cap and cycle guard produce nil baselines too: “\(message)”")
         #expect(!message.contains("left copy"),
                 "the keep-side wording fired for a keep side that was fully checked: “\(message)”")
-        let line = try #require(await loggedLine(containing: "Refused to trash \(review.deletePath)"))
+        let line = try #require(await log.line(containing: "Refused to trash \(review.deletePath)"))
         #expect(line.contains("no baseline"))
         #expect(FileManager.default.fileExists(atPath: copy.path), "the refusal itself must stand")
         #expect(harness.duplicateReview == review, "the review stays up")

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import Events
+import EventsTestSupport
 @testable import Sync
 
 /// The re-survey end to end, against a real directory tree.
