@@ -53,6 +53,11 @@ User-facing changes, newest first. For the full commit history see the
   comes back scrolled as you left it — at the far end of the columns if that is where you were, even
   if the preview has opened or the window has narrowed since — and a folder opened again later in
   the session opens where you left it.
+- **And its folder.** Opening Organize moved the left pane to the top of its source, so the folder
+  you were in was gone when you came back to Browse. It stays put now: the folder open in Browse is
+  the one Organize's file pane shows, and a folder you open there is the one Browse shows. With no
+  scope chosen, Organize's sections work on that folder, as they already did when you clicked to one
+  inside Organize.
 - **Size one column at a time.** Drag a column's edge and that column alone changes width; hold ⌥
   to size every column together, the way dragging always worked. Settings ▸ Readability ▸ **Column
   widths** swaps the two — **Each column** or **All columns** — and choosing All columns puts every

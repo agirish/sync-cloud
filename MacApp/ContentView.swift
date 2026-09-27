@@ -360,20 +360,18 @@ struct ContentView: View {
     /// exists only because a single-source workspace cannot display the answer.
     @State var owedComparison = OwedComparison()
 
-    /// **The two switches the refresh coalescing and the lens-entry skip turn on**, in a box the
-    /// view holds rather than as two `@State` values.
+    /// **The switch the sidebar refresh coalesces on**, in a box the view holds rather than as a
+    /// `@State` value.
     ///
-    /// Both are written and read back inside one synchronous stretch — the ticket is bumped and
-    /// then compared across a main-actor hop, and the re-home flag is set, consumed by a
-    /// `PassthroughSubject` delivery, and cleared, all inside a single `presentLensRail` call.
-    /// `@State`'s storage belongs to SwiftUI and the promises it makes are about *rendering*;
+    /// It is written and read back inside one synchronous stretch — the ticket is bumped and then
+    /// compared across a main-actor hop. `@State`'s storage belongs to SwiftUI and the promises it makes are about *rendering*;
     /// whether a value written and read back within one event handler is the value that comes out
     /// is not a question this code should have hanging over it. A reference the view holds has no
     /// such question: the write is a property write and the read after it sees it.
     ///
     /// `@State` is still the right holder, of a reference: it gives the box the window's lifetime,
-    /// so a close-and-Dock-reopen that rebuilds `ContentView` gets a fresh one — correct for both
-    /// fields, since neither describes anything that outlives the window.
+    /// so a close-and-Dock-reopen that rebuilds `ContentView` gets a fresh one — correct, since the
+    /// ticket describes nothing that outlives the window.
     @State var sidebarRefresh = SidebarRefreshState()
 
     /// The box behind ``ContentView/sidebarRefresh``.
@@ -388,17 +386,6 @@ struct ContentView: View {
         /// of the window, and trapping at `Int.max` to protect a comparison that only ever asks "is
         /// this still the newest" would be a crash standing in for a wrap that changes nothing.
         var ticket = 0
-
-        /// **Scoped to exactly one call**, the `focusOn` inside `presentLensRail`: set immediately
-        /// before it and cleared immediately after, so the `refreshSubject` handler — which
-        /// `PassthroughSubject` delivers to synchronously, inside that call — can tell the
-        /// lens-entry re-home from every other pane move.
-        ///
-        /// The clear on the far side is not tidiness. `focusOn` no-ops when the pane is already at
-        /// the root, which is the ordinary lens→lens case: nothing is sent, nothing consumes the
-        /// flag, and a flag left standing would silently strip the comparison off the next
-        /// unrelated navigation.
-        var isReHomingForLensEntry = false
     }
 
     /// A promotion that can still be taken back, until the next one or a workspace change.
@@ -1350,13 +1337,10 @@ struct ContentView: View {
         }
         .onReceive(syncManager.refreshSubject) { scope in
             // The scope is the subject's, not this view's: only the sender knows whether one pane
-            // moved or something changed under both. See `refreshSubject`.
-            //
-            // Whether to COMPARE is this view's, and only it can answer: the subject carries which
-            // panes moved, never which workspace the move was for. `sidebarRefresh.isReHomingForLensEntry` is
-            // set around `presentLensRail`'s `focusOn` alone, so this is the lens-entry re-home and
-            // nothing else — a navigation, a file operation and a provider switch all still scan.
-            refreshAction(reloading: scope, comparing: !sidebarRefresh.isReHomingForLensEntry)
+            // moved or something changed under both. See `refreshSubject`. Every pane move compares:
+            // the one that did not — `presentLensRail`'s re-home to the provider root on entering a
+            // lens — no longer moves the pane at all.
+            refreshAction(reloading: scope)
         }
         .onAppear {
             // Closing and Dock-reopening the single window recreates ContentView, so this
@@ -1623,9 +1607,9 @@ struct ContentView: View {
             restoreStorageLensIfShowing()
             autoRescanLensIfShowing()
             // **Compare is the only workspace that displays a comparison, so it is where one that
-            // is owed gets paid.** Entering a lens re-homes the source rail and skips the scan that
-            // move would otherwise trigger, and the editor writes files a comparison describes;
-            // this is the other half of both, and it no-ops whenever nothing is owed here.
+            // is owed gets paid.** The editor writes files a comparison describes and re-reads them
+            // without comparing outside Compare; this is the other half of that, and it no-ops
+            // whenever nothing is owed here.
             //
             // Here rather than in `workspaceSelection`'s setter for the reason `clearPersonScope`
             // is: every programmatic switch — `show(_:)`, the duplicate-review handoff — goes
@@ -1998,12 +1982,30 @@ struct ContentView: View {
         topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(overrides)
     }
 
-    /// Entering a lens workspace from the workspace bar opens the source rail and positions it at
-    /// the provider root — **the same place for every lens, Organize included.** Organize used to be
-    /// the exception (it opened on the loose-files inbox); the body below says why that went, and
-    /// where the inbox lives now. Fired only from the bar itself — the programmatic
-    /// scan actions (Find Duplicates / loose files from a Compare menu) set the workspace directly
-    /// and bypass this, so they keep scanning the folder the user picked.
+    /// Entering a lens workspace from the workspace bar opens the source rail — and leaves the left
+    /// pane exactly where it was. Fired only from the bar itself — the programmatic scan actions
+    /// (Find Duplicates / loose files from a Compare menu) set the workspace directly and bypass this,
+    /// so they keep scanning the folder the user picked.
+    ///
+    /// **Continuity, not a fresh start.** Browse, Organize's source rail and Compare's left pane are
+    /// one pane over one folder, and this used to re-home it to the provider root on every entry
+    /// into Organize: a folder open in Browse was gone when you came back from Organize, and Organize
+    /// opened on the whole source whatever you had been looking at. Now the folder you are in stays
+    /// the folder you are in, in both directions — a folder opened in Organize's rail is the one
+    /// Browse shows, and the other way round.
+    ///
+    /// **What Organize works on is unchanged in kind.** A scope, when one is set, is the subject —
+    /// sticky and visible (`organizeScope`). Without one the lenses follow the rail's position
+    /// (`lensScanRootExpanded`), exactly as they already did while you clicked around inside
+    /// Organize; arriving in a folder is the same as having browsed to it there. Arriving starts no
+    /// scan the user has not already run: the auto-rescan repeats only a scan of that folder that
+    /// completed before, once a session. Anything else is the "Scan '<folder>'" offer, which names
+    /// the folder.
+    ///
+    /// **The inbox is not automatic either.** Organize once opened on the loose-files inbox
+    /// (`tidyRailRelativePath(for:)`), which moved the rail into a folder nobody had asked for on a
+    /// fresh install; the overview offers it as a one-click scope instead ("Inbox (TODO) — N loose
+    /// files"), sticky across launches. `filingInboxFolder` still resolves the path for exactly that.
     func presentLensRail(for workspace: Workspace) {
         // The lens itself no longer changes where the rail opens — it is the guard that this is a
         // lensed workspace at all, which is what makes the early return correct for Compare.
@@ -2016,36 +2018,6 @@ struct ContentView: View {
             hidden: false
         )
         topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(overrides)
-
-        // Position the single source (the left pane) at the provider root — **the same place for
-        // every lens, Organize included.**
-        //
-        // Organize used to be the exception: `tidyRailRelativePath(for:)` opened it on the
-        // loose-files inbox, so on a fresh install (where the setting defaults to `TODO`) switching
-        // to Organize moved the source rail into a folder nobody had asked for. That is the last of
-        // the hidden inbox behaviour. `filingScanTargetFolder`'s root-swap went first — a browsing
-        // accident deciding the subject — and this is the same rule wearing the other hat: the pane
-        // was not choosing the subject any more, it was being moved *to* the inbox instead, which
-        // is the same surprise arriving from the opposite direction.
-        //
-        // **The inbox is not gone, it is only no longer automatic.** Organize's overview offers it
-        // as a visible one-click scope ("Inbox (TODO) — N loose files"), and because the scope is
-        // sticky across launches it is clicked once rather than re-implied every time the workspace
-        // is opened. `filingInboxFolder` still resolves the path for exactly that.
-        //
-        // **Without the comparison that move would otherwise drag behind it.** `focusOn` pushes
-        // history and sends `refreshSubject`, which this view turns into a `refreshTreesAndScan` —
-        // and that scan walks BOTH providers and diffs them, on the way into a workspace that
-        // draws one tree and no differences (`FileTreeView` empties the difference index for every
-        // single-source workspace, so the rows it produces render nowhere). On a real pair that is
-        // a full double walk and about a second, paid on every entry into a lens.
-        //
-        // Set-and-clear around this one call, not a mode: see `SidebarRefreshState.isReHomingForLensEntry` for why
-        // the clear is load-bearing rather than tidy, and `owedComparison` for how the
-        // skipped comparison is made good before Compare can display it.
-        sidebarRefresh.isReHomingForLensEntry = true
-        syncManager.focusOn(relativePath: "", isLeft: true)
-        sidebarRefresh.isReHomingForLensEntry = false
     }
 
     private func applyProviderSelection(preferDistinctPair: Bool) {
@@ -2090,10 +2062,10 @@ struct ContentView: View {
     /// Saying so is half the fix; the caller completing it when the source arrives is the other
     /// half (see `launchRefreshPending`).
     /// - Parameter comparing: whether the reload is followed by the two-pane comparison. Defaults
-    ///   to `true`, so every existing caller is unchanged. Two callers pass `false`: the
-    ///   `refreshSubject` handler while `presentLensRail`'s re-home is in flight, and Edit's re-read
-    ///   after a file it made itself, outside Compare (`rereadPanesAfterEditorWrite`) — see
-    ///   `owedComparison`, which is what makes the skipped comparison owed rather than lost. Not `private` for that second caller, which lives in `ContentView+Editor`.
+    ///   to `true`. The one caller that passes `false` is Edit's re-read after a file it made
+    ///   itself, outside Compare (`rereadPanesAfterEditorWrite`) — see `owedComparison`, which is
+    ///   what makes the skipped comparison owed rather than lost. Not `private` for that caller,
+    ///   which lives in `ContentView+Editor`.
     @discardableResult
     func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both,
                                comparing: Bool = true) -> Bool {
@@ -4748,14 +4720,12 @@ struct ContentView: View {
                 // reducer (CompareReviewReducer): an abandoned review — left Compare while inactive,
                 // banner and Done button gone — is torn down like Done (ending the guided review AND
                 // restoring the auto-pinned provider); returning to Compare re-focuses the two copies
-                // (the shared left pane was reset to the rail root while away).
+                // (the shared left pane may have been moved on while away).
                 reviewCoordinator.dispatchReview(
                     .tabSwitched(toCompare: newWorkspace == .compare, fromCompare: previous == .compare)
                 )
-                // Re-home the rail on every entry into a lens, including lens→lens: every lens opens
-                // at the provider root, so carrying the folder one lens was left in over into the
-                // next would scan wherever the user last browsed instead of the source. Narrowing
-                // is the scope's job now — it is sticky and visible, unlike a pane position.
+                // Show the source rail on entry into a lens. The left pane stays where it is — see
+                // `presentLensRail` for why continuity won over a fresh start at the provider root.
                 if newWorkspace != previous {
                     presentLensRail(for: newWorkspace)
                 }

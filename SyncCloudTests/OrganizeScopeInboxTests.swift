@@ -61,8 +61,11 @@ import Foundation
                 "the rail's inbox resolver is back — Organize opens on TODO again on a fresh install")
 
         let body = try Self.body(of: "func presentLensRail(for workspace: Workspace) {", in: source)
-        #expect(body.contains("focusOn(relativePath: \"\", isLeft: true)"),
-                "the rail no longer opens at the provider root — it is being positioned somewhere else again")
+        // It is not positioned at all now: the pane keeps the folder it was in, in Browse or
+        // anywhere else (`LensEntryContinuityTests`). What this suite holds is that no rule of
+        // Organize's own — the inbox above all — moves it.
+        #expect(!body.contains("focusOn("),
+                "entering Organize positions the left pane again — the folder it was in is lost")
         // The key, not the word "inbox": the body's own comment explains what was removed and says
         // "inbox" four times, so a scan for the word would fail a correct implementation.
         #expect(!body.contains("filingInboxRelativePathKey"),

@@ -614,7 +614,8 @@ struct PaneFocusSwitch {
 
 extension FocusedValues {
     /// The workspace bar's selection, as the same binding the segments write — going through it
-    /// (never `selectedWorkspace` directly) is what re-homes the single-source rail on a switch.
+    /// (never `selectedWorkspace` directly) is what shows the single-source rail on a switch into a
+    /// lens (`presentLensRail`).
     var workspaceSelection: Binding<Workspace>? {
         get { self[WorkspaceSelectionKey.self] }
         set { self[WorkspaceSelectionKey.self] = newValue }

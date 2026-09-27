@@ -83,8 +83,9 @@ extension ContentView {
     /// otherwise pay for a walk of eleven roots on every pane move.
     /// **Coalesced to one refresh per turn, and the disk work is off the main actor.**
     ///
-    /// Both halves came out of the same measurement. One Edit↔Organize switch fires this **two to
-    /// four times**: `onChange(of: leftRelativePath)` (the lens entry re-homes the rail),
+    /// Both halves came out of the same measurement. One Edit↔Organize switch fired this **two to
+    /// four times**: `onChange(of: leftRelativePath)` (the lens entry re-homed the rail then; it no
+    /// longer moves the pane, so that trigger now fires only for a real navigation),
     /// `onChange(of: selectedWorkspace)`, `onChange(of: panesHiddenForCurrentTab)` (Editor defaults
     /// to panes-hidden and Organize does not, so that transition really does change it), and
     /// `FolderJumpStore.shared.objectWillChange` through a `DispatchQueue.main.async`. Every one of

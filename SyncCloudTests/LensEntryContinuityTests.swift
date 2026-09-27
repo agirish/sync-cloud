@@ -3,20 +3,22 @@ import Sync
 import Testing
 import Foundation
 
-/// **Entering a lens no longer drags a two-pane comparison behind it — and Compare still gets one.**
+/// **Entering a lens leaves the left pane where it is — and Compare still gets its comparisons.**
 ///
-/// `presentLensRail` re-homes the source rail to the provider root on every entry into a lens. That
-/// is a pane move, a pane move sends `refreshSubject`, and this view turned that into a
-/// `refreshTreesAndScan` — which walked BOTH providers and diffed them, on the way into a workspace
-/// that draws one tree and no differences (`FileTreeView` empties the difference index for every
-/// single-source workspace, so the rows rendered nowhere). The editor makes it fire every time,
-/// because it points the rail at the open file's folder.
+/// Browse, Organize's source rail and Compare's left pane are one pane over one folder. Entering
+/// Organize used to re-home it to the provider root, so a folder open in Browse was gone on the way
+/// back, and Organize always opened on the whole source. The pane now keeps its folder across every
+/// switch, in both directions.
 ///
-/// `RefreshWithoutComparingTests` in the `Sync` package proves what `comparing: false` does. What
-/// is left is the wiring, and `ContentView` is a `View` with `@State` and cannot be instantiated —
-/// so it is read off its own source, comments stripped, each check anchored on something that must
-/// be present so a stale scan fails loudly rather than passing.
-@Suite struct LensEntryComparisonTests {
+/// That re-home was also the one pane move that skipped the two-pane comparison (a flag raised and
+/// lowered around its `focusOn`), and the comparison it skipped was owed to Compare. With no move
+/// there is nothing to skip: every pane move compares, and the only opt-out left is Edit's re-read
+/// after a file it wrote, whose debt Compare still settles.
+///
+/// `ContentView` is a `View` with `@State` and cannot be instantiated, so the wiring is read off its
+/// own source, comments stripped, each check anchored on something that must be present so a stale
+/// scan fails loudly rather than passing.
+@Suite struct LensEntryContinuityTests {
 
     private static func source(_ file: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)
@@ -41,49 +43,46 @@ import Foundation
         CodeText(try declarationBody(of: declaration, in: source, sourceLocation: sourceLocation))
     }
 
-    /// **The flag is raised and lowered around the one `focusOn`, in that order.**
-    ///
-    /// The lowering is the load-bearing half. `focusOn` no-ops when the pane is already at the root
-    /// — the ordinary lens→lens entry — so nothing is sent and nothing consumes the flag; left
-    /// standing it would strip the comparison off the *next*, unrelated navigation, which is a
-    /// stale differences list in Compare with nothing on screen to explain it.
-    @Test func theReHomeFlagIsRaisedAndLoweredAroundTheFocusCall() throws {
+    /// **Entering a lens shows the rail and moves no pane.** Anchored on the rail override, which the
+    /// function must still write — the scan below is aimed at the right body, not at nothing — and
+    /// then required to hold no pane move of any kind: the provider-root `focusOn` it used to end
+    /// with, or any other way of re-pointing the left pane.
+    @Test func enteringALensLeavesTheLeftPaneWhereItIs() throws {
         let code = try Self.source("ContentView.swift")
         let body = try Self.body(of: "func presentLensRail(for workspace: Workspace) {", in: code)
-
-        let raise = try #require(body.range(of: "sidebarRefresh.isReHomingForLensEntry = true"),
-                                 "the lens entry no longer marks its re-home, so it walks and diffs both providers again")
-        let focus = try #require(body.range(of: "syncManager.focusOn(relativePath: \"\", isLeft: true)"),
-                                 "the re-home is gone — this scan is aimed at nothing")
-        let lower = try #require(body.range(of: "sidebarRefresh.isReHomingForLensEntry = false"),
-                                 "the flag is never lowered — a lens→lens entry, where focusOn no-ops, leaves it set and the next navigation silently loses its comparison")
-        #expect(raise.lowerBound < focus.lowerBound,
-                "the flag is raised after the move it is meant to describe")
-        #expect(focus.lowerBound < lower.lowerBound,
-                "the flag is lowered before the move can consume it")
+        #expect(body.contains("TopPaneVisibility.settingOverride("),
+                "presentLensRail no longer shows the rail — this scan is aimed at the wrong body")
+        for move in ["focusOn(", "retargetPane(", "leftBrowsePath", "leftRelativePath", "isReHomingForLensEntry"] {
+            #expect(!body.contains(move),
+                    "entering a lens touches the left pane again (`\(move)`) — a folder open in Browse is lost on the way back from Organize")
+        }
     }
 
-    /// **The refresh handler is where the flag is read**, because it is the only place that knows
-    /// both which panes moved (the subject's payload) and which workspace the move was for.
-    @Test func theRefreshHandlerAsksTheFlagRatherThanAlwaysComparing() throws {
+    /// **Every pane move compares.** The refresh handler used to skip the comparison for the one
+    /// move the lens entry made; with no such move it has nothing to tell apart, and a flag that
+    /// could only ever be false would be a way for the next edit to strip comparisons silently.
+    @Test func everyPaneMoveCompares() throws {
         let code = try Self.source("ContentView.swift")
-        #expect(code.contains("refreshAction(reloading: scope, comparing: !sidebarRefresh.isReHomingForLensEntry)"),
-                "the refreshSubject handler compares unconditionally again, so entering a lens still diffs both providers")
+        #expect(code.contains(".onReceive(syncManager.refreshSubject) { scope in"),
+                "the refresh handler moved — the check below is aimed at nothing")
+        #expect(code.contains("refreshAction(reloading: scope)"),
+                "the refreshSubject handler no longer reloads the scope it was sent")
+        #expect(!code.contains("isReHomingForLensEntry"),
+                "the lens-entry flag is back, with no move left for it to describe")
         #expect(code.contains("reloading: reloading, comparing: comparing)"),
                 "refreshAction no longer passes the decision through to the manager")
     }
 
-    /// **Every other caller still compares**, which is what makes this a narrowing rather than a
-    /// change of behaviour: a file operation, a forced rescan, a provider switch and ordinary
-    /// navigation all reach `refreshAction` without naming `comparing`, and its default is `true`.
-    /// Edit's re-read after a file it wrote itself is the one opt-out outside this file (TE47 review).
+    /// **Every caller compares but one**: a file operation, a forced rescan, a provider switch and
+    /// ordinary navigation all reach `refreshAction` without naming `comparing`, and its default is
+    /// `true`. Edit's re-read after a file it wrote itself is the one opt-out (TE47 review), and it
+    /// lives outside this file.
     @Test func skippingTheComparisonIsOptInAtExactlyOneCallSite() throws {
         let code = try Self.source("ContentView.swift")
         #expect(code.contains("comparing: Bool = true"),
                 "the parameter no longer defaults to comparing, so every caller silently lost its scan")
-        let optOuts = code.components(separatedBy: "comparing: !").count - 1
-        #expect(optOuts == 1,
-                "\(optOuts) call sites opt out of the comparison; exactly one — the lens-entry re-home — is meant to")
+        #expect(!code.contains("comparing: !") && !code.contains("comparing: false"),
+                "ContentView opts a refresh out of its comparison again — only Edit's re-read is meant to")
         // The one other opt-out, in Edit (TE47 review): its re-read after a file it made itself
         // compares only in Compare, and owes the comparison anywhere else.
         let editor = try Self.source("ContentView+Editor.swift")
@@ -96,11 +95,11 @@ import Foundation
                 "Edit opts out of the comparison somewhere else too")
     }
 
-    /// **A skipped comparison is owed, not cancelled.** The pane focus has moved, so the
-    /// differences in hand describe a folder the left pane is no longer on. Nothing scanned on
-    /// entering Compare before this change (`presentLensRail` early-returns for Compare, which has
-    /// no lens), so without a debt to settle the differences list would draw stale rows under
-    /// correct pane headers — worse than the "not scanned" card.
+    /// **A skipped comparison is owed, not cancelled.** Edit's re-read outside Compare reloads a
+    /// pane without comparing, so the differences in hand can describe files as they were before the
+    /// write. Entering Compare runs no scan of its own (`presentLensRail` early-returns for Compare,
+    /// which has no lens), so without a debt to settle the differences list would draw stale rows
+    /// under correct pane headers — worse than the "not scanned" card.
     @Test func theSkippedComparisonIsRecordedAndSettledOnEnteringCompare() throws {
         let code = try Self.source("ContentView.swift")
         let refresh = try Self.body(of: "func refreshAction(reloading:", in: code)
@@ -108,7 +107,7 @@ import Foundation
                 "a refresh that skips its comparison does not record the debt, so Compare would show a comparison of a folder the left pane was moved off")
 
         // The one record and the one payment are `OwedComparisonTests`; what matters here is that
-        // a lens entry's debt, alone, is settled with a comparison of the folders the panes are on.
+        // a skipped comparison's debt, alone, is settled with a comparison of the folders the panes are on.
         #expect(ContentView.OwedComparison(skipped: ContentView.OwedComparison.skippedByARefresh)
                     .payment(leftFolder: "/c", rightFolder: "/d", links: [:])
                 == .compare(because: ContentView.OwedComparison.skippedByARefresh),
@@ -133,5 +132,7 @@ import Foundation
         let binding = try Self.body(of: "var workspaceSelection: Binding<Workspace> {", in: code)
         #expect(!binding.contains("payOwedComparisonIfNeeded"),
                 "the settle hangs off the workspace bar, so ⌘K and the duplicate-review handoff into Compare skip it")
+        #expect(binding.contains("presentLensRail(for: newWorkspace)"),
+                "the workspace bar no longer shows the source rail on entry into a lens")
     }
 }
