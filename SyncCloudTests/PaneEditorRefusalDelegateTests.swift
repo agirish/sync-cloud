@@ -20,7 +20,7 @@ import FileExplorer
             servesEditor: servesEditor,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
             ignoreStateToken: [], keptNamesToken: [],
-            homeBadgeCoverage: nil, onFindDuplicatesOf: { _ in },
+            onFindDuplicatesOf: { _ in },
             onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
     }
 

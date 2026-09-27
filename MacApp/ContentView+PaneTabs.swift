@@ -145,8 +145,8 @@ extension ContentView {
     ///
     /// This started as `availableProviders` in three places, which is the *discovered* list: it
     /// keeps a source the user has switched off in Settings, because a disabled provider's folder
-    /// is still on disk and things like the ⌂ badge's coverage genuinely want it (see
-    /// `homeBadgeCoverage`). Nothing that points a PANE wants it. `refreshAction` and
+    /// is still on disk and things like the inspector's *Where it lives* coverage genuinely want
+    /// it (see `SettingsManager.cloudCoverage`). Nothing that points a PANE wants it. `refreshAction` and
     /// `refreshForTabSwitch` both resolve their two providers out of `enabledProviders` and return
     /// without loading anything when either is missing, so a pane on a disabled source is a pane
     /// nothing will ever walk.

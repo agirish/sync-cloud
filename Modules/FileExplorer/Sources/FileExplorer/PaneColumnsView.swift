@@ -962,10 +962,6 @@ struct PaneColumnsView: View {
             riskyReason: delegate.riskyNameReason(forName: row.info.name, isDirectory: row.info.isDirectory),
             editorRefusal: delegate.editorRefusal(forPath: row.info.id, isDirectory: row.info.isDirectory,
                                                   size: row.info.fileSize ?? 0),
-            // Columns is the default view mode — a badge that shipped only into the tree would
-            // miss most of the app's usage. Resolved by the column for the same reason
-            // `riskyReason` is.
-            isOnThisMacOnly: delegate.isOnThisMacOnly(forPath: row.info.id),
             isArmedForCompare: delegate.armedComparePath == row.info.id,
             awaitingDownloadID: awaitingDownloads[node.id]?.requestID,
             // A column's “expanded” is `isOnPath` — the folder you drilled THROUGH is the one whose
@@ -1191,18 +1187,18 @@ struct PaneRowBottomsKey: PreferenceKey {
     }
 }
 
-/// A column row: the tree row minus a folder's date, plus a trailing chevron on folders.
+/// A column row: the tree row minus its trailing detail, plus a trailing chevron on folders.
 ///
 /// Wraps `FileRowView` rather than reimplementing it, so the icon, name, cloud badge, difference
 /// badge and contained-count pill can't drift between the two presentations — they are the same
 /// view. Columns differs from the tree in exactly two ways, both decided here: it adds the chevron,
-/// and it withholds a folder's date.
+/// and it withholds the trailing detail — a folder's date and a file's size.
 ///
-/// **The date is withheld rather than dropped from `FileRowView`** (see `showsFolderDate`): the
-/// tree keeps it, exactly as Finder keeps Date Modified in List view while its column view shows
-/// name and chevron alone. With the date gone the chevron is the last thing on the row, so it lands
-/// on the row's trailing edge by construction — no spacer of its own, which is why nothing here has
-/// to change to place it.
+/// **The detail is withheld rather than dropped from `FileRowView`** (see `showsSecondaryText`):
+/// the tree keeps it, exactly as Finder keeps Size and Date Modified in List view while its column
+/// view shows name and chevron alone. With it gone the chevron is the last thing on the row, so it
+/// lands on the row's trailing edge by construction — no spacer of its own, which is why nothing
+/// here has to change to place it.
 ///
 /// "Trailing edge" is the ROW's, not the column's. The List insets the row inside the column, so on
 /// screen the chevron sits about 16.5pt clear of the divider — measured in the installed build,
@@ -1223,8 +1219,6 @@ struct ColumnRowView: View {
     var riskyReason: String? = nil
     /// See `FileRowView.editorRefusal`. Resolved by the column, like `riskyReason`.
     var editorRefusal: String? = nil
-    /// See `FileRowView.isOnThisMacOnly`. Resolved by the column, like `riskyReason`.
-    var isOnThisMacOnly: Bool = false
     /// Forwarded to ``FileRowView/isArmedForCompare``. Defaulted for the same reason its
     /// neighbours are: a caller with no pick context renders the row it always did.
     var isArmedForCompare: Bool = false
@@ -1243,12 +1237,11 @@ struct ColumnRowView: View {
             FileRowView(node: row.info, isIgnored: isIgnored, diffStatus: diffStatus,
                         containedDiffCount: containedDiffCount, density: density,
                         fonts: fonts, riskyReason: riskyReason, editorRefusal: editorRefusal,
-                        isOnThisMacOnly: isOnThisMacOnly,
                         isArmedForCompare: isArmedForCompare,
                         awaitingDownloadID: awaitingDownloadID,
                         searchContext: searchContext, isLeftPane: isLeftPane,
                         otherPaneName: otherPaneName, accent: accent,
-                        showsFolderDate: false)
+                        showsSecondaryText: false)
             if showsChevron {
                 Image(systemName: "chevron.right")
                     .font(fonts.chevron)

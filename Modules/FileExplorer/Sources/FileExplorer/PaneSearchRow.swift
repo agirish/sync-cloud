@@ -34,6 +34,11 @@ struct PaneSearchRowContext: Equatable {
     /// Whether this row draws the “N matches” pill: a closed folder with hits inside it.
     var showsContainedCount: Bool { containedMatchCount > 0 && !isExpanded }
 
+    /// Whether `PaneSearchAnnotation` has anything to say on this row — the pill, or a side label.
+    /// The row mounts the annotation only when this is true, so a pane that is not searching pays
+    /// for no annotation at all. Mirrors the annotation's own `label` branches; the two must agree.
+    var hasAnnotation: Bool { showsContainedCount || side != nil }
+
     /// Builds the row's context from one pane's results. The two presentations differ only in what
     /// “expanded” means — a `Set` membership in the tree, being on the browse path in Columns — so
     /// that is the one thing the caller supplies.
@@ -121,6 +126,10 @@ struct PaneSearchAnnotation: View {
     /// the label happened to inherit.
     let accent: Color
     let fonts: PaneRowFonts
+    /// The gap the label keeps from the name before it. Carried INSIDE the label, so the fallback
+    /// `ViewThatFits` picks when the label does not fit brings no gap either — in `FileRowView`'s
+    /// zero-spaced row, a note that yields its place must not leave a strip of empty width behind.
+    var leadingGap: CGFloat = 0
 
     /// The label a one-sided hit carries. Named and non-private so `PaneSearchRowTests` pins the
     /// side rather than the sentence — the two panes must not both say “left only”.
@@ -134,7 +143,7 @@ struct PaneSearchAnnotation: View {
         // whose tooltip nobody will find. The degradation ladder the header uses is the right shape
         // here too — the full label, or nothing.
         ViewThatFits(in: .horizontal) {
-            label
+            label.padding(.leading, leadingGap)
             Color.clear.frame(width: 0, height: 0)
         }
     }

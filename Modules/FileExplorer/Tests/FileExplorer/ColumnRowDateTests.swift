@@ -4,8 +4,8 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// The folder date, and which presentation carries it: Columns withholds it, the tree keeps it,
-/// and a file's size survives in both.
+/// The row's trailing detail — a folder's date, a file's size — and which presentation carries it:
+/// Columns withholds both, the tree keeps both.
 ///
 /// **Pixels, not geometry, for the call site.** `FileRowView` lays the secondary text out behind a
 /// `Spacer`, so a row with no date is exactly as wide as one with a date — `fittingSize` cannot
@@ -24,7 +24,8 @@ import Sync
 /// closes that: a dozen suites do mount a real `PaneColumnsView`, but every one of them asserts
 /// navigation, selection, scrolling or layout, and not one asserts anything a row draws. Rendering
 /// a whole pane per assertion is what closing it would cost, on the package's slowest suite; this
-/// suite's neighbours (`HomeOnlyBadgeTests`) draw the line in the same place for the same reason.
+/// suite's neighbours (`FileRowAccessoryStabilityTests`) draw the line in the same place for the
+/// same reason.
 @MainActor
 @Suite struct ColumnRowDateTests {
 
@@ -120,22 +121,24 @@ import Sync
 
     /// All four cases of `secondaryText`, so the one place that decides between a date and a size
     /// is pinned independently of anything that draws it.
-    @Test func theRuleWithholdsAFoldersDateAndNothingElse() {
+    ///
+    /// Columns withholds BOTH halves since 2026-09-27 — the file size followed the folder date out —
+    /// so the flag now gates the whole detail. The tree's two answers are asserted as literals of
+    /// their kind (a date for the folder, the SIZE for the file) so a future edit cannot quietly
+    /// swap which string a kind of row asks for while "not nil" stays true.
+    @Test func theRuleWithholdsBothDetailsInColumnsAndNeitherInTheTree() {
         let datedFolder = FileRowInfo(folder(dated: true))
         let sizedFile = FileRowInfo(file(sized: true))
 
-        #expect(FileRowView.secondaryText(for: datedFolder, showsFolderDate: false) == nil,
+        #expect(FileRowView.secondaryText(for: datedFolder, showsSecondaryText: false) == nil,
                 "Columns must not ask for a folder's date")
-        #expect(FileRowView.secondaryText(for: datedFolder, showsFolderDate: true) != nil,
-                "The tree must still ask for it — the flag is not a global removal")
-        // The flag is about FOLDERS. Asserting the file case under BOTH settings is what stops a
-        // future `guard showsFolderDate` from being hoisted above the isDirectory branch, which
-        // would silently take every file's size with it. The literal pins that the answer is the
-        // SIZE; the equality pins that the flag cannot reach it, without this test also owning
-        // how `FileSizeFormat` rounds.
-        #expect(FileRowView.secondaryText(for: sizedFile, showsFolderDate: true) == "1 KB")
-        #expect(FileRowView.secondaryText(for: sizedFile, showsFolderDate: false)
-                    == FileRowView.secondaryText(for: sizedFile, showsFolderDate: true))
+        #expect(FileRowView.secondaryText(for: sizedFile, showsSecondaryText: false) == nil,
+                "Columns must not ask for a file's size")
+        #expect(FileRowView.secondaryText(for: datedFolder, showsSecondaryText: true)
+                    == Self.reference.string(from: Self.stamp),
+                "The tree must still ask for the date — the flag is not a global removal")
+        #expect(FileRowView.secondaryText(for: sizedFile, showsSecondaryText: true) == "1 KB",
+                "The tree must still ask for the size")
     }
 
     /// The tree's date is the SAME date it always was — medium, no time.
@@ -151,7 +154,7 @@ import Sync
         reference.dateStyle = .medium
         reference.timeStyle = .none
 
-        #expect(FileRowView.secondaryText(for: FileRowInfo(folder(dated: true)), showsFolderDate: true)
+        #expect(FileRowView.secondaryText(for: FileRowInfo(folder(dated: true)), showsSecondaryText: true)
                     == reference.string(from: Self.stamp))
     }
 
@@ -159,8 +162,8 @@ import Sync
     /// the withheld answer by anything reading this rule.
     @Test func anUndatedFolderIsNilUnderEitherSetting() {
         let undated = FileRowInfo(folder(dated: false))
-        #expect(FileRowView.secondaryText(for: undated, showsFolderDate: true) == nil)
-        #expect(FileRowView.secondaryText(for: undated, showsFolderDate: false) == nil)
+        #expect(FileRowView.secondaryText(for: undated, showsSecondaryText: true) == nil)
+        #expect(FileRowView.secondaryText(for: undated, showsSecondaryText: false) == nil)
     }
 
     // MARK: - The call sites
@@ -168,10 +171,16 @@ import Sync
     /// **What the withheld date actually buys the name, measured — this is where the release
     /// notes' number comes from.**
     ///
-    /// The date is `caption` with monospaced digits: "Nov 14, 2023" is 66.35pt, and the `HStack`
-    /// puts a 10pt gap in front of it at comfortable density, so it costs the name about 76pt.
-    /// A 210pt column is `PaneViewMode.defaultColumnWidth`, and at that width the cost is enough
-    /// to truncate a name as ordinary as "Birth Certificate" (92.917pt in the row's rounded face).
+    /// The date is `caption` with monospaced digits: "Nov 14, 2023" is 66.35pt, and the row puts a
+    /// 10pt gap in front of it at comfortable density, so it costs the name about 76pt. A 210pt
+    /// column is `PaneViewMode.defaultColumnWidth`, and at that width the cost is enough to
+    /// truncate "Vehicle Registration Card" — a name that fits comfortably without the date.
+    ///
+    /// **This used to be "Birth Certificate" (92.9pt), and the change is the row getting better,
+    /// not the claim getting weaker.** Until 2026-09-27 the row also spent ~28pt of spacing around
+    /// two views that draw nothing (see `FileRowView.body`), so a much shorter name truncated
+    /// beside the date. With that spacing gone, "Birth Certificate" and its date both fit at
+    /// 210pt; the date's own ~76pt is exactly what it was.
     ///
     /// **Asserted as a shape, not as a pixel count.** At a width where nothing truncates, the two
     /// rows differ only where the date is drawn and the name region is pixel-identical; at 210pt
@@ -179,7 +188,7 @@ import Sync
     /// the totals alone would pass just as well if the date merely got wider, and pinning the
     /// counts themselves would break on any font revision.
     @Test(.machinePinned(.pixelSampling)) func theFoldersDateCostsA210ptColumnItsName() throws {
-        let name = "Birth Certificate"
+        let name = "Vehicle Registration Card"
         func info(_ dated: Bool) -> FileRowInfo {
             FileRowInfo(FileNode(id: "/root/\(name)", name: name, isDirectory: true,
                                  modificationDate: dated ? Self.stamp : nil))
@@ -205,7 +214,7 @@ import Sync
         }
 
         // The string this rests on, so a formatter change cannot quietly move the measurement.
-        #expect(FileRowView.secondaryText(for: info(true), showsFolderDate: true)
+        #expect(FileRowView.secondaryText(for: info(true), showsSecondaryText: true)
                     == Self.reference.string(from: Self.stamp))
 
         // Roomy: the date is drawn, and it is the ONLY thing that changes.
@@ -222,7 +231,7 @@ import Sync
                 """
                 At the 210pt default column width the folder date no longer costs the name \
                 anything — either the date stopped being drawn, or the name stopped truncating. \
-                The release notes claim it costs about 76pt and truncates "Birth Certificate".
+                The date costs about 76pt, which truncates "Vehicle Registration Card" here.
                 """)
     }
 
@@ -230,7 +239,7 @@ import Sync
     /// tree's row DOES paint a folder date, so this harness demonstrably renders one.
     ///
     /// It also pins the DEFAULT, which is the whole of what the tree's date rests on:
-    /// `FileTreeView.treeRow` passes no `showsFolderDate` at all, so flipping the default to false
+    /// `FileTreeView.treeRow` passes no `showsSecondaryText` at all, so flipping the default to false
     /// would strip dates from both tree panes and the Organize rail — and this test, which likewise
     /// passes nothing, is what fails. What no test here covers is `treeRow` starting to pass `false`
     /// explicitly; that is a deliberate design change rather than a regression, and guarding it
@@ -255,7 +264,7 @@ import Sync
             row: row(folder(dated: false)), isIgnored: false, diffStatus: nil,
             containedDiffCount: 0, density: .comfortable, showsChevron: true)))
         #expect(pixelsDiffering(dated, undated) == 0,
-                "ColumnRowView is painting the folder date — it must pass showsFolderDate: false")
+                "ColumnRowView is painting the folder date — it must pass showsSecondaryText: false")
     }
 
     /// The chevron reaches the row's trailing edge — the other half of what this change is for.
@@ -299,15 +308,31 @@ import Sync
                 "A chevron-less row is flush to the edge too, so the trailing-edge measurement proves nothing")
     }
 
-    /// The half of layout B that is a keep, not a removal: a file's size survives in Columns.
-    @Test(.machinePinned(.pixelSampling)) func theColumnRowKeepsAFileSize() throws {
+    /// The size left Columns too (2026-09-27): a sized file paints exactly as an unsized one.
+    ///
+    /// Held beside its positive control below — a harness that painted nothing would pass this
+    /// zero-difference claim while measuring nothing, and the control fails first in that case.
+    @Test(.machinePinned(.pixelSampling)) func theColumnRowPaintsNoFileSize() throws {
         let sized = try #require(bitmap(ColumnRowView(
             row: row(file(sized: true)), isIgnored: false, diffStatus: nil,
             containedDiffCount: 0, density: .comfortable, showsChevron: false)))
         let unsized = try #require(bitmap(ColumnRowView(
             row: row(file(sized: false)), isIgnored: false, diffStatus: nil,
             containedDiffCount: 0, density: .comfortable, showsChevron: false)))
+        #expect(pixelsDiffering(sized, unsized) == 0,
+                "ColumnRowView is painting the file size — it must pass showsSecondaryText: false")
+    }
+
+    /// The positive control for the claim above, and the half that is a keep: the TREE row still
+    /// paints a file's size, so this harness demonstrably renders one.
+    @Test(.machinePinned(.pixelSampling)) func theTreeRowStillPaintsAFileSize() throws {
+        let sized = try #require(bitmap(FileRowView(
+            node: FileRowInfo(file(sized: true)), isIgnored: false, diffStatus: nil,
+            containedDiffCount: 0, density: .comfortable)))
+        let unsized = try #require(bitmap(FileRowView(
+            node: FileRowInfo(file(sized: false)), isIgnored: false, diffStatus: nil,
+            containedDiffCount: 0, density: .comfortable)))
         #expect(pixelsDiffering(sized, unsized) > 0,
-                "Columns stopped drawing file sizes — the date removal took the size with it")
+                "The tree row stopped drawing file sizes — the Columns change was not supposed to reach it")
     }
 }

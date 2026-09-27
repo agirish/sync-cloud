@@ -2837,18 +2837,6 @@ struct ContentView: View {
                 : PaneBrowsePath())
     }
 
-    /// The coverage the ⌂ badge is resolved against for one pane — nil where the badge never
-    /// applies. See `PaneActionDelegate.homeBadgeCoverage`: inside a cloud source's own pane every
-    /// row is covered by definition, so the question is only live for a folder source.
-    ///
-    /// Resolved against `availableProviders` and not `enabledProviders`, through
-    /// `SettingsManager.cloudCoverage` — a disabled provider's folder is still on disk.
-    func homeBadgeCoverage(forProviderId providerId: String) -> FileLocation.Coverage? {
-        FileLocation.badgeCoverage(forProviderId: providerId,
-                                   among: settings.availableProviders,
-                                   disabledProviderIds: settings.disabledProviderIds)
-    }
-
     /// The "Find duplicates of this" handoff — see `DuplicateRevealCoordinator` for the decision
     /// it makes and why it lives outside this view.
     var revealCoordinator: DuplicateRevealCoordinator {
@@ -4596,7 +4584,6 @@ struct ContentView: View {
             onOpenInEditor: { path in handOffToEditor(path) },
             ignoreStateToken: syncManager.effectiveIgnoredPaths,
             keptNamesToken: syncManager.keptNamesStore?.names ?? [],
-            homeBadgeCoverage: homeBadgeCoverage(forProviderId: pane.providerId),
             onFindDuplicatesOf: { node in findDuplicatesOfAction(node, isLeft: pane.isLeft) },
             // The ROW's pane, not the focused one — see `setOrganizeScope(_:providerRoot:)`.
             onOrganizeFolder: { node in

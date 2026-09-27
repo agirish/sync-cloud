@@ -23,7 +23,7 @@ import Sync
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
             ignoreStateToken: [], keptNamesToken: [],
-            homeBadgeCoverage: nil, onFindDuplicatesOf: { _ in },
+            onFindDuplicatesOf: { _ in },
             onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in },
             onOpenInNewTab: onOpenInNewTab, onNewTabHere: { _ in }, onCloseTab: { })
     }

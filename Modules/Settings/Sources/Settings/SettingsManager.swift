@@ -146,8 +146,8 @@ public class SettingsManager: ObservableObject {
         return ranked.map(\.0) + unranked
     }
 
-    /// The cloud ground the discovered sources cover, for the *Where it lives* inspector row and
-    /// the `⌂ on this Mac only` row badge — see `FileLocation`.
+    /// The cloud ground the discovered sources cover, for the *Where it lives* inspector row — see
+    /// `FileLocation`.
     ///
     /// **Built from `availableProviders`, deliberately, and never from `enabledProviders`.** A
     /// provider the user switched off still has its folder on disk, so a file inside it still has
@@ -159,8 +159,7 @@ public class SettingsManager: ObservableObject {
     /// Recomputed on each access rather than cached: it is a compactMap over a handful of
     /// providers — an order of magnitude below the per-render answers that earned their own memos
     /// (`RiskyNameBadgeCache`'s live check is 0.5–3 ms per pane pass) — and it is read once per
-    /// pane render, not once per row. The per-ROW answer is the one that is memoized, in
-    /// `HomeOnlyBadgeCache`, keyed on this value.
+    /// inspector render, not once per row.
     public var cloudCoverage: FileLocation.Coverage {
         FileLocation.coverage(of: availableProviders, disabledProviderIds: disabledProviderIds)
     }

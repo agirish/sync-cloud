@@ -1,7 +1,10 @@
 import Foundation
 
-/// Where the file at one path lives — the pure half of the Info inspector's *Where it lives* row
-/// and of the `⌂ on this Mac only` row badge.
+/// Where the file at one path lives — the pure half of the Info inspector's *Where it lives* row.
+///
+/// It also drew a `⌂ on this Mac only` badge on pane rows until 2026-09-27, when the badge was
+/// removed: in a Home-folder pane it marked nearly every row and said the same thing about all of
+/// them. The inspector, which answers per file and only when asked, is where the question lives now.
 ///
 /// ## The question this answers, and the one it does not
 ///
@@ -20,8 +23,8 @@ import Foundation
 /// ## Two signals, crossed
 ///
 /// **Containment** is pure string math over the provider list — see `outsideEveryCloudFolder`,
-/// which reaches the filesystem nowhere at all. That is what lets the badge ride every visible row
-/// for free, where the ☁ badge it mirrors has to buy each answer with an `lstat`.
+/// which reaches the filesystem nowhere at all, so it can be asked of any number of paths for
+/// free, where the ☁ badge has to buy each answer with an `lstat`.
 ///
 /// **Materialization** is that `lstat`: `MaterializationStatus.isCloudOnlyIfKnown`, the same
 /// syscall that already draws ☁. It answers three ways, and the third is kept — see
@@ -111,29 +114,6 @@ public enum FileLocation {
         })
     }
 
-    /// The coverage a pane rooted at `providerId` resolves the `⌂` badge against, or **nil where
-    /// the badge never applies** — which is every pane whose source is not a plain folder.
-    ///
-    /// Inside a cloud source's own pane every row is covered by definition, so a badge there would
-    /// be a mark on everything and say nothing. Folding the gate into the value the pane needs
-    /// anyway means the pane carries one thing, not a flag and a table that can disagree.
-    ///
-    /// **This lives here, in the tested layer, rather than in `ContentView`.** The gate is one
-    /// `if` and it is tempting to leave it at the call site — but `MacApp` has no unit tests that
-    /// can reach a `View`'s methods, so a gate written there is a rule nothing checks. It is the
-    /// call site, not the helper, that decides whether the badge appears at all.
-    ///
-    /// A provider id that resolves to nothing answers nil: an unresolved source is not a folder
-    /// source, and marking every row of a pane whose provider vanished is the last thing it needs.
-    public static func badgeCoverage(
-        forProviderId providerId: String,
-        among providers: [CloudProvider],
-        disabledProviderIds: Set<String>
-    ) -> Coverage? {
-        guard providers.first(where: { $0.id == providerId })?.isLocalFolder == true else { return nil }
-        return coverage(of: providers, disabledProviderIds: disabledProviderIds)
-    }
-
     /// The roots one provider's configured path covers: the path itself, plus the CloudStorage
     /// account folder it sits under when it has one.
     ///
@@ -143,8 +123,7 @@ public enum FileLocation {
     /// `~/Library/CloudStorage` like any other folder, so a plain test against the configured root
     /// alone stamped *This Mac only* on `…/OneDrive-<acct>/Photos/a.jpg` — a file that plainly is in
     /// OneDrive. That is the inverse of the false reassurance ROADMAP warns about: it manufactures
-    /// risk that is not there, which is the same failure as dropping a disabled provider, and it
-    /// would also put ⌂ and ☁ on one row at once.
+    /// risk that is not there, which is the same failure as dropping a disabled provider.
     ///
     /// **A discovered source's root IS its account folder now, so for those the two coincide** and
     /// this returns one path rather than two — the de-duplication below, without which every
@@ -160,14 +139,15 @@ public enum FileLocation {
     /// Deliberately keeps no home-or-above guard, unlike `CloudProvider.claimRoots`: there the
     /// guard stops a broad Location silently imposing one provider's *name rules* on unrelated
     /// files, which is a cost. Here a user who points a provider at a broad folder has told us
-    /// that ground is synced, and believing them only ever *removes* a ⌂ — it cannot invent one.
+    /// that ground is synced, and believing them only ever *removes* a "This Mac only" — it cannot
+    /// invent one.
     ///
     /// Pure string math. `NSString.pathComponents` and `NSString.path(withComponents:)` do not
     /// reach the filesystem, which `URL(fileURLWithPath:)` — unhinted — does.
     ///
     /// **A folder the root links in from outside is covered ground too**, spelled where it really
     /// lives: iCloud Drive's `Documents` is `~/Documents`, and a file there is in the cloud however
-    /// its path is spelled. Without this every row of a Documents tree wore ⌂ the moment iCloud's
+    /// its path is spelled. Without this every file of a Documents tree read "This Mac only" the moment iCloud's
     /// root rose to its container — the false reassurance in the other direction. The table is
     /// `PathBoundary.discoveredLinkedFolders`, read once and constant; a test passes its own.
     static func coveredPaths(ofRootPath rootPath: String,
@@ -215,9 +195,9 @@ public enum FileLocation {
 
     /// The cloud source whose synced folder contains `path`, or nil when none does.
     ///
-    /// **No filesystem access, at all.** This is what the ⌂ badge asks, eagerly, for every visible
-    /// row of a pane that may hold tens of thousands of them; the ☁ badge it mirrors buys each of
-    /// its answers with a detached `lstat` and needs a memo to survive scrolling. `FileLocationTests`
+    /// **No filesystem access, at all.** The verdict's one syscall is the materialization `lstat`;
+    /// containment stays pure string math, so it can be asked of any number of paths without the
+    /// memo the ☁ badge needs to survive scrolling. `FileLocationTests`
     /// pins the guarantee two ways: every containment fixture uses paths that **do not exist**, and
     /// a source check asserts this file names no filesystem-touching API.
     ///
@@ -237,13 +217,12 @@ public enum FileLocation {
         return nil
     }
 
-    /// Whether `path` sits inside no cloud source's folder — the ⌂ badge's whole question.
+    /// Whether `path` sits inside no cloud source's folder — the containment half of the verdict's
+    /// "This Mac only".
     ///
-    /// Containment only, so it costs no syscall and lands with the row rather than after it. The
-    /// *badge* additionally requires the file not to be a dataless placeholder, which is what makes
-    /// ⌂ and ☁ mutually exclusive; that half is composed where both answers are already in hand,
-    /// in `FileRowAccessories`, rather than made a precondition here — a precondition would put an
-    /// `lstat` back in front of every row.
+    /// Containment only, so it costs no syscall. The verdict additionally requires the file not to
+    /// be a dataless placeholder; that half is composed in `verdict(forPath:in:isCloudOnly:)`,
+    /// where the materialization answer is already in hand, rather than made a precondition here.
     public static func outsideEveryCloudFolder(path: String, in coverage: Coverage) -> Bool {
         covering(path: path, in: coverage) == nil
     }
@@ -290,8 +269,7 @@ public enum FileLocation {
     /// all — "not dataless" and "not there" are opposite facts `lstat` reports through the same
     /// failure — and a file deleted mid-download must not be reported as materialized. Folding nil
     /// into `false` here would print "This Mac only" over a file that is not on this Mac in any
-    /// sense. So nil is its own outcome: the inspector row shows nothing rather than guessing, and
-    /// the badge stays absent.
+    /// sense. So nil is its own outcome: the inspector row shows nothing rather than guessing.
     ///
     /// **Dataless *outside* every cloud folder answers nil too, and that is not an oversight.**
     /// It means some File Provider this app never discovered holds the content — real (Box,

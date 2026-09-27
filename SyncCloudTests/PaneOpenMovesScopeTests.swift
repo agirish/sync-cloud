@@ -35,7 +35,7 @@ import Sync
             // two new ones below pass it explicitly, which is the whole point of the split.
             ownsOrganizeScope: ownsOrganizeScope ?? isSingleSource, servesEditor: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
-            ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
+            ignoreStateToken: [], keptNamesToken: [],
             onFindDuplicatesOf: { _ in }, onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in },
             onOrganizeScope: scoped, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
     }
@@ -110,7 +110,7 @@ import Sync
             handler: nil, syncManager: FileSyncManager(), settings: SettingsManager(),
             isLeft: true, leftProviderId: "left", rightProviderId: "right", isSingleSource: true, ownsOrganizeScope: true, servesEditor: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
-            ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
+            ignoreStateToken: [], keptNamesToken: [],
             onFindDuplicatesOf: { _ in },
             onOrganizeFolder: { scanned.append($0.id) }, onCheckFolderShape: { _ in },
             onOrganizeScope: { scoped.append($0.id) }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })

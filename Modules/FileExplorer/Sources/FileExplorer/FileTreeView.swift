@@ -1201,9 +1201,6 @@ public struct FileTreeView: View, Equatable {
             // so it needs no memo. Also `row.info`, never `row.node`.
             editorRefusal: delegate.editorRefusal(forPath: row.info.id, isDirectory: row.info.isDirectory,
                                                   size: row.info.fileSize ?? 0),
-            // The second eagerly-rendered delegate answer, resolved the same way and memoized
-            // by `HomeOnlyBadgeCache`. Also `row.info`, never `row.node`.
-            isOnThisMacOnly: delegate.isOnThisMacOnly(forPath: row.info.id),
             isArmedForCompare: delegate.armedComparePath == row.info.id,
             awaitingDownloadID: downloads.request(forPath: node.id)?.requestID,
             searchContext: searchContext(for: row),
@@ -1800,16 +1797,6 @@ struct FileRowView: View {
     /// delegate, and every test double, renders exactly the row it rendered before Edit's pane
     /// existed.
     var editorRefusal: String? = nil
-    /// Whether this row's file sits inside no cloud provider's folder — the `⌂ on this Mac only`
-    /// badge. Resolved by the pane from the delegate and memoized by path (see
-    /// `HomeOnlyBadgeCache`), exactly like `riskyReason`, and for the same reason: it is answered
-    /// eagerly per visible row, so it cannot be a `FileNode` walk or a syscall.
-    ///
-    /// Known synchronously, unlike `isCloudOnly` — it is pure path math — so it lands with the row
-    /// rather than a beat after it, and needs nothing reserved on its own account. Defaulted so
-    /// every caller with no provider context, and every test double, renders exactly the row it
-    /// rendered before the badge existed.
-    var isOnThisMacOnly: Bool = false
     /// Whether this row is the file armed for comparison — see ``ComparePick``.
     ///
     /// Defaulted so every caller with no pick context, and every test double, renders exactly the
@@ -1848,47 +1835,35 @@ struct FileRowView: View {
     /// The pane's accent, for the “N matches” count. Passed rather than inherited — see
     /// `PaneSearchAnnotation.accent`.
     var accent: Color = .accentColor
-    /// Whether a FOLDER row carries its modification date. Files are untouched either way: a file's
-    /// size is the number this app is about, and it stays in both presentations.
+    /// Whether the row carries its trailing detail: a folder's modification date, a file's size.
     ///
-    /// False in Columns (see `ColumnRowView`), which is where the date buys least and costs most. It
-    /// is the entry's own mtime — when something was last added or removed directly inside that
-    /// folder, not when anything beneath it changed — so on a tree of filing folders it reports the
-    /// last tidy rather than anything about the contents. Against that it holds 76.4pt of a 210pt
-    /// column at the default text size (66.4pt for `Dec 25, 2025` in the caption font plus the row's
-    /// 10pt gap, and more as the font scales), which is the difference between 77.6pt of room for a
-    /// name and 154pt: `Birth Certificate` needs 95.7pt and truncates today. Finder draws the same
-    /// line — Date Modified is a List-view column, and its column view shows name and chevron only.
+    /// False in Columns (see `ColumnRowView`), true in Tree — the line Finder draws: its List view
+    /// has Date Modified and Size columns, its column view shows the name and a chevron only.
     ///
-    /// **This is a property of the PRESENTATION, not of the Browse workspace.** `PaneViewMode`
-    /// defaults to `.columns` and each of the three surfaces that draws a pane keeps its own stored
-    /// mode (`browseDefaultsKey`, `defaultsKey(isLeft:)`, `railDefaultsKey`), so the date goes from
-    /// Browse, from a comparison pane and from the Organize rail alike whenever that surface is in
-    /// Columns — and stays in every one of them in Tree. That is deliberate: `isSingleSource`
-    /// already separates the two comparison panes from the single-source ones, but **nothing below
-    /// `ContentView` separates Browse from the Organize rail** — they are the same pane at two
-    /// widths, told apart by a stored key up there rather than by anything the pane can see. A
-    /// Browse-only rule is therefore not a one-line change but the shape `previewEnabled` has:
-    /// resolved in `ContentView` against `PaneViewMode.previewColumnKey(isBrowse:)` and threaded
-    /// down as a binding, for a row-level detail rather than a whole column. It is also what the
-    /// column floor already says matters in a row: `minimumColumnWidth` justifies itself by the
-    /// icon, name, contained-differences count and difference badge, and names no date.
+    /// **Both halves left Columns for one reason: the name needs the width more.** The folder date
+    /// went first. It is the entry's own mtime — when something was last added or removed directly
+    /// inside that folder — so on a tree of filing folders it reports the last tidy rather than
+    /// anything about the contents, and it held 76.4pt of a 210pt column at the default text size.
+    /// The file size followed on 2026-09-27: in a 316pt column the size and the spacing around it
+    /// took ~38pt from names that were already truncating, and a column of files is exactly where
+    /// long names live.
     ///
-    /// **Where the date still is**, because Columns is the default mode and this is the only place
-    /// it was on screen: the details sidebar's `Modified:` row, which covers folders as well as
-    /// files, and Tree. Not the preview column — `ColumnPreview.item` returns nil for a directory,
-    /// so a selected folder raises no preview to carry it. That is Finder's arrangement too (Get
-    /// Info, not the column), and it is the reason this withholds the date rather than the pane
-    /// dropping `modificationDate` from what it publishes.
+    /// **Where the detail still is.** A file's size is on the preview column's identity line
+    /// (`kind · size`) and drives Sort ▸ Size; a folder's date is in the details sidebar's
+    /// `Modified:` row. Tree keeps both, which is why this withholds them rather than the pane
+    /// dropping `fileSize` or `modificationDate` from what it publishes. `SortOption.size` and
+    /// `.dateModified` still sort by keys Columns no longer draws — Finder's column view does the
+    /// same, since the sort is chosen by name in a menu, not read off the rows.
     ///
-    /// One consequence to know before "fixing" it: `SortOption.dateModified` still sorts by a key
-    /// that Columns no longer displays anywhere. Finder's column view does exactly the same, so it
-    /// is deliberate rather than an oversight — the sort is chosen by name in a menu, not read off
-    /// the rows.
+    /// **A property of the PRESENTATION, not of the Browse workspace.** Each surface that draws a
+    /// pane keeps its own stored mode (`browseDefaultsKey`, `defaultsKey(isLeft:)`,
+    /// `railDefaultsKey`), so the detail goes from every surface in Columns and stays in every one in
+    /// Tree. Nothing below `ContentView` separates Browse from the Organize rail — they are the same
+    /// pane at two widths — so a Browse-only rule would have to be resolved up there and threaded
+    /// down as a binding, the shape `previewEnabled` has.
     ///
-    /// Defaulted true, so the tree panes, the single-source rail in Tree and every existing test
-    /// render exactly the row they rendered before this existed.
-    var showsFolderDate: Bool = true
+    /// Defaulted true, so the tree panes and every existing test render the row they rendered before.
+    var showsSecondaryText: Bool = true
 
     /// The badge task's `.task(id:)` key: this row's path, and the pane's watch for it.
     ///
@@ -1956,10 +1931,10 @@ struct FileRowView: View {
                                                                                         time: .none)
 
     /// Size for files, date modified for directories (a directory's fileSize is just the
-    /// entry size, not its contents); nil when the scan didn't populate the metadata, and nil for
-    /// a folder on a surface that withholds the date — see `showsFolderDate`.
+    /// entry size, not its contents); nil when the scan didn't populate the metadata, and nil on a
+    /// surface that withholds the detail — see `showsSecondaryText`.
     private var secondaryText: String? {
-        Self.secondaryText(for: node, showsFolderDate: showsFolderDate)
+        Self.secondaryText(for: node, showsSecondaryText: showsSecondaryText)
     }
 
     /// The rule behind `secondaryText`, as a pure function of the row's scalars.
@@ -1970,9 +1945,10 @@ struct FileRowView: View {
     /// is pinned separately, by `ColumnRowDateTests` comparing painted pixels: a rule with no
     /// call-site test is one revert from being unused.
     @MainActor
-    static func secondaryText(for node: FileRowInfo, showsFolderDate: Bool) -> String? {
+    static func secondaryText(for node: FileRowInfo, showsSecondaryText: Bool) -> String? {
+        guard showsSecondaryText else { return nil }
         if node.isDirectory {
-            guard showsFolderDate, let date = node.modificationDate else { return nil }
+            guard let date = node.modificationDate else { return nil }
             return modifiedFormatter.string(from: date)
         }
         guard let size = node.fileSize else { return nil }
@@ -1980,7 +1956,19 @@ struct FileRowView: View {
     }
 
     var body: some View {
-        HStack(spacing: density == .compact ? 8 : 10) {
+        // **Spacing 0, and every DRAWN element brings its own leading gap.** This was a 10pt-spaced
+        // HStack, and a stack pays its spacing around every child — including the two that draw
+        // nothing: the `Spacer` (8pt minimum) and the search note, which sat on every row whether or
+        // not anything was being searched. Measured on a 284pt row, a truncated name stopped
+        // 39.5–50pt short of the next thing painted, and by the same amount at 200pt — the signature
+        // of fixed spacing, not of the stack sharing out width. With the gaps carried by what is
+        // drawn, a name runs to one gap short of the next visible thing and no further.
+        //
+        // The layout priorities are exactly what they were, and that is load-bearing: the search
+        // note keeps its -1, so it still yields to the name — shown whole beside a name that leaves
+        // room for it, not at all beside one that needs the width (`PaneSearchAnnotation`'s rule).
+        let gap: CGFloat = density == .compact ? 8 : 10
+        HStack(spacing: 0) {
             Image(nsImage: FileIconCache.icon(name: node.name, isDirectory: node.isDirectory))
                 .resizable()
                 .frame(width: densityMetrics.treeIconSize, height: densityMetrics.treeIconSize)
@@ -1988,15 +1976,25 @@ struct FileRowView: View {
             // have a pixel-identical sibling that is actually a different item. The matched run of
             // a search hit is emboldened inside that same marked form — see `PaneSearchName`.
             PaneSearchName(name: node.name, match: searchContext.match, font: fonts.name)
+                .lineLimit(1)
+                // Cut in the MIDDLE, so the start and the ending both survive. Names in one folder
+                // share long prefixes ("Statement - Account - January.pdf", "… - February.pdf"), and
+                // cutting the end turned such a folder into a column of identical rows — the part
+                // that tells them apart is the part that went. Finder's default, for the same reason.
+                .truncationMode(.middle)
                 .strikethrough(isIgnored, color: .secondary)
                 .foregroundStyle(isIgnored ? .secondary : .primary)
+                .padding(.leading, gap)
             // Beside the NAME, not out in the trailing accessory cluster with the cloud and
             // difference badges. Those report on the file's relationship to somewhere else — is it
             // downloaded, does it match the other pane — and belong together at the far edge. This
             // one is a statement about the characters immediately to its left, and reads as one only
             // while it is next to them. It also keeps the trailing cluster's carefully reserved
             // widths (see `FileRowAccessories`) out of the question entirely.
-            RiskyNameBadge(reason: riskyReason, fonts: fonts)
+            if let riskyReason {
+                RiskyNameBadge(reason: riskyReason, fonts: fonts)
+                    .padding(.leading, gap)
+            }
             // **Beside the name, for RiskyNameBadge's reason and not in the trailing cluster.**
             // The cluster reports this file's relationship to somewhere else — is it downloaded,
             // does it match the other pane — and its widths are reserved with care that
@@ -2004,30 +2002,40 @@ struct FileRowView: View {
             // statement about THIS row and this moment ("you armed this one"), so it belongs with
             // the name and leaves that arithmetic alone.
             //
-            // **Additive, never replacing a badge.** The location slot is deliberately exclusive —
-            // ☁ wins over ⌂ — so putting the marker there would hide a cloud-only badge for
-            // exactly as long as the pick is armed, trading one fact for another.
-            if isArmedForCompare { ComparePickBadge(fonts: fonts) }
-            Spacer()
+            // **Additive, never replacing a badge.** Putting the marker in the cloud slot would hide
+            // a cloud-only badge for exactly as long as the pick is armed, trading one fact for
+            // another.
+            if isArmedForCompare {
+                ComparePickBadge(fonts: fonts)
+                    .padding(.leading, gap)
+            }
+            // Zero minimum: in a zero-spaced stack a spacer that yields costs nothing at all.
+            Spacer(minLength: 0)
             if densityMetrics.showsSecondaryDetail, let secondaryText {
                 Text(secondaryText)
                     .font(fonts.secondary)
                     .monospacedDigit()
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
+                    .padding(.leading, gap)
             }
             // Ahead of the badge cluster, because it is the only thing on the row the user asked
             // for: they typed the query. The badges report standing facts and keep their places.
-            PaneSearchAnnotation(context: searchContext, isLeft: isLeftPane,
-                                 otherPaneName: otherPaneName, accent: accent, fonts: fonts)
-                .layoutPriority(-1)
+            // Mounted only while there is something to say, and its gap travels inside the label,
+            // so a row with no note — every row of a pane that is not searching — spends nothing.
+            if searchContext.hasAnnotation {
+                PaneSearchAnnotation(context: searchContext, isLeft: isLeftPane,
+                                     otherPaneName: otherPaneName, accent: accent, fonts: fonts,
+                                     leadingGap: gap)
+                    .layoutPriority(-1)
+            }
             FileRowAccessories(
                 isCloudOnly: isCloudOnly,
-                isOnThisMacOnly: isOnThisMacOnly,
                 reservesCloudSlot: !node.isDirectory,
                 diffStatus: diffStatus,
                 containedDiffCount: containedDiffCount,
-                fonts: fonts
+                fonts: fonts,
+                leadingGap: gap
             )
         }
         .padding(.vertical, densityMetrics.flatRowVerticalPadding)
@@ -2089,29 +2097,24 @@ struct FileRowView: View {
 /// Only FILE rows reserve it. `FileRowView` forces `isCloudOnly` false for directories, so a
 /// reserved slot there would be permanently empty space that can never be filled.
 ///
-/// **⌂ shares that slot with ☁, and this is where the two are made mutually exclusive.** They are
-/// opposite findings about the same axis — ☁ is *in a cloud folder, content not here*, ⌂ is *in no
-/// cloud folder, content here* — so a row can only ever want one, and a single `else` is a cheaper
-/// guarantee than two independent conditions that happen to agree. It also means ⌂ costs no width
-/// of its own: on a file row the cloud slot is already reserved and ⌂ draws inside it, and on a
-/// folder row (where nothing is reserved, because the cloud answer can never arrive) ⌂ is known
-/// synchronously, so there is nothing to ripple.
-///
-/// The tie goes to ☁ deliberately. In the one case both inputs could be true at once — a dataless
-/// file outside every DISCOVERED provider root, i.e. one held by a File Provider this app does not
-/// know about — "not on this Mac" is the fact that has been measured, and "in no cloud folder" is
-/// the inference that is wrong.
+/// **The slot used to be shared with a `⌂ on this Mac only` badge** — the opposite finding on the
+/// same axis, drawn on every row outside a cloud folder. It was removed on 2026-09-27: in a Home
+/// pane it marked nearly every row, said the same thing about all of them, and cost names the
+/// width. The Info inspector's *Where it lives* row still answers the question, per file, from
+/// `FileLocation`.
 struct FileRowAccessories: View {
     let isCloudOnly: Bool
-    /// Whether this file sits inside no cloud provider's folder — see the note above on why it
-    /// shares the cloud badge's slot. Defaulted so every existing caller renders unchanged.
-    var isOnThisMacOnly: Bool = false
     /// Whether to hold the cloud badge's width even when it isn't showing.
     let reservesCloudSlot: Bool
     let diffStatus: FileDifference.DifferenceType?
     let containedDiffCount: Int
     /// The pane's resolved fonts — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
+    /// The gap each DRAWN accessory keeps from whatever precedes it. `FileRowView` lays its row out
+    /// with zero spacing so that nothing which draws nothing can cost width; the gap therefore
+    /// belongs to the accessory, and an accessory that is absent takes its gap with it. Zero by
+    /// default, so a caller hosting this in a spaced stack of its own gets what it always got.
+    var leadingGap: CGFloat = 0
 
     /// The bare glyph, which is also what sizes the reserved slot. A generic cloud (not the iCloud
     /// glyph) since it applies to any File Provider (Dropbox, Drive, OneDrive, Box).
@@ -2128,64 +2131,21 @@ struct FileRowAccessories: View {
             .accessibilityLabel("Cloud-only, not downloaded")
     }
 
-    /// The ⌂ badge: this file is in no cloud folder.
-    ///
-    /// **`.secondary`, exactly like ☁ — not a risk tint.** The mockup drew it in the Backup plan's
-    /// risk colour, and in a Home-folder pane most rows carry it: a dense field of alarm-coloured
-    /// marks says "unprotected" in colour, which is the one word this feature's copy is forbidden
-    /// (a file can be safe in ways SyncCloud cannot see — Time Machine, an external clone, the same
-    /// bytes elsewhere). It is the mirror of ☁ and wears ☁'s clothes; the two are told apart by
-    /// glyph, the same way the difference badges encode kind in shape rather than colour.
-    ///
-    /// The wording is literal for the same reason: it says where the item is not, and claims
-    /// nothing about whether a copy of its content exists somewhere this app cannot see.
-    ///
-    /// **It says "it", not "this file", because it marks FOLDER rows too.** Containment is a
-    /// statement about where a path sits, which is exactly as true of a directory as of a file —
-    /// and a Home-folder pane is mostly directories, so a tooltip reading "this file isn't inside
-    /// any cloud folder" over `~/Movies` would be wrong on the majority of the rows carrying it.
-    /// (The Info inspector's verdict is files-only for the opposite reason: it *also* reports
-    /// materialization, and a folder has no content of its own to be downloaded or not.)
-    private var homeBadge: some View {
-        Image(systemName: "house")
-            .font(fonts.cloudBadge)
-            .foregroundStyle(.secondary)
-            .help("On this Mac only — it isn't inside any cloud folder")
-            .accessibilityLabel("On this Mac only, not in a cloud folder")
-    }
-
-    /// Which of the two mutually exclusive badges this row wants, if either. ☁ wins — see the
-    /// type doc.
-    ///
-    /// A named computed property rather than an inline chain so the exclusivity is one expression
-    /// that a test can hold to, instead of a rule spread across the two arms of `body` (where the
-    /// reserved-slot branch and the unreserved branch would each have to get it right separately —
-    /// which is exactly how the unreserved branch once lost the cloud badge entirely).
-    @ViewBuilder private var locationBadge: some View {
-        if isCloudOnly {
-            cloudBadge
-        } else if isOnThisMacOnly {
-            homeBadge
-        }
-    }
-
-    /// Whether either badge draws. Drives the unreserved branch, so it cannot drift from
-    /// `locationBadge`'s own conditions.
-    private var hasLocationBadge: Bool { isCloudOnly || isOnThisMacOnly }
-
     var body: some View {
         if reservesCloudSlot {
             // `.hidden()` keeps the space and drops the twin from hit-testing and the
             // accessibility tree, so the reservation is invisible to VoiceOver and to the cursor.
             cloudGlyph
                 .hidden()
-                .overlay { locationBadge }
-        } else if hasLocationBadge {
+                .overlay { if isCloudOnly { cloudBadge } }
+                .padding(.leading, leadingGap)
+        } else if isCloudOnly {
             // No slot held, but the badge still shows when it applies. Folding this into the branch
             // above (reserve-or-nothing) silently dropped the badge for any caller that opted out of
             // the reservation — caught only because the stability suite asserts that an unreserved
             // zone genuinely DOES resize, which it cannot do if it never renders anything.
-            locationBadge
+            cloudBadge
+                .padding(.leading, leadingGap)
         }
         if let diffStatus {
             // Shape encodes direction/kind so status is readable without color
@@ -2195,6 +2155,7 @@ struct FileRowAccessories: View {
                 .foregroundStyle(DifferenceGlyph.color(for: diffStatus))
                 .help(FileRowView.badgeHelp(for: diffStatus))
                 .accessibilityLabel(FileRowView.badgeHelp(for: diffStatus))
+                .padding(.leading, leadingGap)
         } else if containedDiffCount > 0 {
             Text("\(containedDiffCount)")
                 .font(fonts.countPill)
@@ -2204,6 +2165,7 @@ struct FileRowAccessories: View {
                 .background(Capsule().fill(.quaternary))
                 .help("\(containedDiffCount) difference\(containedDiffCount == 1 ? "" : "s") inside")
                 .accessibilityLabel("\(containedDiffCount) difference\(containedDiffCount == 1 ? "" : "s") inside")
+                .padding(.leading, leadingGap)
         }
     }
 }

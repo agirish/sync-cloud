@@ -3,11 +3,11 @@ import Foundation
 @testable import Sync
 
 /// Pins `FileLocation` — the pure containment × materialization classifier behind the Info
-/// inspector's *Where it lives* row and the `⌂ on this Mac only` row badge.
+/// inspector's *Where it lives* row.
 ///
 /// **Every path in here is fabricated and none of them exist.** That is the point, not an
-/// economy: the containment half must reach the filesystem nowhere at all (it is asked eagerly,
-/// per visible row, where the ☁ badge it mirrors buys each answer with a detached `lstat`), and a
+/// economy: the containment half must reach the filesystem nowhere at all (the verdict's one
+/// syscall is the materialization `lstat`, and containment is kept free of it), and a
 /// fixture built on real files could not tell a pure answer from a statted one. See
 /// `containmentNamesNoFilesystemTouchingApi` for the second half of that proof.
 struct FileLocationTests {
@@ -81,7 +81,7 @@ struct FileLocationTests {
     /// A file inside the provider's ACCOUNT folder but outside its configured root is still in
     /// that provider. Discovery configures OneDrive at `…/OneDrive-<acct>/Documents`, so a plain
     /// test against the configured root alone stamps "This Mac only" on a file that plainly is in
-    /// OneDrive — manufacturing risk that is not there, and putting ⌂ and ☁ on one row at once.
+    /// OneDrive — manufacturing risk that is not there.
     @Test func aSiblingOfTheConfiguredRootInsideTheAccountFolderIsCovered() {
         let c = Self.coverage([Self.oneDrive()])
         let photo = "/Users/u/Library/CloudStorage/OneDrive-Acme/Photos/a.jpg"
@@ -178,46 +178,6 @@ struct FileLocationTests {
         #expect(FileLocation.outsideEveryCloudFolder(path: "/Users/u/anything.txt", in: c))
     }
 
-    // MARK: The badge's gate — which panes ask at all
-
-    /// A folder source's pane resolves the badge against the cloud list.
-    @Test func aFolderSourcePaneGetsCoverage() {
-        let providers = [Self.iCloud(), Self.folderSource(id: "f", path: "/Users/u/Projects")]
-        let c = FileLocation.badgeCoverage(forProviderId: "f", among: providers,
-                                           disabledProviderIds: [])
-        #expect(c?.roots.map(\.providerId) == ["iCloud"])
-    }
-
-    /// **A cloud source's own pane gets nothing** — inside it every row is covered by definition,
-    /// so a badge would be a mark on everything.
-    @Test func aCloudSourcePaneGetsNoCoverageAtAll() {
-        let providers = [Self.iCloud(), Self.folderSource(id: "f")]
-        #expect(FileLocation.badgeCoverage(forProviderId: "iCloud", among: providers,
-                                           disabledProviderIds: []) == nil)
-    }
-
-    /// An id that resolves to nothing — a provider dropped from settings while its pane is still
-    /// on screen — is not a folder source, and must not mark every row it is showing.
-    @Test func anUnresolvableProviderIdGetsNoCoverage() {
-        #expect(FileLocation.badgeCoverage(forProviderId: "gone", among: [Self.iCloud()],
-                                           disabledProviderIds: []) == nil)
-    }
-
-    /// **The call site inherits the disabled rule.** Asserted here and not only on `coverage`,
-    /// because it is the call site that decides which list is passed — and a helper proved correct
-    /// against a list nobody hands it proves nothing.
-    @Test func theGateStillCountsDisabledProviders() {
-        let drive = Self.oneDrive()
-        let providers = [drive, Self.folderSource(id: "f")]
-        let c = FileLocation.badgeCoverage(forProviderId: "f", among: providers,
-                                           disabledProviderIds: [drive.id])
-        #expect(c?.roots.map(\.providerId) == [drive.id],
-                "a disabled provider dropped out of the badge's coverage")
-        #expect(FileLocation.outsideEveryCloudFolder(
-            path: "/Users/u/Library/CloudStorage/OneDrive-Acme/Documents/a.txt",
-            in: c ?? .empty) == false)
-    }
-
     // MARK: Case folding
 
     /// The two sides have different lineage — a row's path descends from the pane's own root, a
@@ -274,9 +234,9 @@ struct FileLocationTests {
             in: outside, isCloudOnly: nil) == nil)
     }
 
-    /// The badge's half of the same rule: containment alone never draws ⌂ for an unknown file,
-    /// because the row composes it with the materialization answer. Pinned here so the two halves
-    /// cannot drift: containment says "outside", the verdict still says nothing.
+    /// Containment and the verdict are separate answers, and an unknown file keeps them apart:
+    /// containment still says "outside", the verdict still says nothing. Pinned so the two halves
+    /// cannot drift into one.
     @Test func containmentAloneStillAnswersWhenMaterializationDoesNot() {
         let c = Self.coverage([Self.iCloud()])
         let path = "/Users/u/Projects/gone.md"
@@ -284,20 +244,18 @@ struct FileLocationTests {
         #expect(FileLocation.verdict(forPath: path, in: c, isCloudOnly: nil) == nil)
     }
 
-    // MARK: ⌂ and ☁ are mutually exclusive
+    // MARK: A dataless file is never "This Mac only"
 
-    /// ☁ is drawn from `isCloudOnly`; ⌂ is drawn from the `.thisMacOnly` verdict. The two can
-    /// never apply at once because **a dataless file never verdicts `.thisMacOnly`** — asserted
-    /// here over the whole cross, including the account-folder path that is the one shape which
-    /// would produce both at once without the widening.
+    /// ☁ on a row is drawn from `isCloudOnly`; the inspector's "This Mac only" is the
+    /// `.thisMacOnly` verdict. The two can never describe one file at once because **a dataless
+    /// file never verdicts `.thisMacOnly`** — asserted here over the whole cross, including the
+    /// account-folder path that is the one shape which would produce both without the widening.
     ///
     /// Stated this way rather than as `!(showsCloud && showsHome)` over locally derived flags:
-    /// that form recomputes ⌂ as `!isCloudOnly && …` and so reduces to `!(x && !x && …)`, a
-    /// tautology that passes with every rule in `verdict` mutated away. This form fails the moment
-    /// the `isCloudOnly ? nil : .thisMacOnly` branch stops consulting materialization.
-    ///
-    /// The other half of the guarantee — that the ROW never paints both glyphs — is pinned where
-    /// the two answers actually meet, in `FileRowAccessories`.
+    /// that form recomputes the home answer as `!isCloudOnly && …` and so reduces to
+    /// `!(x && !x && …)`, a tautology that passes with every rule in `verdict` mutated away. This
+    /// form fails the moment the `isCloudOnly ? nil : .thisMacOnly` branch stops consulting
+    /// materialization.
     @Test func aDatalessFileNeverVerdictsThisMacOnly() {
         let c = Self.coverage([Self.iCloud(), Self.oneDrive()])
         let paths = [
