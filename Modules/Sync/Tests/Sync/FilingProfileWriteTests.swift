@@ -725,12 +725,11 @@ import Testing
 
     // MARK: - …and the line that reports it says which of the three happened
 
-    /// The shared logger's most recent line containing `fragment`. Awaiting a fresh log task first
-    /// guarantees everything enqueued before it is visible in `entries`.
+    /// The most recent line `log` captured containing `fragment`. A capture, not the shared buffer,
+    /// so the rest of the package logging past the line cannot take it away.
     @MainActor
-    private static func loggedLine(containing fragment: String) async -> String? {
-        await Logger.shared.debug("filing-profile-write flush marker").value
-        return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
+    private static func loggedLine(_ log: LogCapture, containing fragment: String) async -> String? {
+        await log.entries.last { $0.message.contains(fragment) }?.message
     }
 
     /// A profile id unique to one run — `Logger.shared` is process-wide and this package's suites
@@ -751,6 +750,7 @@ import Testing
     /// than passing one.
     @MainActor
     @Test func theRollbackLineSaysWhichOfTheThreeOutcomesHappened() async throws {
+        let log = LogCapture()
         let removed = " — the profile just written was removed again"
         let left = "was left in place"
         let gone = "nothing is at"
@@ -769,7 +769,7 @@ import Testing
                 throw CocoaError(.fileWriteUnknown)
             }
         }
-        var line = try #require(await Self.loggedLine(containing: mine),
+        var line = try #require(await Self.loggedLine(log, containing: mine),
                                 "the rollback wrote no line at all")
         #expect(line.contains(removed), "the line does not say the profile went away: \(line)")
         #expect(!line.contains(left), "a removed profile is reported as left in place: \(line)")
@@ -790,7 +790,7 @@ import Testing
                 throw CocoaError(.fileWriteUnknown)
             }
         }
-        line = try #require(await Self.loggedLine(containing: theirs),
+        line = try #require(await Self.loggedLine(log, containing: theirs),
                             "the rollback wrote no line for a profile it refused to remove")
         #expect(line.contains(left), "the line does not say the profile is still there: \(line)")
         #expect(!line.contains(removed), "a profile this call left alone is reported as removed: \(line)")
@@ -819,7 +819,7 @@ import Testing
         }
         #expect(!FileManager.default.fileExists(atPath: vanishedURL.path),
                 "the fixture's own premise failed — the profile is still on disk")
-        line = try #require(await Self.loggedLine(containing: vanished),
+        line = try #require(await Self.loggedLine(log, containing: vanished),
                             "a profile that vanished under the write was reported by nothing")
         #expect(line.contains(gone), "the line does not say the profile is already gone: \(line)")
         #expect(!line.contains(left),

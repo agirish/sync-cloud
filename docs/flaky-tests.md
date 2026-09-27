@@ -1686,10 +1686,14 @@ not a query:
 }
 ```
 
-`LogBufferReadScanTests` enforces this: every bare `Logger.shared.entries` read in the Sync test
-tree is either eviction-proof or on a list that may shrink and must never grow. Sixteen suites were
-on that list when it was written, and a hand count had put it at nine — do not estimate this set,
-run the scan.
+`LogBufferReadScanTests` enforces this in the Sync test tree: a `Logger.shared.entries` read fails
+it unless an index call bounds it within a few lines — a capture or a disk read elsewhere in the
+file no longer excuses it, and neither does a comment. Sixteen suites predated `LogCapture` and sat
+on an allow-list when the scan was written; a hand count had put them at nine, so do not estimate
+this set, run the scan. The last fifteen were converted on 2026-09-27 and the list was deleted. **It reads only `Modules/Sync/Tests/Sync`:** the app target, `Dashboard` and
+`FileExplorer` still read the buffer directly in places, and cannot import `LogCapture`, which lives
+in the Sync test target — `grep -rn 'Logger\.shared\.entries' SyncCloudTests Modules/*/Tests`
+lists them.
 
 The four rules below still apply where a capture is impossible (reading the disk log, or asserting
 about lines written before your test began), and rule 1's *second* half — the awaited flush — is

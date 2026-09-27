@@ -15,12 +15,11 @@ import Events
 /// defaults fail safe (skip / don't delete), which UnwiredManagerSafeDefaultsTests pins.
 @Suite struct CopyMoveBehaviorPinTests {
 
-    /// True when the shared Logger holds an entry with exactly `message`. Awaiting a fresh log
-    /// task first guarantees everything enqueued before it is visible in `entries`.
+    /// True when `log` captured an entry with exactly `message`. A capture, not the shared buffer,
+    /// so the rest of the package logging past the line cannot take it away.
     @MainActor
-    private func loggerContains(_ message: String) async -> Bool {
-        await Logger.shared.debug("pin-test flush marker").value
-        return Logger.shared.entries.contains { $0.message == message }
+    private func loggerContains(_ log: LogCapture, _ message: String) async -> Bool {
+        await log.entries.contains { $0.message == message }
     }
 
     @MainActor
@@ -39,6 +38,7 @@ import Events
     /// under a uniquified name, is undoable as a Copy, and counts as fully copied.
     @MainActor
     @Test func testCopyItemsFromLeftOntoItselfKeepsBoth() async throws {
+        let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -53,13 +53,14 @@ import Events
         #expect(manager.currentError == nil)
         #expect(manager.undoManager?.canUndo == true)
         #expect(manager.undoManager?.undoActionName == "Copy 1 Items")
-        #expect(await loggerContains("Copied 1 item(s) between panes"))
+        #expect(await loggerContains(log, "Copied 1 item(s) between panes"))
     }
 
     /// Moving onto itself is skipped (with a debug trace), returns no moved nodes, and registers
     /// no undo; the final log reports the partial count 0 of 1.
     @MainActor
     @Test func testMoveItemsFromLeftOntoItselfSkips() async throws {
+        let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -73,13 +74,14 @@ import Events
         #expect(mockFM.virtualDisk["/src/pinSameMovePane 2.txt"] == nil)
         #expect(manager.currentError == nil)
         #expect(manager.undoManager?.canUndo == false)
-        #expect(await loggerContains("Skipping move of \"pinSameMovePane.txt\": source and destination are the same location."))
-        #expect(await loggerContains("Moved 0 of 1 item(s) between panes"))
+        #expect(await loggerContains(log, "Skipping move of \"pinSameMovePane.txt\": source and destination are the same location."))
+        #expect(await loggerContains(log, "Moved 0 of 1 item(s) between panes"))
     }
 
     /// Copy-to-path onto the source directory keeps both, same as the pane variant.
     @MainActor
     @Test func testCopyItemsToPathOntoItselfKeepsBoth() async throws {
+        let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -94,7 +96,7 @@ import Events
         #expect(manager.currentError == nil)
         #expect(manager.undoManager?.canUndo == true)
         #expect(manager.undoManager?.undoActionName == "Copy 1 Items")
-        #expect(await loggerContains("Copied 1 item(s) to /src"))
+        #expect(await loggerContains(log, "Copied 1 item(s) to /src"))
     }
 
     /// Move-to-path onto the source directory is skipped: nothing moves, nothing to undo.
@@ -121,6 +123,7 @@ import Events
     /// order, the log uses the "N of M" form, and the undo action counts only real copies.
     @MainActor
     @Test func testCopyItemsFromLeftPartialSkipReportsPartialCount() async throws {
+        let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -143,13 +146,14 @@ import Events
         #expect(mockFM.virtualDisk["/dst/pcBB 2.txt"] == nil)
         #expect(manager.currentError == nil)
         #expect(manager.undoManager?.undoActionName == "Copy 2 Items")
-        #expect(await loggerContains("Copied 2 of 3 item(s) between panes"))
+        #expect(await loggerContains(log, "Copied 2 of 3 item(s) between panes"))
     }
 
     /// Same shape for the pane move: partial log, Move undo registrar, and undo restores the
     /// moved file to its source.
     @MainActor
     @Test func testMoveItemsFromLeftPartialSkipReportsPartialCountAndUndoes() async throws {
+        let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -170,7 +174,7 @@ import Events
         #expect(mockFM.virtualDisk["/src/pmA.txt"] == nil)
         #expect(mockFM.virtualDisk["/src/pmBB.txt"] != nil)
         #expect(manager.undoManager?.undoActionName == "Move 1 Items")
-        #expect(await loggerContains("Moved 1 of 2 item(s) between panes"))
+        #expect(await loggerContains(log, "Moved 1 of 2 item(s) between panes"))
 
         // The Move registrar really is wired: undo brings the file back to its source.
         manager.undoManager?.undo()
@@ -185,6 +189,7 @@ import Events
     /// Copy-to-path sibling of the partial-count pin.
     @MainActor
     @Test func testCopyItemsToPathPartialSkipReportsPartialCount() async throws {
+        let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -203,7 +208,7 @@ import Events
         #expect(copied.map(\.name) == ["ptA.txt"])
         #expect(mockFM.virtualDisk["/dst/ptA.txt"] != nil)
         #expect(manager.undoManager?.undoActionName == "Copy 1 Items")
-        #expect(await loggerContains("Copied 1 of 2 item(s) to /dst"))
+        #expect(await loggerContains(log, "Copied 1 of 2 item(s) to /dst"))
     }
 
     /// moveItems(toPath:)'s final log had drifted from its three siblings: it reported the
@@ -211,6 +216,7 @@ import Events
     /// unified implementation deliberately aligns it, so a partial move now logs "1 of 2".
     @MainActor
     @Test func testMoveItemsToPathPartialSkipLogsMovedCount() async throws {
+        let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -230,12 +236,13 @@ import Events
         #expect(mockFM.virtualDisk["/dst/pdA.txt"] != nil)
         #expect(mockFM.virtualDisk["/src/pdBB.txt"] != nil)
         #expect(manager.undoManager?.undoActionName == "Move 1 Items")
-        #expect(await loggerContains("Moved 1 of 2 item(s) to /dst"))
+        #expect(await loggerContains(log, "Moved 1 of 2 item(s) to /dst"))
     }
 
     /// Full-count happy-path logs for the two move variants (the copy ones are pinned above).
     @MainActor
     @Test func testMoveItemsFullCountLogsPerVariant() async throws {
+        let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -250,8 +257,8 @@ import Events
         await manager.moveItems(nodes: [paneNode], fromLeft: true, leftRoot: "/src", rightRoot: "/dstPane", fileManager: mockFM)
         await manager.moveItems(nodes: [pathNode], toPath: "/dstPath", fileManager: mockFM)
 
-        #expect(await loggerContains("Moved 1 item(s) between panes"))
-        #expect(await loggerContains("Moved 1 item(s) to /dstPath"))
+        #expect(await loggerContains(log, "Moved 1 item(s) between panes"))
+        #expect(await loggerContains(log, "Moved 1 item(s) to /dstPath"))
     }
 
     // MARK: - Error messages per family

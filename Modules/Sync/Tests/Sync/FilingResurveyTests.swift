@@ -299,16 +299,16 @@ import Events
     /// and only shows itself on the one-folder tree nobody writes a fixture for. So the assertion is
     /// on the literal house form, which is wrong in both cases or right in both.
     @Test func theResurveyLineCountsFoldersInTheHouseForm() async throws {
+        let log = LogCapture()
         let (manager, docs, _, _) = try Self.makeTree()
         let report = await manager.resurveyFilingMemory(root: docs)
         #expect(report.foldersLearned > 0, "fixture: the survey must have learned something to count")
 
-        await Logger.shared.debug("resurvey-log flush marker").value
         // Matched on THIS run's summary, not merely on the prefix. `Logger.shared` is
         // process-wide and twenty-four call sites in this file run resurveys unserialized, so
         // `last { hasPrefix }` can hand back a neighbour's line — observed once, reporting
         // "5 folders changed" against a report that learned 2 (flaky-tests mechanism 3).
-        let line = Logger.shared.entries.last {
+        let line = await log.entries.last {
             $0.message.hasPrefix("Refresh finished") && $0.message.contains(report.summary)
         }
         let message = try #require(line?.message, "the survey logged no closing line for this run")

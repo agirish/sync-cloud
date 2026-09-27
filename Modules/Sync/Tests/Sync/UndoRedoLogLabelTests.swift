@@ -10,17 +10,17 @@ import Events
 /// and its trailing summary must agree with its header.
 @Suite struct UndoRedoLogLabelTests {
 
-    /// True when the shared Logger holds an entry with exactly `message`. Awaiting a fresh log
-    /// task first guarantees everything enqueued before it is visible in `entries`.
+    /// True when `log` captured an entry with exactly `message`. A capture, not the shared buffer,
+    /// so the rest of the package logging past the line cannot take it away.
     @MainActor
-    private func loggerContains(_ message: String) async -> Bool {
-        await Logger.shared.debug("label-pin flush marker").value
-        return Logger.shared.entries.contains { $0.message == message }
+    private func loggerContains(_ log: LogCapture, _ message: String) async -> Bool {
+        await log.entries.contains { $0.message == message }
     }
 
 
     @MainActor
     @Test func testDeleteUndoAndRedoLogTheirOwnDirection() async throws {
+        let log = LogCapture()
         let manager = FileSyncManager()
         manager.undoManager = UndoManager()
         manager.permanentDeleteConfirmer = { _ in false }
@@ -34,15 +34,15 @@ import Events
         // ⌘Z restores the item from the Trash — the header must say Undo, and the summary agrees.
         manager.undoManager?.undo()
         await waitUntil("undo restores the deleted item") { mockFM.virtualDisk["/dst/label_pin.txt"] != nil }
-        #expect(await loggerContains("User triggered Undo: Delete 1 Items"))
-        #expect(await loggerContains("Undo (Delete 1 Items): restored 1 of 1 deleted item(s) from Trash, 0 restore failure(s)"))
+        #expect(await loggerContains(log, "User triggered Undo: Delete 1 Items"))
+        #expect(await loggerContains(log, "Undo (Delete 1 Items): restored 1 of 1 deleted item(s) from Trash, 0 restore failure(s)"))
         // No delete redo has run yet, so no handler may have claimed the Redo label.
-        #expect(!(await loggerContains("User triggered Redo: Delete 1 Items")))
+        #expect(!(await loggerContains(log, "User triggered Redo: Delete 1 Items")))
 
         // ⌘⇧Z re-trashes the item — the header must say Redo, and the summary agrees.
         manager.undoManager?.redo()
         await waitUntil("redo re-trashes the item") { mockFM.virtualDisk["/dst/label_pin.txt"] == nil }
-        #expect(await loggerContains("User triggered Redo: Delete 1 Items"))
-        #expect(await loggerContains("Redo (Delete 1 Items): trashed 1 of 1 item(s)"))
+        #expect(await loggerContains(log, "User triggered Redo: Delete 1 Items"))
+        #expect(await loggerContains(log, "Redo (Delete 1 Items): trashed 1 of 1 item(s)"))
     }
 }

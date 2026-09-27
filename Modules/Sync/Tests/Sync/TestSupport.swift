@@ -733,6 +733,12 @@ func loggedLineOnDisk(containing fragment: String) async -> String? {
 /// appends and then trims, and both mutations publish), so accumulating across publishes sees
 /// everything. Deduplicated by `LogEntry.id`, since each publish carries the whole array.
 ///
+/// **Only what is new is read.** The logger only appends at the end and trims from the front, so
+/// what a publish adds is a run at the END of it; a capture walks back to the first line it has
+/// already seen and takes what follows. It used to check every id in the array — up to 1,000 — on
+/// every publish, and measured 2026-09-27 that cost each live capture ~240 µs of main thread per
+/// publish: ten captures turned 2,000 flushes from 0.08 s into 4.9 s.
+///
 /// **Construct it BEFORE the call under test** — it is a window opening, not a query:
 /// ```swift
 /// let log = LogCapture()
@@ -743,19 +749,28 @@ func loggedLineOnDisk(containing fragment: String) async -> String? {
 final class LogCapture {
     private var seen: [LogEntry] = []
     private var ids: Set<UUID> = []
+    private var primed = false
     private var cancellable: AnyCancellable?
 
     init() {
-        // `dropFirst()` because a `@Published` publisher replays its CURRENT value on subscribe, and
-        // a capture meaning "since I started" must not include what came before. What that rules
-        // out is a sibling's identical sentence satisfying the assertion before the call under test
-        // has run. Recorded honestly: that has not been reproduced — deleting `dropFirst()`,
-        // removing a production log line and running the whole package still fails. It is kept as
-        // the correct semantics for a capture, not as a guard anything here demonstrates.
-        cancellable = Logger.shared.$entries.dropFirst().sink { [weak self] published in
+        // A `@Published` publisher replays its CURRENT value on subscribe. Those lines predate this
+        // capture, so they are marked seen rather than captured: a capture means "since I started",
+        // and a sibling's identical sentence from before the call under test must not satisfy it.
+        // `dropFirst()`, which this replaced, skipped only the replay — the next publish still
+        // carried every older line in the buffer, so each capture began with whatever it held.
+        cancellable = Logger.shared.$entries.sink { [weak self] published in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                for entry in published where !self.ids.contains(entry.id) {
+                guard self.primed else {
+                    self.primed = true
+                    self.ids.formUnion(published.lazy.map(\.id))
+                    return
+                }
+                var start = published.endIndex
+                while start > published.startIndex, !self.ids.contains(published[start - 1].id) {
+                    start -= 1
+                }
+                for entry in published[start...] {
                     self.ids.insert(entry.id)
                     self.seen.append(entry)
                 }

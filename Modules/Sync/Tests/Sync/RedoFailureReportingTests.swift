@@ -15,12 +15,11 @@ import Events
 /// `.warning` banner) and that the following undo is a quiet no-op, never a phantom operation.
 @Suite struct RedoFailureReportingTests {
 
-    /// True when the shared Logger holds an `.error` entry containing `fragment`. Awaiting a
-    /// fresh log task first guarantees everything enqueued before it is visible in `entries`.
+    /// True when `log` captured an `.error` entry containing `fragment`. A capture, not the shared
+    /// buffer, so the rest of the package logging past the line cannot take it away.
     @MainActor
-    private func loggerHasError(containing fragment: String) async -> Bool {
-        await Logger.shared.debug("redo-fail flush marker").value
-        return Logger.shared.entries.contains { $0.level == .error && $0.message.contains(fragment) }
+    private func loggerHasError(_ log: LogCapture, containing fragment: String) async -> Bool {
+        await log.holds(.error, containing: fragment)
     }
 
     /// A manager with every alert seam mocked so no test can ever pop a real NSAlert.
@@ -59,6 +58,7 @@ import Events
     /// never-recreated destination and prompt to "permanently delete" a phantom file.
     @MainActor
     @Test func testCopyRedoFailureIsSurfacedAndNextUndoIsNoOp() async throws {
+        let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -83,7 +83,7 @@ import Events
         }
         #expect(manager.banner?.message.contains("Redo couldn't re-apply") == true)
         #expect(manager.banner?.message.contains("f.txt") == true)
-        #expect(await loggerHasError(containing: "FAILED to redo \"f.txt\""))
+        #expect(await loggerHasError(log, containing: "FAILED to redo \"f.txt\""))
 
         // The failed item stayed out of the redo's freshly registered undo state: undoing now is
         // a quiet no-op — in particular, no permanent-delete prompt for a file not on disk.
@@ -103,6 +103,7 @@ import Events
     /// not attempt to "restore" from the destination the move never populated.
     @MainActor
     @Test func testMoveRedoFailureIsSurfacedAndNextUndoIsNoOp() async throws {
+        let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -125,7 +126,7 @@ import Events
             manager.banner?.severity == .warning
         }
         #expect(manager.banner?.message.contains("Redo couldn't re-apply") == true)
-        #expect(await loggerHasError(containing: "FAILED to redo \"f.txt\""))
+        #expect(await loggerHasError(log, containing: "FAILED to redo \"f.txt\""))
 
         // The next undo has nothing registered for the failed item: no phantom move-back, no
         // spurious "couldn't restore" banner, and the disk is untouched.
@@ -182,6 +183,7 @@ import Events
     /// created, so it must neither be trashed nor trigger a permanent-delete prompt.
     @MainActor
     @Test func testFolderRedoFailureIsSurfacedAndNextUndoSparesTheInterloper() async throws {
+        let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
@@ -202,7 +204,7 @@ import Events
             manager.banner?.severity == .warning
         }
         #expect(manager.banner?.message.contains("Redo couldn't re-apply") == true)
-        #expect(await loggerHasError(containing: "FAILED to redo \"New Folder\""))
+        #expect(await loggerHasError(log, containing: "FAILED to redo \"New Folder\""))
         #expect(mockFM.virtualDisk["/dst/New Folder"]?.isDirectory == false)
 
         // The undo registered by the failed redo skips anything that is not a directory at the
@@ -225,6 +227,7 @@ import Events
     /// copy would collide (the old code silently attempted exactly that).
     @MainActor
     @Test func testCopyUndoConfirmedRemoveFailureIsSurfacedAndLeavesBackupInPlace() async throws {
+        let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -250,7 +253,7 @@ import Events
         }
         #expect(manager.banner?.message.contains("Undo couldn't remove") == true)
         #expect(manager.banner?.message.contains("f.txt") == true)
-        #expect(await loggerHasError(containing: "FAILED to permanently delete \"f.txt\""))
+        #expect(await loggerHasError(log, containing: "FAILED to permanently delete \"f.txt\""))
 
         // No state was changed: the copy survives, and the backup was NOT restored over it.
         await waitUntil("the failed undo settles") { manager.activeFileOperationsCount == 0 }

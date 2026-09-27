@@ -72,6 +72,7 @@ import Events
     /// the ignore simply is not there after a relaunch. The log line is the only signal.
     @MainActor
     @Test func testAddBeforeActivateIsSessionOnlyAndSaysSo() async {
+        let log = LogCapture()
         let (defaults, suite) = makeDefaults()
         defer { wipeDefaultsSuite(suite) }
 
@@ -82,11 +83,8 @@ import Events
         #expect(store.rootRelativePaths == ["Docs/orphan.txt"])
         // …but nothing was written under any pair key.
         #expect(defaults.dictionaryRepresentation().keys.contains { $0.hasPrefix("ignoredItems_v1_") } == false)
-        await waitUntil("the dropped save is logged") {
-            Logger.shared.entries.contains {
-                $0.level == .warning && $0.message.contains("no provider pair is active yet")
-            }
-        }
+        #expect(await log.holds(.warning, containing: "no provider pair is active yet"),
+                "the dropped save was not logged")
     }
 
     @MainActor

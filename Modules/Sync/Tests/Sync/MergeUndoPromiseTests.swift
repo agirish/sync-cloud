@@ -101,6 +101,7 @@ import Events
     /// the undo to prove the folded file survives it.
     @MainActor
     @Test func aMergeWhoseCopyWasDestroyedPermanentlyRegistersNoUndoAtAll() async throws {
+        let log = LogCapture()
         let base = try makeCanonicalTempRoot(prefix: "MergeUndoRegistration")
         defer { try? FileManager.default.removeItem(at: base) }
         let rName = "Redundant-\(UUID().uuidString)"
@@ -135,8 +136,7 @@ import Events
         #expect(FileManager.default.fileExists(atPath: folded.path),
                 "Edit ▸ Undo deleted the folded file out of the keeper — its original is permanently gone, so that was the last instance")
 
-        await Logger.shared.debug("merge-undo flush marker").value
-        let line = Logger.shared.entries.last { $0.message.contains("deleted permanently rather than trashed") }?.message
+        let line = await log.entries.last { $0.message.contains("deleted permanently rather than trashed") }?.message
         #expect(line?.contains("not undoable") != true,
                 "the audit log still claims the merge is not undoable rather than saying the undo was withheld: “\(line ?? "nil")”")
         #expect(line?.contains("NOT registered") == true,

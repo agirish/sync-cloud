@@ -453,6 +453,7 @@ private final class SnippetBox: @unchecked Sendable {
     /// external mutator would call, and it must not double-log.
     @MainActor
     @Test func settingAnUnchangedEnabledStateDoesNotDoubleLog() async {
+        let log = LogCapture()
         let suite = "SetRuleNoOp-\(UUID().uuidString)"
         let manager = manager(withRuleSuite: suite)
         defer { wipeDefaultsSuite(suite) }
@@ -461,10 +462,10 @@ private final class SnippetBox: @unchecked Sendable {
                                   destinationTemplate: "Cars/Tesla")
         manager.upsertAutomationRule(rule)
 
-        // Awaiting a fresh log task first guarantees everything enqueued before it is visible.
+        // Counted in a capture opened when the test began, so a count can only grow: counted in the
+        // shared buffer, the rest of the package logging past the baseline's lines could shrink it.
         func logCount(_ message: String) async -> Int {
-            await Logger.shared.debug("set-rule no-op flush marker").value
-            return Logger.shared.entries.filter { $0.message == message }.count
+            await log.entries.filter { $0.message == message }.count
         }
         let disabledLine = "Automation rule disabled: “Tesla”"
         let baseline = await logCount(disabledLine)

@@ -71,6 +71,7 @@ import Events
     /// logging, a one-file failure would silently vanish from the log and these would fail.
     @MainActor
     @Test func testSyncAllSingleFailureIsLoggedAsError() async throws {
+        let log = LogCapture()
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -82,11 +83,12 @@ import Events
 
         await manager.syncAll(direction: .copyToRight)
 
-        #expect(await loggerHasError(containing: "onlySyncLog.txt"))
+        #expect(await loggerHasError(log, containing: "onlySyncLog.txt"))
     }
 
     @MainActor
     @Test func testBulkCopySingleFailureIsLoggedAsError() async throws {
+        let log = LogCapture()
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -97,16 +99,15 @@ import Events
             [makeMissingSourceDiff("onlyCopyLog.txt")], asOf: manager.fileOperationsEpoch
         )
 
-        #expect(await loggerHasError(containing: "onlyCopyLog.txt"))
+        #expect(await loggerHasError(log, containing: "onlyCopyLog.txt"))
     }
 
-    /// True when the shared Logger holds an ERROR entry whose message contains `fragment`.
-    /// Awaiting a fresh log task first guarantees everything enqueued before it is visible; the
-    /// fragment is a per-test unique file name, so accumulated cross-test entries can't false-match.
+    /// True when `log` captured an ERROR entry whose message contains `fragment` — the fragment is
+    /// a per-test unique file name, so another test's lines can't false-match. A capture, not the
+    /// shared buffer, so the rest of the package logging past the line cannot take it away.
     @MainActor
-    private func loggerHasError(containing fragment: String) async -> Bool {
-        await Logger.shared.debug("bulk-failure-test flush marker").value
-        return Logger.shared.entries.contains { $0.level == .error && $0.message.contains(fragment) }
+    private func loggerHasError(_ log: LogCapture, containing fragment: String) async -> Bool {
+        await log.holds(.error, containing: fragment)
     }
 
     @Test func testBulkFailedConstructorShape() {

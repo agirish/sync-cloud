@@ -363,6 +363,7 @@ import Events
     /// copy-undo's twin of this branch has always reported through `reportUndoRemoveFailure`.
     @MainActor
     @Test func createFolderUndoReportsAConfirmedPermanentDeleteThatFailed() async throws {
+        let log = LogCapture()
         let manager = makeManager()
         manager.permanentDeleteConfirmer = { _ in true }
         let mockFM = MockFileManager()
@@ -385,8 +386,7 @@ import Events
         #expect(manager.banner?.message.contains("New Folder") == true)
         // The folder is still there — which is exactly why silence was wrong.
         #expect(mockFM.virtualDisk["/dst/New Folder"] != nil)
-        await Logger.shared.debug("folder-undo flush marker").value
-        #expect(Logger.shared.entries.contains {
+        #expect(await log.entries.contains {
             $0.level == .error && $0.message.contains("Undo (New Folder): FAILED to permanently delete")
         })
     }
@@ -396,6 +396,7 @@ import Events
     /// Undo: New Folder" to nothing, reading as a completed undo.
     @MainActor
     @Test func createFolderUndoRecordsThatTheUserDeclinedThePermanentDelete() async throws {
+        let log = LogCapture()
         let manager = makeManager()   // confirmer declines
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
@@ -408,8 +409,7 @@ import Events
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
         #expect(mockFM.virtualDisk["/dst/New Folder"] != nil)
-        await Logger.shared.debug("folder-undo decline flush marker").value
-        #expect(Logger.shared.entries.contains {
+        #expect(await log.entries.contains {
             $0.message.contains("Undo (New Folder)") && $0.message.contains("declined")
         })
     }

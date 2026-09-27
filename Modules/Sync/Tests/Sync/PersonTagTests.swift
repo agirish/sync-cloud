@@ -768,6 +768,7 @@ import Events
     /// "People: X is Y's" line, so a session whose every save was refused read like a run of
     /// durable records right up to the quit that lost them all.
     @Test func aRefusedSaveIsSaidOutLoudInTheVerdictLine() async throws {
+        let log = LogCapture()
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("p/person-tags.json")
@@ -779,8 +780,7 @@ import Events
         let path = "honesty-\(UUID().uuidString).pdf"
         store.record(personId: "son", key: .path(path), verdict: .confirmed, path: path)
 
-        await Logger.shared.debug("person-tag honesty flush marker").value
-        let entry = try #require(Logger.shared.entries.last {
+        let entry = try #require(await log.entries.last {
             $0.message.hasPrefix("People: \(path) is son's")
         }, "the verdict line was not logged at all")
         #expect(entry.message.contains("NOT saved"),
@@ -790,6 +790,7 @@ import Events
 
     /// The counterpart: an ordinary landed save keeps the line unqualified.
     @Test func aLandedSaveKeepsTheVerdictLineUnqualified() async throws {
+        let log = LogCapture()
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -797,8 +798,7 @@ import Events
         let path = "honesty-\(UUID().uuidString).pdf"
         store.record(personId: "son", key: .path(path), verdict: .confirmed, path: path)
 
-        await Logger.shared.debug("person-tag honesty flush marker".description).value
-        let entry = try #require(Logger.shared.entries.last {
+        let entry = try #require(await log.entries.last {
             $0.message.hasPrefix("People: \(path) is son's")
         })
         #expect(!entry.message.contains("NOT saved"),
@@ -827,6 +827,7 @@ import Events
     /// guard is armed and the set-aside keeps failing it lives in memory until the quit that loses
     /// it. The line said "withdrew the verdict" regardless.
     @Test func aRefusedWithdrawalIsSaidOutLoudInTheLine() async throws {
+        let log = LogCapture()
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("p/person-tags.json")
@@ -840,8 +841,7 @@ import Events
         store.clear(personId: "son", key: .path(path))
         #expect(store.tags.isEmpty, "the withdrawal did not take effect in memory")
 
-        await Logger.shared.debug("person-tag withdrawal flush marker").value
-        let entry = try #require(Logger.shared.entries.last {
+        let entry = try #require(await log.entries.last {
             $0.message.hasPrefix("People: withdrew the verdict on \(path)")
         }, "the withdrawal line was not logged at all")
         #expect(entry.message.contains("NOT saved"),
@@ -851,6 +851,7 @@ import Events
 
     /// The counterpart: a withdrawal that reached disk keeps the line unqualified.
     @Test func aLandedWithdrawalKeepsTheLineUnqualified() async throws {
+        let log = LogCapture()
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -859,8 +860,7 @@ import Events
         store.record(personId: "son", key: .path(path), verdict: .confirmed, path: path)
         store.clear(personId: "son", key: .path(path))
 
-        await Logger.shared.debug("person-tag withdrawal flush marker").value
-        let entry = try #require(Logger.shared.entries.last {
+        let entry = try #require(await log.entries.last {
             $0.message.hasPrefix("People: withdrew the verdict on \(path)")
         })
         #expect(!entry.message.contains("NOT saved"),

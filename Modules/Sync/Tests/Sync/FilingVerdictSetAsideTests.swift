@@ -225,11 +225,12 @@ import Testing
     /// Fixed in the fixture rather than in the message: production names are unique within the
     /// directory they are written to, which is the only place uniqueness means anything to a file.
     /// See `docs/flaky-tests.md`, the rolled log window, for why a bounded window would not have
-    /// closed this — it bounds time, not authorship, and these two run concurrently.
+    /// closed this — it bounds time, not authorship, and these two run concurrently. The line is
+    /// read from a capture the episode opened before acting, which keeps the rest of the package
+    /// from logging it out of the shared buffer first; the fragment still has to name the episode.
     @MainActor
-    private func loggedLine(containing fragment: String) async -> String? {
-        await Logger.shared.debug("verdict-message flush marker").value
-        return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
+    private func loggedLine(_ log: LogCapture, containing fragment: String) async -> String? {
+        await log.entries.last { $0.message.contains(fragment) }?.message
     }
 
     /// A cache file name no other episode can produce, so the set-aside made from it is nameable.
@@ -245,12 +246,13 @@ import Testing
     /// A set-aside made from `load`, with the file it left behind and the line it wrote.
     @MainActor
     private func loadEpisode() async throws -> (kept: URL, line: String, wroteFile: Bool) {
+        let log = LogCapture()
         let dir = try makeCanonicalTempRoot(prefix: "VerdictMsg-load")
         let url = dir.appendingPathComponent(uniqueCacheName())
         try Data("{ not json — half a 12MB write".utf8).write(to: url)
         #expect(FilingVerdictStore.load(from: url).count == 0)
         let kept = try #require(setAsidesBeside(url).first, "no set-aside was written")
-        let line = try #require(await loggedLine(containing: kept.lastPathComponent),
+        let line = try #require(await loggedLine(log, containing: kept.lastPathComponent),
                                 "the set-aside was not logged at all")
         return (kept, line, FileManager.default.fileExists(atPath: url.path))
     }
@@ -259,6 +261,7 @@ import Testing
     /// The load's own attempt is blocked so the rescue happens on the save path.
     @MainActor
     private func saveEpisode() async throws -> (kept: URL, line: String, wroteFile: Bool) {
+        let log = LogCapture()
         let dir = try makeCanonicalTempRoot(prefix: "VerdictMsg-save")
         let url = dir.appendingPathComponent(uniqueCacheName())
         try Data("{ not json".utf8).write(to: url)
@@ -269,7 +272,7 @@ import Testing
                 "fixture: the load's set-aside was supposed to be blocked")
         #expect(FilingVerdictStore.save(FilingVerdictCache(), to: url))
         let kept = try #require(setAsidesBeside(url).first, "the save did not rescue the file")
-        let line = try #require(await loggedLine(containing: kept.lastPathComponent),
+        let line = try #require(await loggedLine(log, containing: kept.lastPathComponent),
                                 "the set-aside was not logged at all")
         return (kept, line, FileManager.default.fileExists(atPath: url.path))
     }

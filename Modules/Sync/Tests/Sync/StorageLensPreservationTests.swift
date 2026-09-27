@@ -316,6 +316,7 @@ import Testing
     /// kept file found nothing. (It also promised a "fresh one": forget writes no file at all.)
     @MainActor
     @Test func aFailedSetAsideIsNotLoggedAsARescue() async throws {
+        let log = LogCapture()
         // A file name unique to this test: `Logger.shared.entries` is process-wide, and the
         // sibling test below logs a line matching every other part of this search.
         let url = try makeCanonicalTempRoot(prefix: "StoragePreserve-clearfail")
@@ -329,8 +330,7 @@ import Testing
         StorageLensStore.clearInBackground(root: "/a", from: url, fileManager: fm)
         StorageLensStore.waitForPendingWrites()
 
-        await Logger.shared.debug("storage-lens clear flush marker").value
-        let line = try #require(Logger.shared.entries.last {
+        let line = try #require(await log.entries.last {
             $0.message.contains("Forget this root") && $0.message.contains(url.lastPathComponent)
         }, "the refusal was not logged at all")
         #expect(line.message.contains("could not be moved aside"),
@@ -346,6 +346,7 @@ import Testing
     /// and must not promise a fresh one, because forgetting writes none.
     @MainActor
     @Test func aSuccessfulSetAsideNamesTheKeptFileAndPromisesNoFreshOne() async throws {
+        let log = LogCapture()
         let url = try makeCanonicalTempRoot(prefix: "StoragePreserve-clearkept")
             .appendingPathComponent("storage-lens-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -355,8 +356,7 @@ import Testing
         StorageLensStore.clearInBackground(root: "/a", from: url)
         StorageLensStore.waitForPendingWrites()
 
-        await Logger.shared.debug("storage-lens clear flush marker").value
-        let line = try #require(Logger.shared.entries.last {
+        let line = try #require(await log.entries.last {
             $0.message.contains("Forget this root") && $0.message.contains(url.lastPathComponent)
         }, "the refusal was not logged at all")
         let kept = try #require(setAsidesBeside(url).first, "no set-aside was written")
@@ -414,10 +414,11 @@ import Testing
         return dir.appendingPathComponent("storage-lens-\(name)-\(UUID().uuidString).json")
     }
 
+    /// The most recent line `log` captured containing `fragment`. A capture, not the shared buffer,
+    /// so the rest of the package logging past the line cannot take it away.
     @MainActor
-    private func loggedLine(containing fragment: String) async -> String? {
-        await Logger.shared.debug("storage-seam flush marker").value
-        return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
+    private func loggedLine(_ log: LogCapture, containing fragment: String) async -> String? {
+        await log.entries.last { $0.message.contains(fragment) }?.message
     }
 
     /// With nothing on disk, the answer is `absent` from the real manager and `unreadable` from a
@@ -444,6 +445,7 @@ import Testing
     /// And the wiring through the two background entry points, which is where a caller's double
     /// actually has to arrive.
     @Test @MainActor func clearAndSaveBothCarryTheManagerIntoTheRead() async throws {
+        let log = LogCapture()
         let url = try storeURL("wired")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
@@ -455,7 +457,7 @@ import Testing
         // the file is empty either way — an assertion on emptiness would pass on both wirings.
         StorageLensStore.clearInBackground(root: "/a", from: url, fileManager: ClaimsPresent(url))
         StorageLensStore.waitForPendingWrites()
-        #expect(await loggedLine(containing: url.lastPathComponent) != nil,
+        #expect(await loggedLine(log, containing: url.lastPathComponent) != nil,
                 """
                 “Forget this root” said nothing, so it took the absent path — the injected \
                 manager did not reach the read

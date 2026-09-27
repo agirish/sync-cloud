@@ -16,12 +16,11 @@ import Events
 /// abandoned" would be reading other tests' lines. Each test matches only its own folder.
 @Suite struct FilingScanAbandonmentLogTests {
 
-    /// True when the shared Logger holds an entry containing `fragment`. Awaiting a fresh log
-    /// task first guarantees everything enqueued before it is visible in `entries`.
+    /// The first line `log` captured containing `fragment`. A capture, not the shared buffer, so
+    /// the rest of the package logging past the line cannot take it away.
     @MainActor
-    private func loggedLine(containing fragment: String) async -> String? {
-        await Logger.shared.debug("filing-abandon flush marker").value
-        return Logger.shared.entries.first { $0.message.contains(fragment) }?.message
+    private func loggedLine(_ log: LogCapture, containing fragment: String) async -> String? {
+        await log.entries.first { $0.message.contains(fragment) }?.message
     }
 
     @MainActor
@@ -36,6 +35,7 @@ import Events
     /// a `defer` that logged unconditionally would pass every test in this suite.
     @MainActor
     @Test func aScanThatCompletesReportsItsResultAndNotAbandonment() async throws {
+        let log = LogCapture()
         let root = try makeCanonicalTempRoot(prefix: "FilingAbandonComplete")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
@@ -46,9 +46,9 @@ import Events
                                             providerRoot: root)
 
         #expect(manager.hasSuggestedFiling, "the scan really did run to the publish")
-        #expect(await loggedLine(containing: "Filing: scanned CompletesCleanly") != nil,
+        #expect(await loggedLine(log, containing: "Filing: scanned CompletesCleanly") != nil,
                 "a completed scan logs its result")
-        #expect(await loggedLine(containing: "CompletesCleanly abandoned") == nil,
+        #expect(await loggedLine(log, containing: "CompletesCleanly abandoned") == nil,
                 "a completed scan must not claim it was abandoned")
     }
 
@@ -58,6 +58,7 @@ import Events
     /// after the expensive classifier pass".
     @MainActor
     @Test func aCancelledScanSaysWhichPhaseItStoppedIn() async throws {
+        let log = LogCapture()
         let root = try makeCanonicalTempRoot(prefix: "FilingAbandonCancel")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
@@ -72,13 +73,13 @@ import Events
         await manager.filingScanTask?.value
 
         #expect(!manager.hasSuggestedFiling, "a cancelled scan publishes nothing")
-        let line = await loggedLine(containing: "CancelledMidScan abandoned")
+        let line = await loggedLine(log, containing: "CancelledMidScan abandoned")
         #expect(line != nil, "an abandoned scan must say so")
         #expect(line?.contains("while scanning CancelledMidScan") == true,
                 "the line names the phase it stopped in, got: \(line ?? "no line")")
         #expect(line?.contains("superseded by a newer scan, or cancelled") == true,
                 "the line names why, got: \(line ?? "no line")")
-        #expect(await loggedLine(containing: "Filing: scanned CancelledMidScan") == nil,
+        #expect(await loggedLine(log, containing: "Filing: scanned CancelledMidScan") == nil,
                 "a cancelled scan must not log a result")
     }
 
@@ -92,6 +93,7 @@ import Events
     /// with all four silent exits as well as with a scan still running. That is what this closes.
     @MainActor
     @Test func anAnnouncedAutoRescanIsAlwaysFollowedByAnAccounting() async throws {
+        let log = LogCapture()
         let root = try makeCanonicalTempRoot(prefix: "FilingAbandonAutoRescan")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
@@ -106,14 +108,14 @@ import Events
 
         #expect(manager.autoRescanFilingIfEligible(folder: downloads, providerRoot: root),
                 "the auto-rescan is eligible and starts")
-        #expect(await loggedLine(containing: "auto-rescanning AnnouncedThenCancelled") != nil,
+        #expect(await loggedLine(log, containing: "auto-rescanning AnnouncedThenCancelled") != nil,
                 "the announcement really was written before the scan could run")
 
         manager.cancelFindFilingSuggestions()
         await manager.filingScanTask?.value
 
         #expect(!manager.hasSuggestedFiling)
-        let line = await loggedLine(containing: "AnnouncedThenCancelled abandoned")
+        let line = await loggedLine(log, containing: "AnnouncedThenCancelled abandoned")
         #expect(line != nil, "an announced scan that produces nothing must account for itself")
         #expect(line?.contains("while scanning AnnouncedThenCancelled") == true,
                 "and name the phase, got: \(line ?? "no line")")
@@ -124,6 +126,7 @@ import Events
     /// abandonment — nothing was given up, the running scan covers the same ground.
     @MainActor
     @Test func aScanRefusedBecauseOneIsRunningSaysThatInsteadOfNothing() async throws {
+        let log = LogCapture()
         let root = try makeCanonicalTempRoot(prefix: "FilingAbandonGuard")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("AlreadyRunning/Tesla Auto Policy.pdf"))
@@ -133,9 +136,9 @@ import Events
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("AlreadyRunning"),
                                             providerRoot: root)
 
-        #expect(await loggedLine(containing: "AlreadyRunning not started") != nil,
+        #expect(await loggedLine(log, containing: "AlreadyRunning not started") != nil,
                 "the re-entrancy guard reports itself")
-        #expect(await loggedLine(containing: "AlreadyRunning abandoned") == nil,
+        #expect(await loggedLine(log, containing: "AlreadyRunning abandoned") == nil,
                 "a scan that never started is not an abandoned one")
     }
 }
