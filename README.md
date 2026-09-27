@@ -44,8 +44,8 @@ clearly-warned fallback on volumes with no Trash; the CLI has no undo stack of i
   any folder in a pane to keep it. **Restore Standard Places** brings the five back.
 - **Drag a row to reorder** either section. Locations shares its order with the pane header's
   source dropdown, so the two can't disagree.
-- **Column browsing** the way Finder does it, with an inline preview beside the stack, per-pane
-  **tabs**, and a **pane bar** you arrange yourself.
+- **Column browsing** the way Finder does it, with an inline preview beside the stack, columns you
+  size one at a time, per-pane **tabs**, and a **pane bar** you arrange yourself.
 
 ### 🔍 Compare — two folders, side by side
 - **Two-pane comparison** between any two providers (or plain folders), with a per-pane provider
@@ -66,7 +66,7 @@ clearly-warned fallback on volumes with no Trash; the CLI has no undo stack of i
   keyboard (`⌘→ / ⌘←` to copy, add `⇧` to move).
 
 ### 🗂️ Organize — put one provider in order
-One rail, five lenses:
+One rail, six lenses — five that act on what they find, and **Storage** (below), which only reports:
 - **To File** — scans the loose files in an inbox folder and **suggests which existing folder each
   one belongs in**, filing it there safely (creating folders, never overwriting, always undoable).
 - **Duplicates** — finds byte-for-byte **identical** copies, **overlapping** folders, drifted
@@ -106,8 +106,9 @@ lens that never wears a count badge.
 
 ### ✏️ Edit — write in a text file
 The one workspace that changes what is *inside* a file rather than moving files around. A collapsible
-file pane on the left to browse to any folder, a rail listing that folder's text files, and the open
-document beside it. Markdown renders in **Source / Preview / Split**, at the app's own text size rather
+file pane on the left to browse to any folder — one click on a text file opens it — and the open
+document beside it; fold the pane away and a rail lists the folder's text files instead, or hide
+both with **Just the text**. Markdown renders in **Source / Preview / Split**, at the app's own text size rather
 than a web view's. **⌘N** makes a new file — nothing on disk until you press ↩ — and **⌘S** writes
 it — but you rarely need to: the editor **autosaves** a couple of seconds after you stop typing, and
 whenever the document leaves the screen. A save is staged and swapped like
@@ -126,23 +127,25 @@ Cloud usage is metered: every scan records tokens and estimated cost, guarded by
 confirmation** and hard **monthly / total budget caps** (a `$5` lifetime cap by default). Over budget,
 it silently falls back to the on-device engine.
 
-### 🧭 Setup that actually asks
-A first run asks the four things SyncCloud cannot work out by looking at your folders — your name as
-documents print it, which of the discovered sources you use and which is primary, who else is in the
-household, and which tree to learn from — then **walks that tree and writes the folder profile**
-Organize's filing, renaming and restructure passes all read. The walk reads names and counts only
-(no document is opened), proposes the place names and household members it found with the folder
-that vouches for each, and ticks none of them for you. **Help ▸ Set Up SyncCloud…** reopens it.
+### 🧭 Setup that shows its reading
+A first run is a guided sheet of ten screens. It **reads the folder you point it at before asking
+about you** — names and counts only, no document is opened — so the questions after it (your name as
+documents print it, who else is in the household, which countries your papers come from) are asked
+with your own folder names in front of you. **Structure** then draws the tree with SyncCloud's
+reading of each folder beside it, and where To File would put the loose files at its top, **before
+anything is written**: the folder profile Organize's filing, renaming and restructure passes read is
+saved only when you press Save. **Help ▸ Set Up SyncCloud…** and Settings ▸ General ▸ **Run setup
+again…** reopen it.
 
 ### 🛟 Safety by construction
 Atomic backed-up overwrites, Trash-backed deletes, grouped reversible **Undo/Redo** (including
 "Undo Last Run" from history), From:/To: transfer confirmations, collision strategies
-(replace / keep-both / skip), an invalid-name pre-write guard, and a path-boundary layer that refuses
+(replace / keep-both / skip, and **merge** for a folder that already exists), an invalid-name pre-write guard, and a path-boundary layer that refuses
 and *reports* on ambiguity rather than guessing. No single action can quietly lose data.
 
 ### 🎨 Native macOS design
 A macOS 26-inspired **Liquid Glass** interface (Clear / Frosted / Solid), System / Light / Dark
-themes, 12 accent hues, and per-provider brand colours. **Settings ▸ Readability** puts text size
+themes, 11 accent hues (or none), and per-provider brand colours. **Settings ▸ Readability** puts text size
 (90–135%, on a slider with named detents) and row spacing together with five presets and a live
 preview of the rows they produce.
 
@@ -171,7 +174,7 @@ More on the **[feature site](https://agirish.github.io/sync-cloud/)**.
 - **Xcode 26+** and **Swift 6.0+** to build — every `Package.swift` here declares
   `swift-tools-version: 6.0`, which an older toolchain cannot even parse, and the app
   target's deployment floor is macOS 26 (`dbdfe48a`), which needs the macOS 26 SDK.
-  Built and tested on Xcode 26.6 / Swift 6.3.
+  Built and tested on Xcode 27.0 / Swift 6.4.
 - **[XcodeGen](https://github.com/yonaskolb/XcodeGen)** (`brew install xcodegen`) — the Xcode project
   is generated from `project.yml` and is not checked in.
 
@@ -243,8 +246,8 @@ SyncCloud/
 
 ## Continuous integration
 
-The seven SPM package test suites and the app-target build run on every push to `main`, `v3.x`
-or `v2.x` and on every `v*` release tag, via a self-hosted GitHub Actions runner — see
+The seven SPM package test suites and the app-target build run on every push to `main`, `v4.x`,
+`v3.x` or `v2.x` and on every `v*` release tag, via a self-hosted GitHub Actions runner — see
 [`docs/ci.md`](docs/ci.md).
 
 ## Performance notes

@@ -5,26 +5,19 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v5.4 — DRAFT, not released
-
-> What is on `main` since v5.3. It may still change before v5.4 is cut, and nothing here is
-> installable from a release yet.
+## v5.4
 
 ### The keyboard reaches the file panes
 
 - **Click a file, then use the arrow keys.** ↑ and ↓ move the selection and **⇧↑ / ⇧↓ extend it** a
-  row at a time, in Columns and in the list view alike — in Browse, in both Compare panes and in
-  Organize's list. On macOS 27 a click selected the file but left the keyboard with the window, so
-  every key pressed after it did nothing at all; ⇧-click was the only way to select a run of files.
+  row at a time, in Columns and in Tree alike — in Browse, in both Compare panes and in Organize's
+  list. On macOS 27 a click selected the file but left the keyboard with the window, so every key
+  pressed after it did nothing at all; ⇧-click or a drag was the only way to select a run of files.
   A click now hands that list the keyboard, and a caret you click into a field is left where it is.
   A right-click does the same, so the menu's verbs and the arrow keys always mean the same list.
-- **The differences list takes the keyboard too.** Clicking a difference used to leave the keys with
-  whichever file pane you had clicked before it, so ⇧↓ grew the *pane's* selection while you were
-  looking at the differences — and clicking its top rows was the surest way to see it, because those
-  clicks were being attributed to the pane above. Clicking a difference now moves the keyboard there,
-  wherever in the list you click, and the arrows work on the list in front of you. The review queue
-  is deliberately unchanged: during a review the card keeps the keyboard, so ⏎ and Skip go on
-  working.
+- **The differences list takes the keyboard too.** Click a difference, wherever in the list, and the
+  arrows and ⇧↑ / ⇧↓ work on that list. The review queue is deliberately unchanged: during a review
+  the card keeps the keyboard, so ↩ and Skip go on working.
 
 ### Columns gives names the row, and each column its own width
 
@@ -40,19 +33,18 @@ User-facing changes, newest first. For the full commit history see the
   folders, which in a Home folder was nearly every row. The Info inspector's *Where it lives* says
   it instead, and now says it for folders too: "This Mac only", or "In" and the source's name.
 - **Swiping sideways across the columns is smooth.** Every visible row re-measured itself on every
-  frame of a sideways swipe; each column now reads its rows' positions from its own list. Sampled
-  during a swipe, the main thread went from 47% busy to 11%. The action bar moves to the top when it
-  would cover the selected row's highlight — a few points sooner than when it reached the row's
-  text.
+  frame of a sideways swipe; each column now reads its rows' positions from its own list. The action
+  bar moves to the top when it would cover the selected row's highlight — a few points sooner than
+  when it reached the row's text.
 - **Clicking is lighter in a big folder.** Every visible row's right-click menu is built along with
   the row, and on every click each one looked the selection up in the folder tree — in both panes.
   A row outside the selection now answers from itself, and the selection is looked up once for all
   the rows in it.
 - **Switching workspace keeps your place.** Browse, Organize, Edit and Compare each rebuild the
-  pane, which put its columns back at the first one and every list back at its top. A pane now
-  comes back scrolled as you left it — at the far end of the columns if that is where you were, even
-  if the preview has opened or the window has narrowed since — and a folder opened again later in
-  the session opens where you left it.
+  pane, which put its columns back at the first one and every list back at its top. A pane in
+  Columns now comes back scrolled as you left it — at the far end of the columns if that is where
+  you were, even if the preview has opened or the window has narrowed since — and a folder opened
+  again later in the session opens where you left it.
 - **And its folder.** Opening Organize moved the left pane to the top of its source, so the folder
   you were in was gone when you came back to Browse. It stays put now: the folder open in Browse is
   the one Organize's file pane shows, and a folder you open there is the one Browse shows. With no
@@ -69,22 +61,23 @@ User-facing changes, newest first. For the full commit history see the
 
 ### Getting a file into Edit
 
-- **Four ways in from a file pane.** A text file in a file pane can now be opened
-  in Edit from four places: **File ▸ Open in Edit, on ⌘O**, for the text file selected in the
-  focused pane; **Open in Edit at the top of a file's right-click menu**, where it used to sit below
-  Get Info and Reveal in Finder; an **Edit** button by the file's name in the preview (⇧⌘P) — beside
-  it, or under it when the name is long; and **Open in Edit first among the Info inspector's
-  actions** (⌘I). Until now the right-click menu was the only way, and it was easy to miss.
-- **Compare's list of differences offers it too, once for each side.** Right-click a row whose
-  file is text and **Open in Edit** sits directly under Compare…, named for the pane it opens from
-  — both panes' copies when the file is on both, the one that exists when it is missing from a
-  side. A folder, or a file Edit does not open, gets no such item. The list shown during a guided
-  review offers it as well. **It opens the file without moving the left pane**, where every other
-  way in takes the pane to the file's folder: in Compare that pane is half of the comparison the
-  list is showing, so moving it would re-run the comparison and forget what you had set aside with
-  Ignore in Comparison. The folder name above the document says where the file lives; click it when
-  you do want the pane there. Edit the file and go back to Compare, and the comparison runs again,
-  so the row describes the file as you left it rather than offering to copy the old version over it.
+- **Four ways in from a file pane.** A text file in a file pane can now be opened in Edit from four
+  places: **File ▸ Open in Edit, on ⌘O**, for the text file selected in the focused pane; **Open in
+  Edit first in a file's right-click menu**, under Refresh, where it used to sit below Get Info and
+  Reveal in Finder; an **Edit** button by the file's name in the preview (⇧⌘P) — beside it, or under
+  it when the name is long; and **Open in Edit first among the Info inspector's actions** (⌘I).
+  Until now the right-click menu was the only way, and it was easy to miss.
+- **Compare's list of differences offers it too, once for each side.** Right-click a row whose file
+  is text and **Open in Edit** is offered for each copy there is, named for the pane it opens from:
+  both panes' copies when the file is on both sides, where the items sit under Compare…, and the one
+  that exists when it is missing from a side, where it comes first. A folder, or a file Edit does
+  not open, gets no such item. The list shown during a guided review offers it as well. **It opens
+  the file without moving the left pane**, where every other way in takes the pane to the file's
+  folder: in Compare that pane is half of the comparison the list is showing, so moving it would
+  re-run the comparison and forget what you had set aside with Ignore in Comparison. The folder name
+  above the document says where the file lives; click it when you do want the pane there. Edit the
+  file and go back to Compare, and the comparison runs again, so the row describes the file as you
+  left it rather than offering to copy the old version over it.
 - **Each one is offered for a text file and never for a folder** — all six, those four and the rows
   in Compare's differences and Duplicates' copies, ask the question the right-click menu always
   asked, so they agree about what a text file is. The preview is the one that holds back further:
@@ -102,13 +95,13 @@ User-facing changes, newest first. For the full commit history see the
   duplicates, right-click a copy's row and **Open in Edit** comes first, above Compare with keeper —
   on every copy, the one being kept included, whose row had no right-click menu at all until now. A
   copy that is not a text file keeps the menu it had. Those rows also answer a right-click anywhere
-  along them now, where some answered only over the file's name and picture. Like the other ways
-  in, it takes the left pane to the copy's folder — so back in Organize the duplicates are still
-  listed, and their Rescan button offers to point Organize at that folder instead.
+  along them now, where some answered only over the file's name and picture. Like the other ways in,
+  it takes the left pane to the copy's folder — so back in Organize the duplicates are still listed,
+  and their Rescan button becomes **Organize "‹folder›"**, to point Organize at that folder instead.
 - **The Info inspector's row of actions now wraps instead of squeezing.** At the inspector's usual
-  width those buttons had been shrinking until their labels were a letter and an ellipsis — "Reve…",
-  "Cop…" — and adding a fourth would have left two with no letters at all. Each one now keeps its
-  whole name, taking a second line where it needs one.
+  width those buttons had been shrinking until their labels were a few letters and an ellipsis —
+  "Reve…", "Cop…" — and adding a fourth would have left two with no letters at all. Each one now
+  keeps its whole name, taking a second line where it needs one.
 
 ### Edit with fewer columns
 
@@ -165,10 +158,11 @@ User-facing changes, newest first. For the full commit history see the
   keeps its own ＋; this one stays on screen when the list steps aside.
 - **A × at the other end of that row closes the document**, and so does the new **File ▸ Close
   Document**. There was no way to put a document away before: it stayed open until another replaced
-  it. Closing saves the way leaving a file always does and asks only when autosave cannot write it —
-  Cancel keeps the file open — then leaves Edit's empty page, whose header stays with its ＋ in it,
-  and the folder, the file pane and Just the text as they were. Clicking the same file in the pane
-  opens it again. Close Document has no key: ⌘W closes the tab, as it always has.
+  it. Closing saves the way leaving a file always does and asks only when autosave is off for the
+  file or cannot write it — Cancel keeps the file open — then leaves Edit's empty page, whose header
+  stays with its ＋ in it, and the folder, the file pane and Just the text as they were. Clicking the
+  same file in the pane opens it again. Close Document has no key: ⌘W closes the tab, as it always
+  has.
 - **A long file name keeps its letters before Source, Preview and Split keep their words.** With
   the ＋ and × in the row, those three now show their words only when the whole name fits beside
   them, and are just their icons otherwise — the names stay in their tooltips.
@@ -176,12 +170,12 @@ User-facing changes, newest first. For the full commit history see the
 ### Folders merge, and Cancel stops the copy it is in
 
 - **A folder that already exists at the destination can be merged, and Merge is the default.** When
-  a copy or move lands a folder onto one of the same name, the alert used to offer Replace, Keep Both
-  or Skip — and Replace sent the whole existing folder to the Trash, including everything that was
-  only in it. **Merge** keeps everything already there, adds what is missing, and asks about each
-  file that is in both folders on its own. Its "Apply to all" covers the rest of that one merge, and
-  a Conflicts setting other than "Ask every time" answers those files the way it answers any other.
-  Folders inside the two are merged as well, without asking.
+  a copy or move lands a folder onto one of the same name, the alert used to offer Replace, Keep
+  Both or Skip — and Replace sent the whole existing folder to the Trash, including everything that
+  was only in it. **Merge** keeps everything already there, adds what is missing, and asks about
+  each file that is in both folders on its own. Its "Apply to all for remaining conflicts" covers
+  the rest of that one merge, and a Conflicts setting other than "Ask every time" answers those
+  files the way it answers any other. Folders inside the two are merged as well, without asking.
 - **The alert counts what each answer would do before you choose** — how many items Replace would
   send to the Trash, and how many Merge would ask about. On folders too large to count quickly it
   says the same thing without numbers rather than guessing.
@@ -190,32 +184,39 @@ User-facing changes, newest first. For the full commit history see the
   back.
 - **Merge is offered for copies and moves between panes, Copy to… / Move to…, and paste.** It is not
   offered through a folder that is really a symlink, nor for a package — an app, a photo library, or
-  a document your Mac shows as a single file is one item, and merging two of them would build a document neither app wrote — and
-  not yet in Compare's single-row or bulk sync, whose prompts are unchanged.
-- **Cancel stops the item that is copying, not just the ones after it.** One very large file or folder
-  used to run to the end once it had started, however long that took. It now stops mid-file, and
-  nothing half-copied is left at the destination, because the copy is abandoned before any of it
-  reaches there. A cancel is not reported as a failure. This applies to bulk sync as well.
-- **The progress window shows how far a slow copy has got**, as "4.2 GB of 12.8 GB · about 2 min
-  left" under the file's name once it has been copying for a second. It stays off for a bulk sync,
-  where several copies share the line.
+  a document your Mac shows as a single file is one item, and merging two of them would build a
+  document neither app wrote — and not yet in Compare's single-row or bulk sync, whose prompts are
+  unchanged.
+- **Cancel stops the item that is copying, not just the ones after it.** One very large file or
+  folder used to run to the end once it had started, however long that took. It now stops mid-file,
+  and nothing half-copied is left at the destination, because the copy is written under a hidden
+  temporary name and removed when abandoned. A cancel is not reported as a failure. This applies to
+  bulk sync as well.
+- **The progress window shows how far a slow copy has got**, on the item's own line — "Archive.zip —
+  4.2 GB of 12.8 GB · about 2 min left" — once it has been copying for a second, with the time left
+  from the third (a folder shows only how much has been copied). It stays off for a bulk sync, where
+  several copies share the line.
 
 ### Setting up is a guided sheet
 
-- **Ten screens instead of a five-step form**, and the order is the change: SyncCloud reads your
-  folder second, so the three questions after it can be asked with your own folder names in front
-  of you. Reading is names only and takes seconds — no document is opened at that stage.
-- **A screen that shows what it found.** Structure draws the tree SyncCloud read with its reading
-  of each folder beside it — "a year", "files go here", "inbox: nothing will be filed here" — and a
+- **Ten screens instead of a five-step form** — Welcome, Locations, Learn, You, People, Countries,
+  Structure, Workspaces, Appearance and Summary. Five of them ask something; the rest confirm, show
+  or offer. The order is the change: SyncCloud reads your folder before it asks about you, so the
+  questions after it are asked with your own folder names in front of you. That reading is names and
+  counts only — no document is opened at that stage.
+- **A screen that shows what it found.** Structure draws the tree SyncCloud read with its reading of
+  each folder beside it — "a year", "files go here", "inbox: nothing will be filed here" — and a
   second view placing the loose files at the top of your folder where To File would put them. It is
-  on screen *before* anything is written, so going back to fix a name, a country or the folder
+  on screen *before* the profile is written, so going back to fix a name, a country or the folder
   itself costs nothing.
-- **Nothing is written until you press Save.** The profile is built in memory and rebuilt whenever
-  you change an answer; Back from Structure mints nothing on disk.
+- **The folder profile is not written until you press Save.** It is built in memory and rebuilt
+  whenever you change an answer, so Back from Structure leaves no profile on disk. Your other
+  answers are kept as you leave each screen.
 - **The likely countries arrive ticked, and "likely" is measured.** A short folder name pre-ticks
-  only when it is a real country code *and* it splits five or more different parent folders — the
-  bar the reference tree set. `EMP`, `IT` and `PRD` are offered unticked, because a count alone
-  cannot tell a country from a department.
+  only when it is a two-letter country code *and* it splits five or more different parent folders —
+  the bar the reference tree set. `PRD` never pre-ticks, because it is not a country code, and a
+  three-letter code such as `USA` is offered for you to tick by hand. `IT` is Italy to that check,
+  so a tree with an IT department in five places arrives with it ticked, and you untick it.
 - **The name question asks for the forms, not the name.** Surname-first is its own suggestion
   because the matcher is positional; initials are offered and left unticked; an accented name is
   offered in both spellings. The surname builds the forms and is not saved on its own.
@@ -223,7 +224,7 @@ User-facing changes, newest first. For the full commit history see the
   screen 1 rather than screen 9. It steps through all ten sizes, the same stops View ▸ Text Size
   reaches.
 - **Setup no longer estimates how long it takes.** The only duration it quotes is the document
-  read's own "About 3 h for N documents", which is measured from a real count and is work you
+  read's "About 3 h for N documents" — a coarse figure over a real count — and that read is work you
   choose.
 
 ### Reading documents says so wherever you are
@@ -250,6 +251,10 @@ User-facing changes, newest first. For the full commit history see the
   first run with the profiles directory moved aside.
 - **Organize's Help page said six sections and listed five** — Storage was missing from the list,
   and two more sentences on the page agreed with the wrong number.
+- **Switching files in Edit is quicker on a large document.** Every switch fingerprints the outgoing
+  text so that its undo history is refused rather than replayed if the file has changed, and the
+  fingerprint hashed the text character by character: 138 ms on a 4 MB file, the largest Edit opens.
+  It hashes the bytes now, in 12 ms.
 
 ---
 
