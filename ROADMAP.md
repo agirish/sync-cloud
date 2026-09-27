@@ -36,7 +36,8 @@ The first two are opposite ends of one axis — **how many places does this file
 and SyncCloud already answers it per file: `FileLocation` crosses path containment (pure string
 math over the provider list) with materialization (one `lstat` for `SF_DATALESS` via
 `MaterializationStatus`, the same one that draws the ☁ badge). That classifier ships, and with it
-the per-file surfaces — the *Where it lives* inspector row and the `⌂` row badge. What is left is
+the per-file surface — the *Where it lives* inspector row, which answers for a folder by containment
+too (the `⌂` row badge that did that on the rows was removed in 5.4). What is left is
 the part that needs a **walk** rather than a lookup: the same question asked of a whole tree at
 once, ranked and actionable, which is the lens below.
 

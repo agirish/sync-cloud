@@ -656,7 +656,7 @@ enum HelpBook {
                         "The presets are one click for both settings at once: every step to the right shows less and reads bigger. Default is 100% text with comfortable rows.",
                         "Text size runs from 90% to 135%, in steps of 5, with Small, Default, Large and Largest named under the slider's ticks.",
                         "The boost is spent where it's needed — the 9 to 11pt captions and secondary rows grow noticeably, while headings barely move. It's a readability setting, not a uniform zoom.",
-                        "Row spacing is Comfortable or Compact. Comfortable keeps the standard row height and shows each file's size and date; Compact fits more rows and hides that line to do it.",
+                        "Row spacing is Comfortable or Compact. Comfortable keeps the standard row height and shows each file's size and date in Tree view — Columns shows names alone, as Finder's column view does; Compact fits more rows and hides that line to do it.",
                         "The preview under the controls draws real file rows at the pair you've chosen — the one thing on screen that shows what Compact actually costs.",
                     ]),
                     .tip("The presets are a shortcut over the two controls, never a replacement for them. Large text with compact rows is a perfectly good combination; choose it below and the preset row simply shows nothing selected."),

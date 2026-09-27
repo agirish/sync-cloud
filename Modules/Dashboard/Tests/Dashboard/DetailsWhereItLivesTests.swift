@@ -327,13 +327,15 @@ import Sync
                 "an unknown coverage laid out the same as a proven-empty one — one of them is claiming something it cannot")
     }
 
-    /// **A folder's card does not move with the coverage**, because neither row is drawn for one.
+    /// **A folder's card says where it is — and nothing about its content.** Moved from outside
+    /// every cloud folder to inside one, the card changes: *Where it lives* answers for a folder by
+    /// containment alone ("In iCloud", "This Mac only"), which is sound for one and is what the ⌂
+    /// row badge said until it was removed from the rows. The content claim — *On this Mac* — never
+    /// appears for a folder; `aFolderIsNeverToldItsContentIsOrIsNotHere` pins that.
     ///
-    /// The same card, under two coverages that a FILE lays out differently under
-    /// (`theVerdictChangesWithTheCoverage` is the premise, and it is what stops this from being a
-    /// claim about a card that never changes at all). Comparing a folder card against a file card
-    /// would prove nothing — they differ in name, kind and size before any of this is reached.
-    @Test(.machinePinned(.pixelSampling)) func aFoldersCardDoesNotMoveWithTheCoverage() async throws {
+    /// This test used to assert the opposite — no change at all — while the ⌂ badge carried a
+    /// folder's containment on its row.
+    @Test(.machinePinned(.pixelSampling)) func aFoldersCardSaysWhereItIsFromCoverageAlone() async throws {
         let root = try fixture("WhereItLivesFolder")
         defer { try? FileManager.default.removeItem(at: root) }
         let folder = root.appendingPathComponent("Inner")
@@ -348,7 +350,29 @@ import Sync
         let outside = try #require(await settled(inspector, "the folder card never settled"))
         let inside = try #require(await repaint(inspector, coverage: covered,
                                                 "the folder card never settled after the coverage changed"))
-        #expect(pixelsDiffering(outside, inside) == 0,
-                "a folder was given a Where it lives verdict — it has no content of its own for one to be about")
+        #expect(pixelsDiffering(outside, inside) > 0,
+                "a folder's card said nothing about where it is — the ⌂ badge's answer has nowhere left to live")
+    }
+
+    /// The row's words for a folder, and that a file's are unchanged: containment for a folder, with
+    /// no stat to wait for; the verdict for a file, once its answer is in; nothing without coverage.
+    @Test func aFolderLivesWhereItsContainmentSays() {
+        let cloud = "/Users/u/Library/Mobile Documents/com~apple~CloudDocs"
+        let coverage = FileLocation.coverage(
+            of: [CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud",
+                               rootPath: cloud, type: .iCloud)],
+            disabledProviderIds: [])
+        func text(_ path: String, folder: Bool, _ coverage: FileLocation.Coverage?,
+                  isCloudOnly: Bool? = nil, hasAnswer: Bool = false) -> String? {
+            DetailsSidebar.whereItLivesText(path: path, isDirectory: folder, coverage: coverage,
+                                            isCloudOnly: isCloudOnly, hasAnswer: hasAnswer)
+        }
+        #expect(text("\(cloud)/Taxes", folder: true, coverage) == "In iCloud")
+        #expect(text("/Users/u/Projects", folder: true, coverage) == "This Mac only")
+        #expect(text("/Users/u/Projects", folder: true, nil) == nil, "a folder was judged with no coverage to judge by")
+        #expect(text("/Users/u/Projects/a.txt", folder: false, coverage) == nil, "a file was judged before its stat")
+        #expect(text("/Users/u/Projects/a.txt", folder: false, coverage, isCloudOnly: false, hasAnswer: true)
+                == "This Mac only")
+        #expect(text("\(cloud)/a.txt", folder: false, coverage, isCloudOnly: true, hasAnswer: true) == "iCloud only")
     }
 }

@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// Shared, reference-type scratch space for deciding whether a pane's floating action bar docks at
 /// the top or bottom of its list. Held by the host (one per pane) and handed to `FileTreeView`,
@@ -18,9 +19,15 @@ public final class PaneBarPlacement {
     /// silently fell back to global there — inflating every row by the list's offset from the
     /// window top and flipping the bar a quarter-viewport early.
     var viewportGlobalMinY: CGFloat = 0
-    /// Every visible row's bottom edge in GLOBAL coordinates, keyed by node id. Tracks all rows
-    /// (not just the selected one) so a freshly-clicked row's position is already known at click
-    /// time. Interpreted against `viewportGlobalMinY`.
+    /// Every visible row's bottom edge in the window content view's top-down space — what SwiftUI
+    /// calls `.global` — keyed by node id. Tracks all rows (not just the selected one) so a
+    /// freshly-clicked row's position is already known at click time. Interpreted against
+    /// `viewportGlobalMinY`.
+    ///
+    /// Two writers, one presentation at a time. The tree's rows report through `PaneRowBottomsKey`,
+    /// measuring each row's CONTENT; each column's `ColumnListProbe` converts its table's row rects,
+    /// which are CELLS — 4pt lower at comfortable spacing, 6pt at compact. So the same row flips the
+    /// bar a few points sooner in Columns; the cell is the row as its highlight draws it.
     var rowBottoms: [String: CGFloat] = [:]
     /// The measured footprint of the bottom-docked bar — its padded overlay height, written by the
     /// host from the bar's real geometry. This is the coverage zone: the bar only hides a row whose
@@ -77,11 +84,20 @@ public final class PaneBarPlacement {
 
     /// Re-resolves after geometry moved, and answers whether that moved the committed edge — the one
     /// question both presentations' geometry callbacks ask: the tree's row preference in
-    /// `FileTreeView` and the columns' `ColumnRowBottomsProbe`. One method so the two cannot come to
+    /// `FileTreeView` and each column's `ColumnListProbe`. One method so the two cannot come to
     /// disagree about what counts as a flip.
     func reresolveMovedEdge() -> Bool {
         let wasAtTop = atTop
         return reresolveAtTop() != wasAtTop
+    }
+
+    /// Re-resolves after rows moved and, on a genuine flip, tells the host — on the next turn, never
+    /// from inside the geometry callback that found it. The path both presentations' callbacks
+    /// take, so neither keeps its own copy of it. Without a host to tell there is nothing to commit
+    /// for, so nothing is resolved.
+    @MainActor func flipIfEdgeMoved(_ onFlip: (() -> Void)?) {
+        guard let onFlip, reresolveMovedEdge() else { return }
+        DispatchQueue.main.async { onFlip() }
     }
 
     /// Re-resolves the edge for the selection the host last committed, after geometry moved.
@@ -102,6 +118,11 @@ public final class PaneBarPlacement {
         // laid out past the fold, and a multi-selection can span far beyond it; counting those
         // dragged the bar to the top on behalf of a row nobody can see — where it then covered the
         // rows that WERE visible. Clamp to the viewport before taking the lowest.
+        //
+        // Vertically only, and on purpose. A column the stack has scrolled out SIDEWAYS keeps its
+        // rows here: re-reporting every column on every frame of a sideways scroll is the cost
+        // `ColumnListProbe` exists to avoid, and a column that dropped its rows while out of view
+        // would have none when it came back, for the first click there.
         var lowest = -CGFloat.greatestFiniteMagnitude
         for id in selection {
             guard let maxY = rowBottoms[id] else { continue }

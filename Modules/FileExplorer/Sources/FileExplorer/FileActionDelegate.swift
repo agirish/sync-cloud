@@ -196,9 +196,10 @@ public protocol FileActionDelegate: Sendable {
 
     /// Whether this folder is already in Favorites, so the menu can say which way it goes.
     ///
-    /// **Read when the menu opens, not held.** A context menu's body runs at open time, which is
-    /// what lets this be a live question rather than a snapshot the pane would have to invalidate
-    /// itself on — the same reasoning `ignoreStateToken` spells out for the opposite case.
+    /// **Read when the menu is built, not held** — which is with its row, on every render of it,
+    /// not only when the menu opens. So the answer is as fresh as the row's last render, not as the
+    /// click; the item therefore acts on what its label said (`FileContextMenu.favoriteLabelStillHolds`)
+    /// rather than toggling whatever is true by then.
     func isFolderFavorite(_ node: FileNode) -> Bool
 
     /// Adds this folder to Favorites, or takes it out. **Folders only** — Favorites is a list of

@@ -47,8 +47,10 @@ struct PaneActionDelegate: FileActionDelegate {
     ///
     /// It is never read by `isNodeIgnored`, which still asks the manager for the live answer. It
     /// exists because the pane's ignored-row treatment — the struck-through name — is rendered
-    /// eagerly, unlike everything else the delegate answers (the context menu is built when it
-    /// opens, so it always sees live state). Ignoring a row publishes `ignoredPaths`, which
+    /// eagerly. (So is the row's context menu, which SwiftUI builds with the row rather than only
+    /// when it opens: its labels can be a render old, which is why its Favorites item acts on what
+    /// its label said — see `FileContextMenu.favoriteLabelStillHolds`.) Ignoring a row publishes
+    /// `ignoredPaths`, which
     /// re-renders the host but need not change ANY of the values `FileTreeView.==` compares: the
     /// row is still in the tree, at the same path, in the same selection. Without a token here the
     /// pane would skip the re-render and the strikethrough would not appear until something
@@ -205,11 +207,18 @@ struct PaneActionDelegate: FileActionDelegate {
     }
 
     func riskyName(for node: FileNode) -> RiskyName? {
+        // Asked by every visible row's menu on every render — SwiftUI builds a row's context menu
+        // with the row — so the memo answers the common case, a name with nothing wrong, and only a
+        // flagged name pays for the full verdict the menu's items need. The memo's verdict, not
+        // `riskyNameReason`'s: that one drops kept names, and "Stop Allowing This Name" is offered
+        // precisely on a kept one.
+        guard RiskyNameBadgeCache.reason(name: node.name, isDirectory: node.isDirectory,
+                                         provider: paneProviderType) != nil else { return nil }
         // The relative path is only used to LABEL the row in the batch list; a single-file fix
         // renames in place from the absolute path, so the node's own name is the honest value
         // here rather than a path this delegate would have to reconstruct against a scan root.
-        NameNormalizer.risky(name: node.name, relativePath: node.name, absolutePath: node.id,
-                             isDirectory: node.isDirectory, provider: paneProviderType)
+        return NameNormalizer.risky(name: node.name, relativePath: node.name, absolutePath: node.id,
+                                    isDirectory: node.isDirectory, provider: paneProviderType)
     }
 
     /// The badge's door. Memoized by (provider, name) — see `RiskyNameBadgeCache` for why this one

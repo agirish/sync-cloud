@@ -64,9 +64,16 @@ import Sync
         }
     }
 
-    private func pump(_ seconds: Double) async {
-        let end = Date().addingTimeInterval(seconds)
-        while Date() < end { try? await Task.sleep(nanoseconds: 8_000_000) }
+    /// Waits for `condition` — arrival, not a fixed time — up to a ceiling a loaded full run cannot
+    /// outlast (`docs/flaky-tests.md`, "quiescence is not arrival").
+    @discardableResult
+    private func waitUntil(_ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        return condition()
     }
 
     private func lists(_ root: NSView) -> [NSScrollView] {
@@ -91,7 +98,7 @@ import Sync
         window.isReleasedWhenClosed = false
         window.contentView = host
         defer { window.contentView = nil }
-        await pump(1.0)
+        await waitUntil { self.lists(host).count == 3 && self.lists(host).map(\.frame.width).contains { abs($0 - 400) < 1 } }
 
         let widths = lists(host).map { $0.frame.width }
         try #require(widths.count == 3, "expected three columns, found \(widths.count)")
@@ -150,6 +157,71 @@ import Sync
         #expect(differing(roomy, fit, upTo: rowWidth - 1) == 0, "at the fitted width the longest name is cut")
         #expect(differing(roomy, tight, upTo: rowWidth - 31) > 0,
                 "thirty points narrower than the fit the name is still whole — the fit is not tight, or nothing was painted")
+    }
+
+    /// **The fit finds the widest name, not the longest.** Candidates are the names that SET widest,
+    /// so a name of wide letters — here twenty CJK characters — is measured even among forty-odd
+    /// Latin names with more characters and less width. Counting characters would leave it out of
+    /// the pool, and the column would be fitted too narrow to show it.
+    @Test func theFitFindsTheWidestNameNotTheLongest() {
+        let wide = "四半期報告書二〇二四年度第三四半期決算資料"
+        let latin = (0..<45).map { "file-\($0)-iiiiiiiiiiiiiiiiiiiiii.txt" }
+        let rows = ([wide] + latin).map {
+            PaneRow(side: .left, version: 0, node: FileNode(id: "/r/\($0)", name: $0, isDirectory: false), children: nil)
+        }
+        #expect(latin.allSatisfy { $0.count > wide.count }, "the fixture no longer has the CJK name as the SHORTER one")
+        func fit(_ rows: [PaneRow]) -> CGFloat {
+            PaneColumnsView.fittedWidth(for: rows, density: .comfortable, fonts: .unscaled,
+                                        diffIndex: .empty, riskyReason: { _ in nil })
+        }
+        let needed = fit([rows[0]])
+        #expect(needed < PaneViewMode.maximumColumnWidth, "the CJK row alone hit the ceiling — the fixture measures nothing")
+        #expect(fit(rows) >= needed, "fitted to \(fit(rows)) — narrower than the \(needed) the widest name needs")
+    }
+
+    /// **The List's leading inset is the half of `columnRowHorizontalInset` it budgets.** The fit
+    /// lays rows out on their own and adds that constant for what the List puts around a row — a
+    /// number measured once, by eye (16–16.5pt leading, 17pt trailing, rounded up to 34). Here the
+    /// leading half is measured through the real stack: the row's icon, its first painted pixel,
+    /// starts no further in than half the constant.
+    ///
+    /// **Only the leading half can be seen from here.** Offscreen, `cacheDisplay` captures the
+    /// icon — an `NSImage` — but none of SwiftUI's text or symbols inside a List cell: a first
+    /// version of this test compared a fitted column's name against a wider one's and passed with
+    /// the constant cut to 14, because no name was ever painted. The trailing half stays the measured
+    /// number it was.
+    @Test(.machinePinned(.pixelSampling)) func theListsLeadingInsetIsTheHalfTheFitBudgets() async throws {
+        let defaults = ScratchDefaults("ColumnWidthsMountTests-inset")
+        let host = NSHostingView(rootView: Harness(box: Box(), defaults: defaults).environment(\.colorScheme, .light))
+        host.frame = NSRect(x: 0, y: 0, width: 1100, height: 300)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.colorSpace = .sRGB
+        window.contentView = host
+        defer { window.contentView = nil }
+        await waitUntil { self.lists(host).count == 3 }
+        host.layoutSubtreeIfNeeded()
+        let deepest = try #require(lists(host).last)
+        let column = deepest.convert(deepest.bounds, to: host)
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let scale = Double(rep.pixelsWide) / Double(host.bounds.width)
+        let ground = try #require(rep.colorAt(x: Int((column.maxX - 3) * scale), y: Int((column.minY + 3) * scale)))
+        var firstPainted: Double?
+        scan: for x in Int(column.minX * scale)..<Int(column.maxX * scale) {
+            for y in Int(column.minY * scale)..<min(Int(column.maxY * scale), rep.pixelsHigh) {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                if max(abs(c.redComponent - ground.redComponent), abs(c.greenComponent - ground.greenComponent),
+                       abs(c.blueComponent - ground.blueComponent)) > 0.05 {
+                    firstPainted = Double(x) / scale - column.minX
+                    break scan
+                }
+            }
+        }
+        let leading = try #require(firstPainted, "nothing was painted in the column — the measurement is vacuous")
+        #expect(leading <= PaneViewMode.columnRowHorizontalInset / 2 + 0.5,
+                "a row's content starts \(leading)pt into its column, past the \(PaneViewMode.columnRowHorizontalInset / 2) the fit budgets for it")
     }
 
     /// **The deepest column has a resize handle.** Dividers used to be drawn only BETWEEN columns — one

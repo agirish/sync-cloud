@@ -31,7 +31,7 @@ public enum ListDensity: String, CaseIterable, Identifiable, Sendable {
     public var detail: String {
         switch self {
         case .comfortable:
-            return "Comfortable keeps the standard row height, and shows each file's size and date."
+            return "Comfortable keeps the standard row height, and shows each file's size and date in Tree view."
         case .compact:
             return "Compact fits more rows on screen — file panes, the Compare table, Organize and "
                 + "Storage, Activity Log, Sync History — and hides the size-and-date line to do it."

@@ -26,6 +26,42 @@ User-facing changes, newest first. For the full commit history see the
   is deliberately unchanged: during a review the card keeps the keyboard, so ⏎ and Skip go on
   working.
 
+### Columns gives names the row, and each column its own width
+
+- **Names run to the end of the row.** A file's size no longer sits beside its name in Columns —
+  Finder's column view shows names alone, and Tree keeps the size and the date — and the room held
+  back for things that were not there is gone, so a name runs up to its folder's chevron or to the
+  place a file's ☁ appears. A name too long for its column is cut in the middle, keeping its start
+  and its ending: a folder of "Statement - Account - January 2024.pdf", "… - February 2024.pdf" reads
+  as different months rather than as identical rows. A search hit is cut at the end away from its
+  match, so the emboldened part stays in view. Tree's rows gain the same room, up to their size and
+  date.
+- **The ⌂ badge is gone from the rows.** It marked every file and folder outside your cloud
+  folders, which in a Home folder was nearly every row. The Info inspector's *Where it lives* says
+  it instead, and now says it for folders too: "This Mac only", or "In" and the source's name.
+- **Swiping sideways across the columns is smooth.** Every visible row re-measured itself on every
+  frame of a sideways swipe; each column now reads its rows' positions from its own list. Sampled
+  during a swipe, the main thread went from 47% busy to 11%. The action bar moves to the top when it
+  would cover the selected row's highlight — a few points sooner than when it reached the row's
+  text.
+- **Clicking is lighter in a big folder.** Every visible row's right-click menu is built along with
+  the row, and on every click each one looked the selection up in the folder tree — in both panes.
+  A row outside the selection now answers from itself, and the selection is looked up once for all
+  the rows in it.
+- **Switching workspace keeps your place.** Browse, Organize, Edit and Compare each rebuild the
+  pane, which put its columns back at the first one and every list back at its top. A pane now
+  comes back scrolled as you left it — at the far end of the columns if that is where you were, even
+  if the preview has opened or the window has narrowed since — and a folder opened again later in
+  the session opens where you left it.
+- **Size one column at a time.** Drag a column's edge and that column alone changes width; hold ⌥
+  to size every column together, the way dragging always worked. Settings ▸ Readability ▸ **Column
+  widths** swaps the two — **Each column** or **All columns** — and choosing All columns puts every
+  column back to one width. The deepest column has an edge of its own now, with a strip kept clear
+  after it so the preview's divider or the pane's never covers it. Double-click an edge to fit the
+  column to its longest name (⌥ fits them all), and **Reset Column Widths**, on the right-click menu
+  of a column's empty space, puts them all back. A column can be up to 600 points wide (it was 340),
+  and is never drawn wider than its pane.
+
 ### Getting a file into Edit
 
 - **Four ways in from a file pane.** A text file in a file pane can now be opened

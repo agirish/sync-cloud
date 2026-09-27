@@ -4700,7 +4700,8 @@ struct ContentView: View {
         // The pane's scroll offsets, kept across it being rebuilt. The surface is the workspace AND
         // the side — unlike `hostExpanded` above, which is per side only — because the stack's
         // sideways offset depends on the pane's width, and Browse's pane is not the width of
-        // Organize's rail. The per-folder vertical offsets inside are shared per side regardless.
+        // Organize's rail. The per-folder vertical offsets inside are shared by every surface and
+        // both sides: a folder's rows are one height everywhere — see `PaneScrollMemory`.
         .environment(\.paneScrollMemory,
                      PaneScrollMemorySlot(memory: paneScrollMemory,
                                           surface: "\(selectedWorkspace.rawValue).\(pane.isLeft ? "left" : "right")"))

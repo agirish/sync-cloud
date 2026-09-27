@@ -17,9 +17,6 @@ import Sync
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
             ignoreStateToken: [], keptNamesToken: keptNames,
-            // Required rather than defaulted, deliberately: a pane that forgot to pass its
-            // coverage would silently lose every ⌂ badge, and a default here would let it.
-            // `PaneHomeBadgeDelegateTests` owns what these two do.
             onFindDuplicatesOf: { _ in }, onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
     }
 

@@ -522,8 +522,7 @@ public struct FileTreeView: View, Equatable {
     }
 
     private func flipEdgeIfScrolledAcross() {
-        guard let placement, let onBarEdgeFlip, placement.reresolveMovedEdge() else { return }
-        DispatchQueue.main.async { onBarEdgeFlip() }
+        placement?.flipIfEdgeMoved(onBarEdgeFlip)
     }
 
     // MARK: - Revealing a search hit
@@ -982,7 +981,7 @@ public struct FileTreeView: View, Equatable {
                 flipEdgeIfScrolledAcross()
             }
             // No `PaneRowBottomsKey` handler here, unlike the tree: column rows publish no row
-            // preference. Each column's `ColumnRowBottomsProbe` writes the placement from its table
+            // preference. Each column's `ColumnListProbe` writes the placement from its table
             // and re-resolves the edge itself, so a sideways scroll of the stack touches no row.
         } else {
             treePresentation
@@ -1204,8 +1203,8 @@ public struct FileTreeView: View, Equatable {
             // and the reason `RiskyNameBadgeCache` exists. Reads `row.info`, never `row.node`, so
             // a folder's subtree stays out of reach of a per-row call.
             riskyReason: delegate.riskyNameReason(forName: row.info.name, isDirectory: row.info.isDirectory),
-            // The third: what Edit would refuse. Pure path math and a size the row already holds,
-            // so it needs no memo. Also `row.info`, never `row.node`.
+            // And what Edit would refuse: pure path math and a size the row already holds, so it
+            // needs no memo. Also `row.info`, never `row.node`.
             editorRefusal: delegate.editorRefusal(forPath: row.info.id, isDirectory: row.info.isDirectory,
                                                   size: row.info.fileSize ?? 0),
             isArmedForCompare: delegate.armedComparePath == row.info.id,
@@ -1456,8 +1455,7 @@ struct FileContextMenu: View {
     /// Every precondition lives in ``PaneComparePairMenu`` rather than here, so the rules are
     /// reachable by a test that renders no menu.
     @ViewBuilder
-    private func compareItems(node: FileNode, selectedNodes: [FileNode],
-                              otherSelectedNodes: [FileNode]) -> some View {
+    private func compareItems(node: FileNode, selectedNodes: [FileNode]) -> some View {
         if delegate.canCompareFilePair {
             // First and always, for a file: the door that has no precondition to fail.
             if !node.isDirectory {
@@ -1468,8 +1466,9 @@ struct FileContextMenu: View {
                 }
             }
             if let counterpart = PaneComparePairMenu.crossPaneCounterpart(
-                clicked: node, otherSelection: otherSelection,
-                otherSelectedNodes: otherSelectedNodes, isSingleSource: isSingleSource) {
+                clicked: node, otherTree: otherTree, otherSelection: otherSelection,
+                isSingleSource: isSingleSource,
+                resolve: { selectionResolver.nodes(at: $0, in: $1) }) {
                 Button {
                     delegate.handleCompareFilePair(node, with: counterpart,
                                                    secondIsInOtherPane: true)
@@ -1490,6 +1489,14 @@ struct FileContextMenu: View {
         }
     }
 
+    /// Whether a Favorites click should toggle: only while the folder is still in the state its
+    /// label described. The label is read when the menu is built, which is with its row rather than
+    /// at the click, so by the click the answer may have moved — added from the sidebar, say — and a
+    /// toggle then would do the opposite of what the item said.
+    static func favoriteLabelStillHolds(labelSaidFavorite: Bool, isFavoriteNow: Bool) -> Bool {
+        labelSaidFavorite == isFavoriteNow
+    }
+
     static func resolvedSelection(node: FileNode, selection: Set<String>, tree: [FileNode]) -> [FileNode] {
         let effectiveSelection: Set<String>
         if selection.isEmpty {
@@ -1503,9 +1510,10 @@ struct FileContextMenu: View {
         // context-menu Copy/Move/Delete on a selection spanning a folder AND an item inside it
         // can't pass the superset to a handler — matching the downstream copy/move prune.
         //
-        // `onDeleteCommand` applies the SAME rule through a DIFFERENT helper
-        // (`PaneTree.selectedNodes(at:)`), so the two must not drift. Each is pinned separately:
-        // `ContextMenuSelectionTests` here, `PaneTreeSelectedNodesTests` in Sync.
+        // The same two steps as `PaneTree.selectedNodes(at:)`, which `onDeleteCommand` applies and
+        // which the menu's selected rows now reach through `PaneSelectionResolver` — so the two must
+        // not drift. Each is pinned separately: `ContextMenuSelectionTests` here,
+        // `PaneTreeSelectedNodesTests` in Sync.
         return tree.findNodes(at: effectiveSelection).pruneNestedNodes()
     }
 
@@ -1515,14 +1523,21 @@ struct FileContextMenu: View {
     /// **A row outside the selection answers from the row.** It acts on itself alone — the rule
     /// above — and a row cut from `tree` itself (same side, same version) holds the very node the
     /// walk would find, by `PaneRow`'s stamp invariant. That is every row but the selected ones, on
-    /// every render, and SwiftUI renders this menu with its row rather than when it opens. A row
-    /// from some other publish still walks, so a stale row gets the answer it always got.
+    /// every render: SwiftUI builds this menu with its row, not only when it opens. A row from some
+    /// other publish still walks, so a stale row gets the answer it always got.
+    ///
+    /// One qualification, and it changes nothing a verb does. A tree can hold two nodes at one path
+    /// — iCloud's linked Documents and Desktop appear under `~` and inside iCloud Drive
+    /// (`FileNode.isCoveredElsewhere`) — and the walk stops at the first; this answers with the one
+    /// clicked. Same path, same name, same kind, and every verb acts by path.
     ///
     /// **A row inside the selection gets the selection**, resolved once for every selected row by
-    /// `resolver`.
+    /// `resolver`. With nothing selected, the pane's own entry there is let go: it held nodes of a
+    /// tree the pane may since have replaced.
     static func menuNodes(row: PaneRow, selection: Set<String>, tree: PaneTree,
                           resolver: PaneSelectionResolver) -> [FileNode] {
         if selection.contains(row.id) { return resolver.nodes(at: selection, in: tree) }
+        if selection.isEmpty { resolver.release(tree.side) }
         if row.side == tree.side, row.version == tree.version { return [row.node] }
         return resolvedSelection(node: row.node, selection: selection, tree: tree.nodes)
     }
@@ -1569,7 +1584,12 @@ struct FileContextMenu: View {
                 // non-blocking download API); for other File Provider providers it fails and we log
                 // a pointer to Finder rather than pretend. Reveal in Finder (above) is the reliable
                 // download path everywhere.
-                if !singleNode.isDirectory, MaterializationStatus.isCloudOnly(atPath: singleNode.id) {
+                // The row's own ☁ answer when it has one, which is what the row is showing; a
+                // fresh `lstat` otherwise. This body runs for every visible row on every render, so
+                // it asks the filesystem only for a file the row has not.
+                if !singleNode.isDirectory,
+                   CloudOnlyBadgeCache.cached(singleNode.id)
+                    ?? MaterializationStatus.isCloudOnly(atPath: singleNode.id) {
                     Button {
                         // The verb itself is `CloudDownloadRequest.requestDownload`, shared with
                         // File ▸ Download. On success it tells the row to watch for the content
@@ -1594,11 +1614,12 @@ struct FileContextMenu: View {
                     Label("Rename", systemImage: "pencil")
                 }
                 // Offered only when this provider will actually reject the name — a finding, not a
-                // standing menu item. **This runs with the ROW, not when the menu opens:** SwiftUI
-                // builds a row's context menu each time the row renders, so everything in this body
-                // is paid per visible row, per click (see `PaneSelectionResolver`). The rules are
-                // cheap enough for that — sampled 2026-09-27, all of this body but the selection
-                // walks came to 4 of its 281 samples — but nothing costlier belongs here.
+                // standing menu item. **This runs with the ROW, not only when the menu opens:**
+                // SwiftUI builds a row's context menu each time the row renders, so everything in
+                // this body is paid per visible row, per click (see `PaneSelectionResolver`). The
+                // delegate answers from `RiskyNameBadgeCache`'s memo for a name with nothing wrong,
+                // and all of this body but the selection walks came to 4 of its 281 samples
+                // (2026-09-27) — but nothing costlier belongs here.
                 if let risky = delegate.riskyName(for: singleNode) {
                     Button(action: { delegate.handleFixName(singleNode) }) {
                         Label("Fix name…", systemImage: RiskyNameGlyph.lens)
@@ -1673,12 +1694,19 @@ struct FileContextMenu: View {
                     // than the one under the pointer. Neither is where you are when you decide a
                     // folder is worth keeping.
                     if delegate.canFavoriteFolder {
+                        // What the label says is decided when the menu is BUILT — with its row, a
+                        // render before the click at the least — so the click does what the label
+                        // said rather than toggling whatever is true by then: an "Add" that is
+                        // already done adds nothing, rather than taking the folder back out.
+                        let isFavorite = delegate.isFolderFavorite(singleNode)
                         Button {
+                            guard Self.favoriteLabelStillHolds(labelSaidFavorite: isFavorite,
+                                                               isFavoriteNow: delegate.isFolderFavorite(singleNode))
+                            else { return }
                             delegate.handleToggleFolderFavorite(singleNode)
                         } label: {
                             // A star, and a struck-through star for the reverse — the pair Finder
                             // and Safari both use for a list you curate.
-                            let isFavorite = delegate.isFolderFavorite(singleNode)
                             Label(isFavorite ? "Remove from Favorites" : "Add to Favorites",
                                   systemImage: isFavorite ? "star.slash" : "star")
                         }
@@ -1785,7 +1813,7 @@ struct FileContextMenu: View {
                 }
             }
 
-            compareItems(node: node, selectedNodes: selectedNodes, otherSelectedNodes: otherSelectedNodes)
+            compareItems(node: node, selectedNodes: selectedNodes)
 
             Divider()
             
@@ -1885,7 +1913,8 @@ struct FileRowView: View {
     /// long names live.
     ///
     /// **Where the detail still is.** A file's size is on the preview column's identity line
-    /// (`kind · size`) and drives Sort ▸ Size; a folder's date is in the details sidebar's
+    /// (`kind — size`, when the pane has room for a preview and it is on) and in the details
+    /// sidebar, and it drives Sort ▸ Size; a folder's date is in the details sidebar's
     /// `Modified:` row. Tree keeps both, which is why this withholds them rather than the pane
     /// dropping `fileSize` or `modificationDate` from what it publishes. `SortOption.size` and
     /// `.dateModified` still sort by keys Columns no longer draws — Finder's column view does the
@@ -2017,7 +2046,8 @@ struct FileRowView: View {
                 // share long prefixes ("Statement - Account - January.pdf", "… - February.pdf"), and
                 // cutting the end turned such a folder into a column of identical rows — the part
                 // that tells them apart is the part that went. Finder's default, for the same reason.
-                .truncationMode(.middle)
+                // A search hit is cut away from its match instead — see `nameTruncation`.
+                .truncationMode(Self.nameTruncation(match: searchContext.match, in: node.name))
                 .strikethrough(isIgnored, color: .secondary)
                 .foregroundStyle(isIgnored ? .secondary : .primary)
                 .padding(.leading, gap)
@@ -2115,6 +2145,28 @@ struct FileRowView: View {
         }
     }
 }
+
+extension FileRowView {
+    /// Where a name too long for its row is cut: in the middle, except on a search hit.
+    ///
+    /// The middle cut keeps a name's start and its ending, which is what tells siblings with long
+    /// shared prefixes apart — and it is exactly where a match in the middle of a name goes. A hit
+    /// row is not dimmed, so a hit whose match had been cut away showed nothing emphasised at all.
+    /// So a hit is cut at the end AWAY from its match: at the tail when the match sits in the
+    /// name's first half, at the head when it sits in the second. A match in the middle of a name
+    /// too long for a narrow column can still fall off either way; nothing a single cut can do
+    /// keeps both ends and the middle.
+    ///
+    /// The match indexes the name as `PaneSearchName` draws it — `NameDisplay.visibleName`, which
+    /// substitutes affix whitespace one character for one — so it is measured against that form.
+    static func nameTruncation(match: Range<Int>?, in name: String) -> Text.TruncationMode {
+        guard let match else { return .middle }
+        let length = NameDisplay.visibleName(name).count
+        guard length > 0 else { return .middle }
+        return match.lowerBound + match.upperBound < length ? .tail : .head
+    }
+}
+
 
 /// A file row's trailing badges: the cloud-only marker, then either the difference badge or the
 /// contained-differences count.

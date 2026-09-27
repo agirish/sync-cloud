@@ -34,10 +34,28 @@ struct PaneSearchRowContext: Equatable {
     /// Whether this row draws the “N matches” pill: a closed folder with hits inside it.
     var showsContainedCount: Bool { containedMatchCount > 0 && !isExpanded }
 
-    /// Whether `PaneSearchAnnotation` has anything to say on this row — the pill, or a side label.
-    /// The row mounts the annotation only when this is true, so a pane that is not searching pays
-    /// for no annotation at all. Mirrors the annotation's own `label` branches; the two must agree.
-    var hasAnnotation: Bool { showsContainedCount || side != nil }
+    /// What `PaneSearchAnnotation` says on this row, if anything: the count of matches inside a
+    /// closed folder, which outranks the side; else which side(s) a hit is on. The one definition —
+    /// the row's gate below and the annotation's label both read it, so a kind added to one cannot
+    /// go missing from the other.
+    enum Annotation: Equatable {
+        case containedMatches(Int)
+        case bothSides
+        case thisSideOnly
+    }
+
+    var annotation: Annotation? {
+        if showsContainedCount { return .containedMatches(containedMatchCount) }
+        switch side {
+        case .bothSides?: return .bothSides
+        case .thisSideOnly?: return .thisSideOnly
+        case nil: return nil
+        }
+    }
+
+    /// Whether this row mounts the annotation at all — so a pane that is not searching pays for no
+    /// annotation.
+    var hasAnnotation: Bool { annotation != nil }
 
     /// Builds the row's context from one pane's results. The two presentations differ only in what
     /// “expanded” means — a `Set` membership in the tree, being on the browse path in Columns — so
@@ -150,29 +168,29 @@ struct PaneSearchAnnotation: View {
 
     @ViewBuilder
     private var label: some View {
-        if context.showsContainedCount {
-            Text(context.containedMatchCount == 1 ? "1 match" : "\(context.containedMatchCount) matches")
+        switch context.annotation {
+        case .containedMatches(let count)?:
+            Text(count == 1 ? "1 match" : "\(count) matches")
                 .font(fonts.countPill)
                 .foregroundStyle(accent)
                 .lineLimit(1)
-                .help("\(context.containedMatchCount) match\(context.containedMatchCount == 1 ? "" : "es") inside — press ↩ to go there")
-        } else if let side = context.side {
-            switch side {
-            case .bothSides:
-                Text("both sides")
-                    .font(fonts.countPill)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .help("\(otherPaneName) has an item at this relative path too")
-            case .thisSideOnly:
-                // The one annotation that carries a tint. “Where is the copy that ISN'T here” is
-                // usually the reason for searching at all, so it is the finding, not the footnote.
-                Text(Self.onlyHereLabel(isLeft: isLeft))
-                    .font(fonts.countPill)
-                    .foregroundStyle(SemanticColor.warning)
-                    .lineLimit(1)
-                    .help("No item at this relative path in \(otherPaneName)")
-            }
+                .help("\(count) match\(count == 1 ? "" : "es") inside — press ↩ to go there")
+        case .bothSides?:
+            Text("both sides")
+                .font(fonts.countPill)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .help("\(otherPaneName) has an item at this relative path too")
+        case .thisSideOnly?:
+            // The one annotation that carries a tint. “Where is the copy that ISN'T here” is
+            // usually the reason for searching at all, so it is the finding, not the footnote.
+            Text(Self.onlyHereLabel(isLeft: isLeft))
+                .font(fonts.countPill)
+                .foregroundStyle(SemanticColor.warning)
+                .lineLimit(1)
+                .help("No item at this relative path in \(otherPaneName)")
+        case nil:
+            EmptyView()
         }
     }
 }

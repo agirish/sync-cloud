@@ -103,27 +103,49 @@ import Sync
 
     // MARK: - The annotation must not resize the row
 
-    /// **A search must not change how tall a row is.** The name has no line limit, so it wraps; the
-    /// annotation sits in the same row and takes width from it. Measured before the fix, at the
-    /// 250pt clamp the pane split enforces: a 60-character filename went from 60pt to 76pt the
-    /// moment it matched — every long-named hit growing a line as you type.
+    /// **A row is one line tall, however long its name and whether or not a search annotates it.**
+    /// The name is held to one line and cut, and the annotation is shown whole or not at all. It was
+    /// not always so: while the name had no line limit, a 60-character filename at the 250pt clamp
+    /// the pane split enforces went from 60pt to 76pt the moment it matched — the annotation took
+    /// the width that made it wrap.
     ///
-    /// Measured against the LAID-OUT height rather than any constant, at three widths, because the
-    /// failure only exists where the row is already under pressure.
+    /// Measured against a SHORT, plain row rather than against the same row unannotated, at three
+    /// widths: a name that wraps on its own would make both of those taller alike, and pass.
     @Test("Annotating a row never makes it taller", .machinePinned(.layoutMetrics))
     func theAnnotationNeverGrowsTheRow() {
         let long = "Quarterly Tax Return and Supporting Schedules 2025 final.pdf"
         let info = FileRowInfo(FileNode(id: "/r/\(long)", name: long, isDirectory: false))
+        let short = FileRowInfo(FileNode(id: "/r/a.pdf", name: "a.pdf", isDirectory: false))
         var annotated = PaneSearchRowContext.none
         annotated.match = 10..<13
         annotated.side = .thisSideOnly
 
         for width in [250.0, 400.0, 900.0] as [CGFloat] {
+            let oneLine = Self.laidOutHeight(row(short, context: .none), width: width)
             let plain = Self.laidOutHeight(row(info, context: .none), width: width)
             let searched = Self.laidOutHeight(row(info, context: annotated), width: width)
-            #expect(searched == plain,
-                    "at \(Int(width))pt the annotation grew the row \(plain) -> \(searched)")
+            #expect(plain == oneLine, "at \(Int(width))pt a long name made its row \(plain)pt, not one line (\(oneLine))")
+            #expect(searched == oneLine,
+                    "at \(Int(width))pt the annotated row is \(searched)pt, not one line (\(oneLine))")
         }
+    }
+
+    /// What a row's annotation says — the one definition the row's gate (`hasAnnotation`) and the
+    /// label both read, so a kind added to one cannot go missing from the other.
+    @Test("Each kind of annotation, and none, is said once")
+    func theAnnotationIsOneDefinition() {
+        var context = PaneSearchRowContext.none
+        #expect(context.annotation == nil && !context.hasAnnotation)
+        context.containedMatchCount = 3
+        #expect(context.annotation == .containedMatches(3) && context.hasAnnotation)
+        context.isExpanded = true
+        #expect(context.annotation == nil, "an open folder repeated the count its rows already show")
+        context.side = .bothSides
+        #expect(context.annotation == .bothSides && context.hasAnnotation)
+        context.side = .thisSideOnly
+        #expect(context.annotation == .thisSideOnly && context.hasAnnotation)
+        context.isExpanded = false
+        #expect(context.annotation == .containedMatches(3), "the count outranks the side, as the label draws it")
     }
 
     /// …and where it does not fit it is omitted WHOLE rather than truncated to a bare “…”, which is

@@ -159,7 +159,8 @@ public struct FontSizeDetentLabels: View {
     }
 }
 
-/// A few file rows drawn the way the panes draw them, at the chosen size and spacing.
+/// A few file rows drawn the way the panes draw them, at the chosen size and spacing — the way the
+/// Tree presentation does, with each file's size-and-date line; Columns shows names alone.
 ///
 /// **This is the only part of the section that shows what the settings actually do.** Row spacing
 /// in particular cannot be read off its own name: going Compact drops each file's size and date

@@ -190,23 +190,25 @@ import Sync
         }
     }
 
-    /// The stack's content fills the pane when the columns do not, which is the trailing filler
-    /// doing its job: two 210pt columns in a 900pt pane leave 480pt of dead space, and clicking it
-    /// should deselect rather than do nothing.
+    /// The stack's content fills its viewport when the columns do not, which is the trailing filler
+    /// doing its job: two 210pt columns in a 900pt pane leave 468pt of dead space — the pane less
+    /// the columns and the gutter a stack keeps outside its viewport (`columnStackTrailingGutter`)
+    /// — and clicking it should deselect rather than do nothing.
     ///
-    /// Mutation-tested: removing `trailingDeselectFiller` from the `HStack` leaves the content at
-    /// the columns' own width and fails this.
+    /// Mutation-tested: removing the filler from the `HStack` leaves the content at the columns'
+    /// own width and fails this.
     @Test func testTheTrailingFillerTakesTheSlackBesideTheColumns() async throws {
         let (window, stack, columns, _) = try await mount(paneWidth: 900, depth: ["a2"])
         defer { _ = window }
 
         #expect(columns.count == 2, "fixture should open two columns, got \(columns.count)")
         let content = try #require(stack.documentView)
-        // The premise: the columns alone leave real slack in a 900pt pane.
+        let viewport = 900 - PaneViewMode.columnStackTrailingGutter
+        // The premise: the columns alone leave real slack in the viewport.
         let columnsWidth = columns.reduce(0) { $0 + $1.bounds.width }
-        #expect(columnsWidth < 900, "columns \(columnsWidth)pt should not fill a 900pt pane")
-        #expect(content.bounds.width == 900,
-                "content \(content.bounds.width)pt should span the pane, filler included")
+        #expect(columnsWidth < viewport, "columns \(columnsWidth)pt should not fill a \(viewport)pt viewport")
+        #expect(content.bounds.width == viewport,
+                "content \(content.bounds.width)pt should span the viewport, filler included")
     }
 
     /// A click cannot be synthesized into this harness at all — neither the empty area nor a row

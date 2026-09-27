@@ -108,6 +108,26 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     public static let minimumColumnWidth: CGFloat = 140
     public static let maximumColumnWidth: CGFloat = 600
 
+    /// The strip a stack of columns keeps clear after its last column, outside its scroll view.
+    ///
+    /// **So the deepest column's divider can be grabbed.** Every reveal parks an overflowing stack
+    /// with the deepest column's trailing edge on the viewport's, and that edge already carries a
+    /// seam drawn later and so on top of it: the preview's with a file selected, Compare's pane
+    /// splitter or the rail's without one, the inspector's with Info open. Each left the column's
+    /// handle a point or two, or none — so the one handle the column you most often want wider has
+    /// could not be reached exactly when the stack was deep enough to need it.
+    ///
+    /// **Outside the scroll view, never in its content.** A filler that padded an overflowing
+    /// stack's content would move the very condition its scroll behaviour was tuned against (see
+    /// `trailingFillerWidth`). The gutter narrows the VIEWPORT instead, which every reveal and clamp
+    /// already measures against.
+    ///
+    /// 12pt: the widest seam that meets a stack's edge reaches 6pt into it (the Compare and rail
+    /// splitters, 12pt strips starting 6pt inside the boundary), and a column's own strip reaches
+    /// 4.5pt past its edge — 12 leaves the two 1.5pt apart. A single column spans its area, has no
+    /// divider, and keeps no gutter.
+    public static let columnStackTrailingGutter: CGFloat = 12
+
     /// The width every column takes unless it was sized on its own — see `ColumnWidthOverrides`.
     /// One value across all panes, so the two sides of a comparison stay symmetric; and exactly the
     /// single width this key always held, which is why "All columns together" is today's behaviour
@@ -130,13 +150,16 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// column sized on its own is released, which is exactly what one shared width always did — so a
     /// person who prefers that loses nothing. Otherwise only `depth` moves, and every other column
     /// keeps whatever it had. Pure, and the one place this is decided.
+    ///
+    /// A column sized to exactly the base is not kept as sized on its own: it IS the base, and an
+    /// entry saying so would only make a gesture that changed nothing look like a change.
     public static func resizedColumnWidths(
         base: CGFloat, overrides: ColumnWidthOverrides, depth: Int, to width: CGFloat, all: Bool
     ) -> (base: CGFloat, overrides: ColumnWidthOverrides) {
         let clamped = clampColumnWidth(width)
         guard !all else { return (clamped, ColumnWidthOverrides()) }
         var next = overrides
-        next.widths[depth] = clamped
+        next.widths[depth] = clamped == base ? nil : clamped
         return (base, next)
     }
 
@@ -204,22 +227,9 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// A single column is framed to the full pane width rather than `columnWidth`, so it leaves no
     /// slack either — which also covers push mode, where exactly one column is ever visible.
     ///
-    /// `paneWidth` here is the width available to the COLUMNS, which is the pane minus the preview
-    /// pane when one is showing. The preview is not part of the scrolling stack, so it never competes
-    /// with this filler for the same points.
-    public static func trailingFillerWidth(
-        paneWidth: CGFloat,
-        columnWidth: CGFloat,
-        columnCount: Int,
-        isSingleColumn: Bool
-    ) -> CGFloat {
-        trailingFillerWidth(paneWidth: paneWidth,
-                            columnWidths: Array(repeating: columnWidth, count: columnCount),
-                            isSingleColumn: isSingleColumn)
-    }
-
-    /// The same, for columns of their own widths — what a stack is once a column can be sized on its
-    /// own. The single-width form above is this with every column equal.
+    /// `paneWidth` here is the width of the stack's VIEWPORT: the pane, minus the preview when one
+    /// is showing, minus `columnStackTrailingGutter`. Neither is part of the scrolling stack, so
+    /// neither competes with this filler for the same points.
     public static func trailingFillerWidth(
         paneWidth: CGFloat,
         columnWidths: [CGFloat],

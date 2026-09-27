@@ -15,6 +15,11 @@ import Sync
 @MainActor
 @Suite struct CloudCoverageTests {
 
+    /// Whether `path` sits inside no cloud source's folder — the containment half of "This Mac only".
+    private func outside(path: String, in coverage: FileLocation.Coverage) -> Bool {
+        FileLocation.covering(path: path, in: coverage) == nil
+    }
+
     private func settings(_ defaults: UserDefaults) async -> SettingsManager {
         // Built inside the closure: a `@MainActor` static cannot be captured by a Sendable one.
         let manager = SettingsManager(
@@ -33,7 +38,7 @@ import Sync
         let manager = await settings(test.defaults)
         let coverage = manager.cloudCoverage
         #expect(coverage.roots.map(\.providerId).sorted() == ["Dropbox", "iCloud"])
-        #expect(FileLocation.outsideEveryCloudFolder(
+        #expect(outside(
             path: "/Users/test/Library/CloudStorage/Dropbox/Documents/a.txt",
             in: coverage) == false)
     }
@@ -45,12 +50,12 @@ import Sync
         let test = TestDefaults()
         let manager = await settings(test.defaults)
         let file = "/Users/test/Library/CloudStorage/Dropbox/Documents/a.txt"
-        #expect(FileLocation.outsideEveryCloudFolder(path: file, in: manager.cloudCoverage) == false)
+        #expect(outside(path: file, in: manager.cloudCoverage) == false)
 
         manager.setEnabled(false, for: "Dropbox")
         #expect(manager.enabledProviders.map(\.id).contains("Dropbox") == false,
                 "the fixture did not actually disable anything")
-        #expect(FileLocation.outsideEveryCloudFolder(path: file, in: manager.cloudCoverage) == false,
+        #expect(outside(path: file, in: manager.cloudCoverage) == false,
                 "a switched-off provider stopped counting as coverage — every file inside it now reports as having only one copy")
     }
 
@@ -65,7 +70,7 @@ import Sync
         #expect(manager.availableProviders.contains { $0.isLocalFolder },
                 "the fixture did not actually add a folder source — the assertions below would hold trivially")
         #expect(manager.cloudCoverage.roots.contains { $0.providerId.contains("Projects") } == false)
-        #expect(FileLocation.outsideEveryCloudFolder(path: "/Users/test/Projects/notes.md",
+        #expect(outside(path: "/Users/test/Projects/notes.md",
                                                      in: manager.cloudCoverage))
     }
 }

@@ -26,6 +26,17 @@ import CoreGraphics
         #expect(after.overrides.width(atDepth: 1, base: after.base) == 210, "an unsized column moved")
     }
 
+    /// A column sized to exactly the base is not kept as sized on its own: it IS the base. An entry
+    /// saying so would make a gesture that changed nothing — a fit that lands on the shared width —
+    /// look like a change, and fire the width drivers for it.
+    @Test func aColumnSizedToTheBaseIsNotKeptAsSized() {
+        let sized = ColumnWidthOverrides(widths: [2: 300])
+        let back = PaneViewMode.resizedColumnWidths(base: 210, overrides: sized, depth: 2, to: 210, all: false)
+        #expect(back.overrides.widths.isEmpty, "a column dragged back to the base kept an entry")
+        let untouched = PaneViewMode.resizedColumnWidths(base: 210, overrides: .init(), depth: 1, to: 210, all: false)
+        #expect(untouched.overrides == ColumnWidthOverrides(), "a no-op gesture wrote an entry")
+    }
+
     /// "All columns together" is exactly the single shared width that shipped before: one width for
     /// every column, and every column that was sized on its own released to it.
     @Test func allTogetherIsOneWidthForEveryColumn() {
@@ -57,23 +68,10 @@ import CoreGraphics
         #expect(ColumnWidthOverrides(rawValue: "")?.widths.isEmpty == true)
     }
 
-    /// The dead space past the last column is the pane minus the columns' REAL widths — and the
-    /// single-width form is exactly the per-width form with every column equal.
+    /// The dead space past the last column is the viewport minus the columns' REAL widths.
     @Test func theFillerSumsTheRealWidths() {
         #expect(PaneViewMode.trailingFillerWidth(paneWidth: 1000, columnWidths: [300, 200], isSingleColumn: false) == 500)
         #expect(PaneViewMode.trailingFillerWidth(paneWidth: 400, columnWidths: [300, 200], isSingleColumn: false) == 0)
         #expect(PaneViewMode.trailingFillerWidth(paneWidth: 1000, columnWidths: [300], isSingleColumn: true) == 0)
-        #expect(PaneViewMode.trailingFillerWidth(paneWidth: 1000, columnWidth: 210, columnCount: 3, isSingleColumn: false)
-                == PaneViewMode.trailingFillerWidth(paneWidth: 1000, columnWidths: [210, 210, 210], isSingleColumn: false))
-    }
-
-    /// The raised ceiling still leaves a preview its floor beside the widest column in a pane wide
-    /// enough to hold both, and the preview rule still refuses one a point narrower.
-    @Test func theWidestColumnStillLeavesAPreviewRoom() {
-        let pane = PaneViewMode.maximumColumnWidth + PaneViewMode.minimumPreviewColumnWidth
-        #expect(PaneViewMode.showsPreviewColumn(paneWidth: pane, columnWidth: PaneViewMode.maximumColumnWidth,
-                                                isEnabled: true, hasPreviewTarget: true))
-        #expect(!PaneViewMode.showsPreviewColumn(paneWidth: pane - 1, columnWidth: PaneViewMode.maximumColumnWidth,
-                                                 isEnabled: true, hasPreviewTarget: true))
     }
 }

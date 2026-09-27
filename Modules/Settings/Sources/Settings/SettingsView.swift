@@ -497,6 +497,9 @@ enum SettingsSearchIndex {
         .init(tab: .readability, title: "Row spacing",
               keywords: ["density", "list density", "compact", "comfortable", "row height",
                          "spacing", "row spacing", "tighter rows", "row size"]),
+        .init(tab: .readability, title: "Column widths",
+              keywords: ["column width", "column widths", "columns", "resize columns", "width",
+                         "each column", "all columns", "divider", "wider", "narrower", "fit"]),
 
         // Sources
         .init(tab: .providers, title: "Cloud providers",
@@ -976,6 +979,22 @@ struct ReadabilitySettingsTab: View {
     /// Whether a Columns divider sizes its own column or every column — see `ColumnResizeMode`.
     @AppStorage(ColumnResizeMode.defaultsKey) private var columnResizeModeRaw: String =
         ColumnResizeMode.default.rawValue
+    /// The columns sized one at a time, which choosing "All columns" releases.
+    @AppStorage(PaneViewMode.columnWidthOverridesDefaultsKey) private var columnWidthOverrides =
+        ColumnWidthOverrides()
+
+    /// The setting, written through one rule: choosing "All columns" puts every column back to the
+    /// one shared width, the way that choice always drew them. Leaving the columns someone sized on
+    /// their own at their widths would make the setting look broken — one wide column under "All
+    /// columns" — until some later drag happened to release it.
+    private var columnResizeMode: Binding<String> {
+        Binding(
+            get: { columnResizeModeRaw },
+            set: { raw in
+                columnResizeModeRaw = raw
+                if raw == ColumnResizeMode.allColumns.rawValue { columnWidthOverrides = ColumnWidthOverrides() }
+            })
+    }
 
     /// The resolved text size. `FontSize.init(percent:)` clamps, so a value stored before the
     /// range last moved is honoured rather than discarded.
@@ -1156,7 +1175,7 @@ struct ReadabilitySettingsTab: View {
                 // the content beside the rail is about 340pt — and the caption carries the rest,
                 // ⌥ and the double-click included, since neither is visible anywhere else.
                 LabeledContent("Column widths") {
-                    Picker("Column widths", selection: $columnResizeModeRaw) {
+                    Picker("Column widths", selection: columnResizeMode) {
                         ForEach(ColumnResizeMode.allCases) { mode in
                             Text(mode.displayName).tag(mode.rawValue)
                         }
@@ -1168,7 +1187,7 @@ struct ReadabilitySettingsTab: View {
                 }
                 .padding(.top, 10)
 
-                Text("Dragging a divider in Columns resizes that column, or every column at once. Hold ⌥ while dragging to do the other; double-click a divider to fit its longest name.")
+                Text("Dragging a divider in Columns resizes that column, or every column at once; hold ⌥ to do the other. Double-clicking a divider fits to the longest name the same way. All columns also puts every column back to one width.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

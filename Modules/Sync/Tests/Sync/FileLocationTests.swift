@@ -12,6 +12,11 @@ import Foundation
 /// `containmentNamesNoFilesystemTouchingApi` for the second half of that proof.
 struct FileLocationTests {
 
+    /// Whether `path` sits inside no cloud source's folder — the containment half of "This Mac only".
+    private func outside(path: String, in coverage: FileLocation.Coverage) -> Bool {
+        FileLocation.covering(path: path, in: coverage) == nil
+    }
+
     // MARK: Fixtures
 
     /// A discovered provider at its real shape: the configured root is a SUBFOLDER of the
@@ -50,14 +55,14 @@ struct FileLocationTests {
         let c = Self.coverage([Self.iCloud()])
         let file = "/Users/u/Library/Mobile Documents/com~apple~CloudDocs/Notes/a.md"
         #expect(FileLocation.covering(path: file, in: c)?.providerId == "iCloud")
-        #expect(FileLocation.outsideEveryCloudFolder(path: file, in: c) == false)
+        #expect(outside(path: file, in: c) == false)
     }
 
     @Test func aPathOutsideEveryProvidersRootIsNotCovered() {
         let c = Self.coverage([Self.iCloud(), Self.oneDrive()])
         let file = "/Users/u/Projects/notes.md"
         #expect(FileLocation.covering(path: file, in: c) == nil)
-        #expect(FileLocation.outsideEveryCloudFolder(path: file, in: c))
+        #expect(outside(path: file, in: c))
     }
 
     /// The boundary rule `PathBoundary` exists for: a sibling sharing only a string prefix is
@@ -65,8 +70,8 @@ struct FileLocationTests {
     @Test func aSiblingSharingAStringPrefixIsOutside() {
         let c = Self.coverage([CloudProvider(id: "p", displayName: "P", imageName: "icloud",
                                              rootPath: "/Users/u/Cloud", type: .iCloud)])
-        #expect(FileLocation.outsideEveryCloudFolder(path: "/Users/u/Cloudy/a.txt", in: c))
-        #expect(FileLocation.outsideEveryCloudFolder(path: "/Users/u/Cloud/a.txt", in: c) == false)
+        #expect(outside(path: "/Users/u/Cloudy/a.txt", in: c))
+        #expect(outside(path: "/Users/u/Cloud/a.txt", in: c) == false)
     }
 
     /// The root itself, not only what is under it.
@@ -86,17 +91,17 @@ struct FileLocationTests {
         let c = Self.coverage([Self.oneDrive()])
         let photo = "/Users/u/Library/CloudStorage/OneDrive-Acme/Photos/a.jpg"
         #expect(FileLocation.covering(path: photo, in: c)?.providerId == "OneDrive-Acme")
-        #expect(FileLocation.outsideEveryCloudFolder(path: photo, in: c) == false)
+        #expect(outside(path: photo, in: c) == false)
     }
 
     /// The widening stops at the account folder — a DIFFERENT account under the same
     /// CloudStorage parent is not this provider's ground.
     @Test func aDifferentAccountFolderIsNotCovered() {
         let c = Self.coverage([Self.oneDrive()])
-        #expect(FileLocation.outsideEveryCloudFolder(
+        #expect(outside(
             path: "/Users/u/Library/CloudStorage/OneDrive-Other/Documents/a.txt", in: c))
         // …and CloudStorage itself is not inside any one account.
-        #expect(FileLocation.outsideEveryCloudFolder(
+        #expect(outside(
             path: "/Users/u/Library/CloudStorage/readme.txt", in: c))
     }
 
@@ -155,7 +160,7 @@ struct FileLocationTests {
         let c = Self.coverage([Self.folderSource(path: "/Users/u/Projects")])
         #expect(c.roots.isEmpty)
         let file = "/Users/u/Projects/notes.md"
-        #expect(FileLocation.outsideEveryCloudFolder(path: file, in: c))
+        #expect(outside(path: file, in: c))
         #expect(FileLocation.verdict(forPath: file, in: c, isCloudOnly: false) == .thisMacOnly)
     }
 
@@ -175,7 +180,7 @@ struct FileLocationTests {
                                   rootPath: "", type: .dropBox)
         let c = Self.coverage([ghost])
         #expect(c.roots.isEmpty)
-        #expect(FileLocation.outsideEveryCloudFolder(path: "/Users/u/anything.txt", in: c))
+        #expect(outside(path: "/Users/u/anything.txt", in: c))
     }
 
     // MARK: Case folding
@@ -240,7 +245,7 @@ struct FileLocationTests {
     @Test func containmentAloneStillAnswersWhenMaterializationDoesNot() {
         let c = Self.coverage([Self.iCloud()])
         let path = "/Users/u/Projects/gone.md"
-        #expect(FileLocation.outsideEveryCloudFolder(path: path, in: c))
+        #expect(outside(path: path, in: c))
         #expect(FileLocation.verdict(forPath: path, in: c, isCloudOnly: nil) == nil)
     }
 
@@ -309,6 +314,17 @@ struct FileLocationTests {
 
     // MARK: The containment half is syscall-free
 
+    /// A folder is said to be where it is — in a source's folder or outside every one — and never
+    /// anything about its content, which is its files' to answer.
+    @Test func aFolderIsLabelledByContainmentAlone() {
+        let c = Self.coverage([Self.iCloud(name: "iCloud Drive"), Self.folderSource()])
+        #expect(FileLocation.folderLabel(forPath: "/Users/u/Library/Mobile Documents/com~apple~CloudDocs/Taxes",
+                                         in: c) == "In iCloud Drive")
+        #expect(FileLocation.folderLabel(forPath: "/Users/u/Projects", in: c) == "This Mac only",
+                "a folder source is not a cloud: its folders are on this Mac only")
+        #expect(FileLocation.folderLabel(forPath: "/Users/u/Movies", in: c) == "This Mac only")
+    }
+
     /// Every containment fixture above runs on paths that do not exist, which proves the ANSWER
     /// does not depend on the disk. This closes the other half: that no filesystem-touching API is
     /// named at all, so a future edit cannot quietly put a stat back in front of every visible row.
@@ -328,7 +344,7 @@ struct FileLocationTests {
             .appendingPathComponent("Sources/Sync/FileLocation.swift")
         let text = try String(contentsOf: source, encoding: .utf8)
         // The scan can only mean something if it read the right file.
-        #expect(text.contains("public static func outsideEveryCloudFolder"),
+        #expect(text.contains("public static func covering(path: String"),
                 "read the wrong file — the scan below would pass vacuously")
         for banned in ["URL(fileURLWithPath:", "standardizingPath", "resolvingSymlinksInPath",
                        "FileManager", "contentsOfDirectory", "fileExists", "lstat"] {

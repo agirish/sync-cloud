@@ -6080,7 +6080,7 @@ done
 # main file=1 globalRowProbe=1 · v4.x file=1 globalRowProbe=1 · v3.x file=1 globalRowProbe=1 · v2.x file=1 globalRowProbe=1
 ```
 
-**`v4.x`, `v3.x`, `v2.x`: apply, RECORDED — not owed.** The fix is `ColumnRowBottomsProbe` plus
+**`v4.x`, `v3.x`, `v2.x`: apply, RECORDED — not owed.** The fix is `ColumnRowBottomsProbe` (since merged into `ColumnListProbe`) plus
 `PaneBarPlacement.reresolveMovedEdge()`; it moves the bar's flip 4–6pt earlier (the row's cell, not
 its text), which a pick would carry too.
 
@@ -6093,7 +6093,8 @@ per-column widths change what a line does rather than repair what it does wrong.
 SwiftUI builds a row's context menu with the row, so every visible row's `FileContextMenu` body
 runs on every click — in both panes, since each pane's menus take the other pane's selection too.
 Each body walked the pane tree to resolve the selection, and on the two-pane surfaces walked the
-other pane's tree once or twice more. Sampled in the app while clicking through Columns: 277 of the
+other pane's tree again — twice on `main`, once on the maintenance lines, which have no cross-pane
+Compare item. Sampled in the app while clicking through Columns: 277 of the
 281 samples the menus cost were those walks. Rows outside the selection now answer from the row,
 and `PaneSelectionResolver` walks once per selection for the rest. All three maintenance lines
 carry both walks:
@@ -6108,6 +6109,7 @@ done
 # measured 2026-09-27, against origin, before this landed: every line rowWalk=1 otherPaneWalk=1
 ```
 
-**`v4.x`, `v3.x`, `v2.x`: apply, RECORDED — not owed.** A pick is `PaneSelectionResolver`,
-`FileContextMenu.menuNodes` and `PaneComparePairMenu.crossPaneCounterpart` taking the resolved
-nodes; it changes what no menu offers.
+**`v4.x`, `v3.x`, `v2.x`: apply, RECORDED — not owed.** A pick is `PaneSelectionResolver` and
+`FileContextMenu.menuNodes`, with the "Copy '…' from ⟨pane⟩" item reading the resolver; those lines
+have no `PaneComparePairMenu`, so there is no Compare item to route through it. It changes what no
+menu offers.

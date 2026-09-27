@@ -22,7 +22,7 @@ import Foundation
 ///
 /// ## Two signals, crossed
 ///
-/// **Containment** is pure string math over the provider list — see `outsideEveryCloudFolder`,
+/// **Containment** is pure string math over the provider list — see `covering(path:in:)`,
 /// which reaches the filesystem nowhere at all, so it can be asked of any number of paths for
 /// free, where the ☁ badge has to buy each answer with an `lstat`.
 ///
@@ -184,7 +184,7 @@ public enum FileLocation {
     ///
     /// No `standardizedFileURL`, no `NSString.standardizingPath`: the first stats the path when
     /// built without an `isDirectory:` hint, and the second resolves symlinks under `/tmp` and
-    /// `/var`. Both would put a syscall in the containment half — see `outsideEveryCloudFolder`.
+    /// `/var`. Both would put a syscall in the containment half — see `covering(path:in:)`.
     /// Every path reaching here is already absolute and lexically standard, produced by a tree walk
     /// descending from a root or by provider discovery.
     static func normalize(_ path: String) -> String {
@@ -217,14 +217,15 @@ public enum FileLocation {
         return nil
     }
 
-    /// Whether `path` sits inside no cloud source's folder — the containment half of the verdict's
-    /// "This Mac only".
+    /// What the inspector says about where a FOLDER is: "In ⟨source⟩" inside a cloud source's
+    /// folder, "This Mac only" outside every one.
     ///
-    /// Containment only, so it costs no syscall. The verdict additionally requires the file not to
-    /// be a dataless placeholder; that half is composed in `verdict(forPath:in:isCloudOnly:)`,
-    /// where the materialization answer is already in hand, rather than made a precondition here.
-    public static func outsideEveryCloudFolder(path: String, in coverage: Coverage) -> Bool {
-        covering(path: path, in: coverage) == nil
+    /// Containment alone. A folder has no content of its own to be downloaded or not, and its files
+    /// can each answer differently, so nothing here speaks for them — the verdict below does that,
+    /// file by file. "This Mac only" is what the ⌂ row badge said about a folder until the badge was
+    /// removed; the inspector is where it is said now. No syscall, like `covering`.
+    public static func folderLabel(forPath path: String, in coverage: Coverage) -> String {
+        covering(path: path, in: coverage).map { "In \($0.displayName)" } ?? "This Mac only"
     }
 
     // MARK: The verdict

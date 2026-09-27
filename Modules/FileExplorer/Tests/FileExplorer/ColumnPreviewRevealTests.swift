@@ -586,7 +586,7 @@ import Sync
     /// follow the column divider's commit too.
     ///
     /// Driven by writing the stored width, exactly as the preview-divider test above: the drag
-    /// renders from `dragWidth` and commits to the preference in `onEnded`, and the committed
+    /// renders from its live `@GestureState` and commits to the preference in `onEnded`, and the committed
     /// state is what the view keys its driver on.
     @Test func testWideningTheColumnsKeepsTheDeepestColumnOnScreen() async throws {
         let mounted = try await mount(paneWidth: 690, depth: 2)
@@ -623,6 +623,96 @@ import Sync
                 "widening the columns pushed the deepest column off screen and nothing revealed it: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
         #expect(deepest.minX >= visible.lowerBound - 1,
                 "the deepest column is cut off on its leading edge: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+    }
+
+    /// The per-column form of the test above: a column sized on its own commits WIDER, the deepest
+    /// column is pushed past the preview's seam, and the reveal follows it — the driver on the
+    /// per-column widths, which nothing else fires. Driven the same way, through the stored value.
+    @Test func testSizingOneColumnWiderKeepsTheDeepestColumnOnScreen() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 2)
+        defer { _ = mounted.window }
+
+        let full = mounted.stack.contentView.bounds.width
+        #expect(await openPreview(mounted, viewportWas: full), "no preview appeared")
+        let contentBefore = mounted.stack.documentView?.frame.width ?? 0
+        let originBefore = mounted.stack.contentView.bounds.origin.x
+
+        // The FIRST column, not the deepest, sized from 210 to 300 on its own and committed.
+        mounted.defaults.set(ColumnWidthOverrides(widths: [0: 300]).rawValue,
+                             forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
+        await wait(mounted.window, upTo: 25) {
+            (mounted.stack.documentView?.frame.width ?? 0) > contentBefore
+        }
+        await wait(mounted.window, upTo: 25) {
+            mounted.stack.contentView.bounds.origin.x != originBefore
+        }
+        await settle(mounted)
+
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content > contentBefore, "the column's own width never reached the layout — nothing below measures it")
+        #expect(content > mounted.stack.contentView.bounds.width, "the stack does not overflow — the reveal is unobservable")
+        let deepest = try #require(columnFrames(mounted).last)
+        let visible = visibleSpan(mounted)
+        #expect(deepest.maxX <= visible.upperBound + 1 && deepest.minX >= visible.lowerBound - 1,
+                "sizing one column wider hid the deepest one: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+    }
+
+    /// **The deepest column's divider is clear of the preview's seam.** The stack keeps a gutter
+    /// after its last column, outside its scroll view, so the viewport — and the deepest column
+    /// revealed into it — ends `columnStackTrailingGutter` short of the seam the preview's own handle
+    /// straddles. Without it the two handles sat on one edge and the preview's, drawn later, won.
+    @Test func testTheDeepestColumnsDividerIsClearOfThePreviewsSeam() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 2)
+        defer { _ = mounted.window }
+        let full = mounted.stack.contentView.bounds.width
+        #expect(full == 690 - PaneViewMode.columnStackTrailingGutter,
+                "without a preview the viewport is \(full), not the pane less the gutter")
+        #expect(await openPreview(mounted, viewportWas: full), "no preview appeared")
+        await settle(mounted)
+
+        let preview = PaneViewMode.previewPaneWidth(
+            paneWidth: 690, columnWidth: PaneViewMode.defaultColumnWidth + PaneViewMode.columnStackTrailingGutter,
+            preferred: PaneViewMode.defaultPreviewColumnWidth)
+        let viewport = mounted.stack.contentView.bounds.width
+        #expect(abs(viewport - (690 - preview - PaneViewMode.columnStackTrailingGutter)) < 1,
+                "the viewport is \(viewport) beside a \(preview)pt preview — the gutter is not between them")
+        let deepest = try #require(columnFrames(mounted).last)
+        #expect(deepest.maxX <= visibleSpan(mounted).upperBound + 1, "the deepest column is not whole in the viewport")
+    }
+
+    /// **No column is drawn wider than its viewport.** A width is shared by every surface and goes to
+    /// 600pt, and a column wider than the viewport would be revealed by its trailing edge, its icons
+    /// and the start of every name cut off.
+    @Test func testAColumnIsNeverDrawnWiderThanItsViewport() async throws {
+        let mounted = try await mount(paneWidth: 520, depth: 2)
+        defer { _ = mounted.window }
+        mounted.defaults.set(ColumnWidthOverrides(widths: [1: 600]).rawValue,
+                             forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
+        let viewport = mounted.stack.contentView.bounds.width
+        await wait(mounted.window, upTo: 25) {
+            self.columnFrames(mounted).dropFirst().first.map { $0.width > PaneViewMode.defaultColumnWidth + 1 } ?? false
+        }
+        await settle(mounted)
+        let widths = columnFrames(mounted).map(\.width)
+        #expect(widths.count == 3)
+        #expect(widths.allSatisfy { $0 <= viewport + 0.5 },
+                "a column is \(widths.max() ?? 0)pt in a \(viewport)pt viewport")
+        #expect(widths.dropFirst().first.map { abs($0 - viewport) < 1 } == true,
+                "the 600pt column was not drawn at the viewport's width: \(widths)")
+    }
+
+    /// **A lone column's preview is not held to a column width it does not have.** At rest the one
+    /// column spans the pane, so the preview rule holds it to the default column rather than the
+    /// stored width — which can now be 600pt, and would otherwise keep a preview out of any pane
+    /// narrower than 820pt.
+    @Test func testALoneColumnGetsItsPreviewWhateverTheStoredWidth() async throws {
+        let mounted = try await mount(paneWidth: 700, depth: 0)
+        defer { _ = mounted.window }
+        mounted.defaults.set(Double(PaneViewMode.maximumColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
+        await drain(mounted.window, turns: 3)
+        let full = mounted.stack.contentView.bounds.width
+        #expect(await openPreview(mounted, viewportWas: full),
+                "a single column at a stored 600pt kept the preview out of a 700pt pane")
     }
 
     /// The preview-width key is ONE process-wide preference shared by every `PaneColumnsView`

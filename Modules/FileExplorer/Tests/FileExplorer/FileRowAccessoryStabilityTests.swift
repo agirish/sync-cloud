@@ -18,11 +18,13 @@ import Sync
 @MainActor
 @Suite struct FileRowAccessoryStabilityTests {
 
+    /// - Parameter leadingGap: the gap each drawn item keeps before it — 10pt in a comfortable row,
+    ///   which is what the rows pass, so that is what is measured unless a case says otherwise.
     private func size(cloudOnly: Bool, reserves: Bool, diff: FileDifference.DifferenceType? = nil,
-                      contained: Int = 0) -> NSSize {
+                      contained: Int = 0, leadingGap: CGFloat = 10) -> NSSize {
         let view = HStack(spacing: 8) {
             FileRowAccessories(isCloudOnly: cloudOnly, reservesCloudSlot: reserves,
-                               diffStatus: diff, containedDiffCount: contained)
+                               diffStatus: diff, containedDiffCount: contained, leadingGap: leadingGap)
         }
         let host = NSHostingView(rootView: view)
         host.layoutSubtreeIfNeeded()
@@ -32,11 +34,50 @@ import Sync
     /// The reservation's whole point: a file row's badge zone is the same size before and after the
     /// lstat answers.
     @Test func testAFileRowsBadgeZoneIsTheSameSizeWithAndWithoutTheCloudBadge() {
-        let before = size(cloudOnly: false, reserves: true)
-        let after = size(cloudOnly: true, reserves: true)
-        #expect(before == after,
-                "the badge zone resized when the cloud badge landed: \(before) → \(after)")
-        #expect(before.width > 0, "nothing laid out — the measurement is vacuous")
+        // At the gap the rows use, and at none: a gap applied in only one cloud state would shift
+        // the row by exactly that gap when the answer lands.
+        for gap: CGFloat in [10, 8, 0] {
+            let before = size(cloudOnly: false, reserves: true, leadingGap: gap)
+            let after = size(cloudOnly: true, reserves: true, leadingGap: gap)
+            #expect(before == after,
+                    "at a \(gap)pt gap the badge zone resized when the cloud badge landed: \(before) → \(after)")
+            #expect(before.width > 0, "nothing laid out — the measurement is vacuous")
+        }
+    }
+
+    /// **The ☁ is painted** — in the slot a file row holds for it, and not for a downloaded file. The
+    /// zone's SIZE cannot see this: an overlay that drew nothing measures exactly the same, and the
+    /// render tests that did see it went with the ⌂ badge they were written for.
+    @Test(.machinePinned(.pixelSampling)) func testTheCloudBadgePaintsInItsSlot() throws {
+        func rendered(_ cloudOnly: Bool) throws -> NSBitmapImageRep {
+            let subject = FileRowAccessories(isCloudOnly: cloudOnly, reservesCloudSlot: true,
+                                             diffStatus: nil, containedDiffCount: 0, leadingGap: 10)
+                .frame(width: 60, height: 26, alignment: .trailing)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .environment(\.colorScheme, .light)
+            let host = NSHostingView(rootView: AnyView(subject))
+            host.frame = CGRect(x: 0, y: 0, width: 60, height: 26)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.appearance = NSAppearance(named: .aqua)
+            window.colorSpace = .sRGB
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            return rep
+        }
+        let cloud = try rendered(true), downloaded = try rendered(false)
+        var differing = 0
+        for y in 0..<min(cloud.pixelsHigh, downloaded.pixelsHigh) {
+            for x in 0..<min(cloud.pixelsWide, downloaded.pixelsWide) {
+                guard let a = cloud.colorAt(x: x, y: y), let b = downloaded.colorAt(x: x, y: y) else { continue }
+                if max(abs(a.redComponent - b.redComponent),
+                       max(abs(a.greenComponent - b.greenComponent),
+                           abs(a.blueComponent - b.blueComponent))) > 0.02 { differing += 1 }
+            }
+        }
+        #expect(differing > 20, "a cloud-only file's slot painted \(differing) pixels differently — no ☁ was drawn")
     }
 
     /// …and with a difference badge alongside it, which is the common case in a compared folder.

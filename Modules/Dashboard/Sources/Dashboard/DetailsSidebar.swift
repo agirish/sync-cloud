@@ -833,13 +833,28 @@ public struct DetailsSidebar: View {
     /// nil for a DIRECTORY: a folder has no content of its own to be downloaded or not, and its
     /// children can each answer differently. Claiming a folder is "downloaded" because its
     /// directory entry is on disk would be the one kind of over-claim this feature must not make.
-    /// (The ⌂ row badge still marks folders, because that is a containment claim — where the
-    /// folder *is* — which is sound for one.)
+    /// What IS sound for a folder is where it is, and *Where it lives* says that for one — see
+    /// `FileLocation.folderLabel`.
     static func onThisMacText(isDirectory: Bool, isCloudOnly: Bool?, hasAnswer: Bool) -> String? {
         guard !isDirectory else { return nil }
         guard hasAnswer else { return "Checking…" }
         guard let isCloudOnly else { return nil }
         return isCloudOnly ? "No — placeholder only" : "Yes — downloaded"
+    }
+
+    /// What the *Where it lives* row says, or nil for no row — static and pure, like `onThisMacText`.
+    ///
+    /// A FILE gets the verdict: containment crossed with its materialization answer, so none until
+    /// that answer is in. A FOLDER gets containment alone (`FileLocation.folderLabel`), which needs no
+    /// stat — and this row is the only place the app still says it, now that the ⌂ row badge that
+    /// marked folders outside every cloud folder is gone from the rows. Neither without a coverage
+    /// answer to judge against.
+    static func whereItLivesText(path: String, isDirectory: Bool, coverage: FileLocation.Coverage?,
+                                 isCloudOnly: Bool?, hasAnswer: Bool) -> String? {
+        guard let coverage else { return nil }
+        if isDirectory { return FileLocation.folderLabel(forPath: path, in: coverage) }
+        guard hasAnswer else { return nil }
+        return FileLocation.verdict(forPath: path, in: coverage, isCloudOnly: isCloudOnly)?.label
     }
 
     /// The supporting *On this Mac* row and the *Where it lives* verdict beneath it.
@@ -859,10 +874,10 @@ public struct DetailsSidebar: View {
                                          hasAnswer: settled != nil) {
             metadataRow(label: "On this Mac:", value: text)
         }
-        if !data.isDirectory, let settled, let coverage = cloudCoverage,
-           let verdict = FileLocation.verdict(forPath: data.path, in: coverage,
-                                             isCloudOnly: settled.isCloudOnly) {
-            metadataRow(label: "Where it lives:", value: verdict.label)
+        if let text = Self.whereItLivesText(path: data.path, isDirectory: data.isDirectory,
+                                            coverage: cloudCoverage,
+                                            isCloudOnly: settled?.isCloudOnly, hasAnswer: settled != nil) {
+            metadataRow(label: "Where it lives:", value: text)
         }
     }
 

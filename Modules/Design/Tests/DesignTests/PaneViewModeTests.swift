@@ -212,21 +212,21 @@ import SwiftUI
     /// condition those fixes — and their mounted test — depend on.
     @Test func testAnOverflowingStackGetsNoFiller() {
         let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: 500, columnWidth: 210, columnCount: 3, isSingleColumn: false)
+            paneWidth: 500, columnWidths: Array(repeating: 210, count: 3), isSingleColumn: false)
         #expect(width == 0)
     }
 
     /// Exactly-full is the boundary of the same rule, and the one an off-by-one would land on.
     @Test func testAnExactlyFullStackGetsNoFiller() {
         let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: 630, columnWidth: 210, columnCount: 3, isSingleColumn: false)
+            paneWidth: 630, columnWidths: Array(repeating: 210, count: 3), isSingleColumn: false)
         #expect(width == 0)
     }
 
     /// Under-filled: the filler takes the slack that already existed and nothing more.
     @Test func testAnUnderFilledStackFillsTheRemainder() {
         let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: 900, columnWidth: 210, columnCount: 2, isSingleColumn: false)
+            paneWidth: 900, columnWidths: Array(repeating: 210, count: 2), isSingleColumn: false)
         #expect(width == 480)
     }
 
@@ -234,7 +234,7 @@ import SwiftUI
     /// asking `paneWidth - columnWidth` here would wrongly claim most of the pane.
     @Test func testASingleColumnGetsNoFiller() {
         let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: 900, columnWidth: 210, columnCount: 1, isSingleColumn: true)
+            paneWidth: 900, columnWidths: Array(repeating: 210, count: 1), isSingleColumn: true)
         #expect(width == 0)
     }
 
@@ -244,7 +244,7 @@ import SwiftUI
         let paneWidth = PaneViewMode.pushNavigationBelowWidth - 1
         #expect(PaneViewMode.usesPushNavigation(paneWidth: paneWidth))
         let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: paneWidth, columnWidth: 210, columnCount: 1, isSingleColumn: true)
+            paneWidth: paneWidth, columnWidths: Array(repeating: 210, count: 1), isSingleColumn: true)
         #expect(width == 0)
     }
 
@@ -421,9 +421,9 @@ import SwiftUI
     /// filler simply takes whatever slack the columns leave inside their own area.
     @Test func testTheFillerTakesTheSlackInsideTheColumnsOwnArea() {
         #expect(PaneViewMode.trailingFillerWidth(
-            paneWidth: 690, columnWidth: 210, columnCount: 1, isSingleColumn: false) == 480)
+            paneWidth: 690, columnWidths: Array(repeating: 210, count: 1), isSingleColumn: false) == 480)
         #expect(PaneViewMode.trailingFillerWidth(
-            paneWidth: 690, columnWidth: 210, columnCount: 4, isSingleColumn: false) == 0)
+            paneWidth: 690, columnWidths: Array(repeating: 210, count: 4), isSingleColumn: false) == 0)
     }
 
     @Test func testEveryModeHasDistinctChrome() {

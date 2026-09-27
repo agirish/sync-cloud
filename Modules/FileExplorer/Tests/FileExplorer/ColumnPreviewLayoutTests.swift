@@ -326,10 +326,11 @@ import UniformTypeIdentifiers
     /// VIEW, leaving the columns their own width and their scrolling intact.
     ///
     /// Two columns of 260 need 520; the preview takes 600 of a 900pt pane, so the columns are left a
-    /// 300pt viewport holding 520pt of content — narrower than what it holds, which is exactly the
-    /// scrollbar that used to disappear when the preview grew. A layout that still derived the
-    /// preview from the columns' slack could not produce these numbers: it would have given the
-    /// columns the whole pane and the preview 380.
+    /// 300pt stack — a 288pt viewport once the stack's gutter is kept clear after its last column
+    /// (`columnStackTrailingGutter`) — holding 520pt of content: narrower than what it holds, which
+    /// is exactly the scrollbar that used to disappear when the preview grew. A layout that still
+    /// derived the preview from the columns' slack could not produce these numbers: it would have
+    /// given the columns the whole pane and the preview 380.
     @Test func testAWidePreviewLeavesTheColumnsScrolling() async throws {
         let fixture = try Fixture()
         let mounted = mount(fixture, paneWidth: 900, selection: [fixture.nestedFile],
@@ -337,10 +338,11 @@ import UniformTypeIdentifiers
                             columnWidth: 260, previewWidth: 600)
         await pump(mounted.window, seconds: 0.3)
         #expect(columnWidths(in: mounted.host) == [260, 260])
-        #expect(stackViewportWidth(in: mounted.host) == 300)
+        let viewport = 300 - PaneViewMode.columnStackTrailingGutter
+        #expect(stackViewportWidth(in: mounted.host) == viewport)
         let document = try #require(stackDocumentWidth(in: mounted.host))
         #expect(document == 520)
-        #expect(document > 300, "the columns must still overflow their viewport, i.e. still scroll")
+        #expect(document > viewport, "the columns must still overflow their viewport, i.e. still scroll")
         withExtendedLifetime((fixture, mounted)) {}
     }
 

@@ -32,10 +32,17 @@ import Sync
 /// from the host, a bar overlay on the resolved edge, the selection on the lowest row the bar
 /// actually covers, six rounds of scroll + resize): zero flips.
 ///
-/// So this suite does not try to produce a flip. It pins what IS assertable — the edge really moves,
-/// and a fresh re-resolve then agrees with it, which is the exact condition the callback returns on
-/// — so the reason the path cannot be armed stays executable instead of being rediscovered a fourth
-/// time.
+/// So this suite does not try to produce a flip from a SELECTION. It pins what IS assertable — the
+/// edge really moves, and a fresh re-resolve then agrees with it, which is the exact condition the
+/// callback returns on — so the reason that path cannot be armed stays executable instead of being
+/// rediscovered a fourth time.
+///
+/// **A scroll in Columns CAN be armed now, and is.** Columns reads its rows' bottoms from each
+/// column's table (`ColumnListProbe`), which observes the column's clip — so moving the clip is a
+/// real scroll to it, re-resolves the edge, and calls back on a flip. The last two tests pin that,
+/// and that the bottoms are in the viewport's own space. The Tree's rows still report through
+/// SwiftUI's geometry preference, which moving a clip does not re-drive, so the paragraph above
+/// still holds for it.
 @MainActor
 @Suite struct PaneBarPlacementCommitTests {
 
@@ -188,8 +195,8 @@ import Sync
         #expect(placement.atTop, "selecting a covered row must put the bar at the top")
 
         // …and this is WHY no callback follows: a fresh resolve agrees with what the host already
-        // committed, which is exactly the condition `flipEdgeIfScrolledAcross` returns on
-        // (`guard placement.reresolveAtTop() != wasAtTop else { return }`).
+        // committed, which is exactly the condition `PaneBarPlacement.flipIfEdgeMoved` returns on
+        // (`reresolveMovedEdge()` answering false).
         //
         // This is the load-bearing assertion, and the flip count below is not. Measured by
         // instrumenting `flipEdgeIfScrolledAcross`: it is entered 3 times, passes its
@@ -201,5 +208,76 @@ import Sync
                 "a re-resolve must agree with the committed edge — that agreement is what makes the callback return")
         #expect(counter.flips == 0,
                 "a selection change must not produce an edge-flip callback: the host commits it synchronously from body")
+    }
+
+    // MARK: - Columns: a scroll re-resolves the bar
+
+    /// Suspends while the run loop runs, laying the window out a frame at a time. A synchronous
+    /// `CFRunLoopRunInMode` inside a `@MainActor` test never drains the main queue — where the flip
+    /// callback is dispatched — so the two tests below cannot use `pump(_:seconds:)`.
+    @discardableResult
+    private func waitUntil(_ window: NSWindow, _ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            if condition() { return true }
+            window.layoutIfNeeded()
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        return condition()
+    }
+
+    private func columnList(_ window: NSWindow) -> NSScrollView? {
+        var found: [NSScrollView] = []
+        func walk(_ v: NSView) {
+            if let s = v as? NSScrollView, s.documentView is NSTableView { found.append(s) }
+            v.subviews.forEach(walk)
+        }
+        walk(window.contentView!)
+        return found.first
+    }
+
+    /// **Columns' row bottoms are in the viewport's own space.** The first row ends about a row below
+    /// the viewport's top — read from the column's table by `ColumnListProbe`, measured against the
+    /// viewport the pane took from SwiftUI. A probe converting into any other space (the window's
+    /// bottom-up one, the clip's) would put it hundreds of points off, and the bar would flip early or
+    /// never; every other assertion about bottoms is relative and would not notice.
+    @Test func columnRowBottomsAreInTheViewportsSpace() async throws {
+        let box = Box(tree: Self.tree(folders: 40))
+        let (window, placement) = mount(box, counter: Counter())
+        defer { window.contentView = nil }
+        let first = "\(Self.root)/folder0"
+        await waitUntil(window) { placement.rowBottoms[first] != nil && placement.viewportHeight > 0 }
+        let bottom = try #require(placement.rowBottoms[first], "the first row was never reported")
+        let below = bottom - placement.viewportGlobalMinY
+        #expect(below > 10 && below < 60, "the first row ends \(below)pt below the viewport's top, not about a row")
+    }
+
+    /// **Scrolling a column flips the bar once** — the path this suite's premise said no headless test
+    /// could arm. The lowest visible row is selected, so the bar goes to the top; the column is then
+    /// scrolled until that row rises clear of the band, and the bar is asked back down exactly once.
+    @Test func scrollingAColumnFlipsTheBarOnce() async throws {
+        let box = Box(tree: Self.tree(folders: 40))
+        let counter = Counter()
+        let (window, placement) = mount(box, counter: counter)
+        defer { window.contentView = nil }
+        await waitUntil(window) { !placement.rowBottoms.isEmpty && placement.viewportHeight > 0 }
+        let target = try #require(
+            placement.rowBottoms
+                .filter { $0.value - placement.viewportGlobalMinY <= placement.viewportHeight }
+                .max(by: { $0.value < $1.value }),
+            "no row bottoms were reported — the pane never laid out")
+        box.selection = [target.key]
+        box.hostSelection = [target.key]
+        await waitUntil(window) { placement.atTop }
+        try #require(placement.atTop, "selecting the lowest visible row did not raise the bar")
+        #expect(counter.flips == 0, "a selection change asked for a flip")
+
+        let list = try #require(columnList(window), "no column list")
+        let clip = list.contentView
+        clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: clip.bounds.origin.y + 160))
+        list.reflectScrolledClipView(clip)
+        await waitUntil(window) { counter.flips > 0 }
+        #expect(counter.flips == 1, "scrolling the selected row clear of the band flipped the bar \(counter.flips) times")
+        #expect(!placement.atTop, "the bar stayed at the top after its row rose clear")
     }
 }

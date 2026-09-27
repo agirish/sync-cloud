@@ -260,7 +260,7 @@ import Testing
     /// so a control added without an entry — the loose-files inbox, for one — cost nothing.
     ///
     /// This reads the labels back out of the tab sources and requires each to reach an entry. It
-    /// is a scan, not a proof: it can only see the labels written as string literals in the three
+    /// is a scan, not a proof: it can only see the labels written as string literals in the four
     /// vehicles below, and it cannot know about one it fails to model. What it does hold is that a
     /// control added the way every current control is written must be indexed or explicitly
     /// exempted here — which is the step that was skipped.
@@ -368,6 +368,9 @@ import Testing
             "SettingsSection": #"SettingsSection\( ?"([^"]+)""#,
             "Toggle(label:)": #"Toggle\( ?"([^"]+)""#,
             "Toggle(isOn:){Text}": #"Toggle\(isOn: [^)]*\) \{ Text\("([^"]+)"\)"#,
+            // "Column widths" shipped as one of these and reached no search entry, which this scan
+            // could not see until it knew the vehicle.
+            "LabeledContent": #"LabeledContent\( ?"([^"]+)""#,
         ]
 
         let collapsed = try files.map {

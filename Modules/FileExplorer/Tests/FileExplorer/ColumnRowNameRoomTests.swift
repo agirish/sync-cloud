@@ -99,17 +99,82 @@ import Sync
 
     /// A long file name runs to one gap short of the ☁ slot every file row holds (14.5pt at this
     /// text size, reserved so names do not shift when a cloud answer lands). Nothing trails a
-    /// downloaded file, so the measurement is the blank after the name: slot + 10pt gap + slack.
-    /// It was 102pt at 284 while the size was drawn.
+    /// downloaded file, so the measurement is the blank after the name: slot + 10pt gap + slack —
+    /// about 27pt.
+    ///
+    /// **With no size to draw**, so the last painted run is the name on the old layout as well as
+    /// this one. Given a size, the old row painted it last, 34.5pt from the edge — inside a looser
+    /// bound — and this passed against the very spacing it exists to catch; the name itself sat
+    /// ~52pt short.
     @Test(.machinePinned(.pixelSampling)) func aLongFileNameRunsToTheCloudSlot() throws {
-        let node = FileNode(id: "/root/\(longFile)", name: longFile, isDirectory: false, fileSize: 96_256)
+        let node = FileNode(id: "/root/\(longFile)", name: longFile, isDirectory: false)
         for width in Self.widths {
             let rep = try #require(bitmap(ColumnRowView(
                 row: row(node), isIgnored: false, diffStatus: nil, containedDiffCount: 0,
                 density: .comfortable, showsChevron: false), width: width))
             let nameEnd = try #require(runs(rep, width: width).last?.upperBound)
             let blank = Double(width) - nameEnd
-            #expect(blank <= 36, "at \(width)pt a file name leaves \(blank)pt blank after it")
+            #expect(blank <= 32, "at \(width)pt a file name leaves \(blank)pt blank after it")
+        }
+    }
+
+    /// **A search hit keeps its match on screen.** "Individual" sits left of the middle of this
+    /// name, which is exactly what a middle cut removes: at 240pt the hit row drew the same pixels as
+    /// the same name with no match — the emboldened run cut away, the row a hit with nothing to show
+    /// for it. Cut at the tail instead (`FileRowView.nameTruncation`), part of the match survives,
+    /// bold, and the two rows differ.
+    @Test(.machinePinned(.pixelSampling)) func aSearchHitKeepsItsMatchOnScreen() throws {
+        let node = FileNode(id: "/root/\(longFile)", name: longFile, isDirectory: false)
+        let start = try #require(longFile.range(of: "Individual"))
+        let lower = longFile.distance(from: longFile.startIndex, to: start.lowerBound)
+        var hit = PaneSearchRowContext.none
+        hit.match = lower..<(lower + "Individual".count)
+        func rendered(_ context: PaneSearchRowContext) throws -> NSBitmapImageRep {
+            try #require(bitmap(ColumnRowView(
+                row: row(node), isIgnored: false, diffStatus: nil, containedDiffCount: 0,
+                density: .comfortable, showsChevron: false, searchContext: context), width: 240))
+        }
+        let withMatch = try rendered(hit), plain = try rendered(.none)
+        var differing = 0
+        for y in 0..<min(withMatch.pixelsHigh, plain.pixelsHigh) {
+            for x in 0..<min(withMatch.pixelsWide, plain.pixelsWide) {
+                guard let a = withMatch.colorAt(x: x, y: y), let b = plain.colorAt(x: x, y: y) else { continue }
+                if max(abs(a.redComponent - b.redComponent),
+                       max(abs(a.greenComponent - b.greenComponent),
+                           abs(a.blueComponent - b.blueComponent))) > 0.02 { differing += 1 }
+            }
+        }
+        #expect(differing > 0, "the hit row painted exactly what the plain row did — its match was cut away")
+    }
+
+    /// Where a name is cut: in the middle, except on a hit, which is cut at the end away from its
+    /// match — the tail for a match in the first half, the head for one in the second.
+    @Test func aHitIsCutAwayFromItsMatch() {
+        let name = String(repeating: "x", count: 60)
+        #expect(FileRowView.nameTruncation(match: nil, in: name) == .middle)
+        #expect(FileRowView.nameTruncation(match: 0..<5, in: name) == .tail)
+        #expect(FileRowView.nameTruncation(match: 22..<32, in: name) == .tail)
+        #expect(FileRowView.nameTruncation(match: 50..<58, in: name) == .head)
+        #expect(FileRowView.nameTruncation(match: 28..<34, in: name) == .head)
+        #expect(FileRowView.nameTruncation(match: 0..<1, in: "") == .middle)
+    }
+
+    /// **In Tree, a long name runs to the size beside it.** The same zero-spaced row, with the
+    /// trailing detail Columns withholds: the name stops one 10pt gap short of the file's size, and
+    /// the size keeps only its gap and the ☁ slot after it. They were 28pt and 20pt while the row was
+    /// spaced 10pt around children that draw nothing — the Tree gained the name room too.
+    @Test(.machinePinned(.pixelSampling)) func aLongTreeNameRunsToItsSize() throws {
+        let node = FileNode(id: "/root/\(longFile)", name: longFile, isDirectory: false, fileSize: 96_256)
+        for width in [300, 360, 420] as [CGFloat] {
+            let rep = try #require(bitmap(FileRowView(node: FileRowInfo(node), isIgnored: false, diffStatus: nil,
+                                                      containedDiffCount: 0, density: .comfortable), width: width))
+            let r = runs(rep, width: width)
+            try #require(r.count >= 3, "expected icon, name and size runs at \(width)pt, got \(r)")
+            let size = r[r.count - 1], nameEnd = r[r.count - 2].upperBound
+            #expect(size.lowerBound - nameEnd <= 16,
+                    "at \(width)pt the name stops \(size.lowerBound - nameEnd)pt short of its size")
+            #expect(Double(width) - size.upperBound <= 28,
+                    "at \(width)pt the size sits \(Double(width) - size.upperBound)pt from the row's end")
         }
     }
 

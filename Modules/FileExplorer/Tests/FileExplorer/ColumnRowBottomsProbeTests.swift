@@ -5,8 +5,8 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// `ColumnRowBottomsProbe` — where each open column's visible rows end, for the action bar, read from
-/// the column's table instead of from a `GeometryReader` on every row.
+/// `ColumnListProbe`'s bar half — where each open column's visible rows end, for the action bar,
+/// read from the column's table instead of from a `GeometryReader` on every row.
 ///
 /// The reason it exists is a cost: a `.global` reader on every column row subscribed every row to
 /// the stack's sideways scroll, and a 12 s swipe in the app kept the main thread 47% busy re-laying
@@ -42,16 +42,20 @@ import Sync
     final class Box: ObservableObject {
         @Published var browsePath = PaneBrowsePath()
         @Published var selection: Set<String> = []
+        /// The tree the pane shows — published, so a test can republish a smaller one under it.
+        @Published var tree: PaneTree
+        init(tree: PaneTree) { self.tree = tree }
     }
 
     static let root = "/root"
 
     /// 30 folders, each holding 30 folders of 12 files: every column is taller than the window, so
-    /// each one has rows above and below its viewport to scroll between.
-    private static func tree() -> PaneTree {
+    /// each one has rows above and below its viewport to scroll between. `middle` sets how many
+    /// folders `a2` holds, so a test can republish it shrunk.
+    private static func tree(version: Int = 1, middle: Int = 30) -> PaneTree {
         let top = (0..<30).map { a -> FileNode in
             let dir = "\(root)/a\(a)"
-            let mids = (0..<30).map { b -> FileNode in
+            let mids = (0..<(a == 2 ? middle : 30)).map { b -> FileNode in
                 let bPath = "\(dir)/b\(b)"
                 return FileNode(id: bPath, name: "b\(b)", isDirectory: true,
                                 children: (0..<12).map {
@@ -60,19 +64,18 @@ import Sync
             }
             return FileNode(id: dir, name: "a\(a)", isDirectory: true, children: mids)
         }
-        return PaneTree(side: .left, version: 1, nodes: top)
+        return PaneTree(side: .left, version: version, nodes: top)
     }
 
     private struct Harness: View {
         @ObservedObject var box: Box
-        let tree: PaneTree
-        let index: PaneChildrenIndex
         let placement: PaneBarPlacement
 
         var body: some View {
             PaneColumnsView(
-                tree: tree, otherTree: PaneTree(side: .right, version: 1, nodes: []),
-                childrenIndex: index, treeRoot: ColumnRowBottomsProbeTests.root,
+                tree: box.tree, otherTree: PaneTree(side: .right, version: 1, nodes: []),
+                childrenIndex: PaneChildrenIndex(tree: box.tree, treeRoot: ColumnRowBottomsProbeTests.root),
+                treeRoot: ColumnRowBottomsProbeTests.root,
                 browsePath: $box.browsePath, onNavigate: { box.browsePath = $0 },
                 selection: $box.selection, otherSelection: [], isLeft: true,
                 delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
@@ -87,8 +90,8 @@ import Sync
     private struct Mounted {
         let window: NSWindow
         let box: Box
-        let tree: PaneTree
         let placement: PaneBarPlacement
+        var tree: PaneTree { box.tree }
     }
 
     /// Lets the main run loop run for `seconds` by SUSPENDING, a frame at a time. A synchronous
@@ -100,13 +103,24 @@ import Sync
         while Date() < end { try? await Task.sleep(nanoseconds: 8_000_000) }
     }
 
+    /// Waits for `condition` — ARRIVAL, not a fixed time — up to a ceiling generous enough for a
+    /// loaded full run, where a mount has measured 18–43 s. A fixed pump expires on schedule and
+    /// then asserts against a pane that has not laid out (`docs/flaky-tests.md`, "quiescence is not
+    /// arrival"). Fixed pumps remain only where a test asserts that something did NOT happen.
+    @discardableResult
+    private func waitUntil(_ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        return condition()
+    }
+
     private func mount(components: [String] = ["a2", "b3"]) async -> Mounted {
-        let box = Box()
-        let tree = Self.tree()
+        let box = Box(tree: Self.tree())
         let placement = PaneBarPlacement()
-        let host = NSHostingView(rootView: Harness(box: box, tree: tree,
-                                                   index: PaneChildrenIndex(tree: tree, treeRoot: Self.root),
-                                                   placement: placement))
+        let host = NSHostingView(rootView: Harness(box: box, placement: placement))
         host.frame = NSRect(x: 0, y: 0, width: 520, height: 400)
         // Full-size content, as the app's `.hiddenTitleBar` window is, so the content view's space
         // is the window's — the one SwiftUI's `.global` frames use.
@@ -115,8 +129,13 @@ import Sync
         window.isReleasedWhenClosed = false
         window.contentView = host
         box.browsePath = PaneBrowsePath(components: components)
-        await pump(1.2)
-        return Mounted(window: window, box: box, tree: tree, placement: placement)
+        let m = Mounted(window: window, box: box, placement: placement)
+        let directories = PaneBrowsePath(components: components).columnDirectories(treeRoot: Self.root)
+        await waitUntil {
+            self.columnLists(m).count == directories.count
+                && directories.allSatisfy { dir in self.ids(m, dir).filter { placement.rowBottoms[$0] != nil }.count >= 5 }
+        }
+        return m
     }
 
     private func scrollViews(_ view: NSView) -> [NSScrollView] {
@@ -154,11 +173,25 @@ import Sync
             #expect(reported.count >= 5, "the column listing \(directory) reported \(reported.count) rows")
             #expect(reported == reported.sorted(), "\(directory)'s rows are not reported top to bottom")
         }
+        // And each column's probe found ITS column's table — the lists of a stack are siblings that
+        // only their frames tell apart, and a probe on a neighbour's table reports the wrong rows.
+        var probes: [ColumnListProbe.ProbeView] = []
+        func collect(_ v: NSView) {
+            if let p = v as? ColumnListProbe.ProbeView { probes.append(p) }
+            v.subviews.forEach(collect)
+        }
+        collect(m.window.contentView!)
+        let tables = columnLists(m).compactMap { $0.documentView as? NSTableView }
+        #expect(probes.count == tables.count, "\(probes.count) probes for \(tables.count) columns")
+        #expect(Set(probes.compactMap { $0.resolvedTable.map(ObjectIdentifier.init) })
+                == Set(tables.map(ObjectIdentifier.init)),
+                "the probes did not resolve one table each, their own")
     }
 
-    /// **The property the change was for.** Sliding the stack sideways moves no row vertically, so
-    /// no reported bottom may move — and nothing about it is re-measured. A per-row global reader
-    /// re-ran on every frame of exactly this.
+    /// **The behaviour the change keeps.** Sliding the stack sideways moves no row vertically, so no
+    /// reported bottom may move. (That nothing is RE-MEASURED to get there — the cost the change was
+    /// for — is not something bottoms can show: per-row global readers left them unchanged too. The
+    /// source scan at the bottom of this suite is what holds that.)
     @Test func aSidewaysScrollMovesNoRowBottom() async throws {
         let m = await mount()
         defer { m.window.contentView = nil }
@@ -194,7 +227,12 @@ import Sync
         let delta: CGFloat = 60
         clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: clip.bounds.origin.y + delta))
         middle.reflectScrolledClipView(clip)
-        await pump(0.3)
+        await waitUntil {
+            middleIDs.contains { id in
+                guard let a = before[id], let b = m.placement.rowBottoms[id] else { return false }
+                return abs((a - b) - delta) < 0.5
+            }
+        }
 
         let moved = middleIDs.compactMap { id -> CGFloat? in
             guard let a = before[id], let b = m.placement.rowBottoms[id] else { return nil }
@@ -219,9 +257,52 @@ import Sync
                      "the deepest column reported nothing, so its withdrawal would prove nothing")
 
         m.box.browsePath = PaneBrowsePath(components: ["a2"])
-        await pump(0.8)
+        await waitUntil { !deepest.contains { m.placement.rowBottoms[$0] != nil } }
         #expect(!deepest.contains { m.placement.rowBottoms[$0] != nil },
                 "a closed column's rows are still in the placement")
+    }
+
+    /// **A folder that shrinks under a scrolled column is reported only for the rows it still has.**
+    /// A republish hands the probe the column's new rows before the List has applied them to its
+    /// table, so for a moment the table's visible range can begin past the end of the new rows —
+    /// which trapped, since reading row N of the rows then asks for one that is not there. The probe
+    /// waits for the table and the rows to agree, then reports the rows that remain and takes back
+    /// the ones that went.
+    @Test func aFolderThatShrinksUnderAScrolledColumnReportsOnlyItsRows() async throws {
+        let m = await mount()
+        defer { m.window.contentView = nil }
+        let middle = try #require(columnLists(m).dropFirst().first)
+        let clip = middle.contentView
+        let bottom = (clip.documentView?.frame.height ?? 0) - clip.bounds.height
+        try #require(bottom > 60, "the middle column does not scroll, so shrinking it proves nothing")
+        clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: bottom))
+        middle.reflectScrolledClipView(clip)
+        let gone = "\(Self.root)/a2/b29"
+        await waitUntil { m.placement.rowBottoms[gone] != nil }
+        try #require(m.placement.rowBottoms[gone] != nil, "the last row was never reported at the bottom")
+
+        // The browse path runs through b3, which survives the shrink to five folders.
+        m.box.tree = Self.tree(version: 2, middle: 5)
+        let kept = (0..<5).map { "\(Self.root)/a2/b\($0)" }
+        await waitUntil { m.placement.rowBottoms[gone] == nil && kept.allSatisfy { m.placement.rowBottoms[$0] != nil } }
+        #expect(m.placement.rowBottoms[gone] == nil, "a row the folder no longer has is still reported")
+        let bottoms = kept.compactMap { m.placement.rowBottoms[$0] }
+        #expect(bottoms.count == 5, "the rows that remain are not all reported: \(bottoms.count) of 5")
+        #expect(bottoms == bottoms.sorted(), "the remaining rows are not reported top to bottom")
+    }
+
+    /// **A report reads only rows the table and the column agree on.** While a republish is half
+    /// applied the table still holds the old rows: 25 where there are now 30 would give rows their
+    /// neighbours' bottoms, and 30 where a folder shrank to 5 reads past the end. Neither is reported
+    /// — the probe keeps its last values until the two agree — while an agreed range is clamped, and
+    /// an empty one is a report of nothing.
+    @Test func aReportReadsOnlyRowsTheTableAndTheColumnAgreeOn() {
+        #expect(ColumnListProbe.reportableRows(tableRows: 30, rowsCount: 30, visible: NSRange(location: 15, length: 15)) == 15..<30)
+        #expect(ColumnListProbe.reportableRows(tableRows: 30, rowsCount: 30, visible: NSRange(location: 25, length: 10)) == 25..<30)
+        #expect(ColumnListProbe.reportableRows(tableRows: 30, rowsCount: 25, visible: NSRange(location: 20, length: 10)) == nil,
+                "a half-applied republish was reported — rows get their neighbours' bottoms")
+        #expect(ColumnListProbe.reportableRows(tableRows: 30, rowsCount: 5, visible: NSRange(location: 15, length: 15)) == nil)
+        #expect(ColumnListProbe.reportableRows(tableRows: 5, rowsCount: 5, visible: NSRange(location: NSNotFound, length: 0))?.isEmpty == true)
     }
 
     /// **The pane leaving the window takes every row back** — the teardown half, and the one the
@@ -234,7 +315,7 @@ import Sync
         let m = await mount()
         try #require(!m.placement.rowBottoms.isEmpty, "nothing was reported, so a withdrawal would prove nothing")
         m.window.contentView = nil
-        await pump(0.3)
+        await waitUntil { m.placement.rowBottoms.isEmpty }
         #expect(m.placement.rowBottoms.isEmpty,
                 "\(m.placement.rowBottoms.count) rows outlived the pane that reported them")
     }
@@ -269,11 +350,21 @@ import Sync
         let fileRow = codeOnly(rows[fileRowStart.lowerBound..<fileRowEnd.lowerBound])
         #expect(fileRow.contains("PaneSearchName("), "the scan is not reading FileRowView — it proves nothing")
 
-        for (name, code) in [("the column row", columnRow), ("FileRowView", fileRow)] {
-            for construct in ["GeometryReader", "onGeometryChange", "in: .global", "PaneRowBottomsKey"] {
+        let columnRowViewStart = try #require(columns.range(of: "struct ColumnRowView: View {"), "ColumnRowView moved")
+        let columnRowViewEnd = columns[columnRowViewStart.upperBound...].range(of: "\nstruct ")?.lowerBound ?? columns.endIndex
+        let columnRowView = codeOnly(columns[columnRowViewStart.lowerBound..<columnRowViewEnd])
+        #expect(columnRowView.contains("FileRowView("), "the scan is not reading ColumnRowView — it proves nothing")
+        let backgroundStart = try #require(columns.range(of: "private func rowBackground("), "rowBackground moved")
+        let backgroundEnd = try #require(columns[backgroundStart.upperBound...].range(of: "\n    }\n"), "rowBackground has no end")
+        let rowBackground = codeOnly(columns[backgroundStart.lowerBound..<backgroundEnd.upperBound])
+
+        for (name, code) in [("the column row", columnRow), ("FileRowView", fileRow),
+                             ("ColumnRowView", columnRowView), ("the row background", rowBackground)] {
+            for construct in ["GeometryReader", "onGeometryChange", "in: .global", "PaneRowBottomsKey",
+                              ".visualEffect", "onScrollGeometryChange"] {
                 #expect(!code.contains(construct), """
                         `\(construct)` is in \(name). A geometry read on a column row subscribes every \
-                        row to the stack's sideways scroll — see `ColumnRowBottomsProbe` for what that \
+                        row to the stack's sideways scroll — see `ColumnListProbe` for what that \
                         cost. Report positions from the table instead.
                         """)
             }

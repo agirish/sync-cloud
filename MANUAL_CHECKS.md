@@ -116,9 +116,10 @@ launch confirmed. Live overlay rendering is the human-only part.
 
 ## Ambient surfaces (2026-08-04) — what no fixture can judge
 
-The classifier, the badge, the inspector rows and the handoff are all covered by green tests
-(`FileLocationTests`, `HomeOnlyBadge*Tests`, `DetailsWhereItLivesTests`, `DuplicateReveal*Tests`,
-`DuplicateRevealCoordinatorTests`, `PaneHomeBadgeDelegateTests`).
+The classifier, the inspector rows and the handoff are all covered by green tests
+(`FileLocationTests`, `DetailsWhereItLivesTests`, `DuplicateReveal*Tests`,
+`DuplicateRevealCoordinatorTests`, `PaneDoorDelegateTests`). The `⌂` row badge this section once
+covered was removed in 5.4; a folder's containment is now the inspector's *Where it lives* row.
 
 The "typing your own query retires the named answer" check that used to sit here is **gone
 because it became testable**: the rule was rewritten from clearing-on-every-write-path to a
@@ -132,11 +133,8 @@ manual check can be turned into a gate, turn it into a gate.
   written on an uninstalled `LensWorkspaceView` does not persist — probed and confirmed — and a card click
   cannot be driven headlessly.)
 
-Two things worth an eye that no fixture can judge:
+One thing worth an eye that no fixture can judge:
 
-- [ ] **⌂ density in a Home-folder pane reads as information, not alarm.** Most rows will carry
-  it. It is drawn in the same grey as ☁ deliberately — if it reads as a wall of warnings, that is
-  the call to revisit.
 - [ ] **The inspector's three rows read top-down as evidence → conclusion.** Path, then *On this
   Mac*, then *Where it lives*. The pill should feel like it follows from the two rows above it
   rather than arriving from nowhere.

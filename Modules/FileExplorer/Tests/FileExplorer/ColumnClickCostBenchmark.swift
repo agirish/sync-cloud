@@ -7,10 +7,12 @@ import Sync
 
 /// What re-rendering a Columns pane costs when a selection changes.
 ///
-/// Built to chase a reported ~290ms click on panes of ~40,000 nodes, and it **cleared the pane**:
-/// three open columns over a 40k tree re-render in ~10ms. Two independent results agree that the
-/// reported number is not this view's rendering — the same click measured identically in a Release
-/// build as in Debug, and optimisation would have moved real computation.
+/// Built to chase a reported ~290ms click on panes of ~40,000 nodes, and it **cleared the pane's own
+/// render**: three open columns over a 40k tree re-render in ~10ms. Two independent results agreed
+/// that the reported number was not this view's rendering — the same click measured identically in
+/// a Release build as in Debug, and optimisation would have moved real computation. What neither
+/// could see is the row menus, which this window never builds (below) and which is where a click's
+/// cost later turned out to be.
 ///
 /// It stays as the regression net that finding implies: if a pane render ever does start costing
 /// what a click was blamed for, this catches it, and the threshold is deliberately far above the
