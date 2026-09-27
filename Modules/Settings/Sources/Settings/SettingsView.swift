@@ -973,6 +973,9 @@ struct ReadabilitySettingsTab: View {
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
     @AppStorage(FontSize.defaultsKey) private var fontSizePercent: Int = FontSize.medium.percent
+    /// Whether a Columns divider sizes its own column or every column — see `ColumnResizeMode`.
+    @AppStorage(ColumnResizeMode.defaultsKey) private var columnResizeModeRaw: String =
+        ColumnResizeMode.default.rawValue
 
     /// The resolved text size. `FontSize.init(percent:)` clamps, so a value stored before the
     /// range last moved is honoured rather than discarded.
@@ -1147,6 +1150,29 @@ struct ReadabilitySettingsTab: View {
 
                 SizeSpacingPreview(fontSize: fontSize, density: listDensity)
                     .padding(.top, 4)
+
+                // Here rather than on its own tab: it is about how the columns read, one row below
+                // how big their rows are. The segments are short on purpose — at the sheet's floor
+                // the content beside the rail is about 340pt — and the caption carries the rest,
+                // ⌥ and the double-click included, since neither is visible anywhere else.
+                LabeledContent("Column widths") {
+                    Picker("Column widths", selection: $columnResizeModeRaw) {
+                        ForEach(ColumnResizeMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .accentedSegments(selectedHue)
+                    .fixedSize()
+                }
+                .padding(.top, 10)
+
+                Text("Dragging a divider in Columns resizes that column, or every column at once. Hold ⌥ while dragging to do the other; double-click a divider to fit its longest name.")
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } caption: {
                 // The prose lives inline — under the presets it summarises, under each control it
                 // explains — so the trailing caption slot is deliberately empty.

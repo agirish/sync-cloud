@@ -97,13 +97,48 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// The minimum is not cosmetic: below it a row cannot fit its icon, name, contained-differences
     /// count and difference badge together, and the badge is the entire reason this pane exists.
     /// Clamping keeps every row complete rather than silently shedding the parts that carry meaning.
+    ///
+    /// **The ceiling was 340 until columns could be sized one at a time (2026-09-27).** With one
+    /// width for every column, a wide column meant a wide stack, and 340 kept a stack of folders
+    /// from pushing its deepest column off the pane. A column sized on its own is usually the one
+    /// listing files with long names, and 340 was not enough for those — 600 is, while still leaving
+    /// the preview its floor beside it in any pane wide enough to hold both
+    /// (`showsPreviewColumn` refuses the preview otherwise).
     public static let defaultColumnWidth: CGFloat = 210
     public static let minimumColumnWidth: CGFloat = 140
-    public static let maximumColumnWidth: CGFloat = 340
+    public static let maximumColumnWidth: CGFloat = 600
 
-    /// One shared width across both panes, so the two sides stay visually symmetric — they are
-    /// being read against each other, and mismatched columns make that harder.
+    /// The width every column takes unless it was sized on its own — see `ColumnWidthOverrides`.
+    /// One value across all panes, so the two sides of a comparison stay symmetric; and exactly the
+    /// single width this key always held, which is why "All columns together" is today's behaviour
+    /// with nothing migrated.
     public static let columnWidthDefaultsKey = "paneColumnWidth"
+
+    /// What a column's list adds around a row, both sides together: the width a column needs beyond
+    /// its widest row's own. Measured on a mounted column (2026-09-27): the row's content starts
+    /// 16–16.5pt in from the column's leading edge and ends 17pt short of its trailing edge, the same
+    /// at both densities; 34 is that sum rounded up, so a fitted column never truncates by a hair.
+    public static let columnRowHorizontalInset: CGFloat = 34
+
+    /// The positions sized on their own, over the base width above — see `ColumnWidthOverrides`.
+    /// Shared across panes for the base width's reason: a comparison reads column 3 against column 3.
+    public static let columnWidthOverridesDefaultsKey = "paneColumnWidthOverrides"
+
+    /// The widths a divider on the column at `depth` leaves once dragged (or fitted) to `width`.
+    ///
+    /// `all` is the "All columns together" gesture: every column takes the one width and every
+    /// column sized on its own is released, which is exactly what one shared width always did — so a
+    /// person who prefers that loses nothing. Otherwise only `depth` moves, and every other column
+    /// keeps whatever it had. Pure, and the one place this is decided.
+    public static func resizedColumnWidths(
+        base: CGFloat, overrides: ColumnWidthOverrides, depth: Int, to width: CGFloat, all: Bool
+    ) -> (base: CGFloat, overrides: ColumnWidthOverrides) {
+        let clamped = clampColumnWidth(width)
+        guard !all else { return (clamped, ColumnWidthOverrides()) }
+        var next = overrides
+        next.widths[depth] = clamped
+        return (base, next)
+    }
 
     /// Below this pane width there is no room for a second column beside the first, so the pane
     /// shows one column that replaces its contents as you drill, with `‹` walking back out.
@@ -178,8 +213,20 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
         columnCount: Int,
         isSingleColumn: Bool
     ) -> CGFloat {
+        trailingFillerWidth(paneWidth: paneWidth,
+                            columnWidths: Array(repeating: columnWidth, count: columnCount),
+                            isSingleColumn: isSingleColumn)
+    }
+
+    /// The same, for columns of their own widths — what a stack is once a column can be sized on its
+    /// own. The single-width form above is this with every column equal.
+    public static func trailingFillerWidth(
+        paneWidth: CGFloat,
+        columnWidths: [CGFloat],
+        isSingleColumn: Bool
+    ) -> CGFloat {
         guard !isSingleColumn else { return 0 }
-        return max(0, paneWidth - CGFloat(columnCount) * columnWidth)
+        return max(0, paneWidth - columnWidths.reduce(0, +))
     }
 
     // MARK: - Preview column
@@ -403,5 +450,72 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// written to protect) is the opposite of that.
     public static func clickNavigates(modifiers: NSEvent.ModifierFlags) -> Bool {
         !modifiers.contains(.command) && !modifiers.contains(.shift) && !modifiers.contains(.control)
+    }
+}
+
+
+// MARK: - Column resizing
+
+/// Whether dragging a column divider resizes that column alone or every column at once — the
+/// Readability setting "Column widths". ⌥ held during a drag always does the other one, as it does
+/// in Finder, so either choice keeps the other a keystroke away.
+public enum ColumnResizeMode: String, CaseIterable, Identifiable, Sendable {
+    case eachColumn = "each"
+    case allColumns = "all"
+
+    /// Each column on its own: the change people asked for. "All columns together" is exactly the
+    /// behaviour before it, kept for whoever prefers it.
+    public static let `default` = ColumnResizeMode.eachColumn
+    public static let defaultsKey = "paneColumnResizeMode"
+
+    public var id: String { rawValue }
+
+    /// The Settings segment labels — short, because the Readability tab's floor leaves about 340pt
+    /// beside the rail; the caption under the control says the rest.
+    public var displayName: String {
+        switch self {
+        case .eachColumn: return "Each column"
+        case .allColumns: return "All columns"
+        }
+    }
+
+    /// Whether a divider gesture made with ⌥ held (or not) resizes every column. One rule, so the drag
+    /// and the double-click cannot come to disagree about what ⌥ means.
+    public func resizesAll(optionHeld: Bool) -> Bool {
+        (self == .allColumns) != optionHeld
+    }
+}
+
+/// The column positions sized on their own, by depth — the widths that are not the shared base width.
+///
+/// **Per POSITION, not per folder** — Finder's model, and the decision recorded as Q3: the third
+/// column stays as wide as it was dragged whatever folder it lists, and a new, deeper column opens at
+/// the base width. Stored as a string (`"2=480;3=300"`) so `@AppStorage` can hold it; entries outside
+/// the legal range are clamped on read by `width(atDepth:base:)`, never trusted.
+public struct ColumnWidthOverrides: Equatable, Sendable, RawRepresentable {
+    public var widths: [Int: CGFloat]
+
+    public init(widths: [Int: CGFloat] = [:]) {
+        self.widths = widths
+    }
+
+    /// The width the column at `depth` takes: its own if it was sized on its own, else `base`.
+    public func width(atDepth depth: Int, base: CGFloat) -> CGFloat {
+        PaneViewMode.clampColumnWidth(widths[depth] ?? base)
+    }
+
+    public init?(rawValue: String) {
+        var parsed: [Int: CGFloat] = [:]
+        for pair in rawValue.split(separator: ";") {
+            let parts = pair.split(separator: "=")
+            guard parts.count == 2, let depth = Int(parts[0]), depth >= 0,
+                  let width = Double(parts[1]), width.isFinite else { continue }
+            parsed[depth] = CGFloat(width)
+        }
+        self.widths = parsed
+    }
+
+    public var rawValue: String {
+        widths.keys.sorted().map { "\($0)=\(Double(widths[$0]!))" }.joined(separator: ";")
     }
 }

@@ -6054,3 +6054,36 @@ Reduce Motion off and on — the per-page floor caught a reveal that never ran o
 only. The app's drawing is unchanged: every page renders byte-for-byte as before. `v4.x`'s six pages
 reveal the same way (one `onAppear` each, `appeared` gating everywhere but Transfer) under the same
 `painted > 300` floor, so the gap applies there — RECORDED, not owed.
+
+## Columns polish: row room, sideways scroll, scroll memory, column widths — main only
+
+Six changes to the Columns presentation (the artifact's CP1–CP8): the `⌂ on this Mac only` row badge
+removed with its pipeline, file sizes withheld from Columns rows, names given the row's full width and
+cut in the middle, the action bar's row positions read from each column's table, a pane's scroll
+offsets kept while a workspace switch rebuilds it, and columns sized one at a time (Settings ▸
+Readability ▸ Column widths).
+
+**One of them is a defect fix, and it applies to every line.** A sideways swipe across the columns
+re-laid out every visible row on every frame, because each column row reported its position through
+a `.global` `GeometryReader` — reading a global frame subscribes the row to the stack's scroll
+offset. Sampled during a real swipe on `main`: the main thread 47% busy, 11% after. All three
+maintenance lines carry the same per-row reader:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  f=Modules/FileExplorer/Sources/FileExplorer/PaneColumnsView.swift
+  printf '%-5s file=%s globalRowProbe=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- $f | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:$f 2>/dev/null | grep -c 'proxy.frame(in: .global).maxY')"
+done
+# measured 2026-09-27, against origin, before this landed:
+# main file=1 globalRowProbe=1 · v4.x file=1 globalRowProbe=1 · v3.x file=1 globalRowProbe=1 · v2.x file=1 globalRowProbe=1
+```
+
+**`v4.x`, `v3.x`, `v2.x`: apply, RECORDED — not owed.** The fix is `ColumnRowBottomsProbe` plus
+`PaneBarPlacement.reresolveMovedEdge()`; it moves the bar's flip 4–6pt earlier (the row's cell, not
+its text), which a pick would carry too.
+
+**The rest are design changes, not defects, and are not owed anywhere:** the `⌂` badge (present on
+`v4.x` and `v3.x`, absent on `v2.x`), the Columns file size, middle truncation, scroll memory and
+per-column widths change what a line does rather than repair what it does wrong.

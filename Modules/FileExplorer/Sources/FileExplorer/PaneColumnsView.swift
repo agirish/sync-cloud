@@ -138,20 +138,26 @@ struct PaneColumnsView: View {
     /// its own from, so the sending and receiving sides cannot drift.
     var paneToken: PaneToken { PaneToken(isLeft: isLeft, isSingleSource: isSingleSource) }
 
-    /// One width shared by both panes, so the two sides stay symmetric while you read them against
-    /// each other. Clamped on every write — see `PaneViewMode.clampColumnWidth`.
+    /// The width every column takes unless it was sized on its own — one value shared by every pane,
+    /// so the two sides of a comparison stay symmetric. Clamped on every write — see
+    /// `PaneViewMode.clampColumnWidth`.
     @AppStorage(PaneViewMode.columnWidthDefaultsKey) private var storedColumnWidth: Double =
         Double(PaneViewMode.defaultColumnWidth)
+    /// The column positions sized on their own, over `storedColumnWidth` — shared across panes for
+    /// the same symmetry. See `ColumnWidthOverrides`.
+    @AppStorage(PaneViewMode.columnWidthOverridesDefaultsKey) private var storedOverrides =
+        ColumnWidthOverrides()
+    /// Whether a divider drag moves its own column or all of them — the Readability setting, which ⌥
+    /// inverts for the length of a gesture. See `ColumnResizeMode`.
+    @AppStorage(ColumnResizeMode.defaultsKey) private var resizeModeRaw: String =
+        ColumnResizeMode.default.rawValue
     /// The preview pane's width, dragged from the divider on its leading edge.
     @AppStorage(PaneViewMode.previewColumnWidthDefaultsKey) private var storedPreviewWidth: Double =
         Double(PaneViewMode.defaultPreviewColumnWidth)
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
-    /// Live width while a divider is being dragged, so the drag doesn't write defaults per frame.
-    @State private var dragWidth: CGFloat?
-    /// The column width the current divider drag started from. `DragGesture.translation` is
-    /// cumulative, so the anchor must not move while the drag runs.
-    @State private var dragAnchorWidth: CGFloat?
+    /// A column divider drag in flight — held here so the drag does not write defaults per frame.
+    @State private var columnDrag: ColumnDrag?
     /// The same two for the preview's divider, kept apart from the columns' pair: one set of scratch
     /// state shared by two dividers that resize different things is a drag on one silently
     /// continuing from the other's anchor.
@@ -227,8 +233,37 @@ struct PaneColumnsView: View {
     private var clickModifiers: NSEvent.ModifierFlags { pinnedClickModifiers ?? NSEvent.modifierFlags }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
-    private var columnWidth: CGFloat {
-        PaneViewMode.clampColumnWidth(dragWidth ?? CGFloat(storedColumnWidth))
+    private var resizeMode: ColumnResizeMode { ColumnResizeMode(rawValue: resizeModeRaw) ?? .default }
+
+    /// A divider drag in flight: the column it hangs off, the width that column started at, where
+    /// the drag has reached, and whether it moves every column.
+    ///
+    /// `anchor` is captured once, at the first frame, because `DragGesture.translation` is
+    /// cumulative — folding it into the live width compounds every frame (see
+    /// `PaneViewMode.draggedColumnWidth`). `all` is re-read every frame, so pressing or releasing ⌥
+    /// mid-drag switches between moving one column and moving all of them, as Finder does.
+    private struct ColumnDrag: Equatable {
+        let depth: Int
+        let anchor: CGFloat
+        var width: CGFloat
+        var all: Bool
+    }
+
+    /// The width the column at `depth` has on screen right now — mid-drag included.
+    private func columnWidth(atDepth depth: Int) -> CGFloat {
+        if let columnDrag, columnDrag.all || columnDrag.depth == depth { return columnDrag.width }
+        return committedColumnWidth(atDepth: depth)
+    }
+
+    /// The width the column at `depth` has once no drag is in flight.
+    private func committedColumnWidth(atDepth depth: Int) -> CGFloat {
+        storedOverrides.width(atDepth: depth, base: CGFloat(storedColumnWidth))
+    }
+
+    /// The deepest open column's width — what the preview rules measure against, because the preview
+    /// sits beside the deepest column and must leave a whole one of THOSE on screen.
+    private var deepestColumnWidth: CGFloat {
+        columnWidth(atDepth: max(0, directories.count - 1))
     }
     private var preferredPreviewWidth: CGFloat {
         PaneViewMode.clampPreviewColumnWidth(dragPreviewWidth ?? CGFloat(storedPreviewWidth))
@@ -274,10 +309,10 @@ struct PaneColumnsView: View {
     private func columnStack(paneWidth: CGFloat) -> some View {
         let previewTarget = previewItem
         let showsPreview = PaneViewMode.showsPreviewColumn(
-            paneWidth: paneWidth, columnWidth: columnWidth,
+            paneWidth: paneWidth, columnWidth: deepestColumnWidth,
             isEnabled: previewEnabled.wrappedValue, hasPreviewTarget: previewTarget != nil)
         let previewWidth = showsPreview
-            ? PaneViewMode.previewPaneWidth(paneWidth: paneWidth, columnWidth: columnWidth,
+            ? PaneViewMode.previewPaneWidth(paneWidth: paneWidth, columnWidth: deepestColumnWidth,
                                             preferred: preferredPreviewWidth)
             : 0
         // What the columns get. Every layout rule below reads THIS, not the pane: the stack's own
@@ -366,15 +401,23 @@ struct PaneColumnsView: View {
                         let depth = usesPush ? browsePath.depth : offset
                         column(directory: directory, depth: depth,
                                previewSupported: previewSupportable(paneWidth: paneWidth))
-                            .frame(width: spansStack ? stackWidth : columnWidth)
+                            .frame(width: spansStack ? stackWidth : columnWidth(atDepth: depth))
                             .id(directory)
                             .overlay(alignment: .trailing) {
-                                if !spansStack && offset < visible.count - 1 {
-                                    divider
+                                // EVERY column carries its own divider now, the deepest included.
+                                // While all columns shared one width, a divider between two
+                                // columns was enough to set it; sized one at a time, the column
+                                // you most often want wider — the deepest, listing files — needs a
+                                // handle of its own, and it had none.
+                                if !spansStack {
+                                    divider(depth: depth, directory: directory)
                                 }
                             }
                     }
-                    trailingDeselectFiller(paneWidth: stackWidth, columnCount: visible.count,
+                    trailingDeselectFiller(paneWidth: stackWidth,
+                                           columnWidths: visible.indices.map {
+                                               columnWidth(atDepth: usesPush ? browsePath.depth : $0)
+                                           },
                                            isSingleColumn: spansStack)
                 }
                 // Inside the ScrollView, so the ancestor walk resolves the STACK's scroll view
@@ -506,6 +549,17 @@ struct PaneColumnsView: View {
             // surprise.
             .onChange(of: storedColumnWidth) { previous, current in
                 guard current > previous else { return }
+                revealDeepestColumn(proxy)
+            }
+            // And when a column sized on its own commits WIDER — this driver's per-column form, under
+            // the same rule: only the growing edge can push the deepest column off the pane. A column
+            // that narrowed, or one that is not open, has nothing to correct.
+            .onChange(of: storedOverrides) { previous, current in
+                let base = CGFloat(storedColumnWidth)
+                let grew = directories.indices.contains {
+                    current.width(atDepth: $0, base: base) > previous.width(atDepth: $0, base: base)
+                }
+                guard grew else { return }
                 revealDeepestColumn(proxy)
             }
             // A reveal waiting out a hold must not outlive the pane it was revealing. The chain is
@@ -725,7 +779,7 @@ struct PaneColumnsView: View {
     /// whether the setting is on: a menu item that vanished whenever the preview it toggles was not
     /// currently on screen would be unreachable exactly when you wanted to switch it back on.
     private func previewSupportable(paneWidth: CGFloat) -> Bool {
-        PaneViewMode.showsPreviewColumn(paneWidth: paneWidth, columnWidth: columnWidth,
+        PaneViewMode.showsPreviewColumn(paneWidth: paneWidth, columnWidth: deepestColumnWidth,
                                         isEnabled: true, hasPreviewTarget: true)
     }
 
@@ -740,11 +794,10 @@ struct PaneColumnsView: View {
     /// Width is zero whenever the stack overflows, so this cannot pad the scroll content — see
     /// `PaneViewMode.trailingFillerWidth`.
     @ViewBuilder
-    private func trailingDeselectFiller(paneWidth: CGFloat, columnCount: Int,
+    private func trailingDeselectFiller(paneWidth: CGFloat, columnWidths: [CGFloat],
                                         isSingleColumn: Bool) -> some View {
         let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: paneWidth, columnWidth: columnWidth,
-            columnCount: columnCount, isSingleColumn: isSingleColumn)
+            paneWidth: paneWidth, columnWidths: columnWidths, isSingleColumn: isSingleColumn)
         if width > 0 {
             Color.clear
                 .frame(width: width)
@@ -1184,24 +1237,103 @@ struct PaneColumnsView: View {
         DispatchQueue.main.async { onBarEdgeFlip() }
     }
 
-    /// The draggable seam between two columns. Writes defaults only when the drag ends, so a drag
-    /// doesn't churn UserDefaults every frame.
-    private var divider: some View {
-        PaneDividerHandle(gesture:
-            DragGesture(coordinateSpace: .global)
-                .onChanged { value in
-                    // Capture the starting width once; `translation` is cumulative, so
-                    // folding it into the live width compounds every frame.
-                    let anchor = dragAnchorWidth ?? columnWidth
-                    if dragAnchorWidth == nil { dragAnchorWidth = anchor }
-                    dragWidth = PaneViewMode.draggedColumnWidth(anchor: anchor,
-                                                                translation: value.translation.width)
+    /// The draggable seam on a column's trailing edge.
+    ///
+    /// A drag resizes that column alone, or every column — the Readability setting "Column widths",
+    /// with ⌥ doing the other (`ColumnResizeMode.resizesAll`). A double-click fits the column to its
+    /// longest name; as the "all" gesture it gives every open column the width the widest-needing one
+    /// needs, so they stay equal. Finder's gestures, both. Defaults are written only when a gesture
+    /// ends, so a drag doesn't churn UserDefaults every frame.
+    private func divider(depth: Int, directory: String) -> some View {
+        let drag = DragGesture(coordinateSpace: .global)
+            .onChanged { value in
+                let anchor = columnDrag?.anchor ?? committedColumnWidth(atDepth: depth)
+                columnDrag = ColumnDrag(
+                    depth: depth, anchor: anchor,
+                    width: PaneViewMode.draggedColumnWidth(anchor: anchor,
+                                                           translation: value.translation.width),
+                    all: resizeMode.resizesAll(optionHeld: clickModifiers.contains(.option)))
+            }
+            .onEnded { _ in
+                if let columnDrag {
+                    commitColumnWidth(columnDrag.width, depth: columnDrag.depth, all: columnDrag.all)
                 }
-                .onEnded { _ in
-                    if let dragWidth { storedColumnWidth = Double(dragWidth) }
-                    dragWidth = nil
-                    dragAnchorWidth = nil
-                })
+                columnDrag = nil
+            }
+        let fit = TapGesture(count: 2).onEnded {
+            fitColumnWidth(depth: depth, directory: directory,
+                           all: resizeMode.resizesAll(optionHeld: clickModifiers.contains(.option)))
+        }
+        return PaneDividerHandle(gesture: drag.simultaneously(with: fit))
+    }
+
+    /// Writes a column gesture's result — see `PaneViewMode.resizedColumnWidths`, which is where the
+    /// rule lives. Each value is written only if it moved, so a no-op gesture fires no width driver.
+    private func commitColumnWidth(_ width: CGFloat, depth: Int, all: Bool) {
+        let next = PaneViewMode.resizedColumnWidths(base: CGFloat(storedColumnWidth),
+                                                    overrides: storedOverrides,
+                                                    depth: depth, to: width, all: all)
+        if Double(next.base) != storedColumnWidth { storedColumnWidth = Double(next.base) }
+        if next.overrides != storedOverrides { storedOverrides = next.overrides }
+    }
+
+    /// The double-click fit: this column to its own longest name, or — as the "all" gesture — every
+    /// open column to the width the widest-needing one needs.
+    private func fitColumnWidth(depth: Int, directory: String, all: Bool) {
+        let width = all
+            ? directories.map { fittedColumnWidth(for: $0) }.max() ?? fittedColumnWidth(for: directory)
+            : fittedColumnWidth(for: directory)
+        commitColumnWidth(width, depth: depth, all: all)
+    }
+
+    /// The width the column listing `directory` needs for its longest row to show whole — see
+    /// `fittedWidth(for:density:fonts:diffIndex:riskyReason:)`, which this feeds with the pane's own
+    /// fonts, density, differences and delegate.
+    private func fittedColumnWidth(for directory: String) -> CGFloat {
+        let rows = childrenIndex.children(atPath: directory) ?? []
+        guard !rows.isEmpty else { return CGFloat(storedColumnWidth) }
+        return Self.fittedWidth(for: rows, density: density, fonts: fonts, diffIndex: diffIndex) {
+            delegate.riskyNameReason(forName: $0.name, isDirectory: $0.isDirectory)
+        }
+    }
+
+    /// The width a column needs for its longest row to show whole.
+    ///
+    /// **Measured, not estimated.** The candidate rows are laid out once, off screen, as the column
+    /// draws them — the same `ColumnRowView`, fonts and density — so the icon, the badges, the
+    /// chevron and the held ☁ slot count exactly as drawn at any text size. What the list adds around
+    /// a row is `PaneViewMode.columnRowHorizontalInset`.
+    ///
+    /// Only the longest names are laid out: a folder of thousands would otherwise build thousands of
+    /// rows to answer a question about a few. Character count picks the candidates, the layout picks
+    /// among them — a name of wide letters can out-measure a slightly longer one of narrow letters,
+    /// which is why the pool is forty and not one.
+    ///
+    /// Static, with everything it reads passed in, so a test can hold it to "the longest name then
+    /// shows whole" without mounting a pane or synthesising a double-click.
+    static func fittedWidth(for rows: [PaneRow], density: ListDensity, fonts: PaneRowFonts,
+                            diffIndex: DiffStatusIndex,
+                            riskyReason: (FileRowInfo) -> String?) -> CGFloat {
+        // Each candidate's badge resolved up front: the layout below is an escaping builder, and the
+        // badge is part of the row's width, so it must be in the measurement.
+        let candidates = rows
+            .sorted { NameDisplay.visibleName($0.node.name).count > NameDisplay.visibleName($1.node.name).count }
+            .prefix(40)
+            .map { (row: $0, reason: riskyReason($0.info)) }
+        let measuring = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+            ForEach(candidates, id: \.row.id) { candidate in
+                ColumnRowView(
+                    row: candidate.row, isIgnored: false,
+                    diffStatus: diffIndex.status(forNodeId: candidate.row.node.id),
+                    containedDiffCount: candidate.row.node.isDirectory
+                        ? diffIndex.containedDiffCount(forNodeId: candidate.row.node.id) : 0,
+                    density: density, showsChevron: candidate.row.node.isDirectory, fonts: fonts,
+                    riskyReason: candidate.reason)
+                .fixedSize()
+            }
+        })
+        let needed = measuring.fittingSize.width + PaneViewMode.columnRowHorizontalInset
+        return PaneViewMode.clampColumnWidth(needed.rounded(.up))
     }
 }
 
