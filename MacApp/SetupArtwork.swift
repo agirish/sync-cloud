@@ -29,6 +29,42 @@ enum SetupArt {
         case welcome, browse, compare, transfer, duplicates, filing, edit
     }
 }
+
+// MARK: - The reveal
+
+/// Whether the setup art runs its reveal — the `onAppear` every illustration animates in from.
+///
+/// Always on in the app. `SetupArtworkRenderTests` turns it off to draw each page as it stands
+/// before `onAppear`, the frame a reveal that never ran would leave on screen, and requires the
+/// revealed page to differ from it. Most pages paint part of themselves before the reveal, so
+/// without that comparison a page could lose its reveal with every ink check still passing.
+private struct SetupArtRevealsKey: EnvironmentKey { static let defaultValue = true }
+
+extension EnvironmentValues {
+    var setupArtReveals: Bool {
+        get { self[SetupArtRevealsKey.self] }
+        set { self[SetupArtRevealsKey.self] = newValue }
+    }
+}
+
+/// `onAppear`, held back when `setupArtReveals` is off.
+private struct RevealOnAppear: ViewModifier {
+    @Environment(\.setupArtReveals) private var reveals
+    let reveal: () -> Void
+
+    func body(content: Content) -> some View {
+        content.onAppear { if reveals { reveal() } }
+    }
+}
+
+private extension View {
+    /// Where every illustration starts its reveal, in place of `onAppear` — so that a render can ask
+    /// for the frame before it (`setupArtReveals`).
+    func onReveal(_ reveal: @escaping () -> Void) -> some View {
+        modifier(RevealOnAppear(reveal: reveal))
+    }
+}
+
 // MARK: - The illustrations
 
 /// The provider asset-catalog image name for a display name, or nil for the neutral/box hues that
@@ -128,7 +164,7 @@ private struct WelcomeArt: View {
                 }
             }
         }
-        .onAppear {
+        .onReveal {
             if reduceMotion { appeared = true; return }
             withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { appeared = true }
             withAnimation(.easeInOut(duration: 1.9).repeatForever(autoreverses: true)) { breathe = true }
@@ -169,7 +205,7 @@ private struct BrowseArt: View {
                                value: appeared)
             }
         }
-        .onAppear {
+        .onReveal {
             guard !reduceMotion else { appeared = true; return }
             withAnimation { appeared = true }
         }
@@ -208,7 +244,7 @@ private struct CompareArt: View {
             pane(name: leftName, diffRow: 2)
             pane(name: rightName, diffRow: 0)
         }
-        .onAppear {
+        .onReveal {
             guard !reduceMotion else { appeared = true; return }
             withAnimation(.easeOut(duration: 0.5).delay(0.15)) { appeared = true }
         }
@@ -267,7 +303,7 @@ private struct TransferArt: View {
             }
             folder(name: rightName)
         }
-        .onAppear {
+        .onReveal {
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { drift = true }
         }
@@ -318,7 +354,7 @@ private struct DuplicatesArt: View {
                         .opacity(appeared ? 1 : 0)
                 }
         }
-        .onAppear {
+        .onReveal {
             guard !reduceMotion else { appeared = true; return }
             withAnimation(.spring(response: 0.45, dampingFraction: 0.62).delay(0.1)) { appeared = true }
         }
@@ -362,7 +398,7 @@ private struct FilingArt: View {
                 folder(tinted: true); folder(tinted: false); folder(tinted: true)
             }
         }
-        .onAppear {
+        .onReveal {
             guard !reduceMotion else { appeared = true; return }
             withAnimation(.easeOut(duration: 0.5)) { appeared = true }
         }
@@ -411,7 +447,7 @@ private struct EditArt: View {
         }
         .padding(.leading, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear {
+        .onReveal {
             guard !reduceMotion else { appeared = true; caretOn = true; return }
             withAnimation(.easeOut(duration: 0.4)) { appeared = true }
             withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {

@@ -6046,3 +6046,11 @@ now also requires `DuplicatesArt`'s check mark, the one part only its `onAppear`
 `painted > 500` alone held with every reveal suppressed (8,723 pixels). `v4.x` carries the same
 control over the same `DuplicatesArt` gating (`git show origin/v4.x:MacApp/SetupArtwork.swift`), so
 it applies there — RECORDED, not owed.
+
+**2026-09-27 — the per-page reveal gap, same verdict.** Every illustration now starts its reveal
+through `onReveal`, which a test-only `setupArtReveals` switch can hold back, and
+`testEveryTourPageRevealsWhenItAppears` compares each page with its frame before `onAppear`, with
+Reduce Motion off and on — the per-page floor caught a reveal that never ran on Welcome and Browse
+only. The app's drawing is unchanged: every page renders byte-for-byte as before. `v4.x`'s six pages
+reveal the same way (one `onAppear` each, `appeared` gating everywhere but Transfer) under the same
+`painted > 300` floor, so the gap applies there — RECORDED, not owed.

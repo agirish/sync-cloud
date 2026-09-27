@@ -9,7 +9,8 @@ import AppKit
 /// they are decorative and `accessibilityHidden`, and most of them reveal some or all of their
 /// drawing from an `onAppear` — Welcome and Browse draw nothing at all until it runs. A page whose
 /// art never arrives renders as a 120pt blank band above the copy and nothing else changes — the
-/// card still lays out, the titles still read, and the suite stays green.
+/// card still lays out, the titles still read, and the suite stays green. A page whose reveal never
+/// runs is quieter still: it stays in its first frame, so every page is also compared with that frame.
 ///
 /// **The harness validates itself against a shipped illustration first.** `ImageRenderer` is not
 /// obliged to run `onAppear`, so a blank result here would be indistinguishable from art that is
@@ -28,10 +29,11 @@ import AppKit
 
     /// Renders one page's artwork at the size the card gives it, and returns the bitmap.
     ///
-    /// Reduce Motion is deliberately NOT injected: `accessibilityReduceMotion` is a read-only
-    /// environment key, so there is no way to ask the art views for their settled state directly.
-    /// What lands in the bitmap is whatever a single render pass produces, which is precisely why
-    /// the control test below exists rather than an assumption that `onAppear` ran.
+    /// Reduce Motion is not injected here, so each page takes whichever branch the machine's setting
+    /// picks. `accessibilityReduceMotion` itself is read-only, but its writable spelling,
+    /// `_accessibilityReduceMotion`, is how `testEveryTourPageRevealsWhenItAppears` pins both. What
+    /// lands in the bitmap is whatever a single render pass produces, which is precisely why the
+    /// control test below exists rather than an assumption that `onAppear` ran.
     @MainActor
     static func render(_ art: SetupArt.Art) throws -> NSBitmapImageRep {
         try render(SetupIllustration(art: art, leftName: "iCloud", rightName: "Dropbox"), named: "\(art)")
@@ -190,9 +192,9 @@ import AppKit
     /// is added next — `Art` is `CaseIterable` for exactly this loop) would have shipped with the
     /// suite green. The floor is far below any shipped illustration's ink and far above a page that
     /// lost its body. It catches a reveal that never runs only where a page draws nothing before
-    /// it — Welcome and Browse. Compare, Duplicates, Filing and Edit already paint before it (1,712
-    /// to 73,664 pixels with every reveal suppressed, measured 2026-09-27), and Transfer has no
-    /// reveal. The two controls above establish that the renderer sees a shipped illustration,
+    /// it — Welcome and Browse; the rest already paint before it (1,712 to 73,664 pixels with every
+    /// reveal suppressed, measured 2026-09-27), which is `testEveryTourPageRevealsWhenItAppears`'s
+    /// to catch. The two controls above establish that the renderer sees a shipped illustration,
     /// revealed, and that a blank reads as blank, so a blank here is the ART, not the harness — and
     /// a pass is not an earlier page.
     @MainActor
@@ -200,5 +202,62 @@ import AppKit
     func testEveryTourPagePaintsItsIllustration(art: SetupArt.Art) throws {
         let (painted, _) = Self.ink(try Self.render(art))
         #expect(painted > 300, "\(art) renders as a blank band — its page ships with no illustration")
+    }
+
+    /// Pages whose `onAppear` adds nothing but motion, so there is no reveal to hold them to.
+    ///
+    /// Transfer only starts a drift, which Reduce Motion skips — and which this renderer draws
+    /// unmoved in the first Transfer render of a process and drifted in every one after (measured
+    /// 2026-09-27), so its before-and-after would depend on test order. Held to having no reveal
+    /// instead: gain one, and the check below says so.
+    static let pagesWithoutAReveal: Set<SetupArt.Art> = [.transfer]
+
+    /// Every page changes when it appears — so a reveal that never runs is caught on every page, not
+    /// only on the two that draw nothing before it.
+    ///
+    /// Each page is drawn twice through the same renderer: as it stands before `onAppear`
+    /// (`setupArtReveals` off — the frame a dead reveal leaves on screen) and revealed. Both
+    /// renders are exact and repeatable, so a reveal that never runs leaves the two identical,
+    /// pixel for pixel — measured, on every page. Run with Reduce Motion off and on, because every
+    /// page reveals down a different branch for each and either can break alone. The floor is far
+    /// below the smallest reveal, Compare's 2,900 pixels, and far above the 0 a dead one leaves.
+    @MainActor
+    @Test(arguments: SetupArt.Art.allCases)
+    func testEveryTourPageRevealsWhenItAppears(art: SetupArt.Art) throws {
+        for reduceMotion in [false, true] {
+            let page = SetupIllustration(art: art, leftName: "iCloud", rightName: "Dropbox")
+                .environment(\._accessibilityReduceMotion, reduceMotion)
+            let before = try Self.render(page.environment(\.setupArtReveals, false), named: "\(art) before its reveal")
+            let revealed = try Self.render(page, named: "\(art)")
+            let changed = try Self.changedPixels(revealed, before)
+            let setting = reduceMotion ? "with Reduce Motion" : "without Reduce Motion"
+            if !Self.pagesWithoutAReveal.contains(art) {
+                #expect(changed > 1_000,
+                        "\(art) draws the same before and after it appears \(setting) (\(changed) pixels changed) — its reveal no longer runs")
+            } else if reduceMotion {
+                #expect(changed == 0,
+                        "\(art) now changes when it appears \(setting) (\(changed) pixels) — it has a reveal; take it out of pagesWithoutAReveal so the reveal is held to it")
+            }
+        }
+    }
+
+    /// Pixels whose bytes differ between two renders — exact, which is meaningful because both
+    /// came through `render(_:named:)` into one context format.
+    static func changedPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) throws -> Int {
+        try #require(a.pixelsWide == b.pixelsWide && a.pixelsHigh == b.pixelsHigh
+                     && a.bytesPerRow == b.bytesPerRow && a.bitsPerPixel == 32 && b.bitsPerPixel == 32,
+                     "the two renders do not share a format, so their bytes cannot be compared")
+        let first = UnsafeRawPointer(try #require(a.bitmapData))
+        let second = UnsafeRawPointer(try #require(b.bitmapData))
+        var changed = 0
+        for y in 0..<a.pixelsHigh {
+            let row = y * a.bytesPerRow
+            for x in 0..<a.pixelsWide {
+                let offset = row + x * 4
+                if first.loadUnaligned(fromByteOffset: offset, as: UInt32.self)
+                    != second.loadUnaligned(fromByteOffset: offset, as: UInt32.self) { changed += 1 }
+            }
+        }
+        return changed
     }
 }
