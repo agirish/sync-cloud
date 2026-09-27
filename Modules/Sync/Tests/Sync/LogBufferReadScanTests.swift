@@ -29,7 +29,6 @@ import Testing
     /// Suites whose bare reads predate `LogCapture`. Each is a live flake risk, not an exemption on
     /// the merits — convert them when you touch them. Listed by file so the count is honest.
     static let unconverted: Set<String> = [
-        "AnthropicKeychainTests.swift",
         "BulkFailureAggregationTests.swift",
         "CopyMoveBehaviorPinTests.swift",
         "CopyUndoDriftAndTransientTests.swift",

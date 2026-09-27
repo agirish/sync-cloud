@@ -149,19 +149,22 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
 
     /// A refusing keychain must also reach the log, so callers that keep the plain `String?`
     /// spelling (the app's `readAPIKey` seam) still leave a trace of WHY cloud Filing went quiet.
+    ///
+    /// **Captured, not read from the shared buffer.** `Logger.shared.entries` keeps the newest
+    /// 1,000 lines for the whole process, and in a full package run the other suites log past this
+    /// one before a poll can see it: on 2026-09-26 this waited out 160 polls for a line that had
+    /// been written. `LogCapture`, opened before the read, keeps each line as it is published.
     @MainActor
     @Test func anUnreadableKeychainIsLogged() async {
+        let log = LogCapture()
         let locked = FakeKeychainStore()
         locked.itemData = Data("sk-ant-test".utf8)
         locked.forcedCopyStatus = errSecInteractionNotAllowed
 
         _ = AnthropicKeychain.read(from: locked)
 
-        await waitUntil("the refusing keychain is logged") {
-            Logger.shared.entries.contains {
-                $0.level == .warning && $0.message.contains("a stored key may exist but cannot be read right now")
-            }
-        }
+        #expect(await log.holds(.warning, containing: "a stored key may exist but cannot be read right now"),
+                "a refusing keychain left no warning in the log")
     }
 
     // MARK: - Existence without the prompt
@@ -259,18 +262,18 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
     /// A refused delete must reach the log too, for the same reason a refused read does: the app's
     /// own key-clearing paths take the `@discardableResult` spelling and would otherwise leave no
     /// trace of why the key kept coming back.
+    ///
+    /// Captured for the same reason as ``anUnreadableKeychainIsLogged``.
     @MainActor
     @Test func aRefusedDeleteIsLogged() async {
+        let log = LogCapture()
         let store = FakeKeychainStore()
         AnthropicKeychain.store("sk-ant-test", in: store)
         store.forcedDeleteStatus = errSecInteractionNotAllowed
 
         AnthropicKeychain.delete(from: store)
 
-        await waitUntil("the refused delete is logged") {
-            Logger.shared.entries.contains {
-                $0.level == .warning && $0.message.contains("refused to delete the stored item")
-            }
-        }
+        #expect(await log.holds(.warning, containing: "refused to delete the stored item"),
+                "a refused delete left no warning in the log")
     }
 }
