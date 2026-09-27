@@ -5,9 +5,24 @@ import Foundation
 /// One undo stack per document: that it survives a round trip, and — the half that matters — that
 /// it is refused when it no longer fits the buffer.
 @MainActor
-@Suite struct EditorUndoStoreTests {
+@Suite final class EditorUndoStoreTests {
+
+    /// **A class, for its `deinit`** — Swift Testing makes one instance per test, so the two tests
+    /// that need real files put them in one folder the instance owns and removes when it goes. They
+    /// each left a folder behind in the temporary directory before.
+    let folder = NSTemporaryDirectory() + "undo-" + UUID().uuidString
+
+    deinit { try? FileManager.default.removeItem(atPath: folder) }
 
     private func store(limit: Int = 8) -> EditorUndoStore { EditorUndoStore(limit: limit) }
+
+    /// A file inside this test's own folder.
+    private func file(_ name: String, _ body: String = "x") throws -> String {
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let path = (folder as NSString).appendingPathComponent(name)
+        try body.write(toFile: path, atomically: true, encoding: .utf8)
+        return path
+    }
 
     @Test func aDocumentGetsItsOwnStackAndKeepsIt() {
         let subject = store()
@@ -162,10 +177,7 @@ import Foundation
     /// A stack for a file that is no longer there can never be handed back, so keeping it holds
     /// memory for an outcome that cannot happen.
     @Test func aStackForAVanishedFileIsDropped() throws {
-        let folder = NSTemporaryDirectory() + "undo-" + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let path = (folder as NSString).appendingPathComponent("gone.md")
-        try "x".write(toFile: path, atomically: true, encoding: .utf8)
+        let path = try file("gone.md")
 
         let subject = store()
         subject.activate(path: path, text: "x")
@@ -179,10 +191,7 @@ import Foundation
 
     /// The positive control for the sweep above: a file that is still there keeps its history.
     @Test func aStackForAFileThatStillExistsIsKept() throws {
-        let folder = NSTemporaryDirectory() + "undo-" + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let path = (folder as NSString).appendingPathComponent("here.md")
-        try "x".write(toFile: path, atomically: true, encoding: .utf8)
+        let path = try file("here.md")
 
         let subject = store()
         subject.activate(path: path, text: "x")
