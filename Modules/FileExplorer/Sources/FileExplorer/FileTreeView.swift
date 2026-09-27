@@ -221,6 +221,10 @@ public struct FileTreeView: View, Equatable {
     /// no second syscall.
     @StateObject private var downloads = PaneDownloadWatch()
 
+    /// Resolves this pane's selection — and the other pane's, for the cross-pane items — once for
+    /// every row menu that asks, in whichever presentation is showing. See `PaneSelectionResolver`.
+    @State private var selectionResolver = PaneSelectionResolver()
+
     /// The preview's width, shared with the Columns presentation — one preference, so a preview
     /// dragged wide in Columns opens that wide in Tree. Only the floor differs, and that lives in
     /// `PaneViewMode.treePreviewPaneWidth`.
@@ -943,6 +947,7 @@ public struct FileTreeView: View, Equatable {
                 rowReveal: rowReveal,
                 onRowRevealed: onRowRevealed,
                 downloadChannel: downloadChannel,
+                selectionResolver: selectionResolver,
                 previewEnabled: previewEnabled
             )
             // The reveal, Columns side. Same signal as the Tree branch, so the two presentations
@@ -1224,6 +1229,7 @@ public struct FileTreeView: View, Equatable {
                 otherPaneName: otherPaneName,
                 isSingleSource: isSingleSource,
                 onQuickLook: { presentQuickLook($0) },
+                selectionResolver: selectionResolver,
                 downloadChannel: downloadChannel
             )
         }
@@ -1415,6 +1421,10 @@ struct FileContextMenu: View {
     /// Presents a Quick Look preview for the given item (parity with the Differences
     /// table's row menu); provided by the owning pane's `FileTreeView`.
     let onQuickLook: (URL) -> Void
+    /// The pane's one resolver for selections — see ``PaneSelectionResolver``. Required rather than
+    /// defaulted: a menu handed a fresh one still answers correctly, but walks the tree once per
+    /// row again, which is the whole cost the shared one exists to remove.
+    let selectionResolver: PaneSelectionResolver
 
     /// Where this menu's Download ANNOUNCES the request, which must be the channel the pane that
     /// will watch it is listening on — the owning pane's `FileTreeView.downloadChannel`, passed
@@ -1446,7 +1456,8 @@ struct FileContextMenu: View {
     /// Every precondition lives in ``PaneComparePairMenu`` rather than here, so the rules are
     /// reachable by a test that renders no menu.
     @ViewBuilder
-    private func compareItems(node: FileNode, selectedNodes: [FileNode]) -> some View {
+    private func compareItems(node: FileNode, selectedNodes: [FileNode],
+                              otherSelectedNodes: [FileNode]) -> some View {
         if delegate.canCompareFilePair {
             // First and always, for a file: the door that has no precondition to fail.
             if !node.isDirectory {
@@ -1457,8 +1468,8 @@ struct FileContextMenu: View {
                 }
             }
             if let counterpart = PaneComparePairMenu.crossPaneCounterpart(
-                clicked: node, otherTree: otherTree, otherSelection: otherSelection,
-                isSingleSource: isSingleSource) {
+                clicked: node, otherSelection: otherSelection,
+                otherSelectedNodes: otherSelectedNodes, isSingleSource: isSingleSource) {
                 Button {
                     delegate.handleCompareFilePair(node, with: counterpart,
                                                    secondIsInOtherPane: true)
@@ -1498,9 +1509,33 @@ struct FileContextMenu: View {
         return tree.findNodes(at: effectiveSelection).pruneNestedNodes()
     }
 
+    /// What a menu opened on `row` acts on: exactly `resolvedSelection`'s answer, without its walk
+    /// wherever the answer is already in hand.
+    ///
+    /// **A row outside the selection answers from the row.** It acts on itself alone — the rule
+    /// above — and a row cut from `tree` itself (same side, same version) holds the very node the
+    /// walk would find, by `PaneRow`'s stamp invariant. That is every row but the selected ones, on
+    /// every render, and SwiftUI renders this menu with its row rather than when it opens. A row
+    /// from some other publish still walks, so a stale row gets the answer it always got.
+    ///
+    /// **A row inside the selection gets the selection**, resolved once for every selected row by
+    /// `resolver`.
+    static func menuNodes(row: PaneRow, selection: Set<String>, tree: PaneTree,
+                          resolver: PaneSelectionResolver) -> [FileNode] {
+        if selection.contains(row.id) { return resolver.nodes(at: selection, in: tree) }
+        if row.side == tree.side, row.version == tree.version { return [row.node] }
+        return resolvedSelection(node: row.node, selection: selection, tree: tree.nodes)
+    }
+
     var body: some View {
-        let selectedNodes = Self.resolvedSelection(node: node, selection: selection, tree: tree.nodes)
+        let selectedNodes = Self.menuNodes(row: row, selection: selection, tree: tree,
+                                           resolver: selectionResolver)
         let count = selectedNodes.count
+        // The other pane's selection, for "Copy '…' from ⟨pane⟩" and the cross-pane Compare item —
+        // the same answer for every row, so resolved once for all of them. The rail has no other
+        // pane, and both items are withheld there, so it never asks.
+        let otherSelectedNodes = isSingleSource
+            ? [] : selectionResolver.nodes(at: otherSelection, in: otherTree)
         
         Group {
             SharedFileMenuItems.refresh(delegate: delegate)
@@ -1559,9 +1594,11 @@ struct FileContextMenu: View {
                     Label("Rename", systemImage: "pencil")
                 }
                 // Offered only when this provider will actually reject the name — a finding, not a
-                // standing menu item. The check runs here, while the menu is being built on open,
-                // rather than in the row: `FileContextMenu` is constructed per row and the pane's
-                // render budget is the app's tightest.
+                // standing menu item. **This runs with the ROW, not when the menu opens:** SwiftUI
+                // builds a row's context menu each time the row renders, so everything in this body
+                // is paid per visible row, per click (see `PaneSelectionResolver`). The rules are
+                // cheap enough for that — sampled 2026-09-27, all of this body but the selection
+                // walks came to 4 of its 281 samples — but nothing costlier belongs here.
                 if let risky = delegate.riskyName(for: singleNode) {
                     Button(action: { delegate.handleFixName(singleNode) }) {
                         Label("Fix name…", systemImage: RiskyNameGlyph.lens)
@@ -1735,23 +1772,20 @@ struct FileContextMenu: View {
                 delegate.handlePaste(node)
             }
 
-            if !isSingleSource, !otherSelection.isEmpty {
-                // Pruned like every other entry point: the transfer prunes downstream anyway,
-                // so an unpruned list here only mislabeled the count ("Copy 3 items" for a
-                // folder plus two of its own children, which transfer as 1).
-                let otherSelectedNodes = otherTree.selectedNodes(at: otherSelection)
-                if !otherSelectedNodes.isEmpty {
-                    Button(action: { delegate.handlePasteExplicit(node, nodes: otherSelectedNodes) }) {
-                        if otherSelectedNodes.count > 1 {
-                            Label("Copy \(otherSelectedNodes.count) items from \(otherPaneName)", systemImage: "arrow.right.to.line.compact")
-                        } else if let first = otherSelectedNodes.first {
-                            Label("Copy '\(first.name)' from \(otherPaneName)", systemImage: "arrow.right.to.line.compact")
-                        }
+            // Pruned like every other entry point: the transfer prunes downstream anyway, so an
+            // unpruned list here only mislabeled the count ("Copy 3 items" for a folder plus two of
+            // its own children, which transfer as 1). Empty on the rail and for an empty selection.
+            if !otherSelectedNodes.isEmpty {
+                Button(action: { delegate.handlePasteExplicit(node, nodes: otherSelectedNodes) }) {
+                    if otherSelectedNodes.count > 1 {
+                        Label("Copy \(otherSelectedNodes.count) items from \(otherPaneName)", systemImage: "arrow.right.to.line.compact")
+                    } else if let first = otherSelectedNodes.first {
+                        Label("Copy '\(first.name)' from \(otherPaneName)", systemImage: "arrow.right.to.line.compact")
                     }
                 }
             }
 
-            compareItems(node: node, selectedNodes: selectedNodes)
+            compareItems(node: node, selectedNodes: selectedNodes, otherSelectedNodes: otherSelectedNodes)
 
             Divider()
             

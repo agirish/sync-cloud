@@ -19,6 +19,13 @@ import Sync
 /// The fixture has to be REALISTIC or the measurement is worthless: a small tree, or one whose
 /// arrays are COW-shared with the assertion, benchmarks at 0.0ms and proves nothing.
 ///
+/// **It cannot see the row menus, which is where a click's cost was (CP9, 2026-09-27).** SwiftUI
+/// runs a row's `.contextMenu` BODY only in a window that is really on screen, and this one never
+/// is — the menu closure ran for every row and the body for none. In the app every visible row's
+/// menu body ran on every click and walked the tree: 277 of the 281 samples the menus cost. So a
+/// pass here says the pane's own render is cheap and nothing about its menus; `ContextMenuWalkTests`
+/// pins those, by counting walks rather than timing them.
+///
 /// **The budget was load-scaled by a probe that cannot see this machine's load, and is now a fixed
 /// number sized against the worst starvation ever measured here.**
 ///

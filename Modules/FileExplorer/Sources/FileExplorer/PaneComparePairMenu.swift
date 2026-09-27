@@ -22,14 +22,18 @@ public enum PaneComparePairMenu {
     ///   owns two folders already — the rule `DifferencesPairCompare.pair(for:paneNames:)` applies
     ///   to its own rows.
     ///
-    /// Resolved against the other tree rather than trusting the path set, because a selection can
-    /// name a row that has since gone: `selectedNodes(at:)` answers with what is actually there.
+    /// Judged on the selection RESOLVED against the other tree — `otherSelectedNodes` is
+    /// `otherTree.selectedNodes(at: otherSelection)` — rather than on the path set, because a
+    /// selection can name a row that has since gone, and the resolved nodes are what is actually
+    /// there. The caller resolves it because every row of a menu asks the same question: the menu
+    /// does it once for all of them (see `PaneSelectionResolver`). The count is still the path
+    /// set's, so two selected paths with one of them gone stay two.
     public static func crossPaneCounterpart(clicked: FileNode,
-                                            otherTree: PaneTree,
                                             otherSelection: Set<String>,
+                                            otherSelectedNodes: [FileNode],
                                             isSingleSource: Bool) -> FileNode? {
         guard !isSingleSource, !clicked.isDirectory, otherSelection.count == 1 else { return nil }
-        guard let counterpart = otherTree.selectedNodes(at: otherSelection).first,
+        guard let counterpart = otherSelectedNodes.first,
               !counterpart.isDirectory,
               counterpart.id != clicked.id else { return nil }
         return counterpart

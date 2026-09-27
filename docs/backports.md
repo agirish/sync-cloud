@@ -6087,3 +6087,27 @@ its text), which a pick would carry too.
 **The rest are design changes, not defects, and are not owed anywhere:** the `⌂` badge (present on
 `v4.x` and `v3.x`, absent on `v2.x`), the Columns file size, middle truncation, scroll memory and
 per-column widths change what a line does rather than repair what it does wrong.
+
+## Row menus stop walking the tree on every click (CP9) — main only
+
+SwiftUI builds a row's context menu with the row, so every visible row's `FileContextMenu` body
+runs on every click — in both panes, since each pane's menus take the other pane's selection too.
+Each body walked the pane tree to resolve the selection, and on the two-pane surfaces walked the
+other pane's tree once or twice more. Sampled in the app while clicking through Columns: 277 of the
+281 samples the menus cost were those walks. Rows outside the selection now answer from the row,
+and `PaneSelectionResolver` walks once per selection for the rest. All three maintenance lines
+carry both walks:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  f=Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift
+  printf '%-5s rowWalk=%s otherPaneWalk=%s\n' "$l" \
+    "$(git show origin/$l:$f | grep -c 'let selectedNodes = Self.resolvedSelection(node: node, selection')" \
+    "$(git show origin/$l:$f | grep -c 'otherTree.selectedNodes(at: otherSelection)')"
+done
+# measured 2026-09-27, against origin, before this landed: every line rowWalk=1 otherPaneWalk=1
+```
+
+**`v4.x`, `v3.x`, `v2.x`: apply, RECORDED — not owed.** A pick is `PaneSelectionResolver`,
+`FileContextMenu.menuNodes` and `PaneComparePairMenu.crossPaneCounterpart` taking the resolved
+nodes; it changes what no menu offers.

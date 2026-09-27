@@ -180,7 +180,7 @@ import FileExplorerTestSupport
                                    otherTree: PaneTree(side: .right, version: 1, nodes: []),
                                    otherSelection: [], isLeft: true, currentPath: "/a",
                                    delegate: delegate, otherPaneName: "Right", isSingleSource: false,
-                                   onQuickLook: { _ in })
+                                   onQuickLook: { _ in }, selectionResolver: PaneSelectionResolver())
         return focusRingFrames(in: AnyView(VStack(alignment: .leading, spacing: 0) { menu }.frame(width: 260)),
                                height: 600).map(\.width)
     }

@@ -112,6 +112,12 @@ struct PaneColumnsView: View {
     /// does not exist. See `docs/flaky-tests.md` mechanism 9.
     var downloadChannel: NotificationCenter = .default
 
+    /// The pane's resolver for selections, shared by every row menu in every column — see
+    /// `PaneSelectionResolver`. The app hands over the one `FileTreeView` keeps for the pane.
+    /// Defaulted so a pane mounted without one still answers correctly: a fresh one per render is
+    /// shared by that render's rows, which is all its answers need.
+    var selectionResolver = PaneSelectionResolver()
+
     /// Whether a selected file gets a preview column, as it does in Finder's column view. Read here
     /// and written from a column's empty-area context menu — the same place Finder keeps its view
     /// options — while the pane header's pill writes the very same binding.
@@ -1114,6 +1120,7 @@ struct PaneColumnsView: View {
                 otherSelection: otherSelection, isLeft: isLeft, currentPath: treeRoot,
                 delegate: delegate, otherPaneName: otherPaneName, isSingleSource: isSingleSource,
                 onQuickLook: onQuickLook,
+                selectionResolver: selectionResolver,
                 downloadChannel: downloadChannel
             )
         }
