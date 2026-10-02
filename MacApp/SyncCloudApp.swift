@@ -35,6 +35,39 @@ enum DisplayCycleAssert {
     }
 }
 
+/// AppKit's AutoFill heuristics, switched off app-wide.
+///
+/// **They hung the app for minutes on ⌘K** (2026-10-02, sampled at 100% CPU for 7 minutes before
+/// it was killed). When an editable `NSTextField` takes the caret, or its window becomes key again,
+/// `NSAutoFillHeuristicController` asks whether it is a username field with a password field after
+/// it — and to answer, it walks the window's whole key-view loop with `nextValidKeyView`. In a
+/// SwiftUI window every step of that walk is `NSHostingView._recursiveGatherAllKeyViewCandidates`
+/// over the entire responder tree, so the walk is quadratic in the window's focusable views, and
+/// the main window with two Columns panes has a great many. The Go to field is a plain
+/// `NSTextField`, which is exactly what the heuristic picks (`NSSearchField` and
+/// `NSSecureTextField` are excluded; the per-field opt-out is private API).
+///
+/// SyncCloud has no password, contact or card fields, so there is nothing for AutoFill to offer.
+/// The walk is gated inside AppKit's scheduled block by `NSAutoFillHeuristicsEnabled`, read through
+/// `_NSGetBoolAppConfig` — `NSUserDefaults` `objectForKey:`, so the registration domain reaches it,
+/// as for ``DisplayCycleAssert``. Measured 2026-10-02 in a probe window by reading AppKit's cached
+/// answer and counting `nextValidKeyView`: unset → YES, 7 calls; registered `false` → NO, 1 call,
+/// with the check itself still running. (`NSAutoFillPanelEnabled`, the gate in front of it, already
+/// defaults to NO, which is why this is not that key.) AppKit caches the answer on first read, so
+/// it must be registered before any field takes focus.
+enum AutoFillHeuristics {
+    static let key = "NSAutoFillHeuristicsEnabled"
+
+    static func registerOff(in defaults: UserDefaults) {
+        defaults.register(defaults: [key: false])
+    }
+
+    /// AppKit's own order, `objectForKey:` then `boolForKey:` — an absent key means ON.
+    static func isOff(in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: key) != nil && !defaults.bool(forKey: key)
+    }
+}
+
 @main
 /// The main entry point for the SyncCloud macOS application.
 /// Manages the lifecycle of `FileSyncManager` and configures the root `ContentView`.
@@ -121,6 +154,10 @@ struct SyncCloudApp: App {
         // the delegate's applicationDidFinishLaunching, which fires exactly once — App.init can be
         // re-run by SwiftUI, which would otherwise emit a duplicate "launched" line each time.)
         Logger.shared.minimumLevel = Logger.persistedMinimumLevel()
+
+        // Before any field can take the caret: AppKit caches the answer on first read. Not gated on
+        // tests — a hosted test that focuses a field would hang the same way.
+        AutoFillHeuristics.registerOff(in: .standard)
 
         // Not under tests: the migration writes into the real defaults domain and the theme pin
         // sets the shared NSApp's appearance from the developer's stored preference — both are
@@ -1065,6 +1102,11 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
                 "[layout-guard] AppKit display-cycle assert suppressed app-wide for this session; "
                 + "the Columns layout loop still churns update-constraints passes, it just is not fatal")
         }
+        // Read back rather than assumed, so a session that hangs on a focused field can be told
+        // apart from one where the guard never took.
+        Logger.shared.info(AutoFillHeuristics.isOff(in: .standard)
+            ? "[autofill] AppKit AutoFill heuristics off — no key-view walk when a field takes the caret"
+            : "[autofill] AppKit AutoFill heuristics are ON — focusing a field can walk the whole key-view loop")
 
         // …and how MANY passes it churns, when someone asks. The line above can only say whether
         // the crash is armed; it cannot say what the suppressed loop costs, which
