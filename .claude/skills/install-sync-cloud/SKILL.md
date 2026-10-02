@@ -46,16 +46,24 @@ Every check below is here because it failed once and reported success anyway —
    APP=$(newest_app "$CONFIG")
    ```
    `-configuration` is not optional here. Bare `xcodebuild … build` uses the scheme's default, which is **Debug** — so a stale *Release* bundle would be "refreshed" by building Debug, the Release search would still return the same stale bundle, and the step would either install old code or drop into the Debug fallback it exists to avoid. Same reason for `-derivedDataPath .dd`: without it the rebuild lands in shared DerivedData while this worktree's `.dd` keeps the stale copy.
-3. If the app is running (`pgrep -fl 'SyncCloud.app/Contents/MacOS/SyncCloud'`), quit it and tell the user — and **verify the quit landed**. A modal sheet or an unsaved-changes prompt makes the app refuse the AppleEvent, which fails with `User canceled. (-128)`; `rm -rf` then succeeds anyway (the running process holds the inode) and `open` merely re-activates the *old* instance, so the whole install reports success while the user stays on the previous build. The AppleEvent can also **hang** instead of failing — a wedged app never answers and `osascript` sits until it returns `AppleEvent timed out. (-1712)`, which took ~2 minutes on 2026-07-30 and blocked the `pkill` fallback behind it. So bound the wait rather than letting `osascript` set the pace:
+3. If the installed app is running, quit it and tell the user — and **verify the quit landed**. A modal sheet or an unsaved-changes prompt makes the app refuse the AppleEvent, which fails with `User canceled. (-128)`; `rm -rf` then succeeds anyway (the running process holds the inode) and `open` merely re-activates the *old* instance, so the whole install reports success while the user stays on the previous build. The AppleEvent can also **hang** instead of failing — a wedged app never answers and `osascript` sits until it returns `AppleEvent timed out. (-1712)`, which took ~2 minutes on 2026-07-30 and blocked the `pkill` fallback behind it. So bound the wait rather than letting `osascript` set the pace.
+
+   **Quit the /Applications instance and nothing else: address it by pid, and anchor every pattern to its path.** Other sessions run their own builds from their worktrees, under the same bundle id. On 2026-10-02 at 07:30 this step's old pattern, an unanchored `SyncCloud.app/Contents/MacOS/SyncCloud`, listed the installed app *and* another session's Release build (`…/SyncCloud-readme-shots/.dd/Build/Products/Release/SyncCloud.app`, launched to take README screenshots); `quit app "SyncCloud"` and the `pkill` fallback took both, and that session lost its app mid-task. At 07:44 another session's run of this step quit a worktree build launched to test this fix, three seconds before that session's install replaced `/Applications`. Both halves of the old step were at fault:
+   - **`quit app "SyncCloud"` goes to one instance of the bundle id, and not necessarily the installed one.** Measured that morning with a worktree build beside the installed app: it quit whichever had been launched *last*, in both orders. JXA's `Application(<pid>)` reaches that process alone — same setup, it quit the installed app and left a newer worktree instance running. It sends the same quit AppleEvent, so the app's own quit path still runs (the editor flush, the unsaved-changes question, the log and history flushes, the `SyncCloud is quitting` line) and the -128 and -1712 cases above still apply — re-measured on this route with a stopped instance, which never answers: the step gave up on it at 15 s and the TERM fallback removed it. `kill -TERM` skips the whole quit path, which is why it stays the fallback.
+   - **The unanchored pattern matched every SyncCloud bundle, and more.** `pgrep -f` matches the whole argument list and skips only its own ancestors, so the old pattern also caught any process that merely *mentions* the path — another session's `zsh -c '…'` running this very step, for one, which the `pkill` would then have signalled. `^` keeps out both: the list starts with the executable's own path, so neither a worktree build (`/Users/…`) nor a shell (`/bin/zsh …`) can match. `( |$)` ends the match at the executable's name, before any launch argument.
    ```bash
-   osascript -e 'quit app "SyncCloud"' & OSA=$!
-   for _ in $(seq 1 15); do kill -0 $OSA 2>/dev/null || break; sleep 1; done
-   kill -0 $OSA 2>/dev/null && kill -9 $OSA 2>/dev/null   # AppleEvent hung; stop waiting on it
+   INSTALLED='^/Applications/SyncCloud\.app/Contents/MacOS/SyncCloud( |$)'
+   pgrep -fl '^[^ ]*/SyncCloud\.app/Contents/MacOS/SyncCloud( |$)'   # every SyncCloud running; only /Applications is quit
+   for PID in $(pgrep -f "$INSTALLED"); do    # $(…) inline, not a $VAR: zsh splits one, not the other (step 15)
+     osascript -l JavaScript -e "Application($PID).quit()" & OSA=$!
+     for _ in $(seq 1 15); do kill -0 $OSA 2>/dev/null || break; sleep 1; done
+     kill -0 $OSA 2>/dev/null && kill -9 $OSA 2>/dev/null   # AppleEvent hung; stop waiting on it
+   done
    sleep 2
-   if pgrep -f 'SyncCloud.app/Contents/MacOS/SyncCloud' >/dev/null; then
-     pkill -TERM -f 'SyncCloud.app/Contents/MacOS/SyncCloud'; sleep 3
+   if pgrep -qf "$INSTALLED"; then
+     pkill -TERM -f "$INSTALLED"; sleep 3
    fi
-   pgrep -fl 'SyncCloud.app/Contents/MacOS/SyncCloud' || echo "quit OK"
+   pgrep -fl "$INSTALLED" || echo "quit OK"
    ```
 4. **Sign the build with this Mac's stable identity**, replace the installed copy, and **record a fingerprint of what you just installed** — step 9 needs it to prove the bundle in /Applications is still yours. Fingerprint the *installed* copy, not `$APP` (that is what "still yours" is a claim about, and it keeps working after step 5 deletes `$APP`), and take it immediately: the window in which an overwrite can slip past unnoticed is exactly the gap between the copy and this line.
    ```bash
@@ -110,37 +118,42 @@ Every check below is here because it failed once and reported success anyway —
 6. If Spotlight still shows extra SyncCloud entries, other sessions' worktree builds left bundles behind — find them with `mdfind "kMDItemFSName == 'SyncCloud.app'"` and delete any DerivedData copies not part of an active build (`pgrep -fl xcodebuild` first).
 7. Launch the freshly installed app and **verify it actually got through launch**. Neither a silent `open` exit nor a `pgrep` hit is proof: on 2026-07-30 the app launched with a live process, **zero windows, and not one line written to `~/sync-cloud.log`** — the main thread was blocked in `getxattr` inside a SwiftUI `body` getter. `open` exited 0, `pgrep` printed the pid, step 9's timestamp check passed, and the install reported "the app is running" over a dead app. `pgrep` proves a process exists; it says nothing about whether that process ever finished launching.
 
-   The one signal that distinguishes the two is the app's own log. A healthy launch writes `SyncCloud <version> (build N) launched`, then `Loading Left Tree for path: …` / `Left Tree Loaded. Count: …`, then a scan — all within ~5s (measured 21:51:20 → `Scan completed` 21:51:28). The wedged launch wrote nothing, ever. So record the log size *before* `open` and poll for new bytes after, with a generous window:
+   The one signal that distinguishes the two is the app's own log. A healthy launch writes `SyncCloud <version> (build N) launched`, then `Loading Left Tree for path: …` / `Left Tree Loaded. Count: …`, then a scan — all within ~5s (measured 21:51:20 → `Scan completed` 21:51:28). The wedged launch wrote nothing, ever. So record the log size *before* `open` and poll what is written after it for that `launched` line, with a generous window:
    ```bash
    LOG=~/sync-cloud.log
    BEFORE=$(wc -c < "$LOG" 2>/dev/null || echo 0)
    open /Applications/SyncCloud.app
+   LAUNCHED=
    for _ in $(seq 1 30); do
-     AFTER=$(wc -c < "$LOG" 2>/dev/null || echo 0)
-     [ "$AFTER" -ne "$BEFORE" ] && break
+     [ "$(wc -c < "$LOG" 2>/dev/null || echo 0)" -lt "$BEFORE" ] && BEFORE=0   # cleared or replaced: read it all
+     tail -c "+$((BEFORE+1))" "$LOG" 2>/dev/null | grep -qE '\[INFO\] SyncCloud .+ launched$' && { LAUNCHED=1; break; }
      sleep 1
    done
-   if [ "$AFTER" -ne "$BEFORE" ]; then
+   if [ -n "$LAUNCHED" ]; then
      echo "LAUNCH OK — new log output:"; tail -c "+$((BEFORE+1))" "$LOG" | head -20
    else
-     echo "LAUNCH FAILED — no log output in 30s; the app did not start. Go to step 8."
+     echo "LAUNCH FAILED — no launch line in 30s; the app did not start. Go to step 8."
    fi
    ```
-   Compare with `-ne`, not `-gt`: if the log was rotated or truncated the new file is *smaller*, and `-gt` would read that as "no output" and fail a healthy launch.
+   **Wait for the `launched` line, not for any new bytes.** Other sessions' builds append to this same file, no line names its process, and since 2026-10-02 step 3 leaves those builds running — so new bytes can be theirs. Measured that day: a worktree build's launch wrote the same `SyncCloud 5.5-dev (build 505) launched` line as the installed app's, and the old any-bytes loop, run with nothing launched at all, printed LAUNCH OK on a worktree instance's `SyncCloud is quitting`. Another build's `launched` line would have to land inside the same 30 s, and step 9 then checks the /Applications pid.
+
+   If the file *shrank* — cleared, or replaced by the CLI — read it from the start: the launch is in the new file, and an offset past its end reads as "no output" and fails a healthy launch (the reason this loop once compared sizes with `-ne`, not `-gt`).
 
    **Do not substitute a window count for this check.** `osascript -e 'tell application "System Events" to get count of windows of process "SyncCloud"'` fails on this machine with `-25211 osascript is not allowed assistive access`, so it returns an error (or 0) whether the app is healthy or wedged — it cannot tell the two apart and will condemn a good build.
 8. If step 7 reported LAUNCH FAILED, **diagnose it — do not report success, and do not guess.** The process is alive but stuck, so the question is *where*. `sample` answers that in seconds and was the only thing that told the truth on 2026-07-30; Console and the log are empty by definition in this failure, because the app never got far enough to write anything.
    ```bash
-   PID=$(pgrep -f 'SyncCloud.app/Contents/MacOS/SyncCloud' | head -1)
+   PID=$(pgrep -nf '^/Applications/SyncCloud\.app/Contents/MacOS/SyncCloud( |$)')   # step 3's anchor; -n = step 7's launch
    sample "$PID" 3 -file /tmp/synccloud-sample.txt >/dev/null
    sed -n '/com.apple.main-thread/,/^$/p' /tmp/synccloud-sample.txt | head -40
    ```
-   Report the top main-thread frames verbatim — that stack names the blocking call (e.g. `getxattr` under a SwiftUI `body` getter). If `pgrep` finds no pid at all, the app crashed rather than hung; look for a report under `~/Library/Logs/DiagnosticReports/SyncCloud-*.ips`.
+   Report the top main-thread frames verbatim — that stack names the blocking call (e.g. `getxattr` under a SwiftUI `body` getter). If `pgrep` finds no pid at all, the app crashed rather than hung; look for a report under `~/Library/Logs/DiagnosticReports/SyncCloud-*.ips`. **Anchored, for step 3's reason:** measured 2026-10-02 with a worktree build running beside the freshly launched installed app, the old unanchored `pgrep … | head -1` returned the *worktree build's* pid — so a crashed launch would have found that build instead of no pid, and its healthy stack would have read as the answer.
 9. Confirm the running process is the one just installed, not a survivor of step 3: its start time must be **later** than the installed binary's mtime.
    ```bash
-   ps -p $(pgrep -f 'SyncCloud.app/Contents/MacOS/SyncCloud' | head -1) -o lstart=
+   ps -o pid=,lstart= -p "$(pgrep -d, -f '^/Applications/SyncCloud\.app/Contents/MacOS/SyncCloud( |$)')"
    stat -f '%Sm' /Applications/SyncCloud.app/Contents/MacOS/SyncCloud
    ```
+   **Anchored, for step 3's reason** — in the same 2026-10-02 test the old unanchored line printed the worktree build's start time, which passes whenever that build was launched after the install, survivor or not. `-d,` hands `ps` every /Applications instance; expect one.
+
    This check passes on a wedged app too — a process that hangs during launch still started after the binary was written — so it confirms *which build* is running, never *that the app works*. Step 7 is what establishes the latter.
 
    **Then re-check the fingerprint, because timestamps do not settle this one.** Sessions run concurrently, and on 2026-07-30 another session's install overwrote `/Applications/SyncCloud.app` *seconds after* this one's `ditto`. The source bundle was correct and the installed one was somebody else's build — the fastest tell being a different layout, with no `SyncCloud.debug.dylib` at all. Every timestamp check still passed: the stub launcher's mtime is meaningless and `ditto` preserves whatever it copied, so mtime describes the *other* session's build just as happily as yours. Comparing content is the only check that survives the race:

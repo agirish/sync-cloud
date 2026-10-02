@@ -6176,3 +6176,33 @@ done
 pane and the scan both join lexically and no walk names a linked folder by its real path, which is
 what P15 needs. And no line forgives a failed root, so a scan rooted at a link records that root as
 unexplored (`""`) — a comparison reported as partial, not one reported as empty.
+
+## The install skill quits only the installed app — all three lines carry the old step
+
+On 2026-10-02 a session's run of `.claude/skills/install-sync-cloud/SKILL.md` quit another
+session's running worktree build, twice (07:30 and 07:44). Step 3's unanchored
+`SyncCloud.app/Contents/MacOS/SyncCloud` matches every build's bundle, and `quit app "SyncCloud"`
+went to the instance of the bundle id launched last, in both orders measured. Steps 8 and 9 read the
+same pattern through `head -1`, so their pid could be the other build's, and step 7's any-bytes
+check passed on another instance's log lines. Now one anchored pattern, a pid-addressed JXA quit,
+and step 7 waits for the `launched` line.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  s=$(git show origin/$l:.claude/skills/install-sync-cloud/SKILL.md)
+  printf '%-5s quitByName=%s unanchored=%s anyBytes=%s\n' "$l" \
+    "$(printf '%s\n' "$s" | grep -cF "osascript -e 'quit app \"SyncCloud\"'")" \
+    "$(printf '%s\n' "$s" | grep -cF "'SyncCloud.app/Contents/MacOS/SyncCloud'")" \
+    "$(printf '%s\n' "$s" | grep -cF '[ "$AFTER" -ne "$BEFORE" ]')"
+done
+# measured 2026-10-02, against origin, before this landed:
+# main, v4.x, v3.x, v2.x — every line: quitByName=1 unanchored=6 anyBytes=2
+```
+
+**`v4.x`, `v3.x`, `v2.x`: apply, RECORDED — not owed.** All three carry steps 3, 7, 8 and 9 as
+`main` had them. A pick's 3-way merge takes the change on each with no conflict and leaves `main`'s
+step-4 signing text behind (`git merge-file`, 2026-10-02); a plain `git apply` refuses, because
+the line after step 3's code — step 4's heading — reads differently there. It matters more than a
+tooling row usually does: a session loads the skill from its own worktree, so a release cut on a
+maintenance line — whose step 6 runs this skill — still quits other sessions' builds. Nothing
+user-facing.
