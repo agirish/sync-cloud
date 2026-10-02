@@ -284,8 +284,8 @@
           <li><span class="ic">🔎</span> <span><b>Filter &amp; token search</b> — <code>kind:pdf</code>, <code>&gt;10mb</code>, <code>only:left</code>, with live counts.</span></li>
         </ul>
         <div class="legend">
-          <span class="chip"><b style="background:#4c8dff"></b> Copy → right</span>
-          <span class="chip"><b style="background:#9a7bff"></b> Copy ← left</span>
+          <span class="chip"><b style="background:#4c8dff"></b> Missing on right</span>
+          <span class="chip"><b style="background:#9a7bff"></b> Missing on left</span>
           <span class="chip"><b style="background:#f2b13c"></b> Changed</span>
           <span class="chip"><b style="background:#e9d94a"></b> Name conflict</span>
         </div>
@@ -304,7 +304,7 @@
           <li><span class="ic">⌘</span> <span><b>Keyboard transfers</b> — <code>⌘→</code> copy, add <code>⇧</code> to move.</span></li>
         </ul>
       </div>
-      <div class="media"><img src="assets/screenshots/compare-undo.png" alt="An operation with a one-click Undo banner" loading="lazy"></div>
+      <div class="media"><img src="assets/screenshots/compare-review.png" alt="Guided Review stepping through differences one at a time" loading="lazy"></div>
     </div>
   </div>
 </section>
@@ -321,7 +321,7 @@
       <div class="safe">
         <div class="ico">◫</div>
         <h4>A folder sidebar</h4>
-        <p>Down the left of every workspace, in three sections: <b>Favorites</b>, the folders and places you keep; <b>Locations</b>, every account you have signed into plus your home folder, your disks and the Trash; and <b>Recents</b>, the folders you were last in. Favorites and Recents span every source, and you choose what sits in them.</p>
+        <p>Down the left of every workspace, in three sections: <b>Favorites</b>, the folders and places you keep; <b>Locations</b>, every account you have signed into, any disk Favorites is not already holding, and the Trash; and <b>Recents</b>, the folders you were last in, once you have been somewhere the other two don't list. Favorites and Recents span every source, and you choose what sits in them.</p>
       </div>
       <div class="safe">
         <div class="ico">▥</div>
@@ -352,7 +352,7 @@
   <div class="wrap">
     <div class="sec-head">
       <div class="kicker">Organize</div>
-      <h2>Five lenses to put a single cloud folder in order</h2>
+      <h2>Six lenses to put a single cloud folder in order</h2>
       <p>Switch a provider into the Organize workspace and reach for whichever lens the mess calls for.</p>
     </div>
 
@@ -386,7 +386,7 @@
       <div class="card" style="background:var(--grad-soft)">
         <div class="ico">🛟</div>
         <h4>…and undo</h4>
-        <p>Every clean-up action across all five lenses is one grouped, reversible step. Trash-backed, atomic, and gone with a single <code>⌘Z</code>.</p>
+        <p>Every clean-up action, in every lens that acts, is one grouped, reversible step. Trash-backed, atomic, and gone with a single <code>⌘Z</code>.</p>
       </div>
     </div>
 
@@ -457,7 +457,7 @@
     </div>
     <div class="safe-grid">
       <div class="safe"><div class="ico">📄</div><h4>One list of what you can open</h4><p>A collapsible file pane to browse to any folder, where one click on a text file opens it; fold the pane away and a rail lists that folder's text files instead. A file too large to read, or still in the cloud, is listed and dimmed rather than hidden — and says which it is.</p></div>
-      <div class="safe"><div class="ico">👁️</div><h4>Markdown, three ways</h4><p><b>Edit</b>, <b>Preview</b>, or <b>Split</b> with a divider you can drag. Rendered by a real Markdown parser — tables and task lists included — at the app's own text size rather than a web view's.</p></div>
+      <div class="safe"><div class="ico">👁️</div><h4>Markdown, three ways</h4><p><b>Source</b>, <b>Preview</b>, or <b>Split</b> with a divider you can drag. Rendered by a real Markdown parser — tables and task lists included — at the app's own text size rather than a web view's.</p></div>
       <div class="safe"><div class="ico">💾</div><h4>It saves itself, carefully</h4><p>A couple of seconds after you stop typing, and whenever the document leaves the screen. Every write is staged and swapped in atomically and goes back in the encoding the file was read in — byte-order mark and line endings intact. <code>⌘S</code> still means "now".</p></div>
       <div class="safe"><div class="ico">🛑</div><h4>It refuses rather than guess</h4><p>A file that is not valid text opens read-only: saving it would replace the parts that could not be read. A folder that appeared where the file was is not written over. Typing has its own undo, so <code>⌘Z</code> here can never reach into a move.</p></div>
     </div>
@@ -482,7 +482,7 @@
           </div>
           <ul class="flist" style="margin-top:24px">
             <li><span class="ic">🔒</span> <span>On-device AI keeps everything on your Mac. Cloud AI is <b>off by default</b> and opt-in.</span></li>
-            <li><span class="ic">💵</span> <span>Every cloud scan shows an estimated cost first and stops at your monthly / total cap.</span></li>
+            <li><span class="ic">💵</span> <span>Scans are always free and on-device. Every <b>Refine with Claude</b> shows an estimated cost first and stops at your monthly / total cap.</span></li>
             <li><span class="ic">↩︎</span> <span>Nothing files without your say-so, and every move is one undo.</span></li>
           </ul>
         </div>
@@ -526,11 +526,11 @@
 
 <span class="c"># compare two folders (a provider id/name or a path)</span>
 <span class="p">$</span> <span class="cmd">synccloud scan</span> <span class="fl">-L</span> <span class="o">iCloud/Documents</span> <span class="fl">-R</span> <span class="o">OneDrive/Documents</span>
-<span class="p">$</span> <span class="cmd">synccloud scan</span> <span class="fl">-L</span> <span class="o">~/A</span> <span class="fl">-R</span> <span class="o">~/B</span> <span class="fl">--verify</span>   <span class="c"># checksum same-size pairs</span>
 <span class="p">$</span> <span class="cmd">synccloud scan</span> <span class="fl">-L</span> <span class="o">~/A</span> <span class="fl">-R</span> <span class="o">~/B</span> <span class="fl">--json</span>     <span class="c"># machine-readable</span>
 
 <span class="c"># sync one direction, keeping both on collision (prompts unless --yes)</span>
 <span class="p">$</span> <span class="cmd">synccloud sync</span> <span class="fl">-L</span> <span class="o">~/A</span> <span class="fl">-R</span> <span class="o">~/B</span> <span class="fl">--direction</span> <span class="o">to-right</span> <span class="fl">--strategy</span> <span class="o">keep-both</span> <span class="fl">--yes</span>
+<span class="p">$</span> <span class="cmd">synccloud sync</span> <span class="fl">-L</span> <span class="o">~/A</span> <span class="fl">-R</span> <span class="o">~/B</span> <span class="fl">--verify</span>   <span class="c"># checksum same-size, date-only pairs first</span>
 
 <span class="c"># report where a surveyed tree disagrees with its own habits (read-only)</span>
 <span class="p">$</span> <span class="cmd">synccloud restructure</span>
@@ -548,10 +548,12 @@
       <p>A Liquid-Glass interface with System / Light / Dark themes, 11 accent hues (or none), and per-provider brand colours.</p>
     </div>
     <div class="gallery">
-      <figure><img src="assets/screenshots/tidy-organize.png" alt="To File lens" loading="lazy"><figcaption>To File — AI-assisted filing with per-file confidence and cost tracking</figcaption></figure>
+      <figure><img src="assets/screenshots/tidy-organize.png" alt="To File lens" loading="lazy"><figcaption>To File — where each loose file belongs, with a confidence and a reason</figcaption></figure>
       <figure><img src="assets/screenshots/tidy-duplicates.png" alt="Duplicates lens" loading="lazy"><figcaption>Duplicates — reclaim space with a recommended keeper and Quick Look previews</figcaption></figure>
-      <figure><img src="assets/screenshots/settings.png" alt="Settings" loading="lazy"><figcaption>Settings — themes, providers, sync behaviour, AI budget caps</figcaption></figure>
-      <figure><img src="assets/screenshots/tidy-storage.png" alt="Storage treemap" loading="lazy"><figcaption>Storage — a proportional treemap of where space concentrates</figcaption></figure>
+      <figure><img src="assets/screenshots/settings.png" alt="Settings, Appearance tab" loading="lazy"><figcaption>Settings ▸ Appearance — theme, accent colour, glass effect and content surface</figcaption></figure>
+      <figure><img src="assets/screenshots/browse.png" alt="Browse workspace with the folder sidebar" loading="lazy"><figcaption>Browse — one source, full width, with the folder sidebar down the left</figcaption></figure>
+      <figure><img src="assets/screenshots/edit.png" alt="Edit workspace with a Markdown file in Split view" loading="lazy"><figcaption>Edit — a Markdown file in Split view, Source beside Preview</figcaption></figure>
+      <figure><img src="assets/screenshots/renames.png" alt="Renames lens" loading="lazy"><figcaption>Renames — names a provider would reject, each with the name it would become</figcaption></figure>
     </div>
     <div class="center mt40">
       <a class="btn primary" href="https://github.com/agirish/sync-cloud">Get SyncCloud on GitHub</a>

@@ -37,12 +37,12 @@ clearly-warned fallback on volumes with no Trash; the CLI has no undo stack of i
 ### 📁 Browse — your folders, one click away
 - **A folder sidebar in every workspace** (**⌃⌘S**), in three sections: **Favorites**, the folders
   and places you keep; **Locations**, every account you have signed into, any disks Favorites is
-  not already holding, and the Trash; and **Recents**, the folders you were last in. Favorites and Recents span every source, so
-  a favorite in Dropbox is reachable without switching to Dropbox first.
-- **Favorites you curate.** Starts as your home folder, Desktop, Documents, Downloads and your
-  startup disk; right-click any place in Locations to add it, any row in Favorites to remove it, or
-  any folder in a pane to keep it. **Restore Standard Places** brings the five back.
-- **Drag a row to reorder** either section. Locations shares its order with the pane header's
+  not already holding, and the Trash; and **Recents**, the folders you were last in (it appears once you have been somewhere the other
+  two don't already list). Favorites and Recents span every source, so a favorite in Dropbox is reachable without switching to Dropbox first.
+- **Favorites you curate.** Starts as your home folder, Desktop, Documents and Downloads;
+  right-click any place in Locations to add it, any row in Favorites to remove it, or
+  any folder in a pane to keep it. **Restore Standard Places** brings the four back.
+- **Drag a row to reorder** Favorites, Recents, and the accounts in Locations. Locations shares its order with the pane header's
   source dropdown, so the two can't disagree.
 - **Column browsing** the way Finder does it, with an inline preview beside the stack, columns you
   size one at a time, per-pane **tabs**, and a **pane bar** you arrange yourself.
@@ -52,10 +52,10 @@ clearly-warned fallback on volumes with no Trash; the CLI has no undo stack of i
   picker, breadcrumb navigation + back/forward history, and one-click **⇄ swap**.
 - **Difference detection** by presence, modification date, and size — with a **date tolerance** that
   absorbs the timestamp rounding cloud providers do, so you don't drown in false differences.
-- **Colour- and shape-coded diffs** (readable without colour): missing-on-right ▸, missing-on-left ◂,
+- **Colour- and shape-coded diffs** (readable without colour): missing-on-right →, missing-on-left ←,
   changed ↻, and **name conflicts** ⚠ — items that differ only by an invisible trailing space,
   trailing period, zero-width character, or Unicode form.
-- **Filter and search** the differences: `All / Missing / Changed / Name conflicts` with live counts,
+- **Filter and search** the differences: All, Missing on either side, Changed (either side newer), and Name conflicts, with live counts,
   plus a token search (`kind:pdf`, `>10mb`, `only:left`).
 - **Guided Review** steps through each difference one at a time — Copy / Move / Skip — with a running
   tally and "Copy Remaining" to finish in bulk.
@@ -66,7 +66,8 @@ clearly-warned fallback on volumes with no Trash; the CLI has no undo stack of i
   keyboard (`⌘→ / ⌘←` to copy, add `⇧` to move).
 
 ### 🗂️ Organize — put one provider in order
-One rail, six lenses — five that act on what they find, and **Storage** (below), which only reports:
+One rail, six lenses — four that act on what they find, **Rules**, which sets the standing
+instructions, and **Storage** (below), which only reports:
 - **To File** — scans the loose files in an inbox folder and **suggests which existing folder each
   one belongs in**, filing it there safely (creating folders, never overwriting, always undoable).
 - **Duplicates** — finds byte-for-byte **identical** copies, **overlapping** folders, drifted
@@ -77,7 +78,7 @@ One rail, six lenses — five that act on what they find, and **Storage** (below
 - **Renames** — filenames that break on a given provider (OneDrive's forbidden characters and
   reserved names, Dropbox's trailing spaces/periods, zero-width characters anywhere), files that
   break their folder's `NN. Mon YYYY` date convention where the folder already keeps one, and
-  folders whose numbering has drifted. Each row names the problem in words and shows the name it
+  files renumbered or zero-padded to keep their folder in order. Each row names the problem in words and shows the name it
   would become; **Fix all** applies the provider-hostile set in one undo, and the convention and
   numbering passes are applied from their own controls.
 - **Restructure** — finds where the tree disagrees with its own habits and **straightens it**.
@@ -101,8 +102,8 @@ accent hue, ordered by size, so the colour *is* the ranking — plus ranked list
 files, long-untouched files, and reclaim candidates, each row carrying a magnitude bar and its
 share of the scan, and a capsule above the list to switch between them. Set a scope and it
 re-analyses that folder rather than filtering what it had — a treemap is a picture of a whole.
-Strictly read-only: it never moves, deletes, or evicts anything, which is also why it is the one
-lens that never wears a count badge.
+Strictly read-only: it never moves, deletes, or evicts anything, which is also why it, like Rules,
+never wears a count badge.
 
 ### ✏️ Edit — write in a text file
 The one workspace that changes what is *inside* a file rather than moving files around. A collapsible
@@ -123,7 +124,8 @@ signals + on-device text extraction). You can layer AI on top:
 - **Cloud** via **Claude** (`claude-haiku-4-5`, `claude-sonnet-5`, or `claude-opus-5`) — off by
   default, opt-in, with your API key stored in the **macOS Keychain** (never in plaintext).
 
-Cloud usage is metered: every scan records tokens and estimated cost, guarded by a **pre-flight cost
+Cloud use is opt-in per pass: scans are always free and on-device, and only **Refine with Claude**
+reaches the cloud. Every Refine records tokens and estimated cost, guarded by a **pre-flight cost
 confirmation** and hard **monthly / total budget caps** (a `$5` lifetime cap by default). Over budget,
 it silently falls back to the on-device engine.
 
@@ -153,13 +155,19 @@ preview of the rows they produce.
 
 ## Screenshots
 
-| Two-pane comparison | Finding duplicate copies | Filing loose files, with AI |
+| Two-pane comparison | Browsing one source | Writing in a text file |
 |---|---|---|
-| ![Compare](docs/assets/screenshots/hero-compare.png) | ![Duplicates](docs/assets/screenshots/tidy-duplicates.png) | ![To File](docs/assets/screenshots/tidy-organize.png) |
+| ![Compare](docs/assets/screenshots/hero-compare.png) | ![Browse](docs/assets/screenshots/browse.png) | ![Edit](docs/assets/screenshots/edit.png) |
 
-| Storage treemap | Undo everywhere | Settings |
+| Filing loose files | Finding duplicate copies | Storage treemap |
 |---|---|---|
-| ![Storage](docs/assets/screenshots/tidy-storage.png) | ![Undo](docs/assets/screenshots/compare-undo.png) | ![Settings](docs/assets/screenshots/settings.png) |
+| ![To File](docs/assets/screenshots/tidy-organize.png) | ![Duplicates](docs/assets/screenshots/tidy-duplicates.png) | ![Storage](docs/assets/screenshots/tidy-storage.png) |
+
+| Guided Review | Cloud-hostile names | Settings |
+|---|---|---|
+| ![Guided Review](docs/assets/screenshots/compare-review.png) | ![Renames](docs/assets/screenshots/renames.png) | ![Settings](docs/assets/screenshots/settings.png) |
+
+Every capture is of the app running against a synthetic folder tree, not anyone's real files.
 
 More on the **[feature site](https://agirish.github.io/sync-cloud/)**.
 
@@ -201,10 +209,10 @@ swift run synccloud providers
 # Compare two folders (accepts a provider id/name or a path)
 swift run synccloud scan  -L iCloud/Documents -R OneDrive/Documents
 swift run synccloud scan  -L ~/A -R ~/B --json          # machine-readable
-swift run synccloud scan  -L ~/A -R ~/B --verify        # checksum same-size pairs
 
 # Sync (prompts unless --yes)
 swift run synccloud sync  -L ~/A -R ~/B --direction to-right --strategy keep-both --yes
+swift run synccloud sync  -L ~/A -R ~/B --verify        # checksum same-size, date-only pairs first
 
 # Report where a surveyed tree disagrees with its own habits (read-only)
 swift run synccloud restructure
@@ -220,8 +228,8 @@ Key flags: `--direction auto|to-right|to-left`, `--strategy replace|skip|keep-bo
 1. Get an API key from the [Anthropic Console](https://console.anthropic.com/).
 2. In **Settings ▸ Intelligence**, enable *Use Claude (cloud)*, paste the key (stored in the
    Keychain), pick a model, and hit **Test**.
-3. Set a monthly and/or total **budget cap**. SyncCloud shows an estimated cost before each scan and
-   stops at your cap.
+3. Set a monthly and/or total **budget cap**. SyncCloud shows an estimated cost before each Refine and
+   pauses cloud refinement at your cap.
 
 Without a key (and without Apple Intelligence), Organize still works — it just runs the deterministic
 offline engine.
@@ -234,7 +242,7 @@ SyncCloud/
 ├── Modules/                    # SPM packages:
 │   ├── Sync/                   #   diff engine, file ops, duplicates, filing/automations, storage lens
 │   ├── FileExplorer/           #   panes, differences, Organize lenses, review
-│   ├── Dashboard/              #   activity log, details, breadcrumbs, sync history
+│   ├── Dashboard/              #   folder sidebar, activity log, details, breadcrumbs, sync history
 │   ├── Settings/               #   settings UI + persistence
 │   ├── Design/                 #   Liquid Glass design system
 │   └── Events/                 #   logging, sync-history store
@@ -246,7 +254,7 @@ SyncCloud/
 
 ## Continuous integration
 
-The seven SPM package test suites and the app-target build run on every push to `main`, `v4.x`,
+The seven SPM package test suites and the app-target tests run on every push to `main`, `v4.x`,
 `v3.x` or `v2.x` and on every `v*` release tag, via a self-hosted GitHub Actions runner — see
 [`docs/ci.md`](docs/ci.md).
 
@@ -261,7 +269,7 @@ so neither `swift test` nor CI ever runs them; each names its variable in its ow
 ## Roadmap
 
 Planned enhancements (backing up the folders that exist in only one place, saved folder-pair
-presets, an in-app text diff viewer, a menu-bar status item, and more) are
+presets, a menu-bar status item, and more) are
 tracked in [`ROADMAP.md`](ROADMAP.md). Deliberately
 deferred edge cases live in [`DEFERRED_ENHANCEMENTS.md`](DEFERRED_ENHANCEMENTS.md), and internal
 code that is correct but entangled enough to be worth restructuring against a major release is
