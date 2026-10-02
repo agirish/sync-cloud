@@ -6276,3 +6276,35 @@ done
 **`v4.x`, `v3.x`, `v2.x`: checked, not owed — none applies.** No maintenance line has the document
 survey, Restructure, or setup's reading. `v4.x` does decode a missing `root` as `~`, but its one
 pass that acts under the profile is Refresh, recorded above (P70).
+
+## A write where iCloud Drive's links lead drops the walks above the container too — main only
+
+`prepareReread(afterWritingAt:)` — Edit's ⌘N, Export as PDF, and a save outside both compared
+folders — drops the cached walks that list the written folder. "Lists" consulted the link table
+only at a walk's own root, but the walk substitutes a link wherever it lists the container, so a
+walk of `~/Library/Mobile Documents` — or of `~/Library`, when it gets that far — lists `~/Documents`
+too. It survived a write there, and the pane above the container was served the tree from before
+the write.
+`FileSyncManager.folder(_:holds:links:)` now holds what a link at OR BELOW the folder leads to, which
+moves `ContentView.panesHolding` and `OwedComparison.recordWrite` with it: a pane above the container
+is re-read, and the write is owed to a Compare there. The drop reads the manager's own table
+(`linkedFolders`) instead of the machine's, so a test's injected table reaches it.
+
+Not covered, and documented at `folder(_:holds:links:)`: a folder symlink the table does not name.
+A walk of `R` holding `R/link → T`, `T` outside `R`, lists `T`'s contents spelled `T/…` from two
+levels below the link, and survives a write spelled that way (measured, a new file and a rewrite).
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s folderHolds=%s dropHolding=%s linkTable=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift | grep -c 'static func folder(_ folder: String, holds path: String')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift | grep -c 'func dropPrefetchedTrees(holding')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/PathBoundary.swift 2>/dev/null | grep -c 'discoveredLinkedFolders: LinkedFolders')"
+done
+# measured 2026-10-02, against origin, before this landed:
+# main folderHolds=1 dropHolding=1 linkTable=1 · v4.x folderHolds=0 dropHolding=0 linkTable=0
+# v3.x folderHolds=0 dropHolding=0 linkTable=0 · v2.x folderHolds=0 dropHolding=0 linkTable=0
+```
+
+**`v4.x`, `v3.x`, `v2.x`: checked, not owed — none applies.** No maintenance line has the targeted
+drop or the link table: their file operations empty the whole cache, and no walk substitutes a link.

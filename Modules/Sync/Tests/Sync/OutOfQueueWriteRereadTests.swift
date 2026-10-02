@@ -120,10 +120,11 @@ import Foundation
     @Test func aWalkReachingTheFolderThroughALinkIsDroppedToo() {
         let links: PathBoundary.LinkedFolders = ["/c": ["Documents": "/h/Documents"]]
         let m = FileSyncManager()
+        m.linkedFolders = links
         for key in ["/c", "/h/Documents", "/h/Documents/Finance", "/h/Documents/Other", "/c/Pictures", "/h"] {
             m.prefetchedTrees[key] = []
         }
-        let dropped = m.dropPrefetchedTrees(holding: "/h/Documents/Finance", links: links)
+        let dropped = m.dropPrefetchedTrees(holding: "/h/Documents/Finance")
         #expect(Set(m.prefetchedTrees.keys) == ["/h/Documents/Other", "/c/Pictures"],
                 "kept \(m.prefetchedTrees.keys.sorted())")
         #expect(dropped == 4)
@@ -133,5 +134,142 @@ import Foundation
         #expect(!FileSyncManager.folder("/h/Documents/Fin", holds: "/h/Documents/Finance/x.md", links: links))
         #expect(!FileSyncManager.folder("", holds: "/h/Documents/Finance/x.md", links: links),
                 "an empty folder — no root at all — claimed a path")
+    }
+
+    // MARK: - A walk rooted above the container
+
+    /// iCloud Drive's shape on the fixture's own table: `Library/Mobile Documents/com~apple~CloudDocs`
+    /// links `Documents` to `home/Documents`, which lies outside it, and `other` holds no link.
+    private static func makeLinkedFixture() throws
+        -> (base: URL, container: URL, real: URL, other: URL, links: PathBoundary.LinkedFolders) {
+        let fm = FileManager.default
+        let base = try makeCanonicalTempRoot(prefix: "synccloud-out-of-queue-linked")
+        let container = base.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs", isDirectory: true)
+        let real = base.appendingPathComponent("home/Documents", isDirectory: true)
+        let other = base.appendingPathComponent("other", isDirectory: true)
+        try fm.createDirectory(at: container.appendingPathComponent("Pictures"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: real.appendingPathComponent("Finance/IN"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: other, withIntermediateDirectories: true)
+        try Data().write(to: other.appendingPathComponent("x.md"))
+        try fm.createSymbolicLink(at: container.appendingPathComponent("Documents"), withDestinationURL: real)
+        return (base, container, real, other, [container.path: ["Documents": real.path]])
+    }
+
+    /// Whether a walk lists a node with this id, at any depth.
+    private static func lists(_ id: String, in nodes: [FileNode]) -> Bool {
+        nodes.contains { $0.id == id || lists(id, in: $0.children ?? []) }
+    }
+
+    /// **A walk rooted ABOVE the container lists the linked folder too, so a write there drops it.**
+    /// The walk substitutes a link wherever it lists the container, not only at its own root, so a
+    /// pane on `~/Library/Mobile Documents` lists `~/Documents` as surely as one on iCloud Drive —
+    /// and a file written in `~/Documents/Finance` makes that walk stale though its key is no
+    /// prefix of the file's path and its root is not the container. Served stale, a warm Compare
+    /// at that root disagrees with a cold one. The table goes in through the manager's seam; the
+    /// machine's own links are never read.
+    ///
+    /// The control is the right pane's walk, which reaches nothing the write touched and stays.
+    @MainActor
+    @Test func aWalkAboveTheContainerIsDroppedByAWriteWhereTheLinkLeads() async throws {
+        let f = try Self.makeLinkedFixture()
+        defer { try? FileManager.default.removeItem(at: f.base) }
+        let m = FileSyncManager()
+        m.linkedFolders = f.links
+        let above = f.container.deletingLastPathComponent().path
+        let left = CloudProvider(id: "L", displayName: "L", imageName: "folder", rootPath: above, type: .localFolder)
+        let right = CloudProvider(id: "R", displayName: "R", imageName: "folder", rootPath: f.other.path,
+                                  type: .localFolder)
+        await m.refreshTreesAndScan(left: left, right: right, comparing: false)
+
+        let finance = f.real.appendingPathComponent("Finance").path
+        let walk = try #require(m.prefetchedTrees[above],
+                                "premise: the walk above the container is not cached: \(m.prefetchedTrees.keys.sorted())")
+        try #require(Self.lists(finance, in: walk),
+                     "premise: the walk above the container does not reach the linked folder — no write can make it stale")
+        try #require(m.prefetchedTrees[f.other.path] != nil,
+                     "premise: the control's walk is not cached — its survival below would prove nothing")
+        let created = (finance as NSString).appendingPathComponent("Test.md")
+        try Data().write(to: URL(fileURLWithPath: created))
+
+        // Control: unprepared, the one-pane re-read is served the cached walk.
+        await m.refreshTreesAndScan(left: left, right: right, reloading: .leftOnly, comparing: false)
+        #expect(m.leftNodes(for: [created]).isEmpty,
+                "an unprepared re-read listed the file — the cache this test is about did not serve it")
+
+        m.prepareReread(afterWritingAt: created)
+        #expect(m.prefetchedTrees[above] == nil,
+                "the walk above the container survived — it lists the folder through the link and serves the pre-write tree")
+        #expect(m.prefetchedTreeReadAt[above] == nil, "the dropped walk's read stamp survived it")
+        #expect(m.prefetchedTrees[f.other.path] != nil, "the other pane's walk was dropped — it reaches nothing written")
+
+        await m.refreshTreesAndScan(left: left, right: right, reloading: .leftOnly, comparing: false)
+        let node = try #require(m.leftNodes(for: [created]).first,
+                                "the pane above the container still does not list the file written where the link leads")
+        #expect(node.id == created)
+    }
+
+    /// **…and a warm Compare at that root sees the write.** Against a mirror of the tree the scan
+    /// reports nothing, and both panes are cached, so it is warm. Served the walk from before the
+    /// write it went on reporting nothing; with the walk dropped it reports the new file, keyed
+    /// under the container's name as the cold walk keys it.
+    @MainActor
+    @Test func aWarmCompareAboveTheContainerSeesAWriteWhereTheLinkLeads() async throws {
+        let f = try Self.makeLinkedFixture()
+        defer { try? FileManager.default.removeItem(at: f.base) }
+        let mirror = f.base.appendingPathComponent("mirror", isDirectory: true)
+        for folder in ["com~apple~CloudDocs/Documents/Finance/IN", "com~apple~CloudDocs/Pictures"] {
+            try FileManager.default.createDirectory(at: mirror.appendingPathComponent(folder),
+                                                    withIntermediateDirectories: true)
+        }
+        let m = FileSyncManager()
+        m.linkedFolders = f.links
+        let above = f.container.deletingLastPathComponent().path
+        let left = CloudProvider(id: "L", displayName: "L", imageName: "folder", rootPath: above, type: .localFolder)
+        let right = CloudProvider(id: "R", displayName: "R", imageName: "folder", rootPath: mirror.path,
+                                  type: .localFolder)
+        await m.refreshTreesAndScan(left: left, right: right)
+        try #require(m.prefetchedTrees[above] != nil && m.prefetchedTrees[mirror.path] != nil,
+                     "premise: both walks are cached, so the scans below are warm")
+        try #require(m.hasScanned && m.rawDifferences.isEmpty,
+                     "premise: the tree and its mirror compare equal: \(m.rawDifferences.map(\.relativePath))")
+        let created = f.real.appendingPathComponent("Finance/Test.md")
+        try Data().write(to: created)
+
+        // Control: unprepared, the warm scan is served the walk from before the write.
+        await m.refreshTreesAndScan(left: left, right: right, reloading: .leftOnly)
+        #expect(m.rawDifferences.isEmpty,
+                "an unprepared scan saw the write — the cache this test is about did not serve it")
+
+        m.prepareReread(afterWritingAt: created.path)
+        await m.refreshTreesAndScan(left: left, right: right, reloading: .leftOnly)
+        let key = "com~apple~CloudDocs/Documents/Finance/Test.md"
+        #expect(m.rawDifferences.map(\.relativePath) == [key],
+                "\(m.rawDifferences.map { "\($0.relativePath): \($0.description)" })")
+        let cold = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: above, isDirectory: true))
+        #expect(cold[key] != nil, "the disk walk keys the file elsewhere: \(cold.keys.sorted())")
+    }
+
+    /// **The rule on paths alone: a folder holds what a link at its root OR BELOW it leads to.**
+    /// Not a folder below the container, whose walk never lists the link; not one beside it whose
+    /// name merely opens the same way; and only the link's own target. With no table, the same
+    /// folder holds nothing outside it — the answer the rule must differ from. A synthetic table;
+    /// nothing is read from disk.
+    @Test func aFolderHoldsWhatALinkAtOrBelowItLeadsTo() {
+        let links: PathBoundary.LinkedFolders = ["/u/Library/Mobile Documents/c": ["Documents": "/u/Documents"]]
+        let file = "/u/Documents/Finance/x.md"
+        for holder in ["/u/Library/Mobile Documents/c", "/u/Library/Mobile Documents", "/u/Library"] {
+            #expect(FileSyncManager.folder(holder, holds: file, links: links),
+                    "\(holder) lists the linked folder, and did not hold a file in it")
+        }
+        for stranger in ["/u/Library/Mobile", "/u/Library/Mobile Documents/c/Pictures", "/u/Library/Caches"] {
+            #expect(!FileSyncManager.folder(stranger, holds: file, links: links),
+                    "\(stranger) never lists the linked folder, and held a file in it")
+        }
+        #expect(!FileSyncManager.folder("/u/Library", holds: "/u/Desktop/x.md", links: links),
+                "a folder the table does not link was held")
+        #expect(!FileSyncManager.folder("/u/Library", holds: "/u/Documents2/x.md", links: links),
+                "a sibling sharing the target's opening was held")
+        #expect(!FileSyncManager.folder("/u/Library", holds: file, links: [:]),
+                "with no table, a folder held a file outside it")
     }
 }

@@ -83,7 +83,7 @@ import Sync
 
     /// Which panes are re-read: each whose folder holds the file, deep — and neither for a file
     /// saved outside both (an export to Downloads). The iCloud container's pane holds a file in
-    /// `~/Documents` through its link (synthetic table).
+    /// `~/Documents` through its link, and so does a pane above the container (synthetic tables).
     @Test func onlyThePanesThatHoldTheFileAreReRead() {
         func scope(_ path: String, left: String = "/a/Finance", right: String = "/b",
                    links: PathBoundary.LinkedFolders = [:]) -> FileSyncManager.PaneReloadScope? {
@@ -97,6 +97,10 @@ import Sync
         #expect(scope("/a/Fin/Test.md") == nil, "a sibling sharing the folder's opening is another folder")
         let links: PathBoundary.LinkedFolders = ["/c": ["Documents": "/h/Documents"]]
         #expect(scope("/h/Documents/Finance/Test.md", left: "/c", links: links) == .leftOnly)
+        // A pane ABOVE the container lists the linked folder too — its walk meets the link below it.
+        let below: PathBoundary.LinkedFolders = ["/lib/Mobile/c": ["Documents": "/h/Documents"]]
+        #expect(scope("/h/Documents/Finance/Test.md", left: "/lib", links: below) == .leftOnly,
+                "a pane whose walk reaches the folder through a link below its root was not re-read")
     }
 
     /// **Export as PDF adds a file to the folder too**, and refreshed only the rail for the same
