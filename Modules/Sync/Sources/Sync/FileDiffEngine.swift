@@ -446,26 +446,22 @@ public struct FileDiffEngine {
                                   isDirectory: true, isUnexplored: true)
             let limit = maxEntries ?? 0
             let root = url.path
-            Task { @MainActor in
-                Logger.shared.warning("Scan: stopped reading “\(root)” after \(counted) entries (limit \(limit)) — the comparison covers what was read and reports nothing on this side as missing")
-            }
+            Logger.shared.warning("Scan: stopped reading “\(root)” after \(counted) entries (limit \(limit)) — the comparison covers what was read and reports nothing on this side as missing")
         }
 
         if unreadableCount > 0 {
             let count = unreadableCount
             let samples = unreadableSamples
             let root = url.path
-            Task { @MainActor in
-                // A per-entry read failure omits that item from the comparison (unlike an unreadable
-                // directory, which is marked unexplored above). It is an environmental condition —
-                // permission denied or a transient FS error the app cannot act on — and the count is
-                // surfaced here, so it is a warning, not an app-level error. Matches the tree
-                // builder's "could not list …" path (see FileSyncManager+Scanning).
-                if count <= maxIndividuallyLogged {
-                    for message in samples { Logger.shared.warning(message) }
-                } else {
-                    Logger.shared.warning("Scan: \(count) entries unreadable under \(root); first: \(samples.joined(separator: " | "))")
-                }
+            // A per-entry read failure omits that item from the comparison (unlike an unreadable
+            // directory, which is marked unexplored above). It is an environmental condition —
+            // permission denied or a transient FS error the app cannot act on — and the count is
+            // surfaced here, so it is a warning, not an app-level error. Matches the tree
+            // builder's "could not list …" path (see FileSyncManager+Scanning).
+            if count <= maxIndividuallyLogged {
+                for message in samples { Logger.shared.warning(message) }
+            } else {
+                Logger.shared.warning("Scan: \(count) entries unreadable under \(root); first: \(samples.joined(separator: " | "))")
             }
         }
 
@@ -898,9 +894,7 @@ public struct FileDiffEngine {
             missingOnLeftDirs: missingOnLeftDirs,
             typeMismatchDirs: typeMismatchDirs
         ).sorted { $0.relativePath < $1.relativePath }
-        Task { @MainActor in
-            Logger.shared.debug("Computed differences: \(result.count) item(s) requiring action")
-        }
+        Logger.shared.debug("Computed differences: \(result.count) item(s) requiring action")
         return result
     }
 

@@ -1016,19 +1016,15 @@ extension FileSyncManager {
         // is read by `deleteItems`; nothing static can pick it up by accident.
         switch trashAfterReregistering(sourceURL, fileManager: fm) {
         case .trashed:
-            Task { @MainActor in
-                Logger.shared.info(
-                    "\(context): the original at \(sourceURL.path) reached the Trash after being "
-                    + "re-registered by a move in place")
-            }
+            Logger.shared.info(
+                "\(context): the original at \(sourceURL.path) reached the Trash after being "
+                + "re-registered by a move in place")
             return true
         case .parkedAndNotRestored(let parked):
-            Task { @MainActor in
-                Logger.shared.error(
-                    "\(context): the original at \(sourceURL.path) could not be moved to the "
-                    + "Trash, was parked as \(parked.lastPathComponent) to retry that, and could "
-                    + "not be moved back — it is intact under that name and was NOT deleted")
-            }
+            Logger.shared.error(
+                "\(context): the original at \(sourceURL.path) could not be moved to the "
+                + "Trash, was parked as \(parked.lastPathComponent) to retry that, and could "
+                + "not be moved back — it is intact under that name and was NOT deleted")
             return true
         case .untouched:
             return false

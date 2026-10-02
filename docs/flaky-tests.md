@@ -1716,7 +1716,9 @@ needed by `LogCapture` too, for the visibility reason it gives.
    between the call under test and the read, that flush has not run, and the line is simply not in
    `entries` yet. Close it by awaiting one more entry's task before reading — `await
    Logger.shared.debug("… flush marker").value` — which, the queue being FIFO, drains everything
-   enqueued before it.
+   enqueued before it. **Enqueued** is the operative word: a line the code under test sends through
+   `Task { @MainActor in Logger.shared… }` is not in the queue when the call returns, and the flush
+   can finish without it — mechanism 26.
 
    **Measured 2026-08-17, as a pair, because this rule used to say only the first half.** A
    `@MainActor` probe applying the marker and the `#require` but no trailing flush **passed** an
@@ -2914,3 +2916,54 @@ else's pixels, and the only way to see it is to ask it for a blank.
 
 **See.** `SyncCloudTests/SetupArtworkRenderTests.swift` (`render(_:named:)`,
 `testABlankPageReadsAsBlankRightAfterAPaintedOne`).
+
+### 26. A log line hopped to the main actor, so the capture's flush marker finishes without it — FIXED
+
+**Symptom.** A `LogCapture` presence assertion fails for a line the code under test really writes,
+in the full package only, and a same-SHA rerun is green. Seen 2026-09-27 on CI (run 36326849137,
+attempt 1, `3880861c` — the v5.4 re-bump, which changed only version strings):
+
+```
+✘ Test anUnreadableKeychainIsLogged() recorded an issue at AnthropicKeychainTests.swift:167:9: Expectation failed: await log.holds(.warning, containing: "a stored key may exist but cannot be read right now")
+```
+
+Attempt 2 went green on the same SHA, and so had `28ade2a6`, twice. The silent half is the same
+mechanism read the other way: an **absence** assertion about such a line passes having seen nothing.
+
+**Mechanism.** `LogCapture.entries` awaits one more entry's flush, which drains everything already
+in `Logger`'s pending queue — rule 1's visibility half of mechanism 12. `AnthropicKeychain.log` did
+not put its line in that queue; it wrote `Task { @MainActor in Logger.shared.warning(message) }`, so
+the line was only *scheduled* to be enqueued when `read` returned. That is safe until a flush is
+already queued on the main actor when the test calls in — routine in a full package run, where
+other suites log from other threads. `PendingLogEntryQueue.enqueue` returns that already-scheduled
+flush instead of making a new one, so the main actor runs:
+
+1. the queued flush F1, carrying the capture's marker — the test's await completes, and its
+   resumption R is queued **behind** the keychain's task W;
+2. W, which enqueues the warning and, F1 having cleared, schedules a new flush F2 — behind R;
+3. R, which reads the capture before F2 has published the line.
+
+A probe printed the order directly: the marker joined F1 (`true`), then `W`, then `R`, with the line
+unpublished at R. Nothing else in `Logger` hops. `warning`, `error`, `info`, `debug` and `shared`
+are all `nonisolated` and enqueue before they return. The hop was a leftover from before they were.
+
+**Tell:** the missing line is written through `Task { @MainActor in … }` (or reaches the logger
+through a helper that does). The test is red **every time** under `--filter` once a flush is queued
+ahead of it, but the full package can mask it: there, siblings' own main-actor jobs land between R
+and the read often enough to pass. On this suite, six full-suite runs were green, and three
+`--filter` runs of the two tests were red.
+
+**Fix — log synchronously.** Twenty-one hops across eight files in `Sync` and the app target, every
+one a pure wrapper around a `Logger.shared` call, now call the logger directly. The one hop left,
+in `ContentView+DocumentSurvey.swift`, does real main-actor work and logs as its first line, so its
+caller is not waiting on that line. Both keychain log tests now log one line before the call under
+test, which queues F1 deterministically, and they fail under `--filter` when only the keychain's
+hop is restored (2 runs of 2) and pass without it (5 of 5).
+
+**The general rule:** a flush barrier proves visibility only for what was enqueued before it, and a
+line the code under test schedules for later is not enqueued yet. Never put a log call behind an
+actor hop the caller cannot await.
+
+**See.** `Modules/Sync/Tests/Sync/AnthropicKeychainTests.swift`
+(`anUnreadableKeychainIsLogged`, `aRefusedDeleteIsLogged`); `PendingLogEntryQueue` in
+`Modules/Events/Sources/Events/Logger.swift`.

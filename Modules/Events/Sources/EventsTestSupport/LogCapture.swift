@@ -78,7 +78,9 @@ public final class LogCapture {
             // `Logger.log` is `nonisolated` and hands the entry to a FIFO queue a `@MainActor` task
             // drains, so without awaiting one more entry a line the call under test just wrote may
             // not have been published yet. The queue being FIFO, this drains everything enqueued
-            // before it.
+            // before it — and only that: a line the call under test sends through
+            // `Task { @MainActor in … }` is not enqueued yet, and can miss this flush
+            // (mechanism 26 in `docs/flaky-tests.md`).
             await Logger.shared.debug("log-capture flush marker").value
             return seen
         }

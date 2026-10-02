@@ -70,6 +70,7 @@ machine state at all.
 | Red **fast** (~2s) under `--filter` on an **idle** machine, on the commit in front of you **and every commit behind it**, and the failing value is a framework's **class name, coordinate origin or ordering** | [21](flaky-tests.md#21-an-os-upgrade-repealed-a-framework-convention-a-test-had-pinned--a-red-about-no-commit-at-all) | Check `sw_vers` against the last green CI date before bisecting anything. A convention is not a contract — restate the claim, do not widen the assertion to accept both |
 | `signal code 6` with **no `Test run with` line at all**, `CIAreaAverage` / `perceptuallyCompare` in the crashing thread, every run, idle | [23](flaky-tests.md#23-a-snapshot-mismatch-that-aborts-the-process-instead-of-failing--a-red-with-no-verdict) | Not a load flake. The compare died on an image that merely was not byte-identical — which may even be a pass. Check the helper still calls `installPerceptualCompareShim()`, then read the real verdict before re-recording anything |
 | A test reads back what it **itself just stored** in an `NSCache` and gets `nil`, while its **miss** assertions pass; `--filter` green in milliseconds, a same-SHA re-run green | [24](flaky-tests.md#24-an-nscache-emptied-by-memory-pressure-between-a-store-and-the-next-line--fixed) — **fixed 2026-09-26** | `log show` for a memory-pressure *warning* before the **issue's** timestamp — CI stamps UTC, `log show` local time. The test's duration is not the tell. Inject the storage; never store-then-peek through an `NSCache` |
+| A `LogCapture` presence assertion red for a line the code **does** write, green on a same-SHA rerun, and the line reaches `Logger` through `Task { @MainActor in … }` | [26](flaky-tests.md#26-a-log-line-hopped-to-the-main-actor-so-the-captures-flush-marker-finishes-without-it--fixed) — **fixed 2026-09-27** | Not the rolled window: nothing was evicted. Drop the hop and call the `nonisolated` logger directly; queue a flush before the call under test to make it red every time |
 
 ## 2. Check what else is running
 
@@ -138,12 +139,16 @@ and everything to miss.
   — a "this is not blank" floor read from the renderer's own image. A page that draws nothing can
   come back holding the last page of the same size; render into a context you own, and prove a
   blank reads as blank in the same harness.
+- [26](flaky-tests.md#26-a-log-line-hopped-to-the-main-actor-so-the-captures-flush-marker-finishes-without-it--fixed)
+  — an absence read from a capture before the line under test was even enqueued. A flush marker
+  vouches only for what was queued before it; a line sent through `Task { @MainActor in … }` is not.
 
 The first three are visible in the test's own source, as are the fifth and sixth. The fourth fires
 on the volume of unrelated suites, so the same test is honest or vacuous depending on what else was
 scheduled beside it — and the sixth, though visible, is armed by the machine's memory. The seventh
 is visible only as a harness that reads `nsImage` or `cgImage`, and it is armed by test order: the
 same blank reads blank or painted depending on whether a same-sized render was freed just before it.
+The eighth is visible in the code under test, not in the test, as a hop around its log call.
 
 ---
 

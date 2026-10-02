@@ -821,18 +821,14 @@ extension FileSyncManager {
                 // maps are already built and already carry the marking.
                 for (side, info) in [("left", leftFilesInfo), ("right", rightFilesInfo)]
                 where info.values.contains(where: { $0.isDirectory && $0.isUnexplored }) {
-                    Task { @MainActor in
-                        Logger.shared.warning("Scan: the \(side) tree is incomplete — this comparison covers what was walked, and reports nothing under an unread folder as missing")
-                    }
+                    Logger.shared.warning("Scan: the \(side) tree is incomplete — this comparison covers what was walked, and reports nothing under an unread folder as missing")
                 }
                 guard !Task.isCancelled else { return nil }
                 let diffStart = CFAbsoluteTimeGetCurrent()
                 defer {
                     let diff = Self.durationText(since: diffStart)
                     let counts = "\(leftFilesInfo.count) vs \(rightFilesInfo.count) entries"
-                    Task { @MainActor in
-                        Logger.shared.debug("[scan] \(scanTag) cached-tree compute: flatten \(flatten), diff \(diff) (\(counts))")
-                    }
+                    Logger.shared.debug("[scan] \(scanTag) cached-tree compute: flatten \(flatten), diff \(diff) (\(counts))")
                 }
                 return ScanOutcome(
                     differences: FileDiffEngine.computeDifferences(
@@ -890,9 +886,7 @@ extension FileSyncManager {
                     defer {
                         let diff = Self.durationText(since: diffStart)
                         let counts = "\(leftFilesInfo.count) vs \(rightFilesInfo.count) entries"
-                        Task { @MainActor in
-                            Logger.shared.debug("[scan] \(scanTag) disk-walk compute: walk \(walk), diff \(diff) (\(counts))")
-                        }
+                        Logger.shared.debug("[scan] \(scanTag) disk-walk compute: walk \(walk), diff \(diff) (\(counts))")
                     }
 
                     return ScanOutcome(
@@ -913,7 +907,7 @@ extension FileSyncManager {
                     return nil
                 } catch {
                     let msg = "Error scanning directories: \(error)"
-                    Task { @MainActor in Logger.shared.error(msg) }
+                    Logger.shared.error(msg)
                     return nil
                 }
             }
@@ -1165,11 +1159,7 @@ extension FileSyncManager {
                         logged = true
                         lock.unlock()
                         guard first else { return }
-                        // Hop to the main actor for the logger, same as the walk's other
-                        // detached-context log sites.
-                        Task { @MainActor in
-                            Logger.shared.warning("Scan: could not list “\(path)” (permission denied or unreadable) — shown as unexplored, not empty; further unreadable directories in this scan are not logged individually")
-                        }
+                        Logger.shared.warning("Scan: could not list “\(path)” (permission denied or unreadable) — shown as unexplored, not empty; further unreadable directories in this scan are not logged individually")
                     }
                 }
                 let unreadableLog = UnreadableListingLog()

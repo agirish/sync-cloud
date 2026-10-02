@@ -88,10 +88,11 @@ public enum AnthropicKeychain {
         return .found(key)
     }
 
-    /// Hops the (nonisolated, static) reads onto the MainActor logger, the same way the
-    /// nonisolated file primitives do.
+    /// Logs synchronously: `Logger.warning` is `nonisolated` and enqueues before it returns, so
+    /// the line is queued when the read does. A `Task { @MainActor in … }` hop here enqueued it
+    /// only after the call returned, which a `LogCapture` read could miss (see `docs/flaky-tests.md`).
     private static func log(_ message: String) {
-        Task { @MainActor in Logger.shared.warning(message) }
+        Logger.shared.warning(message)
     }
 
     /// Removes the stored key.

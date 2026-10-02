@@ -145,9 +145,7 @@ enum TopPaneVisibility {
             // "" decodes back to an empty map, so this branch silently resets every workspace's
             // override to its default. It cannot fire for a `[String: Bool]`, which is exactly
             // when a branch must announce itself if it ever does.
-            Task { @MainActor in
-                Logger.shared.error("The pane-visibility overrides could not be encoded for saving — every workspace falls back to its default panes")
-            }
+            Logger.shared.error("The pane-visibility overrides could not be encoded for saving — every workspace falls back to its default panes")
             return ""
         }
         return string

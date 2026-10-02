@@ -162,6 +162,11 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         locked.itemData = Data("sk-ant-test".utf8)
         locked.forcedCopyStatus = errSecInteractionNotAllowed
 
+        // What a parallel suite's logging leaves on the main actor in a full package run: a flush
+        // already queued AHEAD of the call under test. The capture's marker joins that flush
+        // instead of scheduling its own, so this holds only if the warning is enqueued by the time
+        // the call returns — a `Task { @MainActor in … }` hop lands it after the read, and red.
+        Logger.shared.debug("a sibling suite's line, its flush still queued")
         _ = AnthropicKeychain.read(from: locked)
 
         #expect(await log.holds(.warning, containing: "a stored key may exist but cannot be read right now"),
@@ -272,6 +277,11 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         AnthropicKeychain.store("sk-ant-test", in: store)
         store.forcedDeleteStatus = errSecInteractionNotAllowed
 
+        // What a parallel suite's logging leaves on the main actor in a full package run: a flush
+        // already queued AHEAD of the call under test. The capture's marker joins that flush
+        // instead of scheduling its own, so this holds only if the warning is enqueued by the time
+        // the call returns — a `Task { @MainActor in … }` hop lands it after the read, and red.
+        Logger.shared.debug("a sibling suite's line, its flush still queued")
         AnthropicKeychain.delete(from: store)
 
         #expect(await log.holds(.warning, containing: "refused to delete the stored item"),

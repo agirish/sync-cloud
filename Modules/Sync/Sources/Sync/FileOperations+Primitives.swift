@@ -284,8 +284,7 @@ extension FileSyncManager {
         if let recovered {
             // Recovery breadcrumb: the single line that lets a replaced file be found again after
             // an overwrite (or a bad sync). Logged at .info so it survives a normal-level trace.
-            // Hopped to the MainActor logger, matching the other nonisolated logging in this file.
-            Task { @MainActor in Logger.shared.info("Replaced \(destinationURL.path) — previous version recoverable at \(recovered.path)") }
+            Logger.shared.info("Replaced \(destinationURL.path) — previous version recoverable at \(recovered.path)")
         }
         return recovered
     }
@@ -398,18 +397,14 @@ extension FileSyncManager {
                         // The one branch of a move that removes something unrecoverably. The data
                         // survives at the destination, but the original is gone without a Trash stop,
                         // so the log must say so — the delete path's equivalent already does.
-                        Task { @MainActor in
-                            Logger.shared.warning("Cross-volume move: the original at \(sourceURL.path) could not be moved to the Trash and was permanently deleted — its content is at \(destinationURL.path)")
-                        }
+                        Logger.shared.warning("Cross-volume move: the original at \(sourceURL.path) could not be moved to the Trash and was permanently deleted — its content is at \(destinationURL.path)")
                     } catch let cleanupError {
                         // The move already landed, so the item at the destination is this operation's
                         // own copy - removing it is a clean revert when the source can't be cleaned up.
                         let reverted = (try? fileManager.removeItem(at: destinationURL)) != nil
-                        Task { @MainActor in
-                            Logger.shared.warning(reverted
-                                ? "Cross-volume move of \(sourceURL.path) failed at source cleanup — the copy at \(destinationURL.path) was removed to revert it"
-                                : "Cross-volume move of \(sourceURL.path) failed at source cleanup, and the copy at \(destinationURL.path) could not be removed — both copies remain")
-                        }
+                        Logger.shared.warning(reverted
+                            ? "Cross-volume move of \(sourceURL.path) failed at source cleanup — the copy at \(destinationURL.path) was removed to revert it"
+                            : "Cross-volume move of \(sourceURL.path) failed at source cleanup, and the copy at \(destinationURL.path) could not be removed — both copies remain")
                         throw cleanupError
                     }
                 }
@@ -498,9 +493,7 @@ extension FileSyncManager {
                         // instead of pointing at a path that holds nothing.
                         detail = "The original could not be put back at its path, and the staged copy is no longer at its staging location — macOS may have moved it to a temporary item-replacement folder."
                     }
-                    Task { @MainActor in
-                        Logger.shared.error("Replace of \(destinationURL.path) failed and the source could not be restored to \(sourceURL.path). \(detail)")
-                    }
+                    Logger.shared.error("Replace of \(destinationURL.path) failed and the source could not be restored to \(sourceURL.path). \(detail)")
                     let ns = replaceError as NSError
                     throw NSError(domain: ns.domain, code: ns.code, userInfo: [
                         NSLocalizedDescriptionKey: "\(replaceError.localizedDescription) \(detail)",
@@ -526,9 +519,7 @@ extension FileSyncManager {
                         try fileManager.removeItem(at: sourceURL)
                         // Same unrecoverable removal as the plain cross-volume move above, and the
                         // same obligation to say so.
-                        Task { @MainActor in
-                            Logger.shared.warning("Cross-volume replace: the original at \(sourceURL.path) could not be moved to the Trash and was permanently deleted — its content is at \(destinationURL.path)")
-                        }
+                        Logger.shared.warning("Cross-volume replace: the original at \(sourceURL.path) could not be moved to the Trash and was permanently deleted — its content is at \(destinationURL.path)")
                     } catch let cleanupError {
                         // Neither Trash nor remove worked, so this cross-volume move can't complete.
                         // Undo the replace and fail — matching the dest-absent cross-volume path, and
@@ -563,7 +554,7 @@ extension FileSyncManager {
             // The revert itself failed: the destination may hold the new content while the source
             // is still on disk. Log loudly — this is the one spot where a replace can leave the
             // two panes inconsistent without surfacing an error to the caller.
-            Task { @MainActor in Logger.shared.error("Could not revert a partial replace at \(destinationURL.path) from backup \(backupURL.path); the destination may hold new content while the original source is still present") }
+            Logger.shared.error("Could not revert a partial replace at \(destinationURL.path) from backup \(backupURL.path); the destination may hold new content while the original source is still present")
             return
         }
         try? fileManager.removeItem(at: staleBackup)
