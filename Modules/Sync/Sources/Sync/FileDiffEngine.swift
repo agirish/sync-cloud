@@ -60,98 +60,90 @@ public struct FileDiffEngine {
     /// Builds the same relative-path→`FileInfo` map `getFilesInDirectory` produces by walking
     /// the disk, but from an already-built deep `FileNode` tree — used to skip the scan's
     /// re-walk when both panes' trees are current (they carry the same metadata the walk
-    /// would fetch). Key normalization mirrors `getFilesInDirectory`: strip `basePath`, strip
-    /// the leading slash, skip the base itself — and key a node under a folder the base links to
-    /// from outside it through the link's name, which is where that walk finds it.
+    /// would fetch).
     ///
-    /// `links` is the table the tree was walked with (`buildTree(…linkedFolders:)`).
-    public static func filesInfo(fromTree nodes: [FileNode], basePath: String,
-                                 links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> [String: FileInfo] {
+    /// **A key is the path of NAMES from the base down to the node, read off the tree's shape —
+    /// never the node's id with the base stripped off.** That is what the disk walk's key is: the
+    /// path below its root, through any link it descends. The two agree only while every id
+    /// continues its parent's, and two things in the walk break that:
+    /// - it lists a folder linked in from outside as the folder it points at
+    ///   (`FileSyncManager.buildTree`; iCloud Drive's `Desktop` and `Documents`);
+    /// - `contentsOfDirectory(at:)` hands back symlink-RESOLVED URLs for a folder reached through a
+    ///   symlink (measured: listing `dlink/sub` returns `real/sub/…`), so ids go real two levels
+    ///   below any folder link, and everywhere under a base reached through one — a pane focused
+    ///   inside a linked folder, or a root spelled `/var/…`.
+    ///
+    /// Stripped, such nodes keyed off their real paths: near-absolute (`Users/…/x`,
+    /// `private/var/…/x`) where the base was no prefix of them, and onto the real folder's own keys
+    /// where it was, so the copy under the link vanished from the map. (A lookup in the iCloud link
+    /// table patched the first case at the container, the one base the table names.) Each made a
+    /// warm scan answer differently from a cold one over the same pair, and at Home its rows could
+    /// copy the other side's folder into the container — through the link, onto `~/Documents`.
+    ///
+    /// **A node marked `FileNode.isCoveredElsewhere` is keyed like any other, not skipped.** That
+    /// flag is for consumers that add the tree up; the disk walk lists the folder under the
+    /// container as well as directly, and this map has to say what that walk says.
+    ///
+    /// **Each name is the last component of the node's own id, not its `name`.** The two are the
+    /// same bytes for every node a walk builds — both come off one URL — but `name` is left bridged
+    /// on purpose (see `FileSyncManager.nativePath`), and a key built out of it pays the bridge on
+    /// every node. `TreeWalkBenchmark`'s keying rows over a real 17,121-node pane tree: 2 ms for
+    /// these keys, 3 ms for the id strip they replaced, 6 ms built from `name`. Its differential
+    /// finds the whole map byte-identical to the strip's wherever every id continues its parent's.
+    ///
+    /// `basePath` is read for one thing: recognizing the base itself, which `buildTree` returns as
+    /// the tree's only node when the base could not be listed (below).
+    public static func filesInfo(fromTree nodes: [FileNode], basePath: String) -> [String: FileInfo] {
         var result: [String: FileInfo] = [:]
-        // Hoisted: `basePath.count` is a GRAPHEME count, an O(basePath) walk, and it used to be
-        // recomputed for every node — which is why flattening the same tree got measurably
-        // slower the deeper the pane was focused (the right pane's 60-character root cost twice
-        // the left pane's 25-character one for the same node count).
-        let baseGraphemeCount = basePath.count
-        // **The folders the base links to from outside it** — iCloud Drive's `Desktop` and
-        // `Documents`, at the container, and nothing at any other base. The walk lists each as the
-        // folder it points at, so its nodes carry the REAL path, which the base is no prefix of:
-        // keyed below as near-absolute paths (`Users/…/Documents/x`), they paired with nothing the
-        // disk walk keys `Documents/x`, and a warm Compare at the container offered to copy the
-        // whole folder to `<other side>/Users/…`. Looked up once, consulted only on a prefix miss.
-        let linked = PathBoundary.linkedFolders(atRoot: basePath, in: links)
-            .map { (name: $0.key, target: $0.value, graphemeCount: $0.value.count) }
 
-        func relativeKey(of id: String) -> String {
-            // **There was a byte fast path here, and it was SLOWER than the code it bypassed.**
-            // It compared `id.utf8` against an `Array<UInt8>` and rebuilt the result with
-            // `String(decoding:as:)` — a generic sequence comparison with no memcmp, plus an
-            // allocation that re-validates UTF-8 — where `hasPrefix` + `dropFirst` on a native
-            // string is a near-memcmp compare and a storage-sharing slice.
-            //
-            // Measured on the shipped function over a 40,400-node tree, three runs each:
-            // **0.348–0.422s with it, 0.179–0.205s without — about 1.9x.** (A first reading said
-            // 4.8x and did not reproduce; the range above is what three runs of each actually
-            // give, and the smaller number is the one to trust.)
-            //
-            // It changed no answer either. Its stated purpose was the combining-mark case below —
-            // base "/a/cafe" against "/a/cafe\u{0301}/x.txt", where the bytes match but the
-            // boundary falls inside a grapheme cluster — and on exactly that input it declined to
-            // slice and fell through to this fallback, which is what produced the answer. Removing
-            // it leaves the same three tests green.
-            // Fallback: the original grapheme-based strip, kept verbatim rather than replaced.
-            // `hasPrefix` compares by CANONICAL EQUIVALENCE, so a base and a path that spell the
-            // same folder in different Unicode normalizations (precomposed "é" against "e" +
-            // combining acute — both reachable on APFS, which stores names as given) match here
-            // while their bytes do not. Dropping `baseUTF8.count` bytes in that case would cut
-            // mid-character; dropping `baseGraphemeCount` graphemes is correct. Without this
-            // branch such a node would key on its whole absolute path and read as a difference
-            // that isn't there, so the fast path above is an optimization only — never a change
-            // of meaning.
-            var relativePath = id
-            if relativePath.hasPrefix(basePath) {
-                relativePath = String(relativePath.dropFirst(baseGraphemeCount))
-            } else {
-                for link in linked {
-                    if id == link.target { return link.name }
-                    if id.hasPrefix(link.target + "/") {
-                        return link.name + "/" + String(id.dropFirst(link.graphemeCount + 1))
-                    }
-                }
-            }
-            if relativePath.hasPrefix("/") {
-                relativePath.removeFirst()
-            }
-            return relativePath
+        /// The last component of `id`, as a slice of its storage. Cut on the scalar view, where a
+        /// boundary just after a `/` is always exact: a name can open with a combining mark, so it
+        /// is not always a Character boundary.
+        func leaf(of id: String) -> Substring {
+            guard let slash = id.utf8.lastIndex(of: UInt8(ascii: "/")) else { return id[...] }
+            return Substring(id.unicodeScalars[id.utf8.index(after: slash)...])
         }
 
-        func add(_ node: FileNode) {
-            let relativePath = relativeKey(of: node.id)
-            if !relativePath.isEmpty {
-                result[relativePath] = FileInfo(
-                    // `isDirectory:` is not cosmetic here. Without it this initializer RESOLVES
-                    // the path against the file system to answer the same question `node`
-                    // already carries — one lookup per node, ~40k per pane, measured at 4x the
-                    // hinted form. Hinting correctly reproduces the very URL the unhinted form
-                    // returns (verified: the hinted and unhinted values compare equal for both
-                    // a real file and a real directory), and every consumer of `FileInfo.url`
-                    // reads `.path`, which is identical either way — including for a symlink to
-                    // a directory, where `node.isDirectory` describes the TARGET and so the
-                    // trailing slash could differ from an lstat-based guess.
-                    url: URL(fileURLWithPath: node.id, isDirectory: node.isDirectory),
-                    modificationDate: node.modificationDate,
-                    fileSize: node.fileSize,
-                    isDirectory: node.isDirectory,
-                    // Carry the walk's "couldn't look inside" marker (permission denied, cycle
-                    // cap): computeDifferences must not read the absent children as "missing".
-                    isUnexplored: node.isDirectory && node.isUnexplored == true
-                )
-            } else if node.isDirectory, node.isUnexplored == true {
-                // The walk ROOT itself, marked unexplored: `buildTree` returns the root as a
-                // single unexplored node when its own listing failed (permission denied), so
-                // this side's ENTIRE view is unknown — not empty. Record it under the root key
-                // ("") that `computeDifferences` reads to suppress whole-side Missing rows,
-                // mirroring what `getFilesInDirectory` records on the cold (disk-walk) branch.
+        func add(_ node: FileNode, key: String) {
+            result[key] = FileInfo(
+                // `isDirectory:` is not cosmetic here. Without it this initializer RESOLVES
+                // the path against the file system to answer the same question `node`
+                // already carries — one lookup per node, ~40k per pane, measured at 4x the
+                // hinted form. Hinting correctly reproduces the very URL the unhinted form
+                // returns (verified: the hinted and unhinted values compare equal for both
+                // a real file and a real directory), and every consumer of `FileInfo.url`
+                // reads `.path`, which is identical either way — including for a symlink to
+                // a directory, where `node.isDirectory` describes the TARGET and so the
+                // trailing slash could differ from an lstat-based guess.
+                url: URL(fileURLWithPath: node.id, isDirectory: node.isDirectory),
+                modificationDate: node.modificationDate,
+                fileSize: node.fileSize,
+                isDirectory: node.isDirectory,
+                // Carry the walk's "couldn't look inside" marker (permission denied, cycle
+                // cap): computeDifferences must not read the absent children as "missing".
+                isUnexplored: node.isDirectory && node.isUnexplored == true
+            )
+            guard let children = node.children, !children.isEmpty else { return }
+            // Once per directory rather than once per child: one append per node, not two.
+            let prefix = key + "/"
+            for child in children {
+                var childKey = prefix
+                childKey.append(contentsOf: leaf(of: child.id))
+                add(child, key: childKey)
+            }
+        }
+
+        for node in nodes {
+            guard node.id == basePath else {
+                add(node, key: String(leaf(of: node.id)))
+                continue
+            }
+            // The walk ROOT itself, marked unexplored: `buildTree` returns the root as a
+            // single unexplored node when its own listing failed (permission denied), so
+            // this side's ENTIRE view is unknown — not empty. Record it under the root key
+            // ("") that `computeDifferences` reads to suppress whole-side Missing rows,
+            // mirroring what `getFilesInDirectory` records on the cold (disk-walk) branch.
+            if node.isDirectory, node.isUnexplored == true {
                 result[""] = FileInfo(
                     url: URL(fileURLWithPath: node.id, isDirectory: true),
                     modificationDate: node.modificationDate,
@@ -161,11 +153,8 @@ public struct FileDiffEngine {
                 )
             }
             for child in node.children ?? [] {
-                add(child)
+                add(child, key: String(leaf(of: child.id)))
             }
-        }
-        for node in nodes {
-            add(node)
         }
         return result
     }
@@ -300,7 +289,8 @@ public struct FileDiffEngine {
                 }
                 var rel = failedURL.path
                 if rel.hasPrefix(basePath) { rel = String(rel.dropFirst(basePath.count)) }
-                if rel.hasPrefix("/") { rel.removeFirst() }
+                // By scalar, as the entry keys below are, so a re-mark finds its entry.
+                if rel.unicodeScalars.first == "/" { rel.unicodeScalars.removeFirst() }
                 // An empty `rel` means the failed directory IS this walk's root: the scan root
                 // itself on the outermost walk (recorded under the root key ""), or a symlinked
                 // directory on a manual descent (whose keyPath is `prefix`). Dropping it — as
@@ -375,16 +365,18 @@ public struct FileDiffEngine {
                     if isReg || isDir {
                         var relativePath = fileURL.path
                         if relativePath.hasPrefix(basePath) {
-                            // Hoisted, like the tree path's — `basePath.count` is a grapheme count,
-                            // an O(basePath) walk, and this recomputed it per entry. Small: measured
-                            // at 39,000 paths under a 74-character root it is 24ms per walk against
-                            // 20ms hoisted, so the honest claim is 4ms on a pass that also stats
-                            // every entry. Free and correct, not the win the sibling's comment
-                            // implies — see `relativeKey` there for where the real cost was.
+                            // Hoisted — `basePath.count` is a grapheme count, an O(basePath) walk,
+                            // and this recomputed it per entry. Small: measured at 39,000 paths
+                            // under a 74-character root it is 24ms per walk against 20ms hoisted,
+                            // so the honest claim is 4ms on a pass that also stats every entry.
                             relativePath = String(relativePath.dropFirst(baseGraphemeCount))
                         }
-                        if relativePath.hasPrefix("/") {
-                            relativePath.removeFirst()
+                        // **The slash goes by SCALAR, not by Character.** A name can open with a
+                        // combining mark, which joins the `/` before it into one Character, and
+                        // `hasPrefix("/")` is then false: a top-level entry kept its slash
+                        // (`/◌́x`) where the warm branch, which builds keys out of names, has none.
+                        if relativePath.unicodeScalars.first == "/" {
+                            relativePath.unicodeScalars.removeFirst()
                         }
 
                         if relativePath.isEmpty { continue }

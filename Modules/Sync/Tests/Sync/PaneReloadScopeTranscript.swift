@@ -74,9 +74,12 @@ import Foundation
         // makes the transcript path-free, and a header field relativising while every tree line
         // stayed absolute is exactly what that mismatch looks like.
         // …and **with or without the leading slash**, because `FileDifference.relativePath` for
-        // this fixture is the absolute path minus its first character. That field was the one thing
-        // left un-relativised, which did not show while the fixture had a fixed directory name and
-        // made the transcript unreproducible the moment it got a per-run one.
+        // this fixture was the absolute path minus its first character: the warm map stripped the
+        // `/var` root off ids the walk's listing had resolved to `/private/var`. It keys by the
+        // tree's shape now (`FileDiffEngine.filesInfo(fromTree:basePath:)`), so a transcript
+        // written since reads relative; the branch stays so an older one still compares. That field
+        // was the one thing left un-relativised, which did not show while the fixture had a fixed
+        // directory name and made the transcript unreproducible the moment it got a per-run one.
         func rel(_ path: String) -> String {
             for base in [root.path, "/private" + root.path] {
                 if path.hasPrefix(base) { return String(path.dropFirst(base.count)) }

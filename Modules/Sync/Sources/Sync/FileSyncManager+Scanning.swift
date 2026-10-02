@@ -805,9 +805,6 @@ extension FileSyncManager {
             // banner was built to end (the cold branch of the very same pair banners).
             let leftWalkStopped = prefetchedTreeWalkStopped.contains(leftURL.path)
             let rightWalkStopped = prefetchedTreeWalkStopped.contains(rightURL.path)
-            // The table the pane loads walked these trees with, so a linked folder's real-path
-            // nodes key through the link's name — see `filesInfo(fromTree:basePath:links:)`.
-            let links = linkedFolders
 
             let computeTask = Task.detached(priority: .userInitiated) { () -> ScanOutcome? in
                 guard !Task.isCancelled else { return nil }
@@ -821,10 +818,8 @@ extension FileSyncManager {
                 // varied 4x across otherwise identical runs. Split the phases so the next
                 // occurrence says which half moved instead of leaving it to inference.
                 let flattenStart = CFAbsoluteTimeGetCurrent()
-                let leftFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedLeft, basePath: leftURL.path,
-                                                             links: links)
-                let rightFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedRight, basePath: rightURL.path,
-                                                              links: links)
+                let leftFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedLeft, basePath: leftURL.path)
+                let rightFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedRight, basePath: rightURL.path)
                 let flatten = Self.durationText(since: flattenStart)
                 // **Say when the comparison is partial.** A pane tree can be truncated by
                 // `paneNodeBudget`, and a diff derived from one covers only what was walked — the

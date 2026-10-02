@@ -6177,6 +6177,42 @@ pane and the scan both join lexically and no walk names a linked folder by its r
 what P15 needs. And no line forgives a failed root, so a scan rooted at a link records that root as
 unexplored (`""`) — a comparison reported as partial, not one reported as empty.
 
+### P15, above the container: warm keys from the tree's shape — main only
+
+P15's fix keyed the linked folders through the table at the base, which only names them when the
+base IS the container. A base above it (`~/Library`) still keyed them near-absolute, and Home keyed
+the container's copy onto `~/Documents`' own keys, so it vanished from the warm map while the disk
+walk listed it. `filesInfo(fromTree:basePath:)` now builds each key from the names along the tree
+path, and takes no table.
+
+That reaches past iCloud. The walk's listing hands back symlink-resolved URLs for a folder reached
+through a symlink, so the warm map also keyed everything two levels below an ordinary folder
+symlink onto its target's keys, and everything under a pane focused inside a linked folder, or a
+root spelled through a symlink (`/var/…`), near-absolute. Those agree with the disk walk now too.
+Building keys from names also showed the disk walk stripped its leading `/` by Character, so a
+top-level name opening with a combining mark kept the slash; both of its strips now go by scalar.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  f=$(git show origin/$l:Modules/Sync/Sources/Sync/FileDiffEngine.swift)
+  printf '%-5s linkTable=%s idStrips=%s shapeKeys=%s scalarStrip=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/PathBoundary.swift | grep -c 'discoveredLinkedFolders: LinkedFolders')" \
+    "$(printf '%s' "$f" | grep -c 'relativePath.hasPrefix(basePath)')" \
+    "$(printf '%s' "$f" | grep -c 'func leaf(of id: String)')" \
+    "$(printf '%s' "$f" | grep -c 'unicodeScalars.first == "/"')"
+done
+# measured 2026-10-02, against origin, before this landed (idStrips counts the warm AND cold strip):
+# main linkTable=1 idStrips=2 shapeKeys=0 scalarStrip=0 · v4.x linkTable=0 idStrips=2 shapeKeys=0 scalarStrip=0
+# v3.x linkTable=0 idStrips=2 shapeKeys=0 scalarStrip=0 · v2.x linkTable=0 idStrips=2 shapeKeys=0 scalarStrip=0
+```
+
+**`v4.x`, `v3.x`, `v2.x`: owed — not picked, per the standing direction.** None has the link table,
+but each lists through `contentsOfDirectory(at:)` and strips ids on the warm side, so on each a warm
+and a cold Compare disagree two levels below a folder symlink and under any root reached through
+one. A pick is `filesInfo(fromTree:basePath:)` with `FilesInfoKeyingTests`' symlink and agreement
+cases. The combining-mark strip is **not owed**: each line strips both branches by Character, so
+its warm and cold agree on such a name — both keep the slash.
+
 ## The install skill quits only the installed app — all three lines carry the old step
 
 On 2026-10-02 a session's run of `.claude/skills/install-sync-cloud/SKILL.md` quit another

@@ -411,6 +411,50 @@ import Testing
                 "\(m.rawDifferences.map { "\($0.relativePath): \($0.description)" })")
     }
 
+    /// **And with the base ABOVE the container.** The same warm Compare, with the left pane on the
+    /// container's parent (a Compare on `~/Library`) or on a Home-shaped base that also holds the
+    /// folder the link leads to, against a mirror holding the same files as real folders, so any
+    /// row at all is a keying error. Above the container, the linked folder keyed off its real
+    /// path, and two rows came back: one copying it to `<mirror>/<that path>`, one copying the
+    /// mirror's `container/Documents` into the left's. At Home its keys landed on `Documents/…`,
+    /// the container's copy vanished, and the second row stood alone — a copy into the left's
+    /// `container/Documents`, which is the link, so onto the real folder it mirrors.
+    @MainActor
+    @Test(arguments: [false, true])
+    func aWarmCompareAboveTheContainerKeysTheLinkedFolderWhereItSits(baseHoldsTheTarget: Bool) async throws {
+        let fm = FileManager.default
+        let base = try makeCanonicalTempRoot(prefix: "LinkedFoldersTests")
+        defer { try? fm.removeItem(at: base) }
+        let left = base.appendingPathComponent("left")
+        let mirror = base.appendingPathComponent("mirror")
+        let containerPath = baseHoldsTheTarget ? "Library/container" : "container"
+        let container = left.appendingPathComponent(containerPath)
+        let real = baseHoldsTheTarget ? left.appendingPathComponent("Documents")
+                                      : base.appendingPathComponent("outside").appendingPathComponent("Documents")
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        try Self.write(["Word/w.txt"], under: container, at: date)
+        try Self.write(["Family/note.txt", "Work/plan.txt"], under: real, at: date)
+        try fm.createSymbolicLink(at: container.appendingPathComponent("Documents"), withDestinationURL: real)
+        var mirrored = ["Word/w.txt", "Documents/Family/note.txt", "Documents/Work/plan.txt"]
+            .map { containerPath + "/" + $0 }
+        if baseHoldsTheTarget { mirrored += ["Documents/Family/note.txt", "Documents/Work/plan.txt"] }
+        try Self.write(mirrored, under: mirror, at: date)
+        let m = FileSyncManager()
+        m.linkedFolders = [container.path: ["Documents": real.path]]
+        let leftSource = CloudProvider(id: "L", displayName: "Home", imageName: "folder",
+                                       rootPath: left.path, type: .iCloud)
+        let mirrorSource = CloudProvider(id: "R", displayName: "Mirror", imageName: "dropbox",
+                                         rootPath: mirror.path, type: .dropBox)
+
+        await m.refreshTreesAndScan(left: leftSource, right: mirrorSource)
+
+        #expect(m.prefetchedTrees[left.path] != nil && m.prefetchedTrees[mirror.path] != nil,
+                "premise: the scan was warm")
+        #expect(m.hasScanned)
+        #expect(m.rawDifferences.isEmpty,
+                "\(m.rawDifferences.map { "\($0.relativePath): \($0.description)" })")
+    }
+
     /// Discovery against a real link, end to end: the production reader sees the link the test
     /// made and records where it points.
     @Test func discoveryReadsARealLink() throws {

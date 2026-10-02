@@ -120,6 +120,29 @@ import Testing
         #expect(info["open.txt"]?.isUnexplored == false)  // readable entries unaffected
     }
 
+    /// The same denied folder, named so that its first scalar is a combining mark — one Character
+    /// with the `/` before it. The entry's key and the failure's key are each stripped of that
+    /// slash, and they have to be stripped the SAME way: by Character, the slash stayed on both
+    /// (`/◌́locked`, a key the warm branch never makes); by scalar on one and Character on the
+    /// other, the re-mark missed its entry and the folder read as empty.
+    @Test func getFilesInDirectoryMarksADeniedDirectoryWhoseNameOpensWithACombiningMark() throws {
+        guard !runningAsRoot else { return }
+        let base = try makeTempDir()
+        let locked = base.appendingPathComponent("\u{0301}locked")
+        try write(locked.appendingPathComponent("secret.txt"), text: "hidden")
+        try chmod(locked, 0o000)
+        defer {
+            try? chmod(locked, 0o755)
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let info = try FileDiffEngine.getFilesInDirectory(base)
+
+        #expect(info.keys.map { Array($0.unicodeScalars) } == [Array("\u{0301}locked".unicodeScalars)],
+                "\(info.keys.map { $0.unicodeScalars.map { String($0.value, radix: 16) } })")
+        #expect(info["\u{0301}locked"]?.isUnexplored == true, "the denied descent was not recorded against its entry")
+    }
+
     // MARK: Diff level — no phantom Missing rows in either direction
 
     @Test func unreadableDirectoryOnOneSideProducesNoMissingRowsForItsContents() throws {

@@ -228,11 +228,29 @@ import Testing
             }
             Self.report("  ├ traversal only", walkOnly)
 
+            // Every key's length goes into a printed sink, so no keying arm can be optimised away.
+            var keySink = 0
             var keyed: [Double] = []
             for _ in 0...Self.warmRepeats {
-                keyed.append(Self.ms { _ = Self.traverseAndKey(tree, basePath: root.path) })
+                keyed.append(Self.ms { keySink &+= Self.traverseAndKey(tree, basePath: root.path) })
             }
             Self.report("  ├ + relative-path key", keyed)
+
+            // The same step two other ways, beside it under the same load: the id strip the shape
+            // keys replaced, and the shape keys built from `FileNode.name` rather than the id's leaf
+            // — the arm `filesInfo` turned down, because `name` stays bridged (`nativePath`).
+            var stripKeyed: [Double] = []
+            for _ in 0...Self.warmRepeats {
+                stripKeyed.append(Self.ms { keySink &+= Self.traverseAndStripKey(tree, basePath: root.path) })
+            }
+            Self.report("  │  (by id strip, pre-change)", stripKeyed)
+
+            var nameKeyed: [Double] = []
+            for _ in 0...Self.warmRepeats {
+                nameKeyed.append(Self.ms { keySink &+= Self.traverseAndNameKey(tree, basePath: root.path) })
+            }
+            Self.report("  │  (from FileNode.name)", nameKeyed)
+            Self.line("  │  (key bytes, all arms: \(keySink))")
 
             var hinted: [Double] = []
             for _ in 0...Self.warmRepeats {
@@ -374,6 +392,12 @@ import Testing
     /// field, on tens of thousands of real paths. `FilesInfoKeyingTests` pins the awkward cases
     /// deterministically; this is the breadth behind them, and the reason it lives in the
     /// env-gated benchmark is that it needs the user's actual directories to be worth anything.
+    ///
+    /// **Wherever a node's id does not continue its parent's, the two differ by design** — the
+    /// pre-change stripped the id, and `filesInfo` now keys the node where it sits. That is any root
+    /// holding iCloud Drive's container (the container, `~/Library`, `~`), any root reached through
+    /// a symlink, and any root with a folder symlink two or more levels deep — `FilesInfoKeyingTests`
+    /// has each shape. Every other root must come out identical, keys byte for byte.
     @Test func matchesThePreChangeImplementationOnRealTrees() async throws {
         let roots = Self.roots
         guard !roots.isEmpty else { return }
@@ -385,6 +409,10 @@ import Testing
 
             #expect(new.count == old.count, "\(root.lastPathComponent): map sizes differ")
             #expect(Set(new.keys) == Set(old.keys), "\(root.lastPathComponent): key sets differ")
+            // And byte for byte: `Set<String>` compares by canonical equivalence, so an NFC key and
+            // its NFD twin would pass the line above.
+            #expect(Set(new.keys.map { Array($0.utf8) }) == Set(old.keys.map { Array($0.utf8) }),
+                    "\(root.lastPathComponent): keys spelled differently")
             var mismatches: [String] = []
             for (key, oldInfo) in old {
                 guard let newInfo = new[key] else { mismatches.append("\(key): missing"); continue }
@@ -446,39 +474,77 @@ import Testing
         return n
     }
 
-    private static func traverseAndKey(_ nodes: [FileNode], basePath: String) -> Int {
+    /// `filesInfo`'s key, built the way it builds it: from the tree's shape, each component the
+    /// last component of a node's id.
+    private static func leaf(of id: String) -> Substring {
+        guard let slash = id.utf8.lastIndex(of: UInt8(ascii: "/")) else { return id[...] }
+        return Substring(id.unicodeScalars[id.utf8.index(after: slash)...])
+    }
+
+    /// `traverseAndKey` with the pre-change key: the id with the base stripped off.
+    private static func traverseAndStripKey(_ nodes: [FileNode], basePath: String) -> Int {
         var n = 0
         func visit(_ node: FileNode) {
             var relativePath = node.id
             if relativePath.hasPrefix(basePath) { relativePath = String(relativePath.dropFirst(basePath.count)) }
             if relativePath.hasPrefix("/") { relativePath.removeFirst() }
-            n += relativePath.isEmpty ? 0 : 1
+            n &+= relativePath.utf8.count
             for child in node.children ?? [] { visit(child) }
         }
         for node in nodes { visit(node) }
         return n
     }
 
+    /// `traverseAndKey` with each component read from the bridged `FileNode.name`.
+    private static func traverseAndNameKey(_ nodes: [FileNode], basePath: String) -> Int {
+        var n = 0
+        func visit(_ node: FileNode, key: String) {
+            n &+= key.utf8.count
+            guard let children = node.children, !children.isEmpty else { return }
+            let prefix = key + "/"
+            for child in children { visit(child, key: prefix + child.name) }
+        }
+        for node in nodes where node.id != basePath { visit(node, key: node.name) }
+        return n
+    }
+
+    private static func traverseAndKey(_ nodes: [FileNode], basePath: String) -> Int {
+        var n = 0
+        func visit(_ node: FileNode, key: String) {
+            n &+= key.utf8.count
+            guard let children = node.children, !children.isEmpty else { return }
+            let prefix = key + "/"
+            for child in children {
+                var childKey = prefix
+                childKey.append(contentsOf: leaf(of: child.id))
+                visit(child, key: childKey)
+            }
+        }
+        for node in nodes where node.id != basePath { visit(node, key: String(leaf(of: node.id))) }
+        return n
+    }
+
     private static func rebuiltMap(_ nodes: [FileNode], basePath: String, hintURLKind: Bool) -> [String: FileDiffEngine.FileInfo] {
         var result: [String: FileDiffEngine.FileInfo] = [:]
-        func visit(_ node: FileNode) {
-            var relativePath = node.id
-            if relativePath.hasPrefix(basePath) { relativePath = String(relativePath.dropFirst(basePath.count)) }
-            if relativePath.hasPrefix("/") { relativePath.removeFirst() }
-            if !relativePath.isEmpty {
-                let url = hintURLKind
-                    ? URL(fileURLWithPath: node.id, isDirectory: node.isDirectory)
-                    : URL(fileURLWithPath: node.id)
-                result[relativePath] = FileDiffEngine.FileInfo(
-                    url: url,
-                    modificationDate: node.modificationDate,
-                    fileSize: node.fileSize,
-                    isDirectory: node.isDirectory,
-                    isUnexplored: node.isDirectory && node.isUnexplored == true)
+        func visit(_ node: FileNode, key: String) {
+            let url = hintURLKind
+                ? URL(fileURLWithPath: node.id, isDirectory: node.isDirectory)
+                : URL(fileURLWithPath: node.id)
+            result[key] = FileDiffEngine.FileInfo(
+                url: url,
+                modificationDate: node.modificationDate,
+                fileSize: node.fileSize,
+                isDirectory: node.isDirectory,
+                isUnexplored: node.isDirectory && node.isUnexplored == true)
+            guard let children = node.children, !children.isEmpty else { return }
+            let prefix = key + "/"
+            for child in children {
+                var childKey = prefix
+                childKey.append(contentsOf: leaf(of: child.id))
+                visit(child, key: childKey)
             }
-            for child in node.children ?? [] { visit(child) }
         }
-        for node in nodes { visit(node) }
+        for node in nodes where node.id != basePath { visit(node, key: String(leaf(of: node.id))) }
         return result
     }
 }
