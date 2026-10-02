@@ -54,11 +54,16 @@ extension FileSyncManager {
         }
     }
 
-    /// Re-derives the filing memory for `root`, reading only what changed since the last survey.
+    /// Re-derives the filing memory, reading only what changed since the last survey.
+    ///
+    /// **It surveys the folder the profile was built from, never the one it is asked about.** `root`
+    /// is where the request came from — Organize passes the pane's source — and it is named in the
+    /// log when it is not the profile's folder, and decides whether `taxonomy` describes that folder.
+    /// Nothing else reads it: see the guard below for what surveying any other folder cost.
     ///
     /// `taxonomy` is the walk the caller already did — the Filing scan walks the whole provider, so
-    /// handing that array over makes the staleness pass cost **nothing at all**. Omit it and the
-    /// survey walks for itself.
+    /// handing that array over makes the staleness pass cost **nothing at all**. Omit it, or walk a
+    /// folder that is not the profile's, and the survey walks for itself.
     ///
     /// Returns ``FilingSurveyReport/none`` when the machine has no filing artifacts to update or no
     /// extractor to read with: both are the ordinary state for anyone whose tree was never surveyed,
@@ -67,7 +72,7 @@ extension FileSyncManager {
     /// from a clock (`docs/flaky-tests.md` mechanism 5), and published as
     /// ``FileSyncManager/filingSurveyedAt`` when the write lands.
     @discardableResult
-    public func resurveyFilingMemory(root: URL, taxonomy: [FileNode]? = nil,
+    public func resurveyFilingMemory(root requested: URL, taxonomy: [FileNode]? = nil,
                                      now: Date = Date()) async -> FilingSurveyReport {
         guard !filingSurveyLifecycle.isRunning else { return .none }
         // The landing guard's OTHER direction: a landing refuses to start while this survey
@@ -109,12 +114,40 @@ extension FileSyncManager {
             Logger.shared.info("No filing profile on this machine — nothing to re-survey")
             return .none
         }
+        // **The profile's own folder, whatever the pane shows.** The corpus and the memory are keyed
+        // by paths RELATIVE to the folder the profile was built from, and Organize asked with the
+        // left source's landing folder — so under any other source every learned document read as
+        // gone: the merge dropped it, the walk's own documents were read in its place, and `write`
+        // recorded that folder as the memory's root. With the left source on Home, one click would
+        // have rebuilt the `~/Documents` memory from `~`. Restructure's re-derive has always walked
+        // `profile.root`; this pass now does too.
+        //
+        // **A profile that records no folder is refused, not guessed at.** A file without `root`
+        // decodes as `~`, and surveying the whole home folder on that guess is the same harm. So is
+        // a recorded root that is not absolute once `~` is expanded: it would resolve against the
+        // process's working directory.
+        guard let recorded = filingFolderProfile?.recordedRoot,
+              (recorded as NSString).expandingTildeInPath.hasPrefix("/") else {
+            let record = filingFolderProfile?.recordedRoot
+                .map { "names “\($0)” as its folder, which is not an absolute path" }
+                ?? "does not record which folder it describes"
+            Logger.shared.warning("Refresh: the filing profile \(record), so there is no telling "
+                                  + "which tree its memory belongs to. Nothing was re-surveyed, and "
+                                  + "both files were left exactly as they are.")
+            return .none
+        }
+        let root = URL(fileURLWithPath: (recorded as NSString).expandingTildeInPath, isDirectory: true)
+        // Spelling only, no disk: this runs on the main actor, and it decides a log line and whether
+        // a handed-over walk is of this folder — a miss costs a walk, never a wrong answer.
+        let askedAboutIt = PathBoundary.normalizedRoot(requested.path) == PathBoundary.normalizedRoot(root.path)
+        Logger.shared.info("Refresh: surveying \(root.path), the folder this profile was built from"
+                           + (askedAboutIt ? "" : " — not \(requested.path), which it was asked about"))
 
         let epoch = beginScan(\.filingSurveyLifecycle, status: "Looking for new folders…")
         defer { endScan(\.filingSurveyLifecycle) }
 
         let walked: [FileNode]
-        if let taxonomy {
+        if let taxonomy, askedAboutIt {
             walked = taxonomy
         } else {
             // **The same ask-first the other whole-tree passes make.** "Refresh" is
@@ -213,6 +246,19 @@ extension FileSyncManager {
             existing = nil
         case .loaded(let corpus):
             existing = corpus
+        }
+        // **A folder that holds no documents at all is not evidence that every one was deleted.**
+        // The guard above catches a root that could not be LISTED; this one catches a root that was
+        // listed and came back empty — which merges into the same harm, every learned document
+        // dropped and both files replaced. Since this pass walks the recorded folder whatever the
+        // pane shows, the likeliest way here is iCloud's Desktop & Documents being turned off: the
+        // tree stays in iCloud Drive and macOS leaves a new, empty `~/Documents` in its place. A
+        // tree whose documents really were all deleted is refused too, and that costs a click.
+        if tree.documents.isEmpty, let existing, !existing.isEmpty {
+            Logger.shared.warning("Refresh: \(root.path) holds no documents, while what was learned "
+                                  + "there remembers \(existing.documents.count). Nothing was "
+                                  + "re-surveyed, and both files were left exactly as they are.")
+            return .none
         }
         let salt = existing?.salt.isEmpty == false ? existing!.salt
             : (previousMemory?.salt.isEmpty == false ? previousMemory!.salt : Self.newSurveySalt())

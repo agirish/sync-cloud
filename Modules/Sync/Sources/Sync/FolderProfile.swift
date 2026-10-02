@@ -14,8 +14,16 @@ import Foundation
 /// additive rather than destructive.
 public struct FolderProfile: Sendable, Equatable {
     public let profileId: String
-    /// The tree this profile describes, as written in the file (e.g. `~/Documents`).
-    public let root: String
+    /// The tree this profile describes, as written in the file (e.g. `~/Documents`) — or `~` when
+    /// the file names none, the default every reader of this has always had.
+    public var root: String { recordedRoot ?? "~" }
+    /// The tree as the file records it, and nil when it records none.
+    ///
+    /// **`~` is the decoder's guess, not the profile's record**, and the re-survey must not act on
+    /// it: its corpus is keyed by paths relative to the profile's own folder, so surveying the
+    /// whole home folder instead would read every learned document as gone. It reads this and
+    /// refuses when it is nil (`resurveyFilingMemory`).
+    public let recordedRoot: String?
     public let folders: [String: FolderProfileEntry]
     /// Values of the person axis, lowercased — `father`, `mother`, … plus the aliases the tree
     /// uses for the same people (`Family/Mom` is Immigration's `Granny`).
@@ -92,7 +100,7 @@ public struct FolderProfile: Sendable, Equatable {
                 builtBy: String? = nil, derivedFrom: String? = nil,
                 unknownRoles: [String: Int] = [:], undecodableFolders: Int = 0) {
         self.profileId = profileId
-        self.root = root
+        self.recordedRoot = root
         self.folders = folders
         self.personTokens = personTokens
         self.personAliases = personAliases
@@ -284,7 +292,7 @@ extension FolderProfile: Decodable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
         profileId = try c.decodeIfPresent(String.self, forKey: .profileId) ?? "default"
-        root = try c.decodeIfPresent(String.self, forKey: .root) ?? "~"
+        recordedRoot = try c.decodeIfPresent(String.self, forKey: .root)
         // Tolerated as absent, and as the wrong type: a hand-edited header should cost the file its
         // provenance — which reads as hand-built, the cautious answer — not its 3,013 folders.
         builtBy = try? c.decodeIfPresent(String.self, forKey: .builtBy)

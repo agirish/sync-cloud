@@ -6113,3 +6113,33 @@ done
 `FileContextMenu.menuNodes`, with the "Copy '…' from ⟨pane⟩" item reading the resolver; those lines
 have no `PaneComparePairMenu`, so there is no Compare item to route through it. It changes what no
 menu offers.
+
+## Refresh what's learned surveys the profile's own folder (P70) — `v4.x` carries it
+
+Organize's *Refresh what's learned* handed `resurveyFilingMemory` the focused pane's landing folder,
+and nothing compared it with the folder the profile was built from. The corpus and the memory are
+keyed by paths relative to that folder, so a Refresh with any other source in the pane read every
+learned document as gone: the merge dropped it, the other source's documents at known paths were
+read in its place, and the memory's header recorded the other folder as its root. Measured in a
+fixture: four learned documents became one, read from the wrong tree. It now surveys the profile's
+recorded root whatever the pane shows, and refuses a profile that records none — a file without
+`root` decodes as `~` — or a relative one, and a walk of that root that finds no documents at all
+(an emptied `~/Documents`, which is what turning off iCloud's Desktop & Documents leaves behind).
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s resurvey=%s paneRoot=%s recordedRoot=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+FilingSurvey.swift 2>/dev/null | grep -c 'public func resurveyFilingMemory(root: URL')" \
+    "$(git show origin/$l:MacApp/ContentView.swift | grep -c 'User requested a folder-memory re-survey of')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FolderProfile.swift 2>/dev/null | grep -c 'recordedRoot')"
+done
+# measured 2026-10-02, against origin, before this landed:
+# main resurvey=1 paneRoot=1 recordedRoot=0 · v4.x resurvey=1 paneRoot=1 recordedRoot=0
+# v3.x resurvey=0 paneRoot=0 recordedRoot=0 · v2.x resurvey=0 paneRoot=0 recordedRoot=0
+```
+
+**`v4.x`: applies, RECORDED — not owed.** The same `updateFolderMemoryAction` passes
+`lensProviderAnchorExpanded`, the same pass merges by relative path and writes the pane's folder as
+the memory's root, and `FolderProfile` decodes an absent `root` as `~`. A pick is the guard in
+`resurveyFilingMemory` with `FolderProfile.recordedRoot`, and `FilingResurveyTests`' two new cases.
+**`v3.x` and `v2.x`: do not apply** — neither has the re-survey.

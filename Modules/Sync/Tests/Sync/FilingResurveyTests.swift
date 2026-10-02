@@ -670,4 +670,171 @@ import EventsTestSupport
         #expect(try Data(contentsOf: corpusURL) == corpusBefore,
                 "the corpus must not be rewritten under a live landing")
     }
+
+    // MARK: - The profile's own folder, whatever the pane shows
+
+    /// **Refresh surveys the folder the profile was built from, not the one the pane shows.**
+    ///
+    /// Organize asked with the left source's landing folder, and nothing compared it with the
+    /// profile's. The corpus is keyed by paths RELATIVE to that folder, so under any other one
+    /// every learned document reads as gone: the merge dropped them, the walk's own documents were
+    /// read in their place, and the write recorded the other folder as the memory's root. With
+    /// the left source on Home, one click would have rebuilt the `~/Documents` memory from `~`.
+    ///
+    /// The other folder holds a document at a path the profile also knows, so a pass that walked
+    /// it would re-read that path from the wrong tree; and the profile's own folder gained a
+    /// document, so a pass that walked the RIGHT folder has something to show for it — which is
+    /// what tells "surveyed the profile's folder" apart from "refused". Run twice: once as
+    /// Organize asks, and once handing over a walk of the other folder as `taxonomy`, which
+    /// describes a different tree and must not stand in for the survey's own walk.
+    @Test(arguments: [false, true])
+    func aRefreshAskedAboutAnotherFolderSurveysTheProfilesOwn(handingOverItsWalk: Bool) async throws {
+        let (manager, docs, profiles, reads) = try Self.makeTree()
+        _ = await manager.resurveyFilingMemory(root: docs)
+        let learned = Set(try #require(FilingSurveyStore.corpus(id: "t", in: profiles)).documents.keys)
+        #expect(learned.count == 4, "fixture: the profile's own folder has been surveyed")
+
+        let elsewhere = docs.deletingLastPathComponent().appendingPathComponent("Elsewhere")
+        try Self.write(elsewhere.appendingPathComponent("Health/Kaiser/eob-1.pdf"), Self.page("Aetna dental claim"))
+        try Self.write(elsewhere.appendingPathComponent("Finance/Chase/statement.pdf"), Self.page("Chase checking"))
+        let added = docs.appendingPathComponent("Home/PG&E/2024/mar.pdf")
+        try Self.write(added, Self.page("Pacific Gas and Electric"))
+        reads.reset()
+
+        let walk = handingOverItsWalk
+            ? await FileSyncManager.buildTree(url: elsewhere, sortOption: .name) : nil
+        let report = await manager.resurveyFilingMemory(root: elsewhere, taxonomy: walk)
+
+        #expect(!reads.paths.contains { $0.hasPrefix(elsewhere.path + "/") },
+                "opened documents from the folder the pane shows: \(reads.paths)")
+        #expect(reads.paths == [added.path], "the profile's own new document was not read")
+        let corpus = try #require(FilingSurveyStore.corpus(id: "t", in: profiles))
+        #expect(Set(corpus.documents.keys) == learned.union(["Home/PG&E/2024/mar.pdf"]),
+                "the corpus no longer describes the profile's folder")
+        #expect(report.documentsDropped == 0)
+        let memory = try Data(contentsOf: profiles.appendingPathComponent("t/filing-memory.json"))
+        let header = try #require(try JSONSerialization.jsonObject(with: memory) as? [String: Any])
+        #expect(header["root"] as? String == docs.path, "the memory now names another folder as its root")
+    }
+
+    /// **The spelling real profiles use.** Every one on disk records `~/Documents`, and every
+    /// fixture above records an absolute path — so a guard that stopped expanding the tilde would
+    /// refuse every real Refresh with all of them green. Spelled here through `~` and back down to
+    /// the temp folder, so the expansion is what makes the path absolute.
+    @Test func aRootRecordedThroughTheTildeIsExpandedAndSurveyed() async throws {
+        let (manager, docs, profiles, reads) = try Self.makeTree()
+        let depth = NSHomeDirectory().split(separator: "/").count
+        let spelled = "~/" + String(repeating: "../", count: depth) + docs.path.dropFirst()
+        #expect((spelled as NSString).expandingTildeInPath != spelled, "premise: the tilde is what expands")
+        manager.filingFolderProfile = FolderProfile(profileId: "t", root: spelled, folders: [:],
+                                                    personTokens: [])
+        _ = await manager.resurveyFilingMemory(root: docs)
+        try Self.write(docs.appendingPathComponent("Home/PG&E/2024/mar.pdf"),
+                       Self.page("Pacific Gas and Electric"))
+        reads.reset()
+
+        let report = await manager.resurveyFilingMemory(root: docs)
+
+        #expect(report.documentsRead == 1)
+        #expect(reads.paths.count == 1 && reads.paths[0].hasSuffix("/Documents/Home/PG&E/2024/mar.pdf"))
+        let corpus = try #require(FilingSurveyStore.corpus(id: "t", in: profiles))
+        #expect(corpus.documents.count == 5)
+    }
+
+    /// The other direction of the handed-over walk: one of the profile's own folder IS used, so the
+    /// pass walks nothing itself — the probe is tiny and the confirmer declines, so a pass that
+    /// walked anyway would ask, and stop.
+    @Test func aWalkOfTheProfilesOwnFolderIsUsedAsHandedOver() async throws {
+        let (manager, docs, _, reads) = try Self.makeTree()
+        _ = await manager.resurveyFilingMemory(root: docs)
+        try Self.write(docs.appendingPathComponent("Home/PG&E/2024/mar.pdf"),
+                       Self.page("Pacific Gas and Electric"))
+        let walk = await FileSyncManager.buildTree(url: docs, sortOption: .name)
+        manager.wholeTreeProbeBudget = 1
+        var asked: LargeWalkPreflight?
+        manager.largeWalkConfirmer = { asked = $0; return false }
+        reads.reset()
+
+        let report = await manager.resurveyFilingMemory(root: docs, taxonomy: walk)
+
+        #expect(asked == nil, "the pass walked for itself instead of using the walk it was handed")
+        #expect(report.documentsRead == 1)
+        #expect(reads.paths == [docs.appendingPathComponent("Home/PG&E/2024/mar.pdf").path])
+    }
+
+    /// **A profile's folder that has emptied is not taken at its word.** Refresh now always walks
+    /// the recorded folder, and a folder that is readable and EMPTY gets past the unlistable-root
+    /// guard: every learned document reads as gone, the merge drops them all, and both files are
+    /// replaced. Turning off iCloud's Desktop & Documents leaves exactly this behind — the tree
+    /// stays in iCloud Drive and macOS makes a new, empty `~/Documents`. A tree whose every document
+    /// was really deleted is the one case refused wrongly, and refusing it costs a click.
+    @Test func aProfileFolderThatHoldsNoDocumentsLeavesTheArtifactsAsTheyWere() async throws {
+        let (manager, docs, profiles, reads) = try Self.makeTree()
+        _ = await manager.resurveyFilingMemory(root: docs)
+        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
+        let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
+        let corpusBefore = try Data(contentsOf: corpusURL)
+        let memoryBefore = try Data(contentsOf: memoryURL)
+        #expect(try #require(FilingSurveyStore.corpus(id: "t", in: profiles)).documents.count == 4,
+                "fixture: there must be something to lose")
+
+        let fm = FileManager.default
+        try fm.moveItem(at: docs, to: docs.deletingLastPathComponent().appendingPathComponent("Moved"))
+        try fm.createDirectory(at: docs, withIntermediateDirectories: false)
+        reads.reset()
+
+        let report = await manager.resurveyFilingMemory(root: docs)
+
+        #expect(report == .none)
+        #expect(reads.paths.isEmpty)
+        #expect(try Data(contentsOf: corpusURL) == corpusBefore, "the corpus was rewritten from an empty folder")
+        #expect(try Data(contentsOf: memoryURL) == memoryBefore, "the memory was rewritten from an empty folder")
+    }
+
+    /// **A profile that does not say which folder it describes is not refreshed.** Its file has
+    /// no `root`, which decodes as `~` — a placeholder, not a record — and the survey would then
+    /// walk the whole home folder and read every learned document as gone. Refusing costs one
+    /// click; guessing wrong costs the survey history. A root that is not absolute once `~` is
+    /// expanded is refused the same way: it would resolve against the working directory.
+    ///
+    /// The confirmer declines and the probe is tiny, so a regression that does walk `~` asks
+    /// about it here and stops before it opens a document — though it will have listed `~` and a
+    /// few folders under it, which on a fresh Mac can raise a privacy prompt. The
+    /// refusal is read off the log because a relative root that went ahead would end in the
+    /// unreadable-root refusal instead, which looks the same from everywhere else; each case
+    /// asserts a sentence only it can produce, since the two run side by side.
+    @Test(arguments: [(#"{"profileId": "t", "folders": []}"#, "~",
+                       "does not record which folder it describes"),
+                      (#"{"profileId": "t", "root": "Documents", "folders": []}"#, "Documents",
+                       "names “Documents” as its folder")])
+    func aProfileThatRecordsNoFolderIsNotRefreshed(profileJSON: String, readsAs: String,
+                                                    refusal: String) async throws {
+        let (manager, docs, profiles, reads) = try Self.makeTree()
+        _ = await manager.resurveyFilingMemory(root: docs)
+        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
+        let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
+        let corpusBefore = try Data(contentsOf: corpusURL)
+        let memoryBefore = try Data(contentsOf: memoryURL)
+
+        manager.filingFolderProfile = try JSONDecoder().decode(FolderProfile.self,
+                                                               from: Data(profileJSON.utf8))
+        #expect(manager.filingFolderProfile?.root == readsAs,
+                "premise: every other reader of `root` still sees what it always did")
+        try Self.write(docs.appendingPathComponent("Home/PG&E/2024/mar.pdf"),
+                       Self.page("Pacific Gas and Electric"))
+        manager.wholeTreeProbeBudget = 1
+        var asked: LargeWalkPreflight?
+        manager.largeWalkConfirmer = { asked = $0; return false }
+        reads.reset()
+        let log = LogCapture()
+
+        let report = await manager.resurveyFilingMemory(root: docs)
+
+        #expect(report == .none)
+        #expect(await log.holds(.warning, containing: refusal))
+        #expect(asked == nil, "walked \(asked?.rootPath ?? "") on a guess")
+        #expect(reads.paths.isEmpty)
+        #expect(try Data(contentsOf: corpusURL) == corpusBefore)
+        #expect(try Data(contentsOf: memoryURL) == memoryBefore)
+    }
 }

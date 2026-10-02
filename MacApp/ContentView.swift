@@ -3628,11 +3628,12 @@ struct ContentView: View {
     /// no interest in — every already-filed one that changed — and its payoff is the *next* scan,
     /// not this one. Tying it to Rescan would make the common act pay for the occasional one.
     func updateFolderMemoryAction() {
-        // The folder memory IS the taxonomy, so it is surveyed over the anchor — the same tree the
-        // scans that read it file against.
+        // The survey covers the folder the profile was built from, whatever this pane shows —
+        // `resurveyFilingMemory` decides that, and logs which folder it read. The anchor goes along
+        // so that line can say when the pane is somewhere else.
         let root = lensProviderAnchorExpanded
         guard !root.isEmpty else { return }
-        Logger.shared.info("User requested a folder-memory re-survey of \(root)")
+        Logger.shared.info("User requested a folder-memory re-survey from \(root)")
         Task { await syncManager.resurveyFilingMemory(root: URL(fileURLWithPath: root)) }
     }
 
