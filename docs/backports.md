@@ -6143,3 +6143,36 @@ done
 the memory's root, and `FolderProfile` decodes an absent `root` as `~`. A pick is the guard in
 `resurveyFilingMemory` with `FolderProfile.recordedRoot`, and `FilingResurveyTests`' two new cases.
 **`v3.x` and `v2.x`: do not apply** — neither has the re-survey.
+
+## Compare through iCloud Drive's linked folders: the scan's path and the warm keying (P14, P15) — main only
+
+Two ways Compare misspelled a folder that iCloud Drive links in from outside its container
+(`Desktop`, `Documents`). Both come from the container root (`4150041a`, v5.3) and the pane focus
+that resolves the link (`3c06773c`).
+
+- **P14.** With a pane on iCloud Drive → Documents, the scan joined its path lexically
+  (`…/com~apple~CloudDocs/Documents`) while the pane walked and cached the real `~/Documents`. The
+  scan missed that cache and walked the link, which lists nothing, and `recordUnreadable` forgave the
+  root as "a link to a directory" — so the left side read as authoritatively empty and every item on
+  the right became "Folder missing on left". The scan's path now comes from the pane's `focusURL`,
+  and `getFilesInDirectory` walks a root that is a link where it leads.
+- **P15.** At the container itself, a warm scan keyed the linked folder's nodes — which carry real
+  paths — by plain prefix, so they came out near-absolute (`Users/…/Documents/x`) against the disk
+  walk's `Documents/x`, and the rows offered to copy the folder to `<other side>/Users/…`.
+  `filesInfo(fromTree:basePath:links:)` now keys them through the link's name.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s linkTable=%s rootForgiven=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/PathBoundary.swift 2>/dev/null | grep -c 'discoveredLinkedFolders: LinkedFolders')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDiffEngine.swift | grep -c 'A link to a directory is not an unreadable directory')"
+done
+# measured 2026-10-02, against origin, before this landed:
+# main linkTable=1 rootForgiven=1 · v4.x linkTable=0 rootForgiven=0
+# v3.x linkTable=0 rootForgiven=0 · v2.x linkTable=0 rootForgiven=0
+```
+
+**`v4.x`, `v3.x`, `v2.x`: checked, not owed — neither applies.** No line has the link table, so a
+pane and the scan both join lexically and no walk names a linked folder by its real path, which is
+what P15 needs. And no line forgives a failed root, so a scan rooted at a link records that root as
+unexplored (`""`) — a comparison reported as partial, not one reported as empty.

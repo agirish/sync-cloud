@@ -48,6 +48,31 @@ import Foundation
         #expect(files[""] == nil, "the walk root was marked unexplored")
     }
 
+    /// **The same link, as the walk's ROOT** — a Compare focused on iCloud Drive → Documents, when
+    /// the scan path was spelled through the container. The enumerator lists nothing at a root
+    /// whose last component is a link (ENOTDIR), and the forgiveness above is right only for a link
+    /// the walk then descends; nothing descends a root. So the side read as authoritatively empty,
+    /// and every item on the other side became "Folder missing on left". Walked where it leads.
+    @Test func aWalkRootedAtALinkToAFolderListsTheFolder() throws {
+        let fm = FileManager.default
+        let root = try makeCanonicalTempRoot(prefix: "DiffSymlinkTests")
+        defer { try? fm.removeItem(at: root) }
+        let target = root.appendingPathComponent("outside").appendingPathComponent("Documents")
+        let link = root.appendingPathComponent("container").appendingPathComponent("Documents")
+        try fm.createDirectory(at: target.appendingPathComponent("Family"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "x".write(to: target.appendingPathComponent("Family/note.txt"), atomically: true, encoding: .utf8)
+        try fm.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let files = try FileDiffEngine.getFilesInDirectory(link)
+
+        #expect(!files.isEmpty || files[""]?.isUnexplored == true,
+                "an empty map with no unexplored root reads as an empty folder")
+        #expect(files["Family"]?.isDirectory == true)
+        #expect(files["Family/note.txt"] != nil, "the walk did not list what the link leads to")
+        #expect(files[""] == nil, "a root the walk could read was marked unexplored")
+    }
+
     @Test func testSameFilesNoDifferences() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)

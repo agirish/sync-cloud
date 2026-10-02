@@ -126,7 +126,8 @@ extension FileSyncManager {
             let relPath = isLeft ? leftRelativePath : rightRelativePath
             let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
             // See `focusURL(root:relative:fallback:links:)` — the link resolution is the point.
-            let focusURL = Self.focusURL(root: path, relative: relPath, fallback: rootURL)
+            let links = self.linkedFolders
+            let focusURL = Self.focusURL(root: path, relative: relPath, fallback: rootURL, links: links)
             let focusPath = focusURL.path
 
             // Fast path: serve the focus from the cache without touching the disk — a direct
@@ -187,7 +188,8 @@ extension FileSyncManager {
             let lastFocus = isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath
             if currentTree.isEmpty || lastFocus != focusPath {
                 let shallowStart = Elapsed()
-                let shallowTree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm, maxDepth: 1)
+                let shallowTree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm, maxDepth: 1,
+                                                       linkedFolders: links)
                 let shallowWalk = shallowStart.text
                 guard !Task.isCancelled else {
                     outcome = "superseded during the shallow walk (walk \(shallowWalk))"
@@ -213,7 +215,7 @@ extension FileSyncManager {
             let paneBudget = NodeBudget(Self.paneNodeBudget,
                                         note: "Scan: this folder is larger than a pane walks in one pass — the rest is shown as unexplored, not empty, and columns load it when you open them")
             let tree = await Self.buildTree(
-                url: focusURL, sortOption: sortOp, fileManager: fm, budget: paneBudget)
+                url: focusURL, sortOption: sortOp, fileManager: fm, budget: paneBudget, linkedFolders: links)
             let deepWalk = deepStart.text
 
             guard !Task.isCancelled else {
@@ -513,8 +515,19 @@ extension FileSyncManager {
             guard !Task.isCancelled else { return }
             
             if comparing {
-                let currentLeftFull = (leftRoot as NSString).appendingPathComponent(leftRelativePath)
-                let currentRightFull = (rightRoot as NSString).appendingPathComponent(rightRelativePath)
+                // **The pane's own expression, so the scan finds what the pane cached.** A focus on
+                // a folder the root only LINKS to — iCloud Drive → Documents — is walked and cached
+                // under its real path (`focusURL`). Joined lexically, the scan missed that entry
+                // and walked the link itself, which lists nothing, so the side read as empty and
+                // every item opposite it as missing. A root the table does not name gets the path
+                // the lexical join gave it.
+                let links = self.linkedFolders
+                let currentLeftFull = Self.focusURL(root: leftRoot, relative: leftRelativePath,
+                                                    fallback: URL(fileURLWithPath: leftRoot, isDirectory: true),
+                                                    links: links).path
+                let currentRightFull = Self.focusURL(root: rightRoot, relative: rightRelativePath,
+                                                     fallback: URL(fileURLWithPath: rightRoot, isDirectory: true),
+                                                     links: links).path
 
                 await scanDirectories(
                     left: left, leftPath: currentLeftFull,
@@ -792,6 +805,9 @@ extension FileSyncManager {
             // banner was built to end (the cold branch of the very same pair banners).
             let leftWalkStopped = prefetchedTreeWalkStopped.contains(leftURL.path)
             let rightWalkStopped = prefetchedTreeWalkStopped.contains(rightURL.path)
+            // The table the pane loads walked these trees with, so a linked folder's real-path
+            // nodes key through the link's name — see `filesInfo(fromTree:basePath:links:)`.
+            let links = linkedFolders
 
             let computeTask = Task.detached(priority: .userInitiated) { () -> ScanOutcome? in
                 guard !Task.isCancelled else { return nil }
@@ -805,8 +821,10 @@ extension FileSyncManager {
                 // varied 4x across otherwise identical runs. Split the phases so the next
                 // occurrence says which half moved instead of leaving it to inference.
                 let flattenStart = CFAbsoluteTimeGetCurrent()
-                let leftFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedLeft, basePath: leftURL.path)
-                let rightFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedRight, basePath: rightURL.path)
+                let leftFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedLeft, basePath: leftURL.path,
+                                                             links: links)
+                let rightFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedRight, basePath: rightURL.path,
+                                                              links: links)
                 let flatten = Self.durationText(since: flattenStart)
                 // **Say when the comparison is partial.** A pane tree can be truncated by
                 // `paneNodeBudget`, and a diff derived from one covers only what was walked — the

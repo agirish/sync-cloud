@@ -2023,6 +2023,15 @@ public class FileSyncManager: ObservableObject {
     /// is part of that walk, not a walk of its own.
     public var prefetchedTreeReadAt: [String: Date] = [:]
 
+    /// The link table a pane load and the comparison after it compose and key their paths
+    /// through — this Mac's own (`PathBoundary.discoveredLinkedFolders`) everywhere but a test.
+    ///
+    /// One value for every step because the steps have to agree: a pane caches a linked folder
+    /// under the path this table composes, and the scan finds that entry only if it composes its
+    /// own path the same way. A test injects a table of its own, so nothing it asserts depends on
+    /// the iCloud links of the machine it runs on.
+    var linkedFolders: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders
+
     /// Drops every cached pane tree AND its walk-stopped provenance — one verb, so the two stores
     /// cannot part company at an invalidation site. Every invalidation of `prefetchedTrees` goes
     /// through here or through its one-folder form, ``dropPrefetchedTrees(holding:links:)``; a

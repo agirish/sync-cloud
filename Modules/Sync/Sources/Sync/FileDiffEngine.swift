@@ -61,14 +61,26 @@ public struct FileDiffEngine {
     /// the disk, but from an already-built deep `FileNode` tree — used to skip the scan's
     /// re-walk when both panes' trees are current (they carry the same metadata the walk
     /// would fetch). Key normalization mirrors `getFilesInDirectory`: strip `basePath`, strip
-    /// the leading slash, skip the base itself.
-    public static func filesInfo(fromTree nodes: [FileNode], basePath: String) -> [String: FileInfo] {
+    /// the leading slash, skip the base itself — and key a node under a folder the base links to
+    /// from outside it through the link's name, which is where that walk finds it.
+    ///
+    /// `links` is the table the tree was walked with (`buildTree(…linkedFolders:)`).
+    public static func filesInfo(fromTree nodes: [FileNode], basePath: String,
+                                 links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> [String: FileInfo] {
         var result: [String: FileInfo] = [:]
         // Hoisted: `basePath.count` is a GRAPHEME count, an O(basePath) walk, and it used to be
         // recomputed for every node — which is why flattening the same tree got measurably
         // slower the deeper the pane was focused (the right pane's 60-character root cost twice
         // the left pane's 25-character one for the same node count).
         let baseGraphemeCount = basePath.count
+        // **The folders the base links to from outside it** — iCloud Drive's `Desktop` and
+        // `Documents`, at the container, and nothing at any other base. The walk lists each as the
+        // folder it points at, so its nodes carry the REAL path, which the base is no prefix of:
+        // keyed below as near-absolute paths (`Users/…/Documents/x`), they paired with nothing the
+        // disk walk keys `Documents/x`, and a warm Compare at the container offered to copy the
+        // whole folder to `<other side>/Users/…`. Looked up once, consulted only on a prefix miss.
+        let linked = PathBoundary.linkedFolders(atRoot: basePath, in: links)
+            .map { (name: $0.key, target: $0.value, graphemeCount: $0.value.count) }
 
         func relativeKey(of id: String) -> String {
             // **There was a byte fast path here, and it was SLOWER than the code it bypassed.**
@@ -99,6 +111,13 @@ public struct FileDiffEngine {
             var relativePath = id
             if relativePath.hasPrefix(basePath) {
                 relativePath = String(relativePath.dropFirst(baseGraphemeCount))
+            } else {
+                for link in linked {
+                    if id == link.target { return link.name }
+                    if id.hasPrefix(link.target + "/") {
+                        return link.name + "/" + String(id.dropFirst(link.graphemeCount + 1))
+                    }
+                }
             }
             if relativePath.hasPrefix("/") {
                 relativePath.removeFirst()
@@ -417,7 +436,21 @@ public struct FileDiffEngine {
             }
         }
 
-        try walk(url, prefix: "", branchVisited: [canonicalIdentity(url)])
+        // **A root that IS a link to a folder is walked where it leads.** The enumerator lists
+        // nothing at a URL whose last component is a link (ENOTDIR, measured), and the forgiveness
+        // in `recordUnreadable` — right for a link the descent below then walks — let the ROOT go
+        // too, with nothing to walk it. The side read as authoritatively empty: a Compare focused
+        // on iCloud Drive → Documents through the container's link reported every item on the
+        // other side as missing. Resolved here the way that descent resolves a nested link.
+        var walkRoot = url
+        if fileManager is FileManager,
+           (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            let target = url.resolvingSymlinksInPath()
+            if (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                walkRoot = target
+            }
+        }
+        try walk(walkRoot, prefix: "", branchVisited: [canonicalIdentity(walkRoot)])
 
         // Re-mark the directories whose descent failed: their entry was added while listing the
         // (readable) parent, but what's inside is unknown, not absent.

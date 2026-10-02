@@ -127,14 +127,23 @@ import Testing
     /// previously compared the maps as a whole, so a divergence between them — the exact thing
     /// that makes a scan report differently depending on whether the cache happened to be warm —
     /// could only have been caught by noticing a wrong row in the UI.
+    ///
+    /// **A folder linked in from outside the root is one of those shapes** — iCloud Drive's
+    /// `Documents`, at the container. The walk lists it as the folder it points at, so its nodes
+    /// carry the REAL path, which the base is no prefix of; keyed by plain prefix they came out
+    /// near-absolute (`private/var/…/Documents/report.txt`) while the disk walk keyed them through
+    /// the link (`Documents/report.txt`), and a warm Compare at the container offered to copy the
+    /// whole folder into `<other side>/Users/…/Documents`. The table is the fixture's own.
     @Test func warmAndColdBranchesProduceTheSameMap() async throws {
         let fm = FileManager.default
         let root = try makeCanonicalTempRoot(prefix: "WarmColdAgreement")
-        defer { try? fm.removeItem(at: root) }
+        let outside = try makeCanonicalTempRoot(prefix: "WarmColdAgreementOutside")
+        defer { try? fm.removeItem(at: root); try? fm.removeItem(at: outside) }
 
         // Shapes that have historically diverged or been handled specially: nested dirs, an
-        // empty dir, a dotfile, non-ASCII and NFD names, a name with a trailing space, and a
-        // symlink to a file (a broken link is dropped by both, pinned elsewhere).
+        // empty dir, a dotfile, non-ASCII and NFD names, a name with a trailing space, a
+        // symlink to a file (a broken link is dropped by both, pinned elsewhere), and a folder
+        // linked into the root from outside it.
         try fm.createDirectory(at: root.appendingPathComponent("dir/sub"), withIntermediateDirectories: true)
         try fm.createDirectory(at: root.appendingPathComponent("empty"), withIntermediateDirectories: true)
         try Data("a".utf8).write(to: root.appendingPathComponent("dir/a.txt"))
@@ -145,17 +154,38 @@ import Testing
         try Data("f".utf8).write(to: root.appendingPathComponent("trailing space .txt"))
         try fm.createSymbolicLink(at: root.appendingPathComponent("link.txt"),
                                   withDestinationURL: root.appendingPathComponent("dir/a.txt"))
+        let documents = outside.appendingPathComponent("Documents")
+        try fm.createDirectory(at: documents.appendingPathComponent("Family"), withIntermediateDirectories: true)
+        try Data("g".utf8).write(to: documents.appendingPathComponent("report.txt"))
+        try Data("hh".utf8).write(to: documents.appendingPathComponent("Family/note.txt"))
+        try fm.createSymbolicLink(at: root.appendingPathComponent("Documents"), withDestinationURL: documents)
+        let desktop = outside.appendingPathComponent("Desktop")
+        try fm.createDirectory(at: desktop, withIntermediateDirectories: true)
+        try Data("i".utf8).write(to: desktop.appendingPathComponent("shot.png"))
+        try fm.createSymbolicLink(at: root.appendingPathComponent("Desktop"), withDestinationURL: desktop)
+        let links: PathBoundary.LinkedFolders = [root.path: ["Documents": documents.path,
+                                                             "Desktop": desktop.path]]
 
         let cold = try FileDiffEngine.getFilesInDirectory(root)
-        let tree = await FileSyncManager.buildTree(url: root, sortOption: .name)
-        let warm = FileDiffEngine.filesInfo(fromTree: tree, basePath: root.path)
+        let tree = await FileSyncManager.buildTree(url: root, sortOption: .name, linkedFolders: links)
+        let warm = FileDiffEngine.filesInfo(fromTree: tree, basePath: root.path, links: links)
 
         #expect(!cold.isEmpty, "premise: the fixture produced entries")
+        #expect(cold["Documents/Family/note.txt"] != nil && cold["Desktop/shot.png"] != nil,
+                "premise: the disk walk went through both links")
         #expect(Set(warm.keys) == Set(cold.keys),
                 "key sets differ — warm-only \(Set(warm.keys).subtracting(cold.keys)), cold-only \(Set(cold.keys).subtracting(warm.keys))")
         for (key, coldInfo) in cold {
             guard let warmInfo = warm[key] else { continue }   // reported by the key-set check
-            #expect(warmInfo.url.path == coldInfo.url.path, "\(key): url.path")
+            if key == "Documents" || key == "Desktop" {
+                // The entries the branches SPELL differently, by design: the enumerator reports
+                // each link it listed, the walk the folder it substituted. One folder either way.
+                #expect(warmInfo.url.path == outside.appendingPathComponent(key).path)
+                #expect(coldInfo.url.resolvingSymlinksInPath() == warmInfo.url.resolvingSymlinksInPath(),
+                        "\(key): the two branches name different folders")
+            } else {
+                #expect(warmInfo.url.path == coldInfo.url.path, "\(key): url.path")
+            }
             #expect(warmInfo.isDirectory == coldInfo.isDirectory, "\(key): isDirectory")
             #expect(warmInfo.isUnexplored == coldInfo.isUnexplored, "\(key): isUnexplored")
             #expect(warmInfo.fileSize == coldInfo.fileSize, "\(key): fileSize")

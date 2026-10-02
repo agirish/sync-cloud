@@ -315,6 +315,102 @@ import Testing
                                          fallback: fallback, links: Self.links) == fallback)
     }
 
+    // MARK: - The comparison
+
+    /// Files named for their leaf and dated alike, so two copies of a tree compare equal wherever
+    /// they sit and only what is genuinely one-sided can become a row.
+    private static func write(_ files: [String], under dir: URL, at date: Date) throws {
+        let fm = FileManager.default
+        for file in files {
+            let url = dir.appendingPathComponent(file)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(url.lastPathComponent.utf8).write(to: url)
+            try fm.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
+        }
+    }
+
+    /// A container linking `Documents` to a folder outside it, and a second source holding the
+    /// same files — the iCloud Drive vs Dropbox pair, on the fixture's own table.
+    private static func linkedPair(prefix: String) throws
+        -> (base: URL, container: URL, real: URL, other: URL, links: PathBoundary.LinkedFolders) {
+        let base = try makeCanonicalTempRoot(prefix: prefix)
+        let container = base.appendingPathComponent("container")
+        let real = base.appendingPathComponent("outside").appendingPathComponent("Documents")
+        let other = base.appendingPathComponent("dropbox")
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        try write(["Word/w.txt"], under: container, at: date)
+        try write(["Family/note.txt", "Work/plan.txt"], under: real, at: date)
+        try write(["Word/w.txt", "Documents/Family/note.txt", "Documents/Work/plan.txt"], under: other, at: date)
+        try FileManager.default.createSymbolicLink(at: container.appendingPathComponent("Documents"),
+                                                   withDestinationURL: real)
+        return (base, container, real, other, [container.path: ["Documents": real.path]])
+    }
+
+    /// **A Compare focused on the linked folder scans where the pane looks.** The pane walks and
+    /// caches it under its real path; the scan composed its own path lexically, missed that
+    /// entry, and walked the link itself — which lists nothing — so the left side read as
+    /// authoritatively empty and every item on the right became "Folder missing on left". On the
+    /// real pair that was the same 15 differences on every launch into iCloud vs Dropbox.
+    ///
+    /// Asserted against the pane's own spelling (`PaneLogic.fullPath` is `PathBoundary.join`):
+    /// the not-scanned card and the owed-comparison route compose that way, so a summary written
+    /// under the link's spelling matched neither.
+    /// Run with the linked folder on either side: each side's path is composed on its own line.
+    @MainActor
+    @Test(arguments: [true, false])
+    func aCompareFocusedOnALinkedFolderScansWhereThePaneLooks(linkedOnTheLeft: Bool) async throws {
+        let pair = try Self.linkedPair(prefix: "LinkedFoldersTests")
+        defer { try? FileManager.default.removeItem(at: pair.base) }
+        try Self.write(["only-here.txt"], under: pair.other.appendingPathComponent("Documents"),
+                       at: Date(timeIntervalSince1970: 1_700_000_000))
+        let m = FileSyncManager()
+        m.linkedFolders = pair.links
+        let icloud = CloudProvider(id: "L", displayName: "iCloud", imageName: "icloud",
+                                   rootPath: pair.container.path, type: .iCloud)
+        let dropbox = CloudProvider(id: "R", displayName: "Dropbox", imageName: "dropbox",
+                                    rootPath: pair.other.appendingPathComponent("Documents").path,
+                                    type: .dropBox)
+        if linkedOnTheLeft { m.leftRelativePath = "Documents" } else { m.rightRelativePath = "Documents" }
+
+        await m.refreshTreesAndScan(left: linkedOnTheLeft ? icloud : dropbox,
+                                    right: linkedOnTheLeft ? dropbox : icloud)
+
+        let paneFocus = PathBoundary.join(root: pair.container.path, relative: "Documents", links: pair.links)
+        #expect(paneFocus == pair.real.path, "premise: the pane focuses the folder the link leads to")
+        #expect(m.prefetchedTrees[paneFocus] != nil, "premise: the pane cached its walk under that path")
+        #expect(m.hasScanned)
+        let scanned = linkedOnTheLeft ? m.lastScanSummary?.leftPath : m.lastScanSummary?.rightPath
+        #expect(scanned == paneFocus, "the scan composed a path the pane never walked")
+        #expect(m.rawDifferences.map(\.relativePath) == ["only-here.txt"],
+                "\(m.rawDifferences.map { "\($0.relativePath): \($0.description)" })")
+    }
+
+    /// **At the container itself, a warm Compare keys the linked folder through its name.** The
+    /// pane's walk lists `Documents` as the folder it points at, so its nodes carry the real path —
+    /// which the container is no prefix of — and keyed by plain prefix they came out near-absolute:
+    /// every file in the linked folder became a row offering to copy it into
+    /// `<other side>/<its absolute path>`, and the same files under `Documents/` read as missing.
+    @MainActor
+    @Test func aWarmCompareAtTheContainerKeysTheLinkedFolderThroughItsName() async throws {
+        let pair = try Self.linkedPair(prefix: "LinkedFoldersTests")
+        defer { try? FileManager.default.removeItem(at: pair.base) }
+        let m = FileSyncManager()
+        m.linkedFolders = pair.links
+        let left = CloudProvider(id: "L", displayName: "iCloud", imageName: "icloud",
+                                 rootPath: pair.container.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Dropbox", imageName: "dropbox",
+                                  rootPath: pair.other.path, type: .dropBox)
+
+        await m.refreshTreesAndScan(left: left, right: right)
+
+        #expect(m.prefetchedTrees[pair.container.path]?.contains { $0.id == pair.real.path } == true,
+                "premise: the scan was warm, over a walk that listed the linked folder by its real path")
+        #expect(m.prefetchedTrees[pair.other.path] != nil, "premise: the scan was warm")
+        #expect(m.hasScanned)
+        #expect(m.rawDifferences.isEmpty,
+                "\(m.rawDifferences.map { "\($0.relativePath): \($0.description)" })")
+    }
+
     /// Discovery against a real link, end to end: the production reader sees the link the test
     /// made and records where it points.
     @Test func discoveryReadsARealLink() throws {
