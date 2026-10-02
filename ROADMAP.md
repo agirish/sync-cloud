@@ -452,21 +452,6 @@ invariants wholesale. Gate it behind item 5's watcher, a per-rule confirmation c
 
 ---
 
-## 11. In-app diff viewer for text files
-
-**Why:** Files can be opened in external apps but their contents cannot be compared inside
-SyncCloud.
-
-**What:** For a selected pair in the Differences list or the Info inspector, when both sides are
-text (by extension or UTI), a read-only side-by-side or unified diff in a sheet. Integrate with the
-existing Quick Look where useful.
-
-**Impact:** Verify what actually changed before syncing.
-
-**Effort:** Medium. **Risk:** Low.
-
----
-
 ## 12. Menu bar / status item
 
 **Why:** Everything requires opening the main window, and there is no at-a-glance status.
@@ -1177,7 +1162,6 @@ the question hundreds of keeper picks actually raise.
 | 7 | Cross-provider duplicates | High | High |
 | 8 | Export / import configuration | Low | Medium |
 | 9 | Auto-running automations | Medium | Medium–High |
-| 11 | In-app diff viewer | Medium | Medium |
 | 12 | Menu bar status item | Low–Medium | Medium |
 | 13 | Path-anchored / include-only rules | Low–Medium | Medium |
 | 16 | Home workspace | Medium | Medium (after 1c) |
