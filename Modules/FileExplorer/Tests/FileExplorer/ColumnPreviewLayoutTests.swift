@@ -11,9 +11,12 @@ import UniformTypeIdentifiers
 ///
 /// Those tests pin the rules (which file, and whether Quick Look may have it). These pin that the
 /// rules are actually plumbed into the stack's geometry, which is where this feature can fail
-/// silently in the one way that matters: a Columns pane at rest frames its single column to the FULL
-/// pane width, so a preview column that is merely appended would be laid out beyond the pane's right
-/// edge — present, correct, and permanently off screen.
+/// silently in the one way that matters: a preview column that is merely appended to the stack would
+/// be laid out in its scroll overflow — present, correct, and off screen.
+///
+/// A stack showing one column keeps that column at its own width, as every column of a stack does;
+/// the preview's room is read off the stack's VIEWPORT, which is what it takes from. The gutter a stack
+/// keeps after its last column (`columnStackTrailingGutter`) is part of every viewport figure here.
 ///
 /// Widths are read back off the laid-out AppKit views, never from the constants that produced them.
 @MainActor
@@ -198,26 +201,24 @@ import UniformTypeIdentifiers
         return found
     }
 
-    /// The load-bearing case: selecting a file must hand part of the pane to the preview. A column
-    /// still measuring the full pane width is the bug this whole suite exists for — the preview
-    /// would have nowhere to be laid out.
+    /// The load-bearing case: selecting a file must hand part of the pane to the preview. A viewport
+    /// still measuring the full pane is the bug this whole suite exists for — the preview would have
+    /// nowhere to be laid out.
     ///
-    /// The lone column fills what is LEFT rather than stepping back to `columnWidth`. It has no
-    /// divider — dividers are only drawn between columns, and the seam at the preview is the
-    /// preview's — so a column pinned to `columnWidth` here would be narrow, flanked by dead space,
-    /// and impossible to widen. Filling its area is what makes that unnecessary.
+    /// The lone column keeps its own width through it: selecting a file must not resize the column
+    /// the click landed in.
     ///
     /// The width is the assertion, and it is a synchronous one: the stack lays out from the
     /// selection, with nothing to wait for. Whether Quick Look has *finished* mounting inside that
     /// column is a separate question, asked separately below — waiting for it here would make this
     /// case's outcome depend on how busy the test host is.
-    @Test func testSelectingAFileShrinksTheColumnToMakeRoomForThePreview() async throws {
+    @Test func testSelectingAFileHandsThePreviewItsRoom() async throws {
         let fixture = try Fixture()
         let mounted = mount(fixture, paneWidth: 990, selection: [fixture.file], previewEnabled: true,
                             previewWidth: 420)
         await pump(mounted.window, seconds: 0.3)
-        #expect(columnWidths(in: mounted.host) == [570])
-        #expect(stackViewportWidth(in: mounted.host) == 570)
+        #expect(columnWidths(in: mounted.host) == [PaneViewMode.defaultColumnWidth])
+        #expect(stackViewportWidth(in: mounted.host) == 570 - PaneViewMode.columnStackTrailingGutter)
         // Both must outlive the assertions: releasing `fixture` runs its `deinit`, which DELETES the
         // directory the preview's probe reads (a released fixture classifies as `.missing`), and
         // releasing the window tears the hosted views down.
@@ -245,13 +246,13 @@ import UniformTypeIdentifiers
         #expect(columnWidths(in: compare.host) == columnWidths(in: rail.host))
         #expect(stackViewportWidth(in: compare.host) == stackViewportWidth(in: rail.host))
         // Non-vacuous: the pane really did give room away, rather than both sides reporting nothing.
-        #expect(columnWidths(in: compare.host) == [570])
+        #expect(stackViewportWidth(in: compare.host) == 570 - PaneViewMode.columnStackTrailingGutter)
 
         // And the setting still rules it here — off, the comparison pane keeps every point.
         let off = mount(fixture, paneWidth: 990, selection: [fixture.file], previewEnabled: false,
                         previewWidth: 420, isSingleSource: false)
         await pump(off.window, seconds: 0.3)
-        #expect(columnWidths(in: off.host) == [990])
+        #expect(stackViewportWidth(in: off.host) == 990 - PaneViewMode.columnStackTrailingGutter)
         withExtendedLifetime((fixture, rail, compare, off)) {}
     }
 
@@ -309,16 +310,21 @@ import UniformTypeIdentifiers
         let mounted = mount(fixture, paneWidth: 990, selection: [fixture.file], previewEnabled: true,
                             previewWidth: 420, isSingleSource: false)
         await pump(mounted.window, seconds: 0.3)
-        #expect(columnWidths(in: mounted.host) == [570])
+        let gutter = PaneViewMode.columnStackTrailingGutter
+        #expect(stackViewportWidth(in: mounted.host) == 570 - gutter)
 
         mounted.host.rootView.box.previewEnabled = false
         await pump(mounted.window, seconds: 0.5)
-        #expect(columnWidths(in: mounted.host) == [990], "turning the preview off must return its width")
+        #expect(stackViewportWidth(in: mounted.host) == 990 - gutter,
+                "turning the preview off must return its width")
         #expect(previews(in: mounted.host).isEmpty)
 
         mounted.host.rootView.box.previewEnabled = true
         await pump(mounted.window, seconds: 0.5)
-        #expect(columnWidths(in: mounted.host) == [570], "turning it back on must take the width again")
+        #expect(stackViewportWidth(in: mounted.host) == 570 - gutter,
+                "turning it back on must take the width again")
+        #expect(columnWidths(in: mounted.host) == [PaneViewMode.defaultColumnWidth],
+                "the column itself never moves — only the room after it does")
         withExtendedLifetime((fixture, mounted)) {}
     }
 
@@ -356,12 +362,12 @@ import UniformTypeIdentifiers
                            previewEnabled: true, columnWidth: 150, previewWidth: 500)
         await pump(wide.window, seconds: 0.3)
         await pump(narrow.window, seconds: 0.3)
-        #expect(stackViewportWidth(in: wide.host) == 400)
-        #expect(stackViewportWidth(in: narrow.host) == 400)
-        // A lone column takes the viewport whatever `columnWidth` says, so both fill it — the case
-        // that used to leave a 150pt column stranded beside a band of dead space.
-        #expect(columnWidths(in: wide.host) == [400])
-        #expect(columnWidths(in: narrow.host) == [400])
+        let viewport = 400 - PaneViewMode.columnStackTrailingGutter
+        #expect(stackViewportWidth(in: wide.host) == viewport)
+        #expect(stackViewportWidth(in: narrow.host) == viewport)
+        // And each lone column keeps the width it was given.
+        #expect(columnWidths(in: wide.host) == [320])
+        #expect(columnWidths(in: narrow.host) == [150])
         withExtendedLifetime((fixture, wide, narrow)) {}
     }
 
@@ -389,14 +395,16 @@ import UniformTypeIdentifiers
         withExtendedLifetime((fixture, window)) {}
     }
 
-    /// The resting state Columns is built on, unchanged: nothing selected, one column, the whole
-    /// pane. The width is the non-vacuous half of the assertion — it is observed, not waited for —
+    /// The resting state: nothing selected, one column at its own width — not spanning the pane,
+    /// which it did until 2026-10-02 and then snapped back to its width on the first click into a
+    /// folder. The width is the non-vacuous half of the assertion — it is observed, not waited for —
     /// and the absent preview is checked after twice the settle delay has passed.
-    @Test func testAtRestTheColumnStillSpansTheWholePane() async throws {
+    @Test func testAtRestTheColumnHasItsOwnWidth() async throws {
         let fixture = try Fixture()
         let mounted = mount(fixture, paneWidth: 990, selection: [], previewEnabled: true)
         await pump(mounted.window, seconds: 0.6)
-        #expect(columnWidths(in: mounted.host) == [990])
+        #expect(columnWidths(in: mounted.host) == [PaneViewMode.defaultColumnWidth])
+        #expect(stackViewportWidth(in: mounted.host) == 990 - PaneViewMode.columnStackTrailingGutter)
         #expect(previews(in: mounted.host).isEmpty)
         // Both must outlive the assertions: releasing `fixture` runs its `deinit`, which DELETES the
         // directory the preview's probe reads (a released fixture classifies as `.missing`, so the
@@ -410,7 +418,8 @@ import UniformTypeIdentifiers
         let mounted = mount(fixture, paneWidth: 990, selection: ["\(fixture.root)/Folder"],
                             previewEnabled: true)
         await pump(mounted.window, seconds: 0.6)
-        #expect(columnWidths(in: mounted.host) == [990])
+        #expect(columnWidths(in: mounted.host) == [PaneViewMode.defaultColumnWidth])
+        #expect(stackViewportWidth(in: mounted.host) == 990 - PaneViewMode.columnStackTrailingGutter)
         #expect(previews(in: mounted.host).isEmpty)
         // Both must outlive the assertions: releasing `fixture` runs its `deinit`, which DELETES the
         // directory the preview's probe reads (a released fixture classifies as `.missing`, so the
@@ -424,7 +433,8 @@ import UniformTypeIdentifiers
         let fixture = try Fixture()
         let mounted = mount(fixture, paneWidth: 990, selection: [fixture.file], previewEnabled: false)
         await pump(mounted.window, seconds: 0.6)
-        #expect(columnWidths(in: mounted.host) == [990])
+        #expect(columnWidths(in: mounted.host) == [PaneViewMode.defaultColumnWidth])
+        #expect(stackViewportWidth(in: mounted.host) == 990 - PaneViewMode.columnStackTrailingGutter)
         #expect(previews(in: mounted.host).isEmpty)
         // Both must outlive the assertions: releasing `fixture` runs its `deinit`, which DELETES the
         // directory the preview's probe reads (a released fixture classifies as `.missing`, so the
@@ -432,18 +442,49 @@ import UniformTypeIdentifiers
         withExtendedLifetime((fixture, mounted)) {}
     }
 
-    /// A pane with no room for a full column beside a minimum preview keeps every point for its
-    /// files. Without this the pane would start scrolling sideways because a file was clicked.
+    /// A pane with no room for a full column — and the gutter after it — beside a minimum preview
+    /// keeps every point for its files. Without this the pane would start scrolling sideways because
+    /// a file was clicked. One point short of the boundary, so an off-by-one in the gutter shows.
     @Test func testATooNarrowPaneKeepsItsWidthForTheFiles() async throws {
-        let paneWidth = PaneViewMode.defaultColumnWidth + PaneViewMode.minimumPreviewColumnWidth - 1
+        let gutter = PaneViewMode.columnStackTrailingGutter
+        let paneWidth = PaneViewMode.defaultColumnWidth + gutter + PaneViewMode.minimumPreviewColumnWidth - 1
         let fixture = try Fixture()
         let mounted = mount(fixture, paneWidth: paneWidth, selection: [fixture.file], previewEnabled: true)
         await pump(mounted.window, seconds: 0.6)
-        #expect(columnWidths(in: mounted.host) == [paneWidth])
+        #expect(stackViewportWidth(in: mounted.host) == paneWidth - gutter)
+        #expect(columnWidths(in: mounted.host) == [PaneViewMode.defaultColumnWidth])
         #expect(previews(in: mounted.host).isEmpty)
         // Both must outlive the assertions: releasing `fixture` runs its `deinit`, which DELETES the
         // directory the preview's probe reads (a released fixture classifies as `.missing`, so the
         // preview never mounts), and releasing the window tears the hosted views down.
+        withExtendedLifetime((fixture, mounted)) {}
+    }
+    /// **The preview never squeezes a lone column, even dragged as wide as it goes.** The preview is
+    /// capped at the pane minus one column AND the gutter after it, so the column keeps every point of
+    /// its width. Held to the column alone, as it was while a lone column spanned the pane, the cap
+    /// left the viewport 12pt short and the column was drawn 198pt wide — resized by a file click.
+    @Test func testAWidePreviewLeavesALoneColumnItsWholeWidth() async throws {
+        let fixture = try Fixture()
+        let mounted = mount(fixture, paneWidth: 700, selection: [fixture.file], previewEnabled: true,
+                            previewWidth: PaneViewMode.maximumPreviewColumnWidth)
+        await pump(mounted.window, seconds: 0.3)
+        // Non-vacuous: the preview really is at its cap, so the cap is what is being measured.
+        #expect(stackViewportWidth(in: mounted.host) == PaneViewMode.defaultColumnWidth)
+        #expect(columnWidths(in: mounted.host) == [PaneViewMode.defaultColumnWidth])
+        withExtendedLifetime((fixture, mounted)) {}
+    }
+
+    /// **A lone column sized too wide for a preview beside it gets no preview — and keeps its width.**
+    /// The same trade the deepest column of a deeper stack makes. It used to get the preview and be
+    /// squeezed to what was left, which was safe only while a lone column had no width of its own.
+    @Test func testALoneColumnTooWideForAPreviewKeepsItsWidth() async throws {
+        let fixture = try Fixture()
+        let mounted = mount(fixture, paneWidth: 700, selection: [fixture.file], previewEnabled: true,
+                            columnWidth: PaneViewMode.maximumColumnWidth, previewWidth: 420)
+        await pump(mounted.window, seconds: 0.6)
+        #expect(previews(in: mounted.host).isEmpty)
+        #expect(stackViewportWidth(in: mounted.host) == 700 - PaneViewMode.columnStackTrailingGutter)
+        #expect(columnWidths(in: mounted.host) == [PaneViewMode.maximumColumnWidth])
         withExtendedLifetime((fixture, mounted)) {}
     }
 }

@@ -701,20 +701,6 @@ import Sync
                 "the 600pt column was not drawn at the viewport's width: \(widths)")
     }
 
-    /// **A lone column's preview is not held to a column width it does not have.** At rest the one
-    /// column spans the pane, so the preview rule holds it to the default column rather than the
-    /// stored width — which can now be 600pt, and would otherwise keep a preview out of any pane
-    /// narrower than 820pt.
-    @Test func testALoneColumnGetsItsPreviewWhateverTheStoredWidth() async throws {
-        let mounted = try await mount(paneWidth: 700, depth: 0)
-        defer { _ = mounted.window }
-        mounted.defaults.set(Double(PaneViewMode.maximumColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
-        await drain(mounted.window, turns: 3)
-        let full = mounted.stack.contentView.bounds.width
-        #expect(await openPreview(mounted, viewportWas: full),
-                "a single column at a stored 600pt kept the preview out of a 700pt pane")
-    }
-
     /// The preview-width key is ONE process-wide preference shared by every `PaneColumnsView`
     /// (both comparison panes and the single-source rail). Ending a preview-divider drag in one pane fires
     /// the stored-width driver in all of them — but a pane whose preview is HIDDEN had its

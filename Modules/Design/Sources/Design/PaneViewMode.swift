@@ -3,10 +3,8 @@ import SwiftUI
 
 /// How a comparison pane presents its tree: today's outline, or Finder-style columns.
 ///
-/// Columns is the default, and that is safe precisely because of how it rests. With nothing
-/// selected a Columns pane is a single column spanning the pane, listing the same folder the tree
-/// listed — the pane opens exactly as it did before this setting existed. Columns only appear once
-/// you click into a folder, so this changes what a click *does*, not what the pane looks like.
+/// Columns is the default. With nothing selected a Columns pane is one column at its own width,
+/// listing the same folder the tree listed; more columns appear as you click into folders.
 ///
 /// The two modes therefore differ in exactly one place: a folder row. Tree puts a disclosure
 /// triangle on the left and expands children inline; Columns puts a chevron on the right and opens
@@ -15,8 +13,7 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     case tree
     case columns
 
-    /// The app's default. See the note above for why defaulting to Columns does not move anyone's
-    /// furniture on first launch.
+    /// The app's default.
     public static let `default` = PaneViewMode.columns
 
     public var id: String { rawValue }
@@ -124,8 +121,8 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     ///
     /// 12pt: the widest seam that meets a stack's edge reaches 6pt into it (the Compare and rail
     /// splitters, 12pt strips starting 6pt inside the boundary), and a column's own strip reaches
-    /// 4.5pt past its edge — 12 leaves the two 1.5pt apart. A single column spans its area, has no
-    /// divider, and keeps no gutter.
+    /// 4.5pt past its edge — 12 leaves the two 1.5pt apart. Push mode's single column spans its area,
+    /// has no divider, and keeps no gutter; a stack showing one column keeps all three like any other.
     public static let columnStackTrailingGutter: CGFloat = 12
 
     /// The width every column takes unless it was sized on its own — see `ColumnWidthOverrides`.
@@ -224,19 +221,15 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// content in that state would move the very condition those fixes were tuned against. It only
     /// ever occupies slack that already existed.
     ///
-    /// A single column is framed to the full pane width rather than `columnWidth`, so it leaves no
-    /// slack either — which also covers push mode, where exactly one column is ever visible.
+    /// Push mode needs no case of its own: its single column is framed to the whole viewport, so
+    /// there is no slack to fill. A stack showing one column keeps its own width, and the slack after
+    /// it — most of a resting pane — is filled like any other.
     ///
     /// `paneWidth` here is the width of the stack's VIEWPORT: the pane, minus the preview when one
     /// is showing, minus `columnStackTrailingGutter`. Neither is part of the scrolling stack, so
     /// neither competes with this filler for the same points.
-    public static func trailingFillerWidth(
-        paneWidth: CGFloat,
-        columnWidths: [CGFloat],
-        isSingleColumn: Bool
-    ) -> CGFloat {
-        guard !isSingleColumn else { return 0 }
-        return max(0, paneWidth - columnWidths.reduce(0, +))
+    public static func trailingFillerWidth(paneWidth: CGFloat, columnWidths: [CGFloat]) -> CGFloat {
+        max(0, paneWidth - columnWidths.reduce(0, +))
     }
 
     // MARK: - Preview column

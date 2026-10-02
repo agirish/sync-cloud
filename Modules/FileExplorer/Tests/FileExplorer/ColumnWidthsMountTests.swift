@@ -107,6 +107,67 @@ import Sync
         #expect(abs(widths[2] - 210) < 1, "column 2 is \(widths[2]), not the shared 210")
     }
 
+    /// Mounts the harness at `paneWidth` with nothing opened — the pane at rest, one column.
+    private func mountAtRest(paneWidth: CGFloat, defaults: UserDefaults) -> (NSWindow, NSHostingView<Harness>) {
+        let box = Box()
+        box.browsePath = PaneBrowsePath()
+        let host = NSHostingView(rootView: Harness(box: box, defaults: defaults))
+        host.frame = NSRect(x: 0, y: 0, width: paneWidth, height: 300)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        return (window, host)
+    }
+
+    /// The stack's own scroll view — the one whose document is not a column's table.
+    private func stack(_ root: NSView) -> NSScrollView? {
+        var found: NSScrollView?
+        func walk(_ v: NSView) {
+            if found == nil, let s = v as? NSScrollView, !(s.documentView is NSTableView) { found = s; return }
+            v.subviews.forEach(walk)
+        }
+        walk(root)
+        return found
+    }
+
+    /// **At rest, the one column has its own width** — the width it was sized to at depth 0, not the
+    /// pane's. It used to span the pane until a folder was opened, then snap to this width on the
+    /// first click. The dead space after it is the stack's filler: the content still exactly fills
+    /// the viewport, which keeps the gutter after it.
+    @Test func aRestingColumnTakesItsOwnWidth() async throws {
+        let defaults = ScratchDefaults("ColumnWidthsMountTests")
+        defaults.set(210.0, forKey: PaneViewMode.columnWidthDefaultsKey)
+        defaults.set(ColumnWidthOverrides(widths: [0: 300]).rawValue,
+                     forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
+        let (window, host) = mountAtRest(paneWidth: 1100, defaults: defaults)
+        defer { window.contentView = nil }
+        await waitUntil { self.lists(host).count == 1 }
+
+        let widths = lists(host).map { $0.frame.width }
+        try #require(widths.count == 1, "expected one column at rest, found \(widths.count)")
+        #expect(abs(widths[0] - 300) < 1, "the resting column is \(widths[0]), not the 300 it was sized to")
+        let viewport = 1100 - PaneViewMode.columnStackTrailingGutter
+        let stack = try #require(stack(host), "no stack scroll view")
+        #expect(abs(stack.frame.width - viewport) < 1, "the stack kept no gutter: \(stack.frame.width)")
+        #expect(abs((stack.documentView?.frame.width ?? 0) - viewport) < 1,
+                "the filler does not take the slack after the column: \(stack.documentView?.frame.width ?? 0)")
+    }
+
+    /// **Push mode still spans.** Below two minimum columns a pane shows one column at every depth,
+    /// and that column takes the whole pane — no gutter, whatever width the column was sized to.
+    @Test func aPushingPaneSpansItsOneColumn() async throws {
+        let defaults = ScratchDefaults("ColumnWidthsMountTests")
+        defaults.set(Double(PaneViewMode.minimumColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
+        let paneWidth = PaneViewMode.pushNavigationBelowWidth - 10
+        let (window, host) = mountAtRest(paneWidth: paneWidth, defaults: defaults)
+        defer { window.contentView = nil }
+        await waitUntil { self.lists(host).count == 1 }
+
+        let widths = lists(host).map { $0.frame.width }
+        try #require(widths.count == 1, "expected one column, found \(widths.count)")
+        #expect(abs(widths[0] - paneWidth) < 1, "the pushing column is \(widths[0]) in a \(paneWidth)pt pane")
+    }
+
     /// **The fit leaves the longest name whole — and not a point more than needed.** Rendered at the
     /// fitted width minus the list's inset, the row paints exactly as it does with all the room in the
     /// world; thirty points narrower, the name is cut. The control is what makes the first claim mean
@@ -224,9 +285,9 @@ import Sync
                 "a row's content starts \(leading)pt into its column, past the \(PaneViewMode.columnRowHorizontalInset / 2) the fit budgets for it")
     }
 
-    /// **The deepest column has a resize handle.** Dividers used to be drawn only BETWEEN columns — one
-    /// shared width needed no more — which left the column most worth widening, the deepest one
-    /// listing files, with no handle at all. A source scan, because a SwiftUI gesture view exposes
+    /// **The deepest column has a resize handle** — a resting pane's lone column included. Dividers
+    /// used to be drawn only BETWEEN columns — one shared width needed no more — which left the column
+    /// most worth widening, the deepest one listing files, with no handle at all. A source scan, because a SwiftUI gesture view exposes
     /// nothing a mounted test can find; scoped to the overlay that places the divider.
     @Test func theDeepestColumnHasAResizeHandle() throws {
         let url = URL(fileURLWithPath: #filePath)
@@ -238,6 +299,6 @@ import Sync
             .split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
         #expect(body.contains("divider(depth: depth"), "the overlay no longer places a column's divider")
-        #expect(!body.contains("visible.count - 1"), "the divider is excluded from the last column again")
+        #expect(!body.contains("visible.count"), "the divider is excluded by column count again — a lone column needs one too")
     }
 }

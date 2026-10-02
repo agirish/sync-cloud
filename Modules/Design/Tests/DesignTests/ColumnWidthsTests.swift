@@ -70,8 +70,8 @@ import CoreGraphics
 
     /// The dead space past the last column is the viewport minus the columns' REAL widths.
     @Test func theFillerSumsTheRealWidths() {
-        #expect(PaneViewMode.trailingFillerWidth(paneWidth: 1000, columnWidths: [300, 200], isSingleColumn: false) == 500)
-        #expect(PaneViewMode.trailingFillerWidth(paneWidth: 400, columnWidths: [300, 200], isSingleColumn: false) == 0)
-        #expect(PaneViewMode.trailingFillerWidth(paneWidth: 1000, columnWidths: [300], isSingleColumn: true) == 0)
+        #expect(PaneViewMode.trailingFillerWidth(paneWidth: 1000, columnWidths: [300, 200]) == 500)
+        #expect(PaneViewMode.trailingFillerWidth(paneWidth: 400, columnWidths: [300, 200]) == 0)
+        #expect(PaneViewMode.trailingFillerWidth(paneWidth: 1000, columnWidths: [300]) == 700)
     }
 }

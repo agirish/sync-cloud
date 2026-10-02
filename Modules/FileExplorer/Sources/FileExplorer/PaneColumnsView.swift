@@ -294,16 +294,16 @@ struct PaneColumnsView: View {
     /// **As the column rests, never mid-drag.** A live divider drag across the threshold would tear
     /// the preview down and put it back, and reveal the stack under the cursor, every time it crossed.
     ///
-    /// **A stack showing ONE column** — at rest, or pushing — spans whatever the preview leaves it, so
-    /// its own width is no measure of what it needs. It is held to the default column instead: what it
-    /// was held to before a column could be sized on its own, and far short of the 600pt one can be
-    /// now, which would otherwise keep the preview out of every pane narrower than 820pt.
-    private func previewRuleColumnWidth(paneWidth: CGFloat) -> CGFloat {
-        let deepest = committedColumnWidth(atDepth: max(0, directories.count - 1))
-        guard directories.count > 1, !PaneViewMode.usesPushNavigation(paneWidth: paneWidth) else {
-            return min(deepest, PaneViewMode.defaultColumnWidth)
-        }
-        return deepest + PaneViewMode.columnStackTrailingGutter
+    /// **A stack showing ONE column is held to its own width, like any other stack.** It used to be
+    /// held to the default column instead, because it spanned whatever the preview left it and its
+    /// own width measured nothing. It keeps its width now, so that rule left it 12pt short of the
+    /// gutter and squeezed any column wider than the default as the preview took its room — a file
+    /// click resizing the column it landed in. A column sized too wide for a preview beside it gets
+    /// no preview, exactly as the deepest column of a deeper stack does.
+    ///
+    /// Push mode needs no case: `showsPreviewColumn` refuses it a preview before reading this.
+    private var previewRuleColumnWidth: CGFloat {
+        committedColumnWidth(atDepth: max(0, directories.count - 1)) + PaneViewMode.columnStackTrailingGutter
     }
     private var preferredPreviewWidth: CGFloat {
         PaneViewMode.clampPreviewColumnWidth(dragPreviewWidth ?? CGFloat(storedPreviewWidth))
@@ -348,7 +348,7 @@ struct PaneColumnsView: View {
     @ViewBuilder
     private func columnStack(paneWidth: CGFloat) -> some View {
         let previewTarget = previewItem
-        let ruleColumnWidth = previewRuleColumnWidth(paneWidth: paneWidth)
+        let ruleColumnWidth = previewRuleColumnWidth
         let showsPreview = PaneViewMode.showsPreviewColumn(
             paneWidth: paneWidth, columnWidth: ruleColumnWidth,
             isEnabled: previewEnabled.wrappedValue, hasPreviewTarget: previewTarget != nil)
@@ -423,15 +423,15 @@ struct PaneColumnsView: View {
         // Push mode shows only the deepest column; the rest of the stack is still in `browsePath`,
         // which is what lets `‹` walk back out and `›` walk back in.
         let visible = usesPush ? Array(directories.suffix(1)) : directories
-        // A single column spans whatever area it has — the whole pane at rest, and the pane minus
-        // the preview once one is showing. This is the resting state that makes Columns safe to
-        // default to, and what push mode renders at every depth.
+        // Only push mode spans its area: it shows one column at every depth, so there is nothing
+        // for that column to be sized against, and it carries no divider.
         //
-        // It deliberately does NOT step back to its own width when a preview appears: that left a
-        // narrow column with a band of dead space beside it. A column that fills its area needs no
-        // resizing, which is why a lone column carries no divider — every column of a stack does,
-        // the deepest included.
-        let spansStack = visible.count == 1
+        // A stack showing ONE column — the root, with nothing opened yet — is a stack like any
+        // other: the column at its own width, a divider to size it, and dead space after it, as in
+        // Finder. Until 2026-10-02 it spanned the whole pane until a folder was opened, then snapped
+        // back to its width the moment one was, so the first click resized the column under the
+        // pointer.
+        let spansStack = usesPush
         // A stack of columns keeps a strip clear after its last one, OUTSIDE the scroll view — see
         // `PaneViewMode.columnStackTrailingGutter` for why it cannot be inside.
         let gutter = spansStack ? 0 : PaneViewMode.columnStackTrailingGutter
@@ -441,10 +441,13 @@ struct PaneColumnsView: View {
         // by its trailing edge — its icons and the start of every name cut off on the other side.
         let widths = visible.indices.map { offset in
             spansStack ? stackWidth
-                : min(columnWidth(atDepth: usesPush ? browsePath.depth : offset), viewportWidth)
+                : min(columnWidth(atDepth: offset), viewportWidth)
         }
-        let fillerWidth = PaneViewMode.trailingFillerWidth(paneWidth: viewportWidth, columnWidths: widths,
-                                                           isSingleColumn: spansStack)
+        let fillerWidth = PaneViewMode.trailingFillerWidth(paneWidth: viewportWidth, columnWidths: widths)
+        // The empty area past the columns answers a right-click as the deepest column's own empty
+        // area does. At rest that area is most of the pane, and it used to be the lone column's.
+        let menuDirectory = visible.last
+        let previewSupported = previewSupportable(paneWidth: paneWidth)
 
         HStack(spacing: 0) {
         ScrollViewReader { proxy in
@@ -452,8 +455,7 @@ struct PaneColumnsView: View {
                 HStack(spacing: 0) {
                     ForEach(Array(visible.enumerated()), id: \.element) { offset, directory in
                         let depth = usesPush ? browsePath.depth : offset
-                        column(directory: directory, depth: depth,
-                               previewSupported: previewSupportable(paneWidth: paneWidth))
+                        column(directory: directory, depth: depth, previewSupported: previewSupported)
                             .frame(width: widths[offset])
                             .id(directory)
                             .overlay(alignment: .trailing) {
@@ -468,7 +470,8 @@ struct PaneColumnsView: View {
                             }
                     }
                     if fillerWidth > 0 {
-                        deselectCatcher(width: fillerWidth, place: "past last column")
+                        deselectCatcher(width: fillerWidth, place: "past last column",
+                                        menuDirectory: menuDirectory, previewSupported: previewSupported)
                     }
                 }
                 // Inside the ScrollView, so the ancestor walk resolves the STACK's scroll view
@@ -476,7 +479,7 @@ struct PaneColumnsView: View {
                 .background(PaneColumnsOverscrollReturn(holdGate: holdGate))
                 // Same placement, same reason: the offset this remembers is the STACK's.
                 .background(stackScrollMemoryProbe(
-                    contentWidth: spansStack ? stackWidth : widths.reduce(0, +) + fillerWidth))
+                    contentWidth: widths.reduce(0, +) + fillerWidth))
             }
             .scrollDisabled(spansStack)
             // Keep the deepest column in view as you drill, like Finder.
@@ -621,7 +624,8 @@ struct PaneColumnsView: View {
         }
         .frame(width: viewportWidth)
         if gutter > 0 {
-            deselectCatcher(width: gutter, place: "in the gutter")
+            deselectCatcher(width: gutter, place: "in the gutter",
+                            menuDirectory: menuDirectory, previewSupported: previewSupported)
         }
         }
     }
@@ -845,7 +849,7 @@ struct PaneColumnsView: View {
     /// currently on screen would be unreachable exactly when you wanted to switch it back on.
     private func previewSupportable(paneWidth: CGFloat) -> Bool {
         PaneViewMode.showsPreviewColumn(paneWidth: paneWidth,
-                                        columnWidth: previewRuleColumnWidth(paneWidth: paneWidth),
+                                        columnWidth: previewRuleColumnWidth,
                                         isEnabled: true, hasPreviewTarget: true)
     }
 
@@ -861,7 +865,12 @@ struct PaneColumnsView: View {
     /// The filler's width is zero whenever the stack overflows, so it cannot pad the scroll content
     /// — see `PaneViewMode.trailingFillerWidth`. The gutter sits outside the scroll view for the same
     /// reason.
-    private func deselectCatcher(width: CGFloat, place: String) -> some View {
+    ///
+    /// A right-click here opens `menuDirectory`'s empty-area menu — the deepest column's, the folder
+    /// the pane is showing. A resting pane is one column and this area, so without it most of the
+    /// pane would have no menu at all.
+    private func deselectCatcher(width: CGFloat, place: String, menuDirectory: String?,
+                                 previewSupported: Bool) -> some View {
         Color.clear
             .frame(width: width)
             .contentShape(Rectangle())
@@ -871,6 +880,11 @@ struct PaneColumnsView: View {
                 guard PaneViewMode.clickNavigates(modifiers: clickModifiers) else { return }
                 Logger.shared.debug("[deselect] \(isLeft ? "left" : "right") \(place)")
                 onBackgroundDeselect(nil)
+            }
+            .contextMenu {
+                if let menuDirectory {
+                    emptyAreaMenu(directory: menuDirectory, previewSupported: previewSupported)
+                }
             }
     }
 
@@ -1040,33 +1054,38 @@ struct PaneColumnsView: View {
                 .allowsHitTesting(false)
             }
         }
-        .contextMenu {
-            SharedFileMenuItems.refresh(delegate: delegate)
-            Divider()
-            SharedFileMenuItems.newFolder(at: directory, delegate: delegate)
-            // The column's own directory, so "New Tab" from the third column opens a tab THERE
-            // rather than at whatever the pane's scope happens to be.
-            SharedFileMenuItems.tabActions(at: directory, delegate: delegate)
-            SharedFileMenuItems.pasteHere(clipboardHasItems: delegate.clipboardHasItems) {
-                delegate.handlePasteToPath(directory)
-            }
-            Divider()
-            SharedFileMenuItems.getInfo(for: directory, delegate: delegate)
-            // The pane's view options live where Finder keeps its own — the empty-area menu of the
-            // very columns they restack. Deliberately NOT in `FileContextMenu`: that menu is built
-            // per row, so anything in it exists once per visible file.
-            Divider()
-            if previewSupported {
-                Toggle(isOn: previewEnabled) {
-                    Label("Show Preview", systemImage: "sidebar.right")
-                }
-            }
-            Button(action: resetColumnWidths) {
-                Label("Reset Column Widths", systemImage: "arrow.left.and.right")
-            }
-            .disabled(columnWidthsAreDefault)
+        .contextMenu { emptyAreaMenu(directory: directory, previewSupported: previewSupported) }
         }
+    }
+
+    /// The empty-area menu for `directory` — a column's, and the dead space past the columns'
+    /// (`deselectCatcher`), which answers for the deepest one.
+    @ViewBuilder
+    private func emptyAreaMenu(directory: String, previewSupported: Bool) -> some View {
+        SharedFileMenuItems.refresh(delegate: delegate)
+        Divider()
+        SharedFileMenuItems.newFolder(at: directory, delegate: delegate)
+        // The column's own directory, so "New Tab" from the third column opens a tab THERE
+        // rather than at whatever the pane's scope happens to be.
+        SharedFileMenuItems.tabActions(at: directory, delegate: delegate)
+        SharedFileMenuItems.pasteHere(clipboardHasItems: delegate.clipboardHasItems) {
+            delegate.handlePasteToPath(directory)
         }
+        Divider()
+        SharedFileMenuItems.getInfo(for: directory, delegate: delegate)
+        // The pane's view options live where Finder keeps its own — the empty-area menu of the
+        // very columns they restack. Deliberately NOT in `FileContextMenu`: that menu is built
+        // per row, so anything in it exists once per visible file.
+        Divider()
+        if previewSupported {
+            Toggle(isOn: previewEnabled) {
+                Label("Show Preview", systemImage: "sidebar.right")
+            }
+        }
+        Button(action: resetColumnWidths) {
+            Label("Reset Column Widths", systemImage: "arrow.left.and.right")
+        }
+        .disabled(columnWidthsAreDefault)
     }
 
     /// Scrolls this column to the hit the search walked to, when the hit is one of its rows.

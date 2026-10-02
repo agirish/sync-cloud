@@ -212,39 +212,38 @@ import SwiftUI
     /// condition those fixes — and their mounted test — depend on.
     @Test func testAnOverflowingStackGetsNoFiller() {
         let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: 500, columnWidths: Array(repeating: 210, count: 3), isSingleColumn: false)
+            paneWidth: 500, columnWidths: Array(repeating: 210, count: 3))
         #expect(width == 0)
     }
 
     /// Exactly-full is the boundary of the same rule, and the one an off-by-one would land on.
     @Test func testAnExactlyFullStackGetsNoFiller() {
         let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: 630, columnWidths: Array(repeating: 210, count: 3), isSingleColumn: false)
+            paneWidth: 630, columnWidths: Array(repeating: 210, count: 3))
         #expect(width == 0)
     }
 
     /// Under-filled: the filler takes the slack that already existed and nothing more.
     @Test func testAnUnderFilledStackFillsTheRemainder() {
         let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: 900, columnWidths: Array(repeating: 210, count: 2), isSingleColumn: false)
+            paneWidth: 900, columnWidths: Array(repeating: 210, count: 2))
         #expect(width == 480)
     }
 
-    /// A resting pane frames its one column to the full pane width, so there is no slack to fill —
-    /// asking `paneWidth - columnWidth` here would wrongly claim most of the pane.
-    @Test func testASingleColumnGetsNoFiller() {
+    /// A resting pane's one column keeps its own width, so the slack after it — most of the pane —
+    /// is the filler's. It used to span the pane and get none.
+    @Test func testARestingColumnLeavesTheRestToTheFiller() {
         let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: 900, columnWidths: Array(repeating: 210, count: 1), isSingleColumn: true)
-        #expect(width == 0)
+            paneWidth: 900, columnWidths: Array(repeating: 210, count: 1))
+        #expect(width == 690)
     }
 
-    /// Push mode renders exactly one column at any depth, and it spans the pane — same rule,
-    /// reached by the other door.
+    /// Push mode renders exactly one column at any depth, framed to the whole viewport, so there is
+    /// no slack to fill — the general rule, with no case of its own.
     @Test func testPushModeGetsNoFiller() {
         let paneWidth = PaneViewMode.pushNavigationBelowWidth - 1
         #expect(PaneViewMode.usesPushNavigation(paneWidth: paneWidth))
-        let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: paneWidth, columnWidths: Array(repeating: 210, count: 1), isSingleColumn: true)
+        let width = PaneViewMode.trailingFillerWidth(paneWidth: paneWidth, columnWidths: [paneWidth])
         #expect(width == 0)
     }
 
@@ -421,9 +420,9 @@ import SwiftUI
     /// filler simply takes whatever slack the columns leave inside their own area.
     @Test func testTheFillerTakesTheSlackInsideTheColumnsOwnArea() {
         #expect(PaneViewMode.trailingFillerWidth(
-            paneWidth: 690, columnWidths: Array(repeating: 210, count: 1), isSingleColumn: false) == 480)
+            paneWidth: 690, columnWidths: Array(repeating: 210, count: 1)) == 480)
         #expect(PaneViewMode.trailingFillerWidth(
-            paneWidth: 690, columnWidths: Array(repeating: 210, count: 4), isSingleColumn: false) == 0)
+            paneWidth: 690, columnWidths: Array(repeating: 210, count: 4)) == 0)
     }
 
     @Test func testEveryModeHasDistinctChrome() {
