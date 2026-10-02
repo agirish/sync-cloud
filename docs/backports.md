@@ -6206,3 +6206,37 @@ the line after step 3's code — step 4's heading — reads differently there. I
 tooling row usually does: a session loads the skill from its own worktree, so a release cut on a
 maintenance line — whose step 6 runs this skill — still quits other sessions' builds. Nothing
 user-facing.
+
+## The document survey and Restructure act only on the profile's recorded folder (after P70) — main only
+
+P70 made Refresh survey the profile's recorded folder and refuse a profile that records none. Two
+other passes that act under the profile still took their folder from somewhere else:
+
+- **The first document survey** (Organize's card, and setup's "read documents") walked Organize's
+  scope, or else the focused pane's current folder, and wrote the corpus and memory keyed by paths
+  relative to it under the active profile. A reading started while the pane sat on another source
+  spent hours on that tree, and the next Refresh read nearly all of it as gone; one started inside
+  a subfolder keyed every document a level off until a Refresh re-keyed what it could match by
+  size and date. It now walks the profile's recorded folder whatever it is asked about, the plan
+  carries that folder to the run, and setup starts a reading only when the profile it wrote is in
+  use.
+- **Restructure's landings** (scaffold, apply, "make the survey catch up", ledger undo) asked
+  `filingFolderProfile?.root == nil`, which only a missing profile answers, so a hand-built profile
+  without `root` acted under `~`, and the re-derive wrote `"~"` into the profile it produced. All
+  four now refuse a profile with no absolute recorded root, as Refresh does.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s planSurvey=%s landingGuard=%s setupReads=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+DocumentSurvey.swift 2>/dev/null | grep -c 'public func planDocumentSurvey(root')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Restructure.swift 2>/dev/null | grep -c 'filingFolderProfile?.root == nil')" \
+    "$(git show origin/$l:MacApp/Setup/SetupModel.swift 2>/dev/null | grep -c 'if readDocuments { onStartSurvey(walk.root) }')"
+done
+# measured 2026-10-02, against origin, before this landed:
+# main planSurvey=1 landingGuard=1 setupReads=1 · v4.x planSurvey=0 landingGuard=0 setupReads=0
+# v3.x planSurvey=0 landingGuard=0 setupReads=0 · v2.x planSurvey=0 landingGuard=0 setupReads=0
+```
+
+**`v4.x`, `v3.x`, `v2.x`: checked, not owed — none applies.** No maintenance line has the document
+survey, Restructure, or setup's reading. `v4.x` does decode a missing `root` as `~`, but its one
+pass that acts under the profile is Refresh, recorded above (P70).

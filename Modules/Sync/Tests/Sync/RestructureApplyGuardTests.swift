@@ -556,4 +556,62 @@ import Testing
                 "the freshly activated profile must not be replaced")
         _ = activeAfterLanding
     }
+
+    // MARK: - A profile that does not say which folder it describes
+
+    /// **Every landing refuses a profile that records no folder, rather than acting under `~`.**
+    ///
+    /// A file without `root` decodes as `~`, and the guard asked `filingFolderProfile?.root ==
+    /// nil` — true only with no profile at all. So a hand-built profile without the field reached
+    /// every landing: the scaffold created folders under the home folder, a plan moved whatever
+    /// shared a name with the surveyed tree there (`~/Projects` is real on this Mac), "make the
+    /// survey catch up" walked the whole home folder with no size prompt, and the re-derive wrote
+    /// `"~"` into the profile it produced, which turned the guess into the record. A root that is
+    /// still relative once `~` is expanded resolves against the working directory, and is refused
+    /// the same way — as Refresh refuses both.
+    ///
+    /// Driven through all four landings, because a guard is one deleted call away from guarding
+    /// nothing. **The fixture keeps a regression off the real home folder:** there is no profiles
+    /// directory, so a landing that skipped the guard stops at its own "No folder survey is
+    /// loaded." before any walk or move — a different sentence, so it still goes red — and the
+    /// scaffold's subject is a folder no home holds, so its create-without-intermediates fails.
+    @Test(arguments: [#"{"profileId": "t", "folders": []}"#,
+                      #"{"profileId": "t", "root": "Documents", "folders": []}"#])
+    @MainActor func aProfileThatRecordsNoFolderRefusesEveryLanding(profileJSON: String) async throws {
+        let base = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let profiles = base.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles.appendingPathComponent("t"),
+                                                withIntermediateDirectories: true)
+        let profile = try JSONDecoder().decode(FolderProfile.self, from: Data(profileJSON.utf8))
+        let manager = FileSyncManager()
+        manager.filingFolderProfile = profile
+        manager.filingProfileDirectoryId = "t"
+        manager.restructureStore = RestructureStore(directory: profiles, profileId: "t")
+
+        let refusal = try #require(manager.restructureLandingRefusal(),
+                                   "a profile that names no folder was let through to the landings")
+        #expect(refusal.contains("does not say which folder it describes"),
+                "refused for another reason — the fixture tripped an earlier guard: \(refusal)")
+
+        let subject = "NoSuchFamily-\(UUID().uuidString)/2025"
+        let scaffold = await manager.applyScaffold(for: StructureFinding(
+            kind: .backlog, family: (subject as NSString).deletingLastPathComponent,
+            subject: subject, detail: .backlog(scaffold: ["Claims"], looseFiles: 1)))
+        #expect(scaffold.refusal == refusal)
+        #expect(scaffold.created.isEmpty && scaffold.skipped.isEmpty)
+
+        let plan = await manager.applyPlan(RestructureManifest(
+            profileId: "t", manifestId: "rootless-1", createdAt: "2026-10-02T12:00:00",
+            family: subject, kind: .shape,
+            actions: [.init(action: .createDir, dst: subject + "/Claims", evidence: "e")]))
+        #expect(plan.refusal == refusal)
+
+        #expect(await manager.refreshDerivedProfile().refusal == refusal)
+        #expect(await manager.undoReorganisation(manifestId: "rootless-1").refusal == refusal)
+
+        #expect(manager.restructureStore?.applied.isEmpty == true, "a landing recorded itself")
+        #expect(manager.filingFolderProfile == profile, "a landing replaced the profile")
+        #expect(manager.filingProfileDirectoryId == "t")
+    }
 }

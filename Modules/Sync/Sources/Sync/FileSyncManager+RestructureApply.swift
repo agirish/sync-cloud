@@ -173,6 +173,7 @@ extension FileSyncManager {
             restructureApplyProgress = nil
         }
         guard let store = restructureStore, let profile = filingFolderProfile,
+              let expandedRoot = profile.recordedFolderPath,
               let profilesDirectory = filingProfilesDirectory else {
             outcome.refusal = "No folder survey is loaded."
             return outcome
@@ -209,7 +210,6 @@ extension FileSyncManager {
         }
 
         // Step 3: the operations, re-probing every claim at the moment of the action.
-        let expandedRoot = (profile.root as NSString).expandingTildeInPath
         let fm = fileManager
         let actions = manifest.actions
         restructureApplyProgress = RestructureApplyProgress(
@@ -396,6 +396,8 @@ extension FileSyncManager {
         let registry = FilingProfileStore.personRegistry(id: oldDirectoryId, profile: profile,
                                                          in: profilesDirectory)
         let jurisdictions = RestructureRederive.entryJurisdictions(of: profile)
+        // As the file spells it, `~` and all — and never the `~` a file without one decodes to:
+        // every landing refuses that profile before it gets here (`restructureLandingRefusal`).
         let recordedRoot = profile.root
         // **`carryOver` rides along in the same detached hop.** It is a pure function over two
         // profiles — 3,013 entries rebuilt one struct at a time — and it was the one step between
@@ -597,6 +599,7 @@ extension FileSyncManager {
             restructureApplyProgress = nil
         }
         guard let store = restructureStore, let profile = filingFolderProfile,
+              let expandedRoot = profile.recordedFolderPath,
               let profilesDirectory = filingProfilesDirectory else {
             return .refused("No folder survey is loaded.")
         }
@@ -604,7 +607,6 @@ extension FileSyncManager {
         // Read BEFORE the walk replaces it — the whole point of the number is the comparison,
         // and after `rederiveProfile` succeeds `filingFolderProfile` is already the new one.
         let previousFolders = profile.folders.count
-        let expandedRoot = (profile.root as NSString).expandingTildeInPath
         // Moves nothing: the rename map is empty and the corpus replay is an identity, so what
         // is left is the fresh walk — which is the whole point.
         let identity = RestructureManifest(
@@ -648,7 +650,8 @@ extension FileSyncManager {
         }
         restructureLandingInProgress = true
         defer { restructureLandingInProgress = false }
-        guard let store = restructureStore, let profilesDirectory = filingProfilesDirectory else {
+        guard let store = restructureStore, let profilesDirectory = filingProfilesDirectory,
+              let expandedRoot = filingFolderProfile?.recordedFolderPath else {
             outcome.refusal = "No folder survey is loaded."
             return outcome
         }
@@ -709,7 +712,6 @@ extension FileSyncManager {
             return outcome
         }
 
-        let expandedRoot = ((filingFolderProfile?.root ?? "~") as NSString).expandingTildeInPath
         let fm = fileManager
         let actions = record.inverse.actions
         let execution: RestructureExecution = await enqueueFileOperation {

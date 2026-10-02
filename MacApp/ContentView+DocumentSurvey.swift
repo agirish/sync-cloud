@@ -33,10 +33,20 @@ struct DocumentSurveyPlanFacts: Equatable {
 
 extension ContentView {
 
-    /// The root a survey would cover: the scope when one is set, otherwise the lens's own root —
-    /// the same expression `buildStorageLensAction` uses, for the same reason. A survey aimed at
-    /// the pane root while a scope chip is up would read a tree the header says it is not showing.
-    var documentSurveyRoot: URL? {
+    /// The folder a survey covers: the profile's own, whatever the pane shows or Organize is scoped
+    /// to — nil when the profile records none, which the survey refuses.
+    ///
+    /// **The card's receipt, resume offer and count all describe this folder**, because it is the
+    /// only one a survey reads: what it learns is keyed by paths relative to the folder it walks,
+    /// and read back by the profile's. This used to be the scope, else the pane's current folder,
+    /// so a first reading set off with the pane on another source, or inside one subfolder, read
+    /// that instead and recorded it under the profile's name.
+    var documentSurveyRoot: URL? { syncManager.documentSurveyFolder }
+
+    /// Where a survey is asked from: the scope when one is set, otherwise the lens's own root —
+    /// the expression `buildStorageLensAction` uses. **It decides nothing about what is read**; the
+    /// plan walks ``documentSurveyRoot`` and names this in the log when it is somewhere else.
+    private var documentSurveyAskedFrom: URL? {
         let path = organizeScope?.path ?? lensScanRootExpanded
         return path.isEmpty ? nil : URL(fileURLWithPath: path)
     }
@@ -113,32 +123,33 @@ extension ContentView {
     /// uncounted offer promises.
     /// Starts the survey on a folder setup has just learned.
     ///
-    /// **It moves the Organize scope to that folder first**, and that is the point rather than a
-    /// side effect: the survey card and the lens strip both read the scope, so a survey started on
-    /// `~/Documents` while Organize was scoped somewhere else would run invisibly — the card would
-    /// go on offering a read that was already happening.
+    /// **It moves the Organize scope to that folder first**, so the lenses answer about the tree
+    /// setup just learned. The reading itself covers the profile's folder whatever the scope says,
+    /// and setup only calls this when the profile it wrote is the one in use — which makes that
+    /// folder this one.
     func startDocumentSurvey(learnedRoot: URL) {
         organizeScopePath = learnedRoot.path
         startDocumentSurveyAction()
     }
 
     func startDocumentSurveyAction() {
-        guard let root = documentSurveyRoot else { return }
+        // Asked even when the profile names no folder: the plan's refusal says why on the banner.
+        guard let asked = documentSurveyAskedFrom ?? documentSurveyRoot else { return }
         Task { @MainActor in
-            Logger.shared.info("Document survey: planning for \(root.path)")
-            switch await syncManager.planDocumentSurvey(root: root) {
+            switch await syncManager.planDocumentSurvey(root: asked) {
             case .failure(let refusal):
+                Logger.shared.info("Document survey: not started — \(refusal.sentence)")
                 syncManager.banner = .warning(refusal.sentence)
             case .success(let plan):
                 documentSurveyPlan = DocumentSurveyPlanFacts(
-                    rootPath: root.path, documents: plan.total,
+                    rootPath: plan.root.path, documents: plan.total,
                     unreadableTypes: plan.skippedUnreadableTypes)
                 guard plan.total > 0 else {
                     syncManager.banner = .success(
                         "Nothing to read — no document here is in a format this app can open.")
                     return
                 }
-                switch await syncManager.runDocumentSurvey(root: root, plan: plan) {
+                switch await syncManager.runDocumentSurvey(plan: plan) {
                 case .failure(let refusal): syncManager.banner = .warning(refusal.sentence)
                 case .success(let report):
                     syncManager.banner = report.isComplete ? .success(report.summary)

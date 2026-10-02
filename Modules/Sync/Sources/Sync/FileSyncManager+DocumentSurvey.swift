@@ -75,6 +75,11 @@ extension FileSyncManager {
         case noProfileDirectory
         case noExtractor
         case noProfile
+        /// The profile does not say which folder it describes — no `root`, or one that is not
+        /// absolute. **A survey has no other folder it may read:** what it learns is keyed by paths
+        /// relative to the folder it walks, so the pane's folder, the scope, or the `~` such a file
+        /// decodes to would each write a memory keyed to the wrong tree.
+        case noRecordedFolder
         /// The root could not be listed — permission, or briefly unreachable. **The walk reports
         /// that as an empty tree**, which is indistinguishable from a tree whose every document was
         /// deleted, so nothing may be inferred from it.
@@ -107,6 +112,10 @@ extension FileSyncManager {
             case .noProfileDirectory, .noProfile:
                 return "This Mac has no folder survey yet. Run setup's Folders step first."
             case .noExtractor: return "Nothing on this Mac can read document contents."
+            case .noRecordedFolder:
+                return "This Mac's folder survey does not say which folder it describes, so there "
+                    + "is no telling which documents to read. Nothing was surveyed — give "
+                    + "folder-profile.json an absolute “root” first."
             case .rootUnreadable:
                 return "That folder could not be read — permission denied, or it is not available "
                     + "right now. Nothing was surveyed."
@@ -132,6 +141,10 @@ extension FileSyncManager {
 
     /// The work a survey would do, worked out before anything is read.
     public struct DocumentSurveyPlan: Sendable, Equatable {
+        /// The folder this plan walked — the profile's own — and so the one its run reads from and
+        /// records against. **Carried rather than passed alongside**, so a run cannot be handed one
+        /// folder's plan and another folder to read it in.
+        public let root: URL
         public let paths: [String]
         /// **The whole walk, not just the documents.** An earlier draft carried only the document
         /// stamps and handed `buildMemory` an empty `folders` map — and that is not a cosmetic
@@ -158,21 +171,53 @@ extension FileSyncManager {
 
     // MARK: - Working out what to do
 
+    /// The folder a survey covers: the profile's own, `~` expanded — nil when the profile records
+    /// none, which the plan refuses.
+    ///
+    /// **What the plan walks, and what the card's receipt, resume offer and count describe** — one
+    /// expression for both, because the card matches a report's `rootPath` against it as a string.
+    public var documentSurveyFolder: URL? {
+        filingFolderProfile?.recordedFolderPath.map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
     /// Builds the plan, or says why there is nothing to plan.
+    ///
+    /// **It walks the folder the profile was built from, never the one it is asked about.** `root`
+    /// is where the request came from — Organize asks with its scope, or the pane's folder — and it
+    /// is named in the log when it is somewhere else. What a survey learns is keyed by paths
+    /// relative to the folder it walks and read back by the profile's folder paths, so a survey of
+    /// any other folder wrote a memory keyed to the wrong paths, under the profile's name. One of
+    /// another source lined up with nothing, and the next Refresh, which walks the profile's
+    /// folder, read nearly all of it as gone; one of a subfolder sat a level off until a Refresh
+    /// re-keyed what it could match by size and date.
     ///
     /// **Refuses where a corpus already covers the tree.** A survey that runs for three hours and
     /// is then refused at the store has wasted the three hours; and where a corpus exists, the
     /// incremental pass is both correct and a click. `FilingSurveyStore`'s own refusals stay as the
     /// backstop, which is what makes this check's absence a bug rather than a disaster.
-    public func planDocumentSurvey(root: URL) async -> Result<DocumentSurveyPlan, DocumentSurveyRefusal> {
+    public func planDocumentSurvey(root requested: URL) async -> Result<DocumentSurveyPlan, DocumentSurveyRefusal> {
         guard !filingSurveyLifecycle.isRunning else { return .failure(.alreadyRunning) }
         guard !restructureLandingInProgress else { return .failure(.landingInProgress) }
         guard let directory = filingProfilesDirectory else { return .failure(.noProfileDirectory) }
         guard filingSnippetExtractor != nil else { return .failure(.noExtractor) }
         guard let profileId = filingProfileDirectoryId
-                ?? filingMemory?.profileId ?? filingFolderProfile?.profileId else {
+                ?? filingMemory?.profileId ?? filingFolderProfile?.profileId,
+              let profile = filingFolderProfile else {
             return .failure(.noProfile)
         }
+        // **A profile that does not say which folder it describes is refused, not guessed at.** It
+        // decodes as `~`, and hours spent reading the whole home folder would write a memory keyed
+        // to the wrong tree — the harm Refresh refuses for the same profile.
+        guard let root = documentSurveyFolder else {
+            Logger.shared.warning("Document survey: the filing profile "
+                                  + "\(Self.missingFolderPhrase(profile)), so there is no telling "
+                                  + "which documents to read. Nothing was surveyed.")
+            return .failure(.noRecordedFolder)
+        }
+        let askedAboutIt = PathBoundary.normalizedRoot(requested.path) == PathBoundary.normalizedRoot(root.path)
+        Logger.shared.info("Document survey: planning for \(root.path), the folder this profile was "
+                           + "built from" + (askedAboutIt ? "" : " — not \(requested.path), which it "
+                                                           + "was asked about"))
 
         let existing: FilingCorpus?
         switch FilingSurveyStore.corpusRead(id: profileId, in: directory) {
@@ -224,7 +269,7 @@ extension FileSyncManager {
             !FilingSurvey.readableExtensions.contains(($0 as NSString).pathExtension.lowercased())
         }.count
 
-        return .success(DocumentSurveyPlan(paths: paths, tree: tree, salt: salt,
+        return .success(DocumentSurveyPlan(root: root, paths: paths, tree: tree, salt: salt,
                                            profileId: profileId,
                                            skippedUnreadableTypes: unreadableTypes))
     }
@@ -275,7 +320,8 @@ extension FileSyncManager {
 
     // MARK: - Running it
 
-    /// Reads the plan, then writes the corpus and memory **once**, at the end.
+    /// Reads the plan, then writes the corpus and memory **once**, at the end — in and for the
+    /// folder the plan walked, ``DocumentSurveyPlan/root``, which is the profile's own.
     ///
     /// ## Why the write is where it is
     ///
@@ -293,8 +339,9 @@ extension FileSyncManager {
     /// `FileManager`, `Date()` and defaults — deliberately so — which is what lets them run
     /// detached. Only the publication comes back.
     @discardableResult
-    public func runDocumentSurvey(root: URL, plan: DocumentSurveyPlan,
+    public func runDocumentSurvey(plan: DocumentSurveyPlan,
                                   now: Date = Date()) async -> Result<DocumentSurveyReport, DocumentSurveyRefusal> {
+        let root = plan.root
         guard !filingSurveyLifecycle.isRunning else { return .failure(.alreadyRunning) }
         guard let directory = filingProfilesDirectory else { return .failure(.noProfileDirectory) }
         guard let extractor = filingSnippetExtractor else { return .failure(.noExtractor) }

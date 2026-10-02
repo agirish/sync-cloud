@@ -19,11 +19,24 @@ public struct FolderProfile: Sendable, Equatable {
     public var root: String { recordedRoot ?? "~" }
     /// The tree as the file records it, and nil when it records none.
     ///
-    /// **`~` is the decoder's guess, not the profile's record**, and the re-survey must not act on
-    /// it: its corpus is keyed by paths relative to the profile's own folder, so surveying the
-    /// whole home folder instead would read every learned document as gone. It reads this and
-    /// refuses when it is nil (`resurveyFilingMemory`).
+    /// **`~` is the decoder's guess, not the profile's record**, and nothing that writes under the
+    /// profile may act on it: the corpus, the memory and the reorganisation ledger are all keyed by
+    /// paths relative to the profile's own folder, so acting on the whole home folder instead reads
+    /// every learned document as gone, or lands a reorganisation in the wrong tree. Those passes read
+    /// ``recordedFolderPath`` and refuse when it is nil.
     public let recordedRoot: String?
+
+    /// The folder the file records, with `~` expanded — or nil when it records none, or records one
+    /// that is still relative once expanded and would resolve against the working directory.
+    ///
+    /// **The one folder a pass that writes under this profile may act on, spelled once.** Refresh,
+    /// the document survey and every Restructure landing ask it, and refuse when it is nil rather
+    /// than falling back to ``root``'s `~`.
+    public var recordedFolderPath: String? {
+        guard let recordedRoot else { return nil }
+        let expanded = (recordedRoot as NSString).expandingTildeInPath
+        return expanded.hasPrefix("/") ? expanded : nil
+    }
     public let folders: [String: FolderProfileEntry]
     /// Values of the person axis, lowercased — `father`, `mother`, … plus the aliases the tree
     /// uses for the same people (`Family/Mom` is Immigration's `Granny`).

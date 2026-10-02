@@ -54,6 +54,14 @@ extension FileSyncManager {
         }
     }
 
+    /// Why a profile has no ``FolderProfile/recordedFolderPath``, as the middle of a log sentence:
+    /// it records no folder, or it records a relative one. Refresh and the document survey both
+    /// refuse such a profile, and say so in these words.
+    static func missingFolderPhrase(_ profile: FolderProfile?) -> String {
+        profile?.recordedRoot.map { "names “\($0)” as its folder, which is not an absolute path" }
+            ?? "does not record which folder it describes"
+    }
+
     /// Re-derives the filing memory, reading only what changed since the last survey.
     ///
     /// **It surveys the folder the profile was built from, never the one it is asked about.** `root`
@@ -126,17 +134,14 @@ extension FileSyncManager {
         // decodes as `~`, and surveying the whole home folder on that guess is the same harm. So is
         // a recorded root that is not absolute once `~` is expanded: it would resolve against the
         // process's working directory.
-        guard let recorded = filingFolderProfile?.recordedRoot,
-              (recorded as NSString).expandingTildeInPath.hasPrefix("/") else {
-            let record = filingFolderProfile?.recordedRoot
-                .map { "names “\($0)” as its folder, which is not an absolute path" }
-                ?? "does not record which folder it describes"
-            Logger.shared.warning("Refresh: the filing profile \(record), so there is no telling "
-                                  + "which tree its memory belongs to. Nothing was re-surveyed, and "
-                                  + "both files were left exactly as they are.")
+        guard let folder = filingFolderProfile?.recordedFolderPath else {
+            Logger.shared.warning("Refresh: the filing profile "
+                                  + "\(Self.missingFolderPhrase(filingFolderProfile)), so there is no "
+                                  + "telling which tree its memory belongs to. Nothing was "
+                                  + "re-surveyed, and both files were left exactly as they are.")
             return .none
         }
-        let root = URL(fileURLWithPath: (recorded as NSString).expandingTildeInPath, isDirectory: true)
+        let root = URL(fileURLWithPath: folder, isDirectory: true)
         // Spelling only, no disk: this runs on the main actor, and it decides a log line and whether
         // a handed-over walk is of this folder — a miss costs a walk, never a wrong answer.
         let askedAboutIt = PathBoundary.normalizedRoot(requested.path) == PathBoundary.normalizedRoot(root.path)

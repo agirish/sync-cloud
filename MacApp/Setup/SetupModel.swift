@@ -721,7 +721,10 @@ final class SetupModel: ObservableObject {
             onProfileWritten()
             applyDraftIfPossible()
             Logger.shared.info("Setup saved profile '\(report.profileId)' — \(report.summary)")
-            if readDocuments { onStartSurvey(walk.root) }
+            // **Only a profile in use is read.** A reading covers the profile this Mac uses, and
+            // beside a hand-built one the walk's is saved unused — the summary says so — so reading
+            // would spend hours on a folder this setup never pointed at.
+            if readDocuments, report.becameActive { onStartSurvey(walk.root) }
         case .failure(let failure):
             walkState = .failed(failure.description)
             Logger.shared.warning("Setup could not write its profile: \(failure.description)")

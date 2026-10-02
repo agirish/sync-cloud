@@ -88,8 +88,17 @@ extension FileSyncManager {
                 + "could not be kept. Fix the file first — the landing refuses rather than "
                 + "running unrecorded."
         }
-        if filingFolderProfile?.root == nil {
-            return "No folder survey is loaded."
+        guard let profile = filingFolderProfile else { return "No folder survey is loaded." }
+        // **A profile that does not say which folder it describes is refused, not guessed at.**
+        // This asked `root == nil`, which only a missing profile answers: a file without `root`
+        // decodes as `~`, so every landing acted under the home folder — the scaffold created
+        // folders there, a plan moved whatever shared a name with the surveyed tree, the re-derive
+        // walked all of `~` with no size prompt and wrote `"~"` into the profile it produced,
+        // turning the guess into the record. Refresh and the document survey refuse it too.
+        if profile.recordedFolderPath == nil {
+            return "The folder survey does not say which folder it describes, so there is no "
+                + "telling where this would land. Give folder-profile.json an absolute “root” — "
+                + "the landing refuses rather than guessing."
         }
         return nil
     }
@@ -101,7 +110,8 @@ extension FileSyncManager {
         }
         restructureLandingInProgress = true
         defer { restructureLandingInProgress = false }
-        guard let store = restructureStore, let root = filingFolderProfile?.root else {
+        guard let store = restructureStore,
+              let expandedRoot = filingFolderProfile?.recordedFolderPath else {
             return ScaffoldOutcome(refusal: "No folder survey is loaded.")
         }
         let stamp = FilingProfileStore.stamp(now)
@@ -133,7 +143,6 @@ extension FileSyncManager {
                 + "created — a scaffold only runs once its record is safely on disk.")
         }
 
-        let expandedRoot = (root as NSString).expandingTildeInPath
         let fm = fileManager
         let targets = manifest.actions.compactMap(\.dst)
         let outcome: ScaffoldOutcome = await enqueueFileOperation {

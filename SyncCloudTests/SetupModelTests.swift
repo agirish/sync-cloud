@@ -243,4 +243,55 @@ import Testing
         #expect(!model.isSaving, "the flag was not cleared, so the button would stay dead")
         #expect(model.writtenReport != nil)
     }
+
+    /// Saves a walk into a fresh profiles folder — holding a hand-built profile first, when asked
+    /// to — and answers which folders the reading was started on.
+    private func save(besideAHandBuiltProfile: Bool) async throws -> (model: SetupModel, started: [URL], walk: SetupWalk) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-read-\(UUID().uuidString)")
+        let profiles = root.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        if besideAHandBuiltProfile {
+            _ = try FilingProfileStore.writeProfile(
+                FolderProfile(profileId: "hand", root: "/Volumes/Archive/Docs",
+                              folders: ["Finance": FolderProfileEntry(
+                                path: "Finance", role: nil, naming: nil, anchors: [],
+                                acceptsNewFiles: nil, fileCount: 1, subfolderCount: 0, axes: [:])],
+                              personTokens: []),
+                in: profiles, builtBy: "hand — setup-read fixture")
+        }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = profiles
+        let walk = Self.walk(folders: ["Finance/US", "Family/Mother"])
+        var started: [URL] = []
+        let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
+                               hasFilingProfile: besideAHandBuiltProfile,
+                               defaults: ScratchDefaults("setup-model-d"), walk: walk,
+                               onStartSurvey: { started.append($0) })
+        #expect(model.readDocuments, "premise: reading the documents was asked for")
+        await model.save()
+        #expect(model.writtenReport != nil, "premise: the walk's profile was written")
+        return (model, started, walk)
+    }
+
+    /// **Setup reads the documents of the profile it wrote — so not when that profile is unused.**
+    ///
+    /// Beside a hand-built profile the walk's is saved and left unused, and the summary says so.
+    /// The reading went ahead anyway, and a reading covers the profile in use: hours spent on a
+    /// folder this run of setup never pointed at, or a refusal saying those documents had been
+    /// read already — neither of them what "Save and start reading" offered.
+    @Test func aWalkThatIsNotInUseStartsNoReading() async throws {
+        let (model, started, _) = try await save(besideAHandBuiltProfile: true)
+        #expect(model.walkNotInUse, "premise: the hand-built profile stayed in use")
+        #expect(started.isEmpty, "started reading \(started) for a profile this Mac does not use")
+    }
+
+    /// And the case it exists for: a walk that became the profile in use starts the reading, on
+    /// the folder it learned.
+    @Test func aWalkThatIsInUseStartsTheReadingOnItsFolder() async throws {
+        let (model, started, walk) = try await save(besideAHandBuiltProfile: false)
+        #expect(!model.walkNotInUse)
+        #expect(started == [walk.root])
+    }
 }
