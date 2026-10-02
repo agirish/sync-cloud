@@ -134,8 +134,8 @@ extension FileSyncManager {
             // hit, or a slice of the cached root tree (deep by construction, so drill-down and
             // breadcrumb navigation are instant). File operations, sort changes, and force
             // refresh clear the cache, so this never serves stale post-operation state.
-            let cached = prefetchedTrees[focusPath]
-                ?? Self.subtree(atPath: focusPath, in: prefetchedTrees[rootURL.path])
+            let direct = prefetchedTrees[focusPath]
+            let cached = direct ?? Self.subtree(atPath: focusPath, in: prefetchedTrees[rootURL.path])
             if let cached {
                 // A slice inherits the root walk's stopped provenance: the budget stopped
                 // SOMEWHERE, and this subtree may hold some of what went unwalked. Inheriting
@@ -153,11 +153,19 @@ extension FileSyncManager {
                 if prefetchedTreeReadAt[focusPath] == nil {
                     prefetchedTreeReadAt[focusPath] = prefetchedTreeReadAt[rootURL.path]
                 }
+                // And the folder links the root's walk followed — a slice's own walk was the root's.
+                // Liberally, like the stopped bit: the record does not say where in the tree each
+                // link sits, so a slice holding none of them inherits them all, which costs a drop
+                // nobody needed and never a stale tree. A direct hit carries its own record.
+                if direct == nil {
+                    prefetchedTreeLinkTargets[focusPath] = prefetchedTreeLinkTargets[rootURL.path]
+                }
                 // A cache entry with no stamp predates this bookkeeping (or was written by a test);
                 // `Date()` is then the only answer available, and it is the one the pane had before
                 // any of this existed.
                 self.adoptRawTree(cached, isLeft: isLeft, focusPath: focusPath,
-                                  readAt: prefetchedTreeReadAt[focusPath] ?? Date())
+                                  readAt: prefetchedTreeReadAt[focusPath] ?? Date(),
+                                  linkTargets: prefetchedTreeLinkTargets[focusPath] ?? [])
                 await self.applyFilters()
                 outcome = "served \(Self.countItems(in: cached)) nodes from cache"
                 // The spinner (set by a slow load this one just cancelled) is released by the
@@ -188,15 +196,17 @@ extension FileSyncManager {
             let lastFocus = isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath
             if currentTree.isEmpty || lastFocus != focusPath {
                 let shallowStart = Elapsed()
+                let shallowLinks = FollowedLinks()
                 let shallowTree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm, maxDepth: 1,
-                                                       linkedFolders: links)
+                                                       linkedFolders: links, followedLinks: shallowLinks)
                 let shallowWalk = shallowStart.text
                 guard !Task.isCancelled else {
                     outcome = "superseded during the shallow walk (walk \(shallowWalk))"
                     return
                 }
                 let shallowPublishStart = CFAbsoluteTimeGetCurrent()
-                self.adoptRawTree(shallowTree, isLeft: isLeft, focusPath: focusPath)
+                self.adoptRawTree(shallowTree, isLeft: isLeft, focusPath: focusPath,
+                                  linkTargets: shallowLinks.targets)
                 await self.applyFilters()
                 // The shallow pass is a SEPARATE cost from the deep one, not a prefix of it —
                 // it is its own `buildTree` over the same directory — so it gets its own line
@@ -214,8 +224,12 @@ extension FileSyncManager {
             // tree publishing `.complete` with no banner.
             let paneBudget = NodeBudget(Self.paneNodeBudget,
                                         note: "Scan: this folder is larger than a pane walks in one pass — the rest is shown as unexplored, not empty, and columns load it when you open them")
+            // Held for the same reason as the budget: the folder links the walk followed are the
+            // tree's provenance too, and the next write there must find this entry (`FollowedLinks`).
+            let followedLinks = FollowedLinks()
             let tree = await Self.buildTree(
-                url: focusURL, sortOption: sortOp, fileManager: fm, budget: paneBudget, linkedFolders: links)
+                url: focusURL, sortOption: sortOp, fileManager: fm, budget: paneBudget, linkedFolders: links,
+                followedLinks: followedLinks)
             let deepWalk = deepStart.text
 
             guard !Task.isCancelled else {
@@ -226,7 +240,8 @@ extension FileSyncManager {
             let publishStart = CFAbsoluteTimeGetCurrent()
             let published = await self.adoptFreshDeepTree(tree, builtWith: sortOp, isLeft: isLeft, focusPath: focusPath,
                                                           loadToken: loadToken, configToken: configToken,
-                                                          walkStopped: paneBudget.didStopADescent)
+                                                          walkStopped: paneBudget.didStopADescent,
+                                                          linkTargets: followedLinks.targets)
             // `adoptFreshDeepTree` can bail without publishing (cancelled during its off-actor
             // re-sort), which the old "Tree Loaded. Count:" line reported as a completion
             // regardless — it ran unconditionally on the line after. Distinguish them.
@@ -265,8 +280,12 @@ extension FileSyncManager {
     /// - Parameter walkStopped: whether `paneNodeBudget` stopped the walk that built `tree` — the
     ///   cached tree's provenance, recorded beside the cache entry so a later warm scan can say
     ///   its coverage is partial. Defaults to false for the tests that adopt hand-built trees.
+    /// - Parameter linkTargets: where that walk read through a folder link (`FollowedLinks`) —
+    ///   provenance too, published with the pane and recorded beside the entry. Empty by default,
+    ///   for the same tests.
     func adoptFreshDeepTree(_ tree: [FileNode], builtWith sortOp: SortOption, isLeft: Bool, focusPath: String,
-                            loadToken: Int, configToken: Int, walkStopped: Bool = false) async -> Bool {
+                            loadToken: Int, configToken: Int, walkStopped: Bool = false,
+                            linkTargets: Set<String> = []) async -> Bool {
         var tree = tree
         let liveSort = sortOption
         if liveSort != sortOp {
@@ -276,7 +295,7 @@ extension FileSyncManager {
             }.value
             guard !Task.isCancelled else { return false }
         }
-        adoptRawTree(tree, isLeft: isLeft, focusPath: focusPath)
+        adoptRawTree(tree, isLeft: isLeft, focusPath: focusPath, linkTargets: linkTargets)
         // The option can move AGAIN while the re-sort/publish above runs, and this adopt's
         // generation bump discards any resort that change scheduled — re-sort once more in
         // memory (generation-guarded, so it in turn yields to anything fresher).
@@ -325,6 +344,8 @@ extension FileSyncManager {
             } else {
                 prefetchedTreeWalkStopped.remove(focusPath)
             }
+            // Both directions here too: a re-walk that no longer meets a link retires the record.
+            prefetchedTreeLinkTargets[focusPath] = linkTargets.isEmpty ? nil : linkTargets
         }
         return true
     }
@@ -353,8 +374,11 @@ extension FileSyncManager {
     ///   right for every path that has just walked something; the cache fast path passes the
     ///   walk's own stamp instead, because a served tree is as old as the walk that built it and
     ///   Browse's freshness segment would otherwise announce a re-read that never happened.
+    /// - Parameter linkTargets: where the walk behind `tree` read through a folder link — see
+    ///   `leftTreeLinkTargets`. Empty by default, which is right for a hand-built tree; every load
+    ///   passes its walk's own, a cache hit the entry's.
     func adoptRawTree(_ tree: [FileNode], isLeft: Bool, focusPath: String,
-                      readAt: Date = Date()) {
+                      readAt: Date = Date(), linkTargets: Set<String> = []) {
         // An unreadable-root walk comes back as the root itself marked unexplored (see
         // `buildTree`), so the cache and the diff know the contents are UNKNOWN rather than
         // empty. The pane must not render the focused folder nested inside itself, though —
@@ -368,10 +392,12 @@ extension FileSyncManager {
             rawLeftTree = tree
             lastLoadedLeftFocusPath = focusPath
             leftTreeReadAt = readAt
+            leftTreeLinkTargets = linkTargets
         } else {
             rawRightTree = tree
             lastLoadedRightFocusPath = focusPath
             rightTreeReadAt = readAt
+            rightTreeLinkTargets = linkTargets
         }
     }
 
@@ -1131,7 +1157,10 @@ extension FileSyncManager {
     /// - Parameter linkedFolders: the folders macOS links into a root from outside it, listed as
     ///   the real folders they point at — see `PathBoundary.LinkedFolders`. The machine's own
     ///   table by default; a fixture passes its own.
-    nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil, budget: NodeBudget? = nil, linkedFolders: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) async -> [FileNode] {
+    /// - Parameter followedLinks: where to record the folder symlinks this walk lists outside its
+    ///   root — see `FollowedLinks`. A pane load and a column's graft pass one, because the cache
+    ///   entry and the pane carry the answer; every other walk passes none and pays nothing for it.
+    nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil, budget: NodeBudget? = nil, linkedFolders: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders, followedLinks: FollowedLinks? = nil) async -> [FileNode] {
         let buildTask = Task.detached(priority: .userInitiated) {
             struct TreeBuilder: Sendable {
                 let fileManager: FileManaging
@@ -1192,9 +1221,26 @@ extension FileSyncManager {
                 /// once per walk from the root, is the whole rule.
                 let coveredTargets: Set<String>
 
+                /// `nil` for every walk nobody asked; see `buildTree(url:…followedLinks:)`.
+                let followedLinks: FileSyncManager.FollowedLinks?
+                /// The root in both of its spellings — as handed over, and as
+                /// `resolvingSymlinksInPath` spells it. A followed link whose target lies under
+                /// either is one this walk already lists under its root, and is not recorded.
+                /// Empty when there is no `followedLinks`, so a walk nobody asked resolves nothing.
+                let rootSpellings: [String]
+                /// Where the root itself resolves, when that is somewhere else — a pane on a link,
+                /// or focused below one, whose listing reads that folder from its first level down.
+                /// `nil` when the root resolves to itself.
+                ///
+                /// **`/private` is not a link.** The resolver takes it off a temp root's spelling
+                /// with no link involved (`/private/var/…` → `/var/…`), so that alias alone is not
+                /// recorded: it would name the root, which a write under it matches already.
+                let rootLinkTarget: String?
+
                 init(fileManager: FileManaging, sortOption: SortOption, maxDepth: Int?,
                      budget: FileSyncManager.NodeBudget?,
                      linkedFolders: PathBoundary.LinkedFolders,
+                     followedLinks: FileSyncManager.FollowedLinks?,
                      root: URL) {
                     self.fileManager = fileManager
                     self.sortOption = sortOption
@@ -1206,6 +1252,16 @@ extension FileSyncManager {
                         linkedFolders.values.flatMap(\.values)
                             .map(PathBoundary.normalizedRoot)
                             .filter { PathBoundary.contains($0, under: rootPath) })
+                    self.followedLinks = followedLinks
+                    if followedLinks != nil {
+                        let resolved = URL(fileURLWithPath: rootPath).resolvingSymlinksInPath().path
+                        self.rootSpellings = resolved == rootPath ? [rootPath] : [rootPath, resolved]
+                        let isTheRoot = resolved == rootPath || "/private" + resolved == rootPath
+                        self.rootLinkTarget = isTheRoot ? nil : resolved
+                    } else {
+                        self.rootSpellings = []
+                        self.rootLinkTarget = nil
+                    }
                     let includeTags = sortOption == .tags
                     self.includeTags = includeTags
                     var keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey, .typeIdentifierKey]
@@ -1292,6 +1348,21 @@ extension FileSyncManager {
                     // spellings differ for exactly the paths tests use. The inode branch above has
                     // no such hazard, which is why only it is allowed to skip.
                     return .path(dirURL.resolvingSymlinksInPath().standardizedFileURL.path)
+                }
+
+                /// Records a folder symlink this walk is about to list, unless its root already
+                /// covers where it leads. Called only for a directory whose LAST component is a
+                /// link (`ItemStat.isSymlink`), and only once its listing has succeeded — a link the
+                /// depth cap, the cycle guard or the budget stopped at lists nothing of its
+                /// target's, so no write there can make this tree stale. Nested links are each
+                /// recorded where the walk meets them; a link the table substitutes never reaches
+                /// here, because the walk lists its real folder instead (`childURLs`).
+                func noteFollowedLink(_ dirURL: URL) {
+                    guard let followedLinks else { return }
+                    let target = dirURL.resolvingSymlinksInPath().path
+                    guard !rootSpellings.contains(where: { PathBoundary.lexicalRelativize(target, under: $0) != nil })
+                    else { return }
+                    followedLinks.note(target)
                 }
 
                 /// Immediate children of a directory. For the real filesystem this batch-prefetches
@@ -1502,6 +1573,7 @@ extension FileSyncManager {
                         unreadableLog.note(fullURL.path)
                         return cappedNode(fullURL, s)
                     }
+                    if s.isSymlink { noteFollowedLink(fullURL) }
                     budget?.charge(listing.urls.count)
                     var children = await walkChildren(listing.urls, depth: depth + 1, fanLevel: fanLevel, visited: branchVisited)
                     children = FileSyncManager.sortLevel(nodes: children, by: sortOption)
@@ -1601,7 +1673,7 @@ extension FileSyncManager {
             }
 
             let builder = TreeBuilder(fileManager: fm, sortOption: sortOption, maxDepth: maxDepth, budget: budget,
-                                      linkedFolders: linkedFolders, root: url)
+                                      linkedFolders: linkedFolders, followedLinks: followedLinks, root: url)
             // Batch logging to avoid MainActor overhead in recursion
             // (Removed per-node logging)
 
@@ -1620,6 +1692,8 @@ extension FileSyncManager {
                 let s = builder.stat(at: url) ?? TreeBuilder.ItemStat(isDirectory: true)
                 return [builder.cappedNode(url, s)]
             }
+            // A root reached through a link lists where it leads, from its first level down.
+            if let target = builder.rootLinkTarget { builder.followedLinks?.note(target) }
             // Seed the walk root's identity so a symlink pointing back at the root is
             // recognized as a cycle immediately.
             let visited: Set<TreeBuilder.DirectoryIdentity> = [builder.directoryIdentity(of: url)]

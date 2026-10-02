@@ -76,6 +76,9 @@ import Sync
         #expect(holding.unlabeled == ["path"] && holding.passes("leftFolder", "currentLeftPath")
                 && holding.passes("rightFolder", "currentRightPath"),
                 "the reload is not scoped to the pane that shows the file")
+        #expect(holding.passes("leftLinkTargets", "syncManager.leftTreeLinkTargets")
+                && holding.passes("rightLinkTargets", "syncManager.rightTreeLinkTargets"),
+                "the rule is not told where the panes' walks followed a folder link — a file there re-reads neither")
         for gone in ["prepareForcedRescan()", "refreshSubject.send(.both)"] {
             #expect(!body.contains(gone), "the re-read is a whole-cache, two-pane one again: \(gone)")
         }
@@ -84,10 +87,14 @@ import Sync
     /// Which panes are re-read: each whose folder holds the file, deep — and neither for a file
     /// saved outside both (an export to Downloads). The iCloud container's pane holds a file in
     /// `~/Documents` through its link, and so does a pane above the container (synthetic tables).
+    /// A pane whose walk followed a folder link holds a file where the link leads — its walk's own
+    /// record, since no prefix of the pane's folder names it.
     @Test func onlyThePanesThatHoldTheFileAreReRead() {
         func scope(_ path: String, left: String = "/a/Finance", right: String = "/b",
+                   leftTargets: Set<String> = [], rightTargets: Set<String> = [],
                    links: PathBoundary.LinkedFolders = [:]) -> FileSyncManager.PaneReloadScope? {
-            ContentView.panesHolding(path, leftFolder: left, rightFolder: right, links: links)
+            ContentView.panesHolding(path, leftFolder: left, rightFolder: right,
+                                     leftLinkTargets: leftTargets, rightLinkTargets: rightTargets, links: links)
         }
         #expect(scope("/a/Finance/Test.md") == .leftOnly)
         #expect(scope("/a/Finance/IN/Test.md") == .leftOnly, "a file below the pane's folder is listed by its deep walk")
@@ -101,6 +108,48 @@ import Sync
         let below: PathBoundary.LinkedFolders = ["/lib/Mobile/c": ["Documents": "/h/Documents"]]
         #expect(scope("/h/Documents/Finance/Test.md", left: "/lib", links: below) == .leftOnly,
                 "a pane whose walk reaches the folder through a link below its root was not re-read")
+        #expect(scope("/t/sub/Test.md", leftTargets: ["/t"]) == .leftOnly,
+                "a pane whose walk followed a folder link to the file's folder was not re-read")
+        #expect(scope("/t/sub/Test.md", rightTargets: ["/t"]) == .rightOnly)
+        #expect(scope("/t/sub/Test.md") == nil, "with no walk's record, a file outside both panes re-read one")
+    }
+
+    /// **The record the rule reads is the one the walk wrote.** A real pane on `R`, holding
+    /// `link → T` with `T` outside it: a file written where the link leads, spelled as the pane's
+    /// rows name it, is in that pane — and was in neither before the walk recorded its links.
+    @MainActor
+    @Test func aPaneWhoseWalkFollowedAFolderLinkHoldsAFileWhereItLeads() async throws {
+        let fm = FileManager.default
+        let raw = fm.temporaryDirectory.appendingPathComponent("synccloud-panes-holding-link-\(UUID().uuidString)")
+        try fm.createDirectory(at: raw, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: raw) }
+        let base = URL(fileURLWithPath: try raw.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath ?? raw.path)
+        let r = base.appendingPathComponent("R"), t = base.appendingPathComponent("T")
+        let other = base.appendingPathComponent("other")
+        try fm.createDirectory(at: t.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: r, withIntermediateDirectories: true)
+        try fm.createDirectory(at: other, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: t.appendingPathComponent("sub/x.txt"))
+        try fm.createSymbolicLink(at: r.appendingPathComponent("link"), withDestinationURL: t)
+
+        let m = FileSyncManager()
+        await m.refreshTreesAndScan(
+            left: CloudProvider(id: "L", displayName: "L", imageName: "folder", rootPath: r.path, type: .localFolder),
+            right: CloudProvider(id: "R", displayName: "R", imageName: "folder", rootPath: other.path, type: .localFolder),
+            comparing: false)
+        let row = try #require(m.leftNodes(for: [t.appendingPathComponent("sub/x.txt").path]).first,
+                               "premise: the pane does not list the file below the link under its resolved spelling")
+        let written = ((row.id as NSString).deletingLastPathComponent as NSString).appendingPathComponent("new.md")
+        // Written before the rule is asked, as every caller asks — after the write. The order is
+        // not a nicety here: the resolver takes `/private` off a temp path only when the path
+        // exists, so asked about a file that is not there yet, the spelling never meets the record.
+        try Data().write(to: URL(fileURLWithPath: written))
+        try #require(ContentView.panesHolding(written, leftFolder: r.path, rightFolder: other.path, links: [:]) == nil,
+                     "premise: the pane's folder alone holds the file — nothing below is measured")
+        #expect(ContentView.panesHolding(written, leftFolder: r.path, rightFolder: other.path,
+                                         leftLinkTargets: m.leftTreeLinkTargets,
+                                         rightLinkTargets: m.rightTreeLinkTargets, links: [:]) == .leftOnly,
+                "the pane that lists the folder through its link was not found to hold the file")
     }
 
     /// **Export as PDF adds a file to the folder too**, and refreshed only the rail for the same

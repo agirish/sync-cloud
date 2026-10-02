@@ -332,12 +332,15 @@ extension FileSyncManager {
             // a walk of somewhere else. Nil is the state a pane that has never loaded is in, which
             // is what this pane now is.
             leftTreeReadAt = nil
+            // Its links went with it: a pane holding no walk reaches nothing.
+            leftTreeLinkTargets = []
         } else {
             rawRightTree = []
             if !rightTree.isEmpty { rightTree = [] }
             if rightItemCount != 0 { rightItemCount = 0 }
             lastLoadedRightFocusPath = nil
             rightTreeReadAt = nil
+            rightTreeLinkTargets = []
         }
     }
 
@@ -730,6 +733,9 @@ extension FileSyncManager {
         swap(&leftTree, &rightTree)
         swap(&leftItemCount, &rightItemCount)
         swap(&lastLoadedLeftFocusPath, &lastLoadedRightFocusPath)
+        // The walk's provenance travels with the walk: "which pane holds this file" must name the
+        // pane the tree is on now.
+        swap(&leftTreeLinkTargets, &rightTreeLinkTargets)
         swap(&isLoadingLeftTree, &isLoadingRightTree)
 
         // Remap rather than clear: the scan results stay valid after a swap (same folders,

@@ -859,7 +859,9 @@ extension ContentView {
     /// the next comparing refresh: a pane moved to that folder later reads the file as written.
     func noteEditorWrote(_ path: String?) {
         guard let path, !path.isEmpty else { return }
-        guard owedComparison.recordWrite(path, leftFolder: currentLeftPath, rightFolder: currentRightPath) else {
+        guard owedComparison.recordWrite(path, leftFolder: currentLeftPath, rightFolder: currentRightPath,
+                                         leftLinkTargets: syncManager.leftTreeLinkTargets,
+                                         rightLinkTargets: syncManager.rightTreeLinkTargets) else {
             syncManager.prepareReread(afterWritingAt: path)
             return
         }
@@ -986,8 +988,9 @@ extension ContentView {
     /// Compare instead (`noteEditorWrote`).
     func rereadPanesAfterEditorWrite(_ path: String) {
         syncManager.prepareReread(afterWritingAt: path)
-        guard let scope = Self.panesHolding(path, leftFolder: currentLeftPath,
-                                            rightFolder: currentRightPath) else {
+        guard let scope = Self.panesHolding(path, leftFolder: currentLeftPath, rightFolder: currentRightPath,
+                                            leftLinkTargets: syncManager.leftTreeLinkTargets,
+                                            rightLinkTargets: syncManager.rightTreeLinkTargets) else {
             Logger.shared.info("Edit wrote \(path), which neither pane is showing; re-reading neither")
             return
         }
@@ -1004,11 +1007,17 @@ extension ContentView {
 
     /// Which panes a file written at `path` belongs in — each pane whose folder holds it (its
     /// walk is deep, so a file anywhere below the folder is listed) — or `nil` for neither.
+    ///
+    /// `leftLinkTargets` / `rightLinkTargets` are where each pane's walk read through a folder
+    /// symlink (`FileSyncManager.leftTreeLinkTargets`): a file opened from a row below such a link
+    /// is saved where it leads, under no prefix of the pane's folder, and only the walk knows it
+    /// went there. Empty by default for the rule's own tests; the app passes the panes' records.
     static func panesHolding(_ path: String, leftFolder: String, rightFolder: String,
+                             leftLinkTargets: Set<String> = [], rightLinkTargets: Set<String> = [],
                              links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
     -> FileSyncManager.PaneReloadScope? {
-        switch (FileSyncManager.folder(leftFolder, holds: path, links: links),
-                FileSyncManager.folder(rightFolder, holds: path, links: links)) {
+        switch (FileSyncManager.folder(leftFolder, holds: path, links: links, linkTargets: leftLinkTargets),
+                FileSyncManager.folder(rightFolder, holds: path, links: links, linkTargets: rightLinkTargets)) {
         case (true, true): return .both
         case (true, false): return .leftOnly
         case (false, true): return .rightOnly

@@ -272,4 +272,161 @@ import Foundation
         #expect(!FileSyncManager.folder("/u/Library", holds: file, links: [:]),
                 "with no table, a folder held a file outside it")
     }
+
+    // MARK: - A folder symlink the table does not name
+
+    /// `R` holds `link → T`, `T` outside it, and `other` reaches nothing of `T`'s. `T/sub` holds a
+    /// file, so the walk of `R` lists it two levels below the link, where its id comes back
+    /// resolved: `T/sub/x.txt`, not `R/link/sub/x.txt`.
+    private static func makeFolderLinkFixture() throws -> (base: URL, r: URL, t: URL, other: URL) {
+        let fm = FileManager.default
+        let base = try makeCanonicalTempRoot(prefix: "synccloud-out-of-queue-folder-link")
+        let r = base.appendingPathComponent("R", isDirectory: true)
+        let t = base.appendingPathComponent("T", isDirectory: true)
+        let other = base.appendingPathComponent("other", isDirectory: true)
+        try fm.createDirectory(at: r.appendingPathComponent("plain"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: t.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: other, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: t.appendingPathComponent("sub/x.txt"))
+        try Data().write(to: other.appendingPathComponent("o.md"))
+        try fm.createSymbolicLink(at: r.appendingPathComponent("link"), withDestinationURL: t)
+        return (base, r, t, other)
+    }
+
+    /// The left pane on `R`, the right on `other`, both walked and cached — no comparison, as the
+    /// re-read after a write outside Compare runs. The table is empty: the link is an ordinary one.
+    /// `leftRoot` is `R` as the pane is handed it — the fixture's canonical spelling by default.
+    @MainActor
+    private static func loadFolderLinkPanes(_ f: (base: URL, r: URL, t: URL, other: URL), leftRoot: String? = nil)
+        async throws -> (m: FileSyncManager, left: CloudProvider, right: CloudProvider, x: FileNode) {
+        let m = FileSyncManager()
+        m.linkedFolders = [:]
+        let leftRoot = leftRoot ?? f.r.path
+        let left = CloudProvider(id: "L", displayName: "L", imageName: "folder", rootPath: leftRoot, type: .localFolder)
+        let right = CloudProvider(id: "R", displayName: "R", imageName: "folder", rootPath: f.other.path,
+                                  type: .localFolder)
+        await m.refreshTreesAndScan(left: left, right: right, comparing: false)
+        let walk = try #require(m.prefetchedTrees[leftRoot],
+                                "premise: R's walk is not cached: \(m.prefetchedTrees.keys.sorted())")
+        let x = try #require(Self.node(named: "x.txt", in: walk), "premise: R's walk does not reach through the link")
+        try #require(!x.id.hasPrefix(leftRoot + "/"),
+                     "premise: the id kept the link's spelling, so a prefix of R already holds it — nothing below is measured: \(x.id)")
+        try #require(m.prefetchedTrees[f.other.path] != nil,
+                     "premise: the control's walk is not cached — its survival below would prove nothing")
+        return (m, left, right, x)
+    }
+
+    private static func node(named name: String, in nodes: [FileNode]) -> FileNode? {
+        for node in nodes {
+            if node.name == name { return node }
+            if let hit = Self.node(named: name, in: node.children ?? []) { return hit }
+        }
+        return nil
+    }
+
+    /// **A walk that followed a folder link is dropped by a new file where the link leads.** A
+    /// pane row's id names `T`, so a document opened from one and a file saved beside it do too,
+    /// and no prefix of `R` matches either. Measured before this was fixed: the walk survived the
+    /// write and the re-read pane was served the tree from before it. The control is the other
+    /// pane's walk, which reaches nothing of `T`'s and stays.
+    ///
+    /// Twice: with `R` handed over canonically (`/private/var/…`), and spelled `/var/…`, the way
+    /// `NSTemporaryDirectory()` spells it. The walk's ids come back `/private/var/…` either way, and
+    /// the record is spelled `/var/…`; the write has to meet the record whichever spelling the
+    /// pane's root was given in.
+    @MainActor
+    @Test(arguments: [false, true])
+    func aWalkThatFollowedAFolderLinkIsDroppedByANewFileWhereItLeads(varSpelledRoot: Bool) async throws {
+        let f = try Self.makeFolderLinkFixture()
+        defer { try? FileManager.default.removeItem(at: f.base) }
+        let leftRoot = varSpelledRoot ? String(f.r.path.dropFirst("/private".count)) : f.r.path
+        try #require(!varSpelledRoot || (f.r.path.hasPrefix("/private/var/") && FileManager.default.fileExists(atPath: leftRoot)),
+                     "premise: the temp root is not under /private/var — the /var spelling is not another spelling of it")
+        let (m, left, right, x) = try await Self.loadFolderLinkPanes(f, leftRoot: leftRoot)
+        let created = ((x.id as NSString).deletingLastPathComponent as NSString).appendingPathComponent("new.txt")
+        try Data().write(to: URL(fileURLWithPath: created))
+
+        // Control: unprepared, the one-pane re-read is served the cached walk.
+        await m.refreshTreesAndScan(left: left, right: right, reloading: .leftOnly, comparing: false)
+        #expect(m.leftNodes(for: [created]).isEmpty,
+                "an unprepared re-read listed the file — the cache this test is about did not serve it")
+
+        m.prepareReread(afterWritingAt: created)
+        #expect(m.prefetchedTrees[leftRoot] == nil,
+                "the walk that followed the link survived — it serves the tree from before the write")
+        #expect(m.prefetchedTreeReadAt[leftRoot] == nil && m.prefetchedTreeLinkTargets[leftRoot] == nil,
+                "the dropped walk's provenance survived it")
+        #expect(m.prefetchedTrees[f.other.path] != nil, "the other pane's walk was dropped — it reaches nothing written")
+
+        await m.refreshTreesAndScan(left: left, right: right, reloading: .leftOnly, comparing: false)
+        let node = try #require(m.leftNodes(for: [created]).first,
+                                "the re-read pane does not list the file written where the link leads")
+        #expect(node.id == created)
+    }
+
+    /// **…and by a rewrite of a file it lists there** — an autosave of a document opened from one
+    /// of those rows, which saves under the row's id. The walk carries the old size, and the re-read
+    /// pane, or a warm Compare, would go on showing it.
+    @MainActor
+    @Test func aWalkThatFollowedAFolderLinkIsDroppedByARewriteWhereItLeads() async throws {
+        let f = try Self.makeFolderLinkFixture()
+        defer { try? FileManager.default.removeItem(at: f.base) }
+        let (m, left, right, x) = try await Self.loadFolderLinkPanes(f)
+        try #require(x.fileSize == 1, "premise: the walk does not carry the file's size")
+        try Data("xxxxxxxxxx".utf8).write(to: URL(fileURLWithPath: x.id))
+
+        // Control: unprepared, the re-read is served the walk that carries the old size.
+        await m.refreshTreesAndScan(left: left, right: right, reloading: .leftOnly, comparing: false)
+        #expect(m.leftNodes(for: [x.id]).first?.fileSize == 1,
+                "an unprepared re-read saw the rewrite — the cache this test is about did not serve it")
+
+        m.prepareReread(afterWritingAt: x.id)
+        #expect(m.prefetchedTrees[f.r.path] == nil,
+                "the walk that followed the link survived the rewrite — it carries the size from before it")
+        #expect(m.prefetchedTrees[f.other.path] != nil, "the other pane's walk was dropped — it reaches nothing written")
+
+        await m.refreshTreesAndScan(left: left, right: right, reloading: .leftOnly, comparing: false)
+        #expect(m.leftNodes(for: [x.id]).first?.fileSize == 10,
+                "the re-read pane still shows the size from before the rewrite")
+    }
+
+    /// **What a walk followed is all it is dropped for.** A write in the other pane's folder drops
+    /// that walk and keeps `R`'s, whose recorded targets name `T` alone — so the record cannot have
+    /// grown into "every folder outside the root".
+    @MainActor
+    @Test func aWalkThatFollowedAFolderLinkKeepsThroughAWriteElsewhere() async throws {
+        let f = try Self.makeFolderLinkFixture()
+        defer { try? FileManager.default.removeItem(at: f.base) }
+        let (m, _, _, _) = try await Self.loadFolderLinkPanes(f)
+        let elsewhere = f.other.appendingPathComponent("p.md")
+        try Data().write(to: elsewhere)
+        m.prepareReread(afterWritingAt: elsewhere.path)
+        #expect(m.prefetchedTrees[f.other.path] == nil, "the walk of the folder written in survived — the control is broken")
+        #expect(m.prefetchedTrees[f.r.path] != nil, "R's walk was dropped by a write it does not reach")
+        #expect(m.prefetchedTreeLinkTargets[f.r.path] != nil, "the kept walk lost its record of the link")
+    }
+
+    /// **The rule on paths: a folder holds what its walk followed a link to** — at a recorded
+    /// target and below it, and not in a sibling sharing a target's opening. With nothing recorded
+    /// the same folder holds nothing outside it, which is the answer the rule must differ from; an
+    /// unset pane holds nothing whatever is passed. The two mechanisms compose: a link to a folder
+    /// above iCloud Drive's container leads on to what the container links in. Synthetic paths;
+    /// nothing is read from disk.
+    @Test func aFolderHoldsWhatItsWalkFollowedALinkTo() {
+        let file = "/t/sub/x.md"
+        #expect(FileSyncManager.folder("/r", holds: file, links: [:], linkTargets: ["/t"]))
+        #expect(FileSyncManager.folder("/r", holds: "/t", links: [:], linkTargets: ["/t"]),
+                "the target's own top level — the folder a file written there is in")
+        #expect(!FileSyncManager.folder("/r", holds: file, links: [:]),
+                "with nothing recorded, a folder held a file outside it")
+        #expect(!FileSyncManager.folder("/r", holds: "/t2/x.md", links: [:], linkTargets: ["/t"]),
+                "a sibling sharing the target's opening was held")
+        #expect(!FileSyncManager.folder("", holds: file, links: [:], linkTargets: ["/t"]),
+                "an unset pane held a file through a walk it does not have")
+        #expect(FileSyncManager.folder("/r", holds: "/r/link/sub/x.md", links: [:]),
+                "the link's own spelling is a plain prefix — held before any of this")
+        let table: PathBoundary.LinkedFolders = ["/lib/Mobile/c": ["Documents": "/h/Documents"]]
+        #expect(FileSyncManager.folder("/r", holds: "/h/Documents/x.md", links: table, linkTargets: ["/lib"]),
+                "a link to a folder above the container did not lead on to what the container links in")
+    }
 }

@@ -60,6 +60,17 @@ import Sync
                 == .reread(.leftOnly, because: "the editor wrote /home/Documents/Tax/notes.md since the last comparison"))
     }
 
+    /// **And a folder symlink a pane's walk followed**: a document opened from a row below the link
+    /// is saved where it leads, under no prefix of the pane's folder. The walk's record finds it;
+    /// without the record, the same write is owed nothing.
+    @Test func aWriteWhereAPanesWalkFollowedAFolderLinkIsFound() {
+        let write = Self.written(["/t/sub/notes.md"])
+        #expect(write.payment(leftFolder: "/c", rightFolder: "/d", rightLinkTargets: ["/t"], links: [:])
+                == .reread(.rightOnly, because: "the editor wrote /t/sub/notes.md since the last comparison"))
+        #expect(write.payment(leftFolder: "/c", rightFolder: "/d", links: [:]) == nil,
+                "a write outside both folders was paid with no walk's record to place it")
+    }
+
     /// Several writes name the first in path order, so the log line does not depend on set order;
     /// one outside both folders is neither named nor read.
     @Test func theFirstWriteInPathOrderIsNamed() {
@@ -116,6 +127,11 @@ import Sync
                                                 links: links)
         #expect(throughTheLink && linked.unreadWrites == ["/home/Documents/Tax/notes.md"],
                 "a write in the folder the root links in was not recorded")
+        var followed = Owed()
+        let whereTheWalkFollowed = followed.recordWrite("/t/sub/notes.md", leftFolder: "/c", rightFolder: "/d",
+                                                        leftLinkTargets: ["/t"], links: [:])
+        #expect(whereTheWalkFollowed && followed.unreadWrites == ["/t/sub/notes.md"],
+                "a write where the left pane's walk followed a folder link was not recorded")
     }
 
     // MARK: What feeds it
@@ -140,9 +156,15 @@ import Sync
                 "the flush on the way to another document is not recorded — or is recorded when it wrote nothing")
         let noted = try EditorNewFilePaneWiringTests.body(of: "func noteEditorWrote(_ path: String?) {",
                                                           in: "ContentView+Editor.swift")
-        let record = try #require(
-            noted.range(of: "guard owedComparison.recordWrite(path, leftFolder: currentLeftPath, rightFolder: currentRightPath) else {"),
-            "a write is not recorded against the folders the panes are on — or not recorded at all")
+        let record = try #require(noted.range(of: "guard owedComparison.recordWrite("),
+                                  "a write is not recorded at all")
+        let recorded = try CallArguments(of: "owedComparison.recordWrite(", in: noted.normalized)
+        #expect(recorded.unlabeled == ["path"] && recorded.passes("leftFolder", "currentLeftPath")
+                && recorded.passes("rightFolder", "currentRightPath"),
+                "a write is not recorded against the folders the panes are on")
+        #expect(recorded.passes("leftLinkTargets", "syncManager.leftTreeLinkTargets")
+                && recorded.passes("rightLinkTargets", "syncManager.rightTreeLinkTargets"),
+                "a write is recorded without the panes' walks' folder links — one saved where a link leads is owed nothing")
         let drop = try #require(noted.range(of: "syncManager.prepareReread(afterWritingAt: path)\n            return"),
                                 "a write outside the compared folders leaves its cached walks stale — a pane moved there later reads the pre-write walk")
         let pay = try #require(noted.range(of: "if selectedWorkspace == .compare { payOwedComparisonIfNeeded() }"),
@@ -208,8 +230,12 @@ import Sync
     /// one line saying why.
     @Test func thePaymentAsksTheRuleAndSaysWhy() throws {
         let body = try EditorNewFilePaneWiringTests.body(of: "func payOwedComparisonIfNeeded() {", in: "ContentView.swift")
-        for piece in ["owedComparison.payment(leftFolder: currentLeftPath,",
-                      "rightFolder: currentRightPath) else { return }",
+        let asked = try CallArguments(of: "owedComparison.payment(", in: body.normalized)
+        #expect(asked.passes("leftFolder", "currentLeftPath") && asked.passes("rightFolder", "currentRightPath")
+                && asked.passes("leftLinkTargets", "syncManager.leftTreeLinkTargets")
+                && asked.passes("rightLinkTargets", "syncManager.rightTreeLinkTargets"),
+                "the payment does not ask the rule about the folders the panes are on and the links their walks followed")
+        for piece in ["guard let payment = owedComparison.payment(",
                       "guard refreshAction(reloading: scope) else { return }",
                       "await syncManager.scanDirectories(left: leftProvider, leftPath: currentLeftPath,",
                       "Logger.shared.info(\"Compare rescans: \\(payment.because)\")"] {

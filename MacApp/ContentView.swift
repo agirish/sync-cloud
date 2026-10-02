@@ -2131,12 +2131,14 @@ struct ContentView: View {
         var unreadWrites: Set<String> = []
 
         /// Records a file the editor wrote over — **only when it is under either compared
-        /// folder** (`ContentView.panesHolding`, links included), since nothing else can change
-        /// what Compare shows. Returns whether it was recorded; a caller told `false` owns the
-        /// write's stale cached walks itself.
+        /// folder** (`ContentView.panesHolding`, links included, and the folder links the panes'
+        /// walks followed), since nothing else can change what Compare shows. Returns whether it
+        /// was recorded; a caller told `false` owns the write's stale cached walks itself.
         mutating func recordWrite(_ path: String, leftFolder: String, rightFolder: String,
+                                  leftLinkTargets: Set<String> = [], rightLinkTargets: Set<String> = [],
                                   links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> Bool {
             guard ContentView.panesHolding(path, leftFolder: leftFolder, rightFolder: rightFolder,
+                                           leftLinkTargets: leftLinkTargets, rightLinkTargets: rightLinkTargets,
                                            links: links) != nil else { return false }
             unreadWrites.insert(path)
             return true
@@ -2168,15 +2170,17 @@ struct ContentView: View {
         /// or only writes outside both compared folders (a pane moved off them since the write
         /// was recorded). Each pane is re-read when it holds any
         /// written file (`ContentView.panesHolding`, which knows iCloud Drive's linked
-        /// `Documents`); the first such file in path order is the one named, so the line does not
-        /// depend on set order.
+        /// `Documents`, and the folder links the panes' walks followed); the first such file in
+        /// path order is the one named, so the line does not depend on set order.
         func payment(leftFolder: String, rightFolder: String,
+                     leftLinkTargets: Set<String> = [], rightLinkTargets: Set<String> = [],
                      links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> Payment? {
             var scope: FileSyncManager.PaneReloadScope?
             var named: String?
             for path in unreadWrites.sorted() {
-                guard let held = ContentView.panesHolding(path, leftFolder: leftFolder,
-                                                          rightFolder: rightFolder, links: links)
+                guard let held = ContentView.panesHolding(path, leftFolder: leftFolder, rightFolder: rightFolder,
+                                                          leftLinkTargets: leftLinkTargets,
+                                                          rightLinkTargets: rightLinkTargets, links: links)
                 else { continue }
                 named = named ?? path
                 scope = scope.map { $0 == held ? $0 : .both } ?? held
@@ -2199,8 +2203,10 @@ struct ContentView: View {
     /// Nothing is cleared until the providers resolve — during bootstrap they may not yet, and a
     /// debt dropped there would leave Compare on stale rows for the session.
     func payOwedComparisonIfNeeded() {
-        guard let payment = owedComparison.payment(leftFolder: currentLeftPath,
-                                                   rightFolder: currentRightPath) else { return }
+        guard let payment = owedComparison.payment(leftFolder: currentLeftPath, rightFolder: currentRightPath,
+                                                   leftLinkTargets: syncManager.leftTreeLinkTargets,
+                                                   rightLinkTargets: syncManager.rightTreeLinkTargets)
+        else { return }
         switch payment {
         case .reread(let scope, _):
             guard refreshAction(reloading: scope) else { return }

@@ -6308,3 +6308,35 @@ done
 
 **`v4.x`, `v3.x`, `v2.x`: checked, not owed — none applies.** No maintenance line has the targeted
 drop or the link table: their file operations empty the whole cache, and no walk substitutes a link.
+
+## A write where a folder symlink leads drops the walks that followed it — main only
+
+Closes the residual the section above records. `prepareReread(afterWritingAt:)` drops the cached
+walks that list the written folder, and an ordinary folder symlink was one way to list a folder
+without the walk's key or the link table saying so: a walk of `R` holding `R/link → T`, `T` outside
+`R`, lists `T`'s contents spelled `T/…` from two levels below the link, so a pane row, a document
+opened from it and a file saved beside it all name `T`. The walk survived a new file and a rewrite
+there, the pane was not re-read, and Compare was not owed the write. The walk now records the
+resolved targets of the folder links it lists outside its root (`FileSyncManager.FollowedLinks`);
+each cache entry keeps them (`prefetchedTreeLinkTargets`) and each pane its own walk's
+(`leftTreeLinkTargets`, `rightTreeLinkTargets`), and `folder(_:holds:links:linkTargets:)` reads
+them for the drop, `ContentView.panesHolding` and `OwedComparison` alike.
+
+Not covered, and documented at `folder(_:holds:links:linkTargets:)`: a FILE symlink, both ways. A
+walk listing `R/f.txt → T/f.txt` survives a rewrite spelled `T/f.txt`, and a walk of `T` survives one
+spelled through the link (measured).
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s dropHolding=%s linkTargets=%s perKeyDrop=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift | grep -c 'func dropPrefetchedTrees(holding')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift | grep -c 'prefetchedTreeLinkTargets')" \
+    "$(git grep -cE 'prefetchedTrees\[[^]]+\] = nil' origin/$l -- Modules/Sync/Sources | awk -F: '{s+=$NF} END {print s+0}')"
+done
+# measured 2026-10-02, against origin, before this landed:
+# main dropHolding=1 linkTargets=0 perKeyDrop=1 · v4.x dropHolding=0 linkTargets=0 perKeyDrop=0
+# v3.x dropHolding=0 linkTargets=0 perKeyDrop=0 · v2.x dropHolding=0 linkTargets=0 perKeyDrop=0
+```
+
+**`v4.x`, `v3.x`, `v2.x`: checked, not owed — none applies.** No maintenance line drops a single
+cache entry: every invalidation there empties the whole cache, which a folder link cannot defeat.

@@ -134,9 +134,13 @@ extension FileSyncManager {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.columnGraftsInFlight.remove(key) }
+            // The one listing can go through a link — the folder opened may be one the walk left
+            // unread, or lie below one — so it records what it followed, for the tree it joins.
+            let followedLinks = FollowedLinks()
             var children = await Self.buildTree(url: URL(fileURLWithPath: path),
                                                 sortOption: builtWith,
-                                                fileManager: self.fileManager, maxDepth: 1)
+                                                fileManager: self.fileManager, maxDepth: 1,
+                                                followedLinks: followedLinks)
             guard !Task.isCancelled else { return }
             // **The panes swapped while this ran.** `swapPanes` has already cleared the in-flight
             // set, so the `defer` above removes nothing; what this stops is the graft itself, which
@@ -174,6 +178,12 @@ extension FileSyncManager {
             guard let grafted = Self.grafting(children: children, atPath: path, into: current) else { return }
             self.rawTreeGeneration += 1
             if isLeft { self.rawLeftTree = grafted } else { self.rawRightTree = grafted }
+            // **And what the listing followed joins the walk's record**, for the pane and the entry
+            // below alike: a link the budget left unread is listed here for the first time, and a
+            // write where it leads must find the tree that now lists it. A target the walk's root
+            // already covers is redundant in the record, never wrong.
+            let followed = followedLinks.targets
+            if isLeft { self.leftTreeLinkTargets.formUnion(followed) } else { self.rightTreeLinkTargets.formUnion(followed) }
             // **The cache gets it too, or the graft is undone by the next navigation.**
             // `loadTree`'s fast path serves `prefetchedTrees[focusPath]` without touching disk, so
             // leaving the ungrafted tree there means walking away and back restores the blank
@@ -183,6 +193,7 @@ extension FileSyncManager {
             if let focus = isLeft ? self.lastLoadedLeftFocusPath : self.lastLoadedRightFocusPath,
                self.prefetchedTrees[focus] != nil {
                 self.prefetchedTrees[focus] = grafted
+                if !followed.isEmpty { self.prefetchedTreeLinkTargets[focus, default: []].formUnion(followed) }
             }
             await self.applyFilters()
             Logger.shared.debug("[graft] \(isLeft ? "left" : "right") filled \(children.count) entries at “\(path)”")
