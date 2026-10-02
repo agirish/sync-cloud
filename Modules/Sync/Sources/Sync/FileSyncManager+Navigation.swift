@@ -308,6 +308,53 @@ extension FileSyncManager {
         isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath
     }
 
+    /// Where a folder this pane lists sits below its source's root — the relative path a focus on
+    /// it takes — or nil when the pane does not hold it.
+    ///
+    /// **The id when it is spelled under the root, the tree's shape when it is not.** The walk
+    /// names most nodes by their parent's id plus their name, and three things break that, each of
+    /// which left "Compare only this folder" refusing a folder the pane was showing (measured
+    /// 2026-10-02): two levels below a folder symlink, where `contentsOfDirectory(at:)` answers
+    /// where the link leads (`R/link → T` lists `R/link/sub`, then `T/sub/deeper`); everywhere
+    /// under a root spelled through a link (a `/var/…` root lists `/private/var/…`); and iCloud
+    /// Drive's linked folders under a root above its container, listed as `~/Documents`. There the
+    /// names down the tree — each the last component of a node's id, as `FileDiffEngine.filesInfo`
+    /// keys a warm Compare — go onto the relative path of the folder the tree was walked at, and
+    /// `focusURL` joins them back to the same folder, through the link.
+    ///
+    /// **The id first**, because a folder can be in the tree twice and a node does not say which
+    /// row was clicked: Home holds `~/Dropbox` and the folder it links to, and below the link both
+    /// routes carry one id. Where the id is spelled under the root it names the real route, whose
+    /// walk keeps its ids' spelling, and it is what this answered before; the names would take
+    /// whichever route sorts first.
+    ///
+    /// **The raw tree, with `paneTreeFolder`**, because `adoptRawTree` writes the two together and
+    /// the published tree trails them by a filter pass: names read off the previous walk's rows
+    /// would go onto the new walk's folder.
+    public func paneRelativePath(of node: FileNode, isLeft: Bool, root: String) -> String? {
+        if let relative = PathBoundary.relativize(node.id, under: root, links: linkedFolders) {
+            return relative
+        }
+        guard let folder = paneTreeFolder(isLeft: isLeft),
+              let base = PathBoundary.relativize(folder, under: root, links: linkedFolders),
+              let names = Self.names(downTo: node.id, in: isLeft ? rawLeftTree : rawRightTree)
+        else { return nil }
+        return PathBoundary.joinRelative(base, names.joined(separator: "/"))
+    }
+
+    /// The names down `tree` to the node whose id is `id`, outermost first — each the last
+    /// component of a node's id — or nil when no node has it. A whole-tree search: below a link an
+    /// id says nothing about which branch holds it.
+    nonisolated static func names(downTo id: String, in tree: [FileNode]) -> [String]? {
+        for node in tree {
+            if node.id == id { return [(node.id as NSString).lastPathComponent] }
+            if let children = node.children, let below = names(downTo: id, in: children) {
+                return [(node.id as NSString).lastPathComponent] + below
+            }
+        }
+        return nil
+    }
+
     /// Drops **one** pane's tree, so it reloads while the other keeps what it is showing.
     ///
     /// `invalidateComparisonState` is symmetric because a comparison is symmetric — the differences

@@ -6340,3 +6340,44 @@ done
 
 **`v4.x`, `v3.x`, `v2.x`: checked, not owed — none applies.** No maintenance line drops a single
 cache entry: every invalidation there empties the whole cache, which a folder link cannot defeat.
+
+## Compare only this folder below a folder link, or under a root reached through one — main only
+
+`FileActionHandler.focusFolder` — a row's "Compare only this folder", the rail's Open, and the
+comparison toolbar's "Compare this folder" — stripped the source root off the node's id, and three
+kinds of id are not spelled under the root: two levels below a folder symlink the walk's listing
+answers where the link leads (`R/link → T` lists `R/link/sub`, then `T/sub/deeper`); a root reached
+through a link (`/var/…`) lists `/private/var/…` from its first level down; and above iCloud Drive's
+container the linked `Documents` is listed as `~/Documents`. Each was refused with "Can't Focus
+Folder", and no rescan could change that.
+`FileSyncManager.paneRelativePath(of:isLeft:root:)` keeps the id's answer where it is spelled under
+the root — the real route, and the only tie-break a node offers for a folder the tree holds twice —
+and otherwise takes the names down the pane's raw tree onto the relative path of the folder that
+tree was walked at.
+
+Not covered, and measured the same day: Columns, the loadTree cache slice and the column graft
+still match composed paths against ids. Columns opens a linked folder and its child, then the third
+column reads nothing and the stack prunes back; under a root reached through a link, or in a pane
+focused below one, it opens nothing past its first column.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  f=$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/FileActionHandler.swift)
+  printf '%-5s idStrip=%s relativize=%s byNames=%s linkTable=%s\n' "$l" \
+    "$(printf '%s' "$f" | grep -cF 'node.id.hasPrefix(expandedRoot + "/")')" \
+    "$(printf '%s' "$f" | grep -cF 'PathBoundary.relativize(node.id, under: expandedRoot)')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Navigation.swift | grep -c 'func paneRelativePath(of node')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/PathBoundary.swift 2>/dev/null | grep -c 'discoveredLinkedFolders: LinkedFolders')"
+done
+# measured 2026-10-02, against origin, before this landed:
+# main idStrip=0 relativize=1 byNames=0 linkTable=1 · v4.x idStrip=1 relativize=0 byNames=0 linkTable=0
+# v3.x idStrip=1 relativize=0 byNames=0 linkTable=0 · v2.x idStrip=1 relativize=0 byNames=0 linkTable=0
+```
+
+**`v4.x`, `v3.x`, `v2.x`: owed — not picked, per the standing direction.** Each strips the root by
+prefix and lists through `contentsOfDirectory(at:)`, so on each the focus refuses a folder two levels
+below a folder symlink and every folder under a root reached through one (read from the code, not
+run there). The iCloud case does not apply: no line has the link table. A pick is
+`paneRelativePath(of:isLeft:root:)` and `names(downTo:in:)` with the line's prefix strip as the
+first branch, the call site, and `PaneRelativePathTests` without its two iCloud cases, plus the two
+`FileActionHandlerTests` focus cases.

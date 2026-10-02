@@ -92,11 +92,11 @@ public class FileActionHandler {
         // Same boundary rule as providerDisplayName(forPath:): the root itself or "root/…",
         // never a bare string prefix ("/data/foo" must not claim "/data/foobar") — and, through
         // `PathBoundary`, a folder the root links in from outside (iCloud Drive's `Documents`,
-        // listed by the walk as `~/Documents`), which a prefix test would refuse to focus.
-        let relPath: String
-        if let relative = PathBoundary.relativize(node.id, under: expandedRoot) {
-            relPath = relative
-        } else {
+        // listed by the walk as `~/Documents`), which a prefix test would refuse to focus. Where
+        // the id is not spelled under the root at all — below a folder symlink, under a root
+        // reached through one, that `Documents` under a root above iCloud Drive — the names down
+        // the pane's own tree place it instead.
+        guard let relPath = syncManager.paneRelativePath(of: node, isLeft: isLeft, root: expandedRoot) else {
             syncManager.present(SyncError(
                 title: "Can't Focus Folder",
                 message: "\"\(node.name)\" is not inside the \(side) pane's folder. Rescan and try again.",

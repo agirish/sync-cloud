@@ -273,4 +273,82 @@ import Settings
         #expect(manager.currentError == nil)
         #expect(manager.leftRelativePath == "sub/inner")
     }
+
+    // MARK: - Focus on folders whose id is not spelled under the root
+
+    /// `R/link → T`, with `T` beside `R`, a plain branch, and an empty folder for the other pane.
+    private func makeLinkedTree(under base: URL) throws -> (root: URL, other: URL) {
+        let fm = FileManager.default
+        let root = base.appendingPathComponent("R", isDirectory: true)
+        let target = base.appendingPathComponent("T", isDirectory: true)
+        let other = base.appendingPathComponent("other", isDirectory: true)
+        try fm.createDirectory(at: target.appendingPathComponent("sub/deeper/deepest"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: root.appendingPathComponent("plain/a"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: other, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: root.appendingPathComponent("link"), withDestinationURL: target)
+        return (root, other)
+    }
+
+    /// The node a click hands over: down the pane's published tree by the names on screen.
+    private func node(_ names: [String], in tree: [FileNode]) -> FileNode? {
+        var level = tree
+        var found: FileNode?
+        for name in names {
+            guard let next = level.first(where: { $0.name == name }) else { return nil }
+            found = next
+            level = next.children ?? []
+        }
+        return found
+    }
+
+    /// **A folder two levels below a folder symlink focuses.** The walk lists it where the link
+    /// leads (`T/sub/deeper`), so stripping the root off its id refused a folder the pane was
+    /// showing with "Can't Focus Folder", and no rescan could change that. Then the round trip: the
+    /// walk at the new focus lists that folder's own contents.
+    @MainActor
+    @Test func testFocusFolderBelowAFolderLinkNavigates() async throws {
+        let raw = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FAH-focus-link-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: raw, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: raw) }
+        // Canonical, so the root is spelled as the walk spells ids — the `/var` spelling is the next test's.
+        let base = URL(fileURLWithPath: try raw.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath ?? raw.path)
+        let (root, otherRoot) = try makeLinkedTree(under: base)
+        let pane = CloudProvider(id: "p", displayName: "P", imageName: "folder", rootPath: root.path, type: .localFolder)
+        let other = CloudProvider(id: "o", displayName: "O", imageName: "folder", rootPath: otherRoot.path, type: .localFolder)
+        let manager = FileSyncManager()
+        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: [pane, other]))
+        await manager.refreshTreesAndScan(left: pane, right: other, comparing: false)
+
+        let deeper = try #require(node(["link", "sub", "deeper"], in: manager.leftTree), "premise: the walk lists no `deeper`")
+        try #require(!deeper.id.hasPrefix(root.path + "/"), "premise: \(deeper.id) is spelled under the root")
+        handler.focusFolder(deeper, isLeft: true, leftProviderId: "p", rightProviderId: "o", suppressLinkedNavigation: false)
+
+        #expect(manager.currentError == nil, "\(manager.currentError?.title ?? ""): \(manager.currentError?.message ?? "")")
+        #expect(manager.leftRelativePath == "link/sub/deeper")
+        await manager.refreshTreesAndScan(left: pane, right: other, reloading: .leftOnly, comparing: false)
+        #expect(manager.leftTree.map(\.name) == ["deepest"], "the focus walked \(manager.leftTree.map(\.id))")
+    }
+
+    /// **Under a root spelled through a link, every folder focuses.** A `/var/…` root — which is
+    /// where `NSTemporaryDirectory()` is — lists `/private/var/…` from its first level down, so even
+    /// a plain child was refused.
+    @MainActor
+    @Test func testFocusFolderUnderARootSpelledThroughALinkNavigates() async throws {
+        let base = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FAH-focus-var-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let (root, otherRoot) = try makeLinkedTree(under: base)
+        let pane = CloudProvider(id: "p", displayName: "P", imageName: "folder", rootPath: root.path, type: .localFolder)
+        let other = CloudProvider(id: "o", displayName: "O", imageName: "folder", rootPath: otherRoot.path, type: .localFolder)
+        let manager = FileSyncManager()
+        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: [pane, other]))
+        await manager.refreshTreesAndScan(left: pane, right: other, comparing: false)
+
+        let a = try #require(node(["plain", "a"], in: manager.leftTree), "premise: the walk lists no `plain/a`")
+        try #require(!a.id.hasPrefix(root.path + "/"), "premise: \(a.id) is spelled under \(root.path)")
+        handler.focusFolder(a, isLeft: true, leftProviderId: "p", rightProviderId: "o", suppressLinkedNavigation: false)
+
+        #expect(manager.currentError == nil, "\(manager.currentError?.title ?? ""): \(manager.currentError?.message ?? "")")
+        #expect(manager.leftRelativePath == "plain/a")
+    }
 }
