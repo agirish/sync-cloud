@@ -11,7 +11,7 @@
 </p>
 
 SyncCloud has four workspaces, and opens in **Browse** — the plain file browser: one provider's
-tree, full width, nothing proposed, for the moves you make by hand. A **folder sidebar** runs down
+tree with the window to itself, nothing proposed, for the moves you make by hand. A **folder sidebar** runs down
 the left of all four, holding the folders you keep, every account you have signed into, and the
 folders you were last in. **Compare** puts two folders
 side by side and shows exactly what differs — what's missing on each side, what's newer, what
