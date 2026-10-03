@@ -207,6 +207,27 @@ import Foundation
         #expect(missing?.leftItemPath == "/left/Swimming /extra.txt")
     }
 
+    /// Two conflicted folders, one inside the other: the deeper pair already spells both levels
+    /// the right side's way, so it is the one the child is re-aimed through.
+    @Test func testAChildTwoConflictedFoldersDownTargetsBothRealSpellings() {
+        let left = [
+            "Fitness ": info(leftURL, "Fitness ", isDir: true),
+            "Fitness /Swimming ": info(leftURL, "Fitness /Swimming ", isDir: true),
+            "Fitness /Swimming /new.txt": info(leftURL, "Fitness /Swimming /new.txt"),
+        ]
+        let right = [
+            "Fitness": info(rightURL, "Fitness", isDir: true),
+            "Fitness/Swimming": info(rightURL, "Fitness/Swimming", isDir: true),
+        ]
+
+        let diffs = compute(left: left, right: right)
+
+        #expect(diffs.map(\.type) == [.nameConflict, .nameConflict, .missingOnRight])
+        let missing = diffs.first { $0.type == .missingOnRight }
+        #expect(missing?.relativePath == "Fitness /Swimming /new.txt")
+        #expect(missing?.rightItemPath == "/right/Fitness/Swimming/new.txt")
+    }
+
     // MARK: - Guards
 
     @Test func testExactPairOwnsItsKeysOverNearNameMatching() {
@@ -226,6 +247,126 @@ import Foundation
         #expect(diffs.count == 1)
         #expect(diffs[0].type == .missingOnRight)
         #expect(diffs[0].relativePath == "Swimming ")
+    }
+
+    /// The same folders with a file inside. The trailing-space folder pairs with nothing, but the
+    /// near-name of its `log.txt` is claimed once on each side, so the file paired across into the
+    /// folder the exact pair owns: a both-sides row inside a folder reported missing, never
+    /// collapsed into it. Syncing the two rows handled `log.txt` twice, and the right side's own
+    /// `log.txt`, which the left `Swimming` lacks, was never reported at all.
+    @Test(arguments: [false, true])
+    func testAChildOfAFolderThatPairsWithNothingStaysInItsMissingRow(caseInsensitive: Bool) {
+        let left = [
+            "Swimming": info(leftURL, "Swimming", isDir: true),
+            "Swimming ": info(leftURL, "Swimming ", isDir: true),
+            "Swimming /log.txt": info(leftURL, "Swimming /log.txt", size: 1),
+        ]
+        let right = [
+            "Swimming": info(rightURL, "Swimming", isDir: true),
+            "Swimming/log.txt": info(rightURL, "Swimming/log.txt", size: 2),
+        ]
+
+        let diffs = compute(left: left, right: right, caseInsensitive: caseInsensitive)
+
+        #expect(diffs.map(\.relativePath) == ["Swimming ", "Swimming/log.txt"])
+        let byPath = Dictionary(uniqueKeysWithValues: diffs.map { ($0.relativePath, $0) })
+        #expect(byPath["Swimming "]?.type == .missingOnRight)
+        #expect(byPath["Swimming "]?.enclosedItemCount == 1)
+        #expect(byPath["Swimming/log.txt"]?.type == .missingOnLeft)
+    }
+
+    /// Mirrored: the doppelganger pair is on the RIGHT, and the left `log.txt` paired across into
+    /// the right's unpaired folder.
+    @Test func testAChildOfARightFolderThatPairsWithNothingStaysInItsMissingRow() {
+        let left = [
+            "Swimming": info(leftURL, "Swimming", isDir: true),
+            "Swimming/log.txt": info(leftURL, "Swimming/log.txt", size: 1),
+        ]
+        let right = [
+            "Swimming": info(rightURL, "Swimming", isDir: true),
+            "Swimming ": info(rightURL, "Swimming ", isDir: true),
+            "Swimming /log.txt": info(rightURL, "Swimming /log.txt", size: 2),
+        ]
+
+        let diffs = compute(left: left, right: right)
+
+        #expect(diffs.map(\.relativePath) == ["Swimming ", "Swimming/log.txt"])
+        let byPath = Dictionary(uniqueKeysWithValues: diffs.map { ($0.relativePath, $0) })
+        #expect(byPath["Swimming "]?.type == .missingOnLeft)
+        #expect(byPath["Swimming "]?.enclosedItemCount == 1)
+        #expect(byPath["Swimming/log.txt"]?.type == .missingOnRight)
+    }
+
+    /// The folder that pairs with nothing is two levels up, and the level between pairs on its
+    /// own near-name — so every folder above the key is checked, not only its parent.
+    @Test func testEveryFolderAboveAChildMustPairNotOnlyItsParent() {
+        let left = [
+            "Swimming": info(leftURL, "Swimming", isDir: true),
+            "Swimming ": info(leftURL, "Swimming ", isDir: true),
+            "Swimming /2026": info(leftURL, "Swimming /2026", isDir: true),
+            "Swimming /2026/log.txt": info(leftURL, "Swimming /2026/log.txt", size: 1),
+        ]
+        let right = [
+            "Swimming": info(rightURL, "Swimming", isDir: true),
+            "Swimming/2026": info(rightURL, "Swimming/2026", isDir: true),
+            "Swimming/2026/log.txt": info(rightURL, "Swimming/2026/log.txt", size: 2),
+        ]
+
+        let diffs = compute(left: left, right: right)
+
+        #expect(diffs.map(\.relativePath) == ["Swimming ", "Swimming/2026"])
+        let byPath = Dictionary(uniqueKeysWithValues: diffs.map { ($0.relativePath, $0) })
+        #expect(byPath["Swimming "]?.type == .missingOnRight)
+        #expect(byPath["Swimming "]?.enclosedItemCount == 2)
+        #expect(byPath["Swimming/2026"]?.type == .missingOnLeft)
+        #expect(byPath["Swimming/2026"]?.enclosedItemCount == 1)
+    }
+
+    /// The boundary of that rule: an ambiguous near-name is not a disqualification by itself.
+    /// `Swimming` is claimed twice on the left, but it pairs EXACTLY, so a file inside it still
+    /// pairs across on its own invisible difference.
+    @Test func testAChildOfAnExactlyPairedFolderStillPairsOnItsOwnNearName() {
+        let left = [
+            "Swimming": info(leftURL, "Swimming", isDir: true),
+            "Swimming ": info(leftURL, "Swimming ", isDir: true),
+            "Swimming/log.txt ": info(leftURL, "Swimming/log.txt "),
+        ]
+        let right = [
+            "Swimming": info(rightURL, "Swimming", isDir: true),
+            "Swimming/log.txt": info(rightURL, "Swimming/log.txt"),
+        ]
+
+        let diffs = compute(left: left, right: right)
+
+        #expect(diffs.map(\.relativePath) == ["Swimming ", "Swimming/log.txt "])
+        let byPath = Dictionary(uniqueKeysWithValues: diffs.map { ($0.relativePath, $0) })
+        #expect(byPath["Swimming "]?.type == .missingOnRight)
+        #expect(byPath["Swimming "]?.enclosedItemCount == nil)
+        #expect(byPath["Swimming/log.txt "]?.type == .nameConflict)
+        #expect(byPath["Swimming/log.txt "]?.rightItemPath == "/right/Swimming/log.txt")
+    }
+
+    /// The same boundary for a folder that pairs as a case variant: `Docs` and `docs ` claim one
+    /// folded near-name, but `Docs` pairs with the right's `docs` by case alone, so the file inside
+    /// still pairs across.
+    @Test func testAChildOfACaseVariantPairedFolderStillPairsBesideAnAmbiguousSpelling() {
+        let left = [
+            "Docs": info(leftURL, "Docs", isDir: true),
+            "docs ": info(leftURL, "docs ", isDir: true),
+            "Docs/log.txt ": info(leftURL, "Docs/log.txt "),
+        ]
+        let right = [
+            "docs": info(rightURL, "docs", isDir: true),
+            "docs/log.txt": info(rightURL, "docs/log.txt"),
+        ]
+
+        let diffs = compute(left: left, right: right, caseInsensitive: true)
+
+        #expect(diffs.map(\.relativePath) == ["Docs/log.txt ", "docs "])
+        let byPath = Dictionary(uniqueKeysWithValues: diffs.map { ($0.relativePath, $0) })
+        #expect(byPath["Docs/log.txt "]?.type == .nameConflict)
+        #expect(byPath["Docs/log.txt "]?.rightItemPath == "/right/docs/log.txt")
+        #expect(byPath["docs "]?.type == .missingOnRight)
     }
 
     @Test func testAmbiguousCandidatesFallBackToPlainMissingRows() {

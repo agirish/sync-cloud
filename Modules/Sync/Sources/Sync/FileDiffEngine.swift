@@ -599,6 +599,47 @@ public struct FileDiffEngine {
         // it would mint the very doppelganger folder the name-conflict row exists to prevent.
         var nearNameDirPairs: [String: String] = [:]
 
+        // The right key a left FOLDER pairs with in pass 1 — exactly, as a case variant, or on its
+        // near-name — or nil when it pairs with nothing, as a folder missing from the left's map
+        // does (pass 1 never visits it). Pass 1's near-name guards that only an ambiguous form can
+        // trip — the exact pair owning its keys, a right key consumed twice — are left out; the
+        // ambiguity itself is refused here. Memoized: every key below a folder asks again.
+        var folderCounterparts: [String: String?] = [:]
+        func counterpart(ofLeftFolder folder: String) -> String? {
+            if let known = folderCounterparts[folder] { return known }
+            var answer: String?
+            if leftFilesInfo[folder] == nil {
+                answer = nil
+            } else if rightFilesInfo[folder] != nil {
+                answer = folder
+            } else if caseInsensitive, let variant = caseFoldedRightKeys[folder.lowercased()],
+                      leftFilesInfo[variant] == nil {
+                answer = variant
+            } else {
+                let nearKey = ProviderNameRules.nearNameKey(forRelativePath: folder, foldCase: caseInsensitive)
+                if !ambiguousNearNameLeftKeys.contains(nearKey),
+                   !ambiguousNearNameRightKeys.contains(nearKey) {
+                    answer = nearNameRightKeys[nearKey]
+                }
+            }
+            folderCounterparts.updateValue(answer, forKey: folder)
+            return answer
+        }
+        // **A key pairs across on its near-name only where every folder above it pairs with the
+        // folder at the same depth above the candidate.** A near-name is claimed per whole path, so
+        // a key's can be unambiguous while a folder above it is not: left `A` and `A ` against a
+        // right `A` leave `A ` paired with nothing (the exact pair owns the right `A`), yet
+        // `A /f.txt` met `A/f.txt` on its own near-name — a both-sides row inside a folder
+        // reported missing, which the collapse never takes in. Syncing the two handled `f.txt`
+        // twice, and the right `A/f.txt`, which the left `A` lacks, was never reported. Refused,
+        // the key stays one-sided and collapses into its folder's row.
+        func foldersPair(above leftKey: String, and rightKey: String) -> Bool {
+            for (leftFolder, rightFolder) in zip(FoldersAbove(leftKey), FoldersAbove(rightKey)) {
+                if counterpart(ofLeftFolder: String(leftFolder)) != String(rightFolder) { return false }
+            }
+            return true
+        }
+
         // The unexplored-ancestor suppression under the SAME folding the pair matching uses:
         // the unexplored sets hold each side's OWN spelling, but pairing matches ancestor
         // folders across case variants and invisible name differences — so "Docs/x.txt" on the
@@ -629,9 +670,8 @@ public struct FileDiffEngine {
             of relativePath: String, keys: Set<String>, otherSide: [String: FileInfo], readableKeys: Set<String>
         ) -> Bool {
             guard !keys.isEmpty else { return false }
-            var prefix = ""
-            for component in relativePath.split(separator: "/").dropLast() {
-                prefix = prefix.isEmpty ? String(component) : prefix + "/" + String(component)
+            for folder in FoldersAbove(relativePath) {
+                let prefix = String(folder)
                 if otherSide[prefix] != nil { continue }             // exact entry owns this level
                 let key = suppressionKey(prefix)
                 if readableKeys.contains(key) { continue }           // a readable variant owns it
@@ -653,12 +693,13 @@ public struct FileDiffEngine {
                 // Only a leaf-name case difference belongs to this row. When just an ancestor
                 // folder's name differs by case, the difference is the folder's, not every
                 // descendant's — identical children under such folders must produce no rows.
-                namesDifferOnlyByCase = relativePath.split(separator: "/").last != variant.split(separator: "/").last
+                namesDifferOnlyByCase = TreeShape.leaf(of: relativePath) != TreeShape.leaf(of: variant)
                 caseVariantMatchedRightKeys.insert(variant)
             }
             // Near-name fallback: pair entries whose names differ only invisibly. Guards
             // mirror the case-variant match — the exact pair owns its keys, ambiguous forms
-            // never match, and a right key is consumed at most once.
+            // never match, and a right key is consumed at most once — and the folders above
+            // must pair too (`foldersPair`).
             var nearNameMatched = false
             if rightFilesInfo[rightKey] == nil {
                 let nearKey = ProviderNameRules.nearNameKey(forRelativePath: relativePath, foldCase: caseInsensitive)
@@ -667,7 +708,8 @@ public struct FileDiffEngine {
                    let candidate = nearNameRightKeys[nearKey],
                    leftFilesInfo[candidate] == nil,
                    !caseVariantMatchedRightKeys.contains(candidate),
-                   !nearNameMatchedRightKeys.contains(candidate) {
+                   !nearNameMatchedRightKeys.contains(candidate),
+                   foldersPair(above: relativePath, and: candidate) {
                     rightKey = candidate
                     nearNameMatched = true
                     nearNameMatchedRightKeys.insert(candidate)
@@ -675,8 +717,8 @@ public struct FileDiffEngine {
             }
             if let rightFile = rightFilesInfo[rightKey] {
                 if nearNameMatched {
-                    let leftLeaf = String(relativePath.split(separator: "/").last ?? Substring(relativePath))
-                    let rightLeaf = String(rightKey.split(separator: "/").last ?? Substring(rightKey))
+                    let leftLeaf = String(TreeShape.leaf(of: relativePath))
+                    let rightLeaf = String(TreeShape.leaf(of: rightKey))
                     // The conflict row belongs to the level whose name actually differs.
                     // When only an ancestor folder's name differs invisibly, this pair is
                     // the folder's ordinary content — compare it normally below (identical
@@ -953,7 +995,8 @@ public struct FileDiffEngine {
             case .differentDates, .nameConflict:
                 // Items present on both sides (including type-mismatch and name-conflict
                 // rows themselves) can't sit under a missing or type-mismatch folder: every
-                // ancestor of a both-sides path exists as a directory on both sides.
+                // folder above a both-sides path pairs with one on the other side — for a
+                // near-name pair, because pass 1 checks that it does (`foldersPair`).
                 kept.append(diff)
                 continue
             }
@@ -987,20 +1030,25 @@ public struct FileDiffEngine {
         }
     }
 
-    /// `path` rewritten from one side's folder spelling into the other's: the LONGEST
-    /// `dirPairs` key that prefixes it at a component boundary is replaced with its
-    /// counterpart spelling. Longest wins because nested name-conflicted folders each get
-    /// their own pair entry keyed by the full source-side path, so the deepest entry already
-    /// carries every ancestor's destination spelling. nil when no conflicted ancestor applies.
+    /// `path` rewritten from one side's folder spelling into the other's: the DEEPEST folder
+    /// above it that `dirPairs` names is replaced with its counterpart spelling. Deepest wins
+    /// because nested name-conflicted folders each get their own pair entry keyed by the full
+    /// source-side path, so the deepest entry already carries every ancestor's destination
+    /// spelling. nil when no conflicted ancestor applies.
+    ///
+    /// The rest of the path is carried over from the `/` on, by scalar. A Character count dropped
+    /// off the front took the `/` too when the folder's name ended in a Prepend character, and
+    /// the copy went beside the folder instead of into it (see `FoldersAbove`).
     private static func remappedPath(_ path: String, via dirPairs: [String: String]) -> String? {
-        var best: (prefix: String, replacement: String)?
-        for (sourceDir, destinationDir) in dirPairs {
-            if path.hasPrefix(sourceDir + "/"), sourceDir.count > (best?.prefix.count ?? -1) {
-                best = (sourceDir, destinationDir)
-            }
+        guard !dirPairs.isEmpty else { return nil }
+        var deepest: (folder: Substring, replacement: String)?
+        for folder in FoldersAbove(path) {
+            if let replacement = dirPairs[String(folder)] { deepest = (folder, replacement) }
         }
-        guard let best else { return nil }
-        return best.replacement + path.dropFirst(best.prefix.count)
+        guard let deepest else { return nil }
+        var remapped = deepest.replacement
+        remapped.unicodeScalars.append(contentsOf: path.unicodeScalars[deepest.folder.endIndex...])
+        return remapped
     }
 
     /// Shortest strict prefix of `path` (at a "/" component boundary) that is in `dirs`, or nil.
@@ -1008,12 +1056,35 @@ public struct FileDiffEngine {
     /// contents all collapse into the single entry the user actually sees.
     private static func topMostAncestor(of path: String, in dirs: Set<String>) -> String? {
         guard !dirs.isEmpty else { return nil }
-        var index = path.startIndex
-        while let slash = path[index...].firstIndex(of: "/") {
-            let prefix = String(path[..<slash])
+        for folder in FoldersAbove(path) {
+            let prefix = String(folder)
             if dirs.contains(prefix) { return prefix }
-            index = path.index(after: slash)
         }
         return nil
+    }
+
+    /// The folders above a relative path, outermost first: each prefix that ends just before a
+    /// `/`, as a slice of the path whose `endIndex` is that `/`.
+    ///
+    /// **The `/` is found by scalar, never by Character.** A name can open with a combining mark,
+    /// and one can end with a Prepend character (U+0600…). Either joins the `/` beside it into one
+    /// Character, so a search for the Character `/` walks past that boundary and a split on it
+    /// leaves the two names fused. The disk walk and the warm keying both cut keys by scalar, so
+    /// such keys reach the comparison; the folder above them went unseen, and its collapse, its
+    /// unreadable-folder suppression and its remap all missed them.
+    private struct FoldersAbove: Sequence, IteratorProtocol {
+        private let path: String
+        private var cursor: String.Index
+
+        init(_ path: String) {
+            self.path = path
+            cursor = path.utf8.startIndex
+        }
+
+        mutating func next() -> Substring? {
+            guard let slash = path.utf8[cursor...].firstIndex(of: UInt8(ascii: "/")) else { return nil }
+            cursor = path.utf8.index(after: slash)
+            return Substring(path.unicodeScalars[..<slash])
+        }
     }
 }

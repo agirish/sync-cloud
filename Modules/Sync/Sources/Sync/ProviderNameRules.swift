@@ -108,7 +108,11 @@ public enum ProviderNameRules {
             // byte-local (ẞ, İ, Σ), so on non-ASCII it would silently produce a different key.
             return foldCase ? asciiLowercased(path) : path
         }
-        let normalized = path
+        // Split by scalar, as the byte pass above reads it. A name can open with a combining mark
+        // or end with a Prepend character, and either joins the `/` beside it into one Character:
+        // a split by Character kept the two names as one component and normalized them as one, so
+        // `Swimming /◌́x` never met `Swimming/◌́x`.
+        let normalized = path.unicodeScalars
             .split(separator: "/", omittingEmptySubsequences: false)
             .map { normalizedComponent(String($0)) }
             .joined(separator: "/")

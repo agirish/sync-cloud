@@ -920,4 +920,38 @@ import Foundation
         #expect(files["readable-a.txt"] != nil)
         #expect(files["readable-b.txt"] != nil)
     }
+
+    /// A folder whose own attributes cannot be read is left out of the walk's map while what is
+    /// inside it is still listed: the entry's read fails, and the enumerator descends regardless.
+    /// The file inside must not pair across on its near-name into the right's `Swimming`, which
+    /// pairs with nothing on the left and is reported missing — that pair was a both-sides row
+    /// inside a missing folder, and the folder's copy carried the same `log.txt` again.
+    @Test func aFileInAFolderTheWalkCouldNotReadDoesNotPairIntoAMissingFolder() throws {
+        let inner = MockFileManager()
+        try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try inner.createDirectory(at: URL(fileURLWithPath: "/src/Swimming "), withIntermediateDirectories: true)
+        try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        try inner.createDirectory(at: URL(fileURLWithPath: "/dst/Swimming"), withIntermediateDirectories: true)
+        let now = Date()
+        inner.virtualDisk["/src/Swimming /log.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now, .size: 1], contents: nil)
+        inner.virtualDisk["/dst/Swimming/log.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now, .size: 2], contents: nil)
+        let fm = UnreadableAttributesFileManager(inner: inner, unreadablePaths: ["/src/Swimming "])
+
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: fm)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: inner)
+        // The premise: the folder is gone from the map, the file inside it is not.
+        #expect(Set(srcFiles.keys) == ["Swimming /log.txt"])
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles)
+
+        #expect(diffs.map(\.relativePath) == ["Swimming", "Swimming /log.txt"])
+        let byPath = Dictionary(uniqueKeysWithValues: diffs.map { ($0.relativePath, $0) })
+        #expect(byPath["Swimming"]?.type == .missingOnLeft)
+        #expect(byPath["Swimming"]?.enclosedItemCount == 1)
+        #expect(byPath["Swimming /log.txt"]?.type == .missingOnRight)
+    }
 }

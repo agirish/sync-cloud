@@ -6433,3 +6433,51 @@ into it. `v4.x` also grafts by id prefix; `v3.x` and `v2.x` have no graft, and n
 is `TreeShape.swift`, the index's keying with `step`'s table argument dropped on a line without the
 table, `subtree(atPath:under:in:)`, the two carry statics, and `ColumnsBelowALinkTests` without its
 iCloud cases.
+
+## Rows that escaped a folder's collapse, and paths split by Character — main only
+
+Compare folds everything inside a folder missing on one side, or a folder that meets a file, into
+that folder's row. Two ways a row stayed out, both older than the `v2.x` split:
+
+- **A `/` found by Character.** A name that opens with a combining mark, or ends with a Prepend
+  character (U+0600…), joins the `/` beside it into one Character. `topMostAncestor` searched for the
+  Character `/`, so `F/◌́x` stood as its own row beside the missing `F`, and a child of an unreadable
+  folder was reported missing. Five other places took a path apart the same way: the folded half of
+  that suppression, the case-variant and near-name leaf comparisons, `nearNameKey`, and
+  `remappedPath` — which also dropped the folder's Character count off the front, so after a Prepend
+  character the `/` went too and a one-sided child was aimed beside its folder (`X؀ f.txt`). All six
+  now go by scalar (`FoldersAbove`, `TreeShape.leaf`).
+- **A near-name pair below a folder that pairs with nothing.** A near-name is claimed per whole
+  path. Left `A` and `A ` against right `A`: `A ` pairs with nothing and is reported missing, but
+  `A /f.txt` met `A/f.txt` on its own near-name — a both-sides row inside the missing folder, so
+  syncing both handled `f.txt` twice, and the left `A` lacking `f.txt` was never reported. A
+  near-name match now needs every folder above it to pair with the folder above the candidate
+  (`foldersPair`). The same check stops a file pairing across two folder pairs that each matched
+  exactly, which offered to copy one folder's `b` over the other's.
+
+Differential, old engine against new over 16,000 generated map pairs: identical for plain names,
+case variants and unreadable folders (4,000) and for near-names with no ambiguous folder (4,050);
+every difference among ambiguous near-names (1,685 of 3,950) disappears with `foldersPair`
+removed. Collapse broken in 5,598 of the old outputs, none of the new. Release, no case slower.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  f=$(git show origin/$l:Modules/Sync/Sources/Sync/FileDiffEngine.swift)
+  printf '%-5s charAncestor=%s remapDrop=%s foldedSplit=%s leafSplit=%s nearKeySplit=%s foldersPair=%s\n' "$l" \
+    "$(printf '%s\n' "$f" | grep -c 'path\[index...\].firstIndex(of: "/")')" \
+    "$(printf '%s\n' "$f" | grep -c 'path.dropFirst(best.prefix.count)')" \
+    "$(printf '%s\n' "$f" | grep -c 'relativePath.split(separator: "/").dropLast()')" \
+    "$(printf '%s\n' "$f" | grep -c 'split(separator: "/").last')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/ProviderNameRules.swift | grep -c 'let normalized = path$')" \
+    "$(printf '%s\n' "$f" | grep -c 'func foldersPair')"
+done
+# measured 2026-10-02, against origin, before this landed:
+# main, v4.x, v3.x, v2.x — every line: charAncestor=1 remapDrop=1 foldedSplit=1 leafSplit=3 nearKeySplit=1 foldersPair=0
+# and on this change's own tree: 0 0 0 0 0 1
+```
+
+**`v4.x`, `v3.x`, `v2.x`: apply, RECORDED — not owed.** Every line carries all six sites and the
+unchecked near-name match. A pick is the two source files with a scalar leaf helper in place of
+`TreeShape.leaf` (main only), plus `SlashByScalarDiffTests`, the new `NameConflictDiffTests` cases
+and `FileDiffEngineTests.aFileInAFolderTheWalkCouldNotReadDoesNotPairIntoAMissingFolder`, whose
+`UnreadableAttributesFileManager` every line has.
