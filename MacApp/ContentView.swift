@@ -2076,10 +2076,11 @@ struct ContentView: View {
     /// - Parameter reloading: which panes to WALK. The scan that follows always compares both; a
     ///   pane left out contributes the tree it is already holding. Defaults to `.both`, which is
     ///   what the force refresh, the launch bootstrap and a pane swap all mean. The narrow scopes
-    ///   come from the two places that know a single pane moved: `refreshSubject`, and the
-    ///   enabled-providers handler, which asks `paneRootEdits` which pane's Location was edited and
-    ///   must pass that same scope to `invalidateComparisonState` — a pane whose tree is dropped
-    ///   there and not walked here stays blank.
+    ///   come from the places that know a single pane moved: `refreshSubject`, a tab or cross-source
+    ///   open (`refreshForTabSwitch`), and the enabled-providers handler, which asks
+    ///   `paneRootEdits` which pane's Location was edited and must pass that same scope to
+    ///   `invalidateComparisonState` — a pane whose tree is dropped there and not walked here stays
+    ///   blank.
     /// - Returns: whether a refresh was actually started. **The `false` is the point.**
     ///
     /// This guard returned in silence, and a pane load skipped at launch with nothing said about it
@@ -2113,7 +2114,20 @@ struct ContentView: View {
         // **Written on the way out, both ways.** A refresh that compares settles the whole debt,
         // whatever put it there, and one that does not takes the comparison on — so the record
         // always describes what has actually happened since the last comparison.
+        var reloading = reloading
         if comparing {
+            // **And it walks every pane holding such a file**, not only the panes it was asked to:
+            // the drop below takes that pane's walk too, and a pane left out went on showing the
+            // file as it was, its folder was compared cold, and the debt that would have re-read
+            // it on arrival in Compare was gone. A source or tab switch is the usual case — it
+            // asks for the moved pane alone, and the file is usually under the other one.
+            if let because = owedComparison.reasonToWalkBoth(insteadOf: reloading,
+                                                            leftFolder: currentLeftPath, rightFolder: currentRightPath,
+                                                            leftLinkTargets: syncManager.leftTreeLinkTargets,
+                                                            rightLinkTargets: syncManager.rightTreeLinkTargets) {
+                Logger.shared.info("Walking both panes, not only \(reloading.describedPanes): \(because)")
+                reloading = .both
+            }
             // Its scan reads every file the editor wrote: the cached walks that list their folders
             // go first, or the scan's in-memory fast path compares the walk taken before the write.
             for path in owedComparison.unreadWrites { syncManager.prepareReread(afterWritingAt: path) }
@@ -2121,7 +2135,7 @@ struct ContentView: View {
         } else if owedComparison.skipped == nil {
             owedComparison.skipped = OwedComparison.skippedByARefresh
         }
-        Task {
+        Task { [reloading] in
             await syncManager.refreshTreesAndScan(left: leftProvider, right: rightProvider,
                                                   reloading: reloading, comparing: comparing)
         }
@@ -2219,6 +2233,26 @@ struct ContentView: View {
             }
             if let scope, let named { return .reread(scope, because: Self.editorWrote(named)) }
             return skipped.map { .compare(because: $0) }
+        }
+
+        /// Why a refresh that compares, asked to walk `requested`, has to walk both panes — the
+        /// write under a pane it would leave alone — or nil when `requested` covers every pane
+        /// holding an unread write. Asked of `payment(…)`, so the two cannot disagree about which
+        /// pane holds a file.
+        ///
+        /// Settling drops the cached walks listing each written folder (`prepareReread`), so a pane
+        /// holding one that the refresh does not walk would keep showing the file as it was, while
+        /// its folder is compared cold.
+        func reasonToWalkBoth(insteadOf requested: FileSyncManager.PaneReloadScope,
+                              leftFolder: String, rightFolder: String,
+                              leftLinkTargets: Set<String> = [], rightLinkTargets: Set<String> = [],
+                              links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> String? {
+            guard requested != .both,
+                  case .reread(let held, let because)? = payment(leftFolder: leftFolder, rightFolder: rightFolder,
+                                                                 leftLinkTargets: leftLinkTargets,
+                                                                 rightLinkTargets: rightLinkTargets, links: links),
+                  held != requested else { return nil }
+            return because
         }
     }
 

@@ -146,8 +146,7 @@ extension FileSyncManager {
             // inside itself; leaving the node alone keeps its unexplored mark, which is what makes
             // the column say "Can't be read" rather than "Empty". `adoptRawTree` unwraps the same
             // shape for the same reason.
-            if children.count == 1, let only = children.first,
-               only.isUnexplored == true, only.id == path { return }
+            if Self.isUnreadableRootWalk(children, at: path) { return }
 
             // Re-read the tree AFTER the await: the pane may have re-rooted or reloaded while the
             // listing ran, in which case this answer is about a tree that is gone. `grafting`

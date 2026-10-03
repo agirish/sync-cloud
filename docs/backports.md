@@ -6520,3 +6520,40 @@ source switch there is `resetNavigation`, which drops both trees and reloads bot
 are cached before the scan, and there are no pane tabs. The hop, the four unhinted compositions and
 the row-based collapse are there; on `v2.x` (macOS 15) the P45 test's `Task.immediate` needs
 `#available(macOS 26, *)`.
+
+## Compare dated by the walks it compared; what a switch keeps and re-reads — main only
+
+Five follow-ups from an adversarial review of P44–P46 (above). **Freshness:** a scan from cached
+trees stamped the comparison with the moment it ran, and P44 made the scan after a source switch
+read the other pane's kept walk — so the pill could say "just now" over an hours-old walk and never
+give its hour-old warning. `lastScanReadAt`, the older walk's stamp, now dates the pill and the
+not-scanned card; `lastScanDate` stays the scan's identity (the folds key on it). **Location
+edit:** `invalidateComparisonState(reloading:)` emptied the whole cache before a one-pane reload —
+P44's slowness on a third path; it keeps the other pane's walk. **Editor writes:** a comparing
+refresh settled writes under a pane it did not walk, so that pane kept the pre-write tree and its
+folder was compared cold; `refreshAction` walks it too, and `refreshForTabSwitch` goes through
+`refreshAction` instead of copying it. **Unreadable walks:** a still pane whose walk could not list
+its folder (access denied at the time) had that walk kept too, so once access came back the next
+Compare compared against nothing; `dropPrefetchedTrees(keeping:)` no longer keeps one. **Logs:** the
+scan says at Info whether it read cached walks (with their ages) or the disk.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s scopedInvalidate=%s owed=%s readAt=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Navigation.swift | grep -c 'func invalidateComparisonState(reloading scope')" \
+    "$(git show origin/$l:MacApp/ContentView.swift | grep -c 'struct OwedComparison')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift | grep -c 'var prefetchedTreeReadAt')"
+done
+# measured 2026-10-03, against origin, before this landed:
+# main scopedInvalidate=1 owed=1 readAt=1 · v4.x 1 0 0 · v3.x 0 0 0 · v2.x 0 0 0
+```
+
+**`v4.x`: the Location edit and the logs owed — not picked; the editor writes checked, not owed (no
+`OwedComparison`).** Its warm scans date themselves by the scan too, but only after a navigation —
+a switch empties its cache — and with no `prefetchedTreeReadAt` there is no walk stamp to date them
+by: a pick of the freshness fix needs that bookkeeping first. The Location-edit pick needs
+`dropPrefetchedTrees(keeping:)` from P44's pick.
+
+**`v3.x`, `v2.x`: the logs owed — not picked; the Location edit and the editor writes checked, not
+owed.** A Location edit there invalidates and reloads both panes, so both are cached before the
+scan, and there is no `OwedComparison`. Freshness as on `v4.x`.

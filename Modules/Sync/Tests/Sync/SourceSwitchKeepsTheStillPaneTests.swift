@@ -16,6 +16,9 @@ import Testing
 /// The memory never came back either: the still pane's entry is the array its pane is showing
 /// (`theKeptEntryIsTheArrayThePaneIsShowing`), so dropping it freed nothing.
 ///
+/// A kept walk can be old, though, and the comparison read from it is exactly as old: it is dated
+/// by its walks (`lastScanReadAt`), not by when it ran.
+///
 /// Every fixture is on `MockFileManager`, with an empty link table, so nothing here depends on the
 /// iCloud links or folders of the Mac it runs on.
 @Suite struct SourceSwitchKeepsTheStillPaneTests {
@@ -47,6 +50,8 @@ import Testing
     private static let alpha = CloudProvider(id: "A", displayName: "Alpha", imageName: "", rootPath: "/alpha", type: .iCloud)
     private static let beta = CloudProvider(id: "B", displayName: "Beta", imageName: "", rootPath: "/beta", type: .dropBox)
     private static let still = CloudProvider(id: "S", displayName: "Still", imageName: "", rootPath: "/still", type: .oneDrive)
+    /// Alpha after its Location was edited in Settings: the same source, rooted where Beta is.
+    private static let alphaMoved = CloudProvider(id: "A", displayName: "Alpha", imageName: "", rootPath: "/beta", type: .iCloud)
 
     /// What a comparison answered, without the row ids every scan mints afresh.
     @MainActor
@@ -54,20 +59,42 @@ import Testing
         m.rawDifferences.map { "\($0.relativePath) \($0.type) \($0.action)" }.sorted()
     }
 
-    /// The two ways a pane changes source: the source menu, and a tab parked on another source.
+    /// The ways one pane is re-rooted while the other stays: the source menu, a tab parked on
+    /// another source, and an edit of the pane's source's Location in Settings.
     enum Switch: CaseIterable, CustomTestStringConvertible {
-        case sourceMenu, tab
-        var testDescription: String { self == .sourceMenu ? "source menu" : "tab" }
+        case sourceMenu, tab, locationEdit
+        var testDescription: String {
+            switch self {
+            case .sourceMenu: "source menu"
+            case .tab: "tab"
+            case .locationEdit: "Location edit"
+            }
+        }
+    }
+
+    /// Which pane moves, and where the one that stays is focused: its root, or a folder below it,
+    /// whose walk is cached under the folder's own path.
+    struct Panes: CustomTestStringConvertible, Sendable {
+        let movedLeft: Bool
+        let stillFocus: String
+        var testDescription: String {
+            "\(movedLeft ? "left" : "right") moves, still pane at \(stillFocus.isEmpty ? "its root" : stillFocus)"
+        }
+        static let all = [Panes(movedLeft: true, stillFocus: ""), Panes(movedLeft: false, stillFocus: ""),
+                          Panes(movedLeft: true, stillFocus: "Docs"), Panes(movedLeft: false, stillFocus: "Docs")]
     }
 
     /// **The scan after a switch reads the still pane's tree, not its folder.** Driven the way the
     /// app drives it: the switch, then the refresh `ContentView` runs for the moved pane. Any listing
     /// under the still pane's root after the switch can only be the scan's cold walk — the refresh
     /// walks the moved pane alone, which is what the scope says. Both panes take a turn at moving,
-    /// because each call site picks the other pane's walk by side.
+    /// because each call site picks the other pane's walk by side, and the still pane is also met
+    /// below its root, where its walk is cached under the folder's path and the scan must compose
+    /// the same one.
     @MainActor
-    @Test(arguments: Switch.allCases, [true, false])
-    func theScanAfterASwitchReadsTheStillPanesTree(_ how: Switch, movedLeft: Bool) async throws {
+    @Test(arguments: Switch.allCases, Panes.all)
+    func theScanAfterASwitchReadsTheStillPanesTree(_ how: Switch, _ panes: Panes) async throws {
+        let movedLeft = panes.movedLeft
         let fm = try Self.disk()
         let m = FileSyncManager(fileManager: fm)
         m.linkedFolders = [:]
@@ -76,10 +103,12 @@ import Testing
         func pair(_ moving: CloudProvider) -> (left: CloudProvider, right: CloudProvider) {
             movedLeft ? (moving, Self.still) : (Self.still, moving)
         }
+        if !panes.stillFocus.isEmpty { m.focusOn(relativePath: panes.stillFocus, isLeft: !movedLeft) }
+        let stillWalk = panes.stillFocus.isEmpty ? "/still" : "/still/" + panes.stillFocus
 
         await m.refreshTreesAndScan(left: pair(Self.alpha).left, right: pair(Self.alpha).right)
         try #require(m.hasScanned)
-        try #require(m.prefetchedTrees["/still"] != nil, "premise: launch cached the still pane's walk")
+        try #require(m.prefetchedTrees[stillWalk] != nil, "premise: launch cached the still pane's walk at \(stillWalk)")
 
         let reads = LockedBox<[String]>([])
         fm.onEnumerate = { url in reads.withLock { $0.append(url.path) } }
@@ -100,8 +129,15 @@ import Testing
             try #require(scopes.isEmpty, "premise: the tab switch asked for a reload itself")
             try #require(arrived?.providerId == "B", "premise: the tab moved the pane to another source")
             scopes = [.movedPane(isLeft: movedLeft)]
+        case .locationEdit:
+            // `ContentView`'s enabled-providers handler: the edited pane's scope goes to the
+            // invalidation, then to the refresh.
+            m.invalidateComparisonState(reloading: .movedPane(isLeft: movedLeft))
+            subscription.cancel()
+            try #require(scopes.isEmpty, "premise: the invalidation asked for a reload itself")
+            scopes = [.movedPane(isLeft: movedLeft)]
         }
-        let after = pair(Self.beta)
+        let after = pair(how == .locationEdit ? Self.alphaMoved : Self.beta)
         await m.refreshTreesAndScan(left: after.left, right: after.right, reloading: scopes[0])
         try #require(m.hasScanned)
 
@@ -117,10 +153,90 @@ import Testing
         fm.onEnumerate = nil
         let fresh = FileSyncManager(fileManager: fm)
         fresh.linkedFolders = [:]
+        if !panes.stillFocus.isEmpty { fresh.focusOn(relativePath: panes.stillFocus, isLeft: !movedLeft) }
         await fresh.refreshTreesAndScan(left: after.left, right: after.right)
         try #require(fresh.hasScanned)
         #expect(Self.rows(m) == Self.rows(fresh), "\(Self.rows(m)) vs a launch scan's \(Self.rows(fresh))")
-        #expect(Self.rows(m).count == 2, "premise: the pair has something on each side only")
+        // At the root: OnlyBeta and OnlyStill.txt. At Docs: Beta's Docs and OnlyBeta, and the
+        // still pane's same.txt, which Beta's root does not hold.
+        #expect(Self.rows(m).count == (panes.stillFocus.isEmpty ? 2 : 3),
+                "premise: the pair has something on each side only: \(Self.rows(m))")
+    }
+
+    /// **A walk that could not list its folder is not kept, so the next Compare reads it.** It knows
+    /// nothing — the folder itself marked unexplored — and kept, the scan after a switch compared
+    /// against it as a side with nothing to say, and a pane switched onto that folder was served it
+    /// empty: once access came back, nothing read the folder until Refresh. Measured in the app on
+    /// 2026-10-03, after macOS's Documents prompt: a switch and back found 0 differences, a refresh
+    /// 917. Both panes take a turn at staying.
+    @MainActor
+    @Test(arguments: [true, false])
+    func aWalkThatCouldNotListItsFolderIsReadAgain(movedLeft: Bool) async throws {
+        let fm = try Self.disk()
+        let m = FileSyncManager(fileManager: fm)
+        m.linkedFolders = [:]
+        func pair(_ moving: CloudProvider) -> (left: CloudProvider, right: CloudProvider) {
+            movedLeft ? (moving, Self.still) : (Self.still, moving)
+        }
+        // The still pane's folder cannot be listed when the panes first load…
+        fm.unlistableDirectories = ["/still"]
+        await m.refreshTreesAndScan(left: pair(Self.alpha).left, right: pair(Self.alpha).right)
+        let cached = try #require(m.prefetchedTrees["/still"], "premise: the walk that could not list was cached")
+        try #require(FileSyncManager.isUnreadableRootWalk(cached, at: "/still"),
+                     "premise: cached as the folder marked unexplored: \(cached.map(\.id))")
+        // …then access comes back, and the other pane changes source.
+        fm.unlistableDirectories = []
+        m.retargetPane(isLeft: movedLeft, landing: "")
+        #expect(m.prefetchedTrees["/still"] == nil, "the switch kept a walk that knows nothing")
+
+        await m.refreshTreesAndScan(left: pair(Self.beta).left, right: pair(Self.beta).right,
+                                    reloading: .movedPane(isLeft: movedLeft))
+        // Read from disk: Beta's OnlyBeta and the still folder's OnlyStill.txt.
+        #expect(Self.rows(m).count == 2,
+                "the Compare after the switch compared against the walk that could not list: \(Self.rows(m))")
+    }
+
+    /// **The Compare after a switch is as old as the walk it read.** The kept walk was taken when
+    /// the still pane last loaded, maybe hours ago, and nothing re-reads it on the way into the
+    /// scan — so a comparison dated by when it RAN said "just now" over it, and the pill's hour-old
+    /// warning never came. Dated by the older of its two walks, it says how old it is, here and on
+    /// the not-scanned card. Both sides take a turn at staying, so reading one side's stamp alone
+    /// cannot pass.
+    @MainActor
+    @Test(arguments: [true, false])
+    func theComparisonAfterASwitchIsAsOldAsTheStillPanesWalk(movedLeft: Bool) async throws {
+        let m = FileSyncManager(fileManager: try Self.disk())
+        m.linkedFolders = [:]
+        func pair(_ moving: CloudProvider) -> (left: CloudProvider, right: CloudProvider) {
+            movedLeft ? (moving, Self.still) : (Self.still, moving)
+        }
+        await m.refreshTreesAndScan(left: pair(Self.alpha).left, right: pair(Self.alpha).right)
+        try #require(m.prefetchedTrees["/still"] != nil, "premise: launch cached the still pane's walk")
+        // As far as the cache knows, the still pane walked two hours ago.
+        let walked = Date(timeIntervalSinceNow: -2 * 3600)
+        m.prefetchedTreeReadAt["/still"] = walked
+
+        m.retargetPane(isLeft: movedLeft, landing: "")
+        await m.refreshTreesAndScan(left: pair(Self.beta).left, right: pair(Self.beta).right,
+                                    reloading: .movedPane(isLeft: movedLeft))
+        let completed = try #require(m.lastScanDate)
+        try #require(completed.timeIntervalSince(walked) > 3600, "premise: the scan itself ran just now")
+        #expect(m.lastScanReadAt == walked,
+                "a comparison of a two-hour-old walk is dated \(m.lastScanReadAt.map { "\($0)" } ?? "nil")")
+        #expect(m.lastScanSummary?.date == walked,
+                "the not-scanned card would date a two-hour-old comparison by when it ran")
+    }
+
+    /// …and a scan that walks both folders read the disk itself, so it is dated when it ran.
+    @MainActor
+    @Test func aScanThatWalksBothFoldersIsDatedWhenItRan() async throws {
+        let m = FileSyncManager(fileManager: try Self.disk())
+        m.linkedFolders = [:]
+        try #require(m.prefetchedTrees.isEmpty, "premise: nothing is cached, so the scan walks the disk")
+        await m.scanDirectories(left: Self.alpha, leftPath: "/alpha", right: Self.still, rightPath: "/still")
+        let completed = try #require(m.lastScanDate)
+        #expect(m.lastScanReadAt == completed)
+        #expect(m.lastScanSummary?.date == completed)
     }
 
     /// **The kept entry costs nothing, because it is the array on screen.** Every writer of a pane's

@@ -1671,8 +1671,8 @@ import Sync
     ///
     /// So the ban is stated over the PAIR rather than over one member's text: a token from either
     /// half of a pane pair may appear only inside a `PaneSideChoice.own(…)` call, on the line that
-    /// DECLARES a stored property named for one side, or inside one of three members that
-    /// legitimately read both. Each of those three is asserted to still exist and still hold a pair
+    /// DECLARES a stored property named for one side, or inside one of two members that
+    /// legitimately read both. Each of those two is asserted to still exist and still hold a pair
     /// token, so an exemption cannot outlive the code it was written for and become a hole with a
     /// name on it.
     ///
@@ -1685,24 +1685,25 @@ import Sync
         let pairs = Self.occurrences(
             #"\b(?:left|right)(?:RelativePath|BrowsePath|TreeRoot|ChildrenIndex|ProviderId)\b"#,
             in: file)
-        // TODAY'S measured count (28), not a number chosen low enough to be safe. The floor is only
+        // TODAY'S measured count (26), not a number chosen low enough to be safe. The floor is only
         // "am I reading the file at all" — nothing is lost by a pair token going away, since the
-        // rule below is about the ones that are THERE.
-        #expect(pairs.count >= 28,
-                "\(pairs.count) pane-pair tokens found in the tabs file where 28 are expected — the scan is reading the wrong text and every judgement below is vacuous")
+        // rule below is about the ones that are THERE. (28 until the tab-switch reload stopped
+        // resolving the pair itself and went through `refreshAction`.)
+        #expect(pairs.count >= 26,
+                "\(pairs.count) pane-pair tokens found in the tabs file where 26 are expected — the scan is reading the wrong text and every judgement below is vacuous")
 
         let narrowings = Self.callSpans(of: "PaneSideChoice.own(", in: file)
         #expect(narrowings.count >= 6,
                 "\(narrowings.count) `PaneSideChoice.own` calls in the tabs file where at least 6 are expected — the pairs are being narrowed somewhere this cannot see")
 
-        // The three that read BOTH sides on purpose. Named, and each proved non-vacuous below: the
-        // adopt helper writes one id and re-keys the ignored-items store on the PAIR, the reload
-        // resolves both providers because it refreshes a comparison, and the persistence modifier
-        // watches all six values because either pane moving has to save that pane's strip.
+        // The two that read BOTH sides on purpose. Named, and each proved non-vacuous below: the
+        // adopt helper writes one id and re-keys the ignored-items store on the PAIR, and the
+        // persistence modifier watches all six values because either pane moving has to save that
+        // pane's strip. (The tab-switch reload was a third until it went through `refreshAction`,
+        // which resolves the pair in `ContentView.swift`.)
         var exemptions: [(name: String, span: Range<String.Index>)] = []
         for (name, declaration, closing) in
                 [("adoptProviderForTab", "func adoptProviderForTab(", "\n    }\n"),
-                 ("refreshForTabSwitch", "func refreshForTabSwitch(movedPane isLeft: Bool)", "\n    }\n"),
                  ("BrowseTabPersistence", "struct BrowseTabPersistence: ViewModifier {", "\n}\n")] {
             let start = try #require(file.range(of: declaration),
                                      "“\(name)” is exempted from this rule and is no longer in the file — the exemption is a name that could be hiding a hand-written narrowing")

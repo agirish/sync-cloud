@@ -96,6 +96,20 @@ import Testing
                 "the folds no longer record which scan they belong to, so the guard cannot answer")
     }
 
+    /// **The count pill ages the comparison by the walks it compared, not by when the scan ran.**
+    ///
+    /// A scan from cached trees reads no disk: after a source switch it compares the other pane's
+    /// kept walk, which can be hours old. Aged from `lastScanDate` the pill said "just now" over it
+    /// and its hour-old warning never came. Both the age and the tick anchor read `lastScanReadAt`;
+    /// the fold reset above stays on `lastScanDate`, which is the scan's identity.
+    @Test func theCountPillAgesTheComparisonByItsWalks() throws {
+        let view = try Self.source("DifferencesView.swift")
+        #expect(view.contains("let scanDate = syncManager.lastScanReadAt ?? completed"),
+                "the pill's age is the scan's again — a comparison of an hours-old walk reads as just scanned")
+        #expect(view.contains("TimelineView(.periodic(from: syncManager.lastScanReadAt ?? completed, by: 30))"),
+                "the pill ticks from the scan, not from the date its age is measured from — the stale flip lands off the threshold")
+    }
+
     /// **A `.failed` filter is resolved on arrival.**
     ///
     /// It is set when a partial run publishes failures and cleared when they go, both by `.onChange`

@@ -633,10 +633,17 @@ extension FileSyncManager {
     ///   scope to the rescan that follows**: a pane whose tree was dropped here and not walked
     ///   there stays blank, which is the failure this parameter has to be spent carefully to avoid.
     @MainActor public func invalidateComparisonState(reloading scope: PaneReloadScope = .both) {
-        // Drop the prefetch cache whatever the scope (it is keyed by absolute path): after a
-        // provider/root change the old root's fully-walked tree is dead weight — this app's iCloud
-        // root measures 39,399 nodes — and the rescan repopulates what is still wanted.
-        dropPrefetchedTrees()
+        // Drop the prefetch cache (it is keyed by absolute path): after a provider/root change the
+        // old root's fully-walked tree is dead weight — this app's iCloud root measures 39,399
+        // nodes — and the rescan repopulates what is still wanted. **All but the walk of a pane this
+        // does not reload**, for `retargetPane`'s reason: its root did not move, it is the array that
+        // pane shows, and the rescan after a one-pane reload compares from cached trees only when
+        // both sides hit — dropped, it walked both folders from disk.
+        switch scope {
+        case .both: dropPrefetchedTrees()
+        case .leftOnly: dropPrefetchedTrees(keeping: lastLoadedRightFocusPath)
+        case .rightOnly: dropPrefetchedTrees(keeping: lastLoadedLeftFocusPath)
+        }
         if scope != .rightOnly { invalidatePaneTree(isLeft: true) }
         if scope != .leftOnly { invalidatePaneTree(isLeft: false) }
 
@@ -670,6 +677,7 @@ extension FileSyncManager {
         lastRightProviderType = nil
         lastScanProviders = nil
         lastScanRootNames = nil
+        lastScanReadAt = nil
         lastScanDate = nil
         // The coverage claim belongs to the rows above it — see `lastScanCoverage`. Left standing
         // it would warn about a comparison that has just been dropped.

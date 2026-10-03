@@ -361,11 +361,33 @@ extension FileSyncManager {
         return seconds < 1 ? String(format: "%.1f ms", seconds * 1000) : String(format: "%.2f s", seconds)
     }
 
+    /// How long ago a cached walk read its folder, for the scan's line: "just now", "42 s ago",
+    /// "12 min ago", "4 h 3 min ago" — whole units, because the question it answers is whether the
+    /// comparison is minutes or hours old. An entry with no stamp predates the bookkeeping.
+    nonisolated static func ageText(since date: Date?, now: Date) -> String {
+        guard let date else { return "at an unrecorded time" }
+        let seconds = max(0, Int(now.timeIntervalSince(date)))
+        switch seconds {
+        case ..<1: return "just now"
+        case ..<60: return "\(seconds) s ago"
+        case ..<3600: return "\(seconds / 60) min ago"
+        default: return "\(seconds / 3600) h \(seconds % 3600 / 60) min ago"
+        }
+    }
+
     /// The pane's relative path, for the load's start line — a load of the same root at a
     /// different focus is a different load, and the root alone cannot tell them apart.
     func relativeSuffix(isLeft: Bool) -> String {
         let relative = isLeft ? leftRelativePath : rightRelativePath
         return relative.isEmpty ? "" : " (focus: \(relative))"
+    }
+
+    /// Whether `tree` is a walk of `folder` that could not list it: `buildTree` hands back the folder
+    /// itself marked unexplored, never a bare `[]`, so the cache and the diff know its contents are
+    /// UNKNOWN rather than empty. Each consumer has to recognise the shape — a pane unwraps it, a
+    /// column graft leaves it alone, and a source switch does not keep it.
+    nonisolated static func isUnreadableRootWalk(_ tree: [FileNode], at folder: String) -> Bool {
+        tree.count == 1 && tree[0].isUnexplored == true && tree[0].id == folder
     }
 
     /// Publishes a freshly built (or cache-served) raw tree for one pane. Also bumps
@@ -385,7 +407,7 @@ extension FileSyncManager {
         // empty. The pane must not render the focused folder nested inside itself, though —
         // unwrap the marker and show the folder empty, exactly as before the marker existed.
         var tree = tree
-        if tree.count == 1, let only = tree.first, only.isUnexplored == true, only.id == focusPath {
+        if Self.isUnreadableRootWalk(tree, at: focusPath) {
             tree = []
         }
         rawTreeGeneration += 1
@@ -827,8 +849,10 @@ extension FileSyncManager {
             let coverage: PartialComparison
         }
         let newDifferences: ScanOutcome?
+        // When the trees compared from the cache were read, for the publish below, which dates the
+        // comparison by its walks (`lastScanReadAt`). nil when the scan walks the disk itself.
+        var walksReadAt: Date?
         if let cachedLeft = prefetchedTrees[leftURL.path], let cachedRight = prefetchedTrees[rightURL.path] {
-            Logger.shared.debug("[scan] \(scanTag) from cached trees (no directory enumeration)")
             // Read on the main actor with the trees, carried into the compute: whether each
             // cached tree's walk was budget-stopped. The maps alone cannot say — the root is
             // readable, so no `""` record exists — and without this bit a warm scan of a
@@ -836,6 +860,21 @@ extension FileSyncManager {
             // banner was built to end (the cold branch of the very same pair banners).
             let leftWalkStopped = prefetchedTreeWalkStopped.contains(leftURL.path)
             let rightWalkStopped = prefetchedTreeWalkStopped.contains(rightURL.path)
+            // Read here for the same reason: the entries can be dropped while the compute runs.
+            // An entry without a stamp predates the bookkeeping, and stands for "now", as on a pane.
+            let leftReadAt = prefetchedTreeReadAt[leftURL.path]
+            let rightReadAt = prefetchedTreeReadAt[rightURL.path]
+            walksReadAt = [leftReadAt, rightReadAt].compactMap { $0 }.min()
+            // **Info, and with the walks' ages: which branch runs decides the answer, not only the
+            // time.** A disk walk stops at the node budget wherever it gets to and the panes' walks
+            // where they got to, so one pair has counted 19 differences cold and 75 warm. At Debug,
+            // a reader at Info could not tell which a Compare was — after a source switch least of
+            // all, where the other pane's kept walk is the warm half. A record of its own rather
+            // than a suffix on the completed line, as `[filter]`'s is.
+            let now = Date()
+            Logger.shared.info("[scan] \(scanTag) compares the panes' cached walks of “\(leftURL.path)” "
+                               + "(walked \(Self.ageText(since: leftReadAt, now: now))) and “\(rightURL.path)” "
+                               + "(walked \(Self.ageText(since: rightReadAt, now: now))), reading neither folder")
 
             let computeTask = Task.detached(priority: .userInitiated) { () -> ScanOutcome? in
                 guard !Task.isCancelled else { return nil }
@@ -893,6 +932,12 @@ extension FileSyncManager {
                 computeTask.cancel()
             }
         } else {
+            // The Info twin of the cached branch's line, naming the side that missed: after a
+            // source switch a miss on the pane that stayed means its walk was not kept.
+            let missing = [prefetchedTrees[leftURL.path] == nil ? "left" : nil,
+                           prefetchedTrees[rightURL.path] == nil ? "right" : nil].compactMap { $0 }
+            Logger.shared.info("[scan] \(scanTag) walks “\(leftURL.path)” and “\(rightURL.path)” from disk: "
+                               + "no cached walk of \(missing.count == 1 ? "the \(missing[0]) one" : "either folder")")
             // Read here, before detaching. Read inside, it was a hop back to the main actor for a
             // `let`, and the walk queued behind whatever the main actor was doing — usually the
             // render of a tree just published — with the clock below not yet started.
@@ -978,7 +1023,14 @@ extension FileSyncManager {
             self.lastRightProviderType = request.right.type
             // The provider pair the destination name check attributes transfer targets to.
             self.lastScanProviders = (request.left, request.right)
-            self.lastScanDate = Date()
+            // **Dated by what it compared, not by when it ran.** From cached trees the comparison is
+            // as old as the older walk — after a source switch, the other pane's kept walk, which
+            // can be hours old — and a pill saying "just now" over it would withhold the hour-old
+            // warning exactly where it applies. Walked from disk, the two dates agree.
+            let completedAt = Date()
+            let readAt = walksReadAt.map { min($0, completedAt) } ?? completedAt
+            self.lastScanReadAt = readAt
+            self.lastScanDate = completedAt
             self.verifiedSameDifferenceIds.removeAll()
             // A fresh scan regenerates every row id, so a kept failure set would match nothing —
             // harmless, but it would leave the Failed filter in the menu with a count of zero and
@@ -1010,7 +1062,9 @@ extension FileSyncManager {
             // the scan — toggling ⇧⌘. or ignoring a row would leave the summary disagreeing with a
             // number it was never measuring.
             recordLastScanSummary(LastScanSummary(
-                date: self.lastScanDate ?? Date(),
+                // The comparison's age, for the same reason the pill shows it: the card's "Last
+                // scanned 3 days ago" is a claim about the folders, not about the scan.
+                date: readAt,
                 differenceCount: results.count,
                 leftProviderID: request.left.id,
                 // The request's own path, tilde-expanded — the same expression the pane's

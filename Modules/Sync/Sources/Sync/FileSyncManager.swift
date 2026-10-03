@@ -80,11 +80,24 @@ public class FileSyncManager: ObservableObject {
     /// the same publish that replaces `differences`, which already re-renders every reader.
     public internal(set) var lastScanRootNames: (left: String, right: String)?
 
-    /// When the most recent comparison scan completed, for the pane header's freshness pill. nil
+    /// When the most recent comparison scan completed — which scan the rows on screen came from,
+    /// so the Differences view tells a new one from the last (its folds are kept per scan). nil
     /// until a scan lands and whenever the comparison state is invalidated (provider change), so a
     /// stale timestamp never outlives the diff it describes. A swap keeps it (same scan, sides
-    /// traded). Published so the header re-renders as scans land.
+    /// traded). Published so the header re-renders as scans land. **Not the comparison's age**,
+    /// which is `lastScanReadAt`.
     @Published public internal(set) var lastScanDate: Date?
+
+    /// When the folders behind the most recent comparison were read — the older of its two walks —
+    /// which is how old the comparison really is, and the age its freshness pill and the
+    /// not-scanned card report. nil exactly when `lastScanDate` is; a swap keeps it too.
+    ///
+    /// **Not `lastScanDate`, because a scan from cached trees reads no disk.** It compares the
+    /// panes' walks (`prefetchedTrees`), each as old as the walk that made it
+    /// (`prefetchedTreeReadAt`), and a source switch keeps the other pane's walk — so it can be
+    /// hours old. Dated by the scan, the pill said "just now" over it and never gave the hour-old
+    /// warning. A scan that walks both folders itself has the two dates agree.
+    @Published public internal(set) var lastScanReadAt: Date?
 
     /// Confirms permanently deleting items that could not be moved to Trash (e.g. network volumes),
     /// given their **absolute paths**. Paths rather than basenames because this is the app's only
@@ -2070,16 +2083,34 @@ public class FileSyncManager: ObservableObject {
     /// Drops every cached walk but the one at `kept`, which stays with its provenance — or every
     /// walk and record, exactly as ``dropPrefetchedTrees()`` does, when `kept` has no walk.
     ///
-    /// **For a source switch, which moves one pane and leaves the other showing a walk this cache
-    /// holds.** The array on screen is normally that entry — every writer hands the pane the array
-    /// it caches — so dropping it freed nothing, and the Compare after the switch reads cached
-    /// trees only when both sides hit: without the still pane's entry it walked both folders from
-    /// disk, and at Home stopped at the node budget somewhere else than the pane's walk did, so it
-    /// answered differently too. Everything else is the source the moved pane left, and goes for
-    /// memory.
+    /// **For a source switch, a Location edit — anything that re-roots ONE pane — which leaves the
+    /// other showing a walk this cache holds.** The array on screen is normally that entry — every
+    /// writer hands the pane the array it caches — so dropping it freed nothing, and the Compare
+    /// after the switch reads cached trees only when both sides hit: without the still pane's entry
+    /// it walked both folders from disk, and at Home stopped at the node budget somewhere else than
+    /// the pane's walk did, so it answered differently too. Everything else goes, for memory: the
+    /// walks of the root the moved pane left, and of any other folder either pane visited — the
+    /// still pane's own root among them when it sits below it, so a folder above the kept one is
+    /// walked again when visited, as every folder was before.
+    ///
+    /// **Not a walk that could not list its folder** (`isUnreadableRootWalk`): it knows nothing.
+    /// Kept, the Compare after the switch compared against it as a side with nothing to say, and a
+    /// pane switched onto the same folder was served it empty — and once access came back, nothing
+    /// read the folder again until Refresh. Measured in the app on 2026-10-03, after macOS's
+    /// Documents prompt: a switch and back found 0 differences, the refresh 917.
+    ///
+    /// Logged either way, at DEBUG beside the `[load]` lines: whether the next Compare can read
+    /// the still pane's tree is decided here, and a miss is otherwise visible only as a slow scan.
     public func dropPrefetchedTrees(keeping kept: String?) {
-        guard let kept, let tree = prefetchedTrees[kept] else {
+        let before = prefetchedTrees.count
+        guard let kept, let tree = prefetchedTrees[kept], !Self.isUnreadableRootWalk(tree, at: kept) else {
+            let why = kept.map { folder in
+                prefetchedTrees[folder] == nil ? "no walk is cached at “\(folder)”"
+                    : "its walk could not list “\(folder)”, so the next one reads it"
+            } ?? "it holds no walk"
             dropPrefetchedTrees()
+            Logger.shared.debug("[cache] nothing to keep for the pane that stayed — \(why); "
+                                + "dropped all \(before) cached walk(s)")
             return
         }
         let walkStopped = prefetchedTreeWalkStopped.contains(kept)
@@ -2090,6 +2121,8 @@ public class FileSyncManager: ObservableObject {
         if walkStopped { prefetchedTreeWalkStopped.insert(kept) }
         prefetchedTreeReadAt[kept] = readAt
         prefetchedTreeLinkTargets[kept] = linkTargets
+        Logger.shared.debug("[cache] kept the walk at “\(kept)” for the pane that stayed; "
+                            + "dropped the other \(before - 1) cached walk(s)")
     }
 
     /// Drops only the cached walks that list `folder` — its ancestor chain, and any walk that

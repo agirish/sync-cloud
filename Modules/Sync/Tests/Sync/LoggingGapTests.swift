@@ -398,4 +398,55 @@ import Testing
         #expect(manager.rightHistory.entries == ["", "Documents/Family"],
                 "a switch on the left pane emptied the right pane's Back stack")
     }
+
+    /// **A Compare says at Info whether it read the panes' cached walks or walked the disk, and how
+    /// old the walks were.** The branch decides the answer as well as the time — a disk walk stops
+    /// at the node budget wherever it gets to and the panes' walks where they got to, so one pair
+    /// has counted 19 differences cold and 75 warm — and both lines were Debug, so a reader at Info
+    /// could not tell which a Compare after a source switch had been. The roots carry this run's
+    /// token, so no other suite's scan can answer for these.
+    @Test func aScanSaysWhereItsTreesCameFrom() async throws {
+        let token = Self.token()
+        let leftRoot = "/scan-\(token)-left", rightRoot = "/scan-\(token)-right"
+        let fm = MockFileManager()
+        for dir in [leftRoot, rightRoot] {
+            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
+        }
+        fm.virtualDisk[leftRoot + "/only.txt"] = .init(isDirectory: false, attributes: nil, contents: nil)
+        let m = FileSyncManager(fileManager: fm)
+        m.linkedFolders = [:]
+        let l = CloudProvider(id: "L", displayName: "L", imageName: "", rootPath: leftRoot, type: .iCloud)
+        let r = CloudProvider(id: "R", displayName: "R", imageName: "", rootPath: rightRoot, type: .dropBox)
+
+        // Nothing cached, so the scan walks both folders.
+        await m.scanDirectories(left: l, leftPath: leftRoot, right: r, rightPath: rightRoot)
+        let cold = await loggedEntry(containing: "walks “\(leftRoot)” and “\(rightRoot)” from disk")
+        #expect(cold?.level == .info, "a scan that walked both folders said so at \(cold?.level.rawValue ?? "no") level")
+        #expect(cold?.message.hasSuffix("no cached walk of either folder") == true, "\(cold?.message ?? "nothing logged")")
+
+        // The refresh walks and caches both panes, and its scan compares those walks.
+        await m.refreshTreesAndScan(left: l, right: r)
+        let warm = await loggedEntry(containing: "compares the panes' cached walks of “\(leftRoot)” (walked ")
+        #expect(warm?.level == .info, "a scan from the panes' walks said so at \(warm?.level.rawValue ?? "no") level")
+        #expect(warm?.message.contains("and “\(rightRoot)” (walked ") == true, "\(warm?.message ?? "nothing logged")")
+
+        // One side cached: the line names the side that missed — after a source switch, the pane
+        // that stayed means its walk was not kept.
+        m.dropPrefetchedTrees(keeping: leftRoot)
+        await m.scanDirectories(left: l, leftPath: leftRoot, right: r, rightPath: rightRoot)
+        let half = await loggedEntry(containing: "walks “\(leftRoot)” and “\(rightRoot)” from disk")
+        #expect(half?.message.hasSuffix("no cached walk of the right one") == true, "\(half?.message ?? "nothing logged")")
+    }
+
+    /// The walks' ages read in the largest whole unit that fits — minutes or hours is the question.
+    @Test func aWalksAgeReadsInWholeUnits() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        #expect(FileSyncManager.ageText(since: now, now: now) == "just now")
+        #expect(FileSyncManager.ageText(since: now + 5, now: now) == "just now", "a clock step back read as an age")
+        #expect(FileSyncManager.ageText(since: now - 42, now: now) == "42 s ago")
+        #expect(FileSyncManager.ageText(since: now - 90, now: now) == "1 min ago", "seconds past the first minute")
+        #expect(FileSyncManager.ageText(since: now - 720, now: now) == "12 min ago")
+        #expect(FileSyncManager.ageText(since: now - 14_580, now: now) == "4 h 3 min ago")
+        #expect(FileSyncManager.ageText(since: nil, now: now) == "at an unrecorded time")
+    }
 }

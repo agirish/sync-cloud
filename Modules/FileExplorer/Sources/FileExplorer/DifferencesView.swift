@@ -552,10 +552,14 @@ public struct DifferencesView: View {
     private func countPillDressing(at now: Date) -> CountPillDressing {
         let accent = SemanticCapsuleStyle.onAccent(fill: glassHue.accentFillColor,
                                                    label: glassHue.onAccentLabelColor)
-        guard let scanDate = syncManager.lastScanDate else {
+        // **The comparison's age, not the scan's** (`lastScanReadAt`): a scan from cached trees
+        // compares walks read earlier — after a source switch, the other pane's may be hours old —
+        // and dated by when it ran, this said "just now" over them and never turned stale.
+        guard let completed = syncManager.lastScanDate else {
             return CountPillDressing(semantic: accent, detailStyle: nil, detail: nil,
                                      spokenDetail: nil, help: nil)
         }
+        let scanDate = syncManager.lastScanReadAt ?? completed
         let stamp = Calendar.current.isDateInToday(scanDate)
             ? scanDate.formatted(date: .omitted, time: .standard)
             : scanDate.formatted(date: .abbreviated, time: .standard)
@@ -588,17 +592,17 @@ public struct DifferencesView: View {
 
     /// Runs `content` on a 30s tick so the age stays honest without the view polling.
     ///
-    /// Anchored to `lastScanDate`, NOT to `Date()`: anchored to view creation the ticks sat on an
-    /// arbitrary phase relative to the scan, so a "30s ago" label could land anywhere within 30s
-    /// of the truth — and, because `ScanFreshness.staleAfter` is a whole number of 30s ticks,
-    /// anchoring also puts the fresh→stale flip exactly on the threshold instead of up to 30s
-    /// late. Stated as a property of the constant rather than as its value, which is what let this
-    /// go on naming ten minutes for an hour after the threshold moved. Pre-scan there is nothing
-    /// to tick, so the content renders once.
+    /// Anchored to the date the age is measured from — `lastScanReadAt` — NOT to `Date()`: anchored
+    /// to view creation the ticks sat on an arbitrary phase relative to the scan, so a "30s ago"
+    /// label could land anywhere within 30s of the truth — and, because `ScanFreshness.staleAfter`
+    /// is a whole number of 30s ticks, anchoring also puts the fresh→stale flip exactly on the
+    /// threshold instead of up to 30s late. Stated as a property of the constant rather than as its
+    /// value, which is what let this go on naming ten minutes for an hour after the threshold
+    /// moved. Pre-scan (`lastScanDate` nil) there is nothing to tick, so the content renders once.
     @ViewBuilder
     private func withScanFreshness(@ViewBuilder _ content: @escaping (CountPillDressing) -> some View) -> some View {
-        if let scanDate = syncManager.lastScanDate {
-            TimelineView(.periodic(from: scanDate, by: 30)) { context in
+        if let completed = syncManager.lastScanDate {
+            TimelineView(.periodic(from: syncManager.lastScanReadAt ?? completed, by: 30)) { context in
                 content(countPillDressing(at: context.date))
             }
         } else {

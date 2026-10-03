@@ -94,6 +94,31 @@ import Sync
         #expect(Owed().payment(leftFolder: "/c", rightFolder: "/d", links: [:]) == nil, "nothing owed paid something")
     }
 
+    /// **A refresh that compares walks every pane holding an unread write**, whatever it was asked
+    /// to walk: settling drops that pane's cached walk, so a pane left out kept showing the file
+    /// as it was and its folder was compared cold. A source or tab switch asks for the moved pane
+    /// alone, and the write is usually under the other one. Asked to walk a pane that holds every
+    /// write, or both, it has nothing to add; a write the panes have moved off holds no pane.
+    @Test func aComparingRefreshWalksEveryPaneHoldingAnUnreadWrite() {
+        let left = "/c/Documents", right = "/d/Backup"
+        func reason(_ owed: Owed, _ requested: FileSyncManager.PaneReloadScope) -> String? {
+            owed.reasonToWalkBoth(insteadOf: requested, leftFolder: left, rightFolder: right, links: [:])
+        }
+        let underRight = Self.written(["/d/Backup/notes.md"])
+        #expect(reason(underRight, .leftOnly) == "the editor wrote /d/Backup/notes.md since the last comparison",
+                "a switch of the left pane left the right pane, which holds the write, unread")
+        #expect(reason(underRight, .rightOnly) == nil)
+        #expect(reason(underRight, .both) == nil)
+        let underLeft = Self.written(["/c/Documents/notes.md"])
+        #expect(reason(underLeft, .rightOnly) != nil, "the left pane, which holds the write, was left unread")
+        #expect(reason(underLeft, .leftOnly) == nil)
+        let underBoth = Self.written(["/c/Documents/a.md", "/d/Backup/b.md"])
+        #expect(reason(underBoth, .leftOnly) != nil && reason(underBoth, .rightOnly) != nil)
+        #expect(reason(Self.written(["/x/moved-off.md"]), .leftOnly) == nil, "a write under neither folder widened the walk")
+        #expect(reason(Self.written([], skipped: Owed.skippedByARefresh), .leftOnly) == nil,
+                "a skipped comparison alone widened the walk — its trees are current")
+    }
+
     /// An unread write under a compared folder wins over a skipped comparison: its refresh
     /// compares, so it pays both — one refresh, one line.
     @Test func anUnreadWriteIsPaidWithTheSkippedComparison() {
@@ -201,34 +226,44 @@ import Sync
         let refresh = try EditorNewFilePaneWiringTests.body(of: "func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both,",
                                                             in: "ContentView.swift")
         let comparing = try #require(refresh.range(of: "if comparing {"))
+        // The widening asks the record, so it has to come before the record is cleared — and its
+        // answer must be what the refresh walks.
+        let widen = try #require(
+            refresh.range(of: "if let because = owedComparison.reasonToWalkBoth(insteadOf: reloading,"),
+            "a comparison settles writes under a pane it does not walk — that pane keeps the pre-write tree")
+        #expect(refresh.contains("leftFolder: currentLeftPath, rightFolder: currentRightPath,"),
+                "the widening asks about folders other than the ones the panes are on")
+        #expect(refresh.contains("reloading = .both"), "the widening is asked and not acted on")
         let read = try #require(
             refresh.range(of: "for path in owedComparison.unreadWrites { syncManager.prepareReread(afterWritingAt: path) }"),
             "a comparison settles the writes without reading them — it compares the pre-write walk")
         let clear = try #require(refresh.range(of: "owedComparison = OwedComparison()"),
                                  "a comparison leaves the record owed — a second scan for nothing")
-        #expect(comparing.lowerBound < read.lowerBound && read.lowerBound < clear.lowerBound)
+        #expect(comparing.lowerBound < widen.lowerBound && widen.lowerBound < read.lowerBound
+                && read.lowerBound < clear.lowerBound)
+        #expect(refresh.contains("reloading: reloading, comparing: comparing"),
+                "the refresh walks something other than the widened scope")
         #expect(refresh.contains("} else if owedComparison.skipped == nil {\n            owedComparison.skipped = OwedComparison.skippedByARefresh"),
                 "a refresh that skips its comparison does not record the debt")
     }
 
-    /// **The tab-switch refresh compares too, so it settles the record the same way** — with more
-    /// reason than most: it walks only the moved pane, so its scan reads the other pane's cached
-    /// walk, which a switch keeps. Unread, a file the editor wrote under that pane's folder is
-    /// compared as it was before the write. ⌘K's and the sidebar's cross-source opens reload
-    /// through it as well.
-    @Test func theTabSwitchRefreshReadsTheWritesAndSettlesTheRecord() throws {
+    /// **The tab-switch refresh compares too, so it goes through the comparing refresh above** —
+    /// with more reason than most to settle the record: it walks only the moved pane, so its scan
+    /// reads the other pane's cached walk, which a switch keeps. Unread, a file the editor wrote
+    /// under that pane's folder is compared as it was before the write. ⌘K's and the sidebar's
+    /// cross-source opens reload through it as well.
+    ///
+    /// Asked as delegation rather than as a second copy of the settle: the copy that stood here
+    /// was a second spelling of the comparing refresh, and the first one shipped without the
+    /// settle at all.
+    @Test func theTabSwitchRefreshIsTheComparingRefresh() throws {
         let body = try EditorNewFilePaneWiringTests.body(of: "func refreshForTabSwitch(movedPane isLeft: Bool) {",
                                                          in: "ContentView+PaneTabs.swift")
-        let resolve = try #require(body.range(of: "let right = settings.enabledProviders"))
-        let read = try #require(
-            body.range(of: "for path in owedComparison.unreadWrites { syncManager.prepareReread(afterWritingAt: path) }"),
-            "the tab-switch scan settles nothing — it compares the other pane's walk from before the write")
-        let clear = try #require(body.range(of: "owedComparison = OwedComparison()"),
-                                 "the tab-switch scan reads the writes but leaves them owed — a second scan for nothing")
-        let refresh = try #require(body.range(of: "await syncManager.refreshTreesAndScan("))
-        #expect(resolve.lowerBound < read.lowerBound && read.lowerBound < clear.lowerBound
-                && clear.lowerBound < refresh.lowerBound,
-                "the debt is settled before the providers resolve, or after the refresh has started")
+        // Whole call, closing parenthesis included: a `comparing: false` would not match it.
+        #expect(body.contains("refreshAction(reloading: .movedPane(isLeft: isLeft))"),
+                "the tab-switch refresh no longer goes through refreshAction's comparing refresh — nothing settles what Compare owes before its scan reads the kept walk")
+        #expect(!body.contains("refreshTreesAndScan("),
+                "the tab-switch refresh starts a refresh of its own beside refreshAction's — a second spelling, free to skip the settle")
     }
 
     // MARK: Where it is paid

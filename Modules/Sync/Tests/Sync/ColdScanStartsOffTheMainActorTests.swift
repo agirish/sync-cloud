@@ -27,7 +27,10 @@ import Testing
     ///
     /// **Red, it holds the main thread for the whole ten seconds**, and every main-actor test in the
     /// run waits with it — so a time-bounded wait elsewhere can go red in the same run. Read this
-    /// one first. Green, the hold lasts as long as the walk takes to start.
+    /// one first. Green, the hold lasts as long as the walk takes to start: normally no time at
+    /// all, but the walk needs a pool thread, so at suite start, where every gate can park at once
+    /// on the pool (docs/flaky-tests.md), the hold can stretch to seconds and spend other main-actor
+    /// tests' wall-clock budgets with it.
     @MainActor
     @Test func theColdWalkReachesTheDiskWhileTheMainActorIsHeld() async throws {
         let fm = MockFileManager()
@@ -45,7 +48,9 @@ import Testing
         let scan = Task.immediate {
             await m.scanDirectories(left: left, leftPath: "/left", right: right, rightPath: "/right")
         }
-        #expect(m.isScanning, "premise: the scan ran up to its walk before handing back")
+        // Nothing suspends between `isScanning` going up and the walk detaching, so this is the
+        // walk having been handed off before the scan handed back.
+        #expect(m.isScanning, "premise: the scan ran into executeScan before handing back")
         let reached = Self.block(theCallingThreadUntil: reachedTheDisk, timeout: 10)
         await scan.value
 

@@ -370,19 +370,15 @@ extension ContentView {
     /// **`internal` for the same one caller `adoptProviderForTab` is** — ⌘K's cross-source Go to
     /// Folder drives the same single reload after the same suppressed provider write, and a second
     /// spelling of "reload the moved pane" is the drift these two helpers exist to prevent.
+    ///
+    /// **Through `refreshAction`, the one spelling of a comparing refresh — not a copy of it.** That
+    /// settles what Compare owes, which matters more here than anywhere: the other pane is not
+    /// walked, so the scan reads its cached walk, which a switch keeps
+    /// (`dropPrefetchedTrees(keeping:)`), and a file the editor wrote under its folder is compared
+    /// as it was before the write unless that walk goes first. A copy here had missed exactly that,
+    /// and still returned without a word when a source could not be resolved.
     func refreshForTabSwitch(movedPane isLeft: Bool) {
-        guard let left = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
-              let right = settings.enabledProviders.first(where: { $0.id == rightProviderId }) else { return }
-        // **It compares, so it settles what Compare owes — exactly as `refreshAction`'s comparing
-        // refresh does.** The other pane is not walked, so the scan reads that pane's cached walk,
-        // which a switch keeps (`dropPrefetchedTrees(keeping:)`): a file the editor wrote under its
-        // folder would be compared as it was before the write unless that walk goes first.
-        for path in owedComparison.unreadWrites { syncManager.prepareReread(afterWritingAt: path) }
-        owedComparison = OwedComparison()
-        Task {
-            await syncManager.refreshTreesAndScan(left: left, right: right,
-                                                  reloading: .movedPane(isLeft: isLeft))
-        }
+        refreshAction(reloading: .movedPane(isLeft: isLeft))
     }
 
     // MARK: - The verbs, as the UI names them

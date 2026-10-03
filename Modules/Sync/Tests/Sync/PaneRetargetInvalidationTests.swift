@@ -48,6 +48,7 @@ import Foundation
         manager.verifiedSameDifferenceIds = [diff.id]
         manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch)
         manager.lastScanDate = Date()
+        manager.lastScanReadAt = Date(timeIntervalSinceNow: -7200)
         manager.hasScanned = true
 
         // ...plus live duplicate results the user must be able to return to.
@@ -65,6 +66,8 @@ import Foundation
         #expect(manager.verifiedSameDifferenceIds.isEmpty)
         #expect(manager.verifiedIdenticalForCopy == nil)
         #expect(manager.lastScanDate == nil)
+        // The comparison's age goes with it, or the pill would date the next comparison by this one.
+        #expect(manager.lastScanReadAt == nil)
         #expect(manager.hasScanned == false)
 
         // Untouched: the duplicate state (the whole reason the callers suppress the
@@ -170,6 +173,8 @@ import Foundation
             manager.lastLoadedLeftFocusPath = "/left"
             manager.rawRightTree = [right]; manager.rightTree = [right]; manager.rightItemCount = 1
             manager.lastLoadedRightFocusPath = "/right"
+            // Each pane's walk is cached, as a load leaves it, beside a walk of somewhere else.
+            manager.prefetchedTrees = ["/left": [left], "/right": [right], "/elsewhere": []]
             let diff = makeDifference()
             manager.rawDifferences = [diff]; manager.differences = [diff]; manager.hasScanned = true
 
@@ -190,11 +195,22 @@ import Foundation
             #expect((droppedIsLeft ? manager.rightItemCount : manager.leftItemCount) == 1, "\(context): the sibling's count was reset")
             #expect((droppedIsLeft ? manager.lastLoadedRightFocusPath : manager.lastLoadedLeftFocusPath) != nil,
                     "\(context): the sibling was marked unloaded, so its columns prune against a tree it still has")
+            // **And its cached walk stays, alone**: the rescan reloads only the named pane, and
+            // compares from cached trees only when both sides hit — dropped, it walked both folders.
+            #expect(Array(manager.prefetchedTrees.keys) == [droppedIsLeft ? "/right" : "/left"],
+                    "\(context): cached walks after the invalidation: \(manager.prefetchedTrees.keys.sorted())")
 
             // The comparison is the pair's and goes whichever pane moved.
             #expect(manager.differences.isEmpty, "\(context): the stale comparison stayed actionable")
             #expect(manager.rawDifferences.isEmpty, "\(context)")
             #expect(manager.hasScanned == false, "\(context)")
         }
+        // Both roots moved: no walk describes either any more.
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        manager.lastLoadedLeftFocusPath = "/left"
+        manager.lastLoadedRightFocusPath = "/right"
+        manager.prefetchedTrees = ["/left": [], "/right": [], "/elsewhere": []]
+        manager.invalidateComparisonState(reloading: .both)
+        #expect(manager.prefetchedTrees.isEmpty, "both roots moved and a walk survived: \(manager.prefetchedTrees.keys.sorted())")
     }
 }
