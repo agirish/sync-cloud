@@ -670,6 +670,9 @@ public struct EditorWorkspaceView: View {
                 EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent, forcedRung: rung)
             } else {
                 EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
+                    // A reservation, never seen: Solid, so it runs no lens of its own on a mode
+                    // change and draws no glass track — its height is the same in every appearance.
+                    .environment(\.selectionLensAppearance, .today)
                     .hidden()
                     .frame(width: 0)
             }
@@ -895,8 +898,10 @@ public struct EditorWorkspaceView: View {
                     }
                 }
                 .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
-                // The capsule's height, reserved the way a plain-text header reserves it.
+                // The capsule's height, reserved the way a plain-text header reserves it — and,
+                // like that one, drawn at Solid, so it runs no lens of its own.
                 EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
+                    .environment(\.selectionLensAppearance, .today)
                     .hidden()
                     .frame(width: 0)
             }

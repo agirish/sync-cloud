@@ -605,14 +605,11 @@ struct RestructureLens: View {
         .buttonStyle(.plain)
         .padding(.vertical, 3)
         .padding(.horizontal, 8)
-        // The chosen chip's wash is today's marker — the lens carries it in Frosted and Clear.
-        .background {
-            if isSelected {
-                SelectionLensTodayMarker { Capsule().fill(accent.opacity(Self.crowdingWash)) }
-            } else {
-                Capsule().fill(.quaternary.opacity(0.30))
-            }
-        }
+        // The chosen chip's wash is today's marker — the lens carries it in Frosted and Clear. One
+        // shape in both states, as it always was, so a change of chip tweens rather than cross-fades.
+        .background(SelectionLensGround(Capsule(), isSelected: isSelected,
+                                        selected: accent.opacity(Self.crowdingWash),
+                                        unselected: .quaternary.opacity(0.30)))
         .selectionLensStop(Self.crowdingLensChannel, id: weightClass)
         .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
         // A SELECTED chip stays clickable at zero: the removal sheet can drain a class while

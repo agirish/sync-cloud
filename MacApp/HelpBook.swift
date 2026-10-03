@@ -642,7 +642,7 @@ enum HelpBook {
                     .bullets([
                         "Theme — System follows macOS (including its light/dark schedule); Light and Dark pin SyncCloud regardless of the system setting.",
                         "Accent color — the hue everything is tinted with — and Tint, how strongly the window carries it. Subtle keeps a faint tint rather than removing it; for none at all, pick the None accent.",
-                        "Glass effect — Clear, Frosted, or Solid surfaces.",
+                        "Glass effect — Clear, Frosted, or Solid surfaces. In Clear and Frosted, the marker on whatever you've chosen is a piece of glass that glides to each new choice, and toolbar buttons sit on glass, as in Finder; Solid keeps filled markers.",
                         "Content surface — Unified or Cards panes.",
                     ]),
                     .tip("Text size and row spacing have a tab of their own — Settings ▸ Readability, directly below this one."),

@@ -2555,8 +2555,8 @@ private extension View {
     /// shed its words, since a capsule on a 28pt square is one — like every bar button
     /// (`ChromeGlass`). On the BUTTON, after its style: `.actionBar` flattens its label into a
     /// compositing group, and Liquid Glass renders nothing inside one. The pill's own hairline
-    /// stays, drawn on the glass.
+    /// stays, drawn on the glass — and is its only edge: Clear's rim under it doubled it.
     func compareBarGlass(when enabled: Bool = true) -> some View {
-        chromeGlassGround(.capsule, when: enabled)
+        chromeGlassGround(.capsule, rim: false, when: enabled)
     }
 }

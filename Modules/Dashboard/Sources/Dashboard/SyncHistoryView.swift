@@ -161,7 +161,9 @@ public struct SyncHistoryView: View {
             } label: {
                 Label("Undo Last Run", systemImage: "arrow.uturn.backward")
             }
-            .buttonStyle(.bordered)
+            // Glass in Frosted and Clear, like Export and Clear beside it (`ChromeGlass`): one header,
+            // one kind of button.
+            .chromeGlassBorderedButtonStyle()
             .controlSize(.small)
             .chromeHover()
             .disabled(store.records.isEmpty)

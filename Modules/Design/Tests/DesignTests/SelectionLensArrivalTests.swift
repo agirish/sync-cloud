@@ -52,6 +52,8 @@ import SwiftUI
 
     @Test func itMovesOnTheLensesClock() {
         #expect(SelectionLensArrival.change(reduceMotion: true) == nil)
-        #expect(SelectionLensArrival.change(reduceMotion: false) != nil)
+        // The lens's own lead spring, exactly — not merely some animation.
+        let lead = SelectionLensMotion.Spring.lead
+        #expect(SelectionLensArrival.change(reduceMotion: false) == .spring(duration: lead.duration, bounce: lead.bounce))
     }
 }

@@ -28,6 +28,31 @@ enum LayoutPumpWait {
     /// See `docs/flaky-tests.md`, mechanism 2.
     static let pumpFloor = 50
 
+    /// The same wait against a host VIEW rather than a window.
+    ///
+    /// `docs/flaky-tests.md` records four suites that poll `layoutSubtreeIfNeeded()` on a view and
+    /// so could not adopt the floor by substitution — they needed this entry point, and the doc says
+    /// so. It stopped being theoretical on 2026-08-04: `FoldAllToggleBindingTests` gave up with the
+    /// table showing **0 rows** in a full-package run and passed three times out of three in
+    /// isolation, which is this mechanism exactly. Its own 15-second deadline bought too few
+    /// main-actor turns, and seconds were never the unit that mattered.
+    @MainActor
+    static func pump(_ view: NSView, upTo seconds: Double,
+                     floor: Int = pumpFloor,
+                     now: () -> Date = Date.init,
+                     until condition: () -> Bool) async -> (held: Bool, pumps: Int) {
+        var pumps = 0
+        let deadline = now().addingTimeInterval(seconds)
+        while pumps < floor || now() < deadline {
+            view.layoutSubtreeIfNeeded()
+            pumps += 1
+            if condition() { return (true, pumps) }
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        view.layoutSubtreeIfNeeded()
+        return (condition(), pumps + 1)
+    }
+
     /// Pumps `window`'s layout until `condition` holds, or until BOTH the deadline has passed and
     /// `pumpFloor` passes have been made.
     ///
@@ -62,31 +87,6 @@ enum LayoutPumpWait {
     /// With a frozen clock the deadline never expires, so the CONDITION decides when the loop ends
     /// and the assertion is about the loop's shape rather than the machine's speed. Nothing outside
     /// the tests passes this.
-    /// The same wait against a host VIEW rather than a window.
-    ///
-    /// `docs/flaky-tests.md` records four suites that poll `layoutSubtreeIfNeeded()` on a view and
-    /// so could not adopt the floor by substitution — they needed this entry point, and the doc says
-    /// so. It stopped being theoretical on 2026-08-04: `FoldAllToggleBindingTests` gave up with the
-    /// table showing **0 rows** in a full-package run and passed three times out of three in
-    /// isolation, which is this mechanism exactly. Its own 15-second deadline bought too few
-    /// main-actor turns, and seconds were never the unit that mattered.
-    @MainActor
-    static func pump(_ view: NSView, upTo seconds: Double,
-                     floor: Int = pumpFloor,
-                     now: () -> Date = Date.init,
-                     until condition: () -> Bool) async -> (held: Bool, pumps: Int) {
-        var pumps = 0
-        let deadline = now().addingTimeInterval(seconds)
-        while pumps < floor || now() < deadline {
-            view.layoutSubtreeIfNeeded()
-            pumps += 1
-            if condition() { return (true, pumps) }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        view.layoutSubtreeIfNeeded()
-        return (condition(), pumps + 1)
-    }
-
     @MainActor
     static func pump(_ window: NSWindow, upTo seconds: Double,
                      floor: Int = pumpFloor,

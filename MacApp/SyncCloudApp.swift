@@ -996,6 +996,9 @@ struct SyncCloudApp: App {
 class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     /// Reference to the shared sync manager for checking active operations.
     var syncManager: FileSyncManager?
+
+    /// The `[glass]` breadcrumb's keeper — see `GlassLogLine`.
+    private let glassLogLine = GlassLogLine()
     
     /// Static reference so the delegate always has the current manager even if the App struct is recreated.
     static weak var sharedSyncManager: FileSyncManager?
@@ -1076,11 +1079,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         Logger.shared.info(LaunchSignature.current().logLine)
 
         // Which appearance the session draws selection and bar buttons in (RD46): glass or today's
-        // markers, gliding or instant. Changing the Glass effect later is not logged; this records
-        // what the session started with, which is what a report about it needs first.
-        Logger.shared.info(SelectionLensAppearance.stored(in: .standard).launchLogLine(
-            reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
-            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion))
+        // markers, gliding or instant — at launch, and again whenever that changes (`GlassLogLine`).
+        glassLogLine.start()
 
         // Which state the AppKit display-cycle guard is in, recorded once per launch.
         //
@@ -1384,5 +1384,84 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             Logger.shared.info("User cancelled quitting to save “\(name)”")
             return .terminateCancel
         }
+    }
+}
+
+/// The `[glass]` line in `~/sync-cloud.log`: which path the session draws selection and bar buttons
+/// on (`SelectionLensAppearance.logLine`). Written at launch, then again whenever it would read
+/// differently — a Glass effect, accent or Tint changed in Settings, or Reduce Transparency, Reduce
+/// Motion or Increase Contrast toggled in System Settings — so a report about glass can be read
+/// against the path that was in force when it happened, not only the one the session began on.
+///
+/// **Observed on the posting thread, never `queue: .main`.** A queue-based observer makes the
+/// POSTER wait until the block has run on that queue, and `UserDefaults.didChangeNotification` is
+/// posted by whatever thread wrote the default — including a background writer holding a lock. The
+/// first version observed on `.main` and deadlocked the test host on 2026-10-03: a Cloud Filing
+/// batch wrote `FilingSpendStore`'s defaults inside its lock and waited for the main thread, which
+/// was waiting for that lock. The app could do the same — Settings' spend "Clear" takes the lock on
+/// the main thread. So the observer only schedules a main-actor turn, never waits for one, and a
+/// burst of writes schedules ONE.
+@MainActor
+final class GlassLogLine {
+    private var last: String?
+    private var observers: [NSObjectProtocol] = []
+    /// Whether a main-actor turn to re-read the line is already on its way.
+    private let scheduled = GlassLogLinePending()
+
+    /// Nonisolated so the app delegate can hold one as a plain stored property.
+    nonisolated init() {}
+
+    func start() {
+        log()
+        // Runs on the posting thread, whatever it is; must not block it.
+        let changed: @Sendable (Notification) -> Void = { [weak self, scheduled] _ in
+            guard scheduled.claim() else { return }
+            Task { @MainActor in
+                scheduled.release()
+                self?.log()
+            }
+        }
+        observers.append(NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: nil, using: changed))
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil,
+            queue: nil, using: changed))
+    }
+
+    /// Stops following changes — for a test; the app's lasts the session.
+    func stop() {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        observers = []
+    }
+
+    private func log() {
+        let workspace = NSWorkspace.shared
+        let line = SelectionLensAppearance.stored(in: .standard).logLine(
+            reduceTransparency: workspace.accessibilityDisplayShouldReduceTransparency,
+            reduceMotion: workspace.accessibilityDisplayShouldReduceMotion,
+            increasedContrast: workspace.accessibilityDisplayShouldIncreaseContrast)
+        guard line != last else { return }
+        last = line
+        Logger.shared.info(line)
+    }
+}
+
+/// `GlassLogLine`'s "a re-read is already scheduled" flag, claimed from any thread.
+final class GlassLogLinePending: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = false
+
+    /// True for the caller that should schedule the re-read; false while one is already on its way.
+    func claim() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !pending else { return false }
+        pending = true
+        return true
+    }
+
+    func release() {
+        lock.lock(); defer { lock.unlock() }
+        pending = false
     }
 }

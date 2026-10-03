@@ -311,7 +311,8 @@ struct PaneBreadcrumb: View {
             // "which account is this" signal, and a tint follows the Tint slider and the accent —
             // at None it would be gone. Gated on the same optional as the wash, so a crumb with no
             // source stays the bare crumb it was in every appearance.
-            .chromeGlassGround(.capsule, when: hue != nil)
+            // The brand hairline is the pill's edge, so Clear adds no rim under it.
+            .chromeGlassGround(.capsule, rim: false, when: hue != nil)
             .help("Go to \(rootPath), or switch this pane's source")
             .accessibilityLabel("Source, \(name)")
         } else {

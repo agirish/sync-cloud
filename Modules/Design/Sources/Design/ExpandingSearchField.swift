@@ -61,12 +61,19 @@ public enum ExpandingSearch {
     }
 
     /// The surface `elapsed` seconds into opening, inside `bounds`: a lens travelling from a pill
-    /// as wide as the field is tall, at the trailing edge, to the whole field — the lens's own move
-    /// (`SelectionLensMotion.frame`), so the leading edge springs out, overshoots a little and
-    /// settles once, while the magnifier's end stays put.
-    public static func surfaceFrame(in bounds: CGRect, elapsed: TimeInterval) -> SelectionLensMotion.Frame {
-        let side = min(bounds.width, bounds.height)
-        let pill = CGRect(x: bounds.maxX - side, y: bounds.minY, width: side, height: bounds.height)
+    /// as wide as the field's first row is tall, at the trailing edge, to the whole field — the
+    /// lens's own move (`SelectionLensMotion.frame`), so the leading edge springs out, overshoots a
+    /// little and settles once, while the magnifier's end stays put.
+    ///
+    /// `rowHeight` is that first row, with its padding: the field's accessories grow it below the
+    /// row while it opens — a host's suggestions appear once the field takes the caret, one turn in —
+    /// and a pill sized from the whole field jumped from 28pt to 51pt part-way. Sized from the row,
+    /// the surface opens out of the magnifier and grows down into the suggestions as they arrive.
+    public static func surfaceFrame(in bounds: CGRect, rowHeight: CGFloat? = nil,
+                                    elapsed: TimeInterval) -> SelectionLensMotion.Frame {
+        let height = min(bounds.height, rowHeight ?? bounds.height)
+        let side = min(bounds.width, height)
+        let pill = CGRect(x: bounds.maxX - side, y: bounds.minY, width: side, height: height)
         let rect = SelectionLensMotion.frame(from: pill, to: bounds, elapsed: elapsed)?.rect ?? bounds
         return .init(rect: rect, opacity: SelectionLensMotion.clamp(elapsed / surfaceFade))
     }
@@ -93,6 +100,18 @@ private struct ExpandingSearchTimeScaleKey: EnvironmentKey {
     static let defaultValue: Double = 1
 }
 
+private struct ExpandingSearchFrozenElapsedKey: EnvironmentKey {
+    static let defaultValue: TimeInterval? = nil
+}
+
+/// The field's first row, so its surface can open out of a pill that row's height.
+private struct ExpandingSearchRowKey: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>? { nil }
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
+    }
+}
+
 extension EnvironmentValues {
     /// How much slower than real time the field travels open. Always 1 in the app; internal so a
     /// test can stretch it — sampling a sub-second travel from a test is at the mercy of whatever
@@ -100,6 +119,14 @@ extension EnvironmentValues {
     var expandingSearchTimeScale: Double {
         get { self[ExpandingSearchTimeScaleKey.self] }
         set { self[ExpandingSearchTimeScaleKey.self] = newValue }
+    }
+
+    /// Holds an opening field at this many seconds in, however long it has really been. nil in the
+    /// app; a test sets it to render one instant of the travel exactly, rather than sampling a live
+    /// one and hoping a busy main thread let it see the instant it asks about.
+    var expandingSearchFrozenElapsed: TimeInterval? {
+        get { self[ExpandingSearchFrozenElapsedKey.self] }
+        set { self[ExpandingSearchFrozenElapsedKey.self] = newValue }
     }
 }
 
@@ -166,6 +193,7 @@ public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
     @Environment(\.selectionLensAppearance) private var lensAppearance
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.expandingSearchTimeScale) private var timeScale
+    @Environment(\.expandingSearchFrozenElapsed) private var frozenElapsed
     @State private var insertion = ExpandingSearchInsertion()
     /// When the field began travelling open; nil at rest. See `ExpandingSearch.surfaceFrame`.
     @State private var openedAt: Date?
@@ -202,7 +230,7 @@ public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
         // below draws in a background rather than wrapping the field in a branch, so the field's
         // identity — and with it the caret — never depends on the setting.
         TimelineView(AnimationTimelineSchedule(minimumInterval: nil, paused: openedAt == nil)) { context in
-            let elapsed = openedAt.map { context.date.timeIntervalSince($0) / timeScale }
+            let elapsed = openedAt.map { frozenElapsed ?? context.date.timeIntervalSince($0) / timeScale }
                 ?? SelectionLensMotion.travelDuration
             field
                 .opacity(openedAt == nil ? 1 : ExpandingSearch.contentOpacity(elapsed: elapsed))
@@ -213,10 +241,12 @@ public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
             if insertion.wasAnimated == nil { insertion.wasAnimated = transaction.animation != nil }
         }
         .onAppear {
-            guard travels, insertion.wasAnimated == true else { return }
-            // Spent: an `onAppear` that fires again without the field being re-created (a lazy
-            // container re-attaching it) must not replay an opening nobody asked for.
+            // Spent on every appearance, glass or not: an `onAppear` that fires again without the
+            // field being re-created (a lazy container re-attaching it) must not replay an opening
+            // nobody asked for — including one made at Solid before the setting changed.
+            let animated = insertion.wasAnimated == true
             insertion.wasAnimated = false
+            guard travels, animated else { return }
             let start = Date()
             openedAt = start
             // Not `.task(id:)`: measured, a task started on a field mid-insertion is cancelled at
@@ -257,6 +287,7 @@ public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
                 }
                 trailing()
             }
+            .anchorPreference(key: ExpandingSearchRowKey.self, value: .bounds) { $0 }
             accessories(focused)
         }
         .padding(.horizontal, 10)
@@ -275,19 +306,27 @@ private struct ExpandingSearchSurface: ViewModifier {
     let drawsProbe: Bool
 
     func body(content: Content) -> some View {
-        content.background {
+        content.backgroundPreferenceValue(ExpandingSearchRowKey.self) { row in
             if travels {
                 GeometryReader { proxy in
+                    // The row's bottom plus the field's own 6pt below it — the pill a closed field
+                    // would be.
+                    let rowHeight = row.map { proxy[$0].maxY + 6 }
                     let frame = ExpandingSearch.surfaceFrame(in: CGRect(origin: .zero, size: proxy.size),
-                                                             elapsed: elapsed)
-                    RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                                                             rowHeight: rowHeight, elapsed: elapsed)
+                    Group {
                         // The probe (tests only) paints the surface magenta, so its travel can be
-                        // measured; today's wash is too faint to.
-                        .fill(drawsProbe ? AnyShapeStyle(SelectionLensRule.probeColor)
-                                         : AnyShapeStyle(.quaternary.opacity(0.6)))
-                        .frame(width: max(0, frame.rect.width), height: max(0, frame.rect.height))
-                        .offset(x: frame.rect.minX, y: frame.rect.minY)
-                        .opacity(frame.opacity)
+                        // measured; today's wash is too faint to. Otherwise it IS today's wash.
+                        if drawsProbe {
+                            RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                                .fill(SelectionLensRule.probeColor)
+                        } else {
+                            SearchFieldWash()
+                        }
+                    }
+                    .frame(width: max(0, frame.rect.width), height: max(0, frame.rect.height))
+                    .offset(x: frame.rect.minX, y: frame.rect.minY)
+                    .opacity(frame.opacity)
                 }
             } else {
                 SearchFieldWash()

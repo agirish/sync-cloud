@@ -527,15 +527,24 @@ public struct FolderSidebarView: View {
                            opacity: dimmed)
     }
 
-    /// The opacity the current place's row is drawn at — the same 0.45 `sourceRow` applies.
+    /// The opacity a place that is not answering is drawn at — and a local folder that is not a
+    /// source yet. Named once: the row draws at it, and so does its lens, drawn outside the row.
+    static let dimmedPlaceOpacity: Double = 0.45
+    /// The opacity a folder that cannot be opened is drawn at. See `dimmedPlaceOpacity`.
+    static let dimmedFolderOpacity: Double = 0.4
+
+    /// The opacity the current place's row is drawn at — `sourceRow`'s. Favorites' places as well
+    /// as Locations': a cloud account or a disk the user has favourited is drawn in Favorites, and
+    /// dims there, so its lens must find it there.
     var currentSourceOpacity: Double {
-        locationRows.first { $0.id == currentSourceId }?.isDimmed == true ? 0.45 : 1
+        (shortcutRows + locationRows).first { $0.id == currentSourceId }?.isDimmed == true
+            ? Self.dimmedPlaceOpacity : 1
     }
 
-    /// The opacity the current folder's row is drawn at — the same 0.4 `row(for:)` applies.
+    /// The opacity the current folder's row is drawn at — `row(for:)`'s.
     var currentFolderOpacity: Double {
         let current = folderRows.first { $0.relativePath == currentRelativePath && $0.root == currentRoot }
-        return current.map { FolderSidebarModel.canOpen($0) ? 1 : 0.4 } ?? 1
+        return current.map { FolderSidebarModel.canOpen($0) ? 1 : Self.dimmedFolderOpacity } ?? 1
     }
 
     /// A folder row's lens identity: the same two fields `row(for:)` compares to decide "current".
@@ -582,7 +591,6 @@ public struct FolderSidebarView: View {
     private let currentRoot: String
     private let currentRelativePath: String
     private let currentSourceId: String
-    /// The part of the rows on screen, from the scroll view — for the selection lenses.
     /// The part of the list on screen, for the lenses — see `SelectionLensVisibleRegion`.
     @State private var visibleRows = SelectionLensVisibleRegion()
     private let width: CGFloat
@@ -1358,6 +1366,9 @@ public struct FolderSidebarView: View {
                         .shadow(color: .black.opacity(0.30), radius: 6, y: 2)
                 }
             }
+            // Under a lens the current row's wash is the lens, drawn behind the column — under this
+            // opaque ground once the row is lifted. So a lifted row draws its own (`CurrentRowWash`).
+            .environment(\.folderSidebarRowLifted, isLifted)
             .offset(y: isLifted ? (drag?.translation ?? 0) : 0)
 
             // **Measured OUTSIDE the offset, so the row reports the slot it came from rather than
@@ -1460,18 +1471,14 @@ public struct FolderSidebarView: View {
             .padding(.horizontal, 10)
             .frame(minHeight: Self.rowHeight)
             .background {
-                if isCurrent {
-                    SelectionLensTodayMarker {
-                        RoundedRectangle(cornerRadius: Radius.chip, style: .continuous).fill(accent.opacity(Self.currentWash))
-                    }
-                }
+                if isCurrent { CurrentRowWash(accent: accent) }
             }
             .selectionLensStop(Self.sourceLensChannel, id: source.id)
             .contentShape(Rectangle())
             // Drawn rather than left to `.disabled`, which under `hoverAffordance` dims nothing.
             // A source that is not answering and a local folder that is not a source yet are dimmed
             // the same way on purpose: both mean "this row cannot show you anything right now".
-            .opacity(source.isDimmed ? 0.45 : 1)
+            .opacity(source.isDimmed ? Self.dimmedPlaceOpacity : 1)
         }
         .buttonStyle(.hoverAffordance(.row, tint: accent))
         .disabled(!source.isAvailable)
@@ -1617,18 +1624,13 @@ public struct FolderSidebarView: View {
                 // tinted glyph were doing this alone, which is legible next to a neighbour and
                 // invisible on its own — and this is also what makes the row's real width
                 // measurable, which is why `theCurrentRowFillsTheColumn` can exist at all.
-                if isCurrent {
-                    SelectionLensTodayMarker {
-                        RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
-                            .fill(accent.opacity(Self.currentWash))
-                    }
-                }
+                if isCurrent { CurrentRowWash(accent: accent) }
             }
             .selectionLensStop(Self.folderLensChannel,
                                id: Self.folderLensID(root: row.root, relativePath: row.relativePath))
             .contentShape(Rectangle())
             // Drawn rather than left to `.disabled`, which under `hoverAffordance` dims nothing.
-            .opacity(canOpen ? 1 : 0.4)
+            .opacity(canOpen ? 1 : Self.dimmedFolderOpacity)
         }
         .buttonStyle(.hoverAffordance(.row, tint: accent))
         .disabled(!canOpen)
@@ -1694,5 +1696,38 @@ public struct FolderSidebarView: View {
     /// where "which of the two Legals is this" is answered without waiting for a collision.
     private func tooltip(_ row: FolderSidebarRow) -> String {
         row.sourceName.map { "\($0) — \(row.relativePath)" } ?? row.relativePath
+    }
+}
+
+private struct FolderSidebarRowLiftedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+private extension EnvironmentValues {
+    /// Whether this row is the one being dragged — see `FolderSidebarView.draggableRow`.
+    var folderSidebarRowLifted: Bool {
+        get { self[FolderSidebarRowLiftedKey.self] }
+        set { self[FolderSidebarRowLiftedKey.self] = newValue }
+    }
+}
+
+/// The current row's wash: today's marker, which a selection lens carries in Frosted and Clear —
+/// except on a lifted row, whose opaque ground hides the lens behind it, so it draws its own then,
+/// as Solid always did.
+private struct CurrentRowWash: View {
+    let accent: Color
+    @Environment(\.folderSidebarRowLifted) private var lifted
+
+    var body: some View {
+        if lifted {
+            wash
+        } else {
+            SelectionLensTodayMarker { wash }
+        }
+    }
+
+    private var wash: some View {
+        RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+            .fill(accent.opacity(FolderSidebarView.currentWash))
     }
 }

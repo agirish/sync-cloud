@@ -31,7 +31,11 @@ import Sync
             .background(Color.white)
             .environment(\.selectionLensAppearance, appearance)
             .environment(\.colorScheme, .light)
-            .environment(\.controlActiveState, .active)), size: size)
+            .environment(\.controlActiveState, .active)
+            // Pinned, so the machine's own settings cannot decide these tests.
+            .environment(\._accessibilityReduceTransparency, false)
+            .environment(\._colorSchemeContrast, .standard)
+            .environment(\._accessibilityReduceMotion, false)), size: size)
     }
 
     /// Renders `view` at `size` with the probe on, and returns the probe's bounding box in points.
@@ -50,33 +54,6 @@ import Sync
         if let x { #expect(abs(a.minX - x) <= tolerance, "minX \(a.minX), want \(x)", sourceLocation: sourceLocation) }
         if let width { #expect(abs(a.width - width) <= tolerance, "width \(a.width), want \(width)", sourceLocation: sourceLocation) }
         if let height { #expect(abs(a.height - height) <= tolerance, "height \(a.height), want \(height)", sourceLocation: sourceLocation) }
-    }
-
-    /// Pixel boxes of `match`, one per run of columns that hold it — two controls side by side
-    /// read apart, where one bounding box would merge them.
-    static func columnRuns(_ rep: NSBitmapImageRep, width: CGFloat, _ match: Pixel.Match) -> [CGRect] {
-        guard let data = rep.bitmapData else { return [] }
-        let scale = CGFloat(rep.pixelsWide) / width
-        var runs: [CGRect] = []
-        var run: (minX: Int, maxX: Int, minY: Int, maxY: Int)?
-        for x in 0...rep.pixelsWide {
-            var lo = Int.max, hi = -1
-            if x < rep.pixelsWide {
-                for y in 0..<rep.pixelsHigh {
-                    let p = y * rep.bytesPerRow + x * rep.samplesPerPixel
-                    if match(data[p], data[p + 1], data[p + 2]) { lo = min(lo, y); hi = max(hi, y) }
-                }
-            }
-            if hi >= 0 {
-                run = run.map { ($0.minX, x, min($0.minY, lo), max($0.maxY, hi)) } ?? (x, x, lo, hi)
-            } else if let r = run {
-                runs.append(CGRect(x: CGFloat(r.minX) / scale, y: CGFloat(r.minY) / scale,
-                                   width: CGFloat(r.maxX - r.minX + 1) / scale,
-                                   height: CGFloat(r.maxY - r.minY + 1) / scale))
-                run = nil
-            }
-        }
-        return runs
     }
 
     // MARK: - RD46.2 · Pane tab strip
@@ -120,6 +97,41 @@ import Sync
         Self.expectNear(box, x: PaneTabStripLadder.stripGutter, height: PaneTabStripLadder.tabHeight)
     }
 
+    /// **Choosing another tab from the chip rung's menu leaves the lens where it is.** The rung has
+    /// one stop, the active tab's, so choosing another re-labels it: the lens was drawn there and is
+    /// wanted there. The first version found no stop for the old tab, took the move for a growth,
+    /// and blinked the lens out to regrow it from 40% on the same chip, every time.
+    @Test(.machinePinned(.pixelSampling))
+    func theChipRungsLensStaysPutWhenAnotherTabIsChosen() throws {
+        let titles = ["Documents", "Taxes 2025", "Photos", "Receipts"]
+        func items(active: Int) -> [PaneTabStrip.Item] {
+            titles.enumerated().map { tab($0.element, active: $0.offset == active) }
+        }
+        // Stable ids across the two renders, as a real strip's are.
+        let ids = titles.map { _ in UUID() }
+        func stable(active: Int) -> [PaneTabStrip.Item] {
+            items(active: active).enumerated().map { i, item in
+                PaneTabStrip.Item(id: ids[i], title: item.title, markImageName: item.markImageName,
+                                  isActive: item.isActive, fullPath: item.fullPath, isPinned: false)
+            }
+        }
+        let size = CGSize(width: 200, height: PaneTabStripLadder.stripHeight)
+        let rig = Self.rig(strip(stable(active: 1)), size: size)
+        let before = try #require(rig.box(Pixel.lensProbe), "no lens on the chip")
+        rig.host.rootView = AnyView(strip(stable(active: 2))
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .background(Color.white)
+            .environment(\.selectionLensAppearance, Self.probe)
+            .environment(\.colorScheme, .light)
+            .environment(\.controlActiveState, .active)
+            .environment(\._accessibilityReduceTransparency, false)
+            .environment(\._colorSchemeContrast, .standard)
+            .environment(\._accessibilityReduceMotion, false))
+        let after = rig.box(Pixel.lensProbe)
+        #expect(after.map { abs($0.minX - before.minX) <= 1.01 && abs($0.height - before.height) <= 1.01 } == true,
+                "the lens left the chip when another tab was chosen: \(before) → \(String(describing: after))")
+    }
+
     /// **The active chip's slab steps aside for the lens.** Every chip wears a grey slab, and the
     /// active one's used to stay — drawn in the chip's own background, above the host's, so it laid
     /// an 85% quaternary film over the lens. Under that film the probe still reads as magenta to
@@ -153,7 +165,7 @@ import Sync
             available: width - 2 * PaneTabStripLadder.stripGutter, titles: titles, scale: 1)
         try #require(layout.showsOverflow && layout.rung != .chip, "the fixture is meant to fold tabs into the menu")
         let size = CGSize(width: width, height: PaneTabStripLadder.stripHeight)
-        let runs = Self.columnRuns(Self.rig(strip(items), size: size).capture(), width: width, Pixel.chromeProbe)
+        let runs = Pixel.columnRuns(Self.rig(strip(items), size: size).capture(), width: width, Pixel.chromeProbe)
         try #require(runs.count == 2, "want the menu's capsule and the ＋'s circle, got \(runs)")
         let (menu, plus) = (runs[0], runs[1])
         #expect(abs(plus.height - PaneTabStripLadder.plusSide) <= 1.01, "the ＋'s glass is \(plus)")
@@ -317,5 +329,43 @@ import Sync
         #expect(Self.probeBox(strip(items), size: CGSize(width: 640, height: PaneTabStripLadder.stripHeight),
                               appearance: SelectionLensAppearance(level: .solid, hue: .blue, tint: 0,
                                                                   drawsProbe: true)) == nil)
+    }
+
+    // MARK: - The destination picker's rail
+
+    /// The rail the picker is modelled on Settings' after, and it now draws its highlighted row the
+    /// same way: a lens exactly where Solid fills the row, the row's label white on that fill and
+    /// black on the glass.
+    @Test(.machinePinned(.pixelSampling))
+    func theDestinationRailHostsItsLens() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lens-rail-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let defaults = ScratchDefaults("SelectionLensCallSiteTests-picker")
+        defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
+        let picker = DestinationPicker(
+            request: DestinationRequest(sourcePaths: ["/x/a.txt"], firstItemName: "a.txt", isMove: true,
+                                        providerRoot: dir.path, providerName: "Projects", openAt: dir.path),
+            availableSize: CGSize(width: 700, height: 540), recents: [],
+            onCommit: { _ in }, onChooseOther: {}, onCancel: {})
+            .defaultAppStorage(defaults)
+        let size = CGSize(width: 640, height: 480)
+        let fill = Pixel.near(LiquidGlassHue.blue.accentFillColor)
+        let solid = Self.rig(picker, size: size, appearance: .today).capture()
+        let glass = Self.rig(picker, size: size).capture()
+        // The lens is the only magenta in the card; Solid's row is read in the lens's band of rows
+        // and its leftmost run, because the accent fills other things in the card too (the footer's
+        // Move button, below).
+        let lens = try #require(Pixel.columnRuns(glass, width: size.width, Pixel.lensProbe).first,
+                                "the probe drew nothing — the rail hosts no lens")
+        let marker = try #require(Pixel.columnRuns(solid, width: size.width, rows: (lens.minY - 3)...(lens.maxY + 3),
+                                                   fill).first, "Solid highlighted no rail row")
+        #expect(Pixel.same(marker, lens), "lens \(lens) is not the highlighted row \(marker)")
+        #expect(Pixel.count(solid, width: size.width, in: marker, Pixel.whiteInk) > 10,
+                "Solid's highlighted label is not white on its fill")
+        let face = lens.insetBy(dx: 4, dy: 4)
+        let white = Pixel.count(glass, width: size.width, in: face, Pixel.whiteInk)
+        let dark = Pixel.count(glass, width: size.width, in: face, Pixel.blackInk)
+        #expect(white == 0 && dark > 10, "the highlighted label on glass is not dark — \(white) white, \(dark) dark")
     }
 }

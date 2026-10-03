@@ -130,7 +130,7 @@ public struct DestinationPicker: View {
     /// Where the columns are, relative to the provider root.
     @State private var browsePath = PaneBrowsePath()
     /// The folder the footer names and Move commits to. Starts at `openAt`, then follows clicks.
-    @State private var highlighted: String = ""
+    @State private var highlighted: String
     @State private var query = ""
     /// The last completed walk. Kept whole rather than unpacked into a `[DestinationFolder]` plus
     /// a flag, because the two reasons a result list can be short of the truth word the pane's
@@ -164,6 +164,14 @@ public struct DestinationPicker: View {
         self.onCommit = onCommit
         self.onChooseOther = onChooseOther
         self.onCancel = onCancel
+        // Seeded here, not in `onAppear`: a highlight set once the card is on screen is a CHANGE,
+        // and the rail's selection lens grew in on it every time the picker opened, where Solid's
+        // fill was simply there.
+        let root = PaneBrowsePath.normalized(request.providerRoot)
+        let opening = PaneBrowsePath.normalized(request.openAt)
+        let highlighted = opening.isEmpty ? root : opening
+        _highlighted = State(initialValue: highlighted)
+        _browsePath = State(initialValue: Self.browsePath(for: highlighted, under: root))
     }
 
     // MARK: - Metrics
@@ -259,11 +267,6 @@ public struct DestinationPicker: View {
         // No background here — the host wraps this in `contentSurface` + `glassCardStyle`, exactly
         // as it wraps the Settings card. A background applied in here would sit on top of the
         // material and flatten it back out.
-        .onAppear {
-            let opening = PaneBrowsePath.normalized(request.openAt)
-            highlighted = opening.isEmpty ? root : opening
-            browsePath = Self.browsePath(for: highlighted, under: root)
-        }
         .task(id: columnDirectories) { await loadVisibleColumns() }
         .task(id: query) { await runSearch() }
         .task(id: highlighted) { await refreshCollisions() }
@@ -336,10 +339,18 @@ public struct DestinationPicker: View {
 
             Spacer(minLength: 0)
         }
+        // Frosted and Clear: the highlighted row's fill as one glass lens that glides between rows
+        // (RD46), as the Settings rail this one is modelled on does. None while searching, and none
+        // when the columns have browsed below every row here — no row is highlighted then.
+        .selectionLensHost(Self.railLensChannel, selected: isSearching ? nil : highlighted,
+                           style: .fill(DestinationRowShape.kind, color: glassHue.accentFillColor))
         .frame(width: Self.railWidth)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Color.primary.opacity(0.035))
     }
+
+    /// The rail's selection lens — see `SelectionLens`.
+    static let railLensChannel = SelectionLensChannel("destination.rail")
 
     private func railSectionLabel(_ text: String) -> some View {
         Text(text.uppercased())
@@ -365,19 +376,24 @@ public struct DestinationPicker: View {
                 Spacer(minLength: 0)
             }
             .scaledFont(.system(size: 12))
-            .foregroundStyle(isSelected ? AnyShapeStyle(glassHue.onAccentLabelColor) : AnyShapeStyle(.primary))
+            // White on Solid's fill and on dark glass; black on light glass (`selectionLensLabelInk`).
+            .selectionLensLabelInk(isSelected: isSelected, onFill: glassHue.onAccentLabelColor,
+                                   unselected: .primary)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background {
                 if isSelected {
-                    DestinationRowShape.outline.fill(glassHue.accentFillColor)
+                    SelectionLensTodayMarker { DestinationRowShape.outline.fill(glassHue.accentFillColor) }
                 }
             }
+            .selectionLensStop(Self.railLensChannel, id: PaneBrowsePath.normalized(path))
             .contentShape(DestinationRowShape.outline)
         }
-        .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment,
-                                      tint: isSelected ? glassHue.onAccentLabelColor : accent,
-                                      shape: DestinationRowShape.kind))
+        // `.filled` for the highlighted row at Solid, its ring in the on-fill colour; under the
+        // lens, `.segment` washing in the accent like its neighbours (`SelectionLens`).
+        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accent,
+                                        filledTint: glassHue.onAccentLabelColor,
+                                        shape: DestinationRowShape.kind)
         .padding(.horizontal, 10)
     }
 

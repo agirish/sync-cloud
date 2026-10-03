@@ -20,11 +20,19 @@ import SwiftUI
     /// A bar button as a call site writes one: today's resting pill, wrapped; glass outside it.
     struct BarButton: View {
         var outset: CGFloat = 0
+        /// Grows the glass up and down only.
+        var verticalOnly = false
+        var rim = true
+        var glass = true
         var body: some View {
-            Color.clear
+            let button = Color.clear
                 .frame(width: 33, height: 20)
                 .background { ChromeGlassTodayGround { Capsule().fill(Color(red: 0, green: 1, blue: 0)) } }
-                .chromeGlassGround(.capsule, outset: outset)
+            if verticalOnly {
+                button.chromeGlassGround(.capsule, horizontalOutset: 0, verticalOutset: outset, rim: rim, when: glass)
+            } else {
+                button.chromeGlassGround(.capsule, outset: outset, rim: rim, when: glass)
+            }
         }
     }
 
@@ -51,11 +59,20 @@ import SwiftUI
     }
 
     @Test(.machinePinned(.pixelSampling))
-    func glassStandsExactlyWhereTodaysGroundWas() {
-        let solid = Self.rig(BarButton(), Self.solidProbe).box(Self.isTodayGreen)
+    func glassStandsExactlyWhereTodaysGroundWas() throws {
+        let solid = try #require(Self.rig(BarButton(), Self.solidProbe).box(Self.isTodayGreen), "Solid drew no pill")
         let rig = Self.rig(BarButton(), Self.probe)
         #expect(rig.box(Self.isTodayGreen) == nil, "today's ground must step aside under glass")
-        #expect(rig.box(Pixel.chromeProbe) == solid, "the glass is not where the pill was")
+        let glass = rig.box(Pixel.chromeProbe)
+        #expect(Pixel.same(glass, solid), "the glass \(String(describing: glass)) is not where the pill \(solid) was")
+    }
+
+    @Test(.machinePinned(.pixelSampling))
+    func anOutsetCanGrowOneAxisOnly() {
+        // The tab strip's overflow menu: as tall as the ＋ beside it, no wider than itself.
+        let glass = Self.rig(BarButton(outset: 3, verticalOnly: true), Self.probe).box(Pixel.chromeProbe)
+        #expect(glass.map { abs($0.width - 33) <= 1.01 && abs($0.height - 26) <= 1.01 } == true,
+                "the glass is \(String(describing: glass)), not 33 × 26")
     }
 
     @Test(.machinePinned(.pixelSampling))
@@ -86,6 +103,36 @@ import SwiftUI
         #expect(solid.box(Self.isTodayGreen)?.width == 70)
     }
 
+    @Test(.machinePinned(.pixelSampling))
+    func aMemberWithGlassTurnedOffStaysOnTheGroupsGlass() {
+        // `when: false` turns a button's OWN glass off; inside a group the group's capsule is still
+        // its ground. Its Solid pill coming back would sit on top of the group's glass.
+        let pair = HStack(spacing: 4) { BarButton(glass: false); BarButton() }.chromeGlassGroup()
+        let rig = Self.rig(pair, Self.probe)
+        #expect(rig.box(Self.isTodayGreen) == nil, "a member put its Solid ground back over the group's glass")
+        #expect(rig.box(Pixel.chromeProbe).map { abs($0.width - 70) <= 1 } == true)
+    }
+
+    @Test(.machinePinned(.pixelSampling))
+    func aGroupInsideAGroupDrawsNoCapsuleOfItsOwn() {
+        // The inner group grows 6pt past its member; drawn, it would make the glass 32pt tall.
+        let nested = HStack(spacing: 4) {
+            HStack { BarButton() }.chromeGlassGroup(outset: 6)
+            BarButton()
+        }.chromeGlassGroup()
+        let glass = Self.rig(nested, Self.probe).box(Pixel.chromeProbe)
+        #expect(glass.map { abs($0.width - 70) <= 1 && abs($0.height - 20) <= 1 } == true,
+                "the glass is \(String(describing: glass)) — not the outer group's one 70 × 20 capsule")
+    }
+
+    @Test(.machinePinned(.pixelSampling))
+    func aGroupUnderReduceTransparencyKeepsItsMembersOwnGrounds() {
+        let pair = HStack(spacing: 4) { BarButton(); BarButton() }.chromeGlassGroup()
+        let rig = Self.rig(pair, Self.probe, reduceTransparency: true)
+        #expect(rig.box(Pixel.chromeProbe) == nil, "a group drew glass under Reduce Transparency")
+        #expect(rig.box(Self.isTodayGreen)?.width == 70, "the members' own pills went missing")
+    }
+
     @Test func reduceTransparencyAndSolidKeepTodaysGround() {
         #expect(ChromeGlass.material(appearance: .today, reduceTransparency: false) == .today)
         #expect(ChromeGlass.material(appearance: SelectionLensAppearance(level: .clear, hue: .rose, tint: 0),
@@ -94,12 +141,15 @@ import SwiftUI
                                      reduceTransparency: false) == .clear)
     }
 
-    @Test func aButtonsTintIsTheTintSlidersAlone() {
-        #expect(ChromeGlass.tintOpacity(hue: .none, tint: 1) == 0)
-        #expect(ChromeGlass.tintOpacity(markerOpacity: 0.18, hue: .rose, tint: 1) == 0.18)
-        #expect(ChromeGlass.tintOpacity(hue: .rose, tint: 1) == 1)
-        #expect(ChromeGlass.tintOpacity(hue: .rose, tint: 0) == ChromeGlass.tintOpacity(hue: .blue, tint: 0))
-        #expect(ChromeGlass.tintOpacity(hue: .rose, tint: 0) > 0)
+    @Test func onGlassAHoveredLabelStaysSeated() {
+        // The glass does not move, so a label on it does not lift or cast a shadow onto it; its
+        // wash, ring and press scale are untouched.
+        let lifted = HoverAffordanceMetrics.resolve(variant: .filled, phase: .hover)
+        #expect(lifted.lift != 0 && lifted.shadow > 0, "the fixture is meant to lift")
+        let seated = lifted.seated(true)
+        #expect(seated.lift == 0 && seated.shadow == 0)
+        #expect(seated.ring == lifted.ring && seated.wash == lifted.wash && seated.scale == lifted.scale)
+        #expect(lifted.seated(false) == lifted)
     }
 
     @Test func theChromeProbeIsNotTheLensProbe() {
@@ -115,6 +165,8 @@ import SwiftUI
         let plain = ChromeGlass.rim(material: .clear, increasedContrast: false)
         let strong = ChromeGlass.rim(material: .clear, increasedContrast: true)
         #expect(plain.width > 0 && strong.width > plain.width && strong.opacity > plain.opacity)
+        // A button with an edge of its own takes none, as a lens with a ring takes none.
+        #expect(ChromeGlass.rim(material: .clear, increasedContrast: true, ownEdge: true).width == 0)
     }
 
     @Test(.machinePinned(.pixelSampling))
@@ -132,6 +184,9 @@ import SwiftUI
         let darker: Pixel.Match = { r, g, b in r < 175 && abs(Int(r) - Int(g)) < 8 }
         #expect(clear.count(darker) < Self.rig(BarButton(), SelectionLensAppearance(level: .clear, hue: .blue, tint: 0),
                                                contrast: .increased).count(darker))
+        // And a button that draws its own edge — the breadcrumb's brand hairline — gets none.
+        #expect(Self.rig(BarButton(rim: false), SelectionLensAppearance(level: .clear, hue: .blue, tint: 0)).box(isRim) == nil,
+                "Clear drew its rim under a button's own edge")
     }
 
     // MARK: - The shared bar buttons
@@ -188,9 +243,13 @@ import SwiftUI
     }
 
     @Test(.machinePinned(.pixelSampling))
-    func aSegmentedTrackIsGlass() {
-        let track = HStack { Text("Tree"); Text("Columns") }.padding(2).chromeGlassTrack()
+    func aSegmentedTrackIsGlass() throws {
+        let track = Color.clear.frame(width: 80, height: 20).chromeGlassTrack()
         #expect(Self.rig(track, Self.solidProbe).box(Pixel.chromeProbe) == nil)
-        #expect(Self.rig(track, Self.probe).box(Pixel.chromeProbe) != nil)
+        let rig = Self.rig(track, Self.probe)
+        let glass = try #require(rig.box(Pixel.chromeProbe), "the track drew no glass")
+        // Today's grey capsule steps aside: drawn over the glass it filmed the cyan to (0, 242, 242).
+        let face = Pixel.at(rig.capture(), width: Self.canvas.width, CGPoint(x: glass.midX, y: glass.midY))
+        #expect(face.0 < 3 && face.1 > 252 && face.2 > 252, "the track's own grey is drawn over its glass: \(face)")
     }
 }

@@ -33,7 +33,10 @@ import SwiftUI
             .accentColor(.blue)
             .environment(\.selectionLensAppearance, appearance)
             .environment(\.colorScheme, .light)
-            .environment(\.controlActiveState, .active)), size: canvas)
+            .environment(\.controlActiveState, .active)
+            // Pinned, so the machine's own settings cannot decide these tests.
+            .environment(\._accessibilityReduceTransparency, false)
+            .environment(\._colorSchemeContrast, .standard)), size: canvas)
     }
 
     /// The accent's border and labels: strongly coloured, where the row's greys are not. Pink
@@ -53,10 +56,12 @@ import SwiftUI
         // The lens and its ring together are the tile's border box.
         let lens = try #require(rig.box(rows: marker.minY...marker.maxY, Self.isLens))
         #expect(Pixel.same(marker, lens), "lens \(lens) is not the chosen tile \(marker)")
-        // Today's wash stepped aside: inside the ring, a point clear of the labels is pure probe.
+        // Today's wash stepped aside: inside the ring, a point clear of the labels is the bare
+        // probe, (255, 0, 255), to within a couple of steps — exact, rather than `Pixel.lensProbe`'s
+        // loose match, which leaves room for a fainter film than the wash to pass unseen.
         let rep = rig.capture()
         let inside = Pixel.at(rep, width: Self.canvas.width, CGPoint(x: probe.minX + 3, y: probe.midY))
-        #expect(Pixel.lensProbe(inside.0, inside.1, inside.2),
+        #expect(inside.0 > 252 && inside.1 < 3 && inside.2 > 252,
                 "the lens's face is \(inside) — today's wash is drawn over the glass")
     }
 

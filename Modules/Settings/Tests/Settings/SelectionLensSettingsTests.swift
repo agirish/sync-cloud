@@ -20,6 +20,9 @@ import Design
             .environment(\.selectionLensAppearance, appearance)
             .environment(\.colorScheme, .light)
             .environment(\.controlActiveState, .active)
+            // Pinned, so the machine's own settings cannot decide these tests.
+            .environment(\._accessibilityReduceTransparency, false)
+            .environment(\._colorSchemeContrast, .standard)
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .background(Color.white)), size: size)
     }

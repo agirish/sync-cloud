@@ -994,6 +994,11 @@ extension ContentView {
     var shortcutNewTextFile: (() -> Void)? {
         guard !editorFolder.isEmpty else { return nil }
         return {
+            // The tab first, so a rail this switch builds starts on its files half rather than
+            // switching there in its first update — which, under a selection lens, glided across
+            // the rail tabs on a window nobody had touched yet. The rail's own `onChange` still
+            // moves the tab for a ⌘N made with the rail already on screen.
+            editorRailTab = .files
             if selectedWorkspace != .editor { selectedWorkspace = .editor }
             editorIsNaming = true
             // **Bumped every time, including when the row is already open.** Setting `isNaming`

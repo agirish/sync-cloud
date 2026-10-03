@@ -86,20 +86,68 @@ import SwiftUI
 
     // MARK: - Clear's rim
 
-    @Test func onlyClearDrawsARim() {
+    @Test func clearAlwaysDrawsARimAndFrostedOnlyWhereItWouldNotSayEnough() {
         #expect(SelectionLensRule.rimWidth(material: .clear, hasRing: false, increasedContrast: false) == 1.5)
         #expect(SelectionLensRule.rimWidth(material: .frosted, hasRing: false, increasedContrast: false) == 0)
-        #expect(SelectionLensRule.rimWidth(material: .today, hasRing: false, increasedContrast: false) == 0)
-        #expect(SelectionLensRule.rimWidth(material: .probe, hasRing: false, increasedContrast: false) == 0)
+        #expect(SelectionLensRule.rimWidth(material: .today, hasRing: false, increasedContrast: true, colourless: true) == 0)
+        #expect(SelectionLensRule.rimWidth(material: .probe, hasRing: false, increasedContrast: true, colourless: true) == 0)
+        // Frosted: Increase Contrast asks for edges; a colourless lens (accent None) needs one.
+        #expect(SelectionLensRule.rimWidth(material: .frosted, hasRing: false, increasedContrast: true) == 2.5)
+        #expect(SelectionLensRule.rimWidth(material: .frosted, hasRing: false, increasedContrast: false, colourless: true) == 1.5)
     }
 
     @Test func aRingIsItsOwnRim() {
         #expect(SelectionLensRule.rimWidth(material: .clear, hasRing: true, increasedContrast: false) == 0)
         #expect(SelectionLensRule.rimWidth(material: .clear, hasRing: true, increasedContrast: true) == 0)
+        #expect(SelectionLensRule.rimWidth(material: .frosted, hasRing: true, increasedContrast: true, colourless: true) == 0)
     }
 
     @Test func increaseContrastThickensTheRim() {
         #expect(SelectionLensRule.rimWidth(material: .clear, hasRing: false, increasedContrast: true) == 2.5)
+    }
+
+    // MARK: - What a host hands its lens
+
+    @Test func eachMaterialDrawsItsOwnGlass() {
+        #expect(SelectionLensRule.glassVariant(.frosted) == .regular)
+        #expect(SelectionLensRule.glassVariant(.clear) == .clear)
+        #expect(SelectionLensRule.glassVariant(.today) == nil)
+        #expect(SelectionLensRule.glassVariant(.probe) == nil)
+    }
+
+    @Test func theHostPassesTheStylesOwnTintAndRim() {
+        let rose100 = SelectionLensAppearance(level: .frosted, hue: .rose, tint: 1)
+        // A fill carries all of its colour at Tint 100; a halo (marker opacity 0) carries none.
+        let fill = SelectionLensRule.lensSpec(style: .fill(.capsule, color: .red), appearance: rose100,
+                                              reduceTransparency: false, increasedContrast: false)
+        #expect(fill == .init(material: .frosted, tintOpacity: 1, rimWidth: 0))
+        let halo = SelectionLensStyle(shape: .circle, color: .gray, markerOpacity: 0,
+                                      ring: .init(color: .gray, width: 2), outset: 3)
+        #expect(SelectionLensRule.lensSpec(style: halo, appearance: rose100, reduceTransparency: false,
+                                           increasedContrast: true).tintOpacity == 0)
+        // Accent None: colourless glass, so Frosted takes an edge.
+        let none = SelectionLensAppearance(level: .frosted, hue: .none, tint: 1)
+        #expect(SelectionLensRule.lensSpec(style: .fill(.capsule, color: .red), appearance: none,
+                                           reduceTransparency: false, increasedContrast: false)
+                == .init(material: .frosted, tintOpacity: 0, rimWidth: SelectionLensRule.rimWidth))
+        // Reduce Transparency: no lens.
+        #expect(SelectionLensRule.lensSpec(style: .fill(.capsule, color: .red), appearance: rose100,
+                                           reduceTransparency: true, increasedContrast: false).material == .today)
+    }
+
+    @Test func theChosenChoiceIsFilledOnlyWhereNoLensIs() {
+        #expect(SelectionLensRule.choiceVariant(isSelected: true, material: .today, unselected: .segment) == .filled)
+        for material in [SelectionLensMaterial.frosted, .clear, .probe] {
+            #expect(SelectionLensRule.choiceVariant(isSelected: true, material: material, unselected: .row) == .row)
+        }
+        #expect(SelectionLensRule.choiceVariant(isSelected: false, material: .today, unselected: .segment) == .segment)
+    }
+
+    @Test func aFilledChoicesRingTakesTheOnFillTintAndNothingElseDoes() {
+        #expect(SelectionLensRule.choiceTint(variant: .filled, tint: .blue, filledTint: .white) == .white)
+        #expect(SelectionLensRule.choiceTint(variant: .filled, tint: .blue, filledTint: nil) == .blue)
+        // The chosen one under a lens is `.segment`, and washes in the accent like its neighbours.
+        #expect(SelectionLensRule.choiceTint(variant: .segment, tint: .blue, filledTint: .white) == .blue)
     }
 
     // MARK: - Motion
@@ -201,6 +249,9 @@ import SwiftUI
         #expect(abs(seed.rect.midX - right.midX) < 0.001)
         let melting = try #require(SelectionLensMotion.frame(from: left, to: nil, elapsed: 0.1))
         #expect(melting.rect.width < left.width && melting.opacity < 1)
+        // A melt that catches a growth part-way fades on from there, never back up to full.
+        let caught = try #require(SelectionLensMotion.frame(from: left, opacity: 0.3, to: nil, elapsed: 0))
+        #expect(abs(caught.opacity - 0.3) < 0.001)
         #expect(SelectionLensMotion.frame(from: left, to: nil, elapsed: SelectionLensMotion.meltDuration) == nil)
         #expect(SelectionLensMotion.frame(from: nil, to: nil, elapsed: 0.1) == nil)
     }
@@ -225,6 +276,25 @@ import SwiftUI
         #expect(SelectionLensMotion.frame(from: left, to: right, elapsed: 0)?.opacity == 1)
     }
 
+    @Test func aGrowthAndAMeltCarryTheirSpeedToo() {
+        // So a click mid-growth moves on at the speed the lens was opening out at.
+        let growing = SelectionLensMotion.velocity(from: nil, to: right, elapsed: 0.05)
+        #expect(growing.maxX > 0 && growing.minX < 0, "a growing lens's edges move outward: \(growing)")
+        let melting = SelectionLensMotion.velocity(from: left, to: nil, elapsed: 0.05)
+        #expect(melting.maxX < 0 && melting.minX > 0, "a melting lens's edges move inward: \(melting)")
+        #expect(SelectionLensMotion.velocity(from: nil, to: right, elapsed: SelectionLensMotion.appearDuration) == .zero)
+    }
+
+    @Test func progressIsHowFarTheCentreHasCome() {
+        #expect(SelectionLensMotion.progress(from: left, to: right, at: left) == 0)
+        #expect(SelectionLensMotion.progress(from: left, to: right, at: right) == 1)
+        let half = CGRect(x: (left.midX + right.midX) / 2 - 25, y: 4, width: 50, height: 20)
+        #expect(abs(SelectionLensMotion.progress(from: left, to: right, at: half) - 0.5) < 0.001)
+        // Past the end (an overshoot) is still there; a resize in place is already there.
+        #expect(SelectionLensMotion.progress(from: left, to: right, at: right.offsetBy(dx: 5, dy: 0)) == 1)
+        #expect(SelectionLensMotion.progress(from: left, to: left.insetBy(dx: 5, dy: 0), at: left) == 1)
+    }
+
     @Test func theSpringsAreSwiftUIsOwn() {
         // A spring at rest stays put; a critically damped one never overshoots; its speed starts as given.
         let s = SelectionLensMotion.Spring.trail
@@ -236,17 +306,21 @@ import SwiftUI
 
     // MARK: - The launch breadcrumb
 
-    @Test func theLaunchLineNamesTheSettingsAndThePathTaken() {
+    @Test func theLogLineNamesTheSettingsAndThePathTaken() {
         let clear = SelectionLensAppearance(level: .clear, hue: .rose, tint: 0)
-        #expect(clear.launchLogLine(reduceTransparency: false, reduceMotion: false)
+        #expect(clear.logLine(reduceTransparency: false, reduceMotion: false)
                 == "[glass] Clear, Rose accent, Tint 0% — glass selection and bar buttons; moves glide")
-        #expect(clear.launchLogLine(reduceTransparency: false, reduceMotion: true).hasSuffix(
+        #expect(clear.logLine(reduceTransparency: false, reduceMotion: true).hasSuffix(
             "moves are instant (Reduce Motion is on)"))
-        #expect(clear.launchLogLine(reduceTransparency: true, reduceMotion: false).hasSuffix(
+        #expect(clear.logLine(reduceTransparency: true, reduceMotion: false).hasSuffix(
             "Reduce Transparency is on, so selection and bar buttons as Solid draws them"))
+        #expect(clear.logLine(reduceTransparency: false, reduceMotion: false, increasedContrast: true)
+                .hasSuffix("moves glide; edged for Increase Contrast"))
         let solid = SelectionLensAppearance(level: .solid, hue: .blue, tint: 0.5)
-        #expect(solid.launchLogLine(reduceTransparency: true, reduceMotion: true)
+        #expect(solid.logLine(reduceTransparency: true, reduceMotion: true, increasedContrast: true)
                 == "[glass] Solid, Blue accent, Tint 50% — selection and bar buttons as Solid draws them")
+        #expect(SelectionLensAppearance(level: .frosted, hue: .none, tint: 0)
+                .logLine(reduceTransparency: false, reduceMotion: false).hasPrefix("[glass] Frosted, no accent,"))
     }
 
     @Test func theStoredAppearanceUsesTheWindowRootsDefaults() {
@@ -375,10 +449,11 @@ import SwiftUI
         #expect(rig.box(Pixel.lensProbe) == nil)
     }
 
-    @Test(.machinePinned(.pixelSampling), arguments: [GlassLevel.frosted, .clear])
-    func theGlassLevelsDrawTheLensOnTheSelectedStopAndHideTheOldMarker(level: GlassLevel) {
-        let rig = ProbeRig(Harness(selected: 2, appearance: SelectionLensAppearance(
-            level: level, hue: .blue, tint: 0, drawsProbe: true)), size: Self.size)
+    // One level, not both: the probe stands in for Frosted and Clear alike (`material(for:)`), so a
+    // Clear arm ran the same code again. The rim — Clear's difference — is read at real Clear below.
+    @Test(.machinePinned(.pixelSampling))
+    func theGlassDrawsTheLensOnTheSelectedStopAndHidesTheOldMarker() {
+        let rig = ProbeRig(Harness(selected: 2, appearance: Self.probe), size: Self.size)
         expectNear(rig.box(Pixel.lensProbe), segment(2))
         #expect(rig.box(Self.isTodayGreen) == nil, "today's marker must not draw under a lens")
     }
@@ -472,11 +547,141 @@ import SwiftUI
     @Test(.machinePinned(.pixelSampling))
     func aMoveToAStopOffScreenArrivesAtOnce() {
         // Segment 2 lies outside the visible region, so the move switches instead of travelling.
+        // In the host's own coordinates — inside the padding — it starts at x = 100, so the region
+        // ends 10pt short of it rather than on its edge, where `intersects` would decide the test.
         let region = SelectionLensVisibleRegion()
-        region.rect = CGRect(x: 0, y: 0, width: 100, height: 40)
+        region.rect = CGRect(x: 0, y: 0, width: 90, height: 40)
         let rig = ProbeRig(Harness(selected: 0, appearance: Self.probe, region: region), size: Self.size)
         rig.host.rootView = Harness(selected: 2, appearance: Self.probe, region: region)
         expectNear(rig.box(Pixel.lensProbe), segment(2))
+    }
+
+    /// **A scroll view reports what it shows, and a move off it switches.** The region above is
+    /// handed in; here a real scroll view writes it (`selectionLensTracksVisibleRegion`), 100pt
+    /// wide over stops that run to 150, with the host on its padded content as every call site has
+    /// it. A move to the stop past its edge lands at once — out of sight; a move to one on screen
+    /// travels — its first frame still at the old stop.
+    struct ScrollHarness: View {
+        var selected: Int
+        let region: SelectionLensVisibleRegion
+
+        var body: some View {
+            ScrollView(.horizontal) {
+                HStack(spacing: 10) {
+                    ForEach(0..<3, id: \.self) { i in
+                        Color.clear.frame(width: 40, height: 20)
+                            .selectionLensStop(SelectionLensTests.channel, id: i)
+                    }
+                }
+                .padding(10)
+                .selectionLensHost(SelectionLensTests.channel, selected: selected,
+                                   style: .fill(.capsule, color: .blue), visibleRegion: region)
+            }
+            .scrollIndicators(.never)
+            .selectionLensTracksVisibleRegion(region)
+            .frame(width: 100, height: 40)
+            .background(Color.white)
+            .environment(\.selectionLensAppearance, SelectionLensTests.probe)
+            .environment(\._accessibilityReduceMotion, false)
+            .environment(\._accessibilityReduceTransparency, false)
+        }
+    }
+
+    @Test(.machinePinned(.pixelSampling))
+    func aScrollViewTellsTheHostWhatItShows() async throws {
+        let region = SelectionLensVisibleRegion()
+        let size = CGSize(width: 100, height: 40)
+        let rig = ProbeRig(ScrollHarness(selected: 0, region: region), size: size)
+        // The scroll view reports its geometry as it lays out; give it the turns to.
+        _ = await LayoutPumpWait.pump(rig.host, upTo: 2) { region.rect != nil }
+        let seen = try #require(region.rect, "the scroll view never reported what it shows")
+        #expect(abs(seen.width - 100) <= 1, "the reported region is \(seen)")
+        // Off screen: the lens leaves at once, so nothing of it is left at the old stop.
+        rig.host.rootView = ScrollHarness(selected: 2, region: region)
+        #expect(rig.box(Pixel.lensProbe) == nil, "a move to a stop out of view travelled")
+        // On screen: it travels, so the first frame is still by the old stop.
+        let back = ProbeRig(ScrollHarness(selected: 0, region: region), size: size)
+        back.host.rootView = ScrollHarness(selected: 1, region: region)
+        let first = back.box(Pixel.lensProbe)
+        #expect(first.map { $0.minX < 30 } == true, "a move on screen arrived without travelling: \(String(describing: first))")
+    }
+
+    /// A host whose stops change in the same update as its selection — what a tab strip does.
+    /// `onlyChosen`: one stop, in slot 0, under the chosen id (the chip rung). `window`: the ids
+    /// shown start at `window`, so moving it moves every stop one slot (a compact rung re-windowed).
+    /// `dimmed`: ids whose rows are drawn dimmed, as a sidebar's unavailable places are.
+    struct ShiftingHarness: View {
+        var selected: Int
+        var onlyChosen = false
+        var window = 0
+        var dimmed: Set<Int> = []
+
+        var body: some View {
+            HStack(spacing: 10) {
+                ForEach(0..<3, id: \.self) { slot in
+                    let id = onlyChosen ? (slot == 0 ? selected : nil) : window + slot
+                    Color.clear.frame(width: 40, height: 20)
+                        .selectionLensStop(SelectionLensTests.channel, id: id ?? -1 - slot)
+                }
+            }
+            .selectionLensHost(SelectionLensTests.channel, selected: selected,
+                               style: SelectionLensStyle(shape: .capsule, color: .blue, markerOpacity: 1,
+                                                         opacity: dimmed.contains(selected) ? 0.45 : 1))
+            .padding(10)
+            .frame(width: 160, height: 40, alignment: .topLeading)
+            .background(Color.white)
+            .environment(\.selectionLensAppearance, SelectionLensTests.probe)
+            .environment(\._accessibilityReduceMotion, false)
+            .environment(\._accessibilityReduceTransparency, false)
+        }
+    }
+
+    @Test(.machinePinned(.pixelSampling))
+    func aLensWhoseOnlyStopChangesHandsStaysPut() {
+        // The chip rung: choosing another tab re-labels the one stop. The lens was drawn there and
+        // is wanted there; the first version found no rect for the old id, called it a growth, and
+        // blinked out to regrow from 40% on the same chip.
+        let rig = ProbeRig(ShiftingHarness(selected: 0, onlyChosen: true), size: Self.size)
+        expectNear(rig.box(Pixel.lensProbe), segment(0))
+        rig.host.rootView = ShiftingHarness(selected: 7, onlyChosen: true)
+        expectNear(rig.box(Pixel.lensProbe), segment(0))
+    }
+
+    @Test(.machinePinned(.pixelSampling))
+    func aMoveStartsWhereTheLensWasDrawnNotWhereTheOldStopWent() {
+        // A compact rung re-windowed by the change: the active tab stays in slot 2 while its old id
+        // slides to slot 1. Started from the old stop, the lens dipped a slot left and came back.
+        let rig = ProbeRig(ShiftingHarness(selected: 2, window: 0), size: Self.size)
+        expectNear(rig.box(Pixel.lensProbe), segment(2))
+        rig.host.rootView = ShiftingHarness(selected: 3, window: 1)
+        expectNear(rig.box(Pixel.lensProbe), segment(2))
+    }
+
+    @Test(.machinePinned(.pixelSampling))
+    func aDimmedRowsLensStaysDimmedAsItLeaves() async throws {
+        // 0.45 of the probe over white is (255, 140, 255); full strength is (255, 0, 255). Read at the
+        // lens's middle: on the first frame of a move from a dimmed row it is still the dimmed row's.
+        let rig = ProbeRig(ShiftingHarness(selected: 0, dimmed: [0]), size: Self.size)
+        func green(_ at: CGRect) -> Int { Int(Pixel.at(rig.capture(), width: Self.size.width,
+                                                        CGPoint(x: at.midX, y: at.midY)).1) }
+        #expect(abs(green(segment(0)) - 140) <= 15, "the dimmed row's lens is not dimmed")
+        rig.host.rootView = ShiftingHarness(selected: 2, dimmed: [0])
+        #expect(abs(green(segment(0)) - 140) <= 15, "the lens brightened before it left the dimmed row")
+        let wait = await LayoutPumpWait.pump(rig.host, upTo: 15) { green(segment(2)) < 10 }
+        #expect(wait.held, "the lens never came to full strength on the bright row")
+    }
+
+    @Test(.machinePinned(.pixelSampling))
+    func aSecondClickMidMoveCarriesOnFromWhereTheLensIs() {
+        // 0 → 2, and before it has gone anywhere, 2 → 1: the second move starts where the lens is —
+        // by segment 0 — not at segment 2, where the first was heading.
+        let rig = ProbeRig(Harness(selected: 0, appearance: Self.probe), size: Self.size)
+        rig.host.rootView = Harness(selected: 2, appearance: Self.probe)
+        _ = rig.capture()
+        rig.host.rootView = Harness(selected: 1, appearance: Self.probe)
+        let first = rig.box(Pixel.lensProbe)
+        #expect(first.map { $0.minX < segment(1).minX } == true,
+                "the second move started at \(String(describing: first)), not where the lens was")
     }
 
     @Test(.machinePinned(.pixelSampling))
@@ -495,13 +700,13 @@ import SwiftUI
         let rig = ProbeRig(Harness(selected: 1, appearance: Self.probe), size: Self.size)
         expectNear(rig.box(Pixel.lensProbe), segment(1))
         rig.host.rootView = Harness(selected: nil, appearance: Self.probe)
+        // Melting, not removed: on the first frame it is still there.
+        #expect(rig.box(Pixel.lensProbe) != nil, "the lens vanished at once rather than melting")
         let wait = await LayoutPumpWait.pump(rig.host, upTo: 15) { rig.box(Pixel.lensProbe) == nil }
         #expect(wait.held, "the lens was still drawn after \(wait.pumps) passes")
     }
 
     // MARK: - A choice's ground
-
-    private static let isWashBlue: Pixel.Match = { r, g, b in b > 229 && r < 26 && g < 60 }
 
     @Test(.machinePinned(.pixelSampling))
     func aSelectedGroundIsTheLensUnderGlassAndTodaysFillAtSolid() {
@@ -514,8 +719,8 @@ import SwiftUI
                 .background(Color.white)
                 .environment(\.selectionLensAppearance, appearance)
         }
-        #expect(ProbeRig(view(.today), size: Self.size).box(Self.isWashBlue) != nil, "Solid lost the selected fill")
-        #expect(ProbeRig(view(Self.probe), size: Self.size).box(Self.isWashBlue) == nil,
+        #expect(ProbeRig(view(.today), size: Self.size).box(Self.isRingBlue) != nil, "Solid lost the selected fill")
+        #expect(ProbeRig(view(Self.probe), size: Self.size).box(Self.isRingBlue) == nil,
                 "the selected fill drew under a lens")
     }
 
@@ -585,10 +790,9 @@ import SwiftUI
 
     /// **On a glass lens in light mode the chosen label is `.primary`, black.** White on a lens at
     /// Tint 0 was all but invisible: there is no fill behind it any more, only pale glass.
-    @Test(.machinePinned(.pixelSampling), arguments: [GlassLevel.frosted, .clear])
-    func onGlassTheChosenLabelIsPrimary(level: GlassLevel) {
-        let view = LabelHarness(selected: 1, appearance: SelectionLensAppearance(
-            level: level, hue: .blue, tint: 0, drawsProbe: true))
+    @Test(.machinePinned(.pixelSampling))
+    func onGlassTheChosenLabelIsPrimary() {
+        let view = LabelHarness(selected: 1, appearance: Self.probe)
         let chosen = ink(view, 1)
         #expect(chosen.0 < 60 && chosen.1 < 60 && chosen.2 < 60, "the chosen label on glass is \(chosen), not black")
         #expect(Self.isRed(ink(view, 0)) && Self.isRed(ink(view, 2)), "the rest are not their own ink")
@@ -597,10 +801,9 @@ import SwiftUI
     /// **In dark mode the chosen label keeps the fill's white** — the user's call. Dark glass carries
     /// white well, and `.primary` would not be it: it is white at 85%, which over the probe reads
     /// `(255, 217, 255)`, so this asks for the fill's ink exactly.
-    @Test(.machinePinned(.pixelSampling), arguments: [GlassLevel.frosted, .clear])
-    func inDarkTheChosenLabelOnGlassKeepsTheFillsWhite(level: GlassLevel) {
-        let chosen = ink(LabelHarness(selected: 0, appearance: SelectionLensAppearance(
-            level: level, hue: .blue, tint: 0, drawsProbe: true), scheme: .dark), 0)
+    @Test(.machinePinned(.pixelSampling))
+    func inDarkTheChosenLabelOnGlassKeepsTheFillsWhite() {
+        let chosen = ink(LabelHarness(selected: 0, appearance: Self.probe, scheme: .dark), 0)
         #expect(chosen.0 > 245 && chosen.1 > 245 && chosen.2 > 245, "the chosen label on dark glass is \(chosen), not white")
     }
 

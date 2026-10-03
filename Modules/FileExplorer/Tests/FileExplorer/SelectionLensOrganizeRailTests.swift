@@ -35,6 +35,9 @@ import Design
             .defaultAppStorage(defaults)
             .environment(\.selectionLensAppearance, appearance)
             .environment(\.controlActiveState, .active)
+            // Pinned, so the machine's own settings cannot decide these tests.
+            .environment(\._accessibilityReduceTransparency, false)
+            .environment(\._colorSchemeContrast, .standard)
             .frame(width: canvas.width, height: canvas.height)
             .background(Color.white)
             .environment(\.colorScheme, .light)

@@ -60,6 +60,19 @@ private final class RevealBox: ObservableObject {
                 """)
     }
 
+    /// The same promise on the glass path, which Frosted — the default — takes: there the field's
+    /// content is at opacity 0 for the first 0.12 s of its opening, exactly when the focus claim
+    /// lands. A field that would not take the caret while invisible would reveal dead in glass alone.
+    @Test func revealedFieldClaimsFocusOnTheGlassPathToo() async throws {
+        let box = RevealBox()
+        let window = Self.host(RealFieldHarness(box: box, appearance: SelectionLensAppearance(
+            level: .frosted, hue: .blue, tint: 0)))
+        try await Task.sleep(for: .milliseconds(100))
+        withAnimation(ExpandingSearch.animation) { box.isExpanded = true }
+        let caret = await Self.becomesEditingText(window)
+        #expect(caret.held, "the revealed field must hold the caret in Frosted too (gave up after \(caret.passes) passes)")
+    }
+
     // MARK: Behaviour-preservation of the extraction
 
     /// Compare's adoption has to be a no-op visually, and the risky part is the accessories slot:
@@ -177,8 +190,8 @@ private final class RevealBox: ObservableObject {
 
     /// Ten times what a starved run has been measured to need, which also clears what an idle one
     /// wants — so the floor carries this wait on its own. Same number and same reason as
-    /// `LayoutPumpWait.pumpFloor` in FileExplorer; that type is in another package's test target,
-    /// so the constant is restated rather than shared.
+    /// `LayoutPumpWait.pumpFloor`, which this target now has a copy of too; this wait polls a
+    /// window's first responder rather than a hosting view's layout, so it keeps its own loop.
     private static let pumpFloor = 50
 
     /// What `theFloorOutlivesAnExpiredDeadline` demands — a LITERAL, deliberately not derived from
@@ -305,6 +318,7 @@ private struct AdoptedCompareField: View {
 /// `isExpanded`, then inserted by that transaction.
 private struct RealFieldHarness: View {
     @ObservedObject var box: RevealBox
+    var appearance: SelectionLensAppearance = .today
     @State private var text = ""
 
     var body: some View {
@@ -318,5 +332,8 @@ private struct RealFieldHarness: View {
                 )
             }
         }
+        .environment(\.selectionLensAppearance, appearance)
+        .environment(\._accessibilityReduceMotion, false)
+        .environment(\._accessibilityReduceTransparency, false)
     }
 }

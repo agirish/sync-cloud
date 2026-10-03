@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Testing
 import Design
 
 /// The one offscreen harness for the selection-lens and chrome-glass suites in this target: a view
@@ -34,6 +35,7 @@ final class ProbeRig<Root: View> {
         host.layoutSubtreeIfNeeded()
         let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
         host.cacheDisplay(in: host.bounds, to: rep)
+        Pixel.check(rep)
         return rep
     }
 
@@ -68,9 +70,24 @@ enum Pixel {
         }
     }
 
+    /// Whether `rep` is laid out the way every reader here reads it: 8-bit integer samples, colour
+    /// first. **Says so as a test failure when it is not** — every reader would otherwise answer
+    /// "nothing matched", and each "draws nothing" test in these suites would pass on a capture it
+    /// never read.
+    @discardableResult
+    static func check(_ rep: NSBitmapImageRep, sourceLocation: SourceLocation = #_sourceLocation) -> Bool {
+        let readable = rep.bitmapData != nil && rep.samplesPerPixel >= 3 && rep.bitsPerSample == 8
+            && !rep.bitmapFormat.contains(.alphaFirst) && !rep.bitmapFormat.contains(.floatingPointSamples)
+        if !readable {
+            Issue.record("a capture these readers cannot read: \(rep.bitsPerSample)-bit, \(rep.samplesPerPixel) samples, format \(rep.bitmapFormat.rawValue)",
+                         sourceLocation: sourceLocation)
+        }
+        return readable
+    }
+
     static func box(_ rep: NSBitmapImageRep, width: CGFloat, rows: ClosedRange<CGFloat>? = nil,
                     _ match: Match) -> CGRect? {
-        guard let data = rep.bitmapData, rep.samplesPerPixel >= 3, rep.bitsPerSample == 8 else { return nil }
+        guard check(rep), let data = rep.bitmapData else { return nil }
         let scale = CGFloat(rep.pixelsWide) / width
         let ys = rows.map { max(0, Int($0.lowerBound * scale))..<min(rep.pixelsHigh, Int($0.upperBound * scale) + 1) }
             ?? 0..<rep.pixelsHigh
@@ -90,7 +107,7 @@ enum Pixel {
 
     static func count(_ rep: NSBitmapImageRep, width: CGFloat, rows: ClosedRange<CGFloat>? = nil,
                       _ match: Match) -> Int {
-        guard let data = rep.bitmapData, rep.samplesPerPixel >= 3, rep.bitsPerSample == 8 else { return 0 }
+        guard check(rep), let data = rep.bitmapData else { return 0 }
         let scale = CGFloat(rep.pixelsWide) / width
         let ys = rows.map { max(0, Int($0.lowerBound * scale))..<min(rep.pixelsHigh, Int($0.upperBound * scale) + 1) }
             ?? 0..<rep.pixelsHigh
@@ -107,7 +124,7 @@ enum Pixel {
     /// How many pixels inside `rect` (in points) match — a marker's own box, read apart from the
     /// same colour anywhere else in the render.
     static func count(_ rep: NSBitmapImageRep, width: CGFloat, in rect: CGRect, _ match: Match) -> Int {
-        guard let data = rep.bitmapData, rep.samplesPerPixel >= 3, rep.bitsPerSample == 8 else { return 0 }
+        guard check(rep), let data = rep.bitmapData else { return 0 }
         let scale = CGFloat(rep.pixelsWide) / width
         let xs = max(0, Int(rect.minX * scale))..<min(rep.pixelsWide, Int(rect.maxX * scale))
         let ys = max(0, Int(rect.minY * scale))..<min(rep.pixelsHigh, Int(rect.maxY * scale))
@@ -125,12 +142,69 @@ enum Pixel {
     static let whiteInk: Match = { r, g, b in r > 240 && g > 240 && b > 240 }
     static let blackInk: Match = { r, g, b in r < 70 && g < 70 && b < 70 }
 
-    /// The colour at `point` (in points), as bytes.
+    /// The colour at `point` (in points), as bytes — black for a capture `check` rejects, so a
+    /// reader of it fails rather than traps.
     static func at(_ rep: NSBitmapImageRep, width: CGFloat, _ point: CGPoint) -> (UInt8, UInt8, UInt8) {
+        guard check(rep), let d = rep.bitmapData else { return (0, 0, 0) }
         let scale = CGFloat(rep.pixelsWide) / width
-        let p = Int(point.y * scale) * rep.bytesPerRow + Int(point.x * scale) * rep.samplesPerPixel
-        let d = rep.bitmapData!
+        let x = min(rep.pixelsWide - 1, max(0, Int(point.x * scale)))
+        let y = min(rep.pixelsHigh - 1, max(0, Int(point.y * scale)))
+        let p = y * rep.bytesPerRow + x * rep.samplesPerPixel
         return (d[p], d[p + 1], d[p + 2])
+    }
+
+    /// One box per run of ROWS holding `match` — a column of separate markers, read apart.
+    static func rowRuns(_ rep: NSBitmapImageRep, width: CGFloat, _ match: Match) -> [CGRect] {
+        guard check(rep), let data = rep.bitmapData else { return [] }
+        let scale = CGFloat(rep.pixelsWide) / width
+        func hit(_ y: Int) -> Bool {
+            (0..<rep.pixelsWide).contains { x in
+                let p = y * rep.bytesPerRow + x * rep.samplesPerPixel
+                return match(data[p], data[p + 1], data[p + 2])
+            }
+        }
+        var boxes: [CGRect] = []
+        var top: Int?
+        for y in 0...rep.pixelsHigh {
+            let inRun = y < rep.pixelsHigh && hit(y)
+            if inRun, top == nil { top = y }
+            if !inRun, let t = top {
+                if let b = box(rep, width: width, rows: CGFloat(t) / scale...CGFloat(y - 1) / scale, match) {
+                    boxes.append(b)
+                }
+                top = nil
+            }
+        }
+        return boxes
+    }
+
+    /// One box per run of COLUMNS holding `match`, within `rows` — controls side by side, read apart.
+    static func columnRuns(_ rep: NSBitmapImageRep, width: CGFloat, rows: ClosedRange<CGFloat>? = nil,
+                           _ match: Match) -> [CGRect] {
+        guard check(rep), let data = rep.bitmapData else { return [] }
+        let scale = CGFloat(rep.pixelsWide) / width
+        let ys = rows.map { max(0, Int($0.lowerBound * scale))..<min(rep.pixelsHigh, Int($0.upperBound * scale) + 1) }
+            ?? 0..<rep.pixelsHigh
+        var runs: [CGRect] = []
+        var run: (minX: Int, maxX: Int, minY: Int, maxY: Int)?
+        for x in 0...rep.pixelsWide {
+            var lo = Int.max, hi = -1
+            if x < rep.pixelsWide {
+                for y in ys {
+                    let p = y * rep.bytesPerRow + x * rep.samplesPerPixel
+                    if match(data[p], data[p + 1], data[p + 2]) { lo = min(lo, y); hi = max(hi, y) }
+                }
+            }
+            if hi >= 0 {
+                run = run.map { ($0.minX, x, min($0.minY, lo), max($0.maxY, hi)) } ?? (x, x, lo, hi)
+            } else if let r = run {
+                runs.append(CGRect(x: CGFloat(r.minX) / scale, y: CGFloat(r.minY) / scale,
+                                   width: CGFloat(r.maxX - r.minX + 1) / scale,
+                                   height: CGFloat(r.maxY - r.minY + 1) / scale))
+                run = nil
+            }
+        }
+        return runs
     }
 
     /// Whether two boxes agree to within a pixel-and-a-bit on every edge.

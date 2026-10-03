@@ -19,12 +19,15 @@ import SwiftUI
 // 1. **Glass all the time** in Frosted and Clear — not a fill at rest that turns to glass while it
 //    moves, although that is what Apple's "avoid glass on glass" guidance points to (every one of
 //    these controls sits on glass already: the toolbar's, or a glass card).
-// 2. **Labels exactly as today**, colour and weight. Nothing here touches a label.
+// 2. **Labels as today**, colour and weight — with one exception, taken 2026-10-03 on seeing it: a
+//    control whose marker is a solid fill puts its chosen label in white, and on light-mode glass
+//    that white all but vanished, so there it is `.primary`, black (`selectionLensLabelInk`). Dark
+//    mode keeps the white. Wash and ring markers never had white labels, and are untouched.
 // 3. **The Tint slider is the only thing that tints the lens**, on the window background's curve
 //    (`LiquidGlass.backgroundHueStrength`): a quarter of the control's own marker colour at Tint 0,
 //    all of it at Tint 100, none at all when the accent is None. No per-hue adjustment, no fixed
-//    strength — a white label on a lightly tinted lens is the price of that, and it is measured and
-//    reported rather than tuned away.
+//    strength. Where that leaves the lens colourless — accent None — it takes an edge instead
+//    (`SelectionLensRule.rimWidth`), so the selection never rests on shape alone.
 //
 // Two things that ARRIVE ride the same motion and the same rule about appearances: the search
 // field, whose surface travels open (`ExpandingSearch`), and Organize's counts, which drop out of
@@ -44,8 +47,9 @@ public struct SelectionLensAppearance: Equatable, Sendable {
     /// **A test seam.** Glass draws nothing into an offscreen `cacheDisplay` capture (measured in
     /// this file's tests: a Frosted lens left no pixel), so a render test could never see where the
     /// lens is. With this set, Frosted and Clear draw a flat ``SelectionLensRule/probeColor`` shape in
-    /// the lens's place instead — same geometry, same motion, same rim, ring and rule — and chrome
-    /// glass draws ``ChromeGlass/probeColor``.
+    /// the lens's place instead — same geometry, same motion, same ring and rule — and chrome glass
+    /// draws ``ChromeGlass/probeColor``. Not the rim, and not Frosted apart from Clear: both levels
+    /// draw the same probe. The rim is drawn outside the glass, so tests read it at real Clear.
     public var drawsProbe: Bool
 
     public init(level: GlassLevel, hue: LiquidGlassHue, tint: Double, drawsProbe: Bool = false) {
@@ -120,12 +124,68 @@ public enum SelectionLensRule {
     /// Increase Contrast thickens the rim.
     public static let increasedContrastRimWidth: CGFloat = 2.5
 
-    /// The rim a lens draws: Clear only, and none when the style carries a ring of its own (the
-    /// ring already is that edge, and two concentric strokes read as a double border).
-    public static func rimWidth(material: SelectionLensMaterial, hasRing: Bool,
-                                increasedContrast: Bool) -> CGFloat {
-        guard material == .clear, !hasRing else { return 0 }
+    /// The rim a lens draws, in its marker's colour — none when the style carries a ring of its own
+    /// (the ring already is that edge, and two concentric strokes read as a double border).
+    ///
+    /// Clear always has one. Frosted reads as a shape on its own, and takes one only where it would
+    /// otherwise not say enough: under Increase Contrast, which asks for edges, and when the glass
+    /// carries no colour at all (`colourless` — accent None), where a chosen label in the same ink
+    /// as its neighbours left the selection to a faint frosted shape alone.
+    public static func rimWidth(material: SelectionLensMaterial, hasRing: Bool, increasedContrast: Bool,
+                                colourless: Bool = false) -> CGFloat {
+        guard !hasRing else { return 0 }
+        switch material {
+        case .clear: break
+        case .frosted: guard increasedContrast || colourless else { return 0 }
+        case .today, .probe: return 0
+        }
         return increasedContrast ? increasedContrastRimWidth : rimWidth
+    }
+
+    /// Which Liquid Glass a material draws — nil where it draws none.
+    public enum GlassVariant: Equatable, Sendable { case regular, clear }
+
+    public static func glassVariant(_ material: SelectionLensMaterial) -> GlassVariant? {
+        switch material {
+        case .frosted: .regular
+        case .clear: .clear
+        case .today, .probe: nil
+        }
+    }
+
+    /// Everything a host hands its lens beyond the stops: what it is drawn in, how much of the
+    /// marker's colour it carries, and its rim. One function, so a test asserts what the host
+    /// actually passes — the halo's untinted glass, Increase Contrast's rim — not the parts.
+    public struct LensSpec: Equatable, Sendable {
+        public var material: SelectionLensMaterial
+        public var tintOpacity: Double
+        public var rimWidth: CGFloat
+    }
+
+    public static func lensSpec(style: SelectionLensStyle, appearance: SelectionLensAppearance,
+                                reduceTransparency: Bool, increasedContrast: Bool) -> LensSpec {
+        let material = material(for: appearance, reduceTransparency: reduceTransparency)
+        return LensSpec(
+            material: material,
+            tintOpacity: tintOpacity(markerOpacity: style.markerOpacity, hue: appearance.hue, tint: appearance.tint),
+            rimWidth: rimWidth(material: material, hasRing: style.ring != nil, increasedContrast: increasedContrast,
+                               colourless: tintStrength(hue: appearance.hue, tint: appearance.tint) == 0))
+    }
+
+    /// The hover style of one choice in a lens control: `.filled` for the chosen one at Solid, as
+    /// the control always drew it; under a lens the chosen one takes `unselected`, because it has
+    /// no fill of its own for `.filled`'s lift and shadow to belong to. See
+    /// `selectionLensChoiceButtonStyle`.
+    public static func choiceVariant(isSelected: Bool, material: SelectionLensMaterial,
+                                     unselected: HoverAffordanceVariant) -> HoverAffordanceVariant {
+        isSelected && material == .today ? .filled : unselected
+    }
+
+    /// The tint that style takes: `filledTint` where it is `.filled` and one is given — the on-fill
+    /// colour a ring on a fill is drawn in — and `tint` everywhere else, the chosen one under a lens
+    /// included: a white wash on glass is no hover at all.
+    public static func choiceTint(variant: HoverAffordanceVariant, tint: Color, filledTint: Color?) -> Color {
+        variant == .filled ? (filledTint ?? tint) : tint
     }
 
     /// The probe's colour: pure magenta, which no marker, glass or hue in the app paints, so a
@@ -273,7 +333,9 @@ public enum SelectionLensMotion {
                              springs: .all(.lead), elapsed: elapsed).rect
             return Frame(rect: rect, opacity: min(1, max(0, elapsed) / appearFade))
         case (let from?, nil):
-            let opacity = 1 - max(0, elapsed) / meltDuration
+            // From however visible it already was: a melt that catches a growth part-way fades on
+            // from there, rather than flashing to full first.
+            let opacity = clamp(opacity) * (1 - max(0, elapsed) / meltDuration)
             guard opacity > 0 else { return nil }
             let rect = edges(from: from, velocity: velocity, to: scaled(from, by: seedScale),
                              springs: .all(.trail), elapsed: elapsed).rect
@@ -289,11 +351,34 @@ public enum SelectionLensMotion {
 
     /// How fast each edge is moving `elapsed` seconds into the same move — what a second click
     /// mid-move carries into the next one.
+    /// A growth and a melt carry theirs too, so a click mid-growth moves on at the speed the lens
+    /// was already opening out at.
     public static func velocity(from: CGRect?, velocity: EdgeVelocity = .zero, to: CGRect?,
                                 elapsed: TimeInterval) -> EdgeVelocity {
-        guard let from, let to, elapsed < travelDuration else { return .zero }
-        return edges(from: from, velocity: velocity, to: to,
-                     springs: .travel(from: from, to: to), elapsed: elapsed).velocity
+        guard elapsed < travelDuration else { return .zero }
+        switch (from, to) {
+        case (nil, nil):
+            return .zero
+        case (nil, let to?):
+            guard elapsed < appearDuration else { return .zero }
+            return edges(from: scaled(to, by: seedScale), velocity: .zero, to: to,
+                         springs: .all(.lead), elapsed: elapsed).velocity
+        case (let from?, nil):
+            guard elapsed < meltDuration else { return .zero }
+            return edges(from: from, velocity: velocity, to: scaled(from, by: seedScale),
+                         springs: .all(.trail), elapsed: elapsed).velocity
+        case (let from?, let to?):
+            return edges(from: from, velocity: velocity, to: to,
+                         springs: .travel(from: from, to: to), elapsed: elapsed).velocity
+        }
+    }
+
+    /// How far along a move from `from` to `to` the lens at `rect` is, 0...1, by its centre. A
+    /// move that only resizes the lens is already there.
+    public static func progress(from: CGRect, to: CGRect, at rect: CGRect) -> Double {
+        let span = hypot(to.midX - from.midX, to.midY - from.midY)
+        guard span > 0.5 else { return 1 }
+        return clamp(hypot(rect.midX - from.midX, rect.midY - from.midY) / span)
     }
 
     /// Which way a move goes: along the axis it covers more distance on.
@@ -474,14 +559,16 @@ public extension SelectionLensAppearance {
             tint: defaults.object(forKey: LiquidGlass.tintKey) as? Double ?? defaultTint)
     }
 
-    /// One line for `~/sync-cloud.log` at launch, saying which path this session draws selection
-    /// and bar buttons on — glass or today's markers, gliding or instant. Without it a report about
-    /// the lens or the glass cannot be told apart from one about Solid, or about an accessibility
+    /// One line for `~/sync-cloud.log`, saying which path the session draws selection and bar
+    /// buttons on — glass or today's markers, gliding or instant, edged for Increase Contrast or not.
+    /// Logged at launch and again whenever it would read differently. Without it a report about the
+    /// lens or the glass cannot be told apart from one about Solid, or about an accessibility
     /// setting, because nothing in the log said which was in force.
-    func launchLogLine(reduceTransparency: Bool, reduceMotion: Bool) -> String {
-        let settings = "\(level.displayName), \(hue.displayName) accent, Tint \(Int((tint * 100).rounded()))%"
+    func logLine(reduceTransparency: Bool, reduceMotion: Bool, increasedContrast: Bool = false) -> String {
+        let accent = hue == .none ? "no accent" : "\(hue.displayName) accent"
+        let settings = "\(level.displayName), \(accent), Tint \(Int((tint * 100).rounded()))%"
         let material = SelectionLensRule.material(for: self, reduceTransparency: reduceTransparency)
-        let drawn: String
+        var drawn: String
         if material == .today {
             drawn = reduceTransparency && level != .solid
                 ? "Reduce Transparency is on, so selection and bar buttons as Solid draws them"
@@ -490,6 +577,7 @@ public extension SelectionLensAppearance {
             drawn = reduceMotion
                 ? "glass selection and bar buttons; moves are instant (Reduce Motion is on)"
                 : "glass selection and bar buttons; moves glide"
+            if increasedContrast { drawn += "; edged for Increase Contrast" }
         }
         return "[glass] \(settings) — \(drawn)"
     }
@@ -628,9 +716,10 @@ private struct SelectionLensChoiceButtonStyle: ViewModifier {
     @Environment(\.selectionLensMaterial) private var material
 
     func body(content: Content) -> some View {
-        let filled = isSelected && material == .today
-        content.buttonStyle(.hoverAffordance(filled ? .filled : unselected,
-                                             tint: filled ? (filledTint ?? tint) : tint, shape: shape))
+        let variant = SelectionLensRule.choiceVariant(isSelected: isSelected, material: material,
+                                                      unselected: unselected)
+        content.buttonStyle(.hoverAffordance(variant, tint: SelectionLensRule.choiceTint(
+            variant: variant, tint: tint, filledTint: filledTint), shape: shape))
     }
 }
 
@@ -705,24 +794,21 @@ struct SelectionLensHost: ViewModifier {
     @Environment(\.colorSchemeContrast) private var contrast
 
     func body(content: Content) -> some View {
-        let material = SelectionLensRule.material(for: appearance, reduceTransparency: reduceTransparency)
+        let spec = SelectionLensRule.lensSpec(style: style, appearance: appearance,
+                                              reduceTransparency: reduceTransparency,
+                                              increasedContrast: contrast == .increased)
         // One shape of view tree whatever the material, so switching Glass effect in Settings never
         // resets the state of the control inside.
         content
-            .environment(\.selectionLensMaterial, material)
+            .environment(\.selectionLensMaterial, spec.material)
             .backgroundPreferenceValue(SelectionLensStopsKey.self) { stops in
-                if material != .today {
+                if spec.material != .today {
                     GeometryReader { proxy in
                         SelectionLensLayer(
                             rects: Self.rects(stops, channel: channel, in: proxy),
                             selected: selected,
                             style: style,
-                            material: material,
-                            tintOpacity: SelectionLensRule.tintOpacity(
-                                markerOpacity: style.markerOpacity, hue: appearance.hue, tint: appearance.tint),
-                            rimWidth: SelectionLensRule.rimWidth(
-                                material: material, hasRing: style.ring != nil,
-                                increasedContrast: contrast == .increased),
+                            spec: spec,
                             reduceMotion: reduceMotion,
                             visibleRegion: visibleRegion)
                     }
@@ -746,14 +832,22 @@ struct SelectionLensHost: ViewModifier {
     }
 }
 
+/// What the lens was last drawn as — kept out of the view graph, as `SelectionLensVisibleRegion` is:
+/// written on every frame the lens draws, read only when a move starts.
+@MainActor
+final class SelectionLensLastDrawn {
+    /// Where, before any outset, or nil when nothing was drawn.
+    var rect: CGRect?
+    /// The style's opacity it was drawn at — a dimmed row's lens is dimmed with it.
+    var styleOpacity: Double = 1
+}
+
 /// The lens itself: where it is, and what it is made of.
 struct SelectionLensLayer: View {
     let rects: [AnyHashable: CGRect]
     let selected: AnyHashable?
     let style: SelectionLensStyle
-    let material: SelectionLensMaterial
-    let tintOpacity: Double
-    let rimWidth: CGFloat
+    let spec: SelectionLensRule.LensSpec
     let reduceMotion: Bool
     let visibleRegion: SelectionLensVisibleRegion?
 
@@ -770,6 +864,9 @@ struct SelectionLensLayer: View {
         var from: CGRect?
         var velocity: SelectionLensMotion.EdgeVelocity
         var opacity: Double
+        /// The style opacity the lens was drawn at as the move began. A move between a dimmed row
+        /// and a bright one dims or brightens as the lens crosses, not at the click.
+        var styleOpacity: Double
         var to: AnyHashable?
         var start: Date
     }
@@ -780,6 +877,7 @@ struct SelectionLensLayer: View {
     @State private var settled: AnyHashable?
     @State private var leg: Leg?
     @State private var hasAppeared = false
+    @State private var lastDrawn = SelectionLensLastDrawn()
 
     var body: some View {
         // The schedule is named in full rather than as `.animation(…)`: it is a frame clock, not the
@@ -790,7 +888,7 @@ struct SelectionLensLayer: View {
                 lens
                     .frame(width: max(0, frame.rect.width), height: max(0, frame.rect.height))
                     .position(x: frame.rect.midX, y: frame.rect.midY)
-                    .opacity(frame.opacity * style.opacity)
+                    .opacity(frame.opacity)
             }
         }
         .onAppear {
@@ -802,18 +900,36 @@ struct SelectionLensLayer: View {
         }
     }
 
-    /// Where the lens is at `date`, outset for a halo.
+    /// Where the lens is at `date`, outset for a halo, with the style's opacity folded in.
     func frame(at date: Date) -> SelectionLensMotion.Frame? {
         let raw: SelectionLensMotion.Frame?
+        let styleOpacity: Double
         if let leg {
+            let target = leg.to.flatMap { rects[$0] }
             raw = SelectionLensMotion.frame(from: leg.from, velocity: leg.velocity, opacity: leg.opacity,
-                                            to: leg.to.flatMap { rects[$0] },
-                                            elapsed: date.timeIntervalSince(leg.start))
+                                            to: target, elapsed: date.timeIntervalSince(leg.start))
+            switch (leg.from, target) {
+            case (nil, _): styleOpacity = style.opacity
+            case (_, nil): styleOpacity = leg.styleOpacity
+            case (let from?, let to?):
+                let p = raw.map { SelectionLensMotion.progress(from: from, to: to, at: $0.rect) } ?? 1
+                styleOpacity = leg.styleOpacity + (style.opacity - leg.styleOpacity) * p
+            }
         } else {
             let resting = hasAppeared ? settled : selected
-            raw = resting.flatMap { rects[$0] }.map { SelectionLensMotion.Frame(rect: $0, opacity: 1) }
+            // In the one render between a change and `begin`, the stop the lens rests on may already
+            // be gone or moved — a tab strip's chip rung publishes only the active tab's stop, and a
+            // compact rung re-windows its chips — so it stays where it was drawn. Only then: at rest
+            // with no stop, a row scrolled out of a lazy list, there is no lens to draw.
+            let lagging = hasAppeared && settled != selected
+            let rect = (lagging ? lastDrawn.rect : nil) ?? resting.flatMap { rects[$0] }
+            raw = rect.map { SelectionLensMotion.Frame(rect: $0, opacity: 1) }
+            styleOpacity = lagging ? lastDrawn.styleOpacity : style.opacity
         }
+        lastDrawn.rect = raw?.rect
+        lastDrawn.styleOpacity = styleOpacity
         guard var frame = raw else { return nil }
+        frame.opacity *= styleOpacity
         if style.outset != 0 {
             frame.rect = frame.rect.insetBy(dx: -style.outset, dy: -style.outset)
         }
@@ -823,7 +939,10 @@ struct SelectionLensLayer: View {
     private func begin(from old: AnyHashable?, to new: AnyHashable?) {
         let now = Date()
         // From wherever the lens is right now, at the speed it is going — mid-move included, so a
-        // second click while it travels carries it on from there instead of stopping it dead.
+        // second click while it travels carries it on from there instead of stopping it dead. At
+        // rest, from where it was last DRAWN rather than where the old stop is now: the same update
+        // can move that stop (a re-windowed tab strip) or remove it (the chip rung's one stop), and
+        // starting there jumped the lens before it glided.
         let current: SelectionLensMotion.Frame?
         var velocity = SelectionLensMotion.EdgeVelocity.zero
         if let leg {
@@ -834,7 +953,8 @@ struct SelectionLensLayer: View {
             velocity = SelectionLensMotion.velocity(from: leg.from, velocity: leg.velocity, to: target,
                                                     elapsed: elapsed)
         } else {
-            current = old.flatMap { rects[$0] }.map { SelectionLensMotion.Frame(rect: $0, opacity: 1) }
+            current = (lastDrawn.rect ?? old.flatMap { rects[$0] })
+                .map { SelectionLensMotion.Frame(rect: $0, opacity: 1) }
         }
         let from = (current?.opacity ?? 0) > 0 ? current?.rect : nil
         let to = new.flatMap { rects[$0] }
@@ -852,7 +972,7 @@ struct SelectionLensLayer: View {
                 return
             }
             leg = Leg(from: from, velocity: from == nil ? .zero : velocity,
-                      opacity: current?.opacity ?? 0, to: new, start: now)
+                      opacity: current?.opacity ?? 0, styleOpacity: lastDrawn.styleOpacity, to: new, start: now)
         }
         guard leg?.start == now else { return }
         // Ends the move, so the frame clock stops. Not `.task(id:)`: measured on the search field, a
@@ -869,30 +989,28 @@ struct SelectionLensLayer: View {
 
     @ViewBuilder
     private var lens: some View {
-        switch material {
-        case .today:
-            EmptyView()
-        case .probe:
-            outline.fill(SelectionLensRule.probeColor)
-                .modifier(decorations)
-        case .frosted, .clear:
+        if let variant = SelectionLensRule.glassVariant(spec.material) {
             GlassEffectContainer {
-                Color.clear.glassEffect(glass, in: outline)
+                Color.clear.glassEffect(glass(variant), in: outline)
             }
             .modifier(decorations)
+        } else {
+            // The probe: the host draws no layer at all for `.today`.
+            outline.fill(SelectionLensRule.probeColor)
+                .modifier(decorations)
         }
     }
 
     /// The rim, ring and rule — drawn OUTSIDE the glass container, so the probe draws them too and a
     /// render test can see them; glass itself draws nothing offscreen.
     private var decorations: SelectionLensDecorations {
-        SelectionLensDecorations(outline: outline, rimColor: style.color, rimWidth: rimWidth,
+        SelectionLensDecorations(outline: outline, rimColor: style.color, rimWidth: spec.rimWidth,
                                  ring: style.ring, rule: style.rule)
     }
 
-    private var glass: Glass {
-        let base: Glass = material == .clear ? .clear : .regular
-        return tintOpacity > 0 ? base.tint(style.color.opacity(tintOpacity)) : base
+    private func glass(_ variant: SelectionLensRule.GlassVariant) -> Glass {
+        let base: Glass = variant == .clear ? .clear : .regular
+        return spec.tintOpacity > 0 ? base.tint(style.color.opacity(spec.tintOpacity)) : base
     }
 }
 

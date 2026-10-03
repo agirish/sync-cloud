@@ -231,9 +231,14 @@ import Sync
     /// Every `hoverAffordance(…)` call in `text`, each as its complete expression — opening paren
     /// to the matching close, continuation lines and all.
     static func hoverAffordanceCalls(in text: String) -> [String] {
+        calls(of: "hoverAffordance(", in: text)
+    }
+
+    /// Every call of `name` (written with its opening parenthesis), whole, by parenthesis balance.
+    static func calls(of name: String, in text: String) -> [String] {
         var calls: [String] = []
         var search = text.startIndex..<text.endIndex
-        while let hit = text.range(of: "hoverAffordance(", range: search) {
+        while let hit = text.range(of: name, range: search) {
             var depth = 0
             var i = text.index(before: hit.upperBound)   // the opening paren itself
             var end: String.Index?
@@ -305,7 +310,13 @@ import Sync
             // onto a continuation line, so a line-at-a-time scan reports those two as defects that
             // are not. Whole call expressions, matched by parenthesis balance, are the only reading
             // that gets both right.
+            //
+            // **And a choice in a selection-lens control takes `.segment` without spelling it:**
+            // `selectionLensChoiceButtonStyle` is `.filled` / `.segment` with the lens deciding which,
+            // and `.segment` unless told otherwise — the destination rail's rows, since they took a lens.
             let styled = Self.hoverAffordanceCalls(in: text).filter { $0.contains(".segment") }
+                + Self.calls(of: "selectionLensChoiceButtonStyle(", in: text)
+                    .filter { !$0.contains("unselected:") || $0.contains("unselected: .segment") }
             #expect(styled.count == site.sites,
                     "\(site.path) has \(styled.count) `.segment` call sites, not the \(site.sites) this test knows about — audit the new one before updating this number")
             for line in styled {

@@ -29,28 +29,10 @@ import Design
     /// along one row, because a row through the middle is cut up by the glyphs drawn on the glass.
     /// The band is the first block of rows that holds any glass at all.
     static func pillRow(_ rep: NSBitmapImageRep) -> [ClosedRange<CGFloat>] {
-        guard let data = rep.bitmapData, rep.samplesPerPixel >= 3, rep.bitsPerSample == 8 else { return [] }
-        let scale = CGFloat(rep.pixelsWide) / size.width
-        func isGlass(_ x: Int, _ y: Int) -> Bool {
-            let p = y * rep.bytesPerRow + x * rep.samplesPerPixel
-            let r = data[p], g = data[p + 1], b = data[p + 2]
-            return (r < 115 && g > 229 && b > 229) || (r > 229 && g < 115 && b > 229)
-        }
-        let rows = (0..<rep.pixelsHigh).filter { y in (0..<rep.pixelsWide).contains { isGlass($0, y) } }
-        guard let top = rows.first else { return [] }
-        var bottom = top
-        while rows.contains(bottom + 1) { bottom += 1 }
-        var runs: [ClosedRange<CGFloat>] = []
-        var start: Int?
-        for x in 0...rep.pixelsWide {
-            let glass = x < rep.pixelsWide && (top...bottom).contains { isGlass(x, $0) }
-            if glass, start == nil { start = x }
-            if !glass, let s = start {
-                runs.append(CGFloat(s) / scale...CGFloat(x) / scale)
-                start = nil
-            }
-        }
-        return runs
+        let isGlass: Pixel.Match = { r, g, b in Pixel.chromeProbe(r, g, b) || Pixel.lensProbe(r, g, b) }
+        guard let band = Pixel.rowRuns(rep, width: size.width, isGlass).first else { return [] }
+        return Pixel.columnRuns(rep, width: size.width, rows: band.minY...band.maxY, isGlass)
+            .map { $0.minX...$0.maxX }
     }
 
     @Test(.machinePinned(.pixelSampling))
@@ -74,16 +56,16 @@ import Design
         let pair = 2 * pill + PaneNavMetrics.pairSpacing
         #expect(runs.contains { abs(width($0) - pair) <= 1.5 },
                 "no \(pair)pt run for Back and Forward together — two capsules, not one: \(runs)")
-        // Preview is the bar's last control, and has glass even while it is off: its pill is the
-        // segment-inset width, a little narrower than a nav pill.
+        // Preview is the bar's last control, and has glass even while it is off — a pill's width,
+        // like its neighbours', though its own pill gave up the segment inset to its ON fill.
         let last = try #require(runs.last)
-        #expect(width(last) > 20 && width(last) < pill, "the bar's last glass is \(width(last))pt, not Preview's: \(runs)")
+        #expect(abs(width(last) - pill) <= 1.01, "Preview's glass is \(width(last))pt, not a pill's \(pill): \(runs)")
     }
 
     /// **Preview ON keeps its fill, on the glass.** A toggle has no position to say it is on — only
     /// its fill — and the first glass version traded the fill for a tint that all but vanished at
     /// Tint 0 and vanished entirely at accent None, so ON and OFF read the same. The fill is
-    /// opaque and covers Preview's glass exactly: ON, the accent stands where OFF's glass was.
+    /// opaque and sits inside Preview's glass, the segment inset in from it on each side.
     @Test(.machinePinned(.pixelSampling))
     func previewOnKeepsItsFillOnTheGlass() throws {
         let isFill = SelectionLensViewModeTests.isTodaysFill
@@ -92,8 +74,9 @@ import Design
         let glass = try #require(Self.pillRow(off).last, "no glass on the bar")
         #expect(Pixel.box(off, width: Self.size.width, isFill) == nil, "Preview OFF drew a fill")
         let fill = try #require(Pixel.box(on, width: Self.size.width, isFill), "Preview ON drew no fill under glass")
-        #expect(abs(fill.minX - glass.lowerBound) <= 1.5 && abs(fill.maxX - glass.upperBound) <= 1.5,
-                "the accent fill \(fill) is not where Preview's glass \(glass) is")
+        let inset = PaneNavMetrics.segmentInset / 2
+        #expect(abs(fill.minX - (glass.lowerBound + inset)) <= 1.5 && abs(fill.maxX - (glass.upperBound - inset)) <= 1.5,
+                "the accent fill \(fill) is not inset \(inset)pt inside Preview's glass \(glass)")
     }
 
     /// **Hover is painted on the glass.** A glass pill has no resting grey — the glass is its
@@ -111,7 +94,8 @@ import Design
                 .frame(width: 80, height: 50, alignment: .topLeading)
                 .background(Color.white)
                 .environment(\.selectionLensAppearance, Self.frosted)
-                .environment(\.colorScheme, .light)), size: CGSize(width: 80, height: 50))
+                .environment(\.colorScheme, .light)
+                .environment(\._accessibilityReduceTransparency, false)), size: CGSize(width: 80, height: 50))
         }
         let rest = pill(.rest)
         let glass = try #require(rest.box(Pixel.chromeProbe), "the pill drew no glass at rest")

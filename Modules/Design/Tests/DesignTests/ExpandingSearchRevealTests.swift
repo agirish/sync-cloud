@@ -82,6 +82,14 @@ import SwiftUI
         @ObservedObject var reveal: Reveal
         let appearance: SelectionLensAppearance
         var timeScale: Double = 1
+        /// Holds an opening at this instant — see `expandingSearchFrozenElapsed`.
+        var frozenElapsed: TimeInterval?
+        /// A second row under the field, as a host's suggestions are.
+        var accessories = false
+        /// Whether the host fades the field in as it inserts it, as the app's hosts do. Off for the
+        /// frozen-clock tests: they read the surface, and the fade runs on the animation's own clock,
+        /// which a loaded offscreen run did not advance — the field was still invisible at 0.5 s.
+        var fades = true
         @State private var text = ""
 
         var body: some View {
@@ -91,8 +99,12 @@ import SwiftUI
                     ExpandingSearchField(
                         text: $text,
                         isExpanded: Binding(get: { reveal.isExpanded }, set: { reveal.isExpanded = $0 }),
-                        placeholder: "kind:pdf, >5mb…")
+                        placeholder: "kind:pdf, >5mb…",
+                        accessories: { _ in
+                            if accessories { Color.clear.frame(height: 20) }
+                        })
                     .padding(.horizontal, 20)
+                    .transition(fades ? AnyTransition.opacity : .identity)
                 }
             }
             .frame(width: ExpandingSearchRevealTests.canvas.width,
@@ -100,6 +112,7 @@ import SwiftUI
             .background(Color.white)
             .environment(\.selectionLensAppearance, appearance)
             .environment(\.expandingSearchTimeScale, timeScale)
+            .environment(\.expandingSearchFrozenElapsed, frozenElapsed)
             .environment(\.colorScheme, .light)
             // Pinned, so the machine's own settings cannot turn the travel off under these tests.
             .environment(\._accessibilityReduceMotion, false)
@@ -125,13 +138,13 @@ import SwiftUI
         #expect(ProbeRig(Harness(reveal: Reveal(true), appearance: solid), size: Self.canvas).box(Pixel.lensProbe) == nil)
     }
 
-    /// **Slowed eight times, and sampled in turns.** At real speed this passed alone and failed in
-    /// the full parallel run, where the main thread went unserviced for longer than the whole travel
-    /// and every capture came back open. The springs' shape is the same at any speed; slowed, the
-    /// overshoot lasts seconds, and the samples are taken on main-actor turns with `LayoutPumpWait`'s
-    /// floor rather than on a wall-clock loop. What the samples must show is the travel's shape: no
-    /// open field on the first frame, every frame anchored at the magnifier's end, a frame part-way,
-    /// a frame overshooting, and the field at the end.
+    /// **The live clock, asked only what a busy machine cannot hide.** The first version sampled the
+    /// travel as it ran and needed a frame from inside the overshoot — about 0.16 s of a 0.7 s move,
+    /// 1.3 s even slowed eight times — and a main thread held for one pass longer than that missed it
+    /// with nothing wrong (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"). The instants are
+    /// rendered exactly below, on a frozen clock; this pins that the real one starts the travel and
+    /// ends it on the field: no open field on the first frame, every frame anchored at the
+    /// magnifier's end, and the field at rest at the end.
     static let stretch: Double = 8
 
     @Test(.machinePinned(.pixelSampling))
@@ -148,20 +161,62 @@ import SwiftUI
         }
         let wait = await LayoutPumpWait.pump(rig.host, upTo: 30) {
             if let box = rig.box(Pixel.lensProbe) { samples.append(box) }
-            // Done once it has been part-way, overshot, and come to rest on the field.
-            return samples.contains { $0.width < full - 1 }
-                && samples.contains { $0.width > full + 1 }
-                && samples.last.map { Pixel.same($0, CGRect(x: Self.fieldMinX, y: $0.minY, width: full, height: $0.height)) } == true
+            return samples.last.map { Pixel.same($0, CGRect(x: Self.fieldMinX, y: $0.minY, width: full, height: $0.height)) } == true
         }
         try #require(!samples.isEmpty, "nothing drawn during the travel")
         for box in samples {
             #expect(abs(box.maxX - Self.fieldMaxX) <= 1.01, "a frame left the magnifier's end: \(box)")
         }
-        #expect(samples.contains { $0.width < full - 1 },
-                "no frame was part-way after \(wait.pumps) passes: \(samples.map(\.width))")
-        #expect(samples.contains { $0.width > full + 1 && $0.width <= full * 1.02 + 1.01 },
-                "no frame overshot, by up to 2% of the field, after \(wait.pumps) passes: \(samples.map(\.width))")
         #expect(wait.held, "the travel never came to rest on the field after \(wait.pumps) passes")
+    }
+
+    /// The travel at chosen instants, on a frozen clock: each frame is exactly the one
+    /// `ExpandingSearch.surfaceFrame` gives, placed on the field — part-way, overshooting, at rest.
+    /// Opens a field on a frozen clock: inserted by an animated transaction, so its own travel
+    /// starts, but with no fade from the host, so what is read is the surface at that instant and
+    /// nothing that runs on a clock of its own. Slowed a thousandfold, so the real clock never ends
+    /// the opening under the frozen one. Waited for in turns, until the surface draws.
+    static func frozenOpening(at elapsed: TimeInterval, accessories: Bool = false) async -> ProbeRig<Harness> {
+        let reveal = Reveal(false)
+        let rig = ProbeRig(Harness(reveal: reveal, appearance: probe, timeScale: 1000,
+                                   frozenElapsed: elapsed, accessories: accessories, fades: false), size: canvas)
+        withAnimation(ExpandingSearch.animation) { reveal.isExpanded = true }
+        _ = await LayoutPumpWait.pump(rig.host, upTo: 15) { rig.box(Pixel.lensProbe) != nil }
+        return rig
+    }
+
+    @Test(.machinePinned(.pixelSampling), arguments: [0.05, 0.305, SelectionLensMotion.travelDuration])
+    func eachInstantOfTheOpeningIsTheSurfaceFrameAtThatInstant(elapsed: TimeInterval) async throws {
+        let atRest = try #require(ProbeRig(Harness(reveal: Reveal(true), appearance: Self.probe), size: Self.canvas)
+                                    .box(Pixel.lensProbe), "no field at rest to measure against")
+        let rig = await Self.frozenOpening(at: elapsed)
+        let box = try #require(rig.box(Pixel.lensProbe), "nothing drawn \(elapsed) s in")
+        let want = ExpandingSearch.surfaceFrame(in: CGRect(origin: .zero, size: atRest.size), elapsed: elapsed).rect
+            .offsetBy(dx: atRest.minX, dy: atRest.minY)
+        #expect(Pixel.same(box, want, tolerance: 1.51), "\(elapsed) s in the surface is \(box), want \(want)")
+        if elapsed == 0.305 {
+            #expect(box.width > atRest.width + 1, "no overshoot at the lead spring's peak: \(box.width) vs \(atRest.width)")
+        }
+    }
+
+    /// **A field with a second row opens out of its FIRST row.** Hosts show suggestions under the
+    /// field once it takes the caret; sized from the whole field, the opening pill jumped from the
+    /// row's height to the field's part-way. Frozen just in, the surface is still about a row tall.
+    @Test(.machinePinned(.pixelSampling))
+    func aFieldWithASecondRowOpensOutOfItsFirst() async throws {
+        let whole = try #require(ProbeRig(Harness(reveal: Reveal(true), appearance: Self.probe, accessories: true),
+                                          size: Self.canvas).box(Pixel.lensProbe))
+        // 0.07 s: early, and past the surface's own 0.08 s fade-in far enough for the probe to read.
+        let rig = await Self.frozenOpening(at: 0.07, accessories: true)
+        let early = try #require(rig.box(Pixel.lensProbe), "nothing drawn just in")
+        // The first row with the field's padding: measured, as a field with no second row.
+        let row = try #require(ProbeRig(Harness(reveal: Reveal(true), appearance: Self.probe), size: Self.canvas)
+                                .box(Pixel.lensProbe)).height
+        let want = ExpandingSearch.surfaceFrame(in: CGRect(origin: .zero, size: whole.size), rowHeight: row,
+                                                elapsed: 0.07).rect.offsetBy(dx: whole.minX, dy: whole.minY)
+        #expect(early.height < whole.height - 5,
+                "the opening started as the whole \(whole.height)pt field, not its first row: \(early)")
+        #expect(Pixel.same(early, want, tolerance: 1.51), "the surface is \(early), want \(want)")
     }
 
     @Test(.machinePinned(.pixelSampling))

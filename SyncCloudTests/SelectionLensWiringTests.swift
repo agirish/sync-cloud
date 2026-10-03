@@ -84,6 +84,51 @@ import Design
         #expect(help[marker.upperBound...].prefix(240).contains(".fill(accentFill)"))
     }
 
+    /// ⌘N from another workspace sets Edit's rail tab BEFORE it switches there, so the rail is built
+    /// on its files half rather than switching to it in its first update — which glided its lens
+    /// across the tabs of a window nobody had touched.
+    @Test func newTextFileSetsTheRailTabBeforeTheRailIsBuilt() throws {
+        let editor = try Self.source("ContentView+Editor.swift")
+        let body = try #require(editor.range(of: "var shortcutNewTextFile"), "no ⌘N handler")
+        let rest = editor[body.upperBound...]
+        let tab = try #require(rest.range(of: "editorRailTab = .files"), "⌘N no longer sets the rail tab")
+        let switchTo = try #require(rest.range(of: "selectedWorkspace = .editor"))
+        #expect(tab.lowerBound < switchTo.lowerBound, "the rail tab is set after the switch that builds the rail")
+    }
+
+    /// The `[glass]` line is written at launch and again on every change that would alter it.
+    @Test func theGlassLineFollowsTheSettingsThroughTheSession() throws {
+        let app = try Self.source("SyncCloudApp.swift")
+        #expect(app.contains("glassLogLine.start()"))
+        #expect(app.contains("UserDefaults.didChangeNotification"))
+        #expect(app.contains("NSWorkspace.accessibilityDisplayOptionsDidChangeNotification"))
+        #expect(app.contains("increasedContrast: workspace.accessibilityDisplayShouldIncreaseContrast"))
+        // Never a queue-based observer: see the test below for what one did.
+        #expect(!app.contains("queue: .main) { [weak self] _ in\n                MainActor.assumeIsolated { self?.log() }"))
+    }
+
+    /// **A defaults write off the main thread never waits for it.** The `[glass]` line's first
+    /// observer was `queue: .main`, which makes the POSTER wait for the main thread: a background
+    /// writer holding a lock waited on a main thread that was waiting on that lock, and the test host
+    /// hung for good (2026-10-03, `FilingSpendStore`). Here the main thread is held while another
+    /// thread writes a default; with the old observer the write cannot finish until the hold ends,
+    /// and the hold gives up after five seconds and says so.
+    @Test @MainActor func aDefaultsWriteOffTheMainThreadNeverWaitsForIt() throws {
+        let line = GlassLogLine()
+        line.start()
+        defer { line.stop() }
+        let suite = "SelectionLensWiringTests.glassLine-\(UUID().uuidString)"
+        defer { wipeDefaultsSuite(suite) }
+        let written = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            UserDefaults(suiteName: suite)?.set(1, forKey: "probe")
+            written.signal()
+        }
+        // The main thread, held — as a lock holder's main-thread waiter would hold it.
+        #expect(written.wait(timeout: .now() + 5) == .success,
+                "a background defaults write waited on the main thread — a lock held across one deadlocks")
+    }
+
     @Test func helpsOpenTopicIsDarkOnGlass() throws {
         // The glyph and the title, each on-fill white at Solid and on dark glass, `.primary` on light glass.
         let help = try Self.source("HelpBook.swift")
@@ -128,6 +173,10 @@ import Design
     /// 2026-10-03). `selectionLensLabelInk` gives it `.primary`, black, on light glass — and a
     /// control added with a `.fill` lens and the old ternary would ship white-on-glass with every
     /// test of its geometry green. Wash lenses are exempt: their labels were never white.
+    ///
+    /// Counted per file — at least as many label-ink calls as fill hosts — so one control's ink
+    /// cannot vouch for a second fill lens added beside it. (A style passed by name rather than
+    /// written `.fill(` inline is not seen; none is today, and the floor below would not notice one.)
     @Test func everyFillLensColoursItsLabelsForGlass() throws {
         var fillHosts = 0
         var missing: [String] = []
@@ -136,9 +185,12 @@ import Design
             let code = sourceCodeOnly(text)
             let fills = argumentLists(of: ".selectionLensHost", in: code).filter { $0.contains("style: .fill(") }
             fillHosts += fills.count
-            if !fills.isEmpty && !code.contains(".selectionLensLabelInk(") { missing.append(path) }
+            let inks = code.components(separatedBy: ".selectionLensLabelInk(").count - 1
+            if inks < fills.count { missing.append("\(path) (\(fills.count) fill lenses, \(inks) label inks)") }
         }
-        #expect(fillHosts >= 8, "only \(fillHosts) fill lenses found — the reader is broken")
+        // The workspace bar, Tree · Columns, the log's chips, Edit's two capsules, Storage's, the
+        // Settings and Help rails, and the destination picker's.
+        #expect(fillHosts >= 9, "only \(fillHosts) fill lenses found — the reader is broken")
         #expect(missing.isEmpty, "a fill lens whose labels stay white on glass: \(missing)")
     }
 

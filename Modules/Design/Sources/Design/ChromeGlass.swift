@@ -18,7 +18,7 @@ import SwiftUI
 // one exception, `chromeGlassBorderedButtonStyle`, is for buttons that were system-drawn already.)
 //
 // The pieces, so a button's Solid look never has to be re-described:
-// - `chromeGlassGround(_:tint:markerOpacity:outset:when:)` — the glass, behind the button.
+// - `chromeGlassGround(_:outset:rim:when:)` — the glass, behind the button.
 // - `ChromeGlassTodayGround` — wraps whatever the button drew at rest before, and draws it only
 //   when no glass is drawn. Solid is pixel-identical by construction.
 // - `ChromeGlassOnly` — the complement: what a button paints ON its glass (a hover wash).
@@ -38,8 +38,14 @@ import SwiftUI
 // Transparency draw today's ground, and the probe test seam draws a flat shape in the glass's
 // place — cyan, where the lens's is magenta — because glass renders nothing offscreen. Clear gets
 // a hairline rim, as the lens does, because clear glass over a busy desktop has no edge of its own;
-// Increase Contrast strengthens it. The glass is never hit-testable and never read by VoiceOver: it
-// is a ground, and a capsule grown past its button by an outset must not take the button's clicks.
+// Increase Contrast strengthens it. A button that draws an edge of its own (the breadcrumb's brand
+// hairline, Compare's outline pills) passes `rim: false`, as the lens drops its rim for a ring: two
+// concentric strokes read as a double border. The glass is never hit-testable and never read by
+// VoiceOver: it is a ground, and a capsule grown past its button by an outset must not take the
+// button's clicks.
+//
+// **Never tinted.** A bar button has no colour of its own — its ground was neutral grey — so its
+// glass carries none either, at every Tint and accent. The selection lens is what carries colour.
 
 /// Whether the buttons below wear chrome glass. Set by `chromeGlassGround` and `chromeGlassGroup`;
 /// read by `ChromeGlassTodayGround` and `ChromeGlassOnly`.
@@ -76,50 +82,53 @@ public enum ChromeGlass {
         SelectionLensRule.material(for: appearance, reduceTransparency: reduceTransparency)
     }
 
-    /// How much of a button's own colour the glass carries: the selection lens's tint rule, the
-    /// colour's opacity today times the Tint slider's strength (a quarter at Tint 0, all of it at
-    /// Tint 100, none when the accent is None). At Tint 100 the glass carries exactly today's colour.
-    public static func tintOpacity(markerOpacity: Double = 1, hue: LiquidGlassHue, tint: Double) -> Double {
-        SelectionLensRule.tintOpacity(markerOpacity: markerOpacity, hue: hue, tint: tint)
-    }
-
     /// How far a small bar's glass grows past an 18pt glyph button — Edit's header and rail: to
     /// 22pt, level with the 23pt mode track beside them, leaving 4pt between capsules at those rows'
     /// 6pt spacing (3pt, the first value, crowded them to 3).
     public static let smallGlyphOutset: CGFloat = 2
 
     /// Clear's hairline, and Increase Contrast's stronger one. Neutral ink, because a bar button has
-    /// no colour of its own — unlike the lens's rim, which is drawn in its marker's colour.
-    public static func rim(material: SelectionLensMaterial,
-                           increasedContrast: Bool) -> (width: CGFloat, opacity: Double) {
-        guard material == .clear else { return (0, 0) }
+    /// no colour of its own — unlike the lens's rim, which is drawn in its marker's colour. None for
+    /// a button that draws an edge of its own (`ownEdge`).
+    public static func rim(material: SelectionLensMaterial, increasedContrast: Bool,
+                           ownEdge: Bool = false) -> (width: CGFloat, opacity: Double) {
+        guard material == .clear, !ownEdge else { return (0, 0) }
         return increasedContrast ? (1.5, 0.45) : (0.75, 0.22)
     }
 }
 
+/// How far a glass ground grows past its button, per axis.
+struct ChromeGlassOutset: Equatable {
+    var horizontal: CGFloat
+    var vertical: CGFloat
+}
+
 private struct ChromeGlassGround: ViewModifier {
     let shape: HoverAffordanceShape
-    let tint: Color?
-    let markerOpacity: Double
-    let outset: CGFloat
+    let outset: ChromeGlassOutset
+    let rim: Bool
     let enabled: Bool
     @Environment(\.selectionLensAppearance) private var appearance
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.chromeGlassGrouped) private var grouped
+    @Environment(\.chromeGlassDrawn) private var outerDrawn
 
     func body(content: Content) -> some View {
         let material = enabled
             ? ChromeGlass.material(appearance: appearance, reduceTransparency: reduceTransparency)
             : .today
         content
-            .environment(\.chromeGlassDrawn, material != .today)
+            // Inside a group the group's capsule is this button's ground whatever this call says, so
+            // the flag it set stands — a member with glass turned off would otherwise put its Solid
+            // ground back, on top of the group's glass.
+            .environment(\.chromeGlassDrawn, grouped ? outerDrawn : material != .today)
             .background {
                 if !grouped {
-                    ChromeGlassShape(material: material, shape: shape, tint: tint,
-                                     markerOpacity: markerOpacity, appearance: appearance,
+                    ChromeGlassShape(material: material, shape: shape, ownEdge: !rim,
                                      increasedContrast: contrast == .increased)
-                        .padding(-outset)
+                        .padding(.horizontal, -outset.horizontal)
+                        .padding(.vertical, -outset.vertical)
                 }
             }
     }
@@ -131,18 +140,22 @@ private struct ChromeGlassGroupGround: ViewModifier {
     @Environment(\.selectionLensAppearance) private var appearance
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.chromeGlassGrouped) private var grouped
 
     func body(content: Content) -> some View {
         let material = ChromeGlass.material(appearance: appearance, reduceTransparency: reduceTransparency)
         content
             // Both flags: members draw no capsule of their own, and a member's today-ground steps
-            // aside for the group's glass even if it never declared a ground of its own.
-            .environment(\.chromeGlassGrouped, material != .today)
-            .environment(\.chromeGlassDrawn, material != .today)
+            // aside for the group's glass even if it never declared a ground of its own. A group
+            // inside a group is one of its members: the outer capsule stands, and the flags with it.
+            .environment(\.chromeGlassGrouped, grouped || material != .today)
+            .environment(\.chromeGlassDrawn, grouped || material != .today)
             .background {
-                ChromeGlassShape(material: material, shape: shape, tint: nil, markerOpacity: 1,
-                                 appearance: appearance, increasedContrast: contrast == .increased)
-                    .padding(-outset)
+                if !grouped {
+                    ChromeGlassShape(material: material, shape: shape, ownEdge: false,
+                                     increasedContrast: contrast == .increased)
+                        .padding(-outset)
+                }
             }
     }
 }
@@ -151,9 +164,7 @@ private struct ChromeGlassGroupGround: ViewModifier {
 private struct ChromeGlassShape: View {
     let material: SelectionLensMaterial
     let shape: HoverAffordanceShape
-    let tint: Color?
-    let markerOpacity: Double
-    let appearance: SelectionLensAppearance
+    let ownEdge: Bool
     let increasedContrast: Bool
 
     var body: some View {
@@ -168,7 +179,7 @@ private struct ChromeGlassShape: View {
             }
         }
         .overlay {
-            let rim = ChromeGlass.rim(material: material, increasedContrast: increasedContrast)
+            let rim = ChromeGlass.rim(material: material, increasedContrast: increasedContrast, ownEdge: ownEdge)
             if rim.width > 0 {
                 shape.outline.strokeBorder(Color.primary.opacity(rim.opacity), lineWidth: rim.width)
             }
@@ -177,13 +188,7 @@ private struct ChromeGlassShape: View {
         .accessibilityHidden(true)
     }
 
-    private var glass: Glass {
-        let base: Glass = material == .clear ? .clear : .regular
-        let opacity = ChromeGlass.tintOpacity(markerOpacity: markerOpacity, hue: appearance.hue,
-                                              tint: appearance.tint)
-        guard let tint, opacity > 0 else { return base }
-        return base.tint(tint.opacity(opacity))
-    }
+    private var glass: Glass { material == .clear ? .clear : .regular }
 }
 
 /// A bar button's ground as it was before chrome glass: drawn at Solid, under Reduce Transparency
@@ -222,16 +227,25 @@ public extension View {
     /// Inside a `chromeGlassGroup` the group's capsule stands in for this one.
     ///
     /// - Parameters:
-    ///   - tint: a colour the glass carries, on the Tint slider's curve.
-    ///   - markerOpacity: how strongly the button paints `tint` today — 1 for a fill.
     ///   - outset: grows the capsule past the button without moving anything — for a bare glyph
     ///     whose own frame is smaller than a bar button reads at. Negative shrinks it.
+    ///   - rim: false for a button that draws an edge of its own, so Clear adds no second one.
     ///   - when: false draws nothing, in every appearance — for a control that is a bar button only
     ///     in some of its states.
-    func chromeGlassGround(_ shape: HoverAffordanceShape, tint: Color? = nil, markerOpacity: Double = 1,
-                           outset: CGFloat = 0, when enabled: Bool = true) -> some View {
-        modifier(ChromeGlassGround(shape: shape, tint: tint, markerOpacity: markerOpacity,
-                                   outset: outset, enabled: enabled))
+    func chromeGlassGround(_ shape: HoverAffordanceShape, outset: CGFloat = 0, rim: Bool = true,
+                           when enabled: Bool = true) -> some View {
+        modifier(ChromeGlassGround(shape: shape, outset: ChromeGlassOutset(horizontal: outset, vertical: outset),
+                                   rim: rim, enabled: enabled))
+    }
+
+    /// `chromeGlassGround(_:outset:rim:when:)` grown by a different amount on each axis — for a
+    /// button whose height falls short of its row's but whose width already fits, such as a menu
+    /// AppKit sizes for itself beside a neighbour 4pt away.
+    func chromeGlassGround(_ shape: HoverAffordanceShape, horizontalOutset: CGFloat, verticalOutset: CGFloat,
+                           rim: Bool = true, when enabled: Bool = true) -> some View {
+        modifier(ChromeGlassGround(shape: shape,
+                                   outset: ChromeGlassOutset(horizontal: horizontalOutset, vertical: verticalOutset),
+                                   rim: rim, enabled: enabled))
     }
 
     /// One glass ground around several bar buttons — Back and Forward, as Finder pairs them. Members
@@ -257,8 +271,10 @@ public extension View {
     /// already system-drawn and sized from their labels — measured, `.bordered` and `.glass` give
     /// both of them the same size — so nothing about their size or ink is taken from the app.
     /// Not to be confused with the older `chromeButtonStyle(_:)`, which gives the app's push buttons
-    /// system glass at Clear only. Under the probe test seam the button keeps `.bordered` over a
-    /// cyan capsule, so a render test can tell the two branches apart.
+    /// system glass at Clear only. Clear takes the system's clear glass, so these sit beside the
+    /// magnifier and the pane bar's capsules in the same material (macOS 26.1; regular glass on
+    /// 26.0, which has no clear variant of the style). Under the probe test seam the button keeps
+    /// `.bordered` over a cyan capsule, so a render test can tell the two branches apart.
     func chromeGlassBorderedButtonStyle() -> some View {
         modifier(ChromeGlassBorderedButtonStyle())
     }
@@ -299,9 +315,15 @@ private struct ChromeGlassBorderedButtonStyle: ViewModifier {
             content.buttonStyle(.bordered)
         case .probe:
             content.buttonStyle(.bordered)
-                .background(Capsule().fill(ChromeGlass.probeColor))
-        case .frosted, .clear:
+                .background(Capsule().fill(ChromeGlass.probeColor).allowsHitTesting(false))
+        case .frosted:
             content.buttonStyle(.glass)
+        case .clear:
+            if #available(macOS 26.1, *) {
+                content.buttonStyle(.glass(.clear))
+            } else {
+                content.buttonStyle(.glass)
+            }
         }
     }
 }

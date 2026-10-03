@@ -219,10 +219,11 @@ public struct PaneTabStrip: View {
         // The drag's own animations, restated OUTSIDE the host so the lens rides them: each chip
         // eases its drag offset and its settle after a drop, and the lens — drawn in the host's
         // background — would otherwise jump to where a dragged active tab ends up while the chip
-        // glided there. Inside the chips these are unchanged; out here they add nothing else to
-        // animate, because nothing else in the strip changes with these two values.
-        .designAnimation(.easeOut(duration: 0.16), value: draggingTab)
-        .designAnimation(.easeOut(duration: 0.16), value: dragOffset)
+        // glided there. Inside the chips these are unchanged. Only where a lens draws: out here
+        // they also catch what a drop changes with them — a compact rung re-windowed by the drop
+        // faded its chips in and out — and at Solid that change was instant, and stays so.
+        .designAnimation(drawsLens ? .easeOut(duration: 0.16) : nil, value: draggingTab)
+        .designAnimation(drawsLens ? .easeOut(duration: 0.16) : nil, value: dragOffset)
         .padding(.leading, PaneTabStripLadder.stripGutter + leadingInset)
         .padding(.trailing, PaneTabStripLadder.stripGutter + trailingInset)
     }
@@ -511,6 +512,15 @@ public struct PaneTabStrip: View {
     /// lens host is the strip's own row, so Compare's two strips never see each other's stops.
     static let lensChannel = SelectionLensChannel("pane.tabs")
 
+    @Environment(\.selectionLensAppearance) private var lensAppearance
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    /// Whether the strip's lens draws — read out here, above the host, for the animations that
+    /// must enclose it.
+    private var drawsLens: Bool {
+        SelectionLensRule.material(for: lensAppearance, reduceTransparency: reduceTransparency) != .today
+    }
+
     /// The lens wears what `activeMarkerLayer` draws today: the chip's outline, the same wash —
     /// dimmed in the unfocused pane exactly as the marker is — and the 2pt rule on top.
     private var lensStyle: SelectionLensStyle {
@@ -656,8 +666,9 @@ public struct PaneTabStrip: View {
         // menu, because AppKit paints nothing inside a borderless menu's label. AppKit also sizes
         // the menu itself, ignoring the label's frame: measured 39.5 × 16pt, so the capsule grows
         // 3pt past it, to 22pt — the ＋ beside it — rather than shrinking (the first version took
-        // the label's 26pt frame at its word and drew a 10pt sliver).
-        .chromeGlassGround(.capsule, outset: 3)
+        // the label's 26pt frame at its word and drew a 10pt sliver). Up and down only: the strip's
+        // 4pt gap left 1pt between a sideways-grown capsule and the last chip.
+        .chromeGlassGround(.capsule, horizontalOutset: 0, verticalOutset: 3)
         .help("\(hidden.count) more \(hidden.count == 1 ? "tab" : "tabs")")
     }
 

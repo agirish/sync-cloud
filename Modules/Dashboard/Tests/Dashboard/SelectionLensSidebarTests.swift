@@ -24,15 +24,23 @@ import Design
         }
     }
 
-    static func folders() -> [FolderSidebarRow] {
+    static func folders(available: Bool = true) -> [FolderSidebarRow] {
         FolderSidebarModel.rows(
             sources: [.init(root: "/iCloud", name: "iCloud", favorites: ["Work", "Archive", "Taxes"],
-                            isAvailable: true)],
+                            isAvailable: available)],
             recents: [])
     }
 
-    static func sidebar(folder: String, source: String, unavailable: Set<Int> = []) -> some View {
-        FolderSidebarView(folderRows: folders(), locationRows: locations(unavailable: unavailable),
+    /// A cloud account the user has favourited: drawn in Favorites, not Locations.
+    static func favouritePlace(available: Bool) -> [SidebarSourceRow] {
+        [SidebarSourceRow(id: "fav", name: "Dropbox", detail: nil, symbol: "externaldrive",
+                          absolutePath: "/fav", band: .shortcut, state: .configured, isAvailable: available)]
+    }
+
+    static func sidebar(folder: String, source: String, unavailable: Set<Int> = [],
+                        foldersAvailable: Bool = true, shortcuts: [SidebarSourceRow] = []) -> some View {
+        FolderSidebarView(folderRows: folders(available: foldersAvailable), locationRows: locations(unavailable: unavailable),
+                          shortcutRows: shortcuts,
                           currentRoot: "/iCloud", currentRelativePath: folder,
                           currentSourceId: source, collapsed: [],
                           accent: LiquidGlassHue.blue.accentColor,
@@ -45,25 +53,16 @@ import Design
             .environment(\.selectionLensAppearance, appearance)
             .environment(\.colorScheme, .light)
             .environment(\.controlActiveState, .active)
+            // Pinned, so the machine's own settings cannot decide these tests.
+            .environment(\._accessibilityReduceTransparency, false)
+            .environment(\._colorSchemeContrast, .standard)
             .frame(width: canvas.width, height: canvas.height)
             .background(Color.white)), size: canvas).capture()
     }
 
-    /// The bounding boxes of separate vertical runs of matching rows — one box per marked row.
+    /// One box per marked row.
     static func boxes(_ rep: NSBitmapImageRep, _ match: Pixel.Match) -> [CGRect] {
-        let scale = CGFloat(rep.pixelsWide) / canvas.width
-        var boxes: [CGRect] = []
-        var top: CGFloat?
-        for y in 0...rep.pixelsHigh {
-            let row = CGFloat(y) / scale
-            let hit = y < rep.pixelsHigh && Pixel.count(rep, width: canvas.width, rows: row...row, match) > 0
-            if hit, top == nil { top = row }
-            if !hit, let t = top {
-                if let box = Pixel.box(rep, width: canvas.width, rows: t...(row - 1 / scale), match) { boxes.append(box) }
-                top = nil
-            }
-        }
-        return boxes
+        Pixel.rowRuns(rep, width: canvas.width, match)
     }
 
     /// The current row's wash — Blue at 0.16 over white, about `(0.87, 0.92, 1.0)`: a pale blue
@@ -127,5 +126,35 @@ import Design
         let face = Pixel.at(dimmed, width: Self.canvas.width, CGPoint(x: lens.minX + 4, y: lens.midY))
         #expect(face.0 > 240 && face.2 > 240 && (140...200).contains(face.1),
                 "the unavailable place's lens reads \(face), not the probe at 0.45")
+    }
+
+    /// The other dimming the lens must follow: a folder that cannot be opened, at 0.4. Read the
+    /// same way — a faded probe at the row's own place, never the full one.
+    @Test(.machinePinned(.pixelSampling))
+    func anUnopenableFoldersLensDimsWithIt() throws {
+        let live = Self.render(Self.sidebar(folder: "Work", source: ""), appearance: Self.probe)
+        let lens = try #require(Self.boxes(live, Pixel.lensProbe).first, "no lens on the open folder")
+        let dimmed = Self.render(Self.sidebar(folder: "Work", source: "", foldersAvailable: false), appearance: Self.probe)
+        #expect(Self.boxes(dimmed, Pixel.lensProbe).isEmpty, "the unopenable folder's lens is full strength")
+        // 0.4 of the probe over white is about (255, 153, 255).
+        let face = Pixel.at(dimmed, width: Self.canvas.width, CGPoint(x: lens.minX + 4, y: lens.midY))
+        #expect(face.0 > 240 && face.2 > 240 && (130...180).contains(face.1),
+                "the unopenable folder's lens reads \(face), not the probe at 0.4")
+    }
+
+    /// **A favourited place dims its lens too.** A cloud account or a disk the user has put in
+    /// Favorites is drawn there, not in Locations — and the lens's dimming looked in Locations only,
+    /// so a favourited place that stopped answering wore a full-strength lens over its faded row.
+    @Test(.machinePinned(.pixelSampling))
+    func aFavouritedPlaceThatStoppedAnsweringDimsItsLens() throws {
+        let live = Self.render(Self.sidebar(folder: "", source: "fav", shortcuts: Self.favouritePlace(available: true)),
+                               appearance: Self.probe)
+        let lens = try #require(Self.boxes(live, Pixel.lensProbe).first, "no lens on the favourited place")
+        let dimmed = Self.render(Self.sidebar(folder: "", source: "fav", shortcuts: Self.favouritePlace(available: false)),
+                                 appearance: Self.probe)
+        #expect(Self.boxes(dimmed, Pixel.lensProbe).isEmpty, "the favourited place's lens is full strength")
+        let face = Pixel.at(dimmed, width: Self.canvas.width, CGPoint(x: lens.minX + 4, y: lens.midY))
+        #expect(face.0 > 240 && face.2 > 240 && (140...200).contains(face.1),
+                "the favourited place's lens reads \(face), not the probe at 0.45")
     }
 }

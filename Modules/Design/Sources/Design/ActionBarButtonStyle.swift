@@ -145,10 +145,13 @@ struct ActionBarButtonSurface: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
+    /// Seated on a bar button's glass (`ChromeGlass`): no lift, no shadow.
+    @Environment(\.chromeGlassDrawn) private var onGlass
 
     private var hover: HoverAffordanceMetrics {
         .resolve(variant: weight.hoverVariant, phase: phase,
                  isEnabled: isEnabled, reduceMotion: reduceMotion)
+            .seated(onGlass)
     }
 
     /// The label reads against whatever the weight fills with — on light. On dark it reads against

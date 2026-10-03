@@ -1417,7 +1417,8 @@ public struct LensWorkspaceView: View {
             }
             .pillSurface(.mini, tint: .secondary)
             // Frosted and Clear: glass under the pill's wash, as under the breadcrumb's source pill.
-            .chromeGlassGround(.capsule)
+            // The pill strokes its own hairline, so Clear adds no rim under it.
+            .chromeGlassGround(.capsule, rim: false)
             if let folder = scanTargetFolder, !folder.isEmpty {
                 Image(systemName: "chevron.right").scaledFont(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
                 Text((folder as NSString).lastPathComponent)
@@ -1800,7 +1801,8 @@ public struct LensWorkspaceView: View {
                 .selectionLensStop(Self.railLensChannel, id: Self.railItemID(organizeLens: nil))
         }
         .buttonStyle(.plain)
-        .chromeHover()
+        // The chosen item sits on the rail's lens in Frosted and Clear, and does not lift off it.
+        .chromeHover(onLens: isSelected)
         .help("Every lens's answer for what Organize is pointed at, on one page.")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         // The handle `scrollTo` aims at — see `selectedRailItemID`.
@@ -1829,7 +1831,7 @@ public struct LensWorkspaceView: View {
                 .selectionLensStop(Self.railLensChannel, id: Self.railItemID(organizeLens: item))
         }
         .buttonStyle(.plain)
-        .chromeHover()
+        .chromeHover(onLens: isSelected)
         .help(item.help(state: counts.state(item)))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .id(Self.railItemID(organizeLens: item))

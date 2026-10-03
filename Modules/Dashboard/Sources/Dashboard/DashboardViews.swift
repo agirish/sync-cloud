@@ -1385,8 +1385,10 @@ public struct PaneHeader: View {
         // The ON fill stays exactly as it is, opaque, on top: a toggle has no position to say it is
         // on, only its fill, and a tint on the Tint slider's curve all but vanished at Tint 0 and
         // vanished entirely at accent None — ON and OFF read the same. On the button, not the
-        // label: `.filled` flattens its label, and glass inside one renders nothing.
-        .chromeGlassGround(.capsule)
+        // label: `.filled` flattens its label, and glass inside one renders nothing. Grown by the
+        // segment inset the pill gave up, so the capsule is a pill's width like its neighbours'
+        // and the ON fill sits inside it the way a chosen segment sits in its track.
+        .chromeGlassGround(.capsule, horizontalOutset: PaneNavMetrics.segmentInset / 2, verticalOutset: 0)
         .shortcutKeycap(AppChord.previewColumn.display)
         .accessibilityAddTraits(previewEnabled.wrappedValue ? [.isButton, .isSelected] : .isButton)
         .accessibilityLabel("Preview pane")

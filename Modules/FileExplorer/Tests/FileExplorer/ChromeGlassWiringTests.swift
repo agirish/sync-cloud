@@ -31,19 +31,33 @@ import Foundation
     @Test func theTabStripsPlusAndOverflowWearGlass() throws {
         let strip = try Self.source("PaneTabStrip.swift")
         #expect(Self.count(".chromeGlassGlyphButton()", in: strip) == 1, "the ＋ lost its glass")
-        // 3pt past the 16pt AppKit gives the menu — the ＋'s 22pt; the render is
-        // `SelectionLensCallSiteTests.theOverflowMenusGlassIsAsTallAsTheNewTabButtons`.
-        #expect(strip.contains(".chromeGlassGround(.capsule, outset: 3)"), "the tab overflow lost its glass")
+        // 3pt past the 16pt AppKit gives the menu, up and down only — the ＋'s 22pt, and the strip's
+        // 4pt gap kept; the render is `SelectionLensCallSiteTests.theOverflowMenusGlassIsAsTallAsTheNewTabButtons`.
+        #expect(strip.contains(".chromeGlassGround(.capsule, horizontalOutset: 0, verticalOutset: 3)"),
+                "the tab overflow lost its glass, or grows sideways into the last chip")
+        // The drag's animations enclose the lens's host, and only where a lens draws: at Solid they
+        // would animate a drop's re-windowing, which was always instant there.
+        #expect(Self.count(".designAnimation(drawsLens ? .easeOut(duration: 0.16) : nil", in: strip) == 2)
     }
 
     @Test func comparesHeaderPillsAndGlyphsWearGlass() throws {
         let compare = try Self.source("DifferencesView.swift")
         // Filter, ⋯, Review, Verify, Copy Remaining, Exit Review — and the quiet transfer direction.
         #expect(Self.count(".compareBarGlass(", in: compare) == 7)
+        // Every one draws its own hairline, so Clear adds no rim under it.
+        #expect(compare.contains("chromeGlassGround(.capsule, rim: false, when: enabled)"))
         #expect(compare.contains(".compareBarGlass(when: weight == .quiet)"),
                 "the quiet transfer lost its glass, or the filled one gained it")
-        // Every outline pill in the header wears it: no `.actionBar(.outline` without its glass.
-        #expect(Self.count(".buttonStyle(.actionBar(.outline", in: compare) == 6)
+        // Every outline pill in the header wears it — each one's own, within the lines after its
+        // style — rather than two counts that happen to agree.
+        let lines = compare.components(separatedBy: "\n")
+        let pills = lines.indices.filter { lines[$0].contains(".buttonStyle(.actionBar(.outline") }
+        #expect(pills.count == 6)
+        for i in pills {
+            let after = lines[(i + 1)..<min(lines.count, i + 4)]
+            #expect(after.contains { $0.contains(".compareBarGlass(") },
+                    "the outline pill at code line \(i + 1) has no glass of its own")
+        }
         // Fold all and the list's collapse chevron: glyph buttons, 2pt past their 22pt.
         #expect(Self.count(".chromeGlassGlyphButton(tint: glassHue.accentColor, outset: 2)", in: compare) == 2)
     }
@@ -51,8 +65,8 @@ import Foundation
     @Test func organizesHeaderControlsWearGlass() throws {
         let lens = try Self.source("LensWorkspaceView.swift")
         #expect(lens.contains(".chromeGlassGround(.capsule, outset: 4)"), "Duplicates' filter menu lost its glass")
-        #expect(lens.contains(".pillSurface(.mini, tint: .secondary)\n            .chromeGlassGround(.capsule)"),
-                "the Source pill lost its glass")
+        #expect(lens.contains(".pillSurface(.mini, tint: .secondary)\n            .chromeGlassGround(.capsule, rim: false)"),
+                "the Source pill lost its glass, or doubles its own edge with Clear's rim")
         #expect(try Self.source("StorageLensView.swift").contains(".chromeGlassTrack()"))
     }
 
@@ -74,6 +88,26 @@ import Foundation
 
     /// The rail scrolls, and a move with either end scrolled out of view switches instantly rather
     /// than gliding across the edge — which only happens if the host is handed what the rail shows.
+    /// The rail's chosen item sits on the lens and must not lift off it on hover; the others lift.
+    @Test func organizesChosenRailItemStaysSeatedOnItsLens() throws {
+        #expect(Self.count(".chromeHover(onLens: isSelected)", in: try Self.source("LensWorkspaceView.swift")) == 2)
+    }
+
+    /// The hidden mode bars that only reserve a header's height are drawn at Solid: no lens of their
+    /// own to run on a mode change, no glass track — and the same height either way.
+    @Test func editsHeightReservationsRunNoLens() throws {
+        let editor = try Self.source("EditorWorkspaceView.swift")
+        #expect(Self.count(".environment(\\.selectionLensAppearance, .today)\n                    .hidden()", in: editor) == 2)
+    }
+
+    @Test func theDestinationRailHostsALens() throws {
+        let picker = try Self.source("DestinationPicker.swift")
+        #expect(picker.contains(".selectionLensHost(Self.railLensChannel, selected: isSearching ? nil : highlighted"))
+        #expect(picker.contains(".selectionLensStop(Self.railLensChannel, id: PaneBrowsePath.normalized(path))"))
+        // Seeded at init, so opening the picker shows the highlight at rest rather than growing it in.
+        #expect(picker.contains("_highlighted = State(initialValue: highlighted)"))
+    }
+
     @Test func organizesRailHostReadsWhatTheRailShows() throws {
         let lens = try Self.source("LensWorkspaceView.swift")
         #expect(lens.contains("visibleRegion: railVisibleRegion)"))

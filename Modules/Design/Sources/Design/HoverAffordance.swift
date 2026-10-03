@@ -183,6 +183,17 @@ public enum HoverAffordancePhase: Sendable {
 /// The resolved appearance for one variant in one phase. Every number the style paints comes
 /// from here, so the whole affordance is assertable without rendering a view.
 public struct HoverAffordanceMetrics: Equatable, Sendable {
+    /// The same metrics for a control seated on glass — a chrome glass ground, or a selection lens
+    /// under its label. The glass does not move, so neither may the label: lifted, its wash and ring
+    /// rose 1pt off the capsule and its shadow fell on the glass. Wash, ring and press scale stay.
+    public func seated(_ onGlass: Bool) -> HoverAffordanceMetrics {
+        guard onGlass else { return self }
+        var m = self
+        m.lift = 0
+        m.shadow = 0
+        return m
+    }
+
     /// Alpha of the wash filling the hit shape.
     public var wash: Double
     /// Alpha of the hairline ring around the hit shape.
@@ -324,6 +335,8 @@ private struct HoverAffordanceBody: View {
     @State private var isHovering = false
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Seated on a bar button's glass (`ChromeGlass`): no lift, no shadow.
+    @Environment(\.chromeGlassDrawn) private var onGlass
 
     private var phase: HoverAffordancePhase {
         guard isEnabled else { return .rest }
@@ -333,6 +346,7 @@ private struct HoverAffordanceBody: View {
 
     private var metrics: HoverAffordanceMetrics {
         .resolve(variant: variant, phase: phase, isEnabled: isEnabled, reduceMotion: reduceMotion)
+            .seated(onGlass)
     }
 
     /// `.inline` washes in ink; every other variant washes in the app hue.
@@ -468,16 +482,22 @@ public struct HoverTintModifier: ViewModifier {
 /// and can read `isEnabled` — a greyed-out Back arrow must not lift.
 public struct ChromeHoverModifier: ViewModifier {
     let tint: Color
+    /// Whether a selection lens sits under this control right now — its chosen item. Seated on the
+    /// lens it does not lift: the lens is drawn by its host, outside the item, and stays put.
+    let onLens: Bool
 
     @State private var isHovering = false
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.chromeGlassDrawn) private var onGlass
+    @Environment(\.selectionLensMaterial) private var lensMaterial
 
     private var metrics: HoverAffordanceMetrics {
         .resolve(variant: .chrome,
                  phase: isHovering ? .hover : .rest,
                  isEnabled: isEnabled,
                  reduceMotion: reduceMotion)
+            .seated(onGlass || (onLens && lensMaterial != .today))
     }
 
     public func body(content: Content) -> some View {
@@ -505,8 +525,11 @@ public struct ChromeHoverModifier: ViewModifier {
 public extension View {
     /// See `ChromeHoverModifier`. Press feedback is left to the system style, which already
     /// darkens a bordered or glass button convincingly — hover was the missing half.
-    func chromeHover(tint: Color = .accentColor) -> some View {
-        modifier(ChromeHoverModifier(tint: tint))
+    ///
+    /// - Parameter onLens: true for a selection-lens control's chosen item, which sits on the lens
+    ///   in Frosted and Clear and so must not lift off it. Apply inside the lens's host.
+    func chromeHover(tint: Color = .accentColor, onLens: Bool = false) -> some View {
+        modifier(ChromeHoverModifier(tint: tint, onLens: onLens))
     }
 }
 
