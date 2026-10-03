@@ -8,6 +8,7 @@ import Foundation
 /// All virtual-disk access is guarded by a recursive lock so the mock is safe to drive from the
 /// parallel worker pools in `syncAll` / bulk verify (up to 4 concurrent operations). A recursive
 /// lock is required because `moveItem`/`trashItem` call `copyItem`/`removeItem` while already holding it.
+/// The test's own access to ``virtualDisk`` takes the same lock.
 public final class MockFileManager: FileManaging, @unchecked Sendable {
 
     public struct FileStub {
@@ -16,8 +17,32 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
         var contents: [String]? // Child names if directory
     }
 
-    // The dictionary-backed RAM virtual disk
-    public var virtualDisk: [String: FileStub] = [:]
+    /// The dictionary-backed RAM virtual disk. **Every access takes the lock, the test's own
+    /// included**, because a test reads this while the operation it started is still writing it:
+    /// a `waitUntil` polls it, and the line after the wait reads it again.
+    ///
+    /// Unlocked, that read can land inside a write. For the length of an in-place insert or
+    /// remove, Swift parks a placeholder (`0x8000000000000000`) in the dictionary's storage, and
+    /// a lookup that loads it takes it for a bridged `NSDictionary` — SIGSEGV at `0x10`, or an
+    /// unrecognized-selector SIGABRT, under `Dictionary._Variant.lookup`. A read that survives
+    /// can still see half of a compound operation: a `moveItem` that has copied but not removed.
+    /// See "An unlocked read of the mock's disk lands inside the write the test is waiting for"
+    /// in `docs/flaky-tests.md`.
+    ///
+    /// The mock's own methods already hold the lock when they touch this; it is recursive, so
+    /// their nested acquire is free.
+    public var virtualDisk: [String: FileStub] {
+        get { sync { disk } }
+        // `_modify`, not `set`: a write mutates the storage in place, under the lock. A setter
+        // would copy the whole dictionary per subscript assignment, and its read-modify-write
+        // would not be atomic against an operation's own writes.
+        _modify {
+            lock.lock()
+            defer { lock.unlock() }
+            yield &disk
+        }
+    }
+    private var disk: [String: FileStub] = [:]
 
     /// Paths whose stub is a **dangling symlink**: the directory entry is there, its target is not.
     ///
@@ -84,10 +109,9 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     /// the lock itself).
     public var beforeFileExists: ((String) -> Void)?
 
-    /// The only safe way to change the disk while a concurrent walk may be reading it: takes the
-    /// same lock every accessor does. Assigning into ``virtualDisk`` directly is an unsynchronized
-    /// `Dictionary` write, which is fine in fixture setup — nothing else is running yet — and a
-    /// data race the moment a walk, a copy worker, or a queued operation is live.
+    /// Sets or removes one entry under the lock — the same as assigning into ``virtualDisk``,
+    /// which takes that lock itself, so either is safe while a walk, a copy worker or a queued
+    /// operation is live.
     public func setStub(_ stub: FileStub?, at path: String) {
         sync { virtualDisk[path] = stub }
     }

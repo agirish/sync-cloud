@@ -31,6 +31,12 @@ gh run view <run-id> --log | grep 'Test run with' || echo 'NO TEST-COUNT LINE �
 Use that form rather than `grep -c`, which **exits 1 when the count is zero** and so reads as a
 failed command instead of an answer.
 
+A third way to have no count line: the log ends `exited with unexpected signal code 11` (or `6`).
+The test process **crashed**. On signal 11 only the crash report in
+`~/Library/Logs/DiagnosticReports/` names the test; an uncaught exception (signal 6) also prints a
+mangled first-throw call stack into the log, which `swift demangle` reads. Take the faulting frames
+to the table below.
+
 **And read the number on the end of that line.** A green app-target run on `main` normally ends
 `… passed with 1 known issue` — one, always, and always the same one: the last block of
 `testTheReaderIgnoresDeclarationsThatAreOnlyComments` hands `declarationBody` two identical
@@ -71,6 +77,7 @@ machine state at all.
 | `signal code 6` with **no `Test run with` line at all**, `CIAreaAverage` / `perceptuallyCompare` in the crashing thread, every run, idle | [23](flaky-tests.md#23-a-snapshot-mismatch-that-aborts-the-process-instead-of-failing--a-red-with-no-verdict) | Not a load flake. The compare died on an image that merely was not byte-identical — which may even be a pass. Check the helper still calls `installPerceptualCompareShim()`, then read the real verdict before re-recording anything |
 | A test reads back what it **itself just stored** in an `NSCache` and gets `nil`, while its **miss** assertions pass; `--filter` green in milliseconds, a same-SHA re-run green | [24](flaky-tests.md#24-an-nscache-emptied-by-memory-pressure-between-a-store-and-the-next-line--fixed) — **fixed 2026-09-26** | `log show` for a memory-pressure *warning* before the **issue's** timestamp — CI stamps UTC, `log show` local time. The test's duration is not the tell. Inject the storage; never store-then-peek through an `NSCache` |
 | A `LogCapture` presence assertion red for a line the code **does** write, green on a same-SHA rerun, and the line reaches `Logger` through `Task { @MainActor in … }` | [26](flaky-tests.md#26-a-log-line-hopped-to-the-main-actor-so-the-captures-flush-marker-finishes-without-it--fixed) — **fixed 2026-09-27** | Not the rolled window: nothing was evicted. Drop the hop and call the `nonisolated` logger directly; queue a flush before the call under test to make it red every time |
+| The process **crashes**, signal 11 or 6, no `✘` — the `.ips` has `Dictionary._Variant.lookup(_:)` directly under `objc_msgSend` with `x0 = 0x8000000000000000`, or the log says `objectForKey:]: unrecognized selector sent to instance 0x8000000000000000` | [An unlocked read of the mock's disk lands inside the write the test is waiting for](flaky-tests.md#27-an-unlocked-read-of-the-mocks-disk-lands-inside-the-write-the-test-is-waiting-for--fixed) — **fixed 2026-10-02** | A dictionary read during that dictionary's own write — the value is the standard library's mid-mutation placeholder. The frame under the lookup is the read; find what it reads without the lock while an operation is running |
 
 ## 2. Check what else is running
 
