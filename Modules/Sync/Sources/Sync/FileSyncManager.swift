@@ -2030,7 +2030,7 @@ public class FileSyncManager: ObservableObject {
     /// **Provenance the drop cannot derive from paths.** Below such a link the walk's ids name the
     /// target, not the root, so a write spelled the way a pane row names it is under no prefix of
     /// the entry's key; `dropPrefetchedTrees(holding:)` reads this to see it. Written beside every
-    /// cache write and cleared by both drop verbs, exactly as `prefetchedTreeWalkStopped` is, and
+    /// cache write and cleared by every drop verb, exactly as `prefetchedTreeWalkStopped` is, and
     /// a slice inherits its root's for the same reason: it is part of that walk.
     public var prefetchedTreeLinkTargets: [String: Set<String>] = [:]
     /// The same record for the walk behind each pane's published tree — what the app asks when it
@@ -2057,14 +2057,39 @@ public class FileSyncManager: ObservableObject {
 
     /// Drops every cached pane tree AND its provenance — one verb, so the stores cannot part
     /// company at an invalidation site. Every invalidation of `prefetchedTrees` goes
-    /// through here or through its one-folder form, ``dropPrefetchedTrees(holding:)``; a
-    /// site that cleared the trees alone would leave provenance bits to be re-read the next time
-    /// the same focus path is cached by a slice.
+    /// through here or through its one-folder forms, ``dropPrefetchedTrees(holding:)`` and
+    /// ``dropPrefetchedTrees(keeping:)``; a site that cleared the trees alone would leave
+    /// provenance bits to be re-read the next time the same focus path is cached by a slice.
     public func dropPrefetchedTrees() {
         prefetchedTrees.removeAll()
         prefetchedTreeWalkStopped.removeAll()
         prefetchedTreeReadAt.removeAll()
         prefetchedTreeLinkTargets.removeAll()
+    }
+
+    /// Drops every cached walk but the one at `kept`, which stays with its provenance — or every
+    /// walk and record, exactly as ``dropPrefetchedTrees()`` does, when `kept` has no walk.
+    ///
+    /// **For a source switch, which moves one pane and leaves the other showing a walk this cache
+    /// holds.** The array on screen is normally that entry — every writer hands the pane the array
+    /// it caches — so dropping it freed nothing, and the Compare after the switch reads cached
+    /// trees only when both sides hit: without the still pane's entry it walked both folders from
+    /// disk, and at Home stopped at the node budget somewhere else than the pane's walk did, so it
+    /// answered differently too. Everything else is the source the moved pane left, and goes for
+    /// memory.
+    public func dropPrefetchedTrees(keeping kept: String?) {
+        guard let kept, let tree = prefetchedTrees[kept] else {
+            dropPrefetchedTrees()
+            return
+        }
+        let walkStopped = prefetchedTreeWalkStopped.contains(kept)
+        let readAt = prefetchedTreeReadAt[kept]
+        let linkTargets = prefetchedTreeLinkTargets[kept]
+        dropPrefetchedTrees()
+        prefetchedTrees[kept] = tree
+        if walkStopped { prefetchedTreeWalkStopped.insert(kept) }
+        prefetchedTreeReadAt[kept] = readAt
+        prefetchedTreeLinkTargets[kept] = linkTargets
     }
 
     /// Drops only the cached walks that list `folder` — its ancestor chain, and any walk that

@@ -839,15 +839,13 @@ extension FileSyncManager {
 
             let computeTask = Task.detached(priority: .userInitiated) { () -> ScanOutcome? in
                 guard !Task.isCancelled else { return nil }
-                // This branch skips the directory ENUMERATION, which is not the same as touching
-                // no disk — the line above used to claim "no disk walk". `filesInfo(fromTree:)`
-                // builds each entry's `URL(fileURLWithPath:)` with no `isDirectory:` hint, and
-                // that initializer resolves the path against the file system: one lookup per
-                // node, ~40k per pane here, measured at 4x the cost of the hinted form
-                // (TreeWalkBenchmark's `+ map, hinted URL` vs `+ map, unhinted URL`). So its
-                // wall time is still exposed to cache state — which is the likeliest reason it
-                // varied 4x across otherwise identical runs. Split the phases so the next
-                // occurrence says which half moved instead of leaving it to inference.
+                // This branch skips the directory ENUMERATION, and touches no disk either:
+                // `filesInfo(fromTree:)` and the diff's one-sided rows both hint each URL with the
+                // entry's type. Unhinted, a file URL resolves its path against the file system —
+                // one lookup per node, ~40k per pane here, measured at 4x the hinted form
+                // (TreeWalkBenchmark's `+ map, hinted URL` vs `+ map, unhinted URL`) — the likeliest
+                // reason this branch once varied 4x across otherwise identical runs. Split the
+                // phases so a slow run says which half moved instead of leaving it to inference.
                 let flattenStart = CFAbsoluteTimeGetCurrent()
                 let leftFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedLeft, basePath: leftURL.path)
                 let rightFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedRight, basePath: rightURL.path)
@@ -895,10 +893,12 @@ extension FileSyncManager {
                 computeTask.cancel()
             }
         } else {
+            // Read here, before detaching. Read inside, it was a hop back to the main actor for a
+            // `let`, and the walk queued behind whatever the main actor was doing — usually the
+            // render of a tree just published — with the clock below not yet started.
+            let fm = fileManager
             let walkTask = Task.detached(priority: .userInitiated) { () -> ScanOutcome? in
                 do {
-                    let fm = await MainActor.run { self.fileManager }
-
                     // The two walks are independent and FileManager is thread-safe, so run them
                     // concurrently — serially they doubled the scan's disk phase. They are
                     // detached too, so cancellation is forwarded into both.

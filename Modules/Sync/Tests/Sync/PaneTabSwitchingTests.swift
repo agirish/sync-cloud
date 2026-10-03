@@ -412,19 +412,26 @@ import Foundation
                 "the arriving folder's cached tree was thrown away, so the pane must walk the disk for it")
     }
 
-    /// …and a SOURCE change drops it, because then the cache describes a disk the pane has left.
+    /// …and a SOURCE change drops it, because then the cache describes a disk the pane has left —
+    /// all but the OTHER pane's walk, which that pane is showing and the Compare after the switch
+    /// reads. Dropped, the scan found one side cached and walked both folders from disk
+    /// (`SourceSwitchKeepsTheStillPaneTests`).
     @MainActor
-    @Test func switchingSourceDropsTheCacheBecauseItDescribesAnotherRoot() async throws {
+    @Test func switchingSourceDropsTheCacheButTheOtherPanesWalk() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
                                      PaneTab(providerId: "Dropbox")])
         manager.prefetchedTrees["/r/Elsewhere"] = [
             FileNode(id: "/r/Elsewhere/a.pdf", name: "a.pdf", isDirectory: false, children: nil)
         ]
+        manager.prefetchedTrees["/o/Other"] = [
+            FileNode(id: "/o/Other/b.pdf", name: "b.pdf", isDirectory: false, children: nil)
+        ]
+        manager.lastLoadedRightFocusPath = "/o/Other"
 
         manager.switchTab(to: manager.leftPaneTabs.tabs[1].id, isLeft: true, currentProviderId: "iCloud")
 
-        #expect(manager.prefetchedTrees.isEmpty,
-                "the pane kept cached subtrees of the source it just left")
+        #expect(Array(manager.prefetchedTrees.keys) == ["/o/Other"],
+                "the pane kept cached subtrees of the source it just left, or dropped the other pane's walk")
     }
 
     /// **A tab switch reloads only the pane it moved.** The other pane's tree is a walk of a root

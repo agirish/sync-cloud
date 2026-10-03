@@ -861,7 +861,12 @@ public struct FileDiffEngine {
                                                readableKeys: readableRightDirKeys) { continue }
                 // missing on right
                 if leftFile.isDirectory { missingOnRightDirs.insert(relativePath) }
-                let rightExpectedPath = rightURL.appendingPathComponent(relativePath).path
+                // `isDirectory:` from what the entry knows. Without it the URL asks the file system
+                // whether the path is a directory — one probe per one-sided entry, ~200,000 on a Home
+                // scan, before the collapse keeps a few dozen. It only decides a trailing slash, which
+                // `.path` drops, so the path is the same bytes. Composition stays URL composition: it
+                // decomposes precomposed names, and concatenation would not (`OneSidedRowPathTests`).
+                let rightExpectedPath = rightURL.appendingPathComponent(relativePath, isDirectory: leftFile.isDirectory).path
                 diffs.append(FileDifference(
                     relativePath: relativePath,
                     leftItemPath: leftFile.url.path,
@@ -890,7 +895,8 @@ public struct FileDiffEngine {
                                                otherSide: leftFilesInfo,
                                                readableKeys: readableLeftDirKeys) { continue }
                 if rightFile.isDirectory { missingOnLeftDirs.insert(relativePath) }
-                let leftExpectedPath = leftURL.appendingPathComponent(relativePath).path
+                // Hinted for the reason pass 1 gives.
+                let leftExpectedPath = leftURL.appendingPathComponent(relativePath, isDirectory: rightFile.isDirectory).path
                 diffs.append(FileDifference(
                     relativePath: relativePath,
                     leftItemPath: leftExpectedPath,
@@ -920,11 +926,13 @@ public struct FileDiffEngine {
                 switch diff.type {
                 case .missingOnRight:
                     guard let remapped = remappedPath(diff.relativePath, via: nearNameDirPairs) else { return diff }
-                    remappedExpectedPath = (diff.leftItemPath, rightURL.appendingPathComponent(remapped).path)
+                    remappedExpectedPath = (diff.leftItemPath,
+                                            rightURL.appendingPathComponent(remapped, isDirectory: diff.leftIsDirectory).path)
                 case .missingOnLeft:
                     // missingOnLeft rows carry RIGHT-side relative paths; remap right → left.
                     guard let remapped = remappedPath(diff.relativePath, via: rightToLeftDirPairs) else { return diff }
-                    remappedExpectedPath = (leftURL.appendingPathComponent(remapped).path, diff.rightItemPath)
+                    remappedExpectedPath = (leftURL.appendingPathComponent(remapped, isDirectory: diff.rightIsDirectory).path,
+                                            diff.rightItemPath)
                 case .differentDates, .nameConflict:
                     return diff
                 }

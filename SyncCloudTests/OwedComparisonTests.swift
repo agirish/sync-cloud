@@ -211,6 +211,26 @@ import Sync
                 "a refresh that skips its comparison does not record the debt")
     }
 
+    /// **The tab-switch refresh compares too, so it settles the record the same way** — with more
+    /// reason than most: it walks only the moved pane, so its scan reads the other pane's cached
+    /// walk, which a switch keeps. Unread, a file the editor wrote under that pane's folder is
+    /// compared as it was before the write. ⌘K's and the sidebar's cross-source opens reload
+    /// through it as well.
+    @Test func theTabSwitchRefreshReadsTheWritesAndSettlesTheRecord() throws {
+        let body = try EditorNewFilePaneWiringTests.body(of: "func refreshForTabSwitch(movedPane isLeft: Bool) {",
+                                                         in: "ContentView+PaneTabs.swift")
+        let resolve = try #require(body.range(of: "let right = settings.enabledProviders"))
+        let read = try #require(
+            body.range(of: "for path in owedComparison.unreadWrites { syncManager.prepareReread(afterWritingAt: path) }"),
+            "the tab-switch scan settles nothing — it compares the other pane's walk from before the write")
+        let clear = try #require(body.range(of: "owedComparison = OwedComparison()"),
+                                 "the tab-switch scan reads the writes but leaves them owed — a second scan for nothing")
+        let refresh = try #require(body.range(of: "await syncManager.refreshTreesAndScan("))
+        #expect(resolve.lowerBound < read.lowerBound && read.lowerBound < clear.lowerBound
+                && clear.lowerBound < refresh.lowerBound,
+                "the debt is settled before the providers resolve, or after the refresh has started")
+    }
+
     // MARK: Where it is paid
 
     /// **Arriving in Compare pays it, once, and nothing else there does** — the one call on the

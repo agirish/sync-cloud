@@ -274,6 +274,9 @@ import Testing
             // main-actor observation it enqueued signals back. Bounded, records its expiry, and
             // its test declares `.parksAThread`.
             "MergeUndoGroupingAndGateTests.swift": ["if sampled.wait(timeout: .now() + 10) == .timedOut {"],
+            // The MAIN thread, on purpose: holding the main actor is what that test measures. Not a
+            // pool thread, so no reservation; bounded, and running out is the failure it records.
+            "ColdScanStartsOffTheMainActorTests.swift": ["semaphore.wait(timeout: .now() + timeout)"],
         ]
         var found: [String: Set<String>] = [:]
         for (name, text) in try Self.testSources where name != "ParkBudgetTests.swift" {

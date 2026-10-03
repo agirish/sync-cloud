@@ -65,7 +65,8 @@ extension FileSyncManager {
         //    memory rather than from a disk walk. Dropped when the SOURCE changes, and for memory
         //    rather than staleness: its entries are keyed by absolute path and stay true, but they
         //    are whole walked trees — this app's iCloud root measures 39,399 nodes — so never
-        //    dropping them accumulates one per visited source for the session.
+        //    dropping them accumulates one per visited source for the session. All but the other
+        //    pane's walk, which is normally the array that pane is showing, and what the scan reads.
         //
         // `PaneTabArrival` is the shared rule for (1); the host asks it the same question to decide
         // whether to run the scan, and the two must agree or a pane ends up invalidated and never
@@ -73,7 +74,9 @@ extension FileSyncManager {
         if PaneTabArrival.needsReload(arrivingAt: tab,
                                       fromProvider: currentProviderId,
                                       fromFocus: isLeft ? leftRelativePath : rightRelativePath) {
-            if tab.providerId != currentProviderId { dropPrefetchedTrees() }
+            if tab.providerId != currentProviderId {
+                dropPrefetchedTrees(keeping: isLeft ? lastLoadedRightFocusPath : lastLoadedLeftFocusPath)
+            }
             invalidatePaneTree(isLeft: isLeft)
             invalidateDifferencesForPaneRetarget()
             clearSessionIgnoredPaths()

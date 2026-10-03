@@ -373,6 +373,12 @@ extension ContentView {
     func refreshForTabSwitch(movedPane isLeft: Bool) {
         guard let left = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
               let right = settings.enabledProviders.first(where: { $0.id == rightProviderId }) else { return }
+        // **It compares, so it settles what Compare owes — exactly as `refreshAction`'s comparing
+        // refresh does.** The other pane is not walked, so the scan reads that pane's cached walk,
+        // which a switch keeps (`dropPrefetchedTrees(keeping:)`): a file the editor wrote under its
+        // folder would be compared as it was before the write unless that walk goes first.
+        for path in owedComparison.unreadWrites { syncManager.prepareReread(afterWritingAt: path) }
+        owedComparison = OwedComparison()
         Task {
             await syncManager.refreshTreesAndScan(left: left, right: right,
                                                   reloading: .movedPane(isLeft: isLeft))

@@ -579,11 +579,13 @@ extension FileSyncManager {
         // **The pane's half.** Only the moved pane's tree: the sibling's is a walk of a root and a
         // focus this switch did not touch, so it is still exactly right.
         invalidatePaneTree(isLeft: isLeft)
-        // The prefetch cache goes whole. Keyed by absolute path, so its entries stay true — but
-        // they are whole walked trees (this app's iCloud root measures 39,399 nodes) and the source
-        // just left is the one that will not be asked for again. Dropped for memory, exactly as
-        // `applyTab` drops it when a tab changes source.
-        dropPrefetchedTrees()
+        // The prefetch cache goes, but for the sibling's walk. Keyed by absolute path, so its
+        // entries stay true — but they are whole walked trees (this app's iCloud root measures
+        // 39,399 nodes) and the source just left is the one that will not be asked for again.
+        // Dropped for memory, exactly as `applyTab` drops it when a tab changes source. The
+        // sibling's entry is normally the very array that pane is showing, so keeping it costs
+        // nothing, and the Compare after this switch reads cached trees only when both sides hit.
+        dropPrefetchedTrees(keeping: isLeft ? lastLoadedRightFocusPath : lastLoadedLeftFocusPath)
         // **The pair's half.** The differences and the verification results were computed for a
         // comparison that no longer exists, and every row of them carries absolute paths under a
         // root one pane no longer shows — actionable and misdirected until the rescan lands.
