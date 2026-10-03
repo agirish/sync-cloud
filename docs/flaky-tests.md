@@ -2970,15 +2970,16 @@ actor hop the caller cannot await.
 
 ### 27. An unlocked read of the mock's disk lands inside the write the test is waiting for — FIXED
 
-**Symptom.** The test process dies — no `✘`, no `Test run with N tests` line, nothing named:
+**Symptom.** The test process dies mid-run, with no `✘` for the test that died:
 
 ```
 error: Process '…/swiftpm-testing-helper --test-bundle-path …' exited with unexpected signal code 11
 ```
 
-Seen 2026-10-02 19:01 in a local full `swift test` of `Modules/Sync` at load average 6–7; three
-later full runs passed. Only the crash report, `~/Library/Logs/DiagnosticReports/swiftpm-testing-helper-*.ips`,
-names the test:
+`swift test` prints that line on stderr, so it can come before the test output rather than at the
+end. The log lists every test in flight as `◇ Test … started.` — hundreds, in a full run — but only
+the crash report, `~/Library/Logs/DiagnosticReports/swiftpm-testing-helper-*.ips`, names the one
+that died:
 
 ```
 EXC_BAD_ACCESS (SIGSEGV) at 0x0000000000000010               x0 = 0x8000000000000000
@@ -2988,85 +2989,125 @@ EXC_BAD_ACCESS (SIGSEGV) at 0x0000000000000010               x0 = 0x800000000000
 3  SyncTests              FileSyncManagerTests.testUndoRegisterTrashItems() +296
 ```
 
-The same race can die as signal 6 instead, and then the log carries both the tell and the test —
-the frame under `Dictionary._Variant.lookup` (mangled `$sSD8_VariantV6lookupyq_SgxF`) in the
+Seen 2026-10-02 19:01 in a local full `swift test` of `Modules/Sync` (reported: load average 6–7,
+and three later full runs passed); the report redacts the bundle's path, so it does not say which
+commit. The same race can die as signal 6 instead, and then the log names both the cause and the
+test — the frame under `Dictionary._Variant.lookup` (mangled `$sSD8_VariantV6lookupyq_SgxF`) in the
 first-throw call stack, which `swift demangle` reads:
 
 ```
 *** Terminating app due to uncaught exception 'NSInvalidArgumentException', reason: '-[__NSCFNumber objectForKey:]: unrecognized selector sent to instance 0x8000000000000000'
 ```
 
-**Mechanism.** `MockFileManager` serialises its methods with a recursive lock, but `virtualDisk`
+**Mechanism.** `MockFileManager` serialised its methods with a recursive lock, but `virtualDisk`
 was a plain stored property, so a test's own reads took no lock. `testUndoRegisterTrashItems` calls
 `undo()`, whose restore runs on the file-operation queue's detached task, then polls
 `mockFM.virtualDisk[…]` from the main actor until the file is back, and reads it once more in the
 `#expect` after. The restore's `moveItem` copies and then removes under one hold of the lock, and
 an unlocked poll can see the copy land and return before the remove has run — so the line after
-the wait reads while the remove is mutating the dictionary. In the 19:01 crash that is a deduction,
-not a guess: the poll had returned, so the copy had landed, and the remove was the only write left.
+the wait reads while the remove is mutating the dictionary.
 
-What that read loads is specific. For the length of an in-place insert or remove, the standard
-library parks a placeholder in the dictionary's storage field — `Dictionary._Variant(dummy:)`, the
-bit pattern `0x8000000000000000`, a tagged pointer — so that the mutation holds the only reference
-to its storage. A lookup that loads the field in that window takes it for a bridged `NSDictionary`
-and sends it `objectForKey:`. The runtime's per-launch tagged-pointer obfuscation decides what that
-does: a pattern that decodes to no class faults at `0x10`; one that decodes to a real tagged class
-(`__NSCFNumber`, `__NSTaggedDate` and `NSIndirectTaggedPointerString` all seen) throws the
-unrecognized selector.
+In the 19:01 crash that sequence is deduced, not guessed. `waitUntil` returns when its condition
+holds or after 5 s, and the helper process lived 4.6 s in all (launched 19:01:26.37, crashed
+19:01:31.00), so the poll returned because the restored file was there. The copy had landed, then,
+and the remove was the only write to that disk left: the identity snapshot the restore takes next
+only reads, and `movedInto` is a separate set.
 
-Measured, not inferred — macOS 27.0.1, Swift 6.4:
-
-- A key whose `hash(into:)` reads the field's raw bits during an insert and during a remove sees
-  `0x8000000000000000`; at rest the field holds the storage pointer.
-- A subscript on `unsafeBitCast(UInt64(0x8000000000000000), to: [String: Int].self)` crashes frame
-  for frame like the report — `objc_msgSend +32` under `Dictionary._Variant.lookup(_:) +76`,
-  `x0 = 0x8000000000000000`, fault at `0x10`. So the 19:01 report proves on its own that a write to
-  that mock's disk was in progress during the read: the placeholder is in the field at no other
-  time, and at that line the undo's restore is the only work running against that mock.
-- A thread reading `virtualDisk` in a loop while the real delete and undo ran crashed in the
-  **first iteration** in 3 runs of 3 (two SIGABRT, one SIGSEGV). Under Thread Sanitizer it
-  reported a Swift access race between `MockFileManager.copyItem`, holding the mock's lock, and the
-  read — then crashed the same way.
-- The test's own body, looped 320,000 times across 8 concurrent processes at load average 7–9,
-  never crashed: the placeholder is in the field only for one insert or remove, and a read has to
-  land inside it.
-- Whole suites are where it happens. Six full runs of the package at a time, beside four spinners
-  and a looping clean build: the unchanged mock crashed once in 109 runs (load average 80–160) —
-  inside `DeleteRedoOccupantTests.deleteUndoRestoredThenRedoReTrashes()`'s own poll, as SIGABRT on
-  `-[__NSTaggedDate objectForKey:]` — and the fixed mock not at all in 108 (65–110). Run back to
-  back like that, the fixed arm also showed MORE timing reds; interleaved, three of each at once
-  for 45 runs apiece, there was no crash on either side and 114 test failures on each. So the
-  extra reds were the load, not the lock. One crash per hundred loaded runs is too rare for a
-  suite-level comparison to prove the fix; the looping reader is what does.
-- Instrumented, a full run takes the lock on the main thread about 9,800 times. Across six loaded
-  runs two of those waited over a millisecond (34 ms and 5 ms); every other wait was under 0.2 ms.
+What the read loads is specific. For the length of an in-place insert or remove, the standard
+library parks a placeholder in the variable that holds the dictionary —
+`Dictionary._Variant(dummy:)`, `0x8000000000000000` on arm64, a tagged pointer — so that the
+mutation holds the only reference to its storage. A read that loads the variable in that window
+takes the tagged pointer for a bridged `NSDictionary` and sends it a message: `objectForKey:` for a
+subscript, which is the frame above. The runtime's per-launch shuffling of tagged-pointer classes
+decides what happens next: a pattern that decodes to no class faults at `0x10`; one that decodes
+to a real tagged class (`__NSCFNumber`, `__NSTaggedDate` and `NSIndirectTaggedPointerString` all
+seen) throws the unrecognized selector.
 
 A read that survives is wrong more quietly: it can see half of a compound mock operation — a move's
-destination present while its source still is — which no real volume shows, a rename being atomic.
+destination present while its source still is — which no same-volume rename shows.
 
-**Tell:** a crash, not a failure. Signal 11 with `Dictionary._Variant.lookup(_:)` directly under
-`objc_msgSend` and `x0 = 0x8000000000000000` in the `.ips`, or signal 6 with
-`objectForKey:]: unrecognized selector sent to instance 0x8000000000000000` in the log. The frame
-under the lookup is the unlocked read; look for what that test reads, without the lock, while an
+Evidence, on arm64, macOS 27.0.1 and Swift 6.4:
+
+- Measured: a key whose `hash(into:)` reads the variable's raw bits sees `0x8000000000000000` on
+  every hash an insert makes, and during a remove's delete step when it rehashes the keys after the
+  removed one (forced here with colliding keys); the remove's lookup, before the delete, and the
+  variable at rest both show the storage pointer.
+- Measured: a subscript on `unsafeBitCast(UInt64(0x8000000000000000), to: [String: Int].self)`
+  crashes frame for frame like the report — `objc_msgSend +32` under
+  `Dictionary._Variant.lookup(_:) +76`, `x0 = 0x8000000000000000`, fault at `0x10`.
+- Deduced from those two: the 19:01 read overlapped a write to that same disk, since the
+  placeholder is in the variable at no other time — and at that line the undo's restore was the
+  only work running against that mock.
+
+**Tell:** a crash, not a failure, whose receiver is `0x8000000000000000` — `x0` in the `.ips` for
+signal 11, `sent to instance 0x8000000000000000` in the log for signal 6. A subscript shows
+`objectForKey:` under `Dictionary._Variant.lookup(_:)`; `.keys`, `.isEmpty` or iteration would send a
+different selector from a different frame, but the address would be the same. The frame under the
+dictionary code is the unlocked read: look for what that test reads, without the lock, while an
 operation it started is still running.
 
-**Fix — the property takes the lock.** `virtualDisk` is now computed over private storage: `get`
+**Fix — the collections take the lock.** `virtualDisk` is now computed over private storage: `get`
 returns a snapshot under the lock and `_modify` mutates in place under it, so every access a test
-makes waits for whole mock operations, and no call site changed. There are many: 71 `waitUntil`
-closures in 18 files of this target poll the disk for an operation's effect, and the lines after
-them read it again. The mock's own methods already hold the lock when they touch the disk; it is recursive.
-`MockFileManagerLockTests` parks a worker inside a mock call and requires a read and a write from
-two other threads to wait for it; making either accessor unlocked turns it red.
+makes waits out whole mock operations, and no call site changed. There are many: 71 `waitUntil`
+closures in 18 files of `Modules/Sync`'s tests poll the disk while an operation runs. Every other
+collection the mock shares with a test — `trashedPaths`, `attemptedRemovePaths`, `movedInto`,
+`danglingSymlinks`, `unlistableDirectories` and the two fail-once sets — locks the same way, because
+the same race waits there for the first `waitUntil { mockFM.trashedPaths.count == 2 }`. Flags,
+injected errors and hooks stay plain properties, protected by order instead: a test arms them before
+the operation starts. A racing `Bool` would merely be stale; a hook or an error is a reference, and
+racing one could crash like a collection.
 
-The rest of the mock's state was checked, not assumed. Of the 16 reads of `trashedPaths` or
-`attemptedRemovePaths` that follow an undo or redo, 15 come after the operation has drained and the
-16th follows a trash the test made fail, so nothing appends; `unlistableDirectories` is armed only
-before the work that reads it starts or after it returns. They stay plain properties.
+Two rules follow, both now in the mock's doc. A callback that runs under the lock must never block,
+because every test-side access waits for it now — and `beforeCopyItem` runs under it whenever its
+copy is nested in a move, a trash or a folder copy. And a locked property must never be passed
+`inout` across an `await`: an access that ends on another thread cannot release an
+`NSRecursiveLock` — measured: the lock stays held, and every later call into the mock would hang —
+so the mock stops the process instead.
+
+`MockFileManagerLockTests` holds a real `moveItem` inside the lock and requires a read from another
+thread to wait it out and see it finished, and a read and a write of every locked collection to
+wait. What the fix was measured against:
+
+- The mechanism at a high rate: a thread reading `virtualDisk` in a loop while a real delete and
+  undo ran crashed in its **first iteration** in 3 runs of 3 (two SIGABRT, one SIGSEGV). Under
+  Thread Sanitizer it reported a Swift access race between the delete's `trashItem` → `copyItem`,
+  holding the mock's lock, and the read — then crashed the same way. Against the final mock:
+  6,000 iterations and about 230 million reads with no crash; under TSan, 20 iterations of it plus
+  both `MockFileManagerLockTests` and `FileSyncManagerTests`, with no report.
+- The test: unlocking `virtualDisk`'s getter fails it on the read and on the snapshot, which saw
+  `/dst/project` beside `/src/project` — the move half done; unlocking its `_modify`, `trashedPaths`'
+  getter or `unlistableDirectories`' `_modify` fails it naming exactly that access. Dropping
+  `moveItem`'s own hold of the lock, so that its copy and its remove are held separately, SURVIVES
+  (5 runs of 5): the move re-takes the lock before a waiting reader is woken. That atomicity
+  predates this fix, and nothing pins it.
+- The guard: a probe holding `&mock.virtualDisk` across an `await` that resumed on another thread
+  stopped at once, naming the cause, instead of leaving the lock held.
+- The test's own body, looped 320,000 times across 8 concurrent processes (load average rising from
+  3 to 9), never crashed: the placeholder is in the variable for one insert or remove at a time,
+  and a read has to land inside it.
+- Whole suites are where it happens. These runs, and the cost below, measured the first version
+  of the fix, which locked `virtualDisk` alone. Six full runs of the package at a time, beside four
+  spinners and a looping clean build: the unchanged mock crashed once in 109 runs — inside
+  `DeleteRedoOccupantTests.deleteUndoRestoredThenRedoReTrashes()`'s own poll, SIGABRT on
+  `-[__NSTaggedDate objectForKey:]` — and the locked one not at all in 108. One crash per hundred
+  loaded runs is too rare for that comparison to prove the fix; the looping reader is what does.
+- Run back to back, those two arms also differed in timing reds, 77 against 131, not counting three
+  source-scan tests that fail in every run of that scratch copy. Run interleaved, three of each at
+  once for 45 runs apiece, they had 69 each and no crash either side. The difference came from when
+  the arms ran, not from the lock.
+- The cost: instrumented, a full run's own disk accesses take the lock on the main thread about
+  9,800 times. Across six loaded runs two of those waited over a millisecond (34 ms and 5 ms); in
+  the four runs with none, no wait reached 0.14 ms.
+
+Fixed on `main`; `v4.x`, `v3.x` and `v2.x` keep the unlocked mock. Possibly seen before: the 22-run
+reproduction in "Every gate parks at once, on the pool their releases need" recorded one unrelated
+`signal 11` in a full Sync run. This race fits it, but no crash report from before 2026-10-02
+survives to check.
 
 **The general rule:** a lock protects nothing from a reader that does not take it, and a test is a
-reader. Synchronise a test double's state at the property, not at its call sites — and expect the
-polled condition to be the worst case: a poll returns the moment the first half of a write lands,
-which puts the line after it on top of the second half.
+reader. Lock a test double's shared collections at the property, not at their call sites — and
+expect a polled condition to be the worst case: a poll can return the moment the first half of a
+write lands, which puts the line after it on top of the second half.
 
-**See.** `MockFileManager.virtualDisk` and `MockFileManagerLockTests` in
-`Modules/Sync/Tests/Sync/`; `FileSyncManagerTests.testUndoRegisterTrashItems`.
+**See.** `MockFileManager` and `MockFileManagerLockTests` in `Modules/Sync/Tests/Sync/`;
+`FileSyncManagerTests.testUndoRegisterTrashItems`.

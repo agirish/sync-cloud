@@ -5,10 +5,24 @@ import Foundation
 /// It intercepts `FileManaging` protocol endpoints to emulate standard volume constraints,
 /// read/write states, and failure behaviors without interacting with the physical local disk.
 ///
-/// All virtual-disk access is guarded by a recursive lock so the mock is safe to drive from the
-/// parallel worker pools in `syncAll` / bulk verify (up to 4 concurrent operations). A recursive
-/// lock is required because `moveItem`/`trashItem` call `copyItem`/`removeItem` while already holding it.
-/// The test's own access to ``virtualDisk`` takes the same lock.
+/// **One recursive lock guards it, from both sides.** Every method takes it, so the mock is safe
+/// to drive from the parallel worker pools in `syncAll` / bulk verify (up to 4 concurrent
+/// operations), and every COLLECTION a test and an operation both touch — ``virtualDisk``, the
+/// recording lists, the arming sets — takes it at the property, so a test's own read or write
+/// waits out whole operations too. It is recursive because `moveItem`/`trashItem` call
+/// `copyItem`/`removeItem` while holding it, and because every method re-enters it through those
+/// properties.
+///
+/// Flags, injected errors and hooks stay plain properties, so the rule for them is order: arm them
+/// before starting the operation and read them after it drains (a callback may disarm its own
+/// hook). A racing read of a `Bool` or `Int` is merely stale, but a hook or an error is a
+/// reference, and racing one could crash like a collection.
+///
+/// **A callback that runs under the lock must never block**: `onFileExists`, `onAttributesOfItem`,
+/// and `beforeCopyItem` whenever that copy is nested inside `moveItem`, `trashItem`, `replaceItem`
+/// or a folder's own copy. It may touch the disk — the lock is recursive — but while it blocks,
+/// every other thread's access waits with it, a test's `waitUntil` poll on the main actor
+/// included. Park in ``beforeFileExists`` instead, which runs before `fileExists` takes the lock.
 public final class MockFileManager: FileManaging, @unchecked Sendable {
 
     public struct FileStub {
@@ -17,32 +31,51 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
         var contents: [String]? // Child names if directory
     }
 
-    /// The dictionary-backed RAM virtual disk. **Every access takes the lock, the test's own
-    /// included**, because a test reads this while the operation it started is still writing it:
-    /// a `waitUntil` polls it, and the line after the wait reads it again.
-    ///
-    /// Unlocked, that read can land inside a write. For the length of an in-place insert or
-    /// remove, Swift parks a placeholder (`0x8000000000000000`) in the dictionary's storage, and
-    /// a lookup that loads it takes it for a bridged `NSDictionary` — SIGSEGV at `0x10`, or an
-    /// unrecognized-selector SIGABRT, under `Dictionary._Variant.lookup`. A read that survives
-    /// can still see half of a compound operation: a `moveItem` that has copied but not removed.
-    /// See "An unlocked read of the mock's disk lands inside the write the test is waiting for"
-    /// in `docs/flaky-tests.md`.
-    ///
-    /// The mock's own methods already hold the lock when they touch this; it is recursive, so
-    /// their nested acquire is free.
-    public var virtualDisk: [String: FileStub] {
-        get { sync { disk } }
-        // `_modify`, not `set`: a write mutates the storage in place, under the lock. A setter
-        // would copy the whole dictionary per subscript assignment, and its read-modify-write
-        // would not be atomic against an operation's own writes.
-        _modify {
-            lock.lock()
-            defer { lock.unlock() }
-            yield &disk
-        }
+    private let lock = NSRecursiveLock()
+    private func sync<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
     }
-    private var disk: [String: FileStub] = [:]
+
+    /// Takes the lock for a locked property's `_modify`, returning the thread that took it.
+    ///
+    /// `_modify`, not `set`: a write mutates the collection in place, under the lock. A setter
+    /// would copy the whole collection per subscript assignment, and its read-modify-write would
+    /// not be atomic against an operation's own writes.
+    private func lockForMutation() -> pthread_t {
+        lock.lock()
+        return pthread_self()
+    }
+
+    /// Releases ``lockForMutation()``'s lock on the thread that took it, or stops the process.
+    /// An access held `inout` across an `await` can end on another thread, and an `NSRecursiveLock`
+    /// unlocked by a thread that does not own it stays locked (measured, 2026-10-03): every later
+    /// call into this mock would hang with nothing to say why.
+    private func unlockAfterMutation(_ owner: pthread_t) {
+        precondition(pthread_equal(owner, pthread_self()) != 0,
+                     "a MockFileManager property was held inout across an `await` and released on another thread")
+        lock.unlock()
+    }
+
+    /// The dictionary-backed RAM virtual disk. A test reads it while the operation it started is
+    /// still writing it — a `waitUntil` polls it — which is why it locks at the property.
+    ///
+    /// Unlocked, that read can land inside a write. For the length of an in-place insert or remove,
+    /// Swift parks a placeholder in the variable that holds the dictionary (`0x8000000000000000`
+    /// on arm64), and a lookup that loads it takes it for a bridged `NSDictionary`: SIGSEGV at
+    /// `0x10`, or SIGABRT on a selector sent to instance `0x8000000000000000`. A read that survives
+    /// can still see half of a compound operation, such as a `moveItem` that has copied but not yet
+    /// removed. See "An unlocked read of the mock's disk lands inside the write the test is waiting
+    /// for" in `docs/flaky-tests.md`.
+    ///
+    /// **Never pass this, or any locked property here, `inout` across an `await`**: the access
+    /// holds the lock for its whole length — see ``unlockAfterMutation(_:)``.
+    public var virtualDisk: [String: FileStub] {
+        get { sync { _virtualDisk } }
+        _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_virtualDisk }
+    }
+    private var _virtualDisk: [String: FileStub] = [:]
 
     /// Paths whose stub is a **dangling symlink**: the directory entry is there, its target is not.
     ///
@@ -54,14 +87,11 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     ///
     /// Keep the stub in ``virtualDisk`` as well: the entry really is there, so trashing it works
     /// and removes it, exactly as on a real volume.
-    public var danglingSymlinks: Set<String> = []
-
-    private let lock = NSRecursiveLock()
-    private func sync<T>(_ body: () throws -> T) rethrows -> T {
-        lock.lock()
-        defer { lock.unlock() }
-        return try body()
+    public var danglingSymlinks: Set<String> {
+        get { sync { _danglingSymlinks } }
+        _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_danglingSymlinks }
     }
+    private var _danglingSymlinks: Set<String> = []
 
     public init() {}
 
@@ -75,8 +105,8 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     /// Invoked (under the lock) after each successful `attributesOfItem` lookup, with the queried
     /// path — the walk-progress seam. A test that interleaves an EDIT with an identity walk needs
     /// to know the walk has already READ a file's pre-edit state; the stat IS that read, which
-    /// neither `onFileExists` nor `onEnumerate` can witness. The callback must not touch the
-    /// virtual disk (it runs under the recursive lock); setting a flag in a `LockedBox` is safe.
+    /// neither `onFileExists` nor `onEnumerate` can witness. The callback runs under the lock, so
+    /// it must not block (see the type's doc); setting a flag in a `LockedBox` is the usual use.
     public var onAttributesOfItem: ((String) -> Void)?
 
     /// Invoked once per `enumerator(at:…)` call, with the directory being listed. A listing is the
@@ -94,7 +124,11 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     /// yields zero entries** and reports the failure through the `errorHandler` — it does not
     /// return nil. A mock that returned nil here would make every `guard let enumerator … else`
     /// look tested while that branch stays dead in production.
-    public var unlistableDirectories: Set<String> = []
+    public var unlistableDirectories: Set<String> {
+        get { sync { _unlistableDirectories } }
+        _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_unlistableDirectories }
+    }
+    private var _unlistableDirectories: Set<String> = []
 
     /// Invoked BEFORE the lock is taken, on the calling thread, for each `fileExists` check —
     /// the unlocked sibling of ``onFileExists``.
@@ -105,15 +139,14 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     /// own `attributesOfItem` needs — a deadlock, not a race. Blocking here holds nothing, so the
     /// walk runs on and the parked thread is a worker rather than the main one.
     ///
-    /// Unlike `onFileExists`, this MAY touch the disk (through ``setStub(_:at:)``, which takes
-    /// the lock itself).
+    /// Like `onFileExists` it may touch the disk; unlike it, it runs while the mock holds no lock,
+    /// so it may also block.
     public var beforeFileExists: ((String) -> Void)?
 
-    /// Sets or removes one entry under the lock — the same as assigning into ``virtualDisk``,
-    /// which takes that lock itself, so either is safe while a walk, a copy worker or a queued
-    /// operation is live.
+    /// Sets or removes one entry — the same as assigning into ``virtualDisk``, which takes the
+    /// lock itself, so either is safe while a walk, a copy worker or a queued operation is live.
     public func setStub(_ stub: FileStub?, at path: String) {
-        sync { virtualDisk[path] = stub }
+        virtualDisk[path] = stub
     }
 
     public func fileExists(atPath path: String) -> Bool {
@@ -190,11 +223,14 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     /// flag resets so a retry succeeds — for pinning retry flows.
     public var shouldFailCopy: Bool = false
 
-    /// Invoked with the source path immediately BEFORE each `copyItem`, and deliberately
-    /// OUTSIDE the virtual disk's lock so a test may block in it: that is what lets a bulk run
-    /// be held genuinely mid-flight, by its own I/O, instead of by a foreign operation parked
-    /// on the queue ahead of it (which moves `fileOperationsEpoch` and so cannot coexist with a
-    /// live copy offer).
+    /// Invoked with the source path immediately BEFORE each `copyItem`, before that call takes the
+    /// lock, so a test may block in it: that is what lets a bulk run be held genuinely mid-flight,
+    /// by its own I/O, instead of by a foreign operation parked on the queue ahead of it (which
+    /// moves `fileOperationsEpoch` and so cannot coexist with a live copy offer).
+    ///
+    /// Only a DIRECT `copyItem` runs it without the lock. One nested inside `moveItem`,
+    /// `trashItem`, `replaceItem` or a folder's own copy is called with the lock already held, and
+    /// blocking there blocks every other access to this mock (see the type's doc).
     public var beforeCopyItem: ((String) -> Void)?
 
     public func copyItem(at srcURL: URL, to dstURL: URL) throws {
@@ -267,7 +303,11 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     /// the ONLY way to reach `trashAfterReregistering`'s strand branch: the park must succeed and
     /// the move BACK must fail, and `shouldFailMove` cannot express that — it clears on its first
     /// throw, so it always takes the park instead.
-    public var failMoveToPathsOnce: Set<String> = []
+    public var failMoveToPathsOnce: Set<String> {
+        get { sync { _failMoveToPathsOnce } }
+        _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_failMoveToPathsOnce }
+    }
+    private var _failMoveToPathsOnce: Set<String> = []
 
     /// When set, EVERY `trashItem` throws this error — unlike `trashErrorOnce`, which clears on
     /// the first throw. This is the "nothing can trash this" case, where all three attempts are
@@ -284,16 +324,28 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     /// attempt through.
     public var trashRefusedUntilMovedIn: Bool = false
     /// Paths that have been the DESTINATION of a `moveItem` on this mock.
-    public var movedInto: Set<String> = []
+    public var movedInto: Set<String> {
+        get { sync { _movedInto } }
+        _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_movedInto }
+    }
+    private var _movedInto: Set<String> = []
 
     public var shouldFailTrash: Bool = false
     /// When set, the next `trashItem` throws this specific error (then clears), letting tests pin
     /// how a particular failure — e.g. a transient EBUSY vs. an unsupported-volume error — is
     /// classified by `deleteItems`. Checked before `shouldFailTrash`.
     public var trashErrorOnce: Error? = nil
-    public var trashedPaths: [String] = []
+    public var trashedPaths: [String] {
+        get { sync { _trashedPaths } }
+        _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_trashedPaths }
+    }
+    private var _trashedPaths: [String] = []
     public var enumeratorDelay: TimeInterval = 0
-    public var failRemovePathsOnce: Set<String> = []
+    public var failRemovePathsOnce: Set<String> {
+        get { sync { _failRemovePathsOnce } }
+        _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_failRemovePathsOnce }
+    }
+    private var _failRemovePathsOnce: Set<String> = []
 
     /// Deterministic enumerator gate: when set, the FIRST enumerator call signals `entered` and
     /// then parks until `release` is signalled. Use this — not `enumeratorDelay` sleeps — for
@@ -346,7 +398,11 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     /// Every path `removeItem` was called with, whether or not the removal succeeded. The mock
     /// disk is case-sensitive, so a removal that would hit a case-variant of an existing entry
     /// on a real (case-insensitive) volume shows up here even though the mock throws no-such-file.
-    public var attemptedRemovePaths: [String] = []
+    public var attemptedRemovePaths: [String] {
+        get { sync { _attemptedRemovePaths } }
+        _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_attemptedRemovePaths }
+    }
+    private var _attemptedRemovePaths: [String] = []
 
     public func removeItem(at URL: URL) throws {
         try sync {
@@ -419,10 +475,7 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
 
         // An unlistable ROOT: report it and yield nothing, exactly as the real enumerator does.
         // The enumerator stays non-nil — that is the whole point of modelling this.
-        // Read under the lock like every other virtual-disk access: this mock is driven from the
-        // parallel worker pools, so an unsynchronised Set read races any test that arms a failure
-        // while a walk is in flight.
-        if sync({ unlistableDirectories.contains(url.path) }) {
+        if unlistableDirectories.contains(url.path) {
             _ = handler?(url, NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError))
             return MockEnumerator(urls: [])
         }
@@ -433,6 +486,9 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             let root = url.path
             var blockedDescendants: [URL] = []
             var blockedEntries = Set<String>()
+            // Read once per listing, not per key: each read of a locked property is a lock
+            // round-trip, and this loop runs over every key of the virtual disk.
+            let unlistableDirectories = self.unlistableDirectories
 
             for (key, _) in virtualDisk {
                 if key.hasPrefix(root) && key != root {

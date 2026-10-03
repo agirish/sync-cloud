@@ -627,9 +627,8 @@ import Testing
             // pre-edit state (parked for above), and now they edit a file deep inside it while
             // this prompt sits open — so the edit deterministically postdates the recording.
             walkRanDuringPrompt.withLock { $0 = walkReadTheDeepFile.withLock { $0 } }
-            // Through the locked mutator: the walk may still be inside the mock, and a bare
-            // `virtualDisk[…] = …` from here is an unsynchronized `Dictionary` write against a
-            // concurrent read.
+            // The walk may still be inside the mock, so this write must take the mock's lock —
+            // which `setStub` does, as does every access to `virtualDisk` itself.
             fm.setStub(MockFileManager.FileStub(
                 isDirectory: false,
                 attributes: [FileAttributeKey.size: 999,
