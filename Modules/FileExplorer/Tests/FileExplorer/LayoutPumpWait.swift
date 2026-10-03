@@ -9,9 +9,9 @@ import AppKit
 /// against the same congested main actor. A shared seam is what makes the floor below a single
 /// decision rather than three.
 ///
-/// **One copy does exist outside this target** — `Modules/Dashboard/Tests/Dashboard/LayoutPumpWait.swift`
-/// — because the two are separate SPM packages with no shared test-support module, the same reason
-/// `wipeDefaultsSuite` is duplicated. Keep the two in step; the paragraph above is what happens when
+/// **Two copies exist outside this target** — `Modules/Dashboard/Tests/Dashboard/LayoutPumpWait.swift`
+/// and `Modules/Design/Tests/DesignTests/LayoutPumpWait.swift` — because the two are separate SPM packages with no shared test-support module, the same reason
+/// `wipeDefaultsSuite` is duplicated. Keep the three in step; the paragraph above is what happens when
 /// they drift.
 enum LayoutPumpWait {
 

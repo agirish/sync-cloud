@@ -207,6 +207,11 @@ extension ContentView {
                                  accentFill: accentFill, onAccent: onAccent)
             }
         }
+        // Frosted and Clear: one glass lens for the bar, stretching between segments (RD46). Here,
+        // inside the padding, so it sits on the bar's ground rather than under it. Solid draws the
+        // sliding capsule below, exactly as before.
+        .selectionLensHost(Self.workspaceLensChannel, selected: selection.wrappedValue,
+                           style: .fill(.capsule, color: accentFill))
         // The travel itself. `matchedGeometryEffect` only says the two frames are the same view —
         // without an animation around the change it still arrives instantly. Scoped by `value:` to
         // the selection, so resizing the bar (which re-runs the style ladder and can change every
@@ -266,7 +271,8 @@ extension ContentView {
                         .scaledFont(.system(size: 12, weight: isSelected ? .semibold : .medium))
                 }
             }
-            .foregroundStyle(isSelected ? AnyShapeStyle(onAccent) : AnyShapeStyle(Color.secondary))
+            // White on Solid's fill and on dark glass; black on light glass (`selectionLensLabelInk`).
+            .selectionLensLabelInk(isSelected: isSelected, onFill: onAccent, unselected: Color.secondary)
             .padding(.horizontal, style == .full ? 12 : 10)
             .padding(.vertical, 4)
             // **One capsule that moves, not one per segment that blinks.** Drawn only under the
@@ -277,16 +283,20 @@ extension ContentView {
             // no geometry to match; the effect needs a real view to attach to.
             .background {
                 if isSelected {
-                    Capsule()
-                        .fill(accentFill)
-                        .matchedGeometryEffect(id: Self.workspaceMarkerID, in: workspaceMarker)
+                    SelectionLensTodayMarker {
+                        Capsule()
+                            .fill(accentFill)
+                            .matchedGeometryEffect(id: Self.workspaceMarkerID, in: workspaceMarker)
+                    }
                 }
             }
+            .selectionLensStop(Self.workspaceLensChannel, id: workspace)
             .contentShape(Capsule())
         }
         // The selected segment already carries the accent fill, so it takes the ring; the
         // unselected ones wash the capsule they would fill if you clicked them.
-        .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment, tint: accentFill))
+        // `.filled` for the chosen segment at Solid; under the lens, `.segment` (`SelectionLens`).
+        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accentFill)
         .shortcutKeycap(chord)
         // Once the label is shed the glyph is the only thing naming this workspace, so the name
         // has to survive somewhere reachable — the tooltip for a mouse, the a11y label otherwise.
@@ -301,6 +311,9 @@ extension ContentView {
     /// The `matchedGeometryEffect` id for the selected segment's accent capsule. One marker, so
     /// one id — a per-segment id would give each its own identity and defeat the whole effect.
     static let workspaceMarkerID = "workspace.selection.marker"
+
+    /// The bar's selection lens in Frosted and Clear — see `SelectionLens`.
+    static let workspaceLensChannel = SelectionLensChannel("workspace.bar")
 
     /// Each segment's rendered label width, at the app's current text scale.
     ///

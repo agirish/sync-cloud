@@ -902,10 +902,14 @@ struct HueOptionView: View {
                 ZStack {
                     swatch
                         .frame(width: 32, height: 32)
-                        .overlay(
-                            Circle()
-                                .strokeBorder(isSelected ? Color.primary.opacity(0.4) : .clear, lineWidth: 2)
-                        )
+                        .overlay {
+                            // Today's marker — in Frosted and Clear the row's lens draws the ring.
+                            if isSelected {
+                                SelectionLensTodayMarker {
+                                    Circle().strokeBorder(Self.ringColor, lineWidth: Self.ringWidth)
+                                }
+                            }
+                        }
                         .shadow(color: swatchShadowColor, radius: isSelected ? 5 : 1.5)
                     if isSelected {
                         Image(systemName: "checkmark")
@@ -918,6 +922,7 @@ struct HueOptionView: View {
                             .shadow(color: .black.opacity(0.35), radius: 0.5, x: 0, y: 0.5)
                     }
                 }
+                .selectionLensStop(AccentColorSection.lensChannel, id: hue)
                 Text(hue.displayName)
                     .scaledFont(.caption2.weight(isSelected ? .semibold : .medium))
                     .foregroundStyle(isSelected ? .primary : .secondary)
@@ -950,6 +955,10 @@ struct HueOptionView: View {
             Circle().fill(hue.accentColor)
         }
     }
+
+    /// The chosen swatch's ring, named once because the row's selection lens wears it too.
+    static let ringColor = Color.primary.opacity(0.4)
+    static let ringWidth: CGFloat = 2
 
     private var swatchShadowColor: Color {
         hue == .none ? Color.black.opacity(0.2) : hue.accentColor.opacity(0.4)

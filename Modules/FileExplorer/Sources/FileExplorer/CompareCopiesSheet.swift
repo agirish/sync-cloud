@@ -651,6 +651,8 @@ struct FilePairCompareView<Verdict: View>: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.hoverAffordance(.segment, tint: accent))
+            // Frosted and Clear: a glass capsule like every bar button (`ChromeGlass`).
+            .chromeGlassGround(.capsule, outset: 2)
             .accessibilityLabel("Close compare")
             .help(ShortcutHint.tooltip("Close", "esc"))
         }

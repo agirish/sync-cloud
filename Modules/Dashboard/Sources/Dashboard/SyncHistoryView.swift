@@ -174,7 +174,8 @@ public struct SyncHistoryView: View {
                 Image(systemName: "square.and.arrow.up")
             }
             .menuStyle(.button)
-            .buttonStyle(.bordered)
+            // Glass in Frosted and Clear, like every bar button (`ChromeGlass`).
+            .chromeGlassBorderedButtonStyle()
             .controlSize(.small)
             .fixedSize()
             .frame(width: 34)
@@ -186,7 +187,7 @@ public struct SyncHistoryView: View {
             Button(action: { Self.clearIfConfirmed(store: store, confirm: confirmClearHistory) }) {
                 Image(systemName: "trash")
             }
-            .buttonStyle(.bordered)
+            .chromeGlassBorderedButtonStyle()
             .controlSize(.small)
             .chromeHover()
             .disabled(store.records.isEmpty)

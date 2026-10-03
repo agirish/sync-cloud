@@ -446,11 +446,24 @@ struct StorageSectionBar: View {
                 segment(candidate, labelled: labelled)
             }
         }
+        // Frosted and Clear: one glass lens that glides between sections (RD46).
+        .selectionLensHost(Self.lensChannel, selected: Self.lensID(section), style: .fill(.capsule, color: accent))
         .padding(2)
-        .background(Capsule().fill(.quaternary.opacity(0.5)))
+        // Frosted and Clear: a glass track, like the bar's other controls (`ChromeGlass`).
+        .chromeGlassTrack()
         .fixedSize()
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Storage section")
+    }
+
+    /// The bar's selection lens in Frosted and Clear — see `SelectionLens`.
+    static let lensChannel = SelectionLensChannel("storage.sections")
+
+    /// A segment's lens identity. All is not a ``StorageSection`` — it is the absence of one — so
+    /// it needs a name of its own, or "All selected" would read as "nothing selected" and draw no
+    /// lens at all.
+    static func lensID(_ candidate: StorageSection?) -> String {
+        candidate?.rawValue ?? "all"
     }
 
     /// The label for a segment. All is not a ``StorageSection``, so its words live here — the same
@@ -475,15 +488,17 @@ struct StorageSectionBar: View {
                         .scaledFont(.system(size: 10, weight: .semibold))
                 }
             }
-            .foregroundStyle(isSelected ? AnyShapeStyle(onAccent) : AnyShapeStyle(Color.secondary))
+            .selectionLensLabelInk(isSelected: isSelected, onFill: onAccent, unselected: Color.secondary)
             .padding(.horizontal, labelled ? 8 : 6)
             .padding(.vertical, 3)
             .background {
-                if isSelected { Capsule().fill(accent) }
+                if isSelected { SelectionLensTodayMarker { Capsule().fill(accent) } }
             }
+            .selectionLensStop(Self.lensChannel, id: Self.lensID(candidate))
             .contentShape(Capsule())
         }
-        .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment, tint: accent))
+        // `.filled` for the chosen section at Solid; under the lens, `.segment` (`SelectionLens`).
+        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accent)
         // Once the word is shed the glyph is the only thing naming the section, so the name has to
         // survive somewhere reachable — the tooltip for a mouse, the a11y label otherwise.
         .help(title(candidate))

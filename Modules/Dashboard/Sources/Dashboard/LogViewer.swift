@@ -314,6 +314,8 @@ public struct LogViewer: View {
     /// drive, so the log's search expands, focuses, escapes and clears exactly like theirs
     /// instead of being this window's own always-visible field.
     @State private var isSearchExpanded = false
+    /// The part of the severity row on screen, for its lens — see `SelectionLensVisibleRegion`.
+    @State private var visibleLevels = SelectionLensVisibleRegion()
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
@@ -517,7 +519,8 @@ public struct LogViewer: View {
                 Button(action: { copyVisibleEntries(filtered + visibleHistory) }) {
                     Image(systemName: "doc.on.doc")
                 }
-                .buttonStyle(.bordered)
+                // Glass in Frosted and Clear, like every bar button (`ChromeGlass`).
+                .chromeGlassBorderedButtonStyle()
                 .controlSize(.small)
                 .chromeHover(tint: hueAccent)
                 .disabled(filtered.isEmpty && visibleHistory.isEmpty)
@@ -536,7 +539,8 @@ public struct LogViewer: View {
                 .onReceive(NotificationCenter.default.publisher(for: Logger.didClearLogsNotification)) { _ in
                     history.reset()
                 }
-                .buttonStyle(.bordered)
+                // Glass in Frosted and Clear, like every bar button (`ChromeGlass`).
+                .chromeGlassBorderedButtonStyle()
                 .controlSize(.small)
                 .chromeHover(tint: hueAccent)
                 // Enabled while there is anything ON SCREEN to clear — session entries OR revealed
@@ -550,7 +554,8 @@ public struct LogViewer: View {
                 Button(action: { logger.openLogFile() }) {
                     Image(systemName: "doc.text")
                 }
-                .buttonStyle(.bordered)
+                // Glass in Frosted and Clear, like every bar button (`ChromeGlass`).
+                .chromeGlassBorderedButtonStyle()
                 .controlSize(.small)
                 .chromeHover(tint: hueAccent)
                 .help("Open in Console/TextEdit")
@@ -588,7 +593,13 @@ public struct LogViewer: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
+                // Frosted and Clear: the active threshold's fill as one glass lens that glides
+                // between chips (RD46) — a pick-one row like every other that wears one. On the
+                // padded row, the scroll view's content, so `visibleLevels` is in its coordinates.
+                .selectionLensHost(Self.levelLensChannel, selected: Self.levelLensID(selectedLevel),
+                                   style: .fill(.capsule, color: hueAccentFill), visibleRegion: visibleLevels)
             }
+            .selectionLensTracksVisibleRegion(visibleLevels)
 
             // Search Bar — revealed by the header's magnifier. The query, plus (below) the parsed
             // filter tokens as removable chips and, while focused, one-tap suggestions. Design's
@@ -722,6 +733,12 @@ public struct LogViewer: View {
 
     // MARK: Severity chips
 
+    /// The severity row's selection lens — see `SelectionLens`.
+    static let levelLensChannel = SelectionLensChannel("log.levels")
+
+    /// A chip's lens identity: its level, or "all" for the chip that has none.
+    static func levelLensID(_ level: LogLevel?) -> String { level?.rawValue ?? "all" }
+
     /// One severity-threshold pill: its label, its live count, and a filled state when it's the active
     /// threshold. Tapping sets the same `selectedLevel` the old menu did, so the filter logic is
     /// unchanged — only its presentation.
@@ -742,23 +759,28 @@ public struct LogViewer: View {
                     .monospacedDigit()
                     // Dimmed via the shared floor constant, not a local literal: 0.85 white on
                     // the Graphite hue composited to ~2.97:1, under the 3:1 large-text minimum.
-                    .foregroundStyle(selected
-                        ? AnyShapeStyle(onAccent.opacity(AccentLabel.dimmedOnFillOpacity))
-                        : AnyShapeStyle(.secondary))
+                    .selectionLensLabelInk(isSelected: selected,
+                                           onFill: onAccent.opacity(AccentLabel.dimmedOnFillOpacity),
+                                           onGlass: .secondary, unselected: .secondary)
             }
             .scaledFont(.caption.weight(.medium))
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
-            .foregroundStyle(selected ? AnyShapeStyle(onAccent) : AnyShapeStyle(.primary))
+            .selectionLensLabelInk(isSelected: selected, onFill: onAccent, unselected: .primary)
             .background(
                 // Selected fills with the glass hue (the accent every other window's chips use);
-                // unselected wears the canonical badge wash (`PillVariant.fillOpacity`).
-                Capsule().fill(selected ? AnyShapeStyle(hueAccentFill) : AnyShapeStyle(Color.secondary.opacity(PillVariant.fillOpacity)))
+                // unselected wears the canonical badge wash (`PillVariant.fillOpacity`). Under the
+                // row's lens the selected fill is the lens — one capsule either way, so Solid's
+                // change of threshold tweens as it did.
+                SelectionLensGround(Capsule(), isSelected: selected, selected: hueAccentFill,
+                                    unselected: Color.secondary.opacity(PillVariant.fillOpacity))
             )
             .overlay(Capsule().strokeBorder(.quaternary, lineWidth: selected ? 0 : 0.5))
+            .selectionLensStop(Self.levelLensChannel, id: Self.levelLensID(level))
             .contentShape(Capsule())
         }
-        .buttonStyle(.hoverAffordance(selected ? .filled : .segment, tint: hueAccent))
+        // `.filled` for the active threshold at Solid; under the lens, `.segment` (`SelectionLens`).
+        .selectionLensChoiceButtonStyle(isSelected: selected, tint: hueAccent)
         .fixedSize()
         .help("Show \(label.lowercased())")
         // **Exactly one of these is active, which makes it this window's primary state — and it

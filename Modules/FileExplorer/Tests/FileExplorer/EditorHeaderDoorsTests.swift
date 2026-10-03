@@ -418,7 +418,10 @@ import FileExplorerTestSupport
         let start = body.range(of: "Button", options: .backwards, range: body.startIndex..<mark.lowerBound)?.lowerBound
             ?? mark.lowerBound
         let tail = body[mark.upperBound...]
-        let stop = tail.range(of: "Button")?.lowerBound ?? tail.range(of: "EditorModeBar")?.lowerBound ?? tail.endIndex
+        // The next BUTTON, not the next "Button": `.chromeGlassGlyphButton(` sits in the ×'s own
+        // chain, and a bare substring match ended the chain there — before its label.
+        let stop = tail.range(of: #"(?<![A-Za-z_.])Button\b"#, options: .regularExpression)?.lowerBound
+            ?? tail.range(of: "EditorModeBar")?.lowerBound ?? tail.endIndex
         return String(body[start..<stop])
     }
 }

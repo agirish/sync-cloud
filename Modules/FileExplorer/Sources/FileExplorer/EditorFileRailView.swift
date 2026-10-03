@@ -175,38 +175,43 @@ struct EditorFileRailView: View {
                 .truncationMode(.middle)
             Spacer(minLength: 0)
             if tab == .files {
-                // **Revealed rather than always shown**, the bargain every other search in this app
-                // strikes: the rail is 232pt wide and a permanent field would spend a row of it on
-                // a control most sessions never touch.
-                Button {
-                    // `withDesignAnimation`, not a bare `withAnimation` — the reveal is a width
-                    // change under the pointer, which is exactly what Reduce Motion turns off. A
-                    // repo-wide scan in the Design package holds every site in the app to this.
-                    withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
-                        filterIsExpanded.toggle()
+                // Frosted and Clear: Filter and ＋ share one glass capsule, as Finder groups related
+                // buttons (`ChromeGlass`). The row's own 5pt, so Solid's layout is untouched.
+                HStack(spacing: 5) {
+                    // **Revealed rather than always shown**, the bargain every other search in this app
+                    // strikes: the rail is 232pt wide and a permanent field would spend a row of it on
+                    // a control most sessions never touch.
+                    Button {
+                        // `withDesignAnimation`, not a bare `withAnimation` — the reveal is a width
+                        // change under the pointer, which is exactly what Reduce Motion turns off. A
+                        // repo-wide scan in the Design package holds every site in the app to this.
+                        withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
+                            filterIsExpanded.toggle()
+                        }
+                        if !filterIsExpanded { filter = "" }
+                    } label: {
+                        Image(systemName: "line.3.horizontal.decrease")
+                            .scaledFont(.system(size: 11, weight: .semibold))
+                            .frame(width: 18, height: 18)
                     }
-                    if !filterIsExpanded { filter = "" }
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .frame(width: 18, height: 18)
+                    .buttonStyle(.hoverAffordance(filterIsExpanded ? .filled : .glyph, tint: accent))
+                    .accessibilityLabel("Filter text files")
+                    .help("Filter this list by name")
+                    .disabled(entries.isEmpty)
+                    Button {
+                        isNaming = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .scaledFont(.system(size: 11, weight: .semibold))
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+                    .accessibilityLabel("New text file")
+                    .shortcutKeycap(AppChord.newTextFile.display)
+                    .help(ShortcutHint.tooltip(newFileDestination, AppChord.newTextFile.display))
+                    .disabled(folderName.isEmpty)
                 }
-                .buttonStyle(.hoverAffordance(filterIsExpanded ? .filled : .glyph, tint: accent))
-                .accessibilityLabel("Filter text files")
-                .help("Filter this list by name")
-                .disabled(entries.isEmpty)
-                Button {
-                    isNaming = true
-                } label: {
-                    Image(systemName: "plus")
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .frame(width: 18, height: 18)
-                }
-                .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-                .accessibilityLabel("New text file")
-                .shortcutKeycap(AppChord.newTextFile.display)
-                .help(ShortcutHint.tooltip(newFileDestination, AppChord.newTextFile.display))
-                .disabled(folderName.isEmpty)
+                .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
             }
         }
         // **A floor, not a height.** The two tabs put different things in this row — 18pt buttons

@@ -64,6 +64,10 @@ struct AppearanceScreen: View {
                         swatch(offered)
                     }
                 }
+                // Frosted and Clear: the chosen swatch's ring as a glass halo that travels to the
+                // swatch you pick (RD46).
+                .selectionLensHost(Self.swatchLensChannel, selected: LiquidGlassHue(rawValue: selectedHueRaw),
+                                   style: Self.swatchLensStyle)
             }
 
             SetupMoreOptions(subtitle: "Notifications · launch at login · reopen panes") {
@@ -73,6 +77,16 @@ struct AppearanceScreen: View {
             Spacer(minLength: 0)
         }
     }
+
+    /// The swatch row's selection lens — see `SelectionLens`.
+    static let swatchLensChannel = SelectionLensChannel("setup.accent")
+    /// A halo, like Settings' accent row: glass behind the swatch, showing only in the 3pt band
+    /// outside it, with today's 2pt ring on the band's rim. `markerOpacity` 0 keeps the glass
+    /// untinted at every Tint — it rings a colour, so it must not wear one of its own. The ring is
+    /// `.tint` today and nothing in the app sets a tint, so it resolves to the accent colour.
+    static let swatchLensStyle = SelectionLensStyle(
+        shape: .circle, color: .accentColor, markerOpacity: 0,
+        ring: .init(color: .accentColor, width: 2))
 
     private func swatch(_ offered: LiquidGlassHue) -> some View {
         let isSelected = selectedHueRaw == offered.rawValue
@@ -88,10 +102,14 @@ struct AppearanceScreen: View {
                 .frame(width: 20, height: 20)
                 .padding(3)
                 .overlay {
-                    Circle()
-                        .strokeBorder(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear),
-                                      lineWidth: 2)
+                    // Today's marker — in Frosted and Clear the row's lens draws the ring.
+                    if isSelected {
+                        SelectionLensTodayMarker {
+                            Circle().strokeBorder(.tint, lineWidth: 2)
+                        }
+                    }
                 }
+                .selectionLensStop(Self.swatchLensChannel, id: offered)
         }
         .buttonStyle(.hoverAffordance(.circular))
         .padding(-3)

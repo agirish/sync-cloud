@@ -657,6 +657,7 @@ struct SyncCloudApp: App {
                     .environmentObject(Logger.shared)
                     .environmentObject(settings)
                     .appFontSizeFromSettings()
+                    .selectionLensAppearanceFromDefaults()
                     // Outermost, so every badged control in the window sees the same reveal state
                     // in the same render pass — the badges have to arrive together or the effect
                     // reads as a glitch rather than an answer.
@@ -916,6 +917,7 @@ struct SyncCloudApp: App {
         Window("Keyboard Shortcuts", id: "keyboard-shortcuts") {
             ShortcutsReferenceView()
                 .appFontSizeFromSettings()
+                .selectionLensAppearanceFromDefaults()
         }
         .windowResizability(.contentSize)
         // Suppressed because this scene's item is supplied by hand in `.commands` above, to keep
@@ -929,6 +931,7 @@ struct SyncCloudApp: App {
                 LogViewer()
                     .environmentObject(Logger.shared)
                     .appFontSizeFromSettings()
+                    .selectionLensAppearanceFromDefaults()
             }
         }
         // Same chrome as the main window (and therefore as the Settings overlay that floats in
@@ -972,6 +975,7 @@ struct SyncCloudApp: App {
                 )
                 .environmentObject(Logger.shared)
                 .appFontSizeFromSettings()
+                .selectionLensAppearanceFromDefaults()
             }
         }
         .windowResizability(.contentMinSize)
@@ -1068,6 +1072,13 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // installed app, 2026-09-26 — so it runs inline and keeps them adjacent. See
         // `LaunchSignature`.
         Logger.shared.info(LaunchSignature.current().logLine)
+
+        // Which appearance the session draws selection and bar buttons in (RD46): glass or today's
+        // markers, gliding or instant. Changing the Glass effect later is not logged; this records
+        // what the session started with, which is what a report about it needs first.
+        Logger.shared.info(SelectionLensAppearance.stored(in: .standard).launchLogLine(
+            reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion))
 
         // Which state the AppKit display-cycle guard is in, recorded once per launch.
         //

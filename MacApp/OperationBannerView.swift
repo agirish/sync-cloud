@@ -81,7 +81,8 @@ struct OperationBannerView: View {
                     .accessibilityLabel("Undo this operation")
                 }
 
-                CloseButton(action: onClose)
+                // No bar glass: a banner is not a bar, and the Undo beside this wears none.
+                CloseButton(chromeGlass: false, action: onClose)
                     .accessibilityLabel("Close notification")
             }
 

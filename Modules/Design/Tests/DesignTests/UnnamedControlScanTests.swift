@@ -163,7 +163,10 @@ import Testing
         for path in closeButtonSites {
             let lines = try String(contentsOf: repo.appendingPathComponent(path), encoding: .utf8)
                 .components(separatedBy: "\n")
-            for (i, line) in lines.enumerated() where line.contains("CloseButton(action:") {
+            // Both spellings: `CloseButton(action:)` and, for the banner's — which wears no bar
+            // glass — `CloseButton(chromeGlass: false, action:)`.
+            for (i, line) in lines.enumerated()
+            where line.contains("CloseButton(action:") || line.contains("CloseButton(chromeGlass:") {
                 seen += 1
                 let chain = lines[i..<min(lines.count, i + 8)].joined(separator: "\n")
                 #expect(chain.contains("accessibilityLabel"),

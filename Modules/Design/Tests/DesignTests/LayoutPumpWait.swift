@@ -2,8 +2,9 @@ import AppKit
 
 /// The one layout-pumping condition wait for this target's mounted-view suites.
 ///
-/// **Duplicated verbatim from `Modules/FileExplorer/Tests/FileExplorer/LayoutPumpWait.swift` — keep
-/// the copies in step, and the third, in `Modules/Design/Tests/DesignTests/`.** The two live in separate SPM packages with no shared test-support module,
+/// **Duplicated verbatim from `Modules/FileExplorer/Tests/FileExplorer/LayoutPumpWait.swift` (and
+/// `Modules/Dashboard/Tests/Dashboard/LayoutPumpWait.swift`) — keep the three copies in step.** Added
+/// to Design for the selection-lens and search-field suites, whose waits were fixed sleeps. The two live in separate SPM packages with no shared test-support module,
 /// the same reason `wipeDefaultsSuite` is copied into every test target. Duplication is survivable;
 /// DIVERGENCE is not, and has already cost this repo once: three private copies of this loop existed
 /// inside one target, the defect below was fixed in one of them on 2026-08-03, and the other two

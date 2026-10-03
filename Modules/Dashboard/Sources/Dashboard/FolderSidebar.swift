@@ -513,6 +513,36 @@ public struct FolderSidebarView: View {
     /// rows and the 14pt between sections both stay, because what was tight was the rows.
     static let rowHeight: CGFloat = 30
 
+    /// The current row's wash — named once, because the selection lenses wear it too.
+    static let currentWash: Double = 0.16
+    /// The current place's lens and the current folder's lens — see `SelectionLens`.
+    static let sourceLensChannel = SelectionLensChannel("sidebar.sources")
+    static let folderLensChannel = SelectionLensChannel("sidebar.folders")
+
+    /// - Parameter dimmed: the opacity the current row is drawn at — a place that stopped answering
+    ///   (0.45), a folder that cannot be opened (0.4). Today's wash sits inside the row and dims with
+    ///   it; the lens is drawn by the host, outside the row, so it is told.
+    static func lensStyle(_ accent: Color, dimmed: Double = 1) -> SelectionLensStyle {
+        SelectionLensStyle(shape: .roundedRect(Radius.chip), color: accent, markerOpacity: currentWash,
+                           opacity: dimmed)
+    }
+
+    /// The opacity the current place's row is drawn at — the same 0.45 `sourceRow` applies.
+    var currentSourceOpacity: Double {
+        locationRows.first { $0.id == currentSourceId }?.isDimmed == true ? 0.45 : 1
+    }
+
+    /// The opacity the current folder's row is drawn at — the same 0.4 `row(for:)` applies.
+    var currentFolderOpacity: Double {
+        let current = folderRows.first { $0.relativePath == currentRelativePath && $0.root == currentRoot }
+        return current.map { FolderSidebarModel.canOpen($0) ? 1 : 0.4 } ?? 1
+    }
+
+    /// A folder row's lens identity: the same two fields `row(for:)` compares to decide "current".
+    static func folderLensID(root: String, relativePath: String) -> String {
+        root + "\u{0}" + relativePath
+    }
+
     /// A place row's mark, at the ambient text scale.
     ///
     /// Routed through `ScaledFont.pointSize(scale:)` rather than multiplied, because the app's text
@@ -552,6 +582,9 @@ public struct FolderSidebarView: View {
     private let currentRoot: String
     private let currentRelativePath: String
     private let currentSourceId: String
+    /// The part of the rows on screen, from the scroll view — for the selection lenses.
+    /// The part of the list on screen, for the lenses — see `SelectionLensVisibleRegion`.
+    @State private var visibleRows = SelectionLensVisibleRegion()
     private let width: CGFloat
     private let collapsed: Set<Section>
     private let notice: SidebarNotice?
@@ -881,6 +914,17 @@ public struct FolderSidebarView: View {
                     }
                 }
                 .padding(.vertical, 10)
+                // Frosted and Clear: the current place and the current folder each as a glass lens
+                // that glides between rows (RD46). Two lenses, because two rows can be current at
+                // once — a place and a folder inside it. On the padded stack, which is the scroll
+                // view's content, so `visibleRows` is in the lenses' own coordinates.
+                .selectionLensHost(Self.sourceLensChannel, selected: currentSourceId,
+                                   style: Self.lensStyle(accent, dimmed: currentSourceOpacity),
+                                   visibleRegion: visibleRows)
+                .selectionLensHost(Self.folderLensChannel,
+                                   selected: Self.folderLensID(root: currentRoot, relativePath: currentRelativePath),
+                                   style: Self.lensStyle(accent, dimmed: currentFolderOpacity),
+                                   visibleRegion: visibleRows)
                 .coordinateSpace(name: Self.dragSpace)
                 // **The insertion line is drawn HERE, on the view that NAMES the drag space** —
                 // not inside the section it points into, which is where it used to be and is the
@@ -917,6 +961,10 @@ public struct FolderSidebarView: View {
                 .onPreferenceChange(SectionTops.self) { sectionTops = $0 }
             }
             .scrollContentBackground(.hidden)
+            // Written straight into the region, NOT into `@State`: a state write here re-rendered
+            // this whole view on every scroll frame, in every appearance, to feed a value the
+            // lenses read once per change of current row.
+            .selectionLensTracksVisibleRegion(visibleRows)
             if let notice { noticeView(notice) }
         }
         .frame(width: width)
@@ -1413,9 +1461,12 @@ public struct FolderSidebarView: View {
             .frame(minHeight: Self.rowHeight)
             .background {
                 if isCurrent {
-                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous).fill(accent.opacity(0.16))
+                    SelectionLensTodayMarker {
+                        RoundedRectangle(cornerRadius: Radius.chip, style: .continuous).fill(accent.opacity(Self.currentWash))
+                    }
                 }
             }
+            .selectionLensStop(Self.sourceLensChannel, id: source.id)
             .contentShape(Rectangle())
             // Drawn rather than left to `.disabled`, which under `hoverAffordance` dims nothing.
             // A source that is not answering and a local folder that is not a source yet are dimmed
@@ -1567,10 +1618,14 @@ public struct FolderSidebarView: View {
                 // invisible on its own — and this is also what makes the row's real width
                 // measurable, which is why `theCurrentRowFillsTheColumn` can exist at all.
                 if isCurrent {
-                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
-                        .fill(accent.opacity(0.16))
+                    SelectionLensTodayMarker {
+                        RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                            .fill(accent.opacity(Self.currentWash))
+                    }
                 }
             }
+            .selectionLensStop(Self.folderLensChannel,
+                               id: Self.folderLensID(root: row.root, relativePath: row.relativePath))
             .contentShape(Rectangle())
             // Drawn rather than left to `.disabled`, which under `hoverAffordance` dims nothing.
             .opacity(canOpen ? 1 : 0.4)

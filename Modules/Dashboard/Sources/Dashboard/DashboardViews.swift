@@ -723,6 +723,7 @@ public struct PaneHeader: View {
                     .menuIndicator(.hidden)
                     .menuStyle(.button)
                     .buttonStyle(navButtonStyle)
+                    .paneNavGlass()
                     .fixedSize()
                 // **`.help` is the accessibility HELP on macOS, never the name.** An icon-only
                 // button with only a tooltip has no accessible name at all; this file already knew
@@ -740,6 +741,7 @@ public struct PaneHeader: View {
                     Image(systemName: PaneBarItem.collapseSymbol).paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
+                .paneNavGlass()
                 .help("Collapse the source pane")
                 .accessibilityLabel("Collapse the source pane")
             }
@@ -759,6 +761,7 @@ public struct PaneHeader: View {
                     Image(systemName: "chevron.left").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
+                .paneNavGlass()
                 .shortcutKeycap(AppChord.paneBack.display)
                 .disabled(!canGoBack)
                 .help(ShortcutHint.tooltip("Go back to this pane's previous folder", AppChord.paneBack.display))
@@ -768,11 +771,14 @@ public struct PaneHeader: View {
                     Image(systemName: "chevron.right").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
+                .paneNavGlass()
                 .shortcutKeycap(AppChord.paneForward.display)
                 .disabled(!canGoForward)
                 .help(ShortcutHint.tooltip("Go forward to this pane's next folder", AppChord.paneForward.display))
                 .accessibilityLabel("Forward")
             }
+            // Frosted and Clear: Back and Forward share one glass capsule, as Finder's do.
+            .chromeGlassGroup()
 
         case .scan:
             // Scan/refresh used to live INSIDE the pane's freshness badge, pairing the action
@@ -804,6 +810,7 @@ public struct PaneHeader: View {
                         .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
+                .paneNavGlass()
                 .shortcutKeycap(mode.keycap)
                 .disabled(!mode.isEnabled)
                 .help(mode.help)
@@ -819,6 +826,7 @@ public struct PaneHeader: View {
                         .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
+                .paneNavGlass()
                 .shortcutKeycap(AppChord.newFolder.display)
                 .help(ShortcutHint.tooltip("New folder in this pane's current folder", AppChord.newFolder.display))
                 .accessibilityLabel("New folder")
@@ -849,6 +857,7 @@ public struct PaneHeader: View {
             // restated on the menu itself rather than left to the cluster.
             .menuStyle(.button)
             .buttonStyle(navButtonStyle)
+            .paneNavGlass()
             .fixedSize()
             .help("Choose how items are sorted")
             .accessibilityLabel("Sort")
@@ -862,6 +871,7 @@ public struct PaneHeader: View {
                 Image(systemName: showHiddenFiles ? "eye" : "eye.slash").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
             }
             .buttonStyle(navButtonStyle)
+            .paneNavGlass()
             .shortcutKeycap(AppChord.hiddenFiles.display)
             .help(ShortcutHint.tooltip(showHiddenFiles
                                        ? "Hidden files are visible — click to hide them"
@@ -890,6 +900,7 @@ public struct PaneHeader: View {
                                        ink: ChromeInk.semantic(colorScheme, SemanticColor.error))
                 }
                 .buttonStyle(navButtonStyle)
+                .paneNavGlass()
                 .disabled(selectionCount == 0)
                 // Deliberately NOT `AppChord.deleteSelection`: ⌘⌫ is Compare-only and acts on the
                 // ACTIVE pane, so badging this button with it would promise the chord does what
@@ -937,6 +948,7 @@ public struct PaneHeader: View {
                         .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
+                .paneNavGlass()
                 // Centred, not trailing: a ⌘F keycap is nearly as wide as this button, and
                 // anything overhanging would foul the nav glyphs either side of it. Covering the
                 // magnifier for the length of an ⌥ hold is fine — the badge IS the answer to the
@@ -1134,6 +1146,9 @@ public struct PaneHeader: View {
     /// and the ✕ inside the field is then the only way out it needs.
     static let searchFieldMinWidth: CGFloat = 150
 
+    /// Tree | Columns' selection lens in Frosted and Clear — see `SelectionLens`.
+    static let viewModeLensChannel = SelectionLensChannel("pane.viewMode")
+
     /// Tree | Columns as a two-segment control, built from the same plain buttons as the window's
     /// tab picker: a `Picker(.segmented)` renders neutral inside macOS 26 glass chrome and ignores
     /// `.tint`, so the selected segment could never carry the app accent.
@@ -1147,15 +1162,20 @@ public struct PaneHeader: View {
                 } label: {
                     Image(systemName: candidate.symbol)
                         .scaledFont(PaneNavMetrics.glyphFont(controlSize))
-                        .foregroundStyle(isSelected
-                                         ? AnyShapeStyle(glassHue.onAccentLabelColor)
-                                         : AnyShapeStyle(Color.primary.opacity(0.75)))
+                        // The on-accent ink on Solid's fill and on dark glass; `.primary`, black, on light glass.
+                        .selectionLensLabelInk(isSelected: isSelected, onFill: glassHue.onAccentLabelColor,
+                                               unselected: Color.primary.opacity(0.75))
                         .frame(width: pill.width - PaneNavMetrics.segmentInset, height: pill.height)
-                        .background(isSelected ? AnyShapeStyle(glassHue.accentFillColor) : AnyShapeStyle(Color.clear),
-                                    in: Capsule())
+                        .background {
+                            if isSelected {
+                                SelectionLensTodayMarker { Capsule().fill(glassHue.accentFillColor) }
+                            }
+                        }
+                        .selectionLensStop(Self.viewModeLensChannel, id: candidate)
                         .contentShape(Capsule())
                 }
-                .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment, tint: glassHue.accentFillColor))
+                // `.filled` for the chosen mode at Solid; under the lens, `.segment` (`SelectionLens`).
+                .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: glassHue.accentFillColor)
                 // These stand in for a Picker, so they restate the selected-state semantics it
                 // would have given VoiceOver for free.
                 .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
@@ -1169,8 +1189,14 @@ public struct PaneHeader: View {
         // control, so it put "View" 6pt under every other word and took the row to 40pt against a
         // 34pt budget. Finder's toolbar is the precedent: its segmented controls are not taller
         // than its plain ones. Applied in both modes — see `PaneBarLayout.height(of:)`.
+        //
+        // Frosted and Clear: one glass lens that glides between the two (RD46). Inside the
+        // padding, so it sits on the ground rather than under it.
+        .selectionLensHost(Self.viewModeLensChannel, selected: mode.wrappedValue,
+                           style: .fill(.capsule, color: glassHue.accentFillColor))
         .padding(.horizontal, PaneNavMetrics.segmentPadding)
-        .background(Capsule().fill(.quaternary.opacity(0.5)))
+        // Frosted and Clear: the switch's track is a glass capsule like the buttons beside it.
+        .chromeGlassTrack()
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pane view")
     }
@@ -1207,6 +1233,7 @@ public struct PaneHeader: View {
         .menuIndicator(.hidden)
         .menuStyle(.button)
         .buttonStyle(navButtonStyle)
+        .paneNavGlass()
         .fixedSize()
         .help("More pane options")
         .accessibilityLabel("More pane options")
@@ -1354,6 +1381,12 @@ public struct PaneHeader: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.hoverAffordance(previewEnabled.wrappedValue ? .filled : .segment, tint: glassHue.accentFillColor))
+        // Frosted and Clear: a glass capsule like every bar button (`ChromeGlass`), under the pill.
+        // The ON fill stays exactly as it is, opaque, on top: a toggle has no position to say it is
+        // on, only its fill, and a tint on the Tint slider's curve all but vanished at Tint 0 and
+        // vanished entirely at accent None — ON and OFF read the same. On the button, not the
+        // label: `.filled` flattens its label, and glass inside one renders nothing.
+        .chromeGlassGround(.capsule)
         .shortcutKeycap(AppChord.previewColumn.display)
         .accessibilityAddTraits(previewEnabled.wrappedValue ? [.isButton, .isSelected] : .isButton)
         .accessibilityLabel("Preview pane")
@@ -1532,8 +1565,31 @@ struct PaneNavChrome: ViewModifier {
             .scaledFont(PaneNavMetrics.glyphFont(controlSize))
             .foregroundStyle(glyph)
             .frame(width: pill.width, height: pill.height)
-            .background(Capsule().fill(fill))
+            // Frosted and Clear: the pill is glass, like Finder's toolbar buttons (`ChromeGlass`),
+            // and only the hover and press wash is painted on it; at rest the glass is the ground.
+            // Solid draws its own pill, exactly as before.
+            //
+            // **The glass itself is NOT drawn here** — `paneNavGlass()` puts it on the button,
+            // outside the button style. `navButtonStyle` is `.filled`, which flattens its label
+            // into a compositing group to cast its lift shadow, and Liquid Glass renders nothing
+            // through one (the July finding in `6bb7bdff`): glass drawn here would vanish on screen
+            // while every offscreen test still passed. This only reads whether glass is drawn.
+            .background {
+                ChromeGlassTodayGround { Capsule().fill(fill) }
+                ChromeGlassOnly { Capsule().fill(engagedWash) }
+            }
             .contentShape(Capsule())
+    }
+
+    /// What hover and press paint on a glass pill — the same washes `fill` uses, minus its resting
+    /// grey, which the glass replaces.
+    private var engagedWash: Color {
+        guard isEnabled else { return .clear }
+        switch phase {
+        case .rest: return .clear
+        case .hover: return accent.opacity(0.22)
+        case .pressed: return accent.opacity(0.34)
+        }
     }
 
     /// Disabled reads as a flatter, quieter pill and never responds — `canGoBack` is false at the
@@ -1569,6 +1625,13 @@ extension View {
     /// here is the wash.
     func paneNavChrome(accent: Color, controlSize: ControlSize, ink: Color? = nil) -> some View {
         modifier(PaneNavChrome(accent: accent, controlSize: controlSize, ink: ink))
+    }
+
+    /// A pane-bar button's glass capsule in Frosted and Clear — applied to the BUTTON, after its
+    /// style, never inside the label: see `PaneNavChrome`. Back and Forward's group capsule stands
+    /// in for theirs.
+    func paneNavGlass() -> some View {
+        chromeGlassGround(.capsule)
     }
 }
 

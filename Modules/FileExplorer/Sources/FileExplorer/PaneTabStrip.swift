@@ -213,6 +213,16 @@ public struct PaneTabStrip: View {
                 .onTapGesture(count: 2) { onNew() }
             newTabButton
         }
+        // Frosted and Clear: the active tab's marker as one glass lens that glides between chips
+        // (RD46). Solid keeps `activeMarkerLayer`'s 0.16 s slide.
+        .selectionLensHost(Self.lensChannel, selected: activeTabID, style: lensStyle)
+        // The drag's own animations, restated OUTSIDE the host so the lens rides them: each chip
+        // eases its drag offset and its settle after a drop, and the lens — drawn in the host's
+        // background — would otherwise jump to where a dragged active tab ends up while the chip
+        // glided there. Inside the chips these are unchanged; out here they add nothing else to
+        // animate, because nothing else in the strip changes with these two values.
+        .designAnimation(.easeOut(duration: 0.16), value: draggingTab)
+        .designAnimation(.easeOut(duration: 0.16), value: dragOffset)
         .padding(.leading, PaneTabStripLadder.stripGutter + leadingInset)
         .padding(.trailing, PaneTabStripLadder.stripGutter + trailingInset)
     }
@@ -398,6 +408,7 @@ public struct PaneTabStrip: View {
         // drawn from, so the three cannot answer differently.
         .buttonStyle(.hoverAffordance(.segment, tint: accent, shape: Self.chipShape))
         .background(alignment: .bottom) { chipGround(item) }
+        .selectionLensStop(Self.lensChannel, id: item.id)
         // **Drag to reorder** (roadmap Fig. 8, left — the half that costs nothing; dropping FILES
         // on a tab is the other half and is deliberately not here).
         //
@@ -487,9 +498,25 @@ public struct PaneTabStrip: View {
     @ViewBuilder
     private func chipGround(_ item: Item) -> some View {
         ZStack(alignment: .bottom) {
-            Self.chipOutline.fill(.quaternary.opacity(0.85))
-            if item.isActive { activeMarkerLayer }
+            // The active chip's slab is part of what the lens replaces: drawn over the lens, it laid
+            // an 85% quaternary film across the active tab's glass and its rule. One slab in every
+            // state, so Solid's is the same view whichever tab is active.
+            SelectionLensGround(Self.chipOutline, isSelected: item.isActive,
+                                selected: .quaternary.opacity(0.85), unselected: .quaternary.opacity(0.85))
+            if item.isActive { SelectionLensTodayMarker { activeMarkerLayer } }
         }
+    }
+
+    /// The strip's selection lens in Frosted and Clear — see `SelectionLens`. One per strip: the
+    /// lens host is the strip's own row, so Compare's two strips never see each other's stops.
+    static let lensChannel = SelectionLensChannel("pane.tabs")
+
+    /// The lens wears what `activeMarkerLayer` draws today: the chip's outline, the same wash —
+    /// dimmed in the unfocused pane exactly as the marker is — and the 2pt rule on top.
+    private var lensStyle: SelectionLensStyle {
+        SelectionLensStyle(shape: Self.chipShape, color: accent,
+                           markerOpacity: PaneSelectionWash.opacity(isActivePane: isActivePane),
+                           rule: .init(color: accent, height: 2, inset: PaneTabStripLadder.ruleInset))
     }
 
     /// The live chip's half of `chipGround` — everything that TRAVELS when the active tab changes.
@@ -592,6 +619,7 @@ public struct PaneTabStrip: View {
         .frame(height: PaneTabStripLadder.tabHeight)
         .fixedSize(horizontal: true, vertical: false)
         .background(alignment: .bottom) { chipGround(active) }
+        .selectionLensStop(Self.lensChannel, id: active.id)
         .help(active.fullPath)
         .contextMenu { menu(for: active) }
     }
@@ -624,6 +652,12 @@ public struct PaneTabStrip: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        // Frosted and Clear: a glass capsule like every bar button (`ChromeGlass`) — outside the
+        // menu, because AppKit paints nothing inside a borderless menu's label. AppKit also sizes
+        // the menu itself, ignoring the label's frame: measured 39.5 × 16pt, so the capsule grows
+        // 3pt past it, to 22pt — the ＋ beside it — rather than shrinking (the first version took
+        // the label's 26pt frame at its word and drew a 10pt sliver).
+        .chromeGlassGround(.capsule, outset: 3)
         .help("\(hidden.count) more \(hidden.count == 1 ? "tab" : "tabs")")
     }
 
@@ -634,7 +668,8 @@ public struct PaneTabStrip: View {
                 .frame(width: PaneTabStripLadder.plusSide, height: PaneTabStripLadder.plusSide)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.hoverAffordance(.glyph))
+        // Frosted and Clear: a glass circle with a round hover, like every bar button (`ChromeGlass`).
+        .chromeGlassGlyphButton()
         .accessibilityLabel("New tab")
         // "here", because ⌘T opens the CURRENT folder and the result is two tabs with the same
         // name — so the control has to say what it did before it does it.

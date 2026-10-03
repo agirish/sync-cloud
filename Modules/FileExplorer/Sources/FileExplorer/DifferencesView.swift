@@ -669,7 +669,9 @@ public struct DifferencesView: View {
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.hoverAffordance(.glyph, tint: glassHue.accentColor))
+            // Frosted and Clear: a glass circle with a round hover, like every bar button
+            // (`ChromeGlass`) — grown 2pt to 28pt, level with the header's pills.
+            .chromeGlassGlyphButton(tint: glassHue.accentColor, outset: 2)
             .shortcutKeycap(AppChord.differencesList.display)
             .help(ShortcutHint.tooltip(
                 isCollapsed.wrappedValue ? "Show the differences list" : "Hide the differences list",
@@ -981,7 +983,9 @@ public struct DifferencesView: View {
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.hoverAffordance(.glyph, tint: glassHue.accentColor))
+            // Frosted and Clear: a glass circle with a round hover, like every bar button
+            // (`ChromeGlass`) — grown 2pt to 28pt, level with the header's pills.
+            .chromeGlassGlyphButton(tint: glassHue.accentColor, outset: 2)
             .shortcutKeycap(AppChord.foldAllDifferences.display)
             // Both from `action`, so the tooltip and the announced name can never describe
             // different clicks.
@@ -1083,6 +1087,7 @@ public struct DifferencesView: View {
         .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
                                 onTint: glassHue.onAccentLabelColor,
                                 iconOnly: compaction >= .glyphFilter))
+        .compareBarGlass()
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Filter the list — showing \(name)")
@@ -1140,6 +1145,7 @@ public struct DifferencesView: View {
             .menuStyle(.button)
             .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
                                     onTint: glassHue.onAccentLabelColor, iconOnly: true))
+            .compareBarGlass()
             .menuIndicator(.hidden)
             .fixedSize()
             .help("More actions")
@@ -1169,6 +1175,7 @@ public struct DifferencesView: View {
             }
             .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
                                     onTint: glassHue.onAccentLabelColor))
+            .compareBarGlass()
             .shortcutKeycap(AppChord.reviewDifferences.display)
             .disabled(isSyncActionBlocked)
             .help(ShortcutHint.tooltip(
@@ -1187,6 +1194,7 @@ public struct DifferencesView: View {
             }
             .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
                                     onTint: glassHue.onAccentLabelColor))
+            .compareBarGlass()
             .shortcutKeycap(AppChord.verifyDifferences.display)
             .disabled(isSyncActionBlocked)
             // Same explanation as the review card's Verify, scoped to what the bulk run
@@ -1271,6 +1279,10 @@ public struct DifferencesView: View {
         }
         .buttonStyle(.actionBar(weight, tint: glassHue.accentColor,
                                 onTint: glassHue.onAccentLabelColor))
+        // The quiet direction is a bar button like Review and Verify beside it, so it wears their
+        // glass; the primary's fill is opaque and wears none. `when:` rather than a branch, so the
+        // button keeps its identity when a second direction arrives and its weight changes.
+        .compareBarGlass(when: weight == .quiet)
         // ABOVE `.disabled`, so the badge sits inside that scope and stays off a blocked button.
         // `.accentFill` on the filled weight only: that is the one surface whose keycap has to
         // scrim down instead of washing out.
@@ -1332,6 +1344,7 @@ public struct DifferencesView: View {
             }
             .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
                                     onTint: glassHue.onAccentLabelColor))
+            .compareBarGlass()
             // Gated while the current item's copy runs: that item is still undecided (in
             // `pending`), so handing the remainder to syncAll now would target it twice.
             .disabled(reviewStore.isActing || isSyncActionBlocked)
@@ -1344,6 +1357,7 @@ public struct DifferencesView: View {
         }
         .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
                                 onTint: glassHue.onAccentLabelColor))
+        .compareBarGlass()
         .help("Stop reviewing (esc)")
     }
 
@@ -2536,3 +2550,13 @@ struct DifferencePathCell: View {
     }
 }
 
+private extension View {
+    /// Compare's header pills in Frosted and Clear: a glass capsule — a circle on a pill that has
+    /// shed its words, since a capsule on a 28pt square is one — like every bar button
+    /// (`ChromeGlass`). On the BUTTON, after its style: `.actionBar` flattens its label into a
+    /// compositing group, and Liquid Glass renders nothing inside one. The pill's own hairline
+    /// stays, drawn on the glass.
+    func compareBarGlass(when enabled: Bool = true) -> some View {
+        chromeGlassGround(.capsule, when: enabled)
+    }
+}

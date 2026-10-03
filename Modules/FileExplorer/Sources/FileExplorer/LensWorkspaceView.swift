@@ -173,6 +173,10 @@ public struct LensWorkspaceView: View {
     /// reclaim glow (H5) are dropped for today's instant swap. The numeric count-up is kept — it's an
     /// acceptable motion under Reduce motion.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.selectionLensAppearance) private var lensAppearance
+    /// The part of Organize's rail on screen, for its selection lens — see `SelectionLensVisibleRegion`.
+    @State private var railVisibleRegion = SelectionLensVisibleRegion()
     /// The app's text size, for the provider name — a `Menu` label that must stay a `Text`.
     @Environment(\.appFontScale) private var appFontScale
 
@@ -1319,7 +1323,22 @@ public struct LensWorkspaceView: View {
             // capsule (`StorageSectionBar`).
             organizeRail(counts)
             }
+            // Frosted and Clear: the selected item's wash and ring as one glass lens that glides
+            // between items (RD46). Inside the scroll view, so it scrolls with them.
+            .selectionLensHost(Self.railLensChannel, selected: selectedRailItemID, style: railLensStyle,
+                               visibleRegion: railVisibleRegion)
+            // Frosted and Clear: a count arrives rather than appears (RD46.11) — whenever which items
+            // report changes while the rail is on screen: a scan finishing, or the scope moving. Keyed
+            // on the row, so the item and the neighbours it pushes move together, and OUTSIDE the
+            // lens's host, so the lens rides the same spring as the item it sits on instead of
+            // snapping to where the item ends up. Only a change animates: a rail drawn already
+            // reporting shows its badges at rest.
+            .transaction(value: Self.reportingItems(counts)) { transaction in
+                guard railCountsArrive else { return }
+                transaction.animation = SelectionLensArrival.change(reduceMotion: reduceMotion)
+            }
         }
+        .selectionLensTracksVisibleRegion(railVisibleRegion)
         .scrollBounceBehavior(.basedOnSize)
         .scrollIndicators(.never)
         .onChange(of: selectedRailItemID) { _, id in
@@ -1331,6 +1350,31 @@ public struct LensWorkspaceView: View {
             rail.scrollTo(id, anchor: .center)
         }
         }
+    }
+
+    /// The rail's selection lens in Frosted and Clear — see `SelectionLens`.
+    static let railLensChannel = SelectionLensChannel("organize.rail")
+
+    /// Whether a count arrives rather than appears: the glass levels, where the rail draws a lens.
+    /// The same answer the rail's host gives its items, so a badge's transition and the animation
+    /// that drives it can never disagree.
+    private var railCountsArrive: Bool {
+        SelectionLensRule.material(for: lensAppearance, reduceTransparency: reduceTransparency) != .today
+    }
+
+    /// The rail items that wear a count, in rail order — what a count arriving or leaving changes.
+    static func reportingItems(_ counts: RailCounts) -> [Bool] {
+        OrganizeLens.railItems.map {
+            if case .reporting = counts.state($0) { return true }
+            return false
+        }
+    }
+
+    /// What the selected item wears today, as a lens: its wash and its 2pt ring.
+    private var railLensStyle: SelectionLensStyle {
+        SelectionLensStyle(shape: .capsule, color: glassHue.accentColor,
+                           markerOpacity: RailItemLabel.selectedWash,
+                           ring: .init(color: glassHue.accentColor, width: RailItemLabel.ringWidth))
     }
 
     /// The scroll handle for one rail item, and the identity `selectedRailItemID` names.
@@ -1372,6 +1416,8 @@ public struct LensWorkspaceView: View {
                 .help("Switch which cloud you're organizing")
             }
             .pillSurface(.mini, tint: .secondary)
+            // Frosted and Clear: glass under the pill's wash, as under the breadcrumb's source pill.
+            .chromeGlassGround(.capsule)
             if let folder = scanTargetFolder, !folder.isEmpty {
                 Image(systemName: "chevron.right").scaledFont(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
                 Text((folder as NSString).lastPathComponent)
@@ -1751,6 +1797,7 @@ public struct LensWorkspaceView: View {
                           systemImage: OrganizeRailMetrics.overviewSymbol,
                           state: .configuration, isSelected: isSelected,
                           accent: glassHue.accentColor, style: railStyle)
+                .selectionLensStop(Self.railLensChannel, id: Self.railItemID(organizeLens: nil))
         }
         .buttonStyle(.plain)
         .chromeHover()
@@ -1779,6 +1826,7 @@ public struct LensWorkspaceView: View {
         } label: {
             RailItemLabel(title: item.title, systemImage: item.symbol, state: counts.state(item),
                           isSelected: isSelected, accent: glassHue.accentColor, style: railStyle)
+                .selectionLensStop(Self.railLensChannel, id: Self.railItemID(organizeLens: item))
         }
         .buttonStyle(.plain)
         .chromeHover()
@@ -3132,6 +3180,9 @@ public struct LensWorkspaceView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        // Frosted and Clear: a glass capsule like every bar button (`ChromeGlass`) — outside the
+        // menu, where AppKit lets a background paint; 4pt past the label so it reads as a button.
+        .chromeGlassGround(.capsule, outset: 4)
     }
 
     /// "Apply N recommended", scoped to the FILTERED groups.

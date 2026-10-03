@@ -316,6 +316,10 @@ struct SettingsRow<Control: View>: View {
 /// is what keeps the growth honest.
 struct SettingsRail: View {
     @Binding var selection: SettingsView.SettingsTab
+    /// The rail's selection lens in Frosted and Clear — see `SelectionLens`.
+    static let lensChannel = SelectionLensChannel("settings.rail")
+    /// The part of the tab list on screen, from its scroll view.
+    @State private var visibleTabs = SelectionLensVisibleRegion()
     @Binding var query: String
     /// The window's accent hue: fills the selected row, tints the hover wash on the others.
     let hue: LiquidGlassHue
@@ -401,9 +405,14 @@ struct SettingsRail: View {
             // only option here that fails visibly.
             ScrollViewReader { rail in
                 ScrollView {
-                    TabList(selection: $selection, query: $query, hue: hue)
+                    TabList(selection: $selection, query: $query, hue: hue, visibleRegion: visibleTabs)
                 }
                 .scrollBounceBehavior(.basedOnSize)
+                // What part of the tab list is on screen, for the selection lens: a move between
+                // two rows that are not both visible switches instantly rather than crossing rows
+                // the eye is not on (RD46).
+                // Into the region rather than `@State`, which re-rendered the rail per scroll frame.
+                .selectionLensTracksVisibleRegion(visibleTabs)
                 // Bring the selected row into view when the rail cannot show every row at once.
                 //
                 // Without this the scroller fixes the clipping and leaves a subtler version of the
@@ -458,6 +467,8 @@ struct SettingsRail: View {
         @Binding var selection: SettingsView.SettingsTab
         @Binding var query: String
         let hue: LiquidGlassHue
+        /// The part of the list on screen, in its own coordinates — see `SelectionLensVisibleRegion`.
+        var visibleRegion: SelectionLensVisibleRegion? = nil
 
         var body: some View {
             VStack(alignment: .leading, spacing: Rhythm.rowGap) {
@@ -479,6 +490,11 @@ struct SettingsRail: View {
                     }
                 }
             }
+            // Frosted and Clear: the selected row's fill as one glass lens that glides between
+            // rows (RD46). None while searching — no row is selected then.
+            .selectionLensHost(SettingsRail.lensChannel, selected: isSearching ? nil : selection,
+                               style: .fill(.roundedRect(Radius.chip), color: hue.accentFillColor),
+                               visibleRegion: visibleRegion)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
 
@@ -525,24 +541,27 @@ struct SettingsRail: View {
                     .scaledFont(.callout)
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(isSelected ? AnyShapeStyle(hue.onAccentLabelColor) : AnyShapeStyle(.primary))
+            .selectionLensLabelInk(isSelected: isSelected, onFill: hue.onAccentLabelColor, unselected: .primary)
             .padding(.horizontal, Rhythm.rowInsetH)
             .padding(.vertical, Rhythm.rowInsetV)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
-                        .fill(hue.accentFillColor)
+                    SelectionLensTodayMarker {
+                        RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                            .fill(hue.accentFillColor)
+                    }
                 }
             }
+            .selectionLensStop(SettingsRail.lensChannel, id: tab)
             .contentShape(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
         }
         // A selected row already carries a solid fill, so it takes `.filled` (a ring and a lift,
         // no wash — there is nothing to wash over) with the tint flipped to the on-fill color.
         // See the accent-fill model in Design: washing the accent over its own fill paints nothing.
-        .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment,
-                                      tint: isSelected ? hue.onAccentLabelColor : hue.accentColor,
-                                      shape: .roundedRect(6)))
+        // `.filled` for the open tab at Solid; under the lens, `.segment` (`SelectionLens`).
+        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: hue.accentColor,
+                                        filledTint: hue.onAccentLabelColor, shape: .roundedRect(6))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }

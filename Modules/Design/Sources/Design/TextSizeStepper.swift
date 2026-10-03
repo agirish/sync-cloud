@@ -32,6 +32,9 @@ public struct TextSizeStepper: View {
                 .accessibilityHidden(true)
             step(to: size.bigger, glyph: 15, label: "Bigger text")
         }
+        // Frosted and Clear: one glass capsule for the whole stepper, as Finder pairs related
+        // buttons (`ChromeGlass`); 3pt past the 20pt glyphs so it reads as a bar button.
+        .chromeGlassGroup(.capsule, outset: 3)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Text size")
         .accessibilityValue("\(size.percent) percent")
@@ -55,7 +58,7 @@ public struct TextSizeStepper: View {
                 .frame(width: 20, height: 20)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.hoverAffordance(.glyph, tint: tint))
+        .chromeGlassGlyphButton(tint: tint)
         .disabled(destination == nil)
         .help(label)
         .accessibilityLabel(label)

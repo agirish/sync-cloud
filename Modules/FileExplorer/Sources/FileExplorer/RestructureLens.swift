@@ -491,6 +491,10 @@ struct RestructureLens: View {
                 }
                 Spacer(minLength: 0)
             }
+            // Frosted and Clear: the chosen chip's wash as one glass lens that glides between
+            // chips, grows out of the one you pick and melts back when the filter clears (RD46).
+            .selectionLensHost(Self.crowdingLensChannel, selected: crowdingFilter,
+                               style: .wash(.capsule, color: accent, opacity: Self.crowdingWash))
             if let crowdingFilter {
                 crowdingList(crowdingFilter)
             }
@@ -581,6 +585,11 @@ struct RestructureLens: View {
         Self.crowdingCount(deadWeight, weightClass)
     }
 
+    /// The chosen chip's wash, named once because the strip's selection lens wears it too.
+    static let crowdingWash: Double = 0.18
+    /// The strip's selection lens — see `SelectionLens`.
+    static let crowdingLensChannel = SelectionLensChannel("restructure.crowding")
+
     private func crowdingChip(_ weightClass: DeadWeightClass) -> some View {
         let count = crowdingCount(weightClass)
         let isSelected = crowdingFilter == weightClass
@@ -596,8 +605,15 @@ struct RestructureLens: View {
         .buttonStyle(.plain)
         .padding(.vertical, 3)
         .padding(.horizontal, 8)
-        .background(Capsule().fill(isSelected ? AnyShapeStyle(accent.opacity(0.18))
-                                              : AnyShapeStyle(.quaternary.opacity(0.30))))
+        // The chosen chip's wash is today's marker — the lens carries it in Frosted and Clear.
+        .background {
+            if isSelected {
+                SelectionLensTodayMarker { Capsule().fill(accent.opacity(Self.crowdingWash)) }
+            } else {
+                Capsule().fill(.quaternary.opacity(0.30))
+            }
+        }
+        .selectionLensStop(Self.crowdingLensChannel, id: weightClass)
         .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
         // A SELECTED chip stays clickable at zero: the removal sheet can drain a class while
         // its filter is open, and a selected-and-disabled chip left no way to ever clear the

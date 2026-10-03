@@ -627,24 +627,30 @@ public struct EditorWorkspaceView: View {
                     }
                 }
             Spacer(minLength: 0)
-            // ＋ — see ``newTextFileButton``; the empty page's header draws the same one.
-            newTextFileButton
-            // **Beside the capsule, not in it.** The capsule chooses which representation you
-            // are looking at; this acts on the one you are in. It is withheld in `.preview`,
-            // where there is no text view to search — the preview is a rendering, and a find
-            // bar over it would be searching a copy of the document rather than the document.
-            if resolvedMode != .preview {
-                Button { findRequest &+= 1 } label: {
-                    Image(systemName: "magnifyingglass")
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .frame(width: 18, height: 18)
+            // Frosted and Clear: ＋, Find and "Just the text" share one glass capsule, as Finder
+            // groups related buttons (`ChromeGlass`). The same 6pt as the row, so Solid's layout is
+            // untouched.
+            HStack(spacing: 6) {
+                // ＋ — see ``newTextFileButton``; the empty page's header draws the same one.
+                newTextFileButton
+                // **Beside the capsule, not in it.** The capsule chooses which representation you
+                // are looking at; this acts on the one you are in. It is withheld in `.preview`,
+                // where there is no text view to search — the preview is a rendering, and a find
+                // bar over it would be searching a copy of the document rather than the document.
+                if resolvedMode != .preview {
+                    Button { findRequest &+= 1 } label: {
+                        Image(systemName: "magnifyingglass")
+                            .scaledFont(.system(size: 11, weight: .semibold))
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+                    .accessibilityLabel("Find in this document")
+                    .help("Find and replace in this document")
                 }
-                .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-                .accessibilityLabel("Find in this document")
-                .help("Find and replace in this document")
+                // "Just the text" — one view, drawn by the empty page's header too.
+                justTheTextButton
             }
-            // "Just the text" — one view, drawn by the empty page's header too.
-            justTheTextButton
+            .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
             // **Only for files that have something to preview.** `PairContentKind` already
             // owns which extensions are Markdown; a capsule on a `.txt` would offer two modes
             // that render the same thing.
@@ -678,7 +684,8 @@ public struct EditorWorkspaceView: View {
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .frame(width: 18, height: 18)
             }
-            .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+            // Frosted and Clear: a glass circle with a round hover, like every bar button (`ChromeGlass`).
+            .chromeGlassGlyphButton(tint: accent, outset: ChromeGlass.smallGlyphOutset)
             .accessibilityLabel(Self.closeTitle(name: document.name))
             .help("Close this document")
         }
@@ -880,10 +887,14 @@ public struct EditorWorkspaceView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
-                newTextFileButton
-                if railIsHidden {
-                    justTheTextButton
+                // One glass capsule in Frosted and Clear, as in the document's header.
+                HStack(spacing: 6) {
+                    newTextFileButton
+                    if railIsHidden {
+                        justTheTextButton
+                    }
                 }
+                .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
                 // The capsule's height, reserved the way a plain-text header reserves it.
                 EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
                     .hidden()

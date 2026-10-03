@@ -24,9 +24,24 @@ struct AccentColorSection: View {
                 }
             }
             .frame(maxWidth: .infinity)
+            // Frosted and Clear: the chosen swatch's ring as a glass halo that travels to the
+            // swatch you pick (RD46).
+            .selectionLensHost(Self.lensChannel, selected: selectedHue, style: Self.lensStyle)
             AccentPreviewStrip(hue: selectedHue)
         }
     }
+
+    /// The row's selection lens — see `SelectionLens`.
+    static let lensChannel = SelectionLensChannel("settings.accent")
+    /// **A halo around the swatch, never glass over it, and never tinted.** The swatch IS the
+    /// colour being chosen, so the lens sits behind it and shows only as a band outside its edge —
+    /// `outset` 3 with today's 2pt ring on the band's rim, the same 1pt gap the setup form's ring
+    /// keeps. Today's ring is drawn inside the swatch's edge, where glass behind the swatch could
+    /// not be seen. `markerOpacity` 0 keeps the glass clear of any accent at every Tint: a halo
+    /// tinted with one hue around a swatch of another would contradict the thing it marks.
+    static let lensStyle = SelectionLensStyle(
+        shape: .circle, color: HueOptionView.ringColor, markerOpacity: 0,
+        ring: .init(color: HueOptionView.ringColor, width: HueOptionView.ringWidth), outset: 3)
 
     /// The caption, in the idiom the neighbouring sections use (`AppearanceMode.detail`,
     /// `GlassLevel.detail`): name the current value, then say what it does. This section was the

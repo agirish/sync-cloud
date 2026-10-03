@@ -1007,6 +1007,13 @@ struct HelpView: View {
     let onClose: () -> Void
 
     @State private var selectedTopicID: String
+    /// The part of the topic list on screen — for the selection lens.
+    @State private var visibleTopics = SelectionLensVisibleRegion()
+    /// The open topic's fill: the SYSTEM accent, deepened — see `topicRow` for why it is not the
+    /// app's hue. Named once, because the selection lens wears it too.
+    static var topicFill: Color { AccentFill.deepened(.accentColor) }
+    /// The topic list's selection lens — see `SelectionLens`.
+    static let topicLensChannel = SelectionLensChannel("help.topics")
     @State private var query: String = ""
 
     /// The remembered size. Two `Double`s rather than an archived `CGSize` — see
@@ -1202,7 +1209,16 @@ struct HelpView: View {
                     }
                 }
                 .padding(.vertical, 6)
+                // Frosted and Clear: the open topic's fill as one glass lens that glides between
+                // rows (RD46). On the padded stack, the scroll view's content, so `visibleTopics`
+                // is in the lens's own coordinates; a move to a topic off screen — a link from an
+                // article, a search — switches instantly.
+                .selectionLensHost(Self.topicLensChannel, selected: selectedTopicID,
+                                   style: .fill(.roundedRect(Radius.chip), color: Self.topicFill),
+                                   visibleRegion: visibleTopics)
             }
+            // Into the region, not `@State` — a state write re-rendered all of Help per scroll frame.
+            .selectionLensTracksVisibleRegion(visibleTopics)
         }
     }
 
@@ -1237,7 +1253,7 @@ struct HelpView: View {
         // pairing a label with the RAW accent (white-on-Yellow, ~1.6:1). Rather than flip the label
         // dark on the light accents, this row now deepens its fill like every other solid accent
         // surface in the app, so the Help sidebar reads the same as the buttons beside it.
-        let accentFill = AccentFill.deepened(.accentColor)
+        let accentFill = Self.topicFill
         let onAccent = Color.white
         return Button {
             selectedTopicID = topic.id
@@ -1245,9 +1261,9 @@ struct HelpView: View {
             HStack(spacing: 9) {
                 Image(systemName: topic.systemImage)
                     .frame(width: 18)
-                    .foregroundStyle(isSelected ? onAccent : .secondary)
+                    .selectionLensLabelInk(isSelected: isSelected, onFill: onAccent, unselected: Color.secondary)
                 Text(topic.title)
-                    .foregroundStyle(isSelected ? onAccent : .primary)
+                    .selectionLensLabelInk(isSelected: isSelected, onFill: onAccent, unselected: Color.primary)
                     // **No `lineLimit`, matching `SettingsRail.railRow`**, which has never had
                     // one. The rail is fixed at 220pt and does not widen when the card is
                     // resized, so a `lineLimit(1)` here does not shorten a long title — it
@@ -1263,15 +1279,22 @@ struct HelpView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .contentShape(Rectangle())
-            .background(
-                RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
-                    .fill(isSelected ? accentFill : .clear)
-            )
+            .background {
+                if isSelected {
+                    SelectionLensTodayMarker {
+                        RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                            .fill(accentFill)
+                    }
+                }
+            }
+            .selectionLensStop(Self.topicLensChannel, id: topic.id)
         }
         // Selected already wears the accent fill, so it takes the ring-and-lift treatment; the
         // rest wash the same shape they would fill if chosen.
-        .buttonStyle(.hoverAffordance(isSelected ? .filled : .row,
-                                      shape: .roundedRect(6)))
+        // `.filled` for the open topic at Solid; under the lens it takes `.row`, with no lift or
+        // shadow to cast from a label that no longer has a fill under it (`SelectionLens`).
+        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: .accentColor, unselected: .row,
+                                        shape: .roundedRect(6))
         // **Which topic is open is carried by ink and fill, and neither is audible.** Without this
         // every row announces as "<Title>, button" and the one that is open is indistinguishable
         // from the ten that are not. `SettingsRail.railRow` is this row with this line — the same

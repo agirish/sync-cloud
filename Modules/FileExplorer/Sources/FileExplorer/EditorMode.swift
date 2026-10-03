@@ -115,6 +115,9 @@ struct EditorModeBar: View {
     /// The two rungs, named so a test can ask for one rather than trying to provoke it.
     enum Rung { case labelled, glyphOnly }
 
+    /// The capsule's selection lens in Frosted and Clear — see `SelectionLens`.
+    static let lensChannel = SelectionLensChannel("editor.mode")
+
     var body: some View {
         if let forcedRung {
             capsule(labelled: forcedRung == .labelled)
@@ -132,8 +135,11 @@ struct EditorModeBar: View {
                 segment(candidate, labelled: labelled)
             }
         }
+        // Frosted and Clear: one glass lens that glides between modes (RD46).
+        .selectionLensHost(Self.lensChannel, selected: mode, style: .fill(.capsule, color: accent))
         .padding(2)
-        .background(Capsule().fill(.quaternary.opacity(0.5)))
+        // Frosted and Clear: a glass track, like the bar's other controls (`ChromeGlass`).
+        .chromeGlassTrack()
         .fixedSize()
         .accessibilityElement(children: .contain)
         .accessibilityLabel("View mode")
@@ -156,15 +162,17 @@ struct EditorModeBar: View {
                         .scaledFont(.system(size: 10, weight: .semibold))
                 }
             }
-            .foregroundStyle(isSelected ? AnyShapeStyle(onAccent) : AnyShapeStyle(Color.secondary))
+            .selectionLensLabelInk(isSelected: isSelected, onFill: onAccent, unselected: Color.secondary)
             .padding(.horizontal, labelled ? 8 : 6)
             .padding(.vertical, 3)
             .background {
-                if isSelected { Capsule().fill(accent) }
+                if isSelected { SelectionLensTodayMarker { Capsule().fill(accent) } }
             }
+            .selectionLensStop(Self.lensChannel, id: candidate)
             .contentShape(Capsule())
         }
-        .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment, tint: accent))
+        // `.filled` for the chosen mode at Solid; under the lens, `.segment` (`SelectionLens`).
+        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accent)
         // Once the word is shed the glyph is the only thing naming the mode, so the name has to
         // survive somewhere reachable — the tooltip for a mouse, the a11y label otherwise.
         .help(candidate.title)

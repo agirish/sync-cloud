@@ -6,7 +6,7 @@ import AppKit
 // When targeting macOS 26+, consider switching to .glassEffect() for native Liquid Glass.
 
 /// Popular hue options for the liquid glass background gradient.
-public enum LiquidGlassHue: String, CaseIterable, Identifiable {
+public enum LiquidGlassHue: String, CaseIterable, Identifiable, Sendable {
     /// No accent: no hue wash anywhere, and controls follow the system accent color. In light the
     /// background whitens toward paper (`LiquidGlass.noneLightVeil`) so "no accent" reads as clean
     /// white rather than as the material's gray — which was near-indistinguishable from Graphite's
@@ -181,7 +181,7 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
 /// Replaces the old `liquidGlassIntensity` Double, which presented a 0–100% continuum over an
 /// API that only has two states — every value below 0.33 rendered identically, as did every
 /// value above it. Stored in UserDefaults via `LiquidGlass.levelKey`.
-public enum GlassLevel: String, CaseIterable, Identifiable {
+public enum GlassLevel: String, CaseIterable, Identifiable, Sendable {
     /// Glass with no frost: the background reads straight through.
     case clear
     /// Standard Liquid Glass — translucent and blurred, legible on top.

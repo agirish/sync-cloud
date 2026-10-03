@@ -58,9 +58,21 @@ public struct SizePresetRow: View {
                 tile(preset)
             }
         }
+        // Frosted and Clear: the chosen tile's wash and border as one glass lens that stretches
+        // between tiles (RD46).
+        .selectionLensHost(Self.lensChannel, selected: selected, style: Self.lensStyle)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Size and spacing")
     }
+
+    /// The chosen tile's wash and border, named once because the selection lens wears them too.
+    static let selectedWash: Double = 0.10
+    static let selectedBorder: CGFloat = 1.5
+    /// The row's selection lens — see `SelectionLens`.
+    static let lensChannel = SelectionLensChannel("size.presets")
+    static let lensStyle = SelectionLensStyle(
+        shape: .roundedRect(Radius.control), color: .accentColor, markerOpacity: selectedWash,
+        ring: .init(color: .accentColor, width: selectedBorder))
 
     private func tile(_ preset: SizePreset) -> some View {
         let isSelected = preset == selected
@@ -91,15 +103,29 @@ public struct SizePresetRow: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, style == .specimen ? 4 : 6)
             .padding(.horizontal, 4)
+            // The chosen tile's wash AND its accent border are today's marker: in Frosted and Clear
+            // the lens carries both, and the chosen tile draws no border at all — a border drawn
+            // over the lens would put a grey line on top of its accent ring.
             .background {
-                RoundedRectangle(cornerRadius: Radius.control)
-                    .fill(isSelected ? Color.accentColor.opacity(0.10) : Color.clear)
+                if isSelected {
+                    SelectionLensTodayMarker {
+                        RoundedRectangle(cornerRadius: Radius.control)
+                            .fill(Color.accentColor.opacity(Self.selectedWash))
+                    }
+                }
             }
             .overlay {
-                RoundedRectangle(cornerRadius: Radius.control)
-                    .strokeBorder(isSelected ? Color.accentColor : Color.secondary.opacity(0.35),
-                                  lineWidth: isSelected ? 1.5 : 1)
+                if isSelected {
+                    SelectionLensTodayMarker {
+                        RoundedRectangle(cornerRadius: Radius.control)
+                            .strokeBorder(Color.accentColor, lineWidth: Self.selectedBorder)
+                    }
+                } else {
+                    RoundedRectangle(cornerRadius: Radius.control)
+                        .strokeBorder(Color.secondary.opacity(0.35), lineWidth: 1)
+                }
             }
+            .selectionLensStop(Self.lensChannel, id: preset)
             // The border is drawn, not filled, so without this the tile is hit-testable on a
             // 1.5pt ring alone — the whole face has to take the click.
             .contentShape(RoundedRectangle(cornerRadius: Radius.control))

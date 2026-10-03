@@ -51,6 +51,11 @@ enum RailItemState: Equatable {
 /// wash and a secondary glyph. Both are plainly buttons, and which two of the six want you is
 /// legible before you read a single number.
 struct RailItemLabel: View {
+    /// The selected item's wash, and the ring around it — named once, because the rail's selection
+    /// lens wears the same two values (`LensWorkspaceView.railLensStyle`).
+    static let selectedWash: Double = 0.22
+    static let ringWidth: CGFloat = 2
+
     let title: String
     let systemImage: String
     let state: RailItemState
@@ -60,6 +65,10 @@ struct RailItemLabel: View {
     /// the name survives in the tooltip and the accessibility label, exactly as the workspace
     /// bar's segments do when they shed.
     var style: OrganizeRailStyle = .full
+    /// What the rail's selection lens is drawing — `.today` at Solid, under Reduce Transparency and
+    /// outside the rail. Glass is what lets the count arrive rather than appear (RD46.11), and what
+    /// takes the selected item's own wash away.
+    @Environment(\.selectionLensMaterial) private var lensMaterial
 
     /// Findings — the one state that colours the item.
     private var isReporting: Bool {
@@ -133,6 +142,11 @@ struct RailItemLabel: View {
                     .padding(.vertical, 1)
                     .background(Capsule().fill(accent.opacity(0.16)))
                     .fixedSize()
+                    // Frosted and Clear: the count drops out of the item when a scan finds
+                    // something, and melts back in when it goes to zero — animated by the rail,
+                    // which owns the row (`LensWorkspaceView.railCountsArrive`). `.opacity` is the
+                    // default every insertion had, kept for Solid.
+                    .transition(lensMaterial == .today ? .opacity : SelectionLensArrival.transition)
             case .notScanned:
                 // Not a zero, and not nothing either: a lens that has never run here is a different
                 // fact from one that ran and came back clean, and the row is the only place that
@@ -159,15 +173,24 @@ struct RailItemLabel: View {
         // reporting item reads as the same kind of thing rather than as a second, competing idiom.
         // The quiet rungs drop to a neutral fill of the same weight, which keeps the capsule (and
         // so the control claim) while spending no colour on a lens with nothing to say.
+        //
+        // The selected item's wash and ring are today's marker: in Frosted and Clear the rail's
+        // selection lens carries them instead (RD46), and the item draws neither. The two branches
+        // are exactly the ones this always had — the selected wash goes to 0 under a lens rather
+        // than moving to a branch of its own — so Solid's 0.22 ↔ 0.14 tween on a change of
+        // selection is the same tween, not a cross-fade between two capsules.
         .background {
             if isReporting || isSelected {
-                Capsule().fill(accent.opacity(isSelected ? 0.22 : 0.14))
+                Capsule().fill(accent.opacity(isSelected ? (lensMaterial == .today ? Self.selectedWash : 0)
+                                                         : 0.14))
             } else {
                 Capsule().fill(Color.secondary.opacity(0.10))
             }
         }
         .overlay {
-            if isSelected { Capsule().strokeBorder(accent, lineWidth: 2) }
+            if isSelected {
+                SelectionLensTodayMarker { Capsule().strokeBorder(accent, lineWidth: Self.ringWidth) }
+            }
         }
         .contentShape(Capsule())
     }
