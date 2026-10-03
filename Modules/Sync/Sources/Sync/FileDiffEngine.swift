@@ -551,7 +551,8 @@ public struct FileDiffEngine {
         // since either resolution handles the whole subtree in one action (dir wins: recursive
         // copy; file wins: the subtree is replaced wholesale). Keyed by the dir side's relative
         // path, mapping to the row's relativePath (the LEFT key) — the two can differ in case
-        // when the pair matched via case-variant keys and the directory is on the right.
+        // when the pair matched via case-variant keys and the directory is on the right, and
+        // invisibly when a near-name pair has a file on one side (its row is a name conflict).
         var typeMismatchDirs: [String: String] = [:]
 
         // Lowercased right key → actual right key, for the case-insensitive fallback match.
@@ -734,6 +735,13 @@ public struct FileDiffEngine {
                     if leafInvisiblyRenamed {
                         if leftFile.isDirectory && rightFile.isDirectory {
                             nearNameDirPairs[relativePath] = rightKey
+                        } else if leftFile.isDirectory != rightFile.isDirectory {
+                            // A file against a folder: either direction replaces the folder's whole
+                            // subtree, as a type mismatch's resolution does, so the folder's contents
+                            // go into this row the same way. Left out, each was a missing row aimed
+                            // at the other side's spelling — copying one minted the very folder this
+                            // row exists to prevent, beside the file, and a bulk sync did it twice.
+                            typeMismatchDirs[leftFile.isDirectory ? relativePath : rightKey] = relativePath
                         }
                         // Both item paths are REAL: a sync in either direction writes onto
                         // the existing counterpart (a normal collision), never a doppelganger.
@@ -915,8 +923,8 @@ public struct FileDiffEngine {
         // Top-most collapsible ancestor folder's row path → number of items collapsed into it.
         var enclosedCounts: [String: Int] = [:]
         /// Whether `key` is carried by a folder's row, counting it there if so. A type-mismatch dir's
-        /// row is keyed by the LEFT path, which can differ — in case, or in an ancestor's invisible
-        /// spelling — from the dir-side key the descendants carry; map back to the row.
+        /// row is keyed by the LEFT path, which can differ — in case, or in its own or an ancestor's
+        /// invisible spelling — from the dir-side key the descendants carry; map back to the row.
         func isCollapsed(_ key: String, into dirs: Set<String>) -> Bool {
             guard let ancestor = topMostAncestor(of: key, in: dirs) else { return false }
             enclosedCounts[typeMismatchDirs[ancestor] ?? ancestor, default: 0] += 1
@@ -932,8 +940,9 @@ public struct FileDiffEngine {
         )
         // `isDirectory:` from what the entry knows. Without it the URL asks the file system whether
         // the path is a directory — a probe per row. It only decides a trailing slash, which a file
-        // URL's `.path` drops (every caller's roots are file URLs), so the path is the same bytes. Composition stays URL composition: it decomposes
-        // precomposed names, and concatenation would not (`OneSidedRowPathTests`).
+        // URL's `.path` drops (every caller's roots are file URLs), so the path is the same bytes.
+        // Composition stays URL composition: it decomposes precomposed names, and concatenation
+        // would not (`OneSidedRowPathTests`).
         for (relativePath, leftFile) in missingOnRight {
             if isCollapsed(relativePath, into: collapsibleOnRight) { continue }
             let destination = remappedPath(relativePath, via: nearNameDirPairs) ?? relativePath

@@ -297,6 +297,32 @@ import Foundation
         #expect(byPath["Swimming/log.txt"]?.type == .missingOnRight)
     }
 
+    /// **A file against a folder whose names differ invisibly is one row, and it carries the
+    /// folder's contents** — as a type mismatch's row does, since either direction replaces the
+    /// folder's whole subtree. Left out, each child was a missing row aimed at the other side's
+    /// spelling: copying `Notes/a.txt` to the left made a `Notes` folder beside the file `Notes `,
+    /// the doppelganger the conflict row exists to prevent, and a bulk sync handled the subtree
+    /// twice. The folder takes a turn on each side, because the row is keyed by the LEFT spelling
+    /// whichever side the folder is on.
+    @Test(arguments: [true, false])
+    func testAFileAgainstAFolderCarriesTheFoldersContents(folderOnTheRight: Bool) {
+        let folderRoot = folderOnTheRight ? rightURL : leftURL
+        let folderName = folderOnTheRight ? "Notes" : "Notes "
+        var folder: [String: FileDiffEngine.FileInfo] = [folderName: info(folderRoot, folderName, isDir: true)]
+        for (key, isDir) in [("a.txt", false), ("sub", true), ("sub/b.txt", false)] {
+            folder["\(folderName)/\(key)"] = info(folderRoot, "\(folderName)/\(key)", isDir: isDir)
+        }
+        let fileName = folderOnTheRight ? "Notes " : "Notes"
+        let file = [fileName: info(folderOnTheRight ? leftURL : rightURL, fileName)]
+
+        let diffs = compute(left: folderOnTheRight ? file : folder, right: folderOnTheRight ? folder : file)
+
+        #expect(diffs.map(\.relativePath) == ["Notes "], "\(diffs.map { "\($0.relativePath) \($0.type)" })")
+        #expect(diffs.first?.type == .nameConflict)
+        #expect(diffs.first?.enclosedItemCount == 3, "the folder's three entries are not carried by its row")
+        #expect(diffs.first?.leftIsDirectory == !folderOnTheRight && diffs.first?.rightIsDirectory == folderOnTheRight)
+    }
+
     /// The folder that pairs with nothing is two levels up, and the level between pairs on its
     /// own near-name — so every folder above the key is checked, not only its parent.
     @Test func testEveryFolderAboveAChildMustPairNotOnlyItsParent() {

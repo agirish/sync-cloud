@@ -16,6 +16,13 @@ import Testing
 /// drops — `theHintNeverChangesThePath` pins that across names, spellings of the root and what is
 /// really on disk, and `rowPathsAreTheOnesTheProbeComposed` pins it through the engine, the re-aimed
 /// rows under a name-conflicted folder included.
+///
+/// **Neither of those can see the probe come back**: the hinted and unhinted forms give the same
+/// bytes, which is the point, so reverting the hint keeps both green.
+/// `everyCompositionInTheEngineIsHinted` is what holds the hint itself. Two of the premises below
+/// are facts about Foundation, not about this code — the unhinted form's trailing slash on a
+/// directory, and composition decomposing `é` — so a red premise after an OS update is the
+/// framework moving, and the suite's argument needs re-reading, not its expectations re-pinning.
 @Suite struct OneSidedRowPathTests {
 
     /// Names that have each broken some path or key in this app before: precomposed and decomposed
@@ -89,6 +96,39 @@ import Testing
         let precomposed = fixture.right.appendingPathComponent("caf\u{00E9}.txt", isDirectory: false).path
         #expect(Array(precomposed.utf8) != Array((fixture.right.path + "/caf\u{00E9}.txt").utf8),
                 "premise: URL composition decomposes a precomposed name, so concatenation would change row paths")
+    }
+
+    /// **The engine composes every URL with its entry's type** — the hint, which no output can show,
+    /// read off the source instead. A composition without `isDirectory:` asks the file system
+    /// whether the path is a directory: a probe per one-sided row, ~200,000 a Home scan when rows
+    /// were built before the collapse, and per node for the warm scan's maps. Code only, so a
+    /// comment naming the unhinted form is not a call; the floor keeps the scan from passing on a
+    /// file it failed to read.
+    @Test func everyCompositionInTheEngineIsHinted() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/Sync/FileDiffEngine.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        let code = source.components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        var calls: [String] = []
+        for opener in ["appendingPathComponent(", "URL(fileURLWithPath:"] {
+            var rest = code[...]
+            while let start = rest.range(of: opener) {
+                // The call's own parentheses, balanced, so a nested call cannot end it early.
+                var depth = 0
+                var end = start.lowerBound
+                for index in code[start.lowerBound...].indices {
+                    if code[index] == "(" { depth += 1 }
+                    if code[index] == ")" { depth -= 1; if depth == 0 { end = index; break } }
+                }
+                calls.append(String(code[start.lowerBound...end]))
+                rest = code[code.index(after: end)...]
+            }
+        }
+        #expect(calls.count >= 4, "\(calls.count) URL compositions found in FileDiffEngine.swift where 4 are expected — the scan is reading the wrong text")
+        let unhinted = calls.filter { !$0.contains("isDirectory:") }
+        #expect(unhinted.isEmpty, "composed without the entry's type, so each asks the disk: \(unhinted)")
     }
 
     /// Through the engine: every one-sided row's expected path, and the re-aimed ones under a folder

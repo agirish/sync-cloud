@@ -6557,3 +6557,26 @@ by: a pick of the freshness fix needs that bookkeeping first. The Location-edit 
 **`v3.x`, `v2.x`: the logs owed — not picked; the Location edit and the editor writes checked, not
 owed.** A Location edit there invalidates and reloads both panes, so both are cached before the
 scan, and there is no `OwedComparison`. Freshness as on `v4.x`.
+
+## A file and a folder whose names differ invisibly: the folder's contents in the row — main only
+
+A near-name pair of a FILE and a FOLDER (`Notes ` against `Notes/`) is one `.nameConflict` row, but
+it recorded neither a re-aim (that needs two folders) nor a type mismatch, so the folder's contents
+stayed missing rows aimed at the other side's spelling: copying `Notes/a.txt` to the left made a
+`Notes` folder beside the file `Notes `, the doppelganger the row exists to prevent, and a bulk sync
+handled the subtree twice. The pair now records `typeMismatchDirs`, and the contents collapse into
+the row as a type mismatch's do. Found in review of P46, older than it; the same pass added a
+source check that every URL the engine composes is hinted, which `OneSidedRowPathTests`' byte
+comparisons could not see.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s %s\n' "$l" "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDiffEngine.swift | grep -A1 'if leftFile.isDirectory && rightFile.isDirectory {' | grep -c 'nearNameDirPairs\[relativePath\] = rightKey')"
+done
+# measured 2026-10-03, before this landed: 1 on every line — the folder-pair branch, with no file/folder one beside it
+```
+
+**`v4.x`, `v3.x`, `v2.x`: owed — not picked, per the standing direction.** The branch is the same
+on every line; a pick is the `else if` and the two comment lines, with
+`NameConflictDiffTests.testAFileAgainstAFolderCarriesTheFoldersContents`. The hint check needs
+P46's hinted compositions first.
