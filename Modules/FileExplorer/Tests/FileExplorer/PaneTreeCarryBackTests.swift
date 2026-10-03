@@ -89,4 +89,62 @@ import Sync
                                              treeRoot: root + "/", index: index())
         #expect(carried?.components == ["Family"])
     }
+
+    // MARK: - Below a folder link
+
+    /// The walk's own spellings, as `ColumnsBelowALinkTests` measures them on a real link
+    /// (`/r/link → /t`): the link and its child keep the link's spelling, and from there down the
+    /// ids are where it leads. Under a root spelled `/var/…` every id comes back `/private/var/…`.
+    private func linkedIndex(root: String = "/r", resolved: String = "/t/sub") -> PaneChildrenIndex {
+        func dir(_ path: String, _ children: [FileNode] = []) -> FileNode {
+            FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true, children: children)
+        }
+        let deeper = dir("\(resolved)/deeper", [
+            FileNode(id: "\(resolved)/deeper/e.txt", name: "e.txt", isDirectory: false),
+        ])
+        let tree = PaneTree(side: .left, version: 1, nodes: [
+            dir("\(root)/link", [dir("\(root)/link/sub", [deeper])]),
+            dir("\(root)/plain"),
+        ])
+        return PaneChildrenIndex(tree: tree, treeRoot: root, links: [:])
+    }
+
+    /// **A selection below a link carries back the names down to it**, which its id cannot give:
+    /// `/t/sub/deeper/e.txt` is not under `/r`, so the flip back to Columns kept the parked stack.
+    @Test func testASelectionBelowAFolderLinkCarriesBackTheNamesDownToIt() {
+        let carried = FileTreeView.carryBack(selection: ["/t/sub/deeper/e.txt"],
+                                             treeRoot: "/r", index: linkedIndex())
+        #expect(carried?.components == ["link", "sub", "deeper"])
+    }
+
+    /// And under a root spelled through a link, where no id at all is spelled under the root.
+    @Test func testASelectionUnderARootSpelledThroughALinkCarriesBack() {
+        let index = linkedIndex(root: "/var/x/r", resolved: "/private/var/x/r/link/sub")
+        let carried = FileTreeView.carryBack(selection: ["/private/var/x/r/link/sub/deeper"],
+                                             treeRoot: "/var/x/r", index: index)
+        #expect(carried?.components == ["link", "sub", "deeper"])
+    }
+
+    /// **A folder the tree holds twice carries back along the route its id names.** Home holds
+    /// `~/Dropbox` and the folder it leads to; below the link both rows carry one id, and the
+    /// selection cannot say which was clicked. The id is under the root, so it is the answer — the
+    /// names would take whichever route sorts first, here the link.
+    @Test func testASelectionTheTreeHoldsTwiceCarriesBackTheRouteItsIdNames() {
+        func dir(_ path: String, _ children: [FileNode] = []) -> FileNode {
+            FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true, children: children)
+        }
+        let tree = PaneTree(side: .left, version: 1, nodes: [
+            dir("/r/Dropbox", [dir("/r/Dropbox/x", [dir("/r/Library/Dropbox/x/y")])]),
+            dir("/r/Library", [dir("/r/Library/Dropbox", [dir("/r/Library/Dropbox/x", [dir("/r/Library/Dropbox/x/y")])])]),
+        ])
+        let index = PaneChildrenIndex(tree: tree, treeRoot: "/r", links: [:])
+        let carried = FileTreeView.carryBack(selection: ["/r/Library/Dropbox/x/y"], treeRoot: "/r", index: index)
+        #expect(carried?.components == ["Library", "Dropbox", "x", "y"])
+    }
+
+    /// A selection the tree does not hold is still no answer — the names are looked up in the tree,
+    /// so the fallback cannot invent a place out of an unrelated path.
+    @Test func testASelectionTheLinkedTreeDoesNotHoldIsStillIgnored() {
+        #expect(FileTreeView.carryBack(selection: ["/t/elsewhere/x.txt"], treeRoot: "/r", index: linkedIndex()) == nil)
+    }
 }

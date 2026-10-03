@@ -173,7 +173,7 @@ import Combine
         m.linkedFolders = [:]
         let shallow = await FileSyncManager.buildTree(url: f.r, sortOption: .name, maxDepth: 1, linkedFolders: [:])
         let link = f.r.appendingPathComponent("link").path
-        try #require(FileSyncManager.isUnexplored(atPath: link, in: shallow),
+        try #require(FileSyncManager.isUnexplored(atPath: link, under: f.r.path, in: shallow),
                      "premise: the link arrived already walked — this measures nothing")
         m.rawLeftTree = shallow
         m.lastLoadedLeftFocusPath = f.r.path
@@ -181,7 +181,7 @@ import Combine
 
         m.loadColumnChildren(atPath: link, isLeft: true)
         await waitUntil("the listing grafts into the pane's tree") {
-            !FileSyncManager.isUnexplored(atPath: link, in: m.rawLeftTree)
+            !FileSyncManager.isUnexplored(atPath: link, under: f.r.path, in: m.rawLeftTree)
         }
         #expect(m.prefetchedTreeLinkTargets[f.r.path] == [Self.resolved(f.t)],
                 "the grafted cache entry does not know it now lists the link's target")

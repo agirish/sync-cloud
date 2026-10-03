@@ -636,7 +636,7 @@ public struct FileTreeView: View, Equatable {
         // permanent: the tree stays at the top with its folders open and nothing ever scrolls.
         // Refused here, re-asked on the load's falling edge, exactly as the other direction is.
         guard !isLoading else { return }
-        let carry = Self.carryOver(expanded, stack: browsePath, treeRoot: currentPath)
+        let carry = Self.carryOver(expanded, stack: browsePath, treeRoot: currentPath, tree: tree.nodes)
         guard let deepest = carry.deepest else { return }
         // Only when it actually changes: `@State` does not compare, so assigning an equal set
         // re-renders the entire list, and this runs on every appearance of the Tree branch.
@@ -665,16 +665,25 @@ public struct FileTreeView: View, Equatable {
     /// root by definition). Existing expansions are kept for the same reason a search reveal keeps
     /// them — folders the user opened by hand are theirs, not this function's to close.
     ///
+    /// **Each folder is named by its row's id, found by the names down `tree`** — the outline keys
+    /// its rows by id, and a column's path is composed from names. The two part below a folder
+    /// symlink and under a root reached through one (`TreeShape`), where the composed trail named no
+    /// row: the Tree opened down to the link's child and scrolled nowhere. A component the tree does
+    /// not hold keeps its composed path, which is what the trail was before.
+    ///
     /// Static and non-private so `PaneColumnCarryOverTests` can pin it, exactly as
-    /// `expansionPruned` is: the alternative is a `@State` set no test can read.
-    static func carryOver(_ expanded: Set<String>, stack: PaneBrowsePath,
-                          treeRoot: String) -> (expanded: Set<String>, deepest: String?) {
+    /// `expansionPruned` is: the alternative is a `@State` set no test can read. `nonisolated`
+    /// because it is pure, and a closure formed on the main actor traps when a test calls it off it.
+    nonisolated static func carryOver(_ expanded: Set<String>, stack: PaneBrowsePath, treeRoot: String,
+                                      tree: [FileNode]) -> (expanded: Set<String>, deepest: String?) {
         // A resting stack yields a trail of exactly zero entries — `columnDirectories` answers the
         // root alone and `dropFirst` takes it — so the one guard covers both "nothing parked" and
         // "nothing to open", with no branch that cannot be taken.
-        let trail = stack.columnDirectories(treeRoot: treeRoot).dropFirst()
-        guard let deepest = trail.last else { return (expanded, nil) }
-        return (expanded.union(trail), deepest)
+        let composed = stack.columnDirectories(treeRoot: treeRoot).dropFirst()
+        guard !composed.isEmpty else { return (expanded, nil) }
+        let rows = TreeShape.folders(along: stack.components, in: tree).map(\.id)
+        let trail = composed.enumerated().map { depth, path in depth < rows.count ? rows[depth] : path }
+        return (expanded.union(trail), trail.last)
     }
 
     /// Reveals the current hit in the Columns presentation: open the column stack down to the hit's
@@ -745,16 +754,31 @@ public struct FileTreeView: View, Equatable {
     /// root", and the columns must come back out to it rather than keep the stack they were parked
     /// with. Only "no single selection under this root" is nil.
     ///
+    /// **The id where it is spelled under the root, the names down the tree where it is not.** Below
+    /// a folder symlink and under a root reached through one the walk spells a row where the link
+    /// leads (`TreeShape`), so its id is no path under the root and the flip kept the parked stack.
+    /// The id goes first because a folder can be in the tree twice — Home holds `~/Dropbox` and the
+    /// folder it leads to — and a selection does not say which row was clicked: where the id is
+    /// under the root it names the real route, the one whose walk keeps its ids' spelling. The same
+    /// rule `FileSyncManager.paneRelativePath` keeps for a focus.
+    ///
     /// Static and non-private so `PaneTreeCarryBackTests` can pin it, as `rowIsIgnored` is.
-    static func carryBack(selection: Set<String>, treeRoot: String,
-                          index: PaneChildrenIndex) -> PaneBrowsePath? {
+    nonisolated static func carryBack(selection: Set<String>, treeRoot: String,
+                                      index: PaneChildrenIndex) -> PaneBrowsePath? {
         guard selection.count == 1, let path = selection.first else { return nil }
         let root = PaneBrowsePath.normalized(treeRoot)
+        let stack: PaneBrowsePath
         // `PathBoundary`, so a row the walk lists under its real spelling — iCloud Drive's
         // `Documents`, which is `~/Documents` — still reads as inside the root that links it in.
-        guard let relative = PathBoundary.relativize(path, under: root), !relative.isEmpty else { return nil }
-        return PaneBrowsePath(relativePath: relative)
-            .pruned(against: index, treeRoot: root)
+        if let relative = PathBoundary.relativize(path, under: root) {
+            guard !relative.isEmpty else { return nil }
+            stack = PaneBrowsePath(relativePath: relative)
+        } else if let names = TreeShape.names(downTo: path, in: (index.children(atPath: root) ?? []).map(\.node)) {
+            stack = PaneBrowsePath(components: names)
+        } else {
+            return nil
+        }
+        return stack.pruned(against: index, treeRoot: root)
     }
 
     /// Whether a pane row should carry the ignored treatment (struck-through name, secondary

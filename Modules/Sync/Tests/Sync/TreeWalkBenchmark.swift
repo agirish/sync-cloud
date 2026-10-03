@@ -547,4 +547,100 @@ import Testing
         for node in nodes where node.id != basePath { visit(node, key: String(leaf(of: node.id))) }
         return result
     }
+
+    // MARK: - The Columns index
+
+    /// **What keying the Columns index by the paths a column composes costs, against the id keys it
+    /// replaced** — `PaneChildrenIndex` is rebuilt on every publish, on the main actor, so its build
+    /// is the number that decides whether the change is felt. Walked with the production budget, as
+    /// a pane walks. Each root is timed twice: as walked, where every directory below a link is keyed
+    /// by a path composed for it, and re-spelled so every id continues its parent's — the same tree
+    /// with nothing to compose, which is what the check on each id costs alone. The arms alternate
+    /// order per repeat.
+    ///
+    /// And the differential that makes the timing mean something: every directory, asked by the path
+    /// `PaneBrowsePath` composes for it from the names down to it, must list exactly that directory's
+    /// rows; and where every id continues its parent's, the index must answer every id the old one
+    /// answered, with the same rows. The count of directories whose composed path is not their id is
+    /// printed — the columns this fixes on that root.
+    @Test func columnIndexBuild() async throws {
+        let roots = Self.roots
+        guard !roots.isEmpty else { return }
+
+        for root in roots {
+            let walked = await FileSyncManager.buildTree(url: root, sortOption: .name,
+                                                         budget: .init(FileSyncManager.paneNodeBudget))
+            Self.line("index \(root.path): \(FileSyncManager.countItems(in: walked)) nodes")
+            for (label, tree) in [("as walked", walked), ("re-spelled", Self.respelled(walked, in: root.path))] {
+                let pane = PaneTree(side: .left, version: 1, nodes: tree,
+                                    rows: PaneRow.project(tree, side: .left, version: 1))
+                var current: [Double] = [], legacy: [Double] = []
+                var sink = 0
+                for round in 0...Self.warmRepeats {
+                    let arms: [(inout [Double]) -> Void] = [
+                        { $0.append(Self.ms { sink &+= PaneChildrenIndex(tree: pane, treeRoot: root.path).isDirectory(atPath: root.path) ? 1 : 0 }) },
+                        { $0.append(Self.ms { sink &+= Self.legacyChildrenIndex(pane.rows).count }) },
+                    ]
+                    if round % 2 == 0 { arms[0](&current); arms[1](&legacy) } else { arms[1](&legacy); arms[0](&current) }
+                }
+                Self.report("PaneChildrenIndex, \(label)", current)
+                Self.report("  (pre-change, id keys)", legacy)
+
+                let index = PaneChildrenIndex(tree: pane, treeRoot: root.path)
+                var directories = 0, composedElsewhere = 0
+                var misses: [String] = []
+                func visit(_ rows: [PaneRow], names: [String]) {
+                    for row in rows where row.info.isDirectory {
+                        let down = names + [String(TreeShape.leaf(of: row.node.id))]
+                        let path = PaneBrowsePath(components: down).currentDirectory(treeRoot: root.path)
+                        directories += 1
+                        if path != row.node.id { composedElsewhere += 1 }
+                        if index.children(atPath: path)?.map(\.id) != (row.children ?? []).map(\.id), misses.count < 5 {
+                            misses.append(path)
+                        }
+                        visit(row.children ?? [], names: down)
+                    }
+                }
+                visit(pane.rows, names: [])
+                #expect(misses.isEmpty, "\(root.lastPathComponent), \(label): composed paths listing the wrong rows: \(misses)")
+                if composedElsewhere == 0 {
+                    let unanswered = Self.legacyChildrenIndex(pane.rows)
+                        .filter { index.children(atPath: $0.key)?.map(\.id) != $0.value.map(\.id) }.count
+                    #expect(unanswered == 0, "\(root.lastPathComponent), \(label): \(unanswered) ids answered differently")
+                }
+                Self.line("  \(directories) directories, \(composedElsewhere) composed elsewhere than their id (sink \(sink))")
+            }
+        }
+    }
+
+    /// `PaneChildrenIndex`'s map exactly as it was built before it keyed composed paths: each
+    /// directory by its own id.
+    private static func legacyChildrenIndex(_ rows: [PaneRow]) -> [String: [PaneRow]] {
+        var map: [String: [PaneRow]] = [:]
+        var unexplored: Set<String> = []
+        func index(_ rows: [PaneRow]) {
+            for row in rows {
+                if row.info.isDirectory {
+                    map[row.node.id] = row.children ?? []
+                    if row.node.isUnexplored == true { unexplored.insert(row.node.id) }
+                }
+                if let children = row.children { index(children) }
+            }
+        }
+        index(rows)
+        return map
+    }
+
+    /// `nodes` with every id re-spelled as its parent's plus its name, from `directory` down — the
+    /// tree a walk would build if nothing below it were a link — natively, as `nativePath` stores ids.
+    private static func respelled(_ nodes: [FileNode], in directory: String) -> [FileNode] {
+        nodes.map { node in
+            let id = String(decoding: Array((directory + "/" + TreeShape.leaf(of: node.id)).utf8), as: UTF8.self)
+            return FileNode(id: id, name: node.name, isDirectory: node.isDirectory,
+                            children: node.children.map { respelled($0, in: id) },
+                            modificationDate: node.modificationDate, fileSize: node.fileSize, tags: node.tags,
+                            kind: node.kind, isUnexplored: node.isUnexplored, isSymbolicLink: node.isSymbolicLink,
+                            isCoveredElsewhere: node.isCoveredElsewhere)
+        }
+    }
 }

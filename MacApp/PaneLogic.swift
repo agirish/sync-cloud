@@ -509,14 +509,21 @@ enum PaneLogic {
     ///   to its right. A *click* there does exactly that and is right to, because the click says
     ///   where it landed; a chord carries no such statement, and silently closing three columns is
     ///   not what anybody pressing ⌘↓ is asking for.
+    ///
+    /// **"Lives in" is asked of the column's rows, not of the folder's id.** The id's parent was
+    /// compared with the deepest column's path, and the two part wherever the walk spells a row
+    /// where a link leads (`TreeShape`): below a folder symlink's child, and everywhere under a root
+    /// reached through one (`/var/…` lists `/private/var/…`), ⌘↓ stayed disabled over a folder the
+    /// deepest column was listing.
     static func openSelectedFolderStack(drawsColumns: Bool,
                                         stack: PaneBrowsePath,
                                         selection: [FileNode],
-                                        treeRoot: String) -> PaneBrowsePath? {
+                                        treeRoot: String,
+                                        index: PaneChildrenIndex) -> PaneBrowsePath? {
         guard drawsColumns else { return nil }
         guard selection.count == 1, let folder = selection.first, folder.isDirectory else { return nil }
-        guard (folder.id as NSString).deletingLastPathComponent
-                == stack.currentDirectory(treeRoot: treeRoot) else { return nil }
+        guard index.children(atPath: stack.currentDirectory(treeRoot: treeRoot))?
+                .contains(where: { $0.id == folder.id }) == true else { return nil }
         var next = stack
         next.drill(into: folder.name, atDepth: stack.depth)
         return next

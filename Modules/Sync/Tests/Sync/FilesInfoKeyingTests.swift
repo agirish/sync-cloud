@@ -298,7 +298,7 @@ import Testing
         if placement.baseHoldsTheTargets {
             #expect(cold["Documents/Family/note.txt"] != nil && cold["Desktop/shot.png"] != nil,
                     "premise: the disk walk reached the targets directly too")
-            let substituted = FileSyncManager.subtree(atPath: container.path, in: tree) ?? []
+            let substituted = FileSyncManager.subtree(atPath: container.path, under: root.path, in: tree) ?? []
             #expect(substituted.filter { $0.isCoveredElsewhere == true }.map(\.name).sorted() == ["Desktop", "Documents"],
                     "premise: the walk reached the targets twice and marked the container's route")
         }

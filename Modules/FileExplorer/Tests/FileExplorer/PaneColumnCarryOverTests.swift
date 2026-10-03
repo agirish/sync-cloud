@@ -16,7 +16,7 @@ import Sync
 
     @Test func testOpensEveryFolderTheColumnsWereStandingIn() {
         let stack = PaneBrowsePath(components: ["Claude", "Projects", "Investing"])
-        let carry = FileTreeView.carryOver([], stack: stack, treeRoot: root)
+        let carry = FileTreeView.carryOver([], stack: stack, treeRoot: root, tree: [])
 
         #expect(carry.expanded == [
             "/Users/me/Documents/Claude",
@@ -31,7 +31,7 @@ import Sync
     /// can ever match — and `expansionPruned` keeps it forever, being under the root by definition.
     @Test func testTheTreesOwnRootIsNotPutInTheExpansionSet() {
         let carry = FileTreeView.carryOver([], stack: PaneBrowsePath(components: ["Claude"]),
-                                           treeRoot: root)
+                                           treeRoot: root, tree: [])
         #expect(!carry.expanded.contains(root))
         #expect(carry.expanded == ["/Users/me/Documents/Claude"])
     }
@@ -41,7 +41,7 @@ import Sync
     @Test func testFoldersTheUserOpenedByHandSurvive() {
         let mine: Set<String> = ["/Users/me/Documents/Family", "/Users/me/Documents/Home"]
         let carry = FileTreeView.carryOver(mine, stack: PaneBrowsePath(components: ["Claude"]),
-                                           treeRoot: root)
+                                           treeRoot: root, tree: [])
         #expect(carry.expanded.isSuperset(of: mine))
         #expect(carry.expanded.count == mine.count + 1)
     }
@@ -51,7 +51,7 @@ import Sync
     /// already looking at back to its first row on every tab switch.
     @Test func testARestingStackCarriesNothingAndScrollsNowhere() {
         let carry = FileTreeView.carryOver(["/Users/me/Documents/Family"],
-                                           stack: PaneBrowsePath(), treeRoot: root)
+                                           stack: PaneBrowsePath(), treeRoot: root, tree: [])
         #expect(carry.deepest == nil)
         #expect(carry.expanded == ["/Users/me/Documents/Family"], "an untouched set, not an emptied one")
     }
@@ -60,8 +60,39 @@ import Sync
     /// `…/Documents//Claude`, and the second matches no row — the outline keys on `FileNode.id`.
     @Test func testTheRootIsNormalisedBeforeTheTrailIsBuilt() {
         let carry = FileTreeView.carryOver([], stack: PaneBrowsePath(components: ["Claude"]),
-                                           treeRoot: root + "/")
+                                           treeRoot: root + "/", tree: [])
         #expect(carry.expanded == ["/Users/me/Documents/Claude"])
+    }
+
+    // MARK: - Below a folder link
+
+    /// **The Tree opens rows by id, and below a link a column's path is not one.** The walk lists
+    /// `/r/link/sub`'s children where the link leads (`ColumnsBelowALinkTests` measures it on a real
+    /// link), so the composed `/r/link/sub/deeper` named no row: the Tree opened down to `sub` and
+    /// scrolled nowhere.
+    @Test func testFoldersBelowAFolderLinkAreOpenedByTheirRowsIds() {
+        func dir(_ path: String, _ children: [FileNode] = []) -> FileNode {
+            FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true, children: children)
+        }
+        let tree = [dir("/r/link", [dir("/r/link/sub", [dir("/t/sub/deeper", [dir("/t/sub/deeper/deepest")])])]),
+                    dir("/r/plain", [dir("/r/plain/a")])]
+        let carry = FileTreeView.carryOver([], stack: PaneBrowsePath(components: ["link", "sub", "deeper", "deepest"]),
+                                           treeRoot: "/r", tree: tree)
+        #expect(carry.expanded == ["/r/link", "/r/link/sub", "/t/sub/deeper", "/t/sub/deeper/deepest"])
+        #expect(carry.deepest == "/t/sub/deeper/deepest")
+        // An ordinary branch of the same tree carries exactly what composition gives.
+        #expect(FileTreeView.carryOver([], stack: PaneBrowsePath(components: ["plain", "a"]), treeRoot: "/r",
+                                       tree: tree).expanded == ["/r/plain", "/r/plain/a"])
+    }
+
+    /// A component the tree does not hold — a stack the republish has not pruned yet — keeps the
+    /// path it composes to, which is all the trail ever was before rows were consulted.
+    @Test func testAComponentTheTreeDoesNotHoldKeepsItsComposedPath() {
+        let tree = [FileNode(id: "/r/a", name: "a", isDirectory: true, children: [])]
+        let carry = FileTreeView.carryOver([], stack: PaneBrowsePath(components: ["a", "gone"]), treeRoot: "/r",
+                                           tree: tree)
+        #expect(carry.expanded == ["/r/a", "/r/a/gone"])
+        #expect(carry.deepest == "/r/a/gone")
     }
 
     // MARK: - The call site

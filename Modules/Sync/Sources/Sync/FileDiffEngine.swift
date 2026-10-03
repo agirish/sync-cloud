@@ -96,14 +96,6 @@ public struct FileDiffEngine {
     public static func filesInfo(fromTree nodes: [FileNode], basePath: String) -> [String: FileInfo] {
         var result: [String: FileInfo] = [:]
 
-        /// The last component of `id`, as a slice of its storage. Cut on the scalar view, where a
-        /// boundary just after a `/` is always exact: a name can open with a combining mark, so it
-        /// is not always a Character boundary.
-        func leaf(of id: String) -> Substring {
-            guard let slash = id.utf8.lastIndex(of: UInt8(ascii: "/")) else { return id[...] }
-            return Substring(id.unicodeScalars[id.utf8.index(after: slash)...])
-        }
-
         func add(_ node: FileNode, key: String) {
             result[key] = FileInfo(
                 // `isDirectory:` is not cosmetic here. Without it this initializer RESOLVES
@@ -128,14 +120,14 @@ public struct FileDiffEngine {
             let prefix = key + "/"
             for child in children {
                 var childKey = prefix
-                childKey.append(contentsOf: leaf(of: child.id))
+                childKey.append(contentsOf: TreeShape.leaf(of: child.id))
                 add(child, key: childKey)
             }
         }
 
         for node in nodes {
             guard node.id == basePath else {
-                add(node, key: String(leaf(of: node.id)))
+                add(node, key: String(TreeShape.leaf(of: node.id)))
                 continue
             }
             // The walk ROOT itself, marked unexplored: `buildTree` returns the root as a
@@ -153,7 +145,7 @@ public struct FileDiffEngine {
                 )
             }
             for child in node.children ?? [] {
-                add(child, key: String(leaf(of: child.id)))
+                add(child, key: String(TreeShape.leaf(of: child.id)))
             }
         }
         return result

@@ -1889,7 +1889,7 @@ public class FileSyncManager: ObservableObject {
         if let cached = leftChildrenCache, cached.version == publishedLeftTreeVersion, cached.root == treeRoot {
             return cached.index
         }
-        let index = PaneChildrenIndex(tree: leftPaneTree, treeRoot: treeRoot)
+        let index = PaneChildrenIndex(tree: leftPaneTree, treeRoot: treeRoot, links: linkedFolders)
         leftChildrenCache = (publishedLeftTreeVersion, treeRoot, index)
         return index
     }
@@ -1899,7 +1899,7 @@ public class FileSyncManager: ObservableObject {
         if let cached = rightChildrenCache, cached.version == publishedRightTreeVersion, cached.root == treeRoot {
             return cached.index
         }
-        let index = PaneChildrenIndex(tree: rightPaneTree, treeRoot: treeRoot)
+        let index = PaneChildrenIndex(tree: rightPaneTree, treeRoot: treeRoot, links: linkedFolders)
         rightChildrenCache = (publishedRightTreeVersion, treeRoot, index)
         return index
     }
@@ -1998,7 +1998,7 @@ public class FileSyncManager: ObservableObject {
     /// invalidation). Never holds shallow trees — consumers (navigation fast path, the
     /// in-memory diff scan) rely on cached trees being fully walked. The one exception is a
     /// cycle- or depth-capped directory inside a deep tree: it carries `isUnexplored: true`,
-    /// and `subtree(atPath:in:)` treats it as a miss so a drill-down re-walks from that path
+    /// and `subtree(atPath:under:in:)` treats it as a miss so a drill-down re-walks from that path
     /// instead of serving its artificial empty children. Cleared by file operations, sort
     /// changes, and force refresh — and, only the walks listing one folder, by a file Edit writes
     /// itself (`prepareReread(afterWritingAt:)`).

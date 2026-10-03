@@ -133,8 +133,9 @@ import Testing
                 == ["/other", "/other/Documents", "/other/Documents/Invoices"])
     }
 
-    /// The tree a pane republishes against, keyed the way the walk names it: the linked folder
-    /// under its REAL spelling, because `childURLs(of:)` substitutes it at the container listing.
+    /// The tree a pane republishes against, named the way the walk names it — the linked folder
+    /// under its REAL spelling, because `childURLs(of:)` substitutes it at the container listing —
+    /// and indexed through the same table the columns compose with, as the pane's index is.
     private static func containerIndex() -> PaneChildrenIndex {
         let invoices = FileNode(id: "/home/Documents/Invoices", name: "Invoices", isDirectory: true,
                                 children: [FileNode(id: "/home/Documents/Invoices/a.pdf",
@@ -143,7 +144,7 @@ import Testing
                                  children: [invoices])
         let word = FileNode(id: "/r/Word", name: "Word", isDirectory: true, children: [])
         return PaneChildrenIndex(tree: PaneTree(side: .left, version: 1, nodes: [documents, word]),
-                                 treeRoot: Self.root)
+                                 treeRoot: Self.root, links: Self.links)
     }
 
     /// **`pruned` and `columnDirectories` must agree about a path, and for a linked first

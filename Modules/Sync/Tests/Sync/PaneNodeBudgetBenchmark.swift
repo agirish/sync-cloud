@@ -83,45 +83,39 @@ import Testing
                                                    budget: .init(FileSyncManager.paneNodeBudget))
 
         // Pick a stopped directory that is actually readable — the budget marks unreadable ones
-        // identically, and grafting one of those is the case that correctly does nothing.
+        // identically, and grafting one of those is the case that correctly does nothing. Its path
+        // is composed from the root and the names down to it, the way a column asks for it.
         var target: String?
-        func find(_ nodes: [FileNode]) {
+        func find(_ nodes: [FileNode], in directory: String) {
             for node in nodes where target == nil {
+                let path = directory + "/" + TreeShape.leaf(of: node.id)
                 if node.isDirectory, node.isUnexplored == true,
                    (try? FileManager.default.contentsOfDirectory(atPath: node.id).isEmpty) == false {
-                    target = node.id
+                    target = path
                 } else if node.isDirectory {
-                    find(node.children ?? [])
+                    find(node.children ?? [], in: path)
                 }
             }
         }
-        find(tree)
+        find(tree, in: root.path)
         let path = try #require(target, "the walk left no readable directory unexplored — nothing to graft")
         print("[budget] grafting “\(path)”")
 
-        #expect(FileSyncManager.isUnexplored(atPath: path, in: tree),
+        #expect(FileSyncManager.isUnexplored(atPath: path, under: root.path, in: tree),
                 "the guard disagrees with the walk about what was left unread")
 
         let children = await FileSyncManager.buildTree(url: URL(fileURLWithPath: path),
                                                        sortOption: .name, maxDepth: 1)
-        let filled = try #require(FileSyncManager.grafting(children: children, atPath: path, into: tree),
+        let filled = try #require(FileSyncManager.grafting(children: children, atPath: path, under: root.path,
+                                                           into: tree),
                                   "the graft could not find a path the same walk produced")
-        #expect(!FileSyncManager.isUnexplored(atPath: path, in: filled),
+        #expect(!FileSyncManager.isUnexplored(atPath: path, under: root.path, in: filled),
                 "the directory is still marked unread after being filled — the column would ask forever")
-        let grafted = try #require(Self.node(atPath: path, in: filled))
+        let position = try #require(TreeShape.position(of: path, under: root.path, in: filled,
+                                                       links: PathBoundary.discoveredLinkedFolders))
+        let grafted = try #require(TreeShape.node(at: position, in: filled))
         #expect(grafted.children?.isEmpty == false, "the graft landed but the directory came back empty")
         print("[budget] filled \(grafted.children?.count ?? 0) entries")
-    }
-
-    private static func node(atPath path: String, in nodes: [FileNode]) -> FileNode? {
-        for node in nodes where node.isDirectory {
-            if node.id == path { return node }
-            if path.hasPrefix(node.id + "/"),
-               let found = Self.node(atPath: path, in: node.children ?? []) {
-                return found
-            }
-        }
-        return nil
     }
 
     /// **The overshoot is bounded, and this is what bounds it.** Exhaustion is checked before a

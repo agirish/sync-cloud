@@ -33,7 +33,7 @@ import Testing
 
     @Test func theGraftedNodeCarriesItsChildrenAndLosesTheMark() throws {
         let filled = try #require(FileSyncManager.grafting(
-            children: [file("/r/b/one.txt")], atPath: "/r/b", into: tree))
+            children: [file("/r/b/one.txt")], atPath: "/r/b", under: "/r", into: tree))
         let b = try #require(filled.first { $0.id == "/r/b" })
         #expect(b.children?.map(\.id) == ["/r/b/one.txt"])
         #expect(b.isUnexplored == nil,
@@ -45,14 +45,14 @@ import Testing
     /// `isUnexplored == true` checks all over the codebase would pass either way, which is exactly
     /// what makes the drift survivable and therefore likely.
     @Test func theClearedMarkMatchesWhatAWalkedNodeCarries() throws {
-        let filled = try #require(FileSyncManager.grafting(children: [], atPath: "/r/b", into: tree))
+        let filled = try #require(FileSyncManager.grafting(children: [], atPath: "/r/b", under: "/r", into: tree))
         let b = try #require(filled.first { $0.id == "/r/b" })
         #expect(b.isUnexplored == nil)
     }
 
     @Test func aNestedTargetIsFound() throws {
         let filled = try #require(FileSyncManager.grafting(
-            children: [file("/r/a/deep/y.txt")], atPath: "/r/a/deep", into: tree))
+            children: [file("/r/a/deep/y.txt")], atPath: "/r/a/deep", under: "/r", into: tree))
         let deep = try #require(filled.first { $0.id == "/r/a" }?.children?.first { $0.id == "/r/a/deep" })
         #expect(deep.children?.count == 1)
         #expect(deep.isUnexplored == nil)
@@ -62,7 +62,7 @@ import Testing
     /// siblings would churn `FileNode` identity and make SwiftUI redraw the whole pane.
     @Test func nothingElseInTheTreeChanges() throws {
         let filled = try #require(FileSyncManager.grafting(
-            children: [file("/r/b/one.txt")], atPath: "/r/b", into: tree))
+            children: [file("/r/b/one.txt")], atPath: "/r/b", under: "/r", into: tree))
         #expect(filled.map(\.id) == tree.map(\.id), "the top level was reordered")
         #expect(filled.first { $0.id == "/r/bc" } == tree.first { $0.id == "/r/bc" })
         #expect(filled.first { $0.id == "/r/a" } == tree.first { $0.id == "/r/a" })
@@ -74,37 +74,33 @@ import Testing
     /// A `nil` is the race, not a failure: the request is made on the main actor, the listing runs
     /// off it, and the pane can re-root before the answer lands. The caller drops it.
     @Test func aPathThatIsNotInTheTreeReturnsNil() {
-        #expect(FileSyncManager.grafting(children: [], atPath: "/r/gone", into: tree) == nil)
-        #expect(FileSyncManager.grafting(children: [], atPath: "/elsewhere", into: tree) == nil)
+        #expect(FileSyncManager.grafting(children: [], atPath: "/r/gone", under: "/r", into: tree) == nil)
+        #expect(FileSyncManager.grafting(children: [], atPath: "/elsewhere", under: "/r", into: tree) == nil)
     }
 
-    /// A sibling sharing a name prefix still grafts correctly.
-    ///
-    /// **This passes with or without the trailing separator on the descent's prefix test**, which
-    /// is worth stating because the comment on that separator claimed otherwise until this suite
-    /// was mutation-checked. The match is an exact `id ==`, so entering the wrong branch finds
-    /// nothing and the right node is reached anyway. Kept as a plain regression test of the
-    /// outcome; the separator's actual value is measured below.
+    /// A sibling sharing a name prefix still grafts correctly: the descent matches whole names, so
+    /// `b` cannot answer for `bc`. The id-prefix fallback's separator is pinned by
+    /// `aFolderAskedByAnIdNotSpelledUnderTheRootIsFound`.
     @Test func aSiblingSharingANamePrefixStillGrafts() throws {
         let filled = try #require(FileSyncManager.grafting(
-            children: [file("/r/bc/new.txt")], atPath: "/r/bc", into: tree),
+            children: [file("/r/bc/new.txt")], atPath: "/r/bc", under: "/r", into: tree),
             "/r/bc was not found")
         #expect(filled.first { $0.id == "/r/bc" }?.children?.map(\.id) == ["/r/bc/new.txt"])
         #expect(filled.first { $0.id == "/r/b" }?.isUnexplored == true, "the wrong node was grafted")
     }
 
-    /// **What the separator is actually for: not entering the branch at all.**
+    /// **Not entering a sibling at all.**
     ///
-    /// `visit` rebuilds every node it walks, so a descent into a prefix-sharing sibling copies that
-    /// sibling's entire subtree to find nothing. On the trees this runs against — the ones large
-    /// enough to have been budgeted out — that is the per-column-open cost the prefix prune exists
-    /// to avoid.
+    /// The graft rebuilds the nodes on its path, so a descent into a prefix-sharing sibling would
+    /// copy that sibling's entire subtree to find nothing. On the trees this runs against — the
+    /// ones large enough to have been budgeted out — that is the per-column-open cost a one-branch
+    /// descent exists to avoid.
     ///
     /// Measured by buffer identity rather than by a clock, because a timing assertion on a shared
-    /// machine is a flake. An untouched node is `return node`, which keeps its children array's
-    /// existing storage; a rebuilt one is `.map`, which allocates. The original tree is still alive
-    /// in `subject` throughout, so its buffer cannot have been freed and handed back at the same
-    /// address — the comparison means what it says.
+    /// machine is a flake. An untouched node keeps its children array's existing storage; a
+    /// rebuilt one allocates. The original tree is still alive in `subject` throughout, so its
+    /// buffer cannot have been freed and handed back at the same address — the comparison means
+    /// what it says.
     @Test func theDescentSkipsSiblingsSharingANamePrefix() throws {
         func storage(_ node: FileNode?) -> UInt? {
             guard let children = node?.children else { return nil }
@@ -116,7 +112,7 @@ import Testing
         try #require(before != nil, "the sibling has no children array to compare — this measures nothing")
 
         let filled = try #require(FileSyncManager.grafting(
-            children: [file("/r/bc/new")], atPath: "/r/bc", into: subject))
+            children: [file("/r/bc/new")], atPath: "/r/bc", under: "/r", into: subject))
 
         #expect(storage(filled.first { $0.id == "/r/b" }) == before,
                 "/r/b's subtree was rebuilt — the descent entered a sibling that only shares a name prefix")
@@ -127,16 +123,16 @@ import Testing
     /// site — the request comes from a column, which only exists over a directory — but the
     /// function is public and the answer should not be "corrupt the node".
     @Test func aFileAtTheTargetPathIsNotGrafted() {
-        #expect(FileSyncManager.grafting(children: [], atPath: "/r/top.txt", into: tree) == nil)
+        #expect(FileSyncManager.grafting(children: [], atPath: "/r/top.txt", under: "/r", into: tree) == nil)
     }
 
     // MARK: - The guard that decides whether to ask at all
 
     @Test func onlyAnUnwalkedDirectoryReadsAsUnexplored() {
-        #expect(FileSyncManager.isUnexplored(atPath: "/r/b", in: tree))
-        #expect(FileSyncManager.isUnexplored(atPath: "/r/a/deep", in: tree))
-        #expect(!FileSyncManager.isUnexplored(atPath: "/r/a", in: tree))
-        #expect(!FileSyncManager.isUnexplored(atPath: "/r/bc", in: tree),
+        #expect(FileSyncManager.isUnexplored(atPath: "/r/b", under: "/r", in: tree))
+        #expect(FileSyncManager.isUnexplored(atPath: "/r/a/deep", under: "/r", in: tree))
+        #expect(!FileSyncManager.isUnexplored(atPath: "/r/a", under: "/r", in: tree))
+        #expect(!FileSyncManager.isUnexplored(atPath: "/r/bc", under: "/r", in: tree),
                 "a sibling sharing a name prefix answered for /r/b")
     }
 
@@ -146,12 +142,30 @@ import Testing
     /// would relist it on every render forever.
     @Test func anEmptyWalkedDirectoryIsNotAskedFor() {
         let walkedEmpty = [dir("/r/empty", children: [])]
-        #expect(!FileSyncManager.isUnexplored(atPath: "/r/empty", in: walkedEmpty))
+        #expect(!FileSyncManager.isUnexplored(atPath: "/r/empty", under: "/r", in: walkedEmpty))
+    }
+
+    // MARK: - Asked by id
+
+    /// **The outline asks with a row's id**, and under a root spelled through a link — `/var/…`,
+    /// whose walk lists `/private/var/…` — no id is a path under the root, so the names find nothing
+    /// and the id prefix has to. It found these folders before the names did, and the outline still
+    /// needs it. The separator matters here: the descent commits to the first prefix match, so
+    /// without it `…/bc` would enter `…/b` and come back empty-handed.
+    @Test func aFolderAskedByAnIdNotSpelledUnderTheRootIsFound() throws {
+        let resolved = [dir("/private/r/b", children: [], unexplored: true),
+                        dir("/private/r/bc", children: [file("/private/r/bc/x.txt")])]
+        #expect(FileSyncManager.isUnexplored(atPath: "/private/r/b", under: "/r", in: resolved))
+        let filled = try #require(FileSyncManager.grafting(
+            children: [file("/private/r/b/one.txt")], atPath: "/private/r/b", under: "/r", into: resolved))
+        #expect(filled.first { $0.id == "/private/r/b" }?.children?.map(\.id) == ["/private/r/b/one.txt"])
+        #expect(FileSyncManager.grafting(children: [], atPath: "/private/r/bc", under: "/r", into: resolved) != nil,
+                "a folder whose name extends its sibling's was not found by its id")
     }
 
     @Test func anAbsentPathIsNotUnexplored() {
-        #expect(!FileSyncManager.isUnexplored(atPath: "/r/gone", in: tree))
-        #expect(!FileSyncManager.isUnexplored(atPath: "/r/top.txt", in: tree))
+        #expect(!FileSyncManager.isUnexplored(atPath: "/r/gone", under: "/r", in: tree))
+        #expect(!FileSyncManager.isUnexplored(atPath: "/r/top.txt", under: "/r", in: tree))
     }
 }
 
@@ -192,7 +206,7 @@ import Testing
         let shallow = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
         manager.rawLeftTree = shallow
         manager.rawRightTree = shallow
-        try #require(FileSyncManager.isUnexplored(atPath: deep, in: manager.rawLeftTree),
+        try #require(FileSyncManager.isUnexplored(atPath: deep, under: root.path, in: manager.rawLeftTree),
                      "the fixture is already walked — this measures nothing")
 
         manager.loadColumnChildren(atPath: deep, isLeft: true)
@@ -278,7 +292,7 @@ import Testing
 
         let manager = FileSyncManager()
         manager.rawLeftTree = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
-        try #require(FileSyncManager.isUnexplored(atPath: deep, in: manager.rawLeftTree),
+        try #require(FileSyncManager.isUnexplored(atPath: deep, under: root.path, in: manager.rawLeftTree),
                      "the fixture arrived already walked — this measures nothing")
 
         manager.loadColumnChildren(atPath: deep, isLeft: true)
@@ -305,7 +319,7 @@ import Testing
 
         let manager = FileSyncManager()
         manager.rawLeftTree = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
-        try #require(FileSyncManager.isUnexplored(atPath: deep, in: manager.rawLeftTree),
+        try #require(FileSyncManager.isUnexplored(atPath: deep, under: root.path, in: manager.rawLeftTree),
                      "the fixture arrived already walked — this measures nothing")
         let generationBefore = manager.rawTreeGeneration
 
@@ -380,7 +394,7 @@ import Testing
 
         let manager = FileSyncManager()
         manager.rawLeftTree = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
-        try #require(FileSyncManager.isUnexplored(atPath: deep, in: manager.rawLeftTree),
+        try #require(FileSyncManager.isUnexplored(atPath: deep, under: root.path, in: manager.rawLeftTree),
                      "the fixture arrived already walked — this measures nothing")
 
         manager.loadColumnChildren(atPath: deep, isLeft: true)
@@ -391,7 +405,7 @@ import Testing
                      "the replacement tree still reads as unread — the guard under test would be right to graft")
         // The path is still present, so the pre-existing `grafting != nil` guard alone would NOT
         // drop this answer — only the post-await unexplored re-check can.
-        try #require(FileSyncManager.grafting(children: [], atPath: deep, into: full) != nil,
+        try #require(FileSyncManager.grafting(children: [], atPath: deep, under: root.path, into: full) != nil,
                      "the path is gone from the replaced tree — the older not-found guard drops this and the re-check is never exercised")
         manager.rawLeftTree = full
         manager.lastLoadedLeftFocusPath = root.path
@@ -437,7 +451,7 @@ import Testing
 
         let manager = FileSyncManager()
         manager.rawLeftTree = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
-        try #require(FileSyncManager.isUnexplored(atPath: deep, in: manager.rawLeftTree),
+        try #require(FileSyncManager.isUnexplored(atPath: deep, under: root.path, in: manager.rawLeftTree),
                      "the fixture arrived already walked — this measures nothing")
         try #require(manager.sortOption == .name, "the fixture does not start from the captured option")
 
@@ -465,7 +479,7 @@ import Testing
 
         let manager = FileSyncManager()
         manager.rawLeftTree = await FileSyncManager.buildTree(url: root, sortOption: .name)
-        try #require(!FileSyncManager.isUnexplored(atPath: deep, in: manager.rawLeftTree),
+        try #require(!FileSyncManager.isUnexplored(atPath: deep, under: root.path, in: manager.rawLeftTree),
                      "the fixture is unwalked — the guard under test would be right to fire")
 
         manager.loadColumnChildren(atPath: deep, isLeft: true)

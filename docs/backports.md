@@ -6358,7 +6358,7 @@ tree was walked at.
 Not covered, and measured the same day: Columns, the loadTree cache slice and the column graft
 still match composed paths against ids. Columns opens a linked folder and its child, then the third
 column reads nothing and the stack prunes back; under a root reached through a link, or in a pane
-focused below one, it opens nothing past its first column.
+focused below one, it opens nothing past its first column. Closed by the section below.
 
 ```sh
 for l in main v4.x v3.x v2.x; do
@@ -6378,6 +6378,58 @@ done
 prefix and lists through `contentsOfDirectory(at:)`, so on each the focus refuses a folder two levels
 below a folder symlink and every folder under a root reached through one (read from the code, not
 run there). The iCloud case does not apply: no line has the link table. A pick is
-`paneRelativePath(of:isLeft:root:)` and `names(downTo:in:)` with the line's prefix strip as the
-first branch, the call site, and `PaneRelativePathTests` without its two iCloud cases, plus the two
-`FileActionHandlerTests` focus cases.
+`paneRelativePath(of:isLeft:root:)` and `names(downTo:in:)` (now `TreeShape.names(downTo:in:)`, in
+`TreeShape.swift`) with the line's prefix strip as the first branch, the call site, and
+`PaneRelativePathTests` without its two iCloud cases, plus the two `FileActionHandlerTests` focus
+cases.
+
+## Columns below a folder link, under a root reached through one, and above iCloud Drive's container — main only
+
+A column's directory is composed from the pane's root and the names clicked, and `PaneChildrenIndex`
+keyed each directory by its id, which the walk spells where a link leads: two levels below a folder
+symlink, from the first level under a root reached through one (`/var/…` lists `/private/var/…`, and a
+pane focused below a link), and for iCloud Drive's `Documents` above its container. The third column
+below a link read nothing and the stack pruned back; under a `/var` root nothing past the first
+column resolved. The index now keys each directory by the path a column composes
+(`PaneBrowsePath.step` through each row's name, the id itself where the walk spelled it so), which
+also gives a folder the tree holds twice one key per route. The loadTree cache slice and the column
+graft find a folder by the names down from the folder the tree was walked at (`TreeShape.position`),
+with the id prefix kept as the fallback the outline asks through; the Tree/Columns carry translates
+by names; ⌘↓ asks whether the deepest column lists the folder.
+
+Cost, Release, `TreeWalkBenchmark.columnIndexBuild` (run it on system folders — a test helper walking
+`~` stalls in a FileProvider listing): the index build is 18 ms against 16 over
+`/System/Library/Frameworks` re-spelled so no id parts (55,136 directories), and 24 against 11 as
+walked, where 30,803 lie below a link.
+
+Not covered, read from the code and not run: the outline asks for an unread folder by its id, which
+two levels below a folder link is neither under the root nor continuous from the top, so expanding
+one there still fills nothing; and Edit's owed selection names a new file by the deepest column's
+composed path while the pane lists it by the resolved id, so a file made below a link is not
+selected.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s indexById=%s sliceByPrefix=%s graftByPrefix=%s carryBack=%s openChord=%s linkTable=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/PaneChildrenIndex.swift 2>/dev/null | grep -c 'map\[row.node.id\] = row.children')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Scanning.swift | grep -c 'static func subtree(atPath path: String, in tree')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/PaneColumnGraft.swift 2>/dev/null | grep -c 'path.hasPrefix(node.id + "/")')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift | grep -c 'static func carryBack(')" \
+    "$(git show origin/$l:MacApp/PaneLogic.swift | grep -c 'static func openSelectedFolderStack(')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/PathBoundary.swift 2>/dev/null | grep -c 'discoveredLinkedFolders: LinkedFolders')"
+done
+# measured 2026-10-02, against origin, before this landed:
+# main indexById=1 sliceByPrefix=1 graftByPrefix=2 carryBack=1 openChord=1 linkTable=1
+# v4.x indexById=1 sliceByPrefix=1 graftByPrefix=2 carryBack=1 openChord=0 linkTable=0
+# v3.x indexById=1 sliceByPrefix=1 graftByPrefix=0 carryBack=1 openChord=0 linkTable=0
+# v2.x indexById=1 sliceByPrefix=1 graftByPrefix=0 carryBack=1 openChord=0 linkTable=0
+```
+
+**`v4.x`, `v3.x`, `v2.x`: RECORDED — not owed.** Each keys its Columns index by id and lists through
+`contentsOfDirectory(at:)`, so each carries the defect below a folder link and under a root reached
+through one (read from the code, not run there). With no link table on those lines, iCloud Drive's
+`Documents` is an ordinary folder link, so a pane on the container breaks the same way two levels
+into it. `v4.x` also grafts by id prefix; `v3.x` and `v2.x` have no graft, and no line has ⌘↓. A pick
+is `TreeShape.swift`, the index's keying with `step`'s table argument dropped on a line without the
+table, `subtree(atPath:under:in:)`, the two carry statics, and `ColumnsBelowALinkTests` without its
+iCloud cases.

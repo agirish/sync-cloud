@@ -287,7 +287,7 @@ extension FileSyncManager {
         // The mirror is the expensive half: `pruned` walks the other pane's children index, and
         // building that index is a full pass over its tree when the cache is cold.
         let started = CFAbsoluteTimeGetCurrent()
-        let mirrored = path.pruned(against: otherIndex(), treeRoot: otherTreeRoot)
+        let mirrored = path.pruned(against: otherIndex(), treeRoot: otherTreeRoot, links: linkedFolders)
         let elapsed = (CFAbsoluteTimeGetCurrent() - started) * 1000
         setBrowsePath(isLeft: !isLeft, mirrored)
         Logger.shared.debug(
@@ -337,22 +337,9 @@ extension FileSyncManager {
         }
         guard let folder = paneTreeFolder(isLeft: isLeft),
               let base = PathBoundary.relativize(folder, under: root, links: linkedFolders),
-              let names = Self.names(downTo: node.id, in: isLeft ? rawLeftTree : rawRightTree)
+              let names = TreeShape.names(downTo: node.id, in: isLeft ? rawLeftTree : rawRightTree)
         else { return nil }
         return PathBoundary.joinRelative(base, names.joined(separator: "/"))
-    }
-
-    /// The names down `tree` to the node whose id is `id`, outermost first — each the last
-    /// component of a node's id — or nil when no node has it. A whole-tree search: below a link an
-    /// id says nothing about which branch holds it.
-    nonisolated static func names(downTo id: String, in tree: [FileNode]) -> [String]? {
-        for node in tree {
-            if node.id == id { return [(node.id as NSString).lastPathComponent] }
-            if let children = node.children, let below = names(downTo: id, in: children) {
-                return [(node.id as NSString).lastPathComponent] + below
-            }
-        }
-        return nil
     }
 
     /// Drops **one** pane's tree, so it reloads while the other keeps what it is showing.
@@ -426,10 +413,10 @@ extension FileSyncManager {
         guard (isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath) != nil,
               !(isLeft ? isLoadingLeftTree : isLoadingRightTree) else { return }
         if isLeft {
-            let pruned = leftBrowsePath.pruned(against: index, treeRoot: treeRoot)
+            let pruned = leftBrowsePath.pruned(against: index, treeRoot: treeRoot, links: linkedFolders)
             if pruned != leftBrowsePath { leftBrowsePath = pruned }
         } else {
-            let pruned = rightBrowsePath.pruned(against: index, treeRoot: treeRoot)
+            let pruned = rightBrowsePath.pruned(against: index, treeRoot: treeRoot, links: linkedFolders)
             if pruned != rightBrowsePath { rightBrowsePath = pruned }
         }
     }

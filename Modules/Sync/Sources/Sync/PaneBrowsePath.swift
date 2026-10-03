@@ -137,11 +137,19 @@ public struct PaneBrowsePath: Equatable, Sendable {
     /// `…/com~apple~CloudDocs/Documents` — a path the walk never keys, since it lists the link as
     /// the folder it points at — got `isDirectory == false`, and pruned the whole stack back to
     /// the root on the next republish (measured 2026-09-08: `["Documents", "Home"]` → `[]`). One
-    /// rule, one place, so the two cannot disagree about a path again.
-    private static func step(from directory: String, into component: String,
-                             atRoot: Bool, linked: [String: String]) -> String {
-        if atRoot, let target = linked[component] { return target }
-        return directory + "/" + component
+    /// rule, one place, so the two cannot disagree about a path again — and `PaneChildrenIndex`
+    /// keys every directory by it, so the index answers the path a column asks with.
+    static func step<Component: StringProtocol>(from directory: String, into component: Component,
+                                                atRoot: Bool, linked: [String: String]) -> String {
+        if atRoot, !linked.isEmpty, let target = linked[String(component)] { return target }
+        // One allocation, sized up front: the index composes a path this way for every directory a
+        // link leaves spelled otherwise, on the main actor, per publish.
+        var path = ""
+        path.reserveCapacity(directory.utf8.count + 1 + component.utf8.count)
+        path.append(directory)
+        path.append("/")
+        path.append(contentsOf: component)
+        return path
     }
 
     /// The deepest open directory: the folder New Folder creates into, the folder a paste or a

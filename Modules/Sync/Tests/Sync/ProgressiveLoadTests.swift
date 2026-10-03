@@ -54,12 +54,12 @@ import Testing
         let a = FileNode(id: "/src/a", name: "a", isDirectory: true, children: [b])
         let tree = [a]
 
-        #expect(FileSyncManager.subtree(atPath: "/src/a", in: tree) == [b])
-        #expect(FileSyncManager.subtree(atPath: "/src/a/b", in: tree) == [file])
+        #expect(FileSyncManager.subtree(atPath: "/src/a", under: "/src", in: tree) == [b])
+        #expect(FileSyncManager.subtree(atPath: "/src/a/b", under: "/src", in: tree) == [file])
         // Not in the tree, a file, or no tree at all -> no slice.
-        #expect(FileSyncManager.subtree(atPath: "/src/missing", in: tree) == nil)
-        #expect(FileSyncManager.subtree(atPath: "/src/a/b/file.txt", in: tree) == nil)
-        #expect(FileSyncManager.subtree(atPath: "/src/a", in: nil) == nil)
+        #expect(FileSyncManager.subtree(atPath: "/src/missing", under: "/src", in: tree) == nil)
+        #expect(FileSyncManager.subtree(atPath: "/src/a/b/file.txt", under: "/src", in: tree) == nil)
+        #expect(FileSyncManager.subtree(atPath: "/src/a", under: "/src", in: nil) == nil)
     }
 
     @MainActor

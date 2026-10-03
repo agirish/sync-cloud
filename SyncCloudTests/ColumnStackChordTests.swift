@@ -29,12 +29,20 @@ import FileExplorer
     private var notes: FileNode { node("/r/Documents/Notes.md", isDirectory: false) }
     private var photos: FileNode { node("/r/Photos", isDirectory: true) }
 
+    /// The tree those rows are listed in, which is what the rule asks to find the deepest column's.
+    private var index: PaneChildrenIndex {
+        let documents = FileNode(id: "/r/Documents", name: "Documents", isDirectory: true,
+                                 children: [invoices, notes])
+        return PaneChildrenIndex(tree: PaneTree(side: .left, version: 1, nodes: [documents, photos]),
+                                 treeRoot: root, links: [:])
+    }
+
     // MARK: - ⌘↓
 
     @Test func theOpenChordDrillsTheSelectedFolderAtTheDeepestColumn() throws {
         let stack = PaneBrowsePath()
         let next = try #require(PaneLogic.openSelectedFolderStack(
-            drawsColumns: true, stack: stack, selection: [documents], treeRoot: root))
+            drawsColumns: true, stack: stack, selection: [documents], treeRoot: root, index: index))
         #expect(next.components == ["Documents"])
     }
 
@@ -43,7 +51,7 @@ import FileExplorer
     @Test func theOpenChordAppendsRatherThanRestartingTheStack() throws {
         let stack = PaneBrowsePath(components: ["Documents"])
         let next = try #require(PaneLogic.openSelectedFolderStack(
-            drawsColumns: true, stack: stack, selection: [invoices], treeRoot: root))
+            drawsColumns: true, stack: stack, selection: [invoices], treeRoot: root, index: index))
         #expect(next.components == ["Documents", "Invoices"])
     }
 
@@ -54,21 +62,41 @@ import FileExplorer
         let stack = PaneBrowsePath(components: ["Documents", "Invoices"])
         // `Photos` lives in the ROOT column while two columns are open past it.
         #expect(PaneLogic.openSelectedFolderStack(
-            drawsColumns: true, stack: stack, selection: [photos], treeRoot: root) == nil)
+            drawsColumns: true, stack: stack, selection: [photos], treeRoot: root, index: index) == nil)
+    }
+
+    /// **Below a folder link the deepest column lists rows spelled where the link leads**, so a
+    /// folder's id does not say which column holds it: `/t/sub/deeper` is listed in `/r/link/sub`'s
+    /// column, and comparing its parent `/t/sub` with that column's path kept ⌘↓ disabled there.
+    /// The walk's spellings are measured on a real link by `ColumnsBelowALinkTests`.
+    @Test func theOpenChordOpensAFolderListedBelowAFolderLink() throws {
+        let deeper = node("/t/sub/deeper", isDirectory: true)
+        let sub = FileNode(id: "/r/link/sub", name: "sub", isDirectory: true, children: [deeper])
+        let link = FileNode(id: "/r/link", name: "link", isDirectory: true, children: [sub])
+        let linked = PaneChildrenIndex(tree: PaneTree(side: .left, version: 1, nodes: [link]),
+                                       treeRoot: root, links: [:])
+        let next = try #require(PaneLogic.openSelectedFolderStack(
+            drawsColumns: true, stack: PaneBrowsePath(components: ["link", "sub"]), selection: [deeper],
+            treeRoot: root, index: linked))
+        #expect(next.components == ["link", "sub", "deeper"])
+        // Still the deepest column only: one column further out does not list it.
+        #expect(PaneLogic.openSelectedFolderStack(
+            drawsColumns: true, stack: PaneBrowsePath(components: ["link"]), selection: [deeper],
+            treeRoot: root, index: linked) == nil)
     }
 
     @Test func theOpenChordRefusesAFile() {
         let stack = PaneBrowsePath(components: ["Documents"])
         #expect(PaneLogic.openSelectedFolderStack(
-            drawsColumns: true, stack: stack, selection: [notes], treeRoot: root) == nil)
+            drawsColumns: true, stack: stack, selection: [notes], treeRoot: root, index: index) == nil)
     }
 
     @Test func theOpenChordRefusesAMultipleSelectionAndAnEmptyOne() {
         let stack = PaneBrowsePath()
         #expect(PaneLogic.openSelectedFolderStack(
-            drawsColumns: true, stack: stack, selection: [documents, photos], treeRoot: root) == nil)
+            drawsColumns: true, stack: stack, selection: [documents, photos], treeRoot: root, index: index) == nil)
         #expect(PaneLogic.openSelectedFolderStack(
-            drawsColumns: true, stack: stack, selection: [], treeRoot: root) == nil)
+            drawsColumns: true, stack: stack, selection: [], treeRoot: root, index: index) == nil)
     }
 
     // MARK: - ⌘↑
@@ -111,12 +139,12 @@ import FileExplorer
         let stack = PaneBrowsePath(components: ["Documents"])
         #expect(PaneLogic.enclosingFolderStack(drawsColumns: false, stack: stack) == nil)
         #expect(PaneLogic.openSelectedFolderStack(
-            drawsColumns: false, stack: stack, selection: [invoices], treeRoot: root) == nil)
+            drawsColumns: false, stack: stack, selection: [invoices], treeRoot: root, index: index) == nil)
         // The positive control: the SAME inputs with columns on screen both answer, so the nils
         // above came from `drawsColumns` and not from a fixture that could never have worked.
         #expect(PaneLogic.enclosingFolderStack(drawsColumns: true, stack: stack) != nil)
         #expect(PaneLogic.openSelectedFolderStack(
-            drawsColumns: true, stack: stack, selection: [invoices], treeRoot: root) != nil)
+            drawsColumns: true, stack: stack, selection: [invoices], treeRoot: root, index: index) != nil)
     }
 
     // MARK: - The wiring, scanned

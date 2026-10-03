@@ -75,10 +75,10 @@ import Testing
         let loop = try #require(tree.first { $0.name == "sub" }?.children?.first { $0.name == "loop" })
         #expect(loop.isDirectory)
         // …but is a cache MISS, never an authoritative empty deep tree.
-        #expect(FileSyncManager.subtree(atPath: sub.appendingPathComponent("loop").path, in: tree) == nil)
+        #expect(FileSyncManager.subtree(atPath: sub.appendingPathComponent("loop").path, under: root.path, in: tree) == nil)
         // Genuinely empty and genuinely walked directories are served as before.
-        #expect(FileSyncManager.subtree(atPath: root.appendingPathComponent("empty").path, in: tree) == [])
-        #expect(FileSyncManager.subtree(atPath: sub.path, in: tree)?.count == 2)
+        #expect(FileSyncManager.subtree(atPath: root.appendingPathComponent("empty").path, under: root.path, in: tree) == [])
+        #expect(FileSyncManager.subtree(atPath: sub.path, under: root.path, in: tree)?.count == 2)
     }
 
     /// Regression: drilling into a cycle-capped directory served the capped `[]` from the cached

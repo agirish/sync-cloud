@@ -24,67 +24,56 @@ extension FileSyncManager {
     /// it, and by the time it lands the pane may have re-rooted or reloaded. A `nil` says "this
     /// answer is about a tree that is no longer here", and the caller drops it.
     ///
-    /// **The descent is pruned by prefix**, so this costs the depth of one path rather than a walk
-    /// of the tree. That matters precisely here: the trees this runs against are the ones large
-    /// enough to have been budgeted, and a full search of a 200,000-node tree per column open is
-    /// the shape (`PaneChildrenIndex`'s own note records it) that once put 16.9 s of node
-    /// comparison on the main thread.
+    /// **Found by the names down from `root`, the folder the tree was walked at** — `path` is a
+    /// column's, composed from that root and the names clicked, and the walk spells a node otherwise
+    /// two levels below a folder symlink and under a root reached through one (`TreeShape`). Matched
+    /// by id prefix alone, a budget-unexplored folder there was never found, so its column stayed
+    /// blank however often it asked. The id prefix is still the fallback, for the outline, which
+    /// asks with a row's id (`TreeShape.position`).
     ///
-    /// **The trailing separator on that prefix is an optimisation, not a correctness guard**, and
-    /// this comment said the opposite until a mutation test disagreed. Dropping it makes `/r/bc`
-    /// read as living under `/r/b`, but the graft still lands on the right node: the match is an
-    /// exact `id ==`, and a well-formed tree cannot hold `/r/bc` inside `/r/b`, so the wrong branch
-    /// is entered and left empty-handed. What it costs is the entry — `visit` rebuilds every node
-    /// it walks, so a prefix-sharing sibling gets its whole subtree copied for nothing. That is
-    /// what `theDescentSkipsSiblingsSharingANamePrefix` measures, by buffer identity.
+    /// **The descent enters one branch per level**, so this costs the depth of one path rather than
+    /// a walk of the tree. That matters precisely here: the trees this runs against are the ones
+    /// large enough to have been budgeted, and a full search of a 200,000-node tree per column open
+    /// is the shape (`PaneChildrenIndex`'s own note records it) that once put 16.9 s of node
+    /// comparison on the main thread. Only the nodes on the path are rebuilt; a sibling keeps its
+    /// subtree's storage, which is what `theDescentSkipsSiblingsSharingANamePrefix` measures, by
+    /// buffer identity.
     ///
     /// `isUnexplored` is set to `nil` rather than `false` on the grafted node — the field's own
     /// documentation defines nil as "walked", and it is what a node built by the walk carries.
     /// Writing `false` would be a second spelling of the same fact.
-    nonisolated public static func grafting(children: [FileNode], atPath path: String,
-                                            into tree: [FileNode]) -> [FileNode]? {
-        var found = false
+    nonisolated public static func grafting(children: [FileNode], atPath path: String, under root: String,
+                                            into tree: [FileNode],
+                                            links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
+    -> [FileNode]? {
+        guard let position = TreeShape.position(of: path, under: root, in: tree, links: links) else { return nil }
 
-        func visit(_ nodes: [FileNode]) -> [FileNode] {
-            nodes.map { node -> FileNode in
-                guard !found, node.isDirectory else { return node }
-                if node.id == path {
-                    found = true
-                    var replaced = node
-                    replaced.children = children
-                    replaced.isUnexplored = nil
-                    return replaced
-                }
-                // Only the one branch that can contain `path`. The trailing separator is what makes
-                // this a path-component test rather than a string test: without it `/a/bc` reads as
-                // living under `/a/b`, and the descent would go down the wrong branch and report
-                // not-found for a path that is there.
-                guard path.hasPrefix(node.id + "/") else { return node }
-                var copy = node
-                copy.children = visit(node.children ?? [])
-                return copy
+        func rebuild(_ nodes: [FileNode], at position: ArraySlice<Int>) -> [FileNode] {
+            var nodes = nodes
+            let index = position[position.startIndex]
+            if position.count == 1 {
+                nodes[index].children = children
+                nodes[index].isUnexplored = nil
+            } else {
+                nodes[index].children = rebuild(nodes[index].children ?? [], at: position.dropFirst())
             }
+            return nodes
         }
-
-        let result = visit(tree)
-        return found ? result : nil
+        return rebuild(tree, at: position[...])
     }
 
-    /// Whether the tree holds `path` as a directory it did not read.
+    /// Whether the tree, walked at `root`, holds `path` as a directory it did not read — found as
+    /// `grafting` finds it.
     ///
     /// The guard for the graft request, and it answers on the RAW tree rather than on the pane's
     /// published one: the published tree is filtered (hidden files, search), so a directory can be
     /// absent from it while being present and unexplored underneath — and a request dropped for
     /// that reason would leave a column permanently blank with no way to retry.
-    nonisolated public static func isUnexplored(atPath path: String, in tree: [FileNode]) -> Bool {
-        func visit(_ nodes: [FileNode]) -> Bool? {
-            for node in nodes where node.isDirectory {
-                if node.id == path { return node.isUnexplored == true }
-                if path.hasPrefix(node.id + "/"), let answer = visit(node.children ?? []) { return answer }
-            }
-            return nil
-        }
-        return visit(tree) ?? false
+    nonisolated public static func isUnexplored(atPath path: String, under root: String, in tree: [FileNode],
+                                                links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
+    -> Bool {
+        guard let position = TreeShape.position(of: path, under: root, in: tree, links: links) else { return false }
+        return TreeShape.node(at: position, in: tree)?.isUnexplored == true
     }
 }
 
@@ -121,7 +110,10 @@ extension FileSyncManager {
         // render, each walking the same directory.
         let key = ColumnGraftKey(isLeft: isLeft, path: path)
         guard !columnGraftsInFlight.contains(key) else { return }
-        guard Self.isUnexplored(atPath: path, in: isLeft ? rawLeftTree : rawRightTree) else { return }
+        // Asked of the tree with the folder it was walked at: a column's `path` is composed from
+        // that folder, and the names down from it are what find the node (`TreeShape.position`).
+        guard Self.isUnexplored(atPath: path, under: paneTreeFolder(isLeft: isLeft) ?? "",
+                                in: isLeft ? rawLeftTree : rawRightTree, links: linkedFolders) else { return }
         columnGraftsInFlight.insert(key)
         // Captured before the await, compared after: a swap in that window moves this path to the
         // other pane, and `key.isLeft` would then name the tree it is NOT about.
@@ -159,8 +151,10 @@ extension FileSyncManager {
 
             // Re-read the tree AFTER the await: the pane may have re-rooted or reloaded while the
             // listing ran, in which case this answer is about a tree that is gone. `grafting`
-            // returns nil for exactly that and the answer is dropped.
+            // returns nil for exactly that and the answer is dropped. The folder it was walked at
+            // is re-read with it — `adoptRawTree` writes the two together.
             let current = isLeft ? self.rawLeftTree : self.rawRightTree
+            let currentRoot = self.paneTreeFolder(isLeft: isLeft) ?? ""
             // **And re-ask the question the graft exists to answer.** The pre-await guard ran
             // against a tree that may have been replaced since: a refresh or the deep walk itself
             // can publish this node FULLY WALKED while the listing runs (the same path is still
@@ -168,14 +162,16 @@ extension FileSyncManager {
             // deep subtree with a one-level listing whose child directories are re-marked
             // unexplored — and, through the cache write below, poison the next warm scan. The
             // outline row's open fires this request ungated, so the race is ordinary, not exotic.
-            guard Self.isUnexplored(atPath: path, in: current) else { return }
+            guard Self.isUnexplored(atPath: path, under: currentRoot, in: current, links: self.linkedFolders)
+            else { return }
             // A sort change during the listing has already re-sorted the live trees; bring the
             // listing into the same order before it joins them. (The cache write below is safe
             // either way — a sort change clears `prefetchedTrees`, so the `!= nil` guard skips it.)
             if self.sortOption != builtWith {
                 children = Self.sort(nodes: children, by: self.sortOption)
             }
-            guard let grafted = Self.grafting(children: children, atPath: path, into: current) else { return }
+            guard let grafted = Self.grafting(children: children, atPath: path, under: currentRoot,
+                                              into: current, links: self.linkedFolders) else { return }
             self.rawTreeGeneration += 1
             if isLeft { self.rawLeftTree = grafted } else { self.rawRightTree = grafted }
             // **And what the listing followed joins the walk's record**, for the pane and the entry

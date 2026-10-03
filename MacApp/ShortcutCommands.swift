@@ -1509,12 +1509,17 @@ extension ContentView {
     var shortcutOpenSelectedFolder: (() -> Void)? {
         guard contentLayout.drawsAPaneList else { return nil }
         let isLeft = shortcutTargetIsLeft
+        // Before the index: a Tree pane has no columns to open into, and building the index would be
+        // a whole-tree pass to learn nothing.
+        guard paneDrawsColumns(isLeft: isLeft) else { return nil }
         let pane = paneContext(isLeft: isLeft)
         guard let next = PaneLogic.openSelectedFolderStack(
-            drawsColumns: paneDrawsColumns(isLeft: isLeft),
+            drawsColumns: true,
             stack: isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath,
             selection: paneSelectionNodes(isLeft: isLeft),
-            treeRoot: pane.currentPath) else { return nil }
+            treeRoot: pane.currentPath,
+            index: isLeft ? syncManager.leftChildrenIndex(treeRoot: pane.currentPath)
+                          : syncManager.rightChildrenIndex(treeRoot: pane.currentPath)) else { return nil }
         return { applyColumnNavigation(next, isLeft: isLeft) }
     }
 

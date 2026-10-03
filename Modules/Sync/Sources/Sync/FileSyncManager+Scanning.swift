@@ -135,7 +135,8 @@ extension FileSyncManager {
             // breadcrumb navigation are instant). File operations, sort changes, and force
             // refresh clear the cache, so this never serves stale post-operation state.
             let direct = prefetchedTrees[focusPath]
-            let cached = direct ?? Self.subtree(atPath: focusPath, in: prefetchedTrees[rootURL.path])
+            let cached = direct ?? Self.subtree(atPath: focusPath, under: rootURL.path,
+                                                in: prefetchedTrees[rootURL.path], links: links)
             if let cached {
                 // A slice inherits the root walk's stopped provenance: the budget stopped
                 // SOMEWHERE, and this subtree may hold some of what went unwalked. Inheriting
@@ -401,20 +402,24 @@ extension FileSyncManager {
         }
     }
 
-    /// The children of the directory at `path` inside a cached deep tree, or nil when the path
-    /// is not present (or `tree` is nil). Lets navigation serve a drill-down from an ancestor's
-    /// cached tree without re-walking the disk. A cycle- or depth-capped node (`isUnexplored`)
-    /// is a MISS, not an empty folder: its `[]` children are a construction artifact, and
-    /// serving them as the folder's deep tree would make the in-memory diff report the entire
-    /// other side as "missing". The miss sends the caller back to a fresh disk walk, which —
+    /// The children of the directory at `path` inside a deep tree walked at `root`, or nil when
+    /// the path is not present (or `tree` is nil). Lets navigation serve a drill-down from an
+    /// ancestor's cached tree without re-walking the disk. A cycle- or depth-capped node
+    /// (`isUnexplored`) is a MISS, not an empty folder: its `[]` children are a construction
+    /// artifact, and serving them as the folder's deep tree would make the in-memory diff report the
+    /// entire other side as "missing". The miss sends the caller back to a fresh disk walk, which —
     /// rooted at that path, with a fresh cycle-visited set and depth budget — walks correctly.
-    nonisolated static func subtree(atPath path: String, in tree: [FileNode]?) -> [FileNode]? {
-        guard let tree else { return nil }
-        for node in tree where node.isDirectory {
-            if node.id == path { return node.isUnexplored == true ? nil : (node.children ?? []) }
-            if path.hasPrefix(node.id + "/") { return subtree(atPath: path, in: node.children) }
-        }
-        return nil
+    ///
+    /// **Found by the names down from `root`** (`TreeShape.position`). `path` is a focus composed
+    /// from the root and a relative path, and the walk spells a node otherwise two levels below a
+    /// folder symlink and under a root reached through one: matched by id prefix alone, navigation
+    /// there always missed and took a cold walk of a folder the cached tree already held.
+    nonisolated static func subtree(atPath path: String, under root: String, in tree: [FileNode]?,
+                                    links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
+    -> [FileNode]? {
+        guard let tree, let position = TreeShape.position(of: path, under: root, in: tree, links: links),
+              let folder = TreeShape.node(at: position, in: tree) else { return nil }
+        return folder.isUnexplored == true ? nil : (folder.children ?? [])
     }
 
     nonisolated static func countItems(in tree: [FileNode]) -> Int {
