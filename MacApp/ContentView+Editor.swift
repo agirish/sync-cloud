@@ -507,7 +507,8 @@ extension ContentView {
     /// Then, unless the settle was cancelled, the pane owes the file a selection (TE47): where it
     /// shows the file's folder — always, after a re-root — the document is selected there and
     /// brought into view.
-    func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane = .followsTheFile) {
+    @discardableResult
+    func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane = .followsTheFile) -> EditorHandOffRun.Outcome {
         let outcome = EditorHandOffRun.run(
             path, pane: pane,
             syncManager: syncManager,
@@ -521,6 +522,90 @@ extension ContentView {
             load: { loadIntoEditor(path: $0) },
             log: { Logger.shared.info($0) })
         if outcome != .cancelled { owePaneSelection(path) }
+        return outcome
+    }
+
+    /// **Files from Finder, the Dock or `open -a`**, taken from the delegate's queue and opened
+    /// through ``handOffToEditor(_:pane:)`` — the door every "Open in Edit" in the app goes through,
+    /// so a file from outside settles the open document, moves the pane and logs exactly as ⌘O
+    /// does. Called on every arrival and whenever something holding one back clears; a call with
+    /// nothing waiting does nothing. The act itself is ``ExternalOpen/run(_:superseded:isFolder:handOff:banner:setBanner:log:)``.
+    func openExternalArrivals() {
+        // An earlier arrival's hand-off is stopped on the unsaved-changes question; this one waits
+        // for the answer and is taken at the bottom of that call.
+        guard !externalOpens.isOpening, !externalOpens.isEmpty else { return }
+        if let hold = ExternalOpen.hold(launchIsFinished: launchBootstrap.isFinished,
+                                        isPickingDestination: pendingDestination != nil,
+                                        isAnsweringDivergence: editorDivergenceReview != nil) {
+            Logger.shared.info("[open] A file from outside the app is \(hold.reason)")
+            return
+        }
+        guard let (batch, superseded) = externalOpens.takeNewest() else { return }
+        externalOpens.isOpening = true
+        closeViewersForExternalOpen()
+        let pane = ExternalOpen.pane(workspace: selectedWorkspace, isReviewing: reviewStore.isReviewing)
+        let result = ExternalOpen.run(
+            batch, superseded: superseded,
+            isFolder: ExternalOpen.isFolder,
+            handOff: { handOffToEditor($0, pane: pane) },
+            banner: { syncManager.banner },
+            setBanner: { syncManager.banner = $0 },
+            log: { Logger.shared.info($0) })
+        if let path = result.plan.opens, result.outcome == .opened { fetchExternalOpenFromCloud(path) }
+        externalOpens.isOpening = false
+        // Anything that arrived while the question was up.
+        if !externalOpens.isEmpty { openExternalArrivals() }
+    }
+
+    /// **What would stand between the user and the file they just double-clicked**, put away first:
+    /// Settings and Help, which hold no work (every setting is live), and the two pair viewers,
+    /// which hold one line of state that their own door re-opens. The setup form is left — it can
+    /// hold a half-answered questionnaire — and the file opens under it. One line names what went.
+    ///
+    /// Not a destination pick or the divergence diff: those are questions mid-answer, and the open
+    /// waits for them instead (``ExternalOpen/Hold``).
+    func closeViewersForExternalOpen() {
+        var closed: [String] = []
+        if showSettings { showSettings = false; closed.append("Settings") }
+        if showHelp { showHelp = false; closed.append("Help") }
+        if compareDifferencePair != nil { compareDifferencePair = nil; closed.append("the side-by-side comparison") }
+        if compareFilePair != nil { compareFilePair = nil; closed.append("Compare Copies") }
+        if !closed.isEmpty {
+            Logger.shared.info("[open] Closed \(closed.joined(separator: ", ")) to show the file from outside the app")
+        }
+        if showSetup || shouldAutoShowSetup {
+            Logger.shared.info("[open] The file from outside the app opens under the setup form, which stays")
+        }
+    }
+
+    /// **A file from Finder that is still in the cloud is fetched, then opened** — where every
+    /// in-app door shows "Not downloaded" and stops. Someone who double-clicked it asked for its
+    /// contents, which is the download the editor otherwise declines to start on its own.
+    ///
+    /// Only when the hand-off left exactly that refusal on screen. When the content lands, the
+    /// file is opened again through ``openInEditor(path:selectsInPane:)`` — which lets a refused
+    /// document through — but only if it is still the refused document by then: a user who has
+    /// moved on in the meantime is not moved back.
+    func fetchExternalOpenFromCloud(_ path: String) {
+        guard editorDocument.path == path, editorDocument.refusal != nil,
+              MaterializationStatus.isCloudOnly(atPath: path) else { return }
+        let name = ExternalOpen.name(path)
+        Logger.shared.info("[open] \(path) is still in the cloud — fetching it before Edit can read it")
+        syncManager.banner = .warning("Downloading “\(name)” — it opens here when it arrives.")
+        Task { @MainActor in
+            let landed = await ExternalOpen.fetch(path)
+            guard editorDocument.path == path, editorDocument.refusal != nil else {
+                Logger.shared.info("[open] \(path) \(landed ? "arrived" : "did not arrive"); Edit has moved on, so it is left")
+                return
+            }
+            if landed {
+                Logger.shared.info("[open] \(path) arrived from the cloud — opening it")
+                openInEditor(path: path)
+            } else {
+                Logger.shared.warning("[open] \(path) did not arrive from the cloud within a minute")
+                syncManager.banner = .error("Couldn’t download “\(name)”. Download it in Finder, then open it again.")
+            }
+        }
     }
 
     // MARK: - Closing

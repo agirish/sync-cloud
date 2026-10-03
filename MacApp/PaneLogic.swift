@@ -1021,8 +1021,11 @@ enum PaneLogic {
         /// provider-bootstrap guard when the discovery task finishes.
         case discoverProvidersAndApplyInitialSelection
         /// Window, re-appearance only: a recreated view's `isBootstrappingProviders` `@State`
-        /// starts true, but no discovery is pending — clear it immediately, or provider
-        /// switches and pane swaps stay refused for the rest of the session.
+        /// starts true — clear it once no discovery is pending, or provider switches and pane
+        /// swaps stay refused for the rest of the session. **Not before:** a re-appearance can come
+        /// while the launch's discovery is still running (SwiftUI re-presents the window for a
+        /// file opened from Finder), so the guard is lowered only when `LaunchBootstrap` says the
+        /// launch has finished.
         case endProviderBootstrapGuard
     }
 

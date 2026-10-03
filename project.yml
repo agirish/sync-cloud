@@ -41,6 +41,23 @@ targets:
         # remember. Requires MINOR < 100 to stay monotonic.
         CFBundleVersion: "505"
         NSHumanReadableCopyright: "Copyright © 2024. All rights reserved."
+        # Finder's Open With lists SyncCloud for every kind of text macOS recognises: the claim is
+        # the PARENT type `public.text`, and that is what keeps an install from taking a kind of file
+        # away from the app that opens it. Measured 2026-10-03 in fresh Launch Services elections
+        # between probe apps: a claim naming the specific type beats a parent-type claim whatever
+        # their ranks, and among specific claims rank decides. A claim by EXTENSION at `Alternate`
+        # was tried first and ended up the default for `.toml`, `.ini`, `.cfg` and `.ts` over
+        # Antigravity's `Default` claims — and so for `.ts` videos over QuickTime — while `None`
+        # drops SyncCloud from Open With altogether.
+        # The cost: kinds macOS does not type as text — `.conf`, `.kt`, and `.ts`, MPEG video to it;
+        # `.go` and `.rs` too, on a Mac where no app such as BBEdit declares them — are not offered
+        # (Open With ▸ Other… still opens them), and text Edit does not list, such as `.rtf`, is. `ExternalOpenClaimTests` holds both halves. Arrivals go to Edit — see
+        # `ExternalOpen`.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: "Text"
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.text]
   SyncCloudTests:
     type: bundle.unit-test
     platform: macOS

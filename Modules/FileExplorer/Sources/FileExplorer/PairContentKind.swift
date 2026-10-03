@@ -23,6 +23,12 @@ public enum EditableText {
     public static func isText(path: String) -> Bool {
         PairContentKind.classify(path: path) == .text
     }
+
+    /// The extensions themselves, lowercased — for the one reader that cannot ask per path:
+    /// `ExternalOpenClaimTests`, which checks that every one of them is a kind of text macOS
+    /// recognises (and so is offered by the app's `public.text` claim in Finder's Open With), or is
+    /// one of the few the claim's comment in `project.yml` names as not offered.
+    public static var extensions: Set<String> { PairContentKind.textExtensions }
 }
 
 /// What kind of viewer a compared pair gets.

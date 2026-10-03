@@ -34,7 +34,8 @@ enum EditorHandOffRun {
         /// document lives. Every door but one.
         case followsTheFile
         /// **Leave the left pane exactly where it is** — Compare's list of differences (TE31's
-        /// fixup). There the left pane IS one half of the comparison the list is showing: re-rooting
+        /// fixup), and a file opened from Finder while Compare or a guided review is on screen
+        /// (`ExternalOpen.pane`). There the left pane IS one half of the comparison the list is showing: re-rooting
         /// it re-scopes the comparison, re-runs its scan and clears the session's "Ignore in
         /// comparison" entries (`focusOn` → `clearSessionIgnoredPaths`), so the row you acted from
         /// would vanish under you along with every row you had set aside. The header's location
@@ -130,7 +131,7 @@ enum EditorHandOffRun {
             // finds the decision rather than a silence. **Worded as the decision, not the result**:
             // it is written before the load, and a file the editor then refuses must not have a
             // line saying it "opened" above the line saying it could not be.
-            log("Editor hand-off to \(path) leaves the left pane on \(paneFolder()) — Compare's list of differences does not move it")
+            log("Editor hand-off to \(path) leaves the left pane on \(paneFolder()) — it is half of the comparison, so the hand-off does not move it")
         }
         showEdit()
         load(path)

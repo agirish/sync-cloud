@@ -435,7 +435,13 @@ struct ContentView: View {
     /// differences list goes empty, and the session (plus any in-flight copy's outcome) must
     /// survive both — and this ContentView itself, which a window close + Dock reopen recreates.
     @ObservedObject var reviewStore: ReviewSessionStore
-    
+    /// Files handed over from Finder, the Dock or `open -a`, waiting for this window to open them in
+    /// Edit. The app delegate's, because it outlives the window — see ``ExternalOpenQueue``.
+    @ObservedObject var externalOpens: ExternalOpenQueue
+    /// Whether this run's launch bootstrap has finished — the delegate's, because this view's own
+    /// `isBootstrappingProviders` can be lowered early by a second `onAppear`. See ``LaunchBootstrap``.
+    @ObservedObject var launchBootstrap: LaunchBootstrap
+
     /// Read here purely to drive the theme applier below — unlike the other Appearance keys,
     /// nothing in this view renders from it; the appearance lives on NSApp, not in the view tree.
     @AppStorage(LiquidGlass.appearanceModeKey) private var appearanceModeRaw: String = AppearanceMode.system.rawValue
@@ -555,12 +561,14 @@ struct ContentView: View {
     /// would get a few hundred points to draw two previews in. Anchored here it clamps against the
     /// live window: 1080×760 with room, 712×512 at the 760×560 floor. The rest of the wiring is
     /// still the lens's — it decides which pairs come here at all.
-    @State private var compareFilePair: DuplicateComparePair?
+    /// Not private: a file opened from Finder closes it (`closeViewersForExternalOpen`).
+    @State var compareFilePair: DuplicateComparePair?
 
     /// The same surface, opened on a changed row from the Differences list — ROADMAP §11. Two
     /// states rather than one sum type: the two hosts carry different payloads and mean different
     /// verdict bars, and a shared case would have to be unwrapped at every use anyway.
-    @State private var compareDifferencePair: DifferencePair?
+    /// Not private: a file opened from Finder closes it (`closeViewersForExternalOpen`).
+    @State var compareDifferencePair: DifferencePair?
 
     /// The file armed for comparison, waiting for the click that names its counterpart — see
     /// ``ComparePick``.
@@ -1229,6 +1237,19 @@ struct ContentView: View {
             paletteOnLaunchArmed = false
             toggleCommandPalette()
         }
+        // The launch has finished. Lowers this view's guard too, for a view that appeared while
+        // discovery was running and so kept it up (see `.endProviderBootstrapGuard`) — then lets a
+        // file from Finder through.
+        .onChange(of: launchBootstrap.isFinished) {
+            if launchBootstrap.isFinished { isBootstrappingProviders = false }
+            openExternalArrivals()
+        }
+        // A file from Finder: on arrival, and again when anything holding one back clears — a
+        // destination pick, or the question about the open file's two versions. A window that
+        // appears with one already waiting asks at the end of `onAppear`. See `ExternalOpen.Hold`.
+        .onChange(of: externalOpens.arrivals) { openExternalArrivals() }
+        .onChange(of: pendingDestination == nil) { openExternalArrivals() }
+        .onChange(of: editorDivergenceReview == nil) { openExternalArrivals() }
         // The overlays are mutually exclusive; Settings wins the precedence above. Close Help
         // from every Settings entry point (toolbar, ⌘,, the invalid-pane fix-it) so it can't be
         // left lingering underneath a Settings card the user opened on top of it.
@@ -1465,11 +1486,22 @@ struct ContentView: View {
                             launchRefreshPending = !refreshAction()
                         }
                         isBootstrappingProviders = false
+                        // For the session as well as this view, and last: every view that appears
+                        // from now on reads it. See `LaunchBootstrap`.
+                        launchBootstrap.finish()
                     }
                 case .endProviderBootstrapGuard:
-                    isBootstrappingProviders = false
+                    // **Only once the launch's discovery is done.** A re-appearance DURING it is
+                    // SwiftUI re-presenting the window for a file opened from Finder (measured
+                    // 2026-10-03, the same view), and lowering the guard there handed every provider
+                    // write still to come to the user-switch path. `onChange(of:
+                    // launchBootstrap.isFinished)` lowers it when discovery ends.
+                    isBootstrappingProviders = !launchBootstrap.isFinished
                 }
             }
+            // A window brought back for a file from Finder appears with it already queued, and
+            // nothing else will announce it to this view.
+            openExternalArrivals()
         }
         .onChange(of: leftProviderId) { _, newId in
             // **The counters are consumed BEFORE the bootstrap guard is tested, and that order is
@@ -2479,7 +2511,10 @@ struct ContentView: View {
     ///
     /// The session latch and the discovery wait are this view's business; the rest of the rule is
     /// `SetupFlow.shouldAutoShow`, where it can be tested without a window.
-    private var shouldAutoShowSetup: Bool {
+    ///
+    /// Not private: a file opened from Finder says in the log that it opened under the form
+    /// (`closeViewersForExternalOpen`).
+    var shouldAutoShowSetup: Bool {
         !setupDismissedThisSession && !isBootstrappingProviders
             && SetupFlow.shouldAutoShow(hasCompletedSetup: hasCompletedSetup,
                                         hasSeenLegacyWelcome: hasSeenFirstRunWelcome,

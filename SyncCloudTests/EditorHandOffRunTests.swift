@@ -89,7 +89,7 @@ import FileExplorer
         let scene = Scene()
         scene.handOff(Self.file, pane: .staysPut)
         #expect(scene.log == [
-            "Editor hand-off to \(Self.file) leaves the left pane on /c/Documents — Compare's list of differences does not move it",
+            "Editor hand-off to \(Self.file) leaves the left pane on /c/Documents — it is half of the comparison, so the hand-off does not move it",
         ])
         let ordinary = Scene()
         ordinary.handOff(Self.file, pane: .followsTheFile)
@@ -395,7 +395,7 @@ import FileExplorer
     /// root is the only right answer (`~` is not a folder the pane can walk).
     @Test func theAppRunsTheSharedActWithItsOwnPieces() throws {
         let body = try EditorNewFilePaneWiringTests.body(
-            of: "func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane = .followsTheFile) {",
+            of: "func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane = .followsTheFile) -> EditorHandOffRun.Outcome {",
             in: "ContentView+Editor.swift")
         let run = try CallArguments(of: "EditorHandOffRun.run(", in: body.normalized)
         #expect(run.unlabeled == ["path"], "the act is handed \(run.unlabeled), not the path it was asked to open")

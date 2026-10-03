@@ -652,7 +652,9 @@ struct SyncCloudApp: App {
                     setupDismissedThisSession: $setupDismissedThisSession,
                     showSetup: $showSetup,
                     duplicateReview: $duplicateReview,
-                    reviewStore: reviewStore
+                    reviewStore: reviewStore,
+                    externalOpens: appDelegate.externalOpens,
+                    launchBootstrap: appDelegate.launchBootstrap
                 )
                     .environmentObject(Logger.shared)
                     .environmentObject(settings)
@@ -1227,6 +1229,32 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         }) else { return true }
         mainWindow.makeKeyAndOrderFront(nil)
         return false
+    }
+
+    /// Files macOS hands the app to open, for the window to take. See ``ExternalOpen``.
+    let externalOpens = ExternalOpenQueue()
+
+    /// Whether this run's launch bootstrap has finished. See ``LaunchBootstrap``.
+    let launchBootstrap = LaunchBootstrap()
+
+    /// Finder's double-click and Open With, a drop on the Dock icon, `open -a SyncCloud <file>`.
+    ///
+    /// **Queued, never acted on here**: on a cold launch this arrives before the launch bootstrap
+    /// has put the panes anywhere. Nor does it bring the window forward — SwiftUI already has:
+    /// measured 2026-10-03, a window closed with the red button or hidden with ⌘H is on screen
+    /// again before this runs, re-presented for the open event (which is also why `onAppear` runs
+    /// again — see ``LaunchBootstrap``).
+    func application(_ application: NSApplication, open urls: [URL]) {
+        // **The test host is SyncCloud.app too**, and it claims the same files. Launch Services
+        // hands an open to a running copy of the app when it has one, so a double-click during a
+        // test run — on CI's self-hosted runner, this Mac — can land here, where every window is
+        // `Color.clear` and nothing will ever take the queue. Said, not swallowed.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            Logger.shared.info(ExternalOpen.receiptLine(urls) + " — this is a test host, which opens nothing")
+            return
+        }
+        Logger.shared.info(ExternalOpen.receiptLine(urls))
+        externalOpens.receive(urls)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

@@ -245,22 +245,23 @@ import Testing
     /// **Edit's article names every door into Edit, and the ways back out and around** (TE34).
     ///
     /// It said "four ways" after TE31 and TE32 had made it six — nothing counts doors, so nothing
-    /// noticed. The count is a number written in prose, the thing `everyWorkspaceHasATopic` says
-    /// does not move on its own; so each door is looked for by what the article must say to name
-    /// it, and "four"/"five ways" anywhere in the book fails. Mutation: put back "There are four
+    /// noticed. Finder's Open With made it seven. The count is a number written in prose, the thing
+    /// `everyWorkspaceHasATopic` says does not move on its own; so each door is looked for by what
+    /// the article must say to name it, and "four"/"five"/"six ways" anywhere in the book fails. Mutation: put back "There are four
     /// ways to bring a file here" and the count line fails; drop the duplicates' clause and its
     /// line fails; put back "they all do the same thing" and the last line fails.
     @Test func editsArticleNamesEveryDoorIntoEdit() throws {
         let topic = try #require(HelpBook.topic(id: "editor-workspace"))
         let text = Self.copy(of: topic).joined(separator: " ")
         let doors = [
-            "six ways to bring a file here",
+            "seven ways to bring a file here",
             "right-click a text file and choose Open in Edit",     // a file pane's row menu
             "the Edit button by its name",                          // the preview
             "Info inspector",                                       // ⌘I
             "File ▸ Open in Edit — ⌘O",                             // the menu and its chord
             "Compare's list of differences offers Open in Edit",   // TE31, per side
             "a copy in Organize's duplicates offers it first",     // TE32
+            "in Finder, a text file's Open With menu offers SyncCloud",   // ExternalOpen
             // What they do to the pane: all but one move it (TE31's .staysPut is the one).
             "Every one but Compare's list of differences also takes the file pane on the left",
         ]
@@ -275,9 +276,9 @@ import Testing
             #expect(said, "Edit's article no longer says “\(phrase)”")
         }
         let everyWord = HelpBook.allTopics.flatMap(Self.copy(of:)).joined(separator: " ")
-        for stale in ["four ways to bring", "five ways to bring"] {
+        for stale in ["four ways to bring", "five ways to bring", "six ways to bring"] {
             let said = everyWord.contains(stale)
-            #expect(!said, "an article still says “\(stale)” — there are six")
+            #expect(!said, "an article still says “\(stale)” — there are seven")
         }
         // Not since Compare's list of differences stopped moving the pane.
         #expect(!text.contains("all do the same thing"),
