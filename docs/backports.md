@@ -6490,9 +6490,11 @@ both folders from disk — at Home 4.2–5.8 s against 1.5–1.8 s at launch, an
 because the cold walk stops at the node budget somewhere else than the pane's walk did.
 `dropPrefetchedTrees(keeping:)` now keeps the other pane's walk, which is the array that pane shows,
 with its records. **P45:** the cold scan's detached walk hopped back to the main actor to read
-`fileManager`, a `let`; it is read before detaching. **P46:** `computeDifferences` composed each
-one-sided row's expected path without `isDirectory:`, a file-system probe per entry; the hint comes
-from the entry, and `.path` is byte-identical either way.
+`fileManager`, a `let`; it is read before detaching. **P46:** `computeDifferences` built a whole row
+for every entry on one side only — a path composed without `isDirectory:`, so probed against the
+file system, and a fresh id — ~200,000 on a Home scan, then collapsed them to a few dozen. It now
+collapses on the keys first and builds rows for the survivors alone, with the type as the hint;
+the output is byte-identical (4,000 seeded fixtures against the pre-change engine).
 
 ```sh
 for l in main v4.x v3.x v2.x; do
@@ -6510,10 +6512,11 @@ done
 **`v4.x`: owed, all three — not picked, per the standing direction.** Its `retargetPane` and
 `applyTab` empty the whole cache and reload one pane, so the next Compare is cold (read from the
 code, not run there). A pick is `dropPrefetchedTrees(keeping:)` with its two call sites, the hoisted
-`fm`, and the hints — the line has no `FileDifference.leftIsDirectory`, but the hint never changes
-`.path`, so the re-aim sites can pass the source entry's type — with the three new test suites.
+`fm`, and `computeDifferences`' step 3, which replaces the row-based `collapseMissingFolderContents`
+and the re-aim map the line still has — with the three new test suites.
 
 **`v3.x`, `v2.x`: P44 checked, not owed — it does not apply; P45 and P46 owed — not picked.** A
 source switch there is `resetNavigation`, which drops both trees and reloads both panes, so both
-are cached before the scan, and there are no pane tabs. The hop and the four unhinted compositions
-are there; on `v2.x` (macOS 15) the P45 test's `Task.immediate` needs `#available(macOS 26, *)`.
+are cached before the scan, and there are no pane tabs. The hop, the four unhinted compositions and
+the row-based collapse are there; on `v2.x` (macOS 15) the P45 test's `Task.immediate` needs
+`#available(macOS 26, *)`.

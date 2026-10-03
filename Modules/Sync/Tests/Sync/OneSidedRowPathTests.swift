@@ -5,11 +5,10 @@ import Testing
 /// **A one-sided row's path is composed with the item's own type, and is byte-identical to the
 /// path the engine composed before.**
 ///
-/// `computeDifferences` builds the other side's expected path for every entry present on one side
-/// only — about 200,000 of them per scan of his Home pair, before the collapse keeps the top-level
-/// folders. `appendingPathComponent(_:)` without `isDirectory:` asks the file system whether the
-/// result is a directory, so each of them cost a probe. The hint answers that from what the entry
-/// already knows.
+/// `computeDifferences` builds the other side's expected path for each one-sided row it keeps.
+/// `appendingPathComponent(_:)` without `isDirectory:` asks the file system whether the result is a
+/// directory — a probe per row, and per one-sided ENTRY while rows were built before the collapse:
+/// about 200,000 a scan of his Home pair. The hint answers that from what the entry already knows.
 ///
 /// **Composition stays URL composition.** It decomposes precomposed names such as `é` where plain
 /// concatenation keeps them, so swapping it for `root + "/" + key` would change the bytes of

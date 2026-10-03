@@ -541,6 +541,11 @@ public struct FileDiffEngine {
         // carry no independent action).
         var missingOnRightDirs = Set<String>()
         var missingOnLeftDirs = Set<String>()
+        // The entries present on one side only, per direction. Their rows wait for the collapse
+        // (step 3): a pass can meet a folder after its contents, so which entries survive is known
+        // only once the passes have run.
+        var missingOnRight: [(key: String, info: FileInfo)] = []
+        var missingOnLeft: [(key: String, info: FileInfo)] = []
         // Folders that pair with a FILE on the other side (type mismatch). Their descendants —
         // which exist only on the directory side — collapse into the mismatch row the same way,
         // since either resolution handles the whole subtree in one action (dir wins: recursive
@@ -861,24 +866,7 @@ public struct FileDiffEngine {
                                                readableKeys: readableRightDirKeys) { continue }
                 // missing on right
                 if leftFile.isDirectory { missingOnRightDirs.insert(relativePath) }
-                // `isDirectory:` from what the entry knows. Without it the URL asks the file system
-                // whether the path is a directory — one probe per one-sided entry, ~200,000 on a Home
-                // scan, before the collapse keeps a few dozen. It only decides a trailing slash, which
-                // `.path` drops, so the path is the same bytes. Composition stays URL composition: it
-                // decomposes precomposed names, and concatenation would not (`OneSidedRowPathTests`).
-                let rightExpectedPath = rightURL.appendingPathComponent(relativePath, isDirectory: leftFile.isDirectory).path
-                diffs.append(FileDifference(
-                    relativePath: relativePath,
-                    leftItemPath: leftFile.url.path,
-                    rightItemPath: rightExpectedPath,
-                    type: .missingOnRight,
-                    action: .copyToRight,
-                    description: leftFile.isDirectory ? "Folder missing on right (\(right.displayName))" : "Missing on right (\(right.displayName))",
-                    // The item exists on the left; carry its size so the Differences list can show it.
-                    // Directories report a nil fileSize, so folders stay sizeless (shown as "—").
-                    leftFileSize: leftFile.fileSize,
-                    leftIsDirectory: leftFile.isDirectory
-                ))
+                missingOnRight.append((relativePath, leftFile))
             }
         }
         
@@ -895,147 +883,114 @@ public struct FileDiffEngine {
                                                otherSide: leftFilesInfo,
                                                readableKeys: readableLeftDirKeys) { continue }
                 if rightFile.isDirectory { missingOnLeftDirs.insert(relativePath) }
-                // Hinted for the reason pass 1 gives.
-                let leftExpectedPath = leftURL.appendingPathComponent(relativePath, isDirectory: rightFile.isDirectory).path
-                diffs.append(FileDifference(
-                    relativePath: relativePath,
-                    leftItemPath: leftExpectedPath,
-                    rightItemPath: rightFile.url.path,
-                    type: .missingOnLeft,
-                    action: .copyToLeft,
-                    description: rightFile.isDirectory ? "Folder missing on left (\(left.displayName))" : "Missing on left (\(left.displayName))",
-                    // The item exists on the right; carry its size so the Differences list can show it.
-                    rightFileSize: rightFile.fileSize,
-                    rightIsDirectory: rightFile.isDirectory
-                ))
+                missingOnLeft.append((relativePath, rightFile))
             }
         }
         
+        // 3. The one-sided rows, for what the collapse keeps.
+        //
+        // A folder missing on one side carries everything inside it (copying it is recursive), and
+        // either resolution of a type-mismatch folder — recursive dir copy or wholesale replacement
+        // by the file — handles its whole subtree in one action, so their descendants get no rows of
+        // their own. Listing them separately double-copies during bulk sync, races the parent's
+        // replace op under parallel sync, and leaves stale rows (with spurious overwrite prompts)
+        // after the folder row is synced. The surviving folder row gets `enclosedItemCount`, so the
+        // UI can still say how much it carries.
+        //
+        // **Decided on the keys, before any of these rows exists.** Built first and dropped after,
+        // each row paid a composed path, a URL turned back into a path, a fresh id and a description
+        // — for every entry on one side only, ~200,000 on a Home scan that keeps a few dozen.
+        //
+        // A type-mismatch dir's descendants exist only on its directory side: the other side holds a
+        // file there, which has no children. So under a left-side dir they surface solely as
+        // missing-on-right entries, and under a right-side dir solely as missing-on-left ones — one
+        // shared set safely serves both directions, since the direction that can't occur simply
+        // never produces an entry to match. Items present on both sides (type-mismatch and
+        // name-conflict rows included) can't sit under a collapsible folder: every folder above a
+        // both-sides path pairs with one on the other side — for a near-name pair, because pass 1
+        // checks that it does (`foldersPair`).
+        let typeMismatchDirPaths = Set(typeMismatchDirs.keys)
+        let collapsibleOnRight = missingOnRightDirs.union(typeMismatchDirPaths)
+        let collapsibleOnLeft = missingOnLeftDirs.union(typeMismatchDirPaths)
+        // Top-most collapsible ancestor folder's row path → number of items collapsed into it.
+        var enclosedCounts: [String: Int] = [:]
+        /// Whether `key` is carried by a folder's row, counting it there if so. A type-mismatch dir's
+        /// row is keyed by the LEFT path, which can differ — in case, or in an ancestor's invisible
+        /// spelling — from the dir-side key the descendants carry; map back to the row.
+        func isCollapsed(_ key: String, into dirs: Set<String>) -> Bool {
+            guard let ancestor = topMostAncestor(of: key, in: dirs) else { return false }
+            enclosedCounts[typeMismatchDirs[ancestor] ?? ancestor, default: 0] += 1
+            return true
+        }
         // Re-aim one-side-only items that live under a name-conflicted folder pair at the
-        // destination side's REAL folder spelling. Their expected paths were derived from
-        // the source side's relative path, and copying to that spelling would create the
-        // exact identical-looking, provider-unsyncable duplicate folder the `.nameConflict`
-        // classification exists to prevent.
-        if !nearNameDirPairs.isEmpty {
-            let rightToLeftDirPairs = Dictionary(
-                nearNameDirPairs.map { ($0.value, $0.key) },
-                uniquingKeysWith: { first, _ in first }
-            )
+        // destination side's REAL folder spelling. Their keys carry the source side's spelling,
+        // and copying to that spelling would create the exact identical-looking,
+        // provider-unsyncable duplicate folder the `.nameConflict` classification exists to prevent.
+        let rightToLeftDirPairs = nearNameDirPairs.isEmpty ? [:] : Dictionary(
+            nearNameDirPairs.map { ($0.value, $0.key) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        // `isDirectory:` from what the entry knows. Without it the URL asks the file system whether
+        // the path is a directory — a probe per row. It only decides a trailing slash, which a file
+        // URL's `.path` drops (every caller's roots are file URLs), so the path is the same bytes. Composition stays URL composition: it decomposes
+        // precomposed names, and concatenation would not (`OneSidedRowPathTests`).
+        for (relativePath, leftFile) in missingOnRight {
+            if isCollapsed(relativePath, into: collapsibleOnRight) { continue }
+            let destination = remappedPath(relativePath, via: nearNameDirPairs) ?? relativePath
+            diffs.append(FileDifference(
+                relativePath: relativePath,
+                leftItemPath: leftFile.url.path,
+                rightItemPath: rightURL.appendingPathComponent(destination, isDirectory: leftFile.isDirectory).path,
+                type: .missingOnRight,
+                action: .copyToRight,
+                description: leftFile.isDirectory ? "Folder missing on right (\(right.displayName))" : "Missing on right (\(right.displayName))",
+                // The item exists on the left; carry its size so the Differences list can show it.
+                // Directories report a nil fileSize, so folders stay sizeless (shown as "—").
+                leftFileSize: leftFile.fileSize,
+                leftIsDirectory: leftFile.isDirectory
+            ))
+        }
+        for (relativePath, rightFile) in missingOnLeft {
+            if isCollapsed(relativePath, into: collapsibleOnLeft) { continue }
+            // Missing-on-left entries carry RIGHT-side relative paths; re-aim right → left.
+            let destination = remappedPath(relativePath, via: rightToLeftDirPairs) ?? relativePath
+            diffs.append(FileDifference(
+                relativePath: relativePath,
+                leftItemPath: leftURL.appendingPathComponent(destination, isDirectory: rightFile.isDirectory).path,
+                rightItemPath: rightFile.url.path,
+                type: .missingOnLeft,
+                action: .copyToLeft,
+                description: rightFile.isDirectory ? "Folder missing on left (\(left.displayName))" : "Missing on left (\(left.displayName))",
+                // The item exists on the right; carry its size so the Differences list can show it.
+                rightFileSize: rightFile.fileSize,
+                rightIsDirectory: rightFile.isDirectory
+            ))
+        }
+        // The counts are complete only now: a folder's key can come before its contents'.
+        if !enclosedCounts.isEmpty {
             diffs = diffs.map { diff in
-                let remappedExpectedPath: (left: String, right: String)?
-                switch diff.type {
-                case .missingOnRight:
-                    guard let remapped = remappedPath(diff.relativePath, via: nearNameDirPairs) else { return diff }
-                    remappedExpectedPath = (diff.leftItemPath,
-                                            rightURL.appendingPathComponent(remapped, isDirectory: diff.leftIsDirectory).path)
-                case .missingOnLeft:
-                    // missingOnLeft rows carry RIGHT-side relative paths; remap right → left.
-                    guard let remapped = remappedPath(diff.relativePath, via: rightToLeftDirPairs) else { return diff }
-                    remappedExpectedPath = (leftURL.appendingPathComponent(remapped, isDirectory: diff.rightIsDirectory).path,
-                                            diff.rightItemPath)
-                case .differentDates, .nameConflict:
-                    return diff
-                }
-                guard let paths = remappedExpectedPath else { return diff }
+                guard let count = enclosedCounts[diff.relativePath] else { return diff }
                 return FileDifference(
                     id: diff.id,
                     relativePath: diff.relativePath,
-                    leftItemPath: paths.left,
-                    rightItemPath: paths.right,
+                    leftItemPath: diff.leftItemPath,
+                    rightItemPath: diff.rightItemPath,
                     type: diff.type,
                     action: diff.action,
                     description: diff.description,
                     isSyncing: diff.isSyncing,
                     leftFileSize: diff.leftFileSize,
                     rightFileSize: diff.rightFileSize,
-                    enclosedItemCount: diff.enclosedItemCount,
+                    enclosedItemCount: count,
                     leftIsDirectory: diff.leftIsDirectory,
                     rightIsDirectory: diff.rightIsDirectory
                 )
             }
         }
 
-        let result = collapseMissingFolderContents(
-            diffs,
-            missingOnRightDirs: missingOnRightDirs,
-            missingOnLeftDirs: missingOnLeftDirs,
-            typeMismatchDirs: typeMismatchDirs
-        ).sorted { $0.relativePath < $1.relativePath }
+        let result = diffs.sorted { $0.relativePath < $1.relativePath }
         Logger.shared.debug("Computed differences: \(result.count) item(s) requiring action")
         return result
-    }
-
-    /// Drops differences that live inside a folder whose own row already resolves them:
-    /// a folder missing on the same side (copying it is recursive), or a type-mismatch
-    /// folder (either resolution — recursive dir copy or wholesale replacement by the
-    /// file — handles the whole subtree in one action). Listing contents separately
-    /// double-copies during bulk sync, races the parent's replace op under parallel
-    /// sync, and leaves stale rows (with spurious overwrite prompts) after the folder
-    /// row is synced. The surviving folder entry gets `enclosedItemCount` so the UI can
-    /// still say how much it carries.
-    private static func collapseMissingFolderContents(
-        _ diffs: [FileDifference],
-        missingOnRightDirs: Set<String>,
-        missingOnLeftDirs: Set<String>,
-        typeMismatchDirs: [String: String]
-    ) -> [FileDifference] {
-        guard !missingOnRightDirs.isEmpty || !missingOnLeftDirs.isEmpty || !typeMismatchDirs.isEmpty else { return diffs }
-
-        // A type-mismatch dir's descendants exist only on its directory side: the other side
-        // holds a file there, which has no children. So under a left-side dir they surface
-        // solely as .missingOnRight rows, and under a right-side dir solely as .missingOnLeft
-        // rows — one shared set safely serves both directions, since the direction that can't
-        // occur simply never produces a row to match.
-        let typeMismatchDirPaths = Set(typeMismatchDirs.keys)
-        let collapsibleOnRight = missingOnRightDirs.union(typeMismatchDirPaths)
-        let collapsibleOnLeft = missingOnLeftDirs.union(typeMismatchDirPaths)
-
-        // Top-most collapsible ancestor folder's row path → number of items collapsed into it.
-        var enclosedCounts: [String: Int] = [:]
-        var kept: [FileDifference] = []
-        kept.reserveCapacity(diffs.count)
-
-        for diff in diffs {
-            let dirs: Set<String>
-            switch diff.type {
-            case .missingOnRight: dirs = collapsibleOnRight
-            case .missingOnLeft: dirs = collapsibleOnLeft
-            case .differentDates, .nameConflict:
-                // Items present on both sides (including type-mismatch and name-conflict
-                // rows themselves) can't sit under a missing or type-mismatch folder: every
-                // folder above a both-sides path pairs with one on the other side — for a
-                // near-name pair, because pass 1 checks that it does (`foldersPair`).
-                kept.append(diff)
-                continue
-            }
-            if let ancestor = topMostAncestor(of: diff.relativePath, in: dirs) {
-                // A type-mismatch dir's row is keyed by the LEFT path, which can differ in
-                // case from the dir-side key the descendants carry; map back to the row.
-                enclosedCounts[typeMismatchDirs[ancestor] ?? ancestor, default: 0] += 1
-            } else {
-                kept.append(diff)
-            }
-        }
-
-        guard !enclosedCounts.isEmpty else { return kept }
-        return kept.map { diff in
-            guard let count = enclosedCounts[diff.relativePath] else { return diff }
-            return FileDifference(
-                id: diff.id,
-                relativePath: diff.relativePath,
-                leftItemPath: diff.leftItemPath,
-                rightItemPath: diff.rightItemPath,
-                type: diff.type,
-                action: diff.action,
-                description: diff.description,
-                isSyncing: diff.isSyncing,
-                leftFileSize: diff.leftFileSize,
-                rightFileSize: diff.rightFileSize,
-                enclosedItemCount: count,
-                leftIsDirectory: diff.leftIsDirectory,
-                rightIsDirectory: diff.rightIsDirectory
-            )
-        }
     }
 
     /// `path` rewritten from one side's folder spelling into the other's: the DEEPEST folder
