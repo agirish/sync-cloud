@@ -6656,7 +6656,7 @@ done
 Markup verbs for a bar to carry, and no Text menu for either item. Nothing to pick short of the
 workspace itself.
 
-## Lists carry on, links and images paste (TE54–TE56) — main only
+## Lists carry on, links and images paste, the heading in the status line (TE54–TE57) — main only
 
 Four edits to a writable Markdown file in Edit, each a narrow exception to "Edit writes only what
 you typed", each asked of the preview's own parser first (`MarkdownSourceContext` — cmark-gfm
@@ -6674,7 +6674,9 @@ lone http(s) address pasted over words makes `[words](url)` (`MarkdownPasteEdits
 through `EditorFileStore.createNew` — a new door that stages, flushes and moves in with
 `renamex_np(RENAME_EXCL)`, so it never replaces a file — and linked on its own line; the host re-reads
 the panes and owes Compare through `rereadPanesAfterEditorWrite`. Paste and drop reach a new
-`NSTextView` subclass, `EditorTextView`.
+`NSTextView` subclass, `EditorTextView`. **TE57:** `EditorStatusLine` leads with "in <heading> ▾", a
+menu of `MarkdownOutline`'s entries sending the rail's `EditorScrollRequest`; its name truncates
+before the counts go (`headingFloor`).
 
 ```sh
 for l in main v4.x v3.x v2.x; do
@@ -6693,5 +6695,5 @@ done
 ```
 
 **`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the Edit workspace, so there is no
-text view to carry a list in, and nothing to paste a link or an image into. Nothing to pick short
-of the workspace itself.
+text view to carry a list in, nothing to paste a link or an image into, and no status line for the
+heading. Nothing to pick short of the workspace itself.

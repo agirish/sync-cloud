@@ -572,9 +572,23 @@ public struct EditorWorkspaceView: View {
             if document.path != nil, document.refusal == nil {
                 Divider()
                 // Formatted when the stamp moved, not here — see ``EditorDocument/sizeCaption``.
-                EditorStatusLine(facts: facts, caret: caret, fileSize: document.sizeCaption)
+                EditorStatusLine(facts: facts, caret: caret, fileSize: document.sizeCaption,
+                                 headings: statusHeadings)
+                    // Compared on what it draws, the closures left out — see `EditorStatusLine.==`.
+                    .equatable()
             }
         }
+    }
+
+    /// The status line's heading item (TE57): the rail's own outline and scroll request, reachable
+    /// with the rail away — and a way to the rail's Outline tab while the rail is drawn and on its
+    /// Text Files tab.
+    private var statusHeadings: EditorStatusHeadings? {
+        EditorStatusHeadings.make(outline: outline, caretLine: caret.line, isMarkdown: document.isMarkdown,
+                                  offersRailOutline: EditorStatusHeadings.offersRailOutline(showsRail: showsRail,
+                                                                                            railTab: railTab),
+                                  accent: accent,
+                                  onSelect: goToHeading, onShowRailOutline: { railTab = .outline })
     }
 
     /// The two rows above the document: which file, and where it stands.
@@ -1483,6 +1497,16 @@ public struct EditorWorkspaceView: View {
         let request = EditorScrollRequest(line: entry.line, token: scrollToken)
         editorScrollRequest = request
         previewScrollRequest = request
+        // **In Preview there is no text view to move the caret**, so nothing reported it — the
+        // status line's "in <heading>" (TE57) and the rail's mark both kept naming where the caret
+        // had been, however often another heading was chosen. The caret goes there itself, and its
+        // anchor with it, which is also where Source puts it when it comes back.
+        if resolvedMode == .preview,
+           let offset = PlainTextEditor.utf16Offset(ofLine: entry.line, in: document.text, using: lineIndex) {
+            let clamped = EditorCaretAnchors.clamped(offset, in: document.text)
+            caretOffset = clamped
+            document.caretAnchors.remember(clamped, for: document.path)
+        }
     }
 
     /// Ticking a checkbox from the preview, or `nil` when this document must not be written to.

@@ -272,6 +272,18 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "See [the docs](https://example.com/docs)")
     }
 
+    // MARK: - TE57 the heading jump is not replayed
+
+    /// **A text view rebuilt by a mode switch takes the standing heading jump as already made**, as
+    /// it takes the find request — or every Source ↔ Split switch put the caret back on the last
+    /// heading chosen, over wherever it had gone since.
+    @Test func aRebuiltTextViewDoesNotReplayTheLastHeadingJump() {
+        let request = EditorScrollRequest(line: 12, token: 7)
+        let editor = PlainTextEditor(text: .constant("x"), isEditable: true, fontScale: 1, documentID: "/a.md",
+                                     undoManager: UndoManager(), scrollRequest: request)
+        #expect(editor.makeCoordinator().lastScrollRequest == request)
+    }
+
     // MARK: - TE56 an image pasted or dropped
 
     private func pngData() -> Data {

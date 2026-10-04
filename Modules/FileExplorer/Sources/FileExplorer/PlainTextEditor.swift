@@ -570,6 +570,13 @@ struct PlainTextEditor: NSViewRepresentable {
         let coordinator = Coordinator(text: $text, undoManager: undoManager, documentID: documentID,
                                       onSelectionChange: onSelectionChange)
         coordinator.lastFindRequest = findRequest
+        // **The scroll request too, for the same reason** — it outlives the text view as the find
+        // counter does, so a text view rebuilt by a mode switch (Source ↔ Split, Preview → Source)
+        // replayed the last heading jump over wherever the caret had gone since. The status line's
+        // heading menu (TE57) made that jump reachable from every layout. A request made while no
+        // text view is up (from Preview) has already moved the caret's anchor, which is where a
+        // new text view puts the caret.
+        coordinator.lastScrollRequest = scrollRequest
         return coordinator
     }
 
