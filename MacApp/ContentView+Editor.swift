@@ -90,24 +90,47 @@ extension ContentView {
         editorRailSurvey = survey
     }
 
-    // MARK: - Just the text
+    // MARK: - Expand (once "Just the text")
 
-    /// Whether the file rail is on screen: the pane is collapsed and "Just the text" is off.
+    /// Whether the file rail is on screen: the pane is collapsed and Expand is off.
     var editorRailIsDrawn: Bool {
         TopPaneVisibility.editorRailIsDrawn(paneHidden: panesHiddenForCurrentTab,
                                             railHidden: editorRailHidden)
     }
 
-    /// The header glyph's act. On: hide the rail and, if the pane is open, collapse it — the
-    /// sidebar goes with it, since `FolderSidebarModel.appliesTo` refuses to draw one beside a
-    /// collapsed pane. Off: show the rail. **The pane is NOT re-expanded on the way out**: leaving
-    /// "just the text" is a request for the rail, not necessarily for the pane.
+    /// **Whether Expand is on: the rail bit set AND the source pane folded.** The bit alone is not
+    /// it — it survives the pane being opened again from the spine's chevron, by design (see
+    /// `TopPaneVisibility.editorRailIsDrawn`), and with the pane and the sidebar back on screen a
+    /// lit "Files", a ticked Text ▸ Expand and a first press that changed nothing visible would all
+    /// be claiming the document had the window. The header lights on this, the menu ticks on it,
+    /// and the toggle decides by it.
+    var editorIsExpanded: Bool {
+        editorRailHidden && panesHiddenForCurrentTab
+    }
+
+    /// The Expand button's act, and Text ▸ Expand's (TE48), and the spine's Text Files rung's. On:
+    /// set the bit and, if the pane is open, fold it — the sidebar goes with it, since
+    /// `FolderSidebarModel.appliesTo` refuses to draw one beside a folded pane. Off: clear the bit,
+    /// which brings the rail back. **The pane is NOT re-expanded on the way out**: leaving Expand is
+    /// a request for the rail, not necessarily for the pane.
+    ///
+    /// Decided by ``editorIsExpanded``, not by the bit: with the bit left set and the pane open
+    /// again, a press EXPANDS — folds the pane — which is what the unlit button offered.
+    ///
+    /// **Logged, both ways.** Three doors reach it and none draws anything that outlives the
+    /// change, so the log is the one place a session can read back which happened and whether the
+    /// pane went with it.
     func toggleJustTheText() {
-        if editorRailHidden {
+        if editorIsExpanded {
             editorRailHidden = false
+            Logger.shared.info("[edit] Expand off — the Text Files list is back")
         } else {
             editorRailHidden = true
-            if !panesHiddenForCurrentTab { togglePanesForCurrentTab() }
+            let folds = !panesHiddenForCurrentTab
+            if folds { togglePanesForCurrentTab() }
+            Logger.shared.info("[edit] Expand on — "
+                               + (folds ? "the file pane folded, and the sidebar with it"
+                                        : "the Text Files list put away"))
         }
     }
 
@@ -313,7 +336,7 @@ extension ContentView {
             entries: editorRailSurvey.rows,
             otherFileCount: editorRailSurvey.otherFileCount,
             showsRail: showsRail,
-            railIsHidden: editorRailHidden,
+            railIsHidden: editorIsExpanded,
             accent: glassHue.accentColor,
             onAccent: glassHue.onAccentLabelColor,
             mode: $editorMode,
@@ -842,6 +865,16 @@ extension ContentView {
                 : nil,
             canMarkUp: !editorDocument.isReadOnly && EditorVerbs.hasTextView(in: drawn),
             canFind: EditorVerbs.hasTextView(in: drawn))
+    }
+
+    /// Text ▸ Expand ⌃⌘E — the header button's bit and act, offered where the header draws the
+    /// button (`EditorExpandSwitch.isOffered`). The act is `toggleJustTheText`, the one the button
+    /// calls, so the item and the button cannot fold different things.
+    var shortcutEditorExpand: EditorExpandSwitch? {
+        guard EditorExpandSwitch.isOffered(workspace: selectedWorkspace,
+                                           hasDocument: editorDocument.path != nil,
+                                           isOn: editorIsExpanded) else { return nil }
+        return EditorExpandSwitch(isOn: editorIsExpanded) { toggleJustTheText() }
     }
 
     // MARK: - Saving

@@ -180,7 +180,14 @@ enum ShortcutsReference {
             // chord, and this is a reference to the keyboard.
             Item(keys: "⌘ S / ⌘ P", action: "Save the open document — or print what Preview shows"),
             // One row for the three modes: they are one control, and rows are the budget here.
-            Item(keys: "⌃⌘ 1 / ⌃⌘ 2 / ⌃⌘ 3", action: "Source / Preview / Split, for a Markdown file"),
+            // **⌃⌘E joins it rather than taking a row of its own** (TE48): Text ▸ Expand sits under
+            // the three modes in the menu, it is the fourth answer to "how is the document shown",
+            // and a row of its own is ~36pt against the 6pt this window had left. The row was
+            // already two lines of action text, so the longer keys wrap beside it for nothing —
+            // as long as the action stays two lines: "…Split for Markdown — or Expand the
+            // document" made it three and measured 749pt, which the fit test refused.
+            Item(keys: "⌃⌘ 1 / ⌃⌘ 2 / ⌃⌘ 3 / ⌃⌘ E",
+                 action: "Markdown's Source / Preview / Split, or Expand"),
             // **The Markup chords, now that the Markup menu registers them.** This group carried a
             // note refusing them while nothing answered the keys — a reference listing ⌘B for a
             // chord nothing registers would be the one place in the app that lies about the

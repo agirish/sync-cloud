@@ -70,6 +70,8 @@ import Foundation
         #expect(AppChord.editorSourceMode.display == "⌃⌘1")
         #expect(AppChord.editorPreviewMode.display == "⌃⌘2")
         #expect(AppChord.editorSplitMode.display == "⌃⌘3")
+        // Text ▸ Expand (TE48): the modes' ⌃⌘, on a letter — and not ⌘E, which is the find bar's.
+        #expect(AppChord.editorExpand.display == "⌃⌘E")
         #expect(AppChord.findNext.display == "⌘G")
         #expect(AppChord.useSelectionForFind.display == "⌘E")
         #expect(AppChord.bold.display == "⌘B")

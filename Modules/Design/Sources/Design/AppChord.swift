@@ -114,10 +114,21 @@ public extension AppChord {
     // of every field editor and would italicise the ⌘K field.
 
     /// Text ▸ Source / Preview / Split — ⌃⌘1/2/3. Control, because ⌘1…⌘4 are the workspaces and
-    /// ⌥ is barred; ⌃⌘S (the sidebar) is the only other ⌃⌘ chord, and it is a letter.
+    /// ⌥ is barred; the other ⌃⌘ chords — ⌃⌘S (the sidebar) and ⌃⌘E (Expand) — are letters.
     static let editorSourceMode = AppChord("1", [.control, .command])
     static let editorPreviewMode = AppChord("2", [.control, .command])
     static let editorSplitMode = AppChord("3", [.control, .command])
+    /// Text ▸ Expand — the document alone in the window, the file pane, the rail and the sidebar
+    /// put away (TE48). ⌃⌘ beside the three modes, because it is the fourth way of choosing how
+    /// much of the window the document gets.
+    ///
+    /// **⌃⌘E was free, and checked rather than assumed.** ⌘E is Use Selection for Find and
+    /// ⌃⌘S the sidebar; nothing else in this registry is ⌃⌘ and a letter. AppKit's
+    /// `StandardKeyBinding.dict` binds no ⌃⌘ letter at all (its four ⌃⌘ entries are the space bar
+    /// and three arrow keys), so the field editor never claims it and it does not join
+    /// `TextEditingChord`'s colliding set. Not ⌃⌘F, which is the platform's Enter Full Screen —
+    /// decision K made this a widening INSIDE the window, which is a different act.
+    static let editorExpand = AppChord("e", [.control, .command])
 
     /// Text ▸ Find Next / Use Selection for Find — the find bar's own two verbs, which AppKit
     /// binds to nothing until a menu item names them. ⌘G and ⌘E, the platform's own.
@@ -372,7 +383,7 @@ public extension AppChord {
         reviewDifferences, verifyDifferences, differencesList, foldAllDifferences, compareTwoFiles,
         copyToLeft, copyToRight, moveToLeft, moveToRight,
         textBigger, textSmaller, textDefaultSize,
-        editorSourceMode, editorPreviewMode, editorSplitMode,
+        editorSourceMode, editorPreviewMode, editorSplitMode, editorExpand,
         findNext, useSelectionForFind,
         // `italic` is `infoInspector`, already listed above — see its note.
         bold, strikethrough, inlineCode, link,

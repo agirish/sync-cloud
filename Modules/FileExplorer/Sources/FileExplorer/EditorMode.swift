@@ -90,6 +90,16 @@ public enum EditorMode: String, CaseIterable, Sendable {
 /// boundary against the whole selectable range rather than the four named presets, because the
 /// slider stops between them.
 ///
+/// **Expand's word shares this budget and is spent first** (TE48). The worded Expand beside the
+/// capsule measures **63 · 67 · 79 · 83pt** against its 18pt glyph, re-measured 2026-10-03, so on
+/// the header's long-name sweep its word comes back over the whole name at **760 · 800 · 900 ·
+/// 940pt**, 40–60pt after the capsule's own (720 · 760 · 840 · 880, unchanged by the move: the glyph
+/// left the ＋ / Find capsule for a slot of the same width). Those are SOLID figures: under glass the
+/// × takes 2pt more room beside Expand (`ChromeGlass.clearance(rowSpacing:outset:)`), so each
+/// boundary sits 2pt wider. `EditorHeaderDoorsTests` prints them; what it holds is the order — the
+/// capsule keeps its words at some column where Expand has lost its own, at every size — and that
+/// no word is ever drawn over a cut name.
+///
 /// **The glyph figures used to be one number, and that was the bug, not a rounding.** Until the
 /// same date this read "96–110" and the rung actually measured 85 at all four sizes, because the
 /// symbols sat in a hard `13×13` frame; see ``CapsuleGlyph`` for what the frame is for and what it

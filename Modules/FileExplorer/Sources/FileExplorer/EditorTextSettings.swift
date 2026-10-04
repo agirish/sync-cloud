@@ -29,6 +29,15 @@ public enum EditorTextSettings {
     public static let checksSpellingKey = "editorChecksSpelling"
     public static let checksSpellingDefault = false
 
+    /// Whether the format bar is drawn above a Markdown document's source (TE52).
+    ///
+    /// **On by default**, because the bar is the only place the Markup verbs show themselves — the
+    /// menu and the right-click submenu have to be gone looking for. Off is for somebody who knows
+    /// the keys and wants the row back. Text ▸ Format Bar flips it; where the bar is drawn at all is
+    /// ``EditorFormatBar/isShown(preference:hasDocument:isRefused:isMarkdown:isReadOnly:mode:)``.
+    public static let showsFormatBarKey = "editorShowsFormatBar"
+    public static let showsFormatBarDefault = true
+
     // MARK: - There is deliberately no "Show Invisibles"
     //
     // **It was specified, costed and dropped on 2026-09-01, and the reason is worth keeping so it

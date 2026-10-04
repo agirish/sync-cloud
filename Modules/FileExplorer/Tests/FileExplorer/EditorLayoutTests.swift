@@ -786,69 +786,108 @@ import FileExplorerTestSupport
         #expect(nameFields(in: mounted(workspace(doc, showsRail: true))).isEmpty)
     }
 
-    /// The header glyph names its NEXT act: "Just the text" while the rail is there, "Show the text
-    /// files" once it is not — one string for the label and the tooltip. Pinned on the static the
-    /// view draws from, because a hosted SwiftUI tree exposes neither its accessibility labels nor
-    /// its tooltips under `swift test` (measured 2026-09-16: `NSView.toolTip` is nil throughout).
-    /// Mutation: swap the ternary's arms and both lines fail.
-    @Test func theJustTheTextGlyphNamesItsNextAct() {
-        #expect(EditorWorkspaceView.justTheTextTitle(railIsHidden: false) == "Just the text")
-        #expect(EditorWorkspaceView.justTheTextTitle(railIsHidden: true) == "Show the text files")
+    /// **Expand names its NEXT act (TE48):** "Expand" while the rail is there, "Files" once it is
+    /// not — the word on the button and its accessibility label — with a tooltip that spells the act
+    /// out, and arrows that point out and then in. Pinned on the statics the view draws from,
+    /// because a hosted SwiftUI tree exposes neither its accessibility labels nor its tooltips under
+    /// `swift test` (measured 2026-09-16: `NSView.toolTip` is nil throughout). "Just the text" is
+    /// gone from every string. Mutation: swap any ternary's arms and its lines fail.
+    @Test func theExpandButtonNamesItsNextAct() {
+        #expect(EditorWorkspaceView.expandTitle(railIsHidden: false) == "Expand")
+        #expect(EditorWorkspaceView.expandTitle(railIsHidden: true) == "Files")
+        #expect(EditorWorkspaceView.expandSymbol(railIsHidden: false) == "arrow.up.left.and.arrow.down.right")
+        #expect(EditorWorkspaceView.expandSymbol(railIsHidden: true) == "arrow.down.right.and.arrow.up.left")
+        #expect(EditorWorkspaceView.expandHelp(railIsHidden: false).contains("put away the file list"))
+        // Not the sidebar: in Edit's ordinary layout (the pane folded, the rail showing) there is
+        // no sidebar on screen for the button to put away.
+        #expect(!EditorWorkspaceView.expandHelp(railIsHidden: false).contains("sidebar"))
+        #expect(EditorWorkspaceView.expandHelp(railIsHidden: true).contains("text files"))
+        for hidden in [false, true] {
+            for text in [EditorWorkspaceView.expandTitle(railIsHidden: hidden),
+                         EditorWorkspaceView.expandHelp(railIsHidden: hidden)] {
+                #expect(!text.localizedCaseInsensitiveContains("just the text"), "“\(text)” still says Just the text")
+            }
+            #expect(NSImage(systemSymbolName: EditorWorkspaceView.expandSymbol(railIsHidden: hidden),
+                            accessibilityDescription: nil) != nil,
+                    "\(EditorWorkspaceView.expandSymbol(railIsHidden: hidden)) is not a symbol — the button draws nothing")
+        }
     }
 
-    /// **The glyph really lights**, measured in pixels: the header rendered with the rail hidden
-    /// differs from the header rendered with it showing, and two renders of the same state do not
-    /// differ at all — which is what makes the first difference the lit state and not noise.
-    @Test func theJustTheTextGlyphLightsWhenTheRailIsHidden() throws {
+    /// **The button really lights — ink AND wash — and lighting it moves nothing else.**
+    ///
+    /// The wash is counted on its own: pixels of the accent's soft tint (light, blue-leaning, not
+    /// white and not the saturated ink) inside the Expand button's ring, as an area in square
+    /// points so the display's scale cannot move it. Unlit there are none; lit they cover most of
+    /// the pill. A count of every pixel that changed could not tell a missing wash from a present
+    /// one — the glyph and the word both change when it lights — which is how the first version of
+    /// this test let the wash go unpinned.
+    ///
+    /// And every pixel that changes is inside that ring, which is the same frame lit and unlit —
+    /// "Files" sits in the room "Expand" takes, so nothing to its left slides.
+    ///
+    /// Mutations: drop the wash (the lit area falls to the ink's edges), or the width reservation
+    /// (the ring moves) — each fails.
+    @Test(.machinePinned(.pixelSampling))
+    func theExpandButtonLightsWhenTheRailIsHidden() throws {
         let doc = try document(named: "note.txt")
-        let off = try #require(render(workspace(doc, showsRail: true, railIsHidden: false).headerContent))
-        let offAgain = try #require(render(workspace(doc, showsRail: true, railIsHidden: false).headerContent))
-        let on = try #require(render(workspace(doc, showsRail: false, railIsHidden: true).headerContent))
-        #expect(differingPixels(off, offAgain) == 0, "two renders of the same header differ — the detector is noise")
-        let lit = differingPixels(off, on)
-        // **The floor is between the two ways the glyph can light.** Measured 2026-09-16 at this
-        // size: the accent foreground alone moves 266 pixels, the foreground plus the soft accent
-        // fill 1,228. A floor of 20 was passed by a mutation that deleted the fill, so the floor
-        // sits above the foreground-only count: both cues have to be there.
-        #expect(lit > 600, "the header barely changes with the rail hidden (\(lit) pixels differ) — the glyph's fill is not lit")
-        // And the lit state is a glyph, not a relayout: a bounded patch, not a whole row.
-        #expect(lit < 4_000, "\(lit) pixels differ between the two headers — more than a lit glyph")
+        let off = try #require(Rendered(workspace(doc, showsRail: true, railIsHidden: false).headerContent,
+                                        size: Self.headerSize))
+        let offAgain = try #require(Rendered(workspace(doc, showsRail: true, railIsHidden: false).headerContent,
+                                             size: Self.headerSize))
+        let on = try #require(Rendered(workspace(doc, showsRail: false, railIsHidden: true).headerContent,
+                                       size: Self.headerSize))
+        #expect(on.differingBox(from: off) != nil, "the rail bit changed nothing")
+        #expect(off.differingBox(from: offAgain) == nil, "two renders of the same header differ — the detector is noise")
+        let row = off.nameRowRings
+        try #require(row.count == 4, "a plain-text header draws \(row.count) buttons — ＋, Find, Expand and × expected")
+        let expand = row[row.count - 2]
+        let wash: (CGFloat, CGFloat, CGFloat) -> Bool = { r, g, b in
+            b > 0.95 && (0.6...0.93).contains(r) && g > r
+        }
+        let litWash = CGFloat(on.pixels(in: expand, matching: wash)) / on.pixelsPerPoint
+        let unlitWash = CGFloat(off.pixels(in: expand, matching: wash)) / off.pixelsPerPoint
+        let ringArea = expand.width * expand.height
+        print("[expand-lit] wash \(Int(litWash))pt² lit, \(Int(unlitWash))pt² unlit, in a \(Int(ringArea))pt² ring")
+        #expect(unlitWash < 1, "the unlit button wears \(unlitWash)pt² of the wash")
+        #expect(litWash > ringArea * Self.expandWashShare,
+                "the lit button's wash covers \(litWash)pt² of its \(ringArea)pt² — the wash is not drawn")
+        #expect(on.nameRowRings == row, "lighting Expand moved the row's buttons: \(row) → \(on.nameRowRings)")
+        // **"Files" starts where "Expand" did** — laid out from the leading edge of the room the
+        // wider word takes, so the word begins the same distance into the button lit as unlit.
+        // Centred, the shorter word drifted ~7pt right. Read as inked columns inside the ring: the
+        // word begins at the first ink after a blank run of at least 2pt (the arrow's own strokes
+        // leave narrower gaps; the arrow-to-word spacing is 4pt).
+        func wordStart(_ r: Rendered, ink: @escaping (CGFloat, CGFloat, CGFloat) -> Bool) -> CGFloat? {
+            let step: CGFloat = 0.5
+            var inked: [Bool] = []
+            var x = expand.minX
+            while x < expand.maxX {
+                inked.append(r.pixels(in: CGRect(x: x, y: expand.minY + 3, width: step, height: expand.height - 6),
+                                      matching: ink) > 0)
+                x += step
+            }
+            guard var i = inked.firstIndex(of: true) else { return nil }
+            var blank = 0
+            while i < inked.count {
+                if inked[i] { if blank >= 4 { return CGFloat(i) * step }; blank = 0 } else { blank += 1 }
+                i += 1
+            }
+            return nil
+        }
+        let unlitStart = try #require(wordStart(off) { r, g, b in max(r, g, b) < 0.6 },
+                                      "no word found after the arrow in the unlit button")
+        let litStart = try #require(wordStart(on) { r, g, b in r < 0.45 && b > 0.8 },
+                                    "no word found after the arrow in the lit button")
+        #expect(abs(litStart - unlitStart) < 1.5,
+                "lit, the word begins \(litStart)pt into the button against \(unlitStart)pt unlit — “Files” is not where “Expand” was")
+        let box = try #require(on.differingBox(from: off))
+        #expect(expand.insetBy(dx: -2, dy: -2).contains(box),
+                "lighting Expand changed pixels at \(box), outside its own button \(expand)")
     }
+
+    /// See ``theExpandButtonLightsWhenTheRailIsHidden``: the lit wash covers at least this share of
+    /// the button's ring — the pill less its glyph, its word and its anti-aliased edge.
+    static let expandWashShare: CGFloat = 0.4
 
     private static let headerSize = CGSize(width: 520, height: 44)
-
-    private func render<V: View>(_ view: V) -> NSBitmapImageRep? {
-        let subject = view
-            .frame(width: Self.headerSize.width, height: Self.headerSize.height)
-            .background(Color.white)
-            .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.headerSize)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
-    }
-
-    private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
-        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return Int.max }
-        var count = 0
-        for x in 0..<a.pixelsWide {
-            for y in 0..<a.pixelsHigh {
-                guard let p = a.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
-                      let q = b.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                let delta = max(abs(p.redComponent - q.redComponent),
-                                max(abs(p.greenComponent - q.greenComponent),
-                                    abs(p.blueComponent - q.blueComponent)))
-                if delta > 0.02 { count += 1 }
-            }
-        }
-        return count
-    }
 }

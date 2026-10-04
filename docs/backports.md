@@ -6615,3 +6615,43 @@ which has no `rawChildURLs` split — made `async` with its two callers, and the
 `getFilesInDirectory`. `UnansweredFolderTests` needs `LogCapture` (on no maintenance line; drop the
 two log assertions), and on `v3.x` and `v2.x` also `.parksAThread`, `MockFileManager.setStub` and
 `maxEntries`, none of which they have.
+
+## Expand in Edit's header, and a format bar above the text (TE48, TE52) — main only
+
+Edit's "Just the text" was a ≡ inside the header's ＋ / Find capsule, with no menu item and no
+key. It is now **Expand** (TE48): its own button between the mode capsule and the ×, arrows out and
+the word Expand, reading Files and lit while it is on; Text ▸ Expand on ⌃⌘E (`AppChord.editorExpand`,
+in the registry), offered where the header draws the button (`EditorExpandSwitch.isOffered`). Its
+word shares the name row's width budget and goes before the capsule's, and in Frosted and Clear it
+keeps `ChromeGlass.minimumCapsuleGap` (4pt) of glass from the × (`View.chromeGlassClearance(_:rowSpacing:)`).
+What it does is the old toggle (`toggleJustTheText`, the `editorRailHidden` bit), now decided by
+`editorIsExpanded` — the bit AND the pane folded — and logged from all three doors. The Markup verbs gained a **format bar** (TE52):
+a strip in the text card above a writable Markdown document's source, in Source and Split's Source
+half, built from `MarkupVerb.menuOrder` with the heading group as one menu, lit by
+`MarkdownEdits.isApplied` — the verbs' own add-or-remove test, extracted from `wrap` and
+`prefixLines` — and pressed through `EditorDocumentSurface.applyMarkup`, the Markup menu's function.
+One deliberate verb change rides with it: Bold, Strikethrough and Inline Code no longer take a run
+holding their delimiter again for one span (`**Warning** read the **docs**` used to come out turned
+inside out); every other inline edit equals the old `wrap`, which `MarkupWrapEquivalenceTests` holds
+case by case, as `MarkupPrefixLinesEquivalenceTests` already does for the line verbs.
+Text ▸ Format Bar hides it (`editorShowsFormatBar`). The header stays at `LiquidGlass.headerHeight`.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s workspace=%s markupVerbs=%s textMenu=%s expandChord=%s formatBar=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/MarkupVerbs.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/ShortcutCommands.swift 2>/dev/null | grep -c 'CommandMenu("Text")')" \
+    "$(git show origin/$l:Modules/Design/Sources/Design/AppChord.swift 2>/dev/null | grep -c 'editorExpand')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorFormatBar.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-03, against origin, before this landed:
+# main  workspace=1 markupVerbs=1 textMenu=1 expandChord=0 formatBar=0
+# v4.x, v3.x, v2.x — every line: workspace=0 markupVerbs=0 textMenu=0 expandChord=0 formatBar=0
+# and on this change's own tree: 1 1 1 2 1 (the chord's declaration and its registry entry)
+```
+
+**`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the Edit workspace (it arrived on
+`main` 2026-08-31; see "The Edit workspace" above), so there is no header for Expand to sit in, no
+Markup verbs for a bar to carry, and no Text menu for either item. Nothing to pick short of the
+workspace itself.

@@ -118,6 +118,10 @@ struct PlainTextEditor: NSViewRepresentable {
     /// be saved — see ``EditorDocument/readOnlyReason``.
     var offersMarkup: Bool = true
 
+    /// Where this view leaves a weak reference to its text view, for the format bar above it — see
+    /// ``EditorTextViewHandle``. `nil` where nothing beside the text acts on it.
+    var textViewHandle: EditorTextViewHandle?
+
     // Read here rather than threaded in, the way `EditorWorkspaceView` reads the window's glass
     // settings: these are preferences, not state a caller owns. See `EditorTextSettings`.
     @AppStorage(EditorTextSettings.wrapsKey) private var wrapsLines: Bool
@@ -605,6 +609,7 @@ struct PlainTextEditor: NSViewRepresentable {
         context.coordinator.onVisibleLineChange = onVisibleLineChange
         context.coordinator.textView = view
         context.coordinator.offersMarkup = offersMarkup
+        textViewHandle?.textView = view
         context.coordinator.watchScrolling(of: scroll, textView: view)
         Self.restoreCaret(to: initialSelection, in: view, text: text)
         // **Wired LAST, after the string and the caret, and this is a fix rather than tidiness.**
@@ -733,6 +738,9 @@ struct PlainTextEditor: NSViewRepresentable {
         context.coordinator.lineIndex = lineIndex
         context.coordinator.textView = view
         context.coordinator.offersMarkup = offersMarkup
+        // Every pass, not only at construction: Source and Split mount this view from two `switch`
+        // arms, so the text view the handle names changes with the mode.
+        if textViewHandle?.textView !== view { textViewHandle?.textView = view }
 
         if findRequest != context.coordinator.lastFindRequest {
             context.coordinator.lastFindRequest = findRequest

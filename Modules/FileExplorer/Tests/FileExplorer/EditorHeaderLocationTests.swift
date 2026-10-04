@@ -290,11 +290,13 @@ import FileExplorerTestSupport
     // MARK: Two cards
 
     /// Mounts the whole workspace in a surface style, and answers where the text view's scroll view
-    /// starts — the top of the text card's content.
+    /// starts — the top of the text card's content when the format bar is off, and the text under
+    /// the bar when it is on (TE52).
     private func textTop(_ doc: EditorDocument, style: SurfaceStyle, scale: CGFloat,
-                         showsRail: Bool = false) throws -> CGFloat {
+                         showsRail: Bool = false, formatBar: Bool = false) throws -> CGFloat {
         let defaults = ScratchDefaults("EditorHeaderLocationTests")
         defaults.set(style.rawValue, forKey: LiquidGlass.surfaceStyleKey)
+        defaults.set(formatBar, forKey: EditorTextSettings.showsFormatBarKey)
         let hosted = host(workspace(doc, location: Self.location(Self.finance, .crumb), showsRail: showsRail)
                             .defaultAppStorage(defaults)
                             .environment(\.appFontScale, scale),
@@ -323,10 +325,17 @@ import FileExplorerTestSupport
     ///
     /// Mutations: put the header back inside the text card (one card) and `.cards` fails by a
     /// gutter; give `.unified` two cards and it fails by a gutter the other way.
+    ///
+    /// **Measured with the format bar off**, where the text IS the card's first content. With it on
+    /// (TE52), the card still starts there and the bar is its first content: the text starts lower by
+    /// exactly the bar's inset and its own height, in both styles — nothing between the card's edge
+    /// and the bar, nothing between the bar and the text. Mutation: pad the bar's bottom and the
+    /// second pair fails.
     @Test func theTextCardStartsWhereThePanesListCardDoes() throws {
         let doc = try document(named: "note.md")
         let inset = LiquidGlass.cardInset
         for scale in scales {
+            let bar = Self.formatBarHeight(scale: scale)
             for showsRail in [false, true] {
                 let cards = try textTop(doc, style: .cards, scale: scale, showsRail: showsRail)
                 #expect(abs(cards - (3 * inset + LiquidGlass.headerHeight)) < 0.51,
@@ -334,8 +343,22 @@ import FileExplorerTestSupport
                 let unified = try textTop(doc, style: .unified, scale: scale, showsRail: showsRail)
                 #expect(abs(unified - (inset + LiquidGlass.headerHeight)) < 0.51,
                         "unified at \(scale), rail \(showsRail): the text starts at \(unified)")
+                let cardsBar = try textTop(doc, style: .cards, scale: scale, showsRail: showsRail, formatBar: true)
+                #expect(abs(cardsBar - cards - (EditorWorkspaceView.formatBarInset + bar)) < 0.51,
+                        "cards at \(scale), rail \(showsRail): the bar moves the text \(cardsBar - cards)pt, not its \(EditorWorkspaceView.formatBarInset) + \(bar)")
+                let unifiedBar = try textTop(doc, style: .unified, scale: scale, showsRail: showsRail, formatBar: true)
+                #expect(abs(unifiedBar - unified - (EditorWorkspaceView.formatBarInset + bar)) < 0.51,
+                        "unified at \(scale), rail \(showsRail): the bar moves the text \(unifiedBar - unified)pt, not its \(EditorWorkspaceView.formatBarInset) + \(bar)")
             }
         }
+    }
+
+    /// The format bar's own height at `scale` — the same at every rung, so the widest stands in.
+    static func formatBarHeight(scale: CGFloat) -> CGFloat {
+        NSHostingView(rootView: AnyView(
+            EditorFormatBar(state: .none, accent: .blue, onVerb: { _ in },
+                            forcedRung: EditorFormatBar.ladder[0])
+                .environment(\.appFontScale, scale))).fittingSize.height
     }
 
     /// The meta row carries the location AFTER the autosave switch, so a folder name's width never

@@ -87,6 +87,18 @@ public enum ChromeGlass {
     /// 6pt spacing (3pt, the first value, crowded them to 3).
     public static let smallGlyphOutset: CGFloat = 2
 
+    /// The least room between two glass capsules side by side on a bar — what ``smallGlyphOutset``
+    /// leaves at a 6pt row spacing beside a capsule with no outset.
+    public static let minimumCapsuleGap: CGFloat = 4
+
+    /// The extra room an OUTSET capsule needs beside another outset one, on a row of `rowSpacing`,
+    /// to keep ``minimumCapsuleGap`` between their glass: the two outsets eat into the spacing from
+    /// both sides. `View.chromeGlassClearance(_:rowSpacing:)` pads by this, so the gap is derived
+    /// from the constant rather than resting on a 6 and a 2 nobody wrote down together.
+    public static func clearance(rowSpacing: CGFloat, outset: CGFloat = smallGlyphOutset) -> CGFloat {
+        max(0, minimumCapsuleGap - (rowSpacing - 2 * outset))
+    }
+
     /// Clear's hairline, and Increase Contrast's stronger one. Neutral ink, because a bar button has
     /// no colour of its own — unlike the lens's rim, which is drawn in its marker's colour. None for
     /// a button that draws an edge of its own (`ownEdge`).
@@ -279,12 +291,32 @@ public extension View {
         modifier(ChromeGlassBorderedButtonStyle())
     }
 
+    /// Room on `edges` for a glass capsule that sits beside another OUTSET one on a row of
+    /// `rowSpacing` — ``ChromeGlass/clearance(rowSpacing:outset:)``, so the two keep
+    /// ``ChromeGlass/minimumCapsuleGap`` between their glass. Only where glass is drawn: Solid has no
+    /// capsules to keep apart, and draws exactly what it drew before.
+    func chromeGlassClearance(_ edges: Edge.Set, rowSpacing: CGFloat) -> some View {
+        modifier(ChromeGlassClearance(edges: edges, rowSpacing: rowSpacing))
+    }
+
     /// The track a segmented control sits in — the View switch, Edit's mode bar and rail tabs,
     /// Storage's sections: today's quaternary capsule, and a glass one in Frosted and Clear. One
     /// definition, because the same recipe had been spelled out at each of them.
     func chromeGlassTrack() -> some View {
         background { ChromeGlassTodayGround { Capsule().fill(.quaternary.opacity(0.5)) } }
             .chromeGlassGround(.capsule)
+    }
+}
+
+private struct ChromeGlassClearance: ViewModifier {
+    let edges: Edge.Set
+    let rowSpacing: CGFloat
+    @Environment(\.selectionLensAppearance) private var appearance
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        let glass = ChromeGlass.material(appearance: appearance, reduceTransparency: reduceTransparency) != .today
+        content.padding(edges, glass ? ChromeGlass.clearance(rowSpacing: rowSpacing) : 0)
     }
 }
 

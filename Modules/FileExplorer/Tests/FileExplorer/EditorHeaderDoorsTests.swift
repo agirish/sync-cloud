@@ -58,50 +58,54 @@ import FileExplorerTestSupport
 
     // MARK: The empty page
 
-    /// **With no document open the header keeps the ＋ — and, while it is lit, "Just the text" — and
-    /// nothing else.** Read off the drawn card: one button unlit, two lit; the first draws the same
-    /// pixels as an open file's ＋, and the second the same as an open file's LIT "Just the text"
-    /// (the third button there: ＋ · Find · Just the text). So Find, the capsule and the × are gone
-    /// and the two that stay are the real ones.
+    /// **With no document open the header keeps the ＋ — and, while it is lit, Expand — and nothing
+    /// else.** Read off the drawn card: one button unlit, two lit; the first draws the same pixels as
+    /// an open file's ＋, and the second wears as much accent as an open file's LIT Expand (the
+    /// button before the × there: ＋ · Find, the capsule, Expand, ×). So Find, the capsule and the ×
+    /// are gone and the two that stay are the real ones.
     ///
-    /// Mutations: withhold the ＋ on the empty page (no buttons unlit), draw "Just the text" unlit
-    /// too (two buttons unlit), or draw it after a stray Find (three lit) — each fails.
-    @Test func theEmptyPageKeepsThePlusAndOnlyALitJustTheText() throws {
+    /// Mutations: withhold the ＋ on the empty page (no buttons unlit), draw Expand unlit too (two
+    /// buttons unlit), or draw it after a stray Find (three lit) — each fails.
+    @Test func theEmptyPageKeepsThePlusAndOnlyALitExpand() throws {
         let doc = try document(named: "note.md")
         let empty = EditorDocument()
         let unlit = try #require(Rendered(workspace(empty, newTextFile: {}).headerCard))
         let lit = try #require(Rendered(workspace(empty, railIsHidden: true, newTextFile: {}).headerCard))
         let open = try #require(Rendered(workspace(doc, railIsHidden: true, newTextFile: {}).headerCard))
         #expect(unlit.nameRowRings.count == 1, "the empty page draws \(unlit.nameRowRings.count) buttons with the rail showing — the ＋ alone expected")
-        try #require(lit.nameRowRings.count == 2, "the empty page draws \(lit.nameRowRings.count) buttons under Just the text — the ＋ and the lit glyph expected")
+        try #require(lit.nameRowRings.count == 2, "the empty page draws \(lit.nameRowRings.count) buttons under Expand — the ＋ and the lit Files button expected")
         let openRow = open.nameRowRings
-        try #require(openRow.count >= 3, "the open header draws \(openRow.count) buttons — the comparison would be about nothing")
+        try #require(openRow.count >= 7, "the open header draws \(openRow.count) buttons — the comparison would be about nothing")
         #expect(lit.samePixels(lit.nameRowRings[0], as: open, openRow[0]),
                 "the empty page's first button is not the ＋ an open file's header draws")
-        // The lit glyph is told by its accent: pixel-for-pixel it drew a shade apart from the open
+        // The lit button is told by its accent: pixel-for-pixel it drew a shade apart from the open
         // header's (anti-aliasing of its fill, measured), so the accent pixels are counted instead —
-        // the ＋ has none, the lit glyph's wash and ink have the open header's count.
+        // the ＋ has none, the lit button's wash and ink have the open header's count.
         let accentHere = lit.accentPixels(in: lit.nameRowRings[1])
-        let accentThere = open.accentPixels(in: openRow[2])
+        let accentThere = open.accentPixels(in: openRow[openRow.count - 2])
         #expect(lit.accentPixels(in: lit.nameRowRings[0]) == 0, "the empty page's first button wears the accent — it is not the ＋")
         #expect(accentThere > 0 && abs(accentHere - accentThere) <= accentThere / 10,
-                "the empty page's second button has \(accentHere) accent pixels against the lit Just the text's \(accentThere) — it is not that glyph, lit")
+                "the empty page's second button has \(accentHere) accent pixels against the lit Expand's \(accentThere) — it is not that button, lit")
     }
 
     // MARK: Where it is drawn
 
-    /// **The ＋ leads the header's buttons: `＋ · Find · Just the text`, then the capsule.**
+    /// **The ＋ leads the header's buttons: `＋ · Find`, then the capsule, then Expand, then ×**
+    /// (TE48 moved Expand out of the ＋ / Find capsule to sit with the ×).
     ///
-    /// The three are 18pt glyphs with identical rings, so each is told apart by something only it
-    /// does. "Just the text" LIGHTS when the rail bit is set — the one ring whose pixels change is
-    /// that glyph. Find is WITHHELD in Preview — the buttons left of it slide right by one slot, so
-    /// a glyph that survives draws the same pixels one slot over. The ＋ is then the survivor that
-    /// is not "Just the text".
+    /// The ＋ and Find are 18pt glyphs with identical rings, so each is told apart by something only
+    /// it does. Expand LIGHTS when the rail bit is set — every pixel that changes is in one ring, and
+    /// it is the one before the ×. Find is WITHHELD in Preview — the buttons after it slide left by
+    /// one slot, so a button that survives draws the same pixels one slot over. The ＋ is then the
+    /// first survivor.
     ///
     /// **`.disabled` does not grey a `.glyph` hover-affordance button at rest** — measured
     /// 2026-09-25, the header with and without the ⌘N closure renders pixel-identical — so the ＋'s
     /// greying is not a usable handle, and its `.disabled` is pinned by the scan below instead.
-    @Test func thePlusLeadsTheHeadersButtonsBeforeFindAndJustTheText() throws {
+    ///
+    /// Mutations: put Expand back in the ＋ / Find capsule, or after the ×, and the lit ring is not
+    /// the one before the ×.
+    @Test func thePlusLeadsTheHeadersButtonsAndExpandSitsBeforeTheClose() throws {
         let doc = try document(named: "note.md")
         #expect(doc.isMarkdown, "the fixture is not Markdown — Preview would resolve back to Source")
         let edit = try #require(Rendered(workspace(doc, newTextFile: {}).headerContent))
@@ -111,23 +115,23 @@ import FileExplorerTestSupport
 
         #expect(edit.differingBox(from: again) == nil, "two renders of the same header differ — the detector is noise")
         let row = edit.nameRowRings
-        // ＋, Find, Just the text, and the capsule's segments: six at the least.
-        try #require(row.count >= 6, "the name row draws \(row.count) buttons — this check would be about nothing")
+        // ＋, Find, the capsule's three segments, Expand and ×: seven.
+        try #require(row.count == 7, "the name row draws \(row.count) buttons — ＋, Find, three segments, Expand and × expected")
 
-        // Just the text is the third: the only pixels the rail bit moves are in that ring.
-        let lightBox = try #require(lit.differingBox(from: edit), "the rail bit changed nothing — cannot find Just the text")
-        #expect(row[2].insetBy(dx: -2, dy: -2).contains(lightBox),
-                "Just the text lights at \(lightBox), not in the third button \(row[2]) — the order is not ＋ · Find · Just the text")
+        // Expand is the one before the ×: the only pixels the rail bit moves are in that ring.
+        let lightBox = try #require(lit.differingBox(from: edit), "the rail bit changed nothing — cannot find Expand")
+        #expect(row[row.count - 2].insetBy(dx: -2, dy: -2).contains(lightBox),
+                "Expand lights at \(lightBox), not in the button before the × \(row[row.count - 2])")
 
-        // Find is the second: Preview withholds exactly one button, and the first and third draw
-        // the same glyphs there one slot along — so the one that went is the one between them.
+        // Find is the second: Preview withholds exactly one button, and the first draws the same
+        // glyph there, as does Expand one slot along — so the one that went is the one after the ＋.
         let pRow = preview.nameRowRings
         try #require(pRow.count == row.count - 1,
                      "Preview draws \(pRow.count) buttons against Source's \(row.count) — Find alone should go")
         #expect(edit.samePixels(row[0], as: preview, pRow[0]),
                 "the first button in Source is not the first in Preview — Find is first, or the ＋ is withheld in Preview")
-        #expect(edit.samePixels(row[2], as: preview, pRow[1]),
-                "Just the text does not follow the withheld button in Preview — Find is not second")
+        #expect(edit.samePixels(row[row.count - 2], as: preview, pRow[pRow.count - 2]),
+                "Expand in Source is not Expand in Preview — it was withheld, or it is not before the ×")
         #expect(!edit.samePixels(row[1], as: preview, pRow[1]),
                 "the second button in Source survives in Preview — it is not Find")
     }
@@ -163,7 +167,7 @@ import FileExplorerTestSupport
         let edit = try #require(Rendered(workspace(doc).headerContent))
         let preview = try #require(Rendered(workspace(doc, mode: .preview).headerContent))
         let row = edit.nameRowRings
-        try #require(row.count >= 7, "the name row draws \(row.count) buttons — ＋, Find, Just the text, three segments and × expected")
+        try #require(row.count >= 7, "the name row draws \(row.count) buttons — ＋, Find, three segments, Expand and × expected")
         let glyph = row[0].width
         let last = try #require(row.last)
         #expect(abs(last.width - glyph) <= 2,
@@ -241,11 +245,17 @@ import FileExplorerTestSupport
             (Self.floorWindowDocumentColumn, Self.minimumNameInkAtTheFloorWindow),
         ]
         var report: [String] = []
+        // Solid AND glass: glass draws Expand's clearance beside the ×, 2pt the name pays for, and
+        // Frosted is the app's default — a fit measured only at Solid is not the one users get.
+        for glass in [false, true] {
         for (column, minimumInk) in cases {
             let width = column - padding
             for scale in FontSize.allCases.map(\.scale) {
                 let size = CGSize(width: width, height: 60)
-                let longRow = try #require(Rendered(workspace(long).headerContent, size: size, fontScale: scale))
+                let content = glass
+                    ? AnyView(workspace(long).headerContent.environment(\.selectionLensAppearance, SelectionLensCallSiteTests.probe))
+                    : AnyView(workspace(long).headerContent)
+                let longRow = try #require(Rendered(content, size: size, fontScale: scale))
                 let hLong = NSHostingView(rootView: AnyView(workspace(long).headerContent
                     .environment(\.appFontScale, scale).frame(width: width))).fittingSize.height
                 let hShort = NSHostingView(rootView: AnyView(workspace(short).headerContent
@@ -261,10 +271,11 @@ import FileExplorerTestSupport
                 let nameStart = EditorWorkspaceView.dotColumnWidth + 6
                 let band = CGRect(x: nameStart, y: first.minY, width: first.minX - nameStart, height: first.height)
                 let ink = (longRow.inkRight(in: band) ?? nameStart) - nameStart
-                report.append("\(Int(column))pt@\(scale): \(Int(ink.rounded()))pt")
+                report.append("\(glass ? "glass " : "")\(Int(column))pt@\(scale): \(Int(ink.rounded()))pt")
                 #expect(ink >= minimumInk,
-                        "at \(column)pt, scale \(scale), the long name keeps \(ink)pt of ink — under \(minimumInk)pt")
+                        "\(glass ? "glass, " : "")at \(column)pt, scale \(scale), the long name keeps \(ink)pt of ink — under \(minimumInk)pt")
             }
+        }
         }
         print("[name-fit] \(report.joined(separator: " · "))")
     }
@@ -351,9 +362,190 @@ import FileExplorerTestSupport
         print("[words] \(report.joined(separator: " "))")
     }
 
+    /// **Expand's word (TE48) is drawn only when the WHOLE name fits beside every word — and it is
+    /// shed before the capsule's.** The name row's rungs are every word, then the capsule's words
+    /// alone, then none (`EditorWorkspaceView.nameRowRungs`), so at no column may Expand wear its
+    /// word while the capsule has lost its own, and wherever it wears it the long name's ink is the
+    /// whole name.
+    ///
+    /// **Measured 2026-10-03** on the 55-character `.md` name: the worded Expand is 63 · 67 · 79 · 83pt
+    /// wide across Small · Default · Large · Largest against the 18pt glyph, and its word comes back
+    /// over the WHOLE name at **760 · 800 · 900 · 940pt** — 40–60pt after the capsule's own words
+    /// (720 · 760 · 840 · 880, `theCapsuleKeepsItsWordsOnlyWhenTheWholeNameFits`). So every size has
+    /// a band where the capsule is worded and Expand is not, which is "shed first" seen on screen;
+    /// the columns below are each size's boundary and the one beneath it, plus 700.
+    ///
+    /// Mutations: put the glyph-Expand rung before the worded one (the word never shows), or give
+    /// the glyph-only capsule a worded Expand (the word outlives the capsule's) — each fails.
+    @Test(.machinePinned(.pixelSampling))
+    func expandKeepsItsWordOnlyWhenTheWholeNameFitsAndShedsItFirst() throws {
+        let long = try document(named: "Quarterly household budget reconciliation notes for 2026.md")
+        let short = try document(named: "a.md")
+        let padding = 2 * EditorDocumentHeader<EmptyView>.horizontalPadding
+        let nameStart = EditorWorkspaceView.dotColumnWidth + 6
+        struct Reading { let capsuleWorded: Bool; let expandWorded: Bool; let ink: CGFloat; let expandWidth: CGFloat }
+        func measure(_ doc: EditorDocument, column: CGFloat, scale: CGFloat) throws -> Reading {
+            let width = column - padding
+            let r = try #require(Rendered(workspace(doc).headerContent,
+                                          size: CGSize(width: width, height: 60), fontScale: scale))
+            let row = r.nameRowRings
+            try #require(row.count == 7, "at \(column)pt, \(scale), the row draws \(row.count) buttons")
+            let glyph = row[0].width
+            let band = CGRect(x: nameStart, y: row[0].minY, width: row[0].minX - nameStart, height: row[0].height)
+            return Reading(capsuleWorded: row[2..<5].contains { $0.width > 2 * glyph },
+                           expandWorded: row[5].width > 1.5 * glyph,
+                           ink: (r.inkRight(in: band) ?? nameStart) - nameStart,
+                           expandWidth: row[5].width)
+        }
+        var report: [String] = []
+        var firstWorded: [String] = []
+        for scale in FontSize.allCases.map(\.scale) {
+            let whole = try measure(long, column: 1_600, scale: scale)
+            try #require(whole.expandWorded && whole.capsuleWorded,
+                         "at 1,600pt, \(scale), the long name has no words beside it — the sweep would be about nothing")
+            var first: CGFloat?
+            var capsuleWordedAlone = false
+            for column in Self.expandColumns {
+                let m = try measure(long, column: column, scale: scale)
+                if m.expandWorded {
+                    #expect(m.capsuleWorded, "at \(column)pt, \(scale), Expand keeps its word after the capsule lost its own")
+                    #expect(m.ink >= whole.ink - 1,
+                            "at \(column)pt, \(scale), Expand's word is drawn over a cut name: \(m.ink)pt of its \(whole.ink)pt")
+                    if first == nil { first = column }
+                } else if m.capsuleWorded {
+                    capsuleWordedAlone = true
+                }
+                report.append("\(Int(column))@\(scale):\(m.capsuleWorded ? "W" : "g")\(m.expandWorded ? "E" : "e")\(Int(m.ink.rounded()))")
+            }
+            firstWorded.append("\(scale): \(first.map { "\(Int($0))" } ?? "none") (\(Int(whole.expandWidth.rounded()))pt worded)")
+            #expect(first != nil, "at \(scale) Expand's word never comes back over the long name by \(Self.expandColumns.last ?? 0)pt")
+            #expect(capsuleWordedAlone,
+                    "at \(scale) no column keeps the capsule's words without Expand's — Expand's word is not shed first")
+            let control = try measure(short, column: 560, scale: scale)
+            #expect(control.expandWorded && control.capsuleWorded,
+                    "at 560pt, \(scale), a four-character name loses a word — they are shed for nothing")
+        }
+        print("[expand-words] first worded column: \(firstWorded.joined(separator: " · "))")
+        print("[expand-words] \(report.joined(separator: " "))")
+    }
+
+    /// See ``expandKeepsItsWordOnlyWhenTheWholeNameFitsAndShedsItFirst``.
+    static let expandColumns: [CGFloat] = [700, 740, 760, 780, 800, 880, 900, 920, 940, 960, 1_000]
+
+    /// **A plain-text file's two readings** — the word, then none; never a capsule, since a `.txt`
+    /// has nothing to preview — read from the rule and then from the drawn row: a long `.txt` name
+    /// drops the word at a column a short one keeps it at. Mutations: give plain text only one
+    /// reading, or the bare one first, and a line fails.
+    @Test(.machinePinned(.pixelSampling))
+    func plainTextHasTheWordedAndTheBareExpand() throws {
+        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: false)
+                == [.init(capsule: nil, expandWorded: true), .init(capsule: nil, expandWorded: false)])
+        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.expandWorded) == [true, false, false],
+                "Expand's word outlives the capsule's on a Markdown file")
+        let padding = 2 * EditorDocumentHeader<EmptyView>.horizontalPadding
+        func expandWidth(_ name: String, column: CGFloat) throws -> CGFloat {
+            let doc = try document(named: name)
+            let r = try #require(Rendered(workspace(doc).headerContent, size: CGSize(width: column - padding, height: 60)))
+            let row = r.nameRowRings
+            try #require(row.count == 4, "\(name) at \(column)pt draws \(row.count) buttons — ＋, Find, Expand and × expected")
+            return row[2].width / row[0].width
+        }
+        let long = "Quarterly household budget reconciliation notes for 2026.txt"
+        #expect(try expandWidth("a.txt", column: 500) > 1.5, "a short .txt name loses Expand's word at 500pt")
+        #expect(try expandWidth(long, column: 500) < 1.5, "a long .txt name keeps Expand's word over a cut name at 500pt")
+        #expect(try expandWidth(long, column: 1_600) > 1.5, "a long .txt name never gets Expand's word")
+    }
+
+    /// **The empty page keeps "No document open" whole at the narrowest column, at every text
+    /// size** — the lit Files drops its word before the title is cut, the document header's rule.
+    /// Measured as the title's ink against the same title with room to spare. And with room, the
+    /// word is there. Mutation: draw the worded Files unconditionally and the title is cut at every
+    /// size (measured: to "No doc…" at 135%).
+    @Test(.machinePinned(.pixelSampling))
+    func theEmptyPageKeepsItsTitleWholeAtTheNarrowestColumn() throws {
+        let empty = EditorDocument()
+        let padding = 2 * EditorDocumentHeader<EmptyView>.horizontalPadding
+        let nameStart = EditorWorkspaceView.dotColumnWidth + 6
+        func measure(width: CGFloat, scale: CGFloat, glass: Bool) throws -> (ink: CGFloat, worded: Bool) {
+            let ws = workspace(empty, railIsHidden: true)
+            let view = glass
+                ? AnyView(ws.emptyHeaderContent.environment(\.selectionLensAppearance, SelectionLensCallSiteTests.probe))
+                : AnyView(ws.emptyHeaderContent)
+            let r = try #require(Rendered(view, size: CGSize(width: width, height: 60), fontScale: scale))
+            let row = r.nameRowRings
+            try #require(row.count == 2, "the lit empty page draws \(row.count) buttons — ＋ and Files expected")
+            let band = CGRect(x: nameStart, y: row[0].minY - 4, width: row[0].minX - nameStart, height: row[0].height + 8)
+            return ((r.inkRight(in: band) ?? nameStart) - nameStart, row[1].width > 1.5 * row[0].width)
+        }
+        for glass in [false, true] {
+            for scale in FontSize.allCases.map(\.scale) {
+                let whole = try measure(width: 1_000, scale: scale, glass: glass)
+                #expect(whole.worded, "\(glass ? "glass, " : "")\(scale): Files has no word even with room to spare")
+                let narrow = try measure(width: EditorLayoutMetrics.minDocumentWidth - padding, scale: scale, glass: glass)
+                #expect(narrow.ink >= whole.ink - 1,
+                        "\(glass ? "glass, " : "")\(scale): at the narrowest column the title keeps \(narrow.ink)pt of its \(whole.ink)pt")
+            }
+        }
+    }
+
     /// See ``theCapsuleKeepsItsWordsOnlyWhenTheWholeNameFits``: the first worded column at each
     /// text size (720 · 760 · 840 · 880) and the column below each, plus 560 and 700.
     static let capsuleColumns: [CGFloat] = [560, 700, 720, 740, 760, 820, 840, 860, 880]
+
+    // MARK: Glass between the capsules
+
+    /// **In Frosted and Clear every glass capsule on the name row keeps 4pt from the next** — the
+    /// gap `ChromeGlass.smallGlyphOutset` was chosen for ("3pt … crowded them"). Expand (TE48) is
+    /// the first outset capsule to sit beside another outset one, the ×, and two 2pt outsets at the
+    /// row's 6pt spacing left 2pt between them. Read under the probe appearance, which paints each
+    /// capsule flat cyan: one column run per capsule, the gaps between the runs measured. Worded
+    /// and glyph Expand, lit and not, both file kinds, the empty page included (the ＋ and a lit
+    /// Files). And Solid is untouched: there the pair's own frames keep the row's 6pt, no more.
+    ///
+    /// Mutation: drop the extra room beside the × and the Expand–× gap measures 2pt.
+    @Test(.machinePinned(.pixelSampling))
+    func everyGlassCapsuleOnTheNameRowKeepsFourPointsFromTheNext() throws {
+        let md = try document(named: "note.md")
+        let txt = try document(named: "note.txt")
+        let long = try document(named: "Quarterly household budget reconciliation notes for 2026.md")
+        var report: [String] = []
+        var pairs = 0
+        for (doc, width) in [(md, CGFloat(700)), (txt, 700), (long, 500), (EditorDocument(), 500)] {
+            for railIsHidden in [false, true] {
+                let ws = workspace(doc, railIsHidden: railIsHidden)
+                // The empty page draws its own header — `headerContent` is a document's.
+                let view = doc.path == nil ? AnyView(ws.emptyHeaderContent) : AnyView(ws.headerContent)
+                let size = CGSize(width: width, height: 60)
+                let rig = SelectionLensCallSiteTests.rig(view, size: size)
+                let runs = Pixel.columnRuns(rig.capture(), width: width, Pixel.chromeProbe)
+                let expected = doc.path == nil ? (railIsHidden ? 2 : 1) : (doc.isMarkdown ? 4 : 3)
+                try #require(runs.count == expected,
+                             "\(doc.name.isEmpty ? "empty page" : doc.name), lit \(railIsHidden): \(runs.count) glass capsules, \(expected) expected — \(runs.map { Int($0.minX) })")
+                let gaps = zip(runs, runs.dropFirst()).map { $1.minX - $0.maxX }
+                report.append("\(doc.name.isEmpty ? "empty" : doc.name)/\(railIsHidden): \(gaps.map { String(format: "%.1f", $0) })")
+                for gap in gaps {
+                    #expect(gap >= ChromeGlass.minimumCapsuleGap - 0.5,
+                            "\(doc.name.isEmpty ? "empty page" : doc.name), lit \(railIsHidden): two glass capsules \(gap)pt apart — \(gaps)")
+                }
+                // The room is taken only where glass is drawn: between the two buttons' own frames
+                // the row's 6pt under Solid, and 6 + the outset under glass.
+                let solid = try #require(Rendered(view, size: size)).nameRowRings
+                let glassRings = FocusRings.frames(in: rig.host).sorted { $0.minX < $1.minX }
+                    .filter { abs($0.midY - (solid.first?.midY ?? 0)) < 5 }
+                if doc.path != nil || railIsHidden, solid.count >= 2, glassRings.count >= 2 {
+                    let i = doc.path == nil ? 0 : solid.count - 2   // the pair that needs the room
+                    let solidGap = solid[i + 1].minX - solid[i].maxX
+                    let glassGap = glassRings[i + 1].minX - glassRings[i].maxX
+                    pairs += 1
+                    #expect(abs(solidGap - 6) < 0.5, "under Solid the pair sits \(solidGap)pt apart — Solid moved")
+                    #expect(abs(glassGap - (6 + ChromeGlass.clearance(rowSpacing: 6))) < 0.5,
+                            "under glass the pair sits \(glassGap)pt apart")
+                }
+            }
+        }
+        #expect(pairs == 7, "the Solid-versus-glass pair was measured \(pairs) times, not 7 — the check is not running")
+        print("[glass-gaps] \(report.joined(separator: " · "))")
+    }
 
     // MARK: The empty page's caption
 
@@ -587,6 +779,23 @@ struct Rendered {
 
     /// How many pixels inside `ring` are the accent — blue well clear of red, which a neutral glyph
     /// or the white ground never is.
+    /// The pixels in `rect` whose sRGB components (0…1) `match` accepts.
+    func pixels(in rect: CGRect, matching match: (CGFloat, CGFloat, CGFloat) -> Bool) -> Int {
+        let x0 = max(0, Int(rect.minX * scale)), x1 = min(pixelsWide, Int(rect.maxX * scale))
+        let y0 = max(0, Int(rect.minY * scale)), y1 = min(pixelsHigh, Int(rect.maxY * scale))
+        var count = 0
+        for x in x0..<max(x0, x1) {
+            for y in y0..<max(y0, y1) {
+                guard let c = colour(x, y) else { continue }
+                if match(c.r, c.g, c.b) { count += 1 }
+            }
+        }
+        return count
+    }
+
+    /// Pixels per square point — what turns a pixel count into an area the display cannot move.
+    var pixelsPerPoint: CGFloat { scale * scale }
+
     func accentPixels(in ring: CGRect) -> Int {
         let x0 = max(0, Int(ring.minX * scale)), x1 = min(pixelsWide, Int(ring.maxX * scale))
         let y0 = max(0, Int(ring.minY * scale)), y1 = min(pixelsHigh, Int(ring.maxY * scale))

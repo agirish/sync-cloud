@@ -240,6 +240,27 @@ enum EditorModeSwitch {
     }
 }
 
+/// Text ▸ Expand ⌃⌘E (TE48) — the header's Expand button, as a menu item: its state and its toggle.
+///
+/// **Its own value, not a member of `EditorVerbs`**, because it is offered where those are not: on
+/// the empty page while it is lit, where the lit button is the only way back to the files. Routed on
+/// the Edit workspace's own state — this value, published by `ContentView` — and never on
+/// `TextEditingChord`: ⌃⌘E is not one of the field editor's bindings, and expanding is about the
+/// window, wherever the caret is.
+struct EditorExpandSwitch {
+    let isOn: Bool
+    let toggle: () -> Void
+
+    /// **Where the header draws the button, the menu offers the item** — one rule for both doors.
+    /// Edit must be the workspace (the bit is Edit's, and a ⌃⌘E in Browse would fold Browse's pane
+    /// for a reason Browse cannot show); then any open document, refused ones included, since the
+    /// header draws the button over a refusal too; and on the empty page only while it is on — the
+    /// rule `EditorWorkspaceView.emptyHeaderContent` states for the button.
+    static func isOffered(workspace: Workspace, hasDocument: Bool, isOn: Bool) -> Bool {
+        workspace == .editor && (hasDocument || isOn)
+    }
+}
+
 /// ⌘I's two meanings, and the rule that picks (decision B, 2026-09-01).
 ///
 /// **One chord, resolved at key-press.** `AppChord.italic` IS `AppChord.infoInspector`; both
@@ -362,6 +383,10 @@ private struct PaneRowVerbsKey: FocusedValueKey {
 
 private struct EditorVerbsKey: FocusedValueKey {
     typealias Value = EditorVerbs
+}
+
+private struct EditorExpandKey: FocusedValueKey {
+    typealias Value = EditorExpandSwitch
 }
 
 private struct WorkspaceSelectionKey: FocusedValueKey {
@@ -805,6 +830,12 @@ extension FocusedValues {
         set { self[EditorVerbsKey.self] = newValue }
     }
 
+    /// Text ▸ Expand — `nil` wherever the header draws no Expand button; see `EditorExpandSwitch`.
+    var editorExpand: EditorExpandSwitch? {
+        get { self[EditorExpandKey.self] }
+        set { self[EditorExpandKey.self] = newValue }
+    }
+
     /// View ▸ Tab Bar.
     var tabBarVisible: TabBarSwitch? {
         get { self[TabBarVisibleKey.self] }
@@ -933,6 +964,9 @@ struct ShortcutValuePublisher: ViewModifier {
     /// because a mode switch or an autosave toggle under a destination pick changes the document
     /// the pick may be about.
     let editorVerbs: EditorVerbs?
+    /// Text ▸ Expand. Suspended with the rest: folding the pane under a destination pick would hide
+    /// the folder the pick is describing.
+    let editorExpand: EditorExpandSwitch?
 
     /// True while the destination picker is up. The picker is a full-window overlay that
     /// deliberately blocks the mouse from every control these chords mirror — an in-flight
@@ -984,6 +1018,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectivePaneRowVerbs: PaneRowVerbs? { suspended ? nil : paneRowVerbs }
     var effectiveCompareTwoFiles: (() -> Void)? { suspended ? nil : compareTwoFiles }
     var effectiveEditorVerbs: EditorVerbs? { suspended ? nil : editorVerbs }
+    var effectiveEditorExpand: EditorExpandSwitch? { suspended ? nil : editorExpand }
 
     /// ⌘W's published value, which is the one that does NOT go silent — see ``CloseTabAction``.
     /// `effectiveCloseTab` still nils with the rest (a suspended ⌘W closes no tab); what this adds
@@ -1029,6 +1064,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.organizeVerbs, effectiveOrganizeVerbs)       // File ▸ Organize's verbs
             .focusedSceneValue(\.paneRowVerbs, effectivePaneRowVerbs)         // File ▸ the row menu's verbs
             .focusedSceneValue(\.editorVerbs, effectiveEditorVerbs)           // Text ▸ / Markup ▸
+            .focusedSceneValue(\.editorExpand, effectiveEditorExpand)         // Text ▸ Expand, ⌃⌘E
     }
 }
 
@@ -1068,6 +1104,7 @@ extension ContentView {
             paneRowVerbs: shortcutPaneRowVerbs,
             compareTwoFiles: shortcutCompareTwoFiles,
             editorVerbs: shortcutEditorVerbs,
+            editorExpand: shortcutEditorExpand,
             // Suspended by the palette too, on the destination picker's own argument: it is a
             // full-window overlay whose scrim blocks the mouse from every control these chords
             // mirror, so without this ⌘R rescans underneath it and ⇧⌘. flips the filters behind
@@ -2314,6 +2351,22 @@ struct EditorModeCommands: View {
     }
 }
 
+/// Text ▸ Expand ⌃⌘E (TE48), after the three modes: the fourth answer to "how much of the window
+/// does the document get". A toggle, ticked while the document has the window to itself — the same
+/// bit, and the same act, as the header's Expand button (`ContentView.toggleJustTheText`).
+struct EditorExpandCommand: View {
+    @FocusedValue(\.editorExpand) private var expand
+
+    var body: some View {
+        Toggle("Expand", isOn: Binding(
+            get: { expand?.isOn ?? false },
+            set: { _ in expand?.toggle() }
+        ))
+        .keyboardShortcut(AppChord.editorExpand.key, modifiers: AppChord.editorExpand.modifiers)
+        .disabled(expand == nil)
+    }
+}
+
 /// Text ▸ Find Next ⌘G and Use Selection for Find ⌘E — the find bar's own two verbs.
 ///
 /// **Registered because nothing else answers them.** AppKit's text views act on these through menu
@@ -2350,7 +2403,8 @@ struct UseSelectionForFindCommand: View {
 }
 
 /// Text ▸ Wrap Lines and Check Spelling While Typing — the two switches the text view's context
-/// menu already carries, on the same two `UserDefaults` keys.
+/// menu already carries, on the same two `UserDefaults` keys — and Format Bar (TE52), the third
+/// preference about how the document is drawn, on its own key.
 ///
 /// **Read and written through `@AppStorage` here, not through a published closure**, because that is
 /// what the context menu does too (`PlainTextEditor.Coordinator.toggleWrapping`): every mounted
@@ -2361,11 +2415,17 @@ struct EditorTextSettingCommands: View {
     @FocusedValue(\.editorVerbs) private var verbs
     @AppStorage(EditorTextSettings.wrapsKey) private var wrapsLines = EditorTextSettings.wrapsDefault
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling = EditorTextSettings.checksSpellingDefault
+    @AppStorage(EditorTextSettings.showsFormatBarKey) private var showsFormatBar = EditorTextSettings.showsFormatBarDefault
 
     var body: some View {
         Toggle("Wrap Lines", isOn: $wrapsLines)
             .disabled(verbs == nil)
         Toggle("Check Spelling While Typing", isOn: $checksSpelling)
+            .disabled(verbs == nil)
+        // **Live wherever the other two are**, plain text included: it is a preference, and the
+        // bar comes back on the next Markdown file — greying it on a `.txt` would make a setting
+        // reachable only from the files it applies to.
+        Toggle("Format Bar", isOn: $showsFormatBar)
             .disabled(verbs == nil)
     }
 }
@@ -2639,11 +2699,12 @@ struct EditorMenus: Commands {
     var body: some Commands {
         CommandMenu("Text") {
             EditorModeCommands()         // ⌃⌘1 ⌃⌘2 ⌃⌘3 — Source / Preview / Split, ticked
+            EditorExpandCommand()        // ⌃⌘E — Expand, ticked while the document has the window
             Divider()
             FindNextCommand()            // ⌘G
             UseSelectionForFindCommand() // ⌘E
             Divider()
-            EditorTextSettingCommands()  // Wrap Lines · Check Spelling While Typing, ticked
+            EditorTextSettingCommands()  // Wrap Lines · Check Spelling While Typing · Format Bar, ticked
             Divider()
             AutosaveThisFileCommand()    // the header switch, as an item
         }

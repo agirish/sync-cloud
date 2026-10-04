@@ -252,4 +252,14 @@ import SwiftUI
         let face = Pixel.at(rig.capture(), width: Self.canvas.width, CGPoint(x: glass.midX, y: glass.midY))
         #expect(face.0 < 3 && face.1 > 252 && face.2 > 252, "the track's own grey is drawn over its glass: \(face)")
     }
+
+    /// **Two OUTSET capsules side by side keep `minimumCapsuleGap` between their glass** — the
+    /// clearance is derived from it, not typed beside it: at Edit's 6pt row spacing two 2pt outsets
+    /// leave 2pt, so the clearance is 2; at a spacing wide enough already it is nothing.
+    @Test func theClearanceMakesUpTheGapTwoOutsetsLeave() {
+        #expect(ChromeGlass.clearance(rowSpacing: 6) == 2)
+        #expect(6 + ChromeGlass.clearance(rowSpacing: 6) - 2 * ChromeGlass.smallGlyphOutset == ChromeGlass.minimumCapsuleGap)
+        #expect(ChromeGlass.clearance(rowSpacing: 8) == 0)
+        #expect(ChromeGlass.clearance(rowSpacing: 12) == 0, "a wide row is padded for nothing")
+    }
 }

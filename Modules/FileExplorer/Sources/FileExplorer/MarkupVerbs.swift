@@ -10,7 +10,7 @@ import Design
 /// Public since the Markup menu joined the menu bar (roadmap RD1): the app target builds that menu
 /// from ``menuOrder`` — the same list the context menu is built from, so the two cannot disagree
 /// about the verbs or their order — and reaches each verb through ``PlainTextEditor/apply(_:to:)``.
-public enum MarkupVerb: Equatable, Sendable {
+public enum MarkupVerb: Hashable, Sendable {
     case bold
     case italic
     case strikethrough
@@ -98,18 +98,140 @@ extension MarkdownEdits {
               NSMaxRange(selection) <= ns.length else { return nil }
 
         switch verb {
-        case .bold: return wrap(text, selection, with: "**")
-        case .italic: return wrap(text, selection, with: "*", guardingAgainst: "*")
-        case .strikethrough: return wrap(text, selection, with: "~~")
-        case .inlineCode: return wrap(text, selection, with: "`")
+        case .bold, .italic, .strikethrough, .inlineCode:
+            guard let mark = inlineDelimiter(for: verb) else { return nil }
+            return wrap(text, selection, with: mark.delimiter, guardingAgainst: mark.neighbour,
+                        nests: mark.nests)
         case .link: return link(text, selection)
-        case .heading(let level): return prefixLines(text, selection, .heading(level))
-        case .bulletList: return prefixLines(text, selection, .bullet)
-        case .numberedList: return prefixLines(text, selection, .numbered)
-        case .taskItem: return prefixLines(text, selection, .task)
-        case .blockQuote: return prefixLines(text, selection, .quote)
+        case .heading, .bulletList, .numberedList, .taskItem, .blockQuote:
+            guard let prefix = linePrefix(for: verb) else { return nil }
+            return prefixLines(text, selection, prefix)
         case .codeBlock: return fence(text, selection)
         case .horizontalRule: return rule(text, selection)
+        }
+    }
+
+    /// **Whether pressing `verb` now would TAKE its formatting off** — the format bar's lit state
+    /// (TE52), answered by the very tests ``apply(_:to:selection:)`` uses to choose between adding
+    /// and removing: ``wrapState(_:_:delimiter:guardingAgainst:)`` for the inline verbs and
+    /// ``everyLineHas(_:_:in:)`` for the line verbs. So a lit button is exactly a button whose press
+    /// would unwrap, and a dark one exactly a press that would wrap.
+    ///
+    /// **Which means it is about the SELECTION, not about the caret's surroundings.** A caret parked
+    /// in the middle of `**plenty**` is not lit, because Bold there inserts a second pair; double-
+    /// click the word — which selects it between its asterisks — and it is. That is the verbs' own
+    /// rule, kept rather than widened: a button that lit for a press that would then add `****`
+    /// would be promising a toggle the verb does not perform.
+    ///
+    /// **Never lit:** Link, Code Block and Horizontal Rule, which only ever insert; Body, which only
+    /// ever removes and so has no "on"; and a line verb over blank lines alone, where the press
+    /// changes nothing (``prefixLines(_:_:_:)`` answers `nil` there).
+    static func isApplied(_ verb: MarkupVerb, in text: String, selection: NSRange) -> Bool {
+        let ns = text as NSString
+        guard isValid(selection, in: ns) else { return false }
+        return isApplied(verb, ns, selection, lines: lineRanges(covering: selection, in: ns))
+    }
+
+    /// The core of ``isApplied(_:in:selection:)``, over a buffer already bridged and the lines the
+    /// selection touches already found — so ``MarkupFormatState`` can ask every verb about one
+    /// selection and walk its lines ONCE. On a selection of a few lines that is nothing; on ⌘A in a
+    /// long note it is one walk instead of a dozen. `selection` must be in range.
+    static func isApplied(_ verb: MarkupVerb, _ ns: NSString, _ selection: NSRange,
+                          lines: [NSRange]) -> Bool {
+        switch verb {
+        case .bold, .italic, .strikethrough, .inlineCode:
+            guard let mark = inlineDelimiter(for: verb) else { return false }
+            return wrapState(ns, selection, delimiter: mark.delimiter,
+                             guardingAgainst: mark.neighbour, nests: mark.nests) != nil
+        case .heading(let level) where level <= 0:
+            return false
+        case .heading, .bulletList, .numberedList, .taskItem, .blockQuote:
+            guard let prefix = linePrefix(for: verb) else { return false }
+            let written = lines.contains { !isBlank(ns.substring(with: $0)) }
+            return written && everyLineHas(prefix, lines, in: ns)
+        case .link, .codeBlock, .horizontalRule:
+            return false
+        }
+    }
+
+    /// What the format bar's Heading menu names: the level the selection's lines are at.
+    enum HeadingLevel: Equatable, Sendable {
+        /// Heading 1, 2 or 3 — the three the menu offers — on every written line.
+        case level(Int)
+        /// Every written line is a heading, but not one the menu ticks: levels 4–6, or headings at
+        /// different levels.
+        case otherHeading
+        /// Headings and body text together. Neither name would be true of the selection, so the
+        /// menu names neither and ticks nothing.
+        case mixed
+        /// No written line is a heading.
+        case body
+    }
+
+    /// **Level-exact first, and only then level-agnostic** — never the other way round. A `# Title`
+    /// line answers Heading 1 because ``isApplied(_:in:selection:)`` says Heading 1 would come off
+    /// it, not because it "is a heading"; asking the second question first is the conflation that
+    /// once demoted `# Title` when Heading 3 was asked for. The level-agnostic pattern
+    /// (``LinePrefix/pattern``, what a heading verb strips) is asked only of what is left: whether
+    /// the written lines are all headings, none, or some of each.
+    static func headingLevel(in text: String, selection: NSRange) -> HeadingLevel {
+        let ns = text as NSString
+        guard isValid(selection, in: ns) else { return .body }
+        return headingLevel(ns, selection, lines: lineRanges(covering: selection, in: ns))
+    }
+
+    /// The core of ``headingLevel(in:selection:)`` — see ``isApplied(_:_:_:lines:)`` for why the
+    /// lines are handed in.
+    static func headingLevel(_ ns: NSString, _ selection: NSRange, lines: [NSRange]) -> HeadingLevel {
+        for level in 1...3 where isApplied(.heading(level), ns, selection, lines: lines) {
+            return .level(level)
+        }
+        var headings = false
+        var body = false
+        for range in lines {
+            let line = ns.substring(with: range)
+            guard !isBlank(line) else { continue }
+            if firstMatch(LinePrefix.heading(1).pattern, in: line) != nil { headings = true } else { body = true }
+            if headings && body { return .mixed }
+        }
+        return headings ? .otherHeading : .body
+    }
+
+    /// Whether `selection` lies in `ns` — the guard every entry point here starts with.
+    static func isValid(_ selection: NSRange, in ns: NSString) -> Bool {
+        selection.location != NSNotFound && selection.location >= 0 && NSMaxRange(selection) <= ns.length
+    }
+
+    /// A line holding nothing but spaces and tabs — which every line verb leaves alone.
+    private static func isBlank(_ line: String) -> Bool {
+        line.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// The delimiter an inline verb wraps with, the character that must not sit just beyond it for
+    /// an unwrap to count, and whether one span of it may hold the delimiter again (`nests` — see
+    /// ``wrapState(_:_:delimiter:guardingAgainst:nests:)``). One table, read by
+    /// ``apply(_:to:selection:)`` and ``isApplied(_:in:selection:)`` alike.
+    static func inlineDelimiter(for verb: MarkupVerb)
+        -> (delimiter: String, neighbour: String?, nests: Bool)? {
+        switch verb {
+        case .bold: return ("**", nil, false)
+        case .italic: return ("*", "*", true)
+        case .strikethrough: return ("~~", nil, false)
+        case .inlineCode: return ("`", nil, false)
+        default: return nil
+        }
+    }
+
+    /// The line prefix a line verb adds or removes. One table, for the reason
+    /// ``inlineDelimiter(for:)`` is one.
+    static func linePrefix(for verb: MarkupVerb) -> LinePrefix? {
+        switch verb {
+        case .heading(let level): return .heading(level)
+        case .bulletList: return .bullet
+        case .numberedList: return .numbered
+        case .taskItem: return .task
+        case .blockQuote: return .quote
+        default: return nil
         }
     }
 
@@ -122,38 +244,75 @@ extension MarkdownEdits {
     ///   on each side and quietly demoting it — with the guard, italic on bold text produces
     ///   `***both***`, which is what was asked for.
     static func wrap(_ text: String, _ selection: NSRange, with delimiter: String,
-                     guardingAgainst neighbour: String? = nil) -> MarkupEdit {
+                     guardingAgainst neighbour: String? = nil, nests: Bool = true) -> MarkupEdit {
         let ns = text as NSString
         let width = (delimiter as NSString).length
         let selected = ns.substring(with: selection)
 
-        // Wrapped inside the selection: `**bold**` selected whole.
-        if (selected as NSString).length >= width * 2,
-           selected.hasPrefix(delimiter), selected.hasSuffix(delimiter) {
+        switch wrapState(ns, selection, delimiter: delimiter, guardingAgainst: neighbour, nests: nests) {
+        case .inside:
+            // Wrapped inside the selection: `**bold**` selected whole.
             let inner = (selected as NSString).substring(
                 with: NSRange(location: width, length: (selected as NSString).length - width * 2))
             return MarkupEdit(text: ns.replacingCharacters(in: selection, with: inner),
                               selection: NSRange(location: selection.location,
                                                  length: (inner as NSString).length))
+        case .outside:
+            // Wrapped just outside it: `bold` selected between the asterisks.
+            let outer = NSRange(location: selection.location - width, length: width * 2 + selection.length)
+            return MarkupEdit(text: ns.replacingCharacters(in: outer, with: selected),
+                              selection: NSRange(location: outer.location, length: selection.length))
+        case nil:
+            // Otherwise wrap it. An empty selection becomes an empty pair with the caret inside,
+            // which is what somebody who pressed Bold before typing the word meant.
+            let wrapped = delimiter + selected + delimiter
+            return MarkupEdit(text: ns.replacingCharacters(in: selection, with: wrapped),
+                              selection: NSRange(location: selection.location + width,
+                                                 length: selection.length))
         }
+    }
 
-        // Wrapped just outside it: `bold` selected between the asterisks.
+    /// Where an inline verb's delimiters already are, if they are — which is what makes a press
+    /// take them off rather than add a second pair.
+    enum WrapState { case inside, outside }
+
+    /// **The "already applied" half of ``wrap(_:_:with:guardingAgainst:)``, on its own.** One test,
+    /// asked by the verb (to decide between wrapping and unwrapping) and by the format bar (to
+    /// decide whether the button is lit), so a button can never light for a press that would add
+    /// delimiters, nor stay dark for one that would remove them (TE52).
+    ///
+    /// `.inside` is `**bold**` selected whole; `.outside` is `bold` selected between its
+    /// delimiters, with `neighbour` refusing the case where one more of the same character sits
+    /// beyond them — see `guardingAgainst`. `nil` is "not wrapped": the press would add a pair.
+    ///
+    /// **`nests: false` — every inline verb but Italic — and a run holding the delimiter is not one
+    /// span.** `**Warning** read the **docs**` selected whole starts and ends with `**`, and was taken
+    /// for one bold span: Bold "took it off" by deleting the outer pairs, leaving
+    /// `Warning** read the **docs` — the two bold words plain and the words between them bold, the
+    /// formatting turned inside out. The same for `` `a` and `b` `` and for `~~`. Only Italic's
+    /// delimiter may legitimately recur inside one span (`*a **b** c*` is italic text holding a bold
+    /// word), so only Italic keeps the old reading; for the rest such a run is "not wrapped", and the
+    /// press adds a pair instead of destroying two. `MarkupWrapEquivalenceTests` holds every other
+    /// case to the old answer.
+    static func wrapState(_ ns: NSString, _ selection: NSRange, delimiter: String,
+                          guardingAgainst neighbour: String? = nil,
+                          nests: Bool = true) -> WrapState? {
+        let width = (delimiter as NSString).length
+        let selected = ns.substring(with: selection)
+        let length = (selected as NSString).length
+        if length >= width * 2, selected.hasPrefix(delimiter), selected.hasSuffix(delimiter) {
+            let inner = (selected as NSString).substring(with: NSRange(location: width, length: length - width * 2))
+            if nests || !inner.contains(delimiter) { return .inside }
+        }
         let before = NSRange(location: selection.location - width, length: width)
         let after = NSRange(location: NSMaxRange(selection), length: width)
         if selection.location >= width, NSMaxRange(after) <= ns.length,
            ns.substring(with: before) == delimiter, ns.substring(with: after) == delimiter,
-           !isNeighboured(ns, before: before, after: after, by: neighbour) {
-            let outer = NSRange(location: before.location, length: width * 2 + selection.length)
-            return MarkupEdit(text: ns.replacingCharacters(in: outer, with: selected),
-                              selection: NSRange(location: before.location, length: selection.length))
+           !isNeighboured(ns, before: before, after: after, by: neighbour),
+           nests || !selected.contains(delimiter) {
+            return .outside
         }
-
-        // Otherwise wrap it. An empty selection becomes an empty pair with the caret inside, which
-        // is what somebody who pressed Bold before typing the word meant.
-        let wrapped = delimiter + selected + delimiter
-        return MarkupEdit(text: ns.replacingCharacters(in: selection, with: wrapped),
-                          selection: NSRange(location: selection.location + width,
-                                             length: selection.length))
+        return nil
     }
 
     private static func isNeighboured(_ ns: NSString, before: NSRange, after: NSRange,
@@ -272,11 +431,7 @@ extension MarkdownEdits {
         if case .heading(let level) = prefix, level <= 0 {
             isRemoval = true
         } else {
-            isRemoval = lines.allSatisfy { range in
-                let line = ns.substring(with: range)
-                return line.trimmingCharacters(in: .whitespaces).isEmpty
-                    || firstMatch(prefix.appliedPattern, in: line) != nil
-            }
+            isRemoval = everyLineHas(prefix, lines, in: ns)
         }
 
         // **The covered lines are rewritten once, into the range that covers them.**
@@ -317,6 +472,20 @@ extension MarkdownEdits {
                 || rebuilt != ns.substring(with: covered) else { return nil }
         let result = ns.replacingCharacters(in: covered, with: rebuilt)
         return MarkupEdit(text: result, selection: selectionAfter(selection, delta: delta, in: result))
+    }
+
+    /// **The "already applied" half of ``prefixLines(_:_:_:)``, on its own** — whether every line
+    /// the selection touches already carries `prefix`, blank lines counting as carrying it. One test,
+    /// asked by the verb (to decide between adding and removing) and by the format bar (to decide
+    /// whether the button is lit), so the two can never disagree about a line (TE52).
+    ///
+    /// **Level-exact for headings, by way of ``LinePrefix/appliedPattern``** — the bug that note
+    /// records was exactly these two questions sharing one answer.
+    static func everyLineHas(_ prefix: LinePrefix, _ lines: [NSRange], in ns: NSString) -> Bool {
+        lines.allSatisfy { range in
+            let line = ns.substring(with: range)
+            return isBlank(line) || firstMatch(prefix.appliedPattern, in: line) != nil
+        }
     }
 
     /// Internal rather than private, so `MarkupPrefixLinesEquivalenceTests` can run the OLD

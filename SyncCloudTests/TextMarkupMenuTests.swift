@@ -39,16 +39,21 @@ import Testing
                 "the bar reads \(bar)")
     }
 
-    /// The Text menu, in the roadmap's order: the modes, the find bar's pair, the two drawing
-    /// switches, the autosave switch. **Neither Find… nor Save**, which stay in Edit and File — one
-    /// action, one item, so no chord is registered twice.
+    /// The Text menu, in the roadmap's order: the modes and Expand (TE48), the find bar's pair, the
+    /// drawing switches — Format Bar (TE52) the third — the autosave switch. **Neither Find… nor
+    /// Save**, which stay in Edit and File — one action, one item, so no chord is registered twice.
     @Test func theTextMenuIsInTheRoadmapsOrder() throws {
         let text = Self.titles(try Self.menu("Text"))
-        #expect(text == ["Source", "Preview", "Split",
+        #expect(text == ["Source", "Preview", "Split", "Expand",
                          "Find Next", "Use Selection for Find",
-                         "Wrap Lines", "Check Spelling While Typing",
+                         "Wrap Lines", "Check Spelling While Typing", "Format Bar",
                          "Autosave This File"],
                 "the Text menu reads \(text)")
+        // Expand sits with the modes, before the first divider — not in a group of its own.
+        let items = try Self.menu("Text").items
+        let expand = try #require(items.firstIndex { $0.title == "Expand" })
+        let firstDivider = try #require(items.firstIndex { $0.isSeparatorItem })
+        #expect(expand < firstDivider, "Expand is not in the modes' group")
         #expect(!text.contains("Find…"), "Find… is duplicated into Text — ⌘F is registered twice")
         #expect(!text.contains("Save"), "Save is duplicated into Text — ⌘S is registered twice")
     }
@@ -73,6 +78,29 @@ import Testing
             #expect(item.keyEquivalentModifierMask == [.control, .command],
                     "\(title) registers the wrong modifiers")
         }
+    }
+
+    /// **Text ▸ Expand is ⌃⌘E** — read off the built item, against `AppChord.editorExpand`, so the
+    /// menu, the header's keycap and tooltip, and the ⌘/ reference cannot drift. And ⌃⌘E is claimed
+    /// by nothing else in the bar: not the find bar's ⌘E, not a mode.
+    @Test func expandCarriesControlCommandEAndNothingElseDoes() throws {
+        let item = try Self.item("Expand", in: "Text")
+        #expect(item.keyEquivalent == AppChord.editorExpand.appKitKeyEquivalent && item.keyEquivalent == "e")
+        #expect(item.keyEquivalentModifierMask == [.control, .command], "Expand registers the wrong modifiers")
+        var claimants: [String] = []
+        func walk(_ menu: NSMenu) {
+            for entry in menu.items {
+                if entry.keyEquivalent.lowercased() == "e",
+                   entry.keyEquivalentModifierMask.intersection([.control, .command, .option, .shift]) == [.control, .command] {
+                    claimants.append(entry.title)
+                }
+                if let sub = entry.submenu { walk(sub) }
+            }
+        }
+        walk(try #require(NSApp.mainMenu))
+        #expect(claimants == ["Expand"], "⌃⌘E is claimed by \(claimants)")
+        // Format Bar is a switch with no key — the bar's buttons carry the Markup chords already.
+        #expect(try Self.item("Format Bar", in: "Text").keyEquivalent.isEmpty, "Format Bar has acquired a key")
     }
 
     @Test func theFindBarsPairCarryTheirPlatformChords() throws {

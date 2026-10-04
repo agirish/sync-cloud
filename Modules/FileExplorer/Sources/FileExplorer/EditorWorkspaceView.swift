@@ -102,12 +102,12 @@ public struct EditorWorkspaceView: View {
     /// text" is on. Without the rail the document takes the whole width, and the naming row ⌘N
     /// opens is drawn at the top of the document column instead — see ``EditorNamingRow``.
     let showsRail: Bool
-    /// Whether "Just the text" is on — the header glyph's lit state, and which of its two
-    /// tooltips it shows. Distinct from `!showsRail`: the rail is also absent while the source
-    /// pane is open, and the glyph is not lit then, because pressing it would hide a rail that is
-    /// already not there.
+    /// Whether Expand is on — the rail bit set AND the source pane folded, which the host works out
+    /// (`ContentView.editorIsExpanded`) — the header button's lit state, and whether it reads Expand
+    /// or Files. Distinct from `!showsRail`: the rail is also absent while the source pane is open,
+    /// and the button is not lit then, because the file list is on screen — it is the pane.
     let railIsHidden: Bool
-    /// The header glyph's act. The host owns the bit and what else moves with it.
+    /// The Expand button's act. The host owns the bit and what else moves with it.
     let onToggleJustTheText: () -> Void
     /// The header's ＋ — **the host's ⌘N closure itself**, not a second copy of what it does.
     ///
@@ -245,6 +245,16 @@ public struct EditorWorkspaceView: View {
     @State private var scrollToken: Int = 0
     /// Bumped by the header's Find button. See ``PlainTextEditor/findRequest``.
     @State private var findRequest: Int = 0
+    /// The selection's UTF-16 length, beside ``caretOffset`` (its location) — what the format bar's
+    /// lit state is derived from. Stored cheap, derived on a debounce, as the caret is.
+    @State private var selectionLength: Int = 0
+    /// What the format bar shows lit — see ``MarkupFormatState``.
+    @State private var formatState: MarkupFormatState = .none
+    /// The text view, for the format bar's buttons — see ``EditorTextViewHandle``.
+    @State private var textViewHandle = EditorTextViewHandle()
+    /// Text ▸ Format Bar. Read here like the glass settings above: a preference, not state.
+    @AppStorage(EditorTextSettings.showsFormatBarKey) private var showsFormatBarPreference: Bool
+        = EditorTextSettings.showsFormatBarDefault
     /// Live only while the divider is being dragged; the committed value lives with the host.
     @State private var splitDrag: CGFloat?
 
@@ -335,18 +345,32 @@ public struct EditorWorkspaceView: View {
         self.newFileFolderName = newFileFolderName
     }
 
-    /// What the "Just the text" glyph says — its label and its tooltip, one string. Names the
-    /// glyph's NEXT act rather than its state, the way the spine's chevron does: pressing it while
-    /// the rail is there hides the rail, and pressing it while the rail is hidden brings it back.
-    /// A static so the test can pin the two strings without a hosted accessibility tree, which
+    /// **The Expand button's word (TE48): its NEXT act, not its state** — the way the spine's
+    /// chevron names its own. "Expand" while the rail, the pane and the sidebar can be put away;
+    /// "Files" once they are, which is the way back to them. The word is also the button's
+    /// accessibility label, so a VoiceOver or Voice Control user says what a sighted one reads. A
+    /// static so the test can pin the two strings without a hosted accessibility tree, which
     /// `swift test` does not build.
-    static func justTheTextTitle(railIsHidden: Bool) -> String {
-        railIsHidden ? "Show the text files" : "Just the text"
+    static func expandTitle(railIsHidden: Bool) -> String {
+        railIsHidden ? "Files" : "Expand"
+    }
+
+    /// What the Expand button says under the pointer, before its chord: the act in full, since the
+    /// word alone does not say what "Expand" puts away.
+    static func expandHelp(railIsHidden: Bool) -> String {
+        railIsHidden ? "Show the text files again"
+                     : "Give the document the window — put away the file list"
+    }
+
+    /// The glyph: arrows out to expand, arrows in to come back to the files — the platform's own
+    /// pair for growing and shrinking a view.
+    static func expandSymbol(railIsHidden: Bool) -> String {
+        railIsHidden ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
     }
 
     /// What the header's ＋ says in its tooltip: where the file will be made. The rail's ＋ names
     /// its folder on the line beside it; this one has nothing beside it that does, so the tooltip
-    /// carries the folder. A static for the reason ``justTheTextTitle(railIsHidden:)`` is one.
+    /// carries the folder. A static for the reason ``expandTitle(railIsHidden:)`` is one.
     static func newTextFileTitle(folderName: String) -> String {
         folderName.isEmpty ? "Pick a folder in the sidebar first" : "New text file in \(folderName)"
     }
@@ -360,7 +384,7 @@ public struct EditorWorkspaceView: View {
     /// same screen — and a sentence with three ways in stopped being one sentence.
     ///
     /// "From the rail" only while there is one. Without it the list is the source pane, or — under
-    /// "Just the text" — nothing at all until the header's lit glyph or the spine's rung brings it
+    /// Expand — nothing at all until the header's lit Files button or the spine's rung brings it
     /// back, and this view cannot tell those two apart; a sentence that names neither is right in
     /// both. Both chords come from `AppChord`, so a rebinding moves the words with it. A static so
     /// the test can read the three sentences without rendering them. It names the three workspaces
@@ -570,10 +594,10 @@ public struct EditorWorkspaceView: View {
         }
     }
 
-    /// **The name row, and which of the capsule's two rungs it draws: the file's name decides.**
+    /// **The name row, and which words it draws: the file's name decides.**
     ///
-    /// The row holds the name, then ＋ · Find · Just the text · the capsule · ×, and the name is the
-    /// only thing in it that gives. Left to its own `ViewThatFits`, the capsule kept its words
+    /// The row holds the name, then ＋ · Find, the capsule, Expand and ×, and the name is the only
+    /// thing in it that gives. Left to its own `ViewThatFits`, the capsule kept its words
     /// whenever IT fitted — so from a ~560pt column up, a long name paid for "Source", "Preview"
     /// and "Split": measured 2026-09-25 on a 55-character `.md` name at 100%, a 580pt column left
     /// 214pt of name beside the words where the icons alone leave it 338. The name is what the row
@@ -588,21 +612,41 @@ public struct EditorWorkspaceView: View {
     /// Both rungs are the same height (`bothCapsuleRungsAreTheSameHeight`), so the choice never
     /// moves the row. A plain-text file has no capsule to choose for and reserves its height with
     /// a hidden one, as before.
+    ///
+    /// **Expand's word joins the same budget, and goes FIRST** (TE48). Three rungs on a Markdown
+    /// file — every word; the capsule's words without Expand's; no words — and two on plain text.
+    /// Expand's word is the cheaper to lose: the arrows already say "bigger" and the tooltip says
+    /// the rest, where a capsule of three bare glyphs asks the reader to know which is which.
+    /// ``nameRowRungs(isMarkdown:)`` is the order, and the tests read it from there.
     @ViewBuilder
     private var nameRow: some View {
-        if document.isMarkdown {
-            ViewThatFits(in: .horizontal) {
-                nameRow(capsule: .labelled)
-                nameRow(capsule: .glyphOnly)
+        ViewThatFits(in: .horizontal) {
+            ForEach(Array(Self.nameRowRungs(isMarkdown: document.isMarkdown).enumerated()),
+                    id: \.offset) { _, rung in
+                nameRow(rung)
             }
-        } else {
-            nameRow(capsule: nil)
         }
     }
 
-    /// One reading of the name row — with the capsule at `rung`, or with only its height reserved
-    /// (`nil`, a file with nothing to preview).
-    private func nameRow(capsule rung: EditorModeBar.Rung?) -> some View {
+    /// One reading of the name row: the capsule at a rung — or `nil`, only its height reserved, on a
+    /// file with nothing to preview — and whether Expand wears its word.
+    struct NameRowRung: Equatable {
+        var capsule: EditorModeBar.Rung?
+        var expandWorded: Bool
+    }
+
+    /// The name row's rungs, widest first. Expand's word goes before the capsule's.
+    static func nameRowRungs(isMarkdown: Bool) -> [NameRowRung] {
+        isMarkdown
+            ? [NameRowRung(capsule: .labelled, expandWorded: true),
+               NameRowRung(capsule: .labelled, expandWorded: false),
+               NameRowRung(capsule: .glyphOnly, expandWorded: false)]
+            : [NameRowRung(capsule: nil, expandWorded: true),
+               NameRowRung(capsule: nil, expandWorded: false)]
+    }
+
+    /// One reading of the name row — see ``NameRowRung``.
+    private func nameRow(_ reading: NameRowRung) -> some View {
         HStack(spacing: 6) {
             // **Three states, because two of them are the point.**
             //
@@ -642,9 +686,8 @@ public struct EditorWorkspaceView: View {
                     }
                 }
             Spacer(minLength: 0)
-            // Frosted and Clear: ＋, Find and "Just the text" share one glass capsule, as Finder
-            // groups related buttons (`ChromeGlass`). The same 6pt as the row, so Solid's layout is
-            // untouched.
+            // Frosted and Clear: ＋ and Find share one glass capsule, as Finder groups related
+            // buttons (`ChromeGlass`). The same 6pt as the row, so Solid's layout is untouched.
             HStack(spacing: 6) {
                 // ＋ — see ``newTextFileButton``; the empty page's header draws the same one.
                 newTextFileButton
@@ -662,8 +705,6 @@ public struct EditorWorkspaceView: View {
                     .accessibilityLabel("Find in this document")
                     .help("Find and replace in this document")
                 }
-                // "Just the text" — one view, drawn by the empty page's header too.
-                justTheTextButton
             }
             .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
             // **Only for files that have something to preview.** `PairContentKind` already
@@ -681,7 +722,7 @@ public struct EditorWorkspaceView: View {
             // `.frame(width: 0)` so only the height is reserved. Reserving the width too would
             // hold a capsule-shaped gap at the end of every plain-text header, and truncate the
             // file name earlier for nothing.
-            if let rung {
+            if let rung = reading.capsule {
                 EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent, forcedRung: rung)
             } else {
                 EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
@@ -691,6 +732,11 @@ public struct EditorWorkspaceView: View {
                     .hidden()
                     .frame(width: 0)
             }
+            // **Expand, between the capsule and the ×** (TE48) — the window-sized controls at the
+            // end of the row. Out of the ＋ / Find capsule, where it was a ≡ that read as "justify";
+            // those two act on the folder and the text, this on how much of the window the
+            // document gets. One view, drawn by the empty page's header too.
+            expandButton(worded: reading.expandWorded)
             // **×, at the far end** (TE46). The one way to put the document away — File ▸
             // Close Document is the other door, with no key, because ⌘W is Close Tab. Last,
             // after the capsule, because it acts on the whole document rather than on a view of
@@ -702,8 +748,10 @@ public struct EditorWorkspaceView: View {
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .frame(width: 18, height: 18)
             }
-            // Frosted and Clear: a glass circle with a round hover, like every bar button (`ChromeGlass`).
+            // Frosted and Clear: a glass circle with a round hover, like every bar button (`ChromeGlass`)
+            // — and, beside Expand's own outset glass, the room that keeps the two 4pt apart.
             .chromeGlassGlyphButton(tint: accent, outset: ChromeGlass.smallGlyphOutset)
+            .chromeGlassClearance(.leading, rowSpacing: 6)
             .accessibilityLabel(Self.closeTitle(name: document.name))
             .help("Close this document")
         }
@@ -886,41 +934,55 @@ public struct EditorWorkspaceView: View {
     /// same view the document's header draws, greyed with no folder — and no Find (nothing to
     /// search), no capsule (nothing to view three ways) and no Close (nothing to close).
     ///
-    /// "Just the text" is drawn only while it is LIT: with the rail and the pane both put away
-    /// there is no list of files anywhere on screen, and the lit glyph is both the reason why and
-    /// the way back — its label reads "Show the text files". Unlit it would only offer to hide a
-    /// list somebody has not yet used, on a page whose whole job is to get them to one.
+    /// Expand is drawn only while it is LIT: with the rail and the pane both put away there is no
+    /// list of files anywhere on screen, and the lit button is both the reason why and the way
+    /// back — it reads "Files". Unlit it would only offer to hide a list somebody has not yet used,
+    /// on a page whose whole job is to get them to one. Text ▸ Expand follows the same rule.
     ///
     /// Internal so the tests can render it on its own, like ``headerContent``.
     @ViewBuilder
     var emptyHeaderContent: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                // The dot's column, reserved as a shape so the title starts where a file name does.
-                Color.clear
-                    .frame(width: Self.dotColumnWidth, height: 1)
-                Text(Self.emptyTitle)
-                    .scaledFont(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
-                // One glass capsule in Frosted and Clear, as in the document's header.
-                HStack(spacing: 6) {
-                    newTextFileButton
-                    if railIsHidden {
-                        justTheTextButton
-                    }
-                }
-                .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
-                // The capsule's height, reserved the way a plain-text header reserves it — and,
-                // like that one, drawn at Solid, so it runs no lens of its own.
-                EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
-                    .environment(\.selectionLensAppearance, .today)
-                    .hidden()
-                    .frame(width: 0)
+            // Worded, then bare — the document header's rule: "Files" keeps its word only while
+            // the whole title fits beside it, so at the narrowest column the title is not cut for
+            // a word the arrows already carry.
+            ViewThatFits(in: .horizontal) {
+                emptyNameRow(expandWorded: true)
+                emptyNameRow(expandWorded: false)
             }
             emptyMetaRow
+        }
+    }
+
+    /// One reading of the empty page's title row — see ``emptyHeaderContent``.
+    private func emptyNameRow(expandWorded: Bool) -> some View {
+        HStack(spacing: 6) {
+            // The dot's column, reserved as a shape so the title starts where a file name does.
+            Color.clear
+                .frame(width: Self.dotColumnWidth, height: 1)
+            Text(Self.emptyTitle)
+                .scaledFont(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+            // One glass capsule in Frosted and Clear, as in the document's header.
+            HStack(spacing: 6) {
+                newTextFileButton
+            }
+            .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
+            // At the end of the row, where a document's header draws it — beside the ＋'s outset
+            // glass, with the room that keeps the two capsules apart.
+            if railIsHidden {
+                expandButton(worded: expandWorded)
+                    .chromeGlassClearance(.leading, rowSpacing: 6)
+            }
+            // The capsule's height, reserved the way a plain-text header reserves it — and,
+            // like that one, drawn at Solid, so it runs no lens of its own.
+            EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
+                .environment(\.selectionLensAppearance, .today)
+                .hidden()
+                .frame(width: 0)
         }
     }
 
@@ -964,25 +1026,55 @@ public struct EditorWorkspaceView: View {
         .foregroundStyle(.secondary)
     }
 
-    /// **"Just the text."** Hides the file rail — and, through the host, collapses the source pane
-    /// if it was open — leaving the document alone in the row. Lit while the rail bit is set, and
-    /// its label names its NEXT act rather than its state, the way the spine's chevron does. **Not
-    /// withheld in Preview**, unlike Find: it is about the columns, not the text view. No chord —
-    /// the menu bar is held, and ⌥ is not this app's to register. One view, drawn by both headers.
-    private var justTheTextButton: some View {
+    /// **Expand (TE48), once "Just the text".** Hides the file rail — and, through the host,
+    /// collapses the source pane if it was open, which takes the sidebar with it — leaving the
+    /// document alone in the window. Lit while the rail bit is set, and its word names its NEXT act
+    /// rather than its state: "Expand", then "Files". **Not withheld in Preview**, unlike Find: it is
+    /// about the columns, not the text view. ⌃⌘E, Text ▸ Expand, shown on its keycap and in its
+    /// tooltip from the one `AppChord`. One view, drawn by both headers.
+    ///
+    /// **A glass capsule of its own in Frosted and Clear, like the ×** — it left the ＋ / Find
+    /// capsule because it is not about the folder or the text. The same 18pt row height either way,
+    /// so the header's two rows, and with them the pinned header height, do not move; the word
+    /// only ever widens it.
+    private func expandButton(worded: Bool) -> some View {
         Button(action: onToggleJustTheText) {
-            Image(systemName: "text.justify.left")
-                .scaledFont(.system(size: 11, weight: .semibold))
-                .foregroundStyle(railIsHidden ? accent : .primary)
-                .frame(width: 18, height: 18)
-                // The soft accent wash is the lit state; the hover style paints its own
-                // wash over it, which reads as the pressed preview it is.
-                .background(RoundedRectangle(cornerRadius: Radius.chip)
-                    .fill(railIsHidden ? accent.opacity(0.18) : .clear))
+            Group {
+                if worded {
+                    HStack(spacing: 4) {
+                        Image(systemName: Self.expandSymbol(railIsHidden: railIsHidden))
+                            .scaledFont(.system(size: 10, weight: .semibold))
+                        // **Laid out at the wider word**, so lighting it moves nothing: "Files"
+                        // sits in the room "Expand" takes, and the capsule and the ＋ / Find
+                        // capsule to its left stay where the pointer left them.
+                        ZStack(alignment: .leading) {
+                            ForEach([false, true], id: \.self) { hidden in
+                                Text(Self.expandTitle(railIsHidden: hidden)).hidden()
+                            }
+                            Text(Self.expandTitle(railIsHidden: railIsHidden))
+                        }
+                        .scaledFont(.system(size: 10, weight: .semibold))
+                        .lineLimit(1)
+                    }
+                    .padding(.horizontal, 7)
+                    .frame(height: 18)
+                } else {
+                    Image(systemName: Self.expandSymbol(railIsHidden: railIsHidden))
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .frame(width: 18, height: 18)
+                }
+            }
+            .foregroundStyle(railIsHidden ? accent : .primary)
+            // The soft accent wash is the lit state; the hover style paints its own wash over it,
+            // which reads as the pressed preview it is.
+            .background(Capsule().fill(railIsHidden ? accent.opacity(0.18) : .clear))
+            .contentShape(Capsule())
         }
-        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-        .accessibilityLabel(Self.justTheTextTitle(railIsHidden: railIsHidden))
-        .help(Self.justTheTextTitle(railIsHidden: railIsHidden))
+        .chromeGlassGlyphButton(tint: accent, shape: .capsule, outset: ChromeGlass.smallGlyphOutset)
+        .accessibilityLabel(Self.expandTitle(railIsHidden: railIsHidden))
+        .shortcutKeycap(AppChord.editorExpand.display)
+        .help(ShortcutHint.tooltip(Self.expandHelp(railIsHidden: railIsHidden),
+                                   AppChord.editorExpand.display))
     }
 
     private var showsAutosaveSwitch: Bool {
@@ -1086,6 +1178,18 @@ public struct EditorWorkspaceView: View {
                 // rebuilt on every keystroke, where it is not.
                 caretOffset = EditorCaretAnchors.clamped(
                     document.caretAnchors.offset(for: document.path) ?? 0, in: document.text)
+                // A new file arrives with a caret and no selection, and its own formatting: the
+                // last file's lit buttons must not stand over it for the debounce.
+                selectionLength = 0
+                formatState = .none
+            }
+            // **The stored length follows the text view it describes.** A mode switch builds a new
+            // text view whose selection is a bare caret (`PlainTextEditor.restoreCaret`), and the
+            // bar coming on finds a length nobody kept while it was off. Left stale, the next
+            // selection of that same length would leave the key unchanged and the bar unlit.
+            .onChange(of: resolvedMode) { _, _ in selectionLength = 0 }
+            .onChange(of: showsFormatBar) { _, isShown in
+                if isShown { selectionLength = textViewHandle.textView?.selectedRange().length ?? 0 }
             }
             // **The re-render is debounced, and the parse is off the main actor.** Keyed on the
             // document's version counter rather than on its text: `.task(id:)` compares its id
@@ -1150,6 +1254,48 @@ public struct EditorWorkspaceView: View {
                 guard !Task.isCancelled else { return }
                 caret = position
             }
+            // **The format bar's lit state, on the caret's debounce and for the caret's reason** —
+            // it reads the lines the selection touches, and a body pass happens per keystroke.
+            // Nothing is derived while the bar is not drawn; the key carries whether it is, so
+            // turning the bar on derives at once rather than at the next caret move.
+            .task(id: EditorFormatKey(version: document.textVersion, path: document.path,
+                                      offset: caretOffset, length: selectionLength,
+                                      mode: resolvedMode, isShown: showsFormatBar)) {
+                guard showsFormatBar else {
+                    if formatState != .none { formatState = .none }
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(120))
+                guard !Task.isCancelled else { return }
+                let source = document.text
+                let selection = NSRange(location: caretOffset, length: selectionLength)
+                let state = await Task.detached(priority: .userInitiated) {
+                    MarkupFormatState.of(source, selection: selection)
+                }.value
+                guard !Task.isCancelled else { return }
+                if state != formatState { formatState = state }
+            }
+    }
+
+    /// What re-derives the format bar's lit state: the selection, the text under it, the mode (a
+    /// switch rebuilds the text view, with a bare caret), or the bar coming on.
+    private struct EditorFormatKey: Equatable {
+        var version: Int
+        var path: String?
+        var offset: Int
+        var length: Int
+        var mode: EditorMode
+        var isShown: Bool
+    }
+
+    /// Whether the format bar is drawn over this document — see ``EditorFormatBar/isShown``.
+    private var showsFormatBar: Bool {
+        EditorFormatBar.isShown(preference: showsFormatBarPreference,
+                                hasDocument: document.path != nil,
+                                isRefused: document.refusal != nil,
+                                isMarkdown: document.isMarkdown,
+                                isReadOnly: document.isReadOnly,
+                                mode: mode)
     }
 
     /// What re-derives the caret: a new position, OR the text moving under a position that did not.
@@ -1193,7 +1339,7 @@ public struct EditorWorkspaceView: View {
     private func surfaces(for resolved: EditorMode) -> some View {
         switch resolved {
         case .edit:
-            editorSurface
+            sourceColumn
         case .preview:
             MarkdownPreview(blocks: blocks, accent: accent, scrollRequest: previewScrollRequest,
                             onToggleTask: taskToggle, documentFolder: documentFolder,
@@ -1205,7 +1351,7 @@ public struct EditorWorkspaceView: View {
                                                                  in: width)
                 let editorWidth = width * fraction
                 HStack(spacing: 0) {
-                    editorSurface.frame(width: editorWidth)
+                    sourceColumn.frame(width: editorWidth)
                     Divider()
                     // `max(0, …)` because the first layout pass can report a zero width, and
                     // `0 - 0 - 1` is the negative dimension SwiftUI logs and refuses to lay out.
@@ -1249,6 +1395,29 @@ public struct EditorWorkspaceView: View {
     /// disagreeing about whether they are a split.
     static func followsVisibleLine(_ mode: EditorMode) -> Bool { mode == .split }
 
+    /// **The text, under the format bar when it is drawn** (TE52) — in Split, the Source half alone.
+    ///
+    /// The bar is a sibling above the text view rather than an overlay on it, so the text never
+    /// scrolls under a control; and it is an `if` beside an unconditional editor, so turning it on or
+    /// off leaves the text view's identity — and its caret, scroll and undo — where they were.
+    private var sourceColumn: some View {
+        VStack(spacing: 0) {
+            if showsFormatBar {
+                EditorFormatBar(state: formatState, accent: accent,
+                                onVerb: { verb in textViewHandle.applyMarkup(verb) })
+                    .equatable()
+                    .padding(.horizontal, Self.formatBarInset)
+                    .padding(.top, Self.formatBarInset)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            editorSurface
+        }
+    }
+
+    /// The format bar's inset from the text card's edges — the bar is a strip IN the card, and the
+    /// text view's own 14pt container inset sits under it.
+    static let formatBarInset: CGFloat = 6
+
     private var editorSurface: some View {
         PlainTextEditor(text: $buffer.text,
                         isEditable: !document.isReadOnly,
@@ -1263,6 +1432,10 @@ public struct EditorWorkspaceView: View {
                         // whole feature depend on teardown ordering, and this is always current.
                         onSelectionChange: {
                             caretOffset = $0.location
+                            // Only while the bar reads it: a forward drag keeps the location still,
+                            // and writing the length on every tick redrew this whole view for
+                            // nobody in a plain-text file or with the bar off.
+                            if showsFormatBar, selectionLength != $0.length { selectionLength = $0.length }
                             document.caretAnchors.remember($0.location, for: document.path)
                         },
                         scrollRequest: editorScrollRequest,
@@ -1278,7 +1451,8 @@ public struct EditorWorkspaceView: View {
                         findRequest: findRequest,
                         // Withheld on a file that cannot be written — a Markup menu that greys out
                         // is a promise the document cannot keep.
-                        offersMarkup: !document.isReadOnly)
+                        offersMarkup: !document.isReadOnly,
+                        textViewHandle: textViewHandle)
     }
 
     /// Sends both surfaces to a heading.

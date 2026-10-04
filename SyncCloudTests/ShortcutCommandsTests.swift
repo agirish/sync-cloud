@@ -61,6 +61,7 @@ import Foundation
             editorVerbs: EditorVerbs(mode: .edit, canPreview: true, setMode: { _ in },
                                      autosave: EditorVerbs.AutosaveSwitch(isOn: true, toggle: {}),
                                      canMarkUp: true, canFind: true),
+            editorExpand: EditorExpandSwitch(isOn: false, toggle: {}),
             suspended: suspended
         )
     }
@@ -204,6 +205,8 @@ import Foundation
         // The Text and Markup menus: a mode switch or an autosave toggle under a destination pick
         // changes the document the pick may be about.
         #expect(publisher.effectiveEditorVerbs == nil)
+        // Text ▸ Expand: folding the pane under a pick hides the folder the pick describes.
+        #expect(publisher.effectiveEditorExpand == nil)
     }
 
     /// ...and the guard the test above depends on: unsuspended, the same loaded publisher passes
@@ -244,6 +247,7 @@ import Foundation
         #expect(publisher.effectivePaneRowVerbs != nil)
         #expect(publisher.effectiveCompareTwoFiles != nil)
         #expect(publisher.effectiveEditorVerbs != nil)
+        #expect(publisher.effectiveEditorExpand != nil)
     }
 
     /// **Every `effective…` the publisher exposes is named in BOTH lists above.**

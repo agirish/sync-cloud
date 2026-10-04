@@ -95,9 +95,14 @@ import Foundation
 
     /// The hidden mode bars that only reserve a header's height are drawn at Solid: no lens of their
     /// own to run on a mode change, no glass track — and the same height either way.
+    ///
+    /// Matched across any whitespace between the two modifiers: it counted them by their exact
+    /// indentation, so moving the empty page's reservation one level out (TE48) read as a lost one.
     @Test func editsHeightReservationsRunNoLens() throws {
         let editor = try Self.source("EditorWorkspaceView.swift")
-        #expect(Self.count(".environment(\\.selectionLensAppearance, .today)\n                    .hidden()", in: editor) == 2)
+        let reservation = try NSRegularExpression(pattern: #"\.environment\(\\\.selectionLensAppearance, \.today\)\s*\.hidden\(\)"#)
+        let found = reservation.numberOfMatches(in: editor, range: NSRange(editor.startIndex..., in: editor))
+        #expect(found == 2, "\(found) hidden mode-bar reservations run at Solid — the plain-text and empty-page headers' two expected")
     }
 
     @Test func theDestinationRailHostsALens() throws {

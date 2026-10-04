@@ -109,13 +109,13 @@ never wears a count badge.
 The one workspace that changes what is *inside* a file rather than moving files around. A collapsible
 file pane on the left to browse to any folder — one click on a text file opens it — and the open
 document beside it; fold the pane away and a rail lists the folder's text files instead, or hide
-both with **Just the text**. Markdown renders in **Source / Preview / Split**, at the app's own text size rather
+both with **Expand** (⌃⌘E). Markdown renders in **Source / Preview / Split**, at the app's own text size rather
 than a web view's. **⌘N** makes a new file — nothing on disk until you press ↩ — and **⌘S** writes
 it — but you rarely need to: the editor **autosaves** a couple of seconds after you stop typing, and
 whenever the document leaves the screen. A save is staged and swapped like
 every other write here, goes back in the encoding the file was read in, and asks first if the file
 changed underneath you. A file that is not valid text opens read-only rather than risking its bytes.
-**⌘O** opens the text file selected in any pane here — so does **Open in Edit**, first in a file pane's right-click menu, by the file's name in the preview, in the Info inspector, and in the right-click menus of Compare's differences and Organize's duplicate copies. Above the document, **＋** makes a new file and **×** puts the open one away.
+**⌘O** opens the text file selected in any pane here — so does **Open in Edit**, first in a file pane's right-click menu, by the file's name in the preview, in the Info inspector, and in the right-click menus of Compare's differences and Organize's duplicate copies. Above the document, **＋** makes a new file and **×** puts the open one away; above a Markdown file's text, a **format bar** carries the Markup verbs as buttons.
 
 ### 🤖 AI-assisted filing (optional)
 Organize's suggestions start from a fast, fully-offline engine (your existing folder names + filename

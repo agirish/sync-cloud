@@ -98,12 +98,14 @@ import FileExplorerTestSupport
 
     /// Both halves in one window, the way `editorLayout`'s expanded arm puts them.
     static func mount(_ document: EditorDocument, style: SurfaceStyle, scale: CGFloat,
-                      defaults: UserDefaults, tabStrip: Bool = false) -> NSHostingView<AnyView> {
+                      defaults: UserDefaults, tabStrip: Bool = false,
+                      railIsHidden: Bool = false) -> NSHostingView<AnyView> {
         let size = CGSize(width: paneWidth + editorWidth, height: height)
         let host = NSHostingView(rootView: AnyView(
             HStack(spacing: 0) {
                 pane(style, tabStrip: tabStrip).frame(width: paneWidth)
-                workspace(document, style: .folderName, paneShowsTabStrip: tabStrip)
+                workspace(document, style: .folderName, railIsHidden: railIsHidden,
+                          paneShowsTabStrip: tabStrip)
                     .frame(width: editorWidth)
             }
             .frame(width: size.width, height: size.height)
@@ -139,11 +141,15 @@ import FileExplorerTestSupport
         return (list, text)
     }
 
-    static func defaults(_ style: SurfaceStyle) -> ScratchDefaults {
+    /// **The format bar off unless asked for** (TE52). With it on, the text card's first content is
+    /// the bar rather than the text, so "the text starts where the list does" stops being the
+    /// claim's own words; ``theFormatBarIsTheTextCardsFirstContent`` measures that case.
+    static func defaults(_ style: SurfaceStyle, formatBar: Bool = false) -> ScratchDefaults {
         let defaults = ScratchDefaults("EditHeaderMatchesPaneHeaderTests")
         defaults.set(style.rawValue, forKey: LiquidGlass.surfaceStyleKey)
         defaults.set(GlassLevel.solid.rawValue, forKey: LiquidGlass.levelKey)
         defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
+        defaults.set(formatBar, forKey: EditorTextSettings.showsFormatBarKey)
         return defaults
     }
 
@@ -197,27 +203,75 @@ import FileExplorerTestSupport
     ///
     /// **And on the empty page** — no document open, the header card is still drawn and still this
     /// height, so the toolbar card and the header card go on sharing an edge after a close.
+    ///
+    /// **And with Expand lit** (TE48): the button left the ＋ / Find capsule for the end of the row
+    /// and wears a word there — "Expand", then "Files" — and on the empty page it is drawn only lit.
+    /// Neither the word nor the lit state may grow the card, so both states are measured, on a
+    /// document and on the empty page, plain text included. Mutation: give the worded pill vertical
+    /// padding and the lit cases fail.
     @Test func theHeaderCardIsTheToolbarCardsHeightAtEveryTextSize() throws {
         let doc = try Self.document("Budget.md")
+        let plain = try Self.document("Budget.txt")
         for size in FontSize.allCases {
             for style in [EditorDocumentLocation.Style.folderName, .crumb] {
                 let toolbar = Self.laidOutHeight(
                     Self.paneHeader().paneCardIfNeeded(.cards, level: .solid)
                         .environment(\.appFontScale, size.scale))
-                for document in [doc, EditorDocument()] {
-                    let header = Self.laidOutHeight(
-                        Self.workspace(document, style: style).headerCard
-                            .bottomSectionCard(.cards, level: .solid)
-                            .environment(\.appFontScale, size.scale))
-                    #expect(abs(toolbar - header) < 0.51,
-                            "\(size.percent)% \(style) \(document.path == nil ? "empty page" : document.name): toolbar card \(toolbar)pt, header card \(header)pt")
+                for document in [doc, plain, EditorDocument()] {
+                    for railIsHidden in [false, true] {
+                        let header = Self.laidOutHeight(
+                            Self.workspace(document, style: style, railIsHidden: railIsHidden).headerCard
+                                .bottomSectionCard(.cards, level: .solid)
+                                .environment(\.appFontScale, size.scale))
+                        #expect(abs(toolbar - header) < 0.51,
+                                "\(size.percent)% \(style) \(document.path == nil ? "empty page" : document.name), Expand \(railIsHidden ? "lit" : "off"): toolbar card \(toolbar)pt, header card \(header)pt")
+                        // The card is pinned, so its frame alone proves little: the rows inside it
+                        // must fit as well, or the pin is clipping a header that grew — the rows the
+                        // app DRAWS, which on the empty page are its own, not a document's.
+                        let ws = Self.workspace(document, style: style, railIsHidden: railIsHidden)
+                        let content = document.path == nil ? AnyView(ws.emptyHeaderContent) : AnyView(ws.headerContent)
+                        let rows = Self.laidOutHeight(
+                            content
+                                .padding(.vertical, 8)
+                                .environment(\.appFontScale, size.scale))
+                        #expect(rows <= LiquidGlass.headerHeight + 0.5,
+                                "\(size.percent)% \(style) \(document.path == nil ? "empty page" : document.name), Expand \(railIsHidden ? "lit" : "off"): the rows need \(rows)pt in a \(LiquidGlass.headerHeight)pt card")
+                    }
                 }
             }
         }
     }
 
+    /// **With the format bar on (TE52), the bar is the text card's first content** — it starts where
+    /// the pane's list does, less only its own inset, and the text starts under it. The header is
+    /// untouched: the bar went into the text card precisely so the header could stay pinned. Both
+    /// styles, every text size. Mutation: draw the bar in the header and the header test above
+    /// fails (its rows are measured with the bar ON); pad the bar from below and this one does.
+    @Test func theFormatBarIsTheTextCardsFirstContent() throws {
+        let markdown = try Self.document("Budget.md")
+        for style in [SurfaceStyle.cards, .unified] {
+            let off = Self.defaults(style)
+            let on = Self.defaults(style, formatBar: true)
+            for size in FontSize.allCases {
+                let (list, withoutBar) = Self.tops(in: Self.mount(markdown, style: style, scale: size.scale, defaults: off))
+                let (_, withBar) = Self.tops(in: Self.mount(markdown, style: style, scale: size.scale, defaults: on))
+                let listTop = try #require(list, "no pane list mounted (\(style)) — vacuous")
+                let plainTop = try #require(withoutBar, "no text view mounted (\(style)) — vacuous")
+                let barTop = try #require(withBar, "no text view mounted under the bar (\(style)) — vacuous")
+                #expect(abs(listTop - plainTop) < 0.51, "\(style), \(size.percent)%: the bar-less text starts off the list")
+                let bar = NSHostingView(rootView: AnyView(
+                    EditorFormatBar(state: .none, accent: .blue, onVerb: { _ in },
+                                    forcedRung: EditorFormatBar.ladder[0])
+                        .environment(\.appFontScale, size.scale))).fittingSize.height
+                #expect(abs(barTop - listTop - (EditorWorkspaceView.formatBarInset + bar)) < 0.51,
+                        "\(style), \(size.percent)%: the text starts \(barTop - listTop)pt under the list's top, not the bar's \(EditorWorkspaceView.formatBarInset) + \(bar)")
+            }
+        }
+    }
+
     private static func laidOutHeight<V: View>(_ view: V) -> CGFloat {
-        let defaults = defaults(.cards)
+        // The bar ON: a bar moved into the header would then grow the rows this measures.
+        let defaults = defaults(.cards, formatBar: true)
         let host = NSHostingView(rootView: AnyView(view.frame(width: editorWidth)
                                                     .defaultAppStorage(defaults)))
         host.frame = CGRect(x: 0, y: 0, width: editorWidth, height: 1_000)

@@ -254,7 +254,7 @@ import FileExplorerTestSupport
         let document = try document()
         // Long enough that the META row is the header's wider row. The header's fitting width is
         // the wider of its two rows, and the door's padding is on the second; with short words the
-        // first row — the name, Find, the "Just the text" glyph — is wider, and the door could be
+        // first row — the name, Find, Expand — is wider, and the door could be
         // drawn or not without the number below moving.
         let words = "not saving — the file changed on disk underneath the buffer, and the words are long"
         // No width frame: at a pinned width the row's `Spacer` absorbs the padding and both

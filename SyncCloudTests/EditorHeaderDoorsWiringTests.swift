@@ -114,6 +114,69 @@ import FileExplorer
         #expect(close.lowerBound < save.lowerBound, "Close Document is declared after Save")
     }
 
+    // MARK: Expand (TE48)
+
+    /// **The header's Expand button and Text ▸ Expand run the one toggle, and are offered by the one
+    /// rule.** The button is handed `toggleJustTheText` (the internal name it kept), the menu's value
+    /// runs the same, and the value is gated on `EditorExpandSwitch.isOffered` with the window's
+    /// workspace, document and bit. Mutations: hand the button `{}`, have the item flip
+    /// `editorRailHidden` directly (skipping the pane's collapse), or drop the gate — each fails a line.
+    @Test func expandAndTextExpandRunTheOneToggleByTheOneRule() throws {
+        let source = try Self.editor()
+        let workspace = try Self.memberBody("func editorWorkspace(showsRail: Bool)", in: source)
+        #expect(try Self.call("EditorWorkspaceView(", in: workspace).passes("onToggleJustTheText", "{ toggleJustTheText() }"),
+                "the header's Expand is not handed toggleJustTheText")
+        #expect(try Self.call("EditorWorkspaceView(", in: workspace).passes("railIsHidden", "editorIsExpanded"),
+                "the header's Expand does not light on what the toggle decides by")
+        // "On" is the bit AND the pane folded — the bit alone survives the pane being reopened.
+        let expanded = try Self.memberBody("var editorIsExpanded: Bool", in: source)
+        #expect(expanded.contains("editorRailHidden && panesHiddenForCurrentTab"),
+                "Expand reads as on without the pane being folded — lit Files beside an open pane")
+        let item = try Self.memberBody("var shortcutEditorExpand: EditorExpandSwitch?", in: source)
+        #expect(item.contains("EditorExpandSwitch.isOffered("), "Text ▸ Expand is offered without the button's rule")
+        #expect(item.contains("workspace: selectedWorkspace"), "Text ▸ Expand is not gated on the workspace")
+        #expect(item.contains("hasDocument: editorDocument.path != nil"), "Text ▸ Expand does not ask whether a document is open")
+        #expect(item.contains("isOn: editorIsExpanded"), "Text ▸ Expand ticks on something other than the button's lit state")
+        #expect(item.contains("{ toggleJustTheText() }"), "Text ▸ Expand does not run the button's toggle")
+        #expect(!item.contains("editorRailHidden ="), "Text ▸ Expand flips the bit itself, skipping the pane's collapse")
+        let publisher = try Self.source("ShortcutCommands.swift")
+        #expect(try CallArguments(of: "ShortcutValuePublisher(", in: publisher)
+                    .passes("editorExpand", "shortcutEditorExpand"),
+                "the chord publisher is not handed shortcutEditorExpand")
+        // Decided by the lit state, and logged both ways: three doors reach the toggle and none
+        // leaves a trace on screen.
+        let toggle = try Self.memberBody("func toggleJustTheText()", in: source)
+        #expect(toggle.contains("if editorIsExpanded {"), "the toggle decides by the bit alone")
+        // Whole literals, quotes included: the needle is lexed like the code, so a bare sentence
+        // would be read as code and never match the same words inside a string.
+        #expect(toggle.contains(#"Logger.shared.info("[edit] Expand on — ""#),
+                "turning Expand on is not logged")
+        #expect(toggle.contains(#"Logger.shared.info("[edit] Expand off — the Text Files list is back")"#),
+                "turning Expand off is not logged")
+        // The spine's Text Files rung is the third door, and runs the same toggle — so it is logged.
+        let spine = try Self.source("ContentView+SplitLayout.swift")
+        #expect(spine.contains("Button { toggleJustTheText() } label: {"),
+                "the spine's rung turns Expand off by itself, unlogged")
+        #expect(!spine.contains("editorRailHidden = false"), "the spine still clears the bit directly")
+    }
+
+    /// **Offered where the header draws the button**: in Edit, over any open document — a refused
+    /// one too, whose header still draws it — and on the empty page only while it is lit, the way
+    /// back to the files. Never outside Edit. Mutation: drop `isOn` from the rule and the lit empty
+    /// page loses its way back; drop the workspace and Browse gains a ⌃⌘E.
+    @Test func textExpandIsOfferedWhereTheHeaderDrawsTheButton() {
+        #expect(EditorExpandSwitch.isOffered(workspace: .editor, hasDocument: true, isOn: false))
+        #expect(EditorExpandSwitch.isOffered(workspace: .editor, hasDocument: true, isOn: true))
+        #expect(EditorExpandSwitch.isOffered(workspace: .editor, hasDocument: false, isOn: true),
+                "the lit empty page has no Text ▸ Expand — the button and the spine's rung are its only doors")
+        #expect(!EditorExpandSwitch.isOffered(workspace: .editor, hasDocument: false, isOn: false),
+                "Text ▸ Expand is live on the empty page with the files showing, where the button is not drawn")
+        for workspace in Workspace.allCases where workspace != .editor {
+            #expect(!EditorExpandSwitch.isOffered(workspace: workspace, hasDocument: true, isOn: true),
+                    "Text ▸ Expand is live in \(workspace)")
+        }
+    }
+
     // MARK: The load
 
     /// **`loadIntoEditor` runs the shared load, and is handed the window's real pieces.**
