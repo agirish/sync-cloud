@@ -57,6 +57,40 @@ enum MarkdownFrontMatter {
         return Split(frontMatter: matter, body: body, bodyStartLine: closing + 2)
     }
 
+    /// Where ``split(_:)``'s body begins, as a line and as a UTF-16 offset into `ns` — **the same
+    /// answer, without splitting the buffer.** This is asked on a keystroke
+    /// (``MarkdownSourceContext``), and `split` copies every line of the buffer out to answer it.
+    /// `bodyStartIsSplitsAnswer` holds the two together.
+    static func bodyStart(in ns: NSString) -> (line: Int, offset: Int) {
+        // `split`'s own rule, walked line by line from the top and stopped at the closer, rather
+        // than every line of the buffer copied out first: lines by `\n` alone, the first trimmed to
+        // `---`, the block closed by the first later line trimmed to `---` or `...`, and nothing
+        // when there is no second line or no closer.
+        func line(from start: Int) -> (text: String, next: Int?) {
+            // `.literal`: a newline followed by a combining mark is still the newline `split` cuts
+            // at — without it, the two disagree about where the body starts.
+            let newline = ns.range(of: "\n", options: .literal,
+                                   range: NSRange(location: start, length: ns.length - start))
+            guard newline.location != NSNotFound else {
+                return (ns.substring(from: start), nil)
+            }
+            return (ns.substring(with: NSRange(location: start, length: newline.location - start)),
+                    NSMaxRange(newline))
+        }
+        let first = line(from: 0)
+        guard trimmed(first.text) == "---", var start = first.next else { return (1, 0) }
+        var index = 1
+        while true {
+            let current = line(from: start)
+            if closers.contains(trimmed(current.text)) {
+                return (index + 2, current.next ?? ns.length)
+            }
+            guard let next = current.next else { return (1, 0) }
+            start = next
+            index += 1
+        }
+    }
+
     /// A line with its trailing carriage return and spaces gone.
     ///
     /// **CR included, and that is not defensive.** Splitting on `"\n"` alone leaves the `\r` of a

@@ -2404,7 +2404,9 @@ struct UseSelectionForFindCommand: View {
 
 /// Text ▸ Wrap Lines and Check Spelling While Typing — the two switches the text view's context
 /// menu already carries, on the same two `UserDefaults` keys — and Format Bar (TE52), the third
-/// preference about how the document is drawn, on its own key.
+/// preference about how the document is drawn, on its own key. Continue Lists (TE54) is the one
+/// about what Return WRITES, on its own key too, and only here: the context menu's switches are
+/// about drawing.
 ///
 /// **Read and written through `@AppStorage` here, not through a published closure**, because that is
 /// what the context menu does too (`PlainTextEditor.Coordinator.toggleWrapping`): every mounted
@@ -2416,6 +2418,7 @@ struct EditorTextSettingCommands: View {
     @AppStorage(EditorTextSettings.wrapsKey) private var wrapsLines = EditorTextSettings.wrapsDefault
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling = EditorTextSettings.checksSpellingDefault
     @AppStorage(EditorTextSettings.showsFormatBarKey) private var showsFormatBar = EditorTextSettings.showsFormatBarDefault
+    @AppStorage(EditorTextSettings.continuesListsKey) private var continuesLists = EditorTextSettings.continuesListsDefault
 
     var body: some View {
         Toggle("Wrap Lines", isOn: $wrapsLines)
@@ -2426,6 +2429,10 @@ struct EditorTextSettingCommands: View {
         // bar comes back on the next Markdown file — greying it on a `.txt` would make a setting
         // reachable only from the files it applies to.
         Toggle("Format Bar", isOn: $showsFormatBar)
+            .disabled(verbs == nil)
+        // Live wherever the others are, for the Format Bar's reason: a preference, reachable from
+        // a `.txt` too, where it changes nothing until the next Markdown file.
+        Toggle("Continue Lists", isOn: $continuesLists)
             .disabled(verbs == nil)
     }
 }
@@ -2704,7 +2711,7 @@ struct EditorMenus: Commands {
             FindNextCommand()            // ⌘G
             UseSelectionForFindCommand() // ⌘E
             Divider()
-            EditorTextSettingCommands()  // Wrap Lines · Check Spelling While Typing · Format Bar, ticked
+            EditorTextSettingCommands()  // Wrap Lines · Check Spelling While Typing · Format Bar · Continue Lists, ticked
             Divider()
             AutosaveThisFileCommand()    // the header switch, as an item
         }

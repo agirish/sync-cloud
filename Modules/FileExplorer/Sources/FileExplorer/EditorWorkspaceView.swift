@@ -203,6 +203,11 @@ public struct EditorWorkspaceView: View {
     /// on screen then — which is also why it defaults to `false`: every other construction site is
     /// a test of a workspace with no pane beside it.
     var paneShowsTabStrip: Bool = false
+    /// **Told about every image dropped on or pasted into the open note (TE56)** — what was written,
+    /// so the host can re-read the panes and owe Compare its rescan, or why nothing was, for the
+    /// banner. `nil` takes no images: a drop or paste of one does what it always did, rather than
+    /// writing files nobody is told about.
+    var onImagesImported: ((EditorImageImport.Report) -> Void)?
 
     @Environment(\.appFontScale) private var fontScale
 
@@ -302,7 +307,8 @@ public struct EditorWorkspaceView: View {
                 onAutosaveResumed: @escaping () -> Void = {},
                 paneShowsTabStrip: Bool = false,
                 folderDisplayName: String? = nil,
-                newFileFolderName: String? = nil) {
+                newFileFolderName: String? = nil,
+                onImagesImported: ((EditorImageImport.Report) -> Void)? = nil) {
         self._railFilter = railFilter
         self._railFilterIsExpanded = railFilterIsExpanded
         self._railTab = railTab
@@ -343,6 +349,7 @@ public struct EditorWorkspaceView: View {
         self.paneShowsTabStrip = paneShowsTabStrip
         self.folderDisplayName = folderDisplayName
         self.newFileFolderName = newFileFolderName
+        self.onImagesImported = onImagesImported
     }
 
     /// **The Expand button's word (TE48): its NEXT act, not its state** — the way the spine's
@@ -1452,7 +1459,17 @@ public struct EditorWorkspaceView: View {
                         // Withheld on a file that cannot be written — a Markup menu that greys out
                         // is a promise the document cannot keep.
                         offersMarkup: !document.isReadOnly,
+                        editsMarkdown: document.isMarkdown,
+                        imageImport: imageImporter,
                         textViewHandle: textViewHandle)
+    }
+
+    /// Where a dropped or pasted image goes — only for a Markdown note that can be written, and
+    /// only when the host is listening (``onImagesImported``).
+    private var imageImporter: EditorImageImporter? {
+        guard let onImagesImported, let path = document.path, document.isMarkdown,
+              !document.isReadOnly, document.refusal == nil else { return nil }
+        return EditorImageImporter(notePath: path, report: onImagesImported)
     }
 
     /// Sends both surfaces to a heading.

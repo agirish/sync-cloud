@@ -40,13 +40,14 @@ import Testing
     }
 
     /// The Text menu, in the roadmap's order: the modes and Expand (TE48), the find bar's pair, the
-    /// drawing switches — Format Bar (TE52) the third — the autosave switch. **Neither Find… nor
+    /// drawing switches — Format Bar (TE52) the third — and Continue Lists (TE54), the autosave
+    /// switch. **Neither Find… nor
     /// Save**, which stay in Edit and File — one action, one item, so no chord is registered twice.
     @Test func theTextMenuIsInTheRoadmapsOrder() throws {
         let text = Self.titles(try Self.menu("Text"))
         #expect(text == ["Source", "Preview", "Split", "Expand",
                          "Find Next", "Use Selection for Find",
-                         "Wrap Lines", "Check Spelling While Typing", "Format Bar",
+                         "Wrap Lines", "Check Spelling While Typing", "Format Bar", "Continue Lists",
                          "Autosave This File"],
                 "the Text menu reads \(text)")
         // Expand sits with the modes, before the first divider — not in a group of its own.
@@ -101,6 +102,8 @@ import Testing
         #expect(claimants == ["Expand"], "⌃⌘E is claimed by \(claimants)")
         // Format Bar is a switch with no key — the bar's buttons carry the Markup chords already.
         #expect(try Self.item("Format Bar", in: "Text").keyEquivalent.isEmpty, "Format Bar has acquired a key")
+        // Continue Lists likewise: a preference, not a verb.
+        #expect(try Self.item("Continue Lists", in: "Text").keyEquivalent.isEmpty, "Continue Lists has acquired a key")
     }
 
     @Test func theFindBarsPairCarryTheirPlatformChords() throws {

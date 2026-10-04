@@ -387,7 +387,8 @@ extension ContentView {
             onAutosaveResumed: { runAutosave() },
             paneShowsTabStrip: editorPaneShowsTabStrip,
             folderDisplayName: editorFolderDisplayName,
-            newFileFolderName: editorNewFileFolderName)
+            newFileFolderName: editorNewFileFolderName,
+            onImagesImported: { noteEditorImages($0) })
         // The rail is re-listed on arrival and whenever the folder or the hidden-files preference
         // moves — `.task(id:)` restarts on either.
         .task(id: EditorRailKey(folder: editorFolder, showsHidden: syncManager.showHiddenFiles)) {
@@ -1284,6 +1285,32 @@ extension ContentView {
         } catch {
             syncManager.banner = .error("Couldn't create the file — \(error.localizedDescription)")
             return false
+        }
+    }
+
+    /// **What an image dropped on or pasted into the open note left on disk — or why nothing did**
+    /// (TE56). The text view has already linked what was written; this is the host's half.
+    ///
+    /// A new image is a new file in a folder the panes have walked, so it is re-read the way ⌘N's
+    /// file is (`rereadPanesAfterEditorWrite`) — which, under a folder Compare is comparing, owes
+    /// that comparison its rescan. A folder this import made is re-read through its parent, as ⌘N's
+    /// Notes is; images in a folder that was there, through that folder. A refusal changed nothing
+    /// on disk and says so in the banner, as every other Edit write that could not happen does.
+    func noteEditorImages(_ report: EditorImageImport.Report) {
+        switch report {
+        case .refused(let reason):
+            Logger.shared.info("[edit] Image not added: \(reason)")
+            syncManager.banner = .error(reason)
+        case .wrote(let files, let madeFolder, let linked, let failed):
+            if linked.isEmpty {
+                // Nothing linked, but a folder it made could not be taken away again.
+                Logger.shared.info("[edit] Image not added: \(failed ?? "nothing was saved"); left \(madeFolder ?? "nothing")")
+            } else {
+                Logger.shared.info("[edit] Image added: wrote \(files.count) file(s)"
+                    + (madeFolder.map { " and made \($0)" } ?? "") + ", linked \(linked.joined(separator: ", "))")
+            }
+            if let failed { syncManager.banner = .error(failed) }
+            if let reread = madeFolder ?? files.first { rereadPanesAfterEditorWrite(reread) }
         }
     }
 

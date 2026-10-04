@@ -56,7 +56,14 @@ let package = Package(
             name: "FileExplorer",
             dependencies: [
                 "Sync", "Events", "Design",
-                .product(name: "Markdown", package: "swift-markdown")
+                .product(name: "Markdown", package: "swift-markdown"),
+                // **The same parser, named directly — no new code shipped.** `Markdown` already
+                // links both; `MarkdownSourceContext` asks cmark itself where a line sits, because
+                // that question is asked on a keystroke and swift-markdown's conversion of the whole
+                // tree into Swift values is nine tenths of its parse (measured 2026-10-04: 41ms
+                // against 3ms for a 100 KB note, debug build).
+                .product(name: "cmark-gfm", package: "swift-cmark"),
+                .product(name: "cmark-gfm-extensions", package: "swift-cmark")
             ]),
         .target(
             name: "FileExplorerTestSupport",

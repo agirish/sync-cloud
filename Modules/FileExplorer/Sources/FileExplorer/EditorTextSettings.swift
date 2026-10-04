@@ -38,6 +38,17 @@ public enum EditorTextSettings {
     public static let showsFormatBarKey = "editorShowsFormatBar"
     public static let showsFormatBarDefault = true
 
+    /// Whether Return carries a Markdown list on, and Tab and ⇧Tab move an item in and out (TE54,
+    /// decision N).
+    ///
+    /// **On by default, and the one setting here about what is WRITTEN rather than how it is
+    /// drawn** — which is why it has a switch at all. Everything else in this editor that adds
+    /// characters unasked is off for good (see ``checksSpellingKey``); this adds a marker only on a
+    /// Return at the end of a list item in Markdown, one ⌘Z takes it back, and Text ▸ Continue Lists
+    /// turns it off for anyone who wants Return to be only a Return.
+    public static let continuesListsKey = "editorContinuesLists"
+    public static let continuesListsDefault = true
+
     // MARK: - There is deliberately no "Show Invisibles"
     //
     // **It was specified, costed and dropped on 2026-09-01, and the reason is worth keeping so it

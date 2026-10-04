@@ -118,6 +118,15 @@ struct PlainTextEditor: NSViewRepresentable {
     /// be saved — see ``EditorDocument/readOnlyReason``.
     var offersMarkup: Bool = true
 
+    /// Whether the open file is Markdown — which turns on the four edits in
+    /// `PlainTextEditor+MarkdownTyping`: lists carried on and moved (TE54), a web address pasted
+    /// onto words (TE55), an image dropped or pasted (TE56). Each also checks the view is editable.
+    var editsMarkdown: Bool = false
+
+    /// Where a dropped or pasted image goes, or `nil` when images are not taken here — see
+    /// ``EditorImageImporter``.
+    var imageImport: EditorImageImporter?
+
     /// Where this view leaves a weak reference to its text view, for the format bar above it — see
     /// ``EditorTextViewHandle``. `nil` where nothing beside the text acts on it.
     var textViewHandle: EditorTextViewHandle?
@@ -128,6 +137,8 @@ struct PlainTextEditor: NSViewRepresentable {
         = EditorTextSettings.wrapsDefault
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling: Bool
         = EditorTextSettings.checksSpellingDefault
+    @AppStorage(EditorTextSettings.continuesListsKey) private var continuesLists: Bool
+        = EditorTextSettings.continuesListsDefault
 
     /// The editor's base size before the app's text scale is applied. 13 is the platform's own
     /// monospace reading size and matches the keycaps elsewhere in the app.
@@ -193,6 +204,12 @@ struct PlainTextEditor: NSViewRepresentable {
         /// The view these callbacks belong to. Weak: the coordinator outlives a torn-down view, and
         /// a strong reference here would be a retain cycle through the delegate.
         weak var textView: NSTextView?
+        /// Re-assigned every pass, like ``offersMarkup`` — see ``PlainTextEditor/editsMarkdown``.
+        var editsMarkdown = false
+        /// Text ▸ Continue Lists (TE54). Return, Tab and ⇧Tab do what they always did while off.
+        var continuesLists = EditorTextSettings.continuesListsDefault
+        /// See ``PlainTextEditor/imageImport``.
+        var imageImport: EditorImageImporter?
         private var boundsObserver: (any NSObjectProtocol)?
 
         init(text: Binding<String>, undoManager: UndoManager, documentID: String?,
@@ -557,7 +574,9 @@ struct PlainTextEditor: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
+        // **The subclass, for its paste and drop** — see ``EditorTextView``. The same factory builds
+        // it, on the same TextKit 2 engine.
+        let scroll = EditorTextView.scrollableTextView()
         // **Marked, so a chord fired from outside can tell this text view from every other one.**
         // See `EditorDocumentSurface` for why `responder is NSTextView` is the wrong question.
         scroll.identifier = EditorDocumentSurface.identifier
@@ -609,6 +628,10 @@ struct PlainTextEditor: NSViewRepresentable {
         context.coordinator.onVisibleLineChange = onVisibleLineChange
         context.coordinator.textView = view
         context.coordinator.offersMarkup = offersMarkup
+        context.coordinator.editsMarkdown = editsMarkdown
+        context.coordinator.continuesLists = continuesLists
+        context.coordinator.imageImport = imageImport
+        (view as? EditorTextView)?.handler = context.coordinator
         textViewHandle?.textView = view
         context.coordinator.watchScrolling(of: scroll, textView: view)
         Self.restoreCaret(to: initialSelection, in: view, text: text)
@@ -738,6 +761,9 @@ struct PlainTextEditor: NSViewRepresentable {
         context.coordinator.lineIndex = lineIndex
         context.coordinator.textView = view
         context.coordinator.offersMarkup = offersMarkup
+        context.coordinator.editsMarkdown = editsMarkdown
+        context.coordinator.continuesLists = continuesLists
+        context.coordinator.imageImport = imageImport
         // Every pass, not only at construction: Source and Split mount this view from two `switch`
         // arms, so the text view the handle names changes with the mode.
         if textViewHandle?.textView !== view { textViewHandle?.textView = view }

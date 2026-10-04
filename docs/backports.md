@@ -6655,3 +6655,43 @@ done
 `main` 2026-08-31; see "The Edit workspace" above), so there is no header for Expand to sit in, no
 Markup verbs for a bar to carry, and no Text menu for either item. Nothing to pick short of the
 workspace itself.
+
+## Lists carry on, links and images paste (TE54–TE56) — main only
+
+Four edits to a writable Markdown file in Edit, each a narrow exception to "Edit writes only what
+you typed", each asked of the preview's own parser first (`MarkdownSourceContext` — cmark-gfm
+directly, configured as swift-markdown configures it, over the buffer up to the caret's line;
+`FileExplorer` now names the `cmark-gfm` products it already linked through `Markdown`). **TE54:**
+Return at the end of a list item adds the next opening (`MarkdownListEdits.returnEdit` — same
+bullet, number + 1, `[ ]` after a task), the Return and the opening one undo step; Return on an
+empty item takes the opening off (`.endList` adds the blank line, `.clearMarker` mid-list does
+not). Tab/⇧Tab move an item and the lines the parser gives it (`itemExtent`) by its content column,
+and keep the result only if `MarkdownSourceContext.leaves` reads back the same blocks and words
+with that item one level moved (a first sub-list item may be renumbered `1.`, the only number that
+interrupts a paragraph); Text ▸ Continue Lists (`editorContinuesLists`) turns it off. **TE55:** a
+lone http(s) address pasted over words makes `[words](url)` (`MarkdownPasteEdits.linkPaste`).
+**TE56:** an image dropped from Finder or pasted is written into `<note folder>/Images/<note>-N.<ext>`
+through `EditorFileStore.createNew` — a new door that stages, flushes and moves in with
+`renamex_np(RENAME_EXCL)`, so it never replaces a file — and linked on its own line; the host re-reads
+the panes and owes Compare through `rereadPanesAfterEditorWrite`. Paste and drop reach a new
+`NSTextView` subclass, `EditorTextView`.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s editor=%s statusLine=%s listEdits=%s textView=%s imageImport=%s continuesLists=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PlainTextEditor.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorStatusLine.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/MarkdownListEdits.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorTextView.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorImageImport.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorTextSettings.swift 2>/dev/null | grep -c 'continuesListsKey')"
+done
+# measured 2026-10-04, against origin, before this landed:
+# main  editor=1 statusLine=1 listEdits=0 textView=0 imageImport=0 continuesLists=0
+# v4.x, v3.x, v2.x — every line: editor=0 statusLine=0 listEdits=0 textView=0 imageImport=0 continuesLists=0
+# and on this change's own tree: 1 1 1 1 1 1
+```
+
+**`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the Edit workspace, so there is no
+text view to carry a list in, and nothing to paste a link or an image into. Nothing to pick short
+of the workspace itself.

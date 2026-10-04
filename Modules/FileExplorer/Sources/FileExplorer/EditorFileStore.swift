@@ -325,6 +325,94 @@ public enum EditorFileStore {
         }!
     }
 
+    /// Thrown by ``createNew(_:atPath:)`` and ``createNew(copying:toPath:)`` when something is
+    /// already at the destination — the one failure a caller choosing names can recover from by
+    /// choosing the next one.
+    public struct AlreadyExists: Error, Equatable {
+        public let path: String
+    }
+
+    /// **Puts NEW bytes on disk at `path`, and never replaces anything there** (TE56).
+    ///
+    /// ``write(_:toPath:)`` is a save: it swaps the destination out with `replaceItemAt`, which is
+    /// what a save means and exactly what a new image must never do — two notes pasting into one
+    /// Images folder, or a file synced in between the name being chosen and the write, would be
+    /// overwritten without a word. So this stages and flushes as that door does, then moves the
+    /// staged file in with `renamex_np(…, RENAME_EXCL)`: the kernel refuses if anything is at
+    /// `path` by then, in the same step that would otherwise have replaced it. No check-then-write
+    /// window.
+    @discardableResult
+    public static func createNew(_ data: Data, atPath path: String) throws -> Stamp {
+        try createNew(atPath: path, expectedSize: data.count) { staged in
+            try data.write(to: staged)
+        }
+    }
+
+    /// The same, with the bytes copied from `source` — a dropped file. **A copy, never a move**: the
+    /// file the reader dragged stays where it was.
+    ///
+    /// **The bytes alone — `COPYFILE_DATA` — not the Finder lock, ACLs or extended attributes.**
+    /// `copyItem` carries the lock, a deny-delete ACL and a read-only mode over to the staged copy
+    /// (measured by the 2026-10-04 review), and then the move into place fails and so does the
+    /// clean-up, leaving a locked hidden file in a synced folder; a read-only copy also cannot be
+    /// opened to flush. The copy keeps the source's mode with the owner's write bit added.
+    ///
+    /// **The price is APFS's clone**: the blocks are copied rather than shared — measured by the
+    /// same review at about 70ms for a 200 MB file, on the main thread. Images are rarely that size;
+    /// a locked hidden file left in somebody's cloud folder is not a price worth that saving.
+    @discardableResult
+    public static func createNew(copying source: String, toPath path: String) throws -> Stamp {
+        let size = (try? FileManager.default.attributesOfItem(atPath: source))?[.size] as? NSNumber
+        return try createNew(atPath: path, expectedSize: size?.intValue) { staged in
+            guard copyfile(source, staged.path, nil, copyfile_flags_t(COPYFILE_DATA)) == 0 else {
+                throw Failure(message: String(cString: strerror(errno)))
+            }
+        }
+    }
+
+    private static func createNew(atPath path: String, expectedSize: Int?,
+                                  stage: (URL) throws -> Void) throws -> Stamp {
+        let fileManager = FileManager.default
+        let destination = URL(fileURLWithPath: path)
+        let staged = destination.deletingLastPathComponent()
+            .appendingPathComponent(".tmp_\(UUID().uuidString)")
+        var installed = false
+        defer { if !installed { try? fileManager.removeItem(at: staged) } }
+
+        try stage(staged)
+        // Flushed before it is moved in, for the reason the save path gives: the rename can reach
+        // the disk before the data does.
+        if let handle = try? FileHandle(forWritingTo: staged) {
+            if fcntl(handle.fileDescriptor, F_FULLFSYNC) == -1 { _ = fsync(handle.fileDescriptor) }
+            try? handle.close()
+        }
+        if renamex_np(staged.path, destination.path, UInt32(RENAME_EXCL)) != 0 {
+            let code = errno
+            if code == EEXIST { throw AlreadyExists(path: path) }
+            // A volume that cannot rename exclusively (some network shares) gets the check and the
+            // plain rename — the window this door exists to close, open only where it must be.
+            guard code == ENOTSUP || code == EINVAL else {
+                throw Failure(message: String(cString: strerror(code)))
+            }
+            // `attributesOfItem` does not follow a symlink, so a dangling link here is "taken" too.
+            guard (try? fileManager.attributesOfItem(atPath: destination.path)) == nil else {
+                throw AlreadyExists(path: path)
+            }
+            guard rename(staged.path, destination.path) == 0 else {
+                throw Failure(message: String(cString: strerror(errno)))
+            }
+        }
+        installed = true
+        guard let stamp = stamp(ofPath: destination.path) else {
+            throw Failure(message: "Saved, but the file couldn't be re-checked afterwards.")
+        }
+        if let expectedSize, stamp.size != expectedSize {
+            throw Failure(message: "Saved, but the file changed again immediately afterwards — "
+                + "check it before writing over it.")
+        }
+        return stamp
+    }
+
     /// The same write, carrying a ticket taken earlier — see ``WriteOrder``.
     ///
     /// - Returns: `nil` when a newer write has already committed, in which case nothing was
