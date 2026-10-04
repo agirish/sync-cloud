@@ -2068,6 +2068,11 @@ public class FileSyncManager: ObservableObject {
     /// the iCloud links of the machine it runs on.
     var linkedFolders: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders
 
+    /// Where the pane loads, their columns' grafts and the comparison after them read a folder whose
+    /// contents are not on this Mac (`DatalessFolderReads`) — the app's shared one everywhere but a
+    /// test, which injects one with a deadline it can wait out.
+    var datalessFolderReads: DatalessFolderReads = .shared
+
     /// Drops every cached pane tree AND its provenance — one verb, so the stores cannot part
     /// company at an invalidation site. Every invalidation of `prefetchedTrees` goes
     /// through here or through its one-folder forms, ``dropPrefetchedTrees(holding:)`` and

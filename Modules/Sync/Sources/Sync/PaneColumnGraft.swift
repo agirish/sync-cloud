@@ -132,7 +132,8 @@ extension FileSyncManager {
             var children = await Self.buildTree(url: URL(fileURLWithPath: path),
                                                 sortOption: builtWith,
                                                 fileManager: self.fileManager, maxDepth: 1,
-                                                followedLinks: followedLinks)
+                                                followedLinks: followedLinks,
+                                                datalessReads: self.datalessFolderReads)
             guard !Task.isCancelled else { return }
             // **The panes swapped while this ran.** `swapPanes` has already cleared the in-flight
             // set, so the `defer` above removes nothing; what this stops is the graft itself, which

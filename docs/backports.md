@@ -6580,3 +6580,38 @@ done
 on every line; a pick is the `else if` and the two comment lines, with
 `NameConflictDiffTests.testAFileAgainstAFolderCarriesTheFoldersContents`. The hint check needs
 P46's hinted compositions first.
+
+## A folder whose cloud provider never answers no longer stalls Compare — main only
+
+With OneDrive not running, listing either account's `.Trash` blocks for good: both are dataless
+(`SF_DATALESS`), and listing a dataless folder asks its provider. The Home pane's walk reached one,
+a cooperative-pool thread blocked in `getattrlistbulk`, `buildTree` never returned and the refresh
+never compared; every Refresh leaked one more blocked thread until the other pane stopped loading.
+A OneDrive pane hangs the same way, and so does the comparison's own disk walk, whose enumerator
+blocks descending into the folder — both measured on `main`'s walks, killed at 25 s. A dataless folder is now listed off the pool through
+`DatalessFolderReads`, for at most 5 s, then marked unexplored; one read per folder, so a later walk
+skips one still unanswered; and `getFilesInDirectory` skips the enumerator's descent into one and
+asks through the same reads. Every other folder is listed inline exactly as before — the pane walk
+and the disk walk dumped byte-identical before and after over `~/Documents`, Dropbox and Google
+Drive (17,121 / 13,770 / 54,345 lines each).
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s inlineListing=%s coldEnumerator=%s isDataless=%s datalessReads=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Scanning.swift | grep -c 'realFm.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: metadataKeys')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDiffEngine.swift | grep -c 'fileManager.enumerator(at: rootURL, includingPropertiesForKeys: keys')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileManaging.swift | grep -c 'func isDataless')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/DatalessFolderReads.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-03, against origin, before this landed:
+# main, v4.x, v3.x, v2.x — every line: inlineListing=1 coldEnumerator=1 isDataless=0 datalessReads=0
+# and on this change's own tree: 1 1 3 1 (the requirement, its default, FileManager's)
+```
+
+**`v4.x`, `v3.x`, `v2.x`: apply, RECORDED — not owed.** Read from the code, not run there: every line
+lists inside the pool's walk and lets the disk walk's enumerator descend anywhere. A pick is `DatalessFolderReads.swift`,
+`FileManaging.isDataless(at:)`, the guard in the walk's listing — `childURLs(of:)` on those lines,
+which has no `rawChildURLs` split — made `async` with its two callers, and the two guards in
+`getFilesInDirectory`. `UnansweredFolderTests` needs `LogCapture` (on no maintenance line; drop the
+two log assertions), and on `v3.x` and `v2.x` also `.parksAThread`, `MockFileManager.setStub` and
+`maxEntries`, none of which they have.

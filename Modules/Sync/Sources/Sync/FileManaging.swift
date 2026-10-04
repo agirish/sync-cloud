@@ -30,6 +30,12 @@ public protocol FileManaging: Sendable {
     /// Trash with nothing at the destination.
     func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL?
     func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions, errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator?
+    /// Whether `url` is a folder whose contents are not on this Mac yet — `SF_DATALESS`, set by a
+    /// cloud provider on a folder it has not enumerated to disk. Listing one asks the provider, and
+    /// a provider that is not running never answers; see `FileSyncManager.DatalessFolderReads`.
+    /// Answering it costs one `stat` and never asks the provider. Follows a symbolic link, as the
+    /// listing that would follow does. The default (every test double) is `false`.
+    func isDataless(at url: URL) -> Bool
 }
 
 // Swift Protocols don't allow default implementations directly in the requirement, 
@@ -47,12 +53,26 @@ extension FileManaging {
         guard observer.shouldContinue() else { throw CocoaError(.userCancelled, userInfo: [NSFilePathErrorKey: srcURL.path]) }
         try copyItem(at: srcURL, to: dstURL)
     }
+
+    public func isDataless(at url: URL) -> Bool { false }
 }
 
 // Ensure the real macOS FileManager strictly conforms to this interface.
 extension FileManager: FileManaging {
     public func copyItem(at srcURL: URL, to dstURL: URL, observer: CopyObserver) throws {
         try observedCopyItem(at: srcURL, to: dstURL, observer: observer)
+    }
+
+    /// `stat`, not `lstat`: a walk lists a folder link's target, so the target's flag is the one
+    /// that says whether the listing will wait. A `stat` that fails answers `false` — the listing
+    /// then fails on its own, as it did before this existed. Measured on the two hung `.Trash`
+    /// folders: the `stat` answers at once while the listing never does.
+    public func isDataless(at url: URL) -> Bool {
+        var info = stat()
+        let status = url.withUnsafeFileSystemRepresentation { path in
+            path.map { stat($0, &info) } ?? -1
+        }
+        return status == 0 && info.st_flags & UInt32(SF_DATALESS) != 0
     }
 
     public func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {

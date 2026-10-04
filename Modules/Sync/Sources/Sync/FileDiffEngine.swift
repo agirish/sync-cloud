@@ -194,6 +194,15 @@ public struct FileDiffEngine {
     /// - Returns: A map of relative paths to `FileInfo` metadata.
     public static func getFilesInDirectory(_ url: URL, fileManager: FileManaging = FileManager.default,
                                            maxEntries: Int? = nil) throws -> [String: FileInfo] {
+        try getFilesInDirectory(url, fileManager: fileManager, maxEntries: maxEntries, datalessReads: .shared)
+    }
+
+    /// - Parameter datalessReads: where a folder whose contents are not on this Mac is read — see
+    ///   `FileSyncManager.DatalessFolderReads`. The comparison passes its manager's; everything else
+    ///   takes the app's shared one through the overload above.
+    static func getFilesInDirectory(_ url: URL, fileManager: FileManaging = FileManager.default,
+                                    maxEntries: Int? = nil,
+                                    datalessReads: FileSyncManager.DatalessFolderReads) throws -> [String: FileInfo] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey]
         let keySet = Set(keys)
 
@@ -240,6 +249,17 @@ public struct FileDiffEngine {
         let symlinkDepthCap = 64   // mirrors TreeBuilder.hardDepthCap, bounding pathological symlink fan-out
 
         func walk(_ rootURL: URL, prefix: String, branchVisited: Set<String>) throws {
+            // **A folder whose contents are not on this Mac is asked for through the reads**, off
+            // the cooperative pool and for at most their deadline (`DatalessFolderReads`). Listing it
+            // is what materializes it, so an answer means the enumerator below reads it from disk;
+            // no answer means its contents are unknown — recorded as an unreadable folder is, so the
+            // diff reports nothing under it as missing. The scan root itself (`prefix` "") marks
+            // the whole side. A folder that is not dataless costs one `stat` here and nothing else.
+            if fileManager.isDataless(at: rootURL),
+               datalessReads.readBlocking(rootURL.path, { fileManager.listing(of: rootURL).outcome }) == nil {
+                unreadableDirKeys.insert(prefix)
+                return
+            }
             var basePath = rootURL.path
             if fileManager is FileManager {
                 // The real enumerator yields canonical, symlink-resolved URLs (/private/var/...), so a
@@ -380,6 +400,16 @@ public struct FileDiffEngine {
                             fileSize: size,
                             isDirectory: isDir
                         )
+
+                        // **The enumerator is not let into a dataless folder**: it reads a folder's
+                        // contents on the call after the one that yielded it — measured, on the real
+                        // one — and a provider that is not running never hands them over, so the
+                        // whole scan would wait on that one call. Skipped here and walked by `walk`
+                        // instead, like a linked folder below, whose first step asks through the reads.
+                        if isDir, !isSymlinkedDir, fileManager.isDataless(at: fileURL) {
+                            enumerator.skipDescendants()
+                            try walk(fileURL, prefix: keyPath, branchVisited: branchVisited)
+                        }
 
                         // The URL enumerator never walks INTO a symlinked directory, but the tree
                         // walk always has — leaving the two scan branches disagreeing: a cold-cache

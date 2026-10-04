@@ -181,6 +181,7 @@ extension FileSyncManager {
             // buildTree detaches its own worker (and forwards cancellation into it),
             // so no extra detached hop is needed here.
             let fm = self.fileManager
+            let reads = self.datalessFolderReads
             let sortOp = self.sortOption
             // Config epoch before the walks: if a file operation (or any scan-affecting change)
             // lands while they run, this load's tree predates it and must not be cached.
@@ -199,7 +200,8 @@ extension FileSyncManager {
                 let shallowStart = Elapsed()
                 let shallowLinks = FollowedLinks()
                 let shallowTree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm, maxDepth: 1,
-                                                       linkedFolders: links, followedLinks: shallowLinks)
+                                                       linkedFolders: links, followedLinks: shallowLinks,
+                                                       datalessReads: reads)
                 let shallowWalk = shallowStart.text
                 guard !Task.isCancelled else {
                     outcome = "superseded during the shallow walk (walk \(shallowWalk))"
@@ -230,7 +232,7 @@ extension FileSyncManager {
             let followedLinks = FollowedLinks()
             let tree = await Self.buildTree(
                 url: focusURL, sortOption: sortOp, fileManager: fm, budget: paneBudget, linkedFolders: links,
-                followedLinks: followedLinks)
+                followedLinks: followedLinks, datalessReads: reads)
             let deepWalk = deepStart.text
 
             guard !Task.isCancelled else {
@@ -942,6 +944,7 @@ extension FileSyncManager {
             // `let`, and the walk queued behind whatever the main actor was doing — usually the
             // render of a tree just published — with the clock below not yet started.
             let fm = fileManager
+            let reads = datalessFolderReads
             let walkTask = Task.detached(priority: .userInitiated) { () -> ScanOutcome? in
                 do {
                     // The two walks are independent and FileManager is thread-safe, so run them
@@ -958,11 +961,13 @@ extension FileSyncManager {
                     // better reason than tidiness — see the constant's own note.
                     let leftWalk = Task.detached(priority: .userInitiated) {
                         try FileDiffEngine.getFilesInDirectory(leftURL, fileManager: fm,
-                                                               maxEntries: Self.paneNodeBudget)
+                                                               maxEntries: Self.paneNodeBudget,
+                                                               datalessReads: reads)
                     }
                     let rightWalk = Task.detached(priority: .userInitiated) {
                         try FileDiffEngine.getFilesInDirectory(rightURL, fileManager: fm,
-                                                               maxEntries: Self.paneNodeBudget)
+                                                               maxEntries: Self.paneNodeBudget,
+                                                               datalessReads: reads)
                     }
                     let (leftFilesInfo, rightFilesInfo) = try await withTaskCancellationHandler {
                         (try await leftWalk.value, try await rightWalk.value)
@@ -1219,7 +1224,10 @@ extension FileSyncManager {
     /// - Parameter followedLinks: where to record the folder symlinks this walk lists outside its
     ///   root — see `FollowedLinks`. A pane load and a column's graft pass one, because the cache
     ///   entry and the pane carry the answer; every other walk passes none and pays nothing for it.
-    nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil, budget: NodeBudget? = nil, linkedFolders: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders, followedLinks: FollowedLinks? = nil) async -> [FileNode] {
+    /// - Parameter datalessReads: where a folder whose contents are not on this Mac is read — off the
+    ///   cooperative pool and for at most its deadline, after which it comes back unexplored; see
+    ///   `DatalessFolderReads`. The app's shared one by default; a pane load passes its manager's.
+    nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil, budget: NodeBudget? = nil, linkedFolders: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders, followedLinks: FollowedLinks? = nil, datalessReads: DatalessFolderReads = .shared) async -> [FileNode] {
         let buildTask = Task.detached(priority: .userInitiated) {
             struct TreeBuilder: Sendable {
                 let fileManager: FileManaging
@@ -1295,16 +1303,20 @@ extension FileSyncManager {
                 /// with no link involved (`/private/var/…` → `/var/…`), so that alias alone is not
                 /// recorded: it would name the root, which a write under it matches already.
                 let rootLinkTarget: String?
+                /// See `buildTree(url:…datalessReads:)`.
+                let datalessReads: FileSyncManager.DatalessFolderReads
 
                 init(fileManager: FileManaging, sortOption: SortOption, maxDepth: Int?,
                      budget: FileSyncManager.NodeBudget?,
                      linkedFolders: PathBoundary.LinkedFolders,
                      followedLinks: FileSyncManager.FollowedLinks?,
+                     datalessReads: FileSyncManager.DatalessFolderReads,
                      root: URL) {
                     self.fileManager = fileManager
                     self.sortOption = sortOption
                     self.maxDepth = maxDepth
                     self.budget = budget
+                    self.datalessReads = datalessReads
                     self.linkedFolders = linkedFolders
                     let rootPath = PathBoundary.normalizedRoot(root.path)
                     self.coveredTargets = Set(
@@ -1432,8 +1444,13 @@ extension FileSyncManager {
                 /// denied, I/O error) as opposed to being legitimately empty. Both used to come back
                 /// as a bare `[]`, so a permission-denied directory cached as a plain empty node and
                 /// the diff minted phantom actionable "Missing" rows for its (invisible) contents.
-                func childURLs(of dirURL: URL) -> (urls: [URL], listingFailed: Bool, coveredElsewhere: Set<String>) {
-                    let listing = rawChildURLs(of: dirURL)
+                ///
+                /// `unanswered` is the one failure that is not the folder's own: its contents are
+                /// with a cloud provider that did not hand them over in time (`DatalessFolderReads`).
+                /// It always comes with `listingFailed`, and only says which sentence the log owes.
+                func childURLs(of dirURL: URL) async -> (urls: [URL], listingFailed: Bool, unanswered: Bool, coveredElsewhere: Set<String>) {
+                    let listing = await rawChildURLs(of: dirURL)
+                    guard !listing.unanswered else { return ([], true, true, []) }
                     // **A folder linked into this directory from outside is listed as the folder
                     // it points at**, not as the link. iCloud Drive's container holds `Desktop`
                     // and `Documents` as hidden symlinks to `~/Desktop` and `~/Documents`; walked
@@ -1445,7 +1462,7 @@ extension FileSyncManager {
                     // A table that names nothing for this directory — every directory but one —
                     // costs one dictionary lookup.
                     let table = PathBoundary.linkedFolders(atRoot: dirURL.path, in: linkedFolders)
-                    guard !table.isEmpty else { return (listing.urls, listing.listingFailed, []) }
+                    guard !table.isEmpty else { return (listing.urls, listing.listingFailed, false, []) }
                     // **Which substitutions land on a folder this walk also reaches directly.**
                     // Reported rather than acted on here: the substitution itself must still
                     // happen (the panes browse the real folder at that spot, and every stored path
@@ -1459,12 +1476,30 @@ extension FileSyncManager {
                         }
                         return URL(fileURLWithPath: target, isDirectory: true)
                     }
-                    return (urls, listing.listingFailed, covered)
+                    return (urls, listing.listingFailed, false, covered)
                 }
 
                 /// `childURLs(of:)` before the linked-folder substitution — the listing as the
                 /// directory holds it.
-                func rawChildURLs(of dirURL: URL) -> (urls: [URL], listingFailed: Bool) {
+                ///
+                /// **A folder whose contents are not on this Mac is listed off the cooperative pool,
+                /// and for at most the reads' deadline** (`DatalessFolderReads`, which says why).
+                /// Every other folder is listed right here, exactly as before: a materialized folder
+                /// never asks its provider, so the hop would buy nothing. The test costs one `stat`.
+                func rawChildURLs(of dirURL: URL) async -> (urls: [URL], listingFailed: Bool, unanswered: Bool) {
+                    guard fileManager.isDataless(at: dirURL) else {
+                        let listing = listNow(dirURL)
+                        return (listing.urls, listing.listingFailed, false)
+                    }
+                    let builder = self
+                    guard let listing = await datalessReads.read(dirURL.path, { builder.listNow(dirURL) }) else {
+                        return ([], true, true)
+                    }
+                    return (listing.urls, listing.listingFailed, false)
+                }
+
+                /// One directory's listing, on whatever thread asks for it.
+                func listNow(_ dirURL: URL) -> (urls: [URL], listingFailed: Bool) {
                     if let realFm = fileManager as? FileManager {
                         // Fast path: one call prefetches every child's metadata so buildNode's
                         // resourceValues are cache hits. The URL-based API does not traverse a
@@ -1623,13 +1658,14 @@ extension FileSyncManager {
                         budget.noteStopped(fullURL.path)
                         return cappedNode(fullURL, s)
                     }
-                    let listing = childURLs(of: fullURL)
+                    let listing = await childURLs(of: fullURL)
                     // A directory whose LISTING failed (permission denied, I/O error) is not an
                     // empty directory: mark it unexplored — the same shape as the depth cap — so
                     // cache consumers and the diff never mistake "couldn't look" for "empty" and
-                    // mint phantom Missing rows for contents nobody could see.
+                    // mint phantom Missing rows for contents nobody could see. One its provider
+                    // did not answer for is marked the same way; the reads have already said why.
                     if listing.listingFailed {
-                        unreadableLog.note(fullURL.path)
+                        if !listing.unanswered { unreadableLog.note(fullURL.path) }
                         return cappedNode(fullURL, s)
                     }
                     if s.isSymlink { noteFollowedLink(fullURL) }
@@ -1732,11 +1768,12 @@ extension FileSyncManager {
             }
 
             let builder = TreeBuilder(fileManager: fm, sortOption: sortOption, maxDepth: maxDepth, budget: budget,
-                                      linkedFolders: linkedFolders, followedLinks: followedLinks, root: url)
+                                      linkedFolders: linkedFolders, followedLinks: followedLinks,
+                                      datalessReads: datalessReads, root: url)
             // Batch logging to avoid MainActor overhead in recursion
             // (Removed per-node logging)
 
-            let rootListing = builder.childURLs(of: url)
+            let rootListing = await builder.childURLs(of: url)
             // The walk returns the root's CHILDREN, so an unreadable ROOT has no child node to
             // carry the unexplored marker — a bare [] read downstream as an authoritatively
             // empty tree, and the diff minted phantom actionable Missing rows for everything
@@ -1747,7 +1784,7 @@ extension FileSyncManager {
             // marker so the panes still render the folder as empty rather than showing it
             // nested inside itself.
             if rootListing.listingFailed {
-                builder.unreadableLog.note(url.path)
+                if !rootListing.unanswered { builder.unreadableLog.note(url.path) }
                 let s = builder.stat(at: url) ?? TreeBuilder.ItemStat(isDirectory: true)
                 return [builder.cappedNode(url, s)]
             }
