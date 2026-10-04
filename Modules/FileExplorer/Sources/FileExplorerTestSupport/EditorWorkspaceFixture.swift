@@ -32,7 +32,8 @@ extension EditorWorkspaceView {
                                                                      getInfo: { _ in }, quickLook: { _ in }),
         onNewTextFile: (() -> Void)? = {},
         paneShowsTabStrip: Bool = false,
-        folderDisplayName: String? = nil
+        folderDisplayName: String? = nil,
+        newFileFolderName: String? = nil
     ) -> EditorWorkspaceView {
         EditorWorkspaceView(
             document: document,
@@ -66,6 +67,7 @@ extension EditorWorkspaceView {
             onNewTextFile: onNewTextFile,
             onCloseDocument: {},
             paneShowsTabStrip: paneShowsTabStrip,
-            folderDisplayName: folderDisplayName)
+            folderDisplayName: folderDisplayName,
+            newFileFolderName: newFileFolderName)
     }
 }

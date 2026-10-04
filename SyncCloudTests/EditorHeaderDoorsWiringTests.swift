@@ -24,12 +24,13 @@ import FileExplorer
 
     /// What that closure does, so "the same as ⌘N" is a claim about something: it opens the naming
     /// row AND bumps the focus counter, so a ＋ pressed with the row already open still takes focus.
+    /// **Offered always** — with no folder the file goes to Notes (`EditorNewFileFolderTests`), so
+    /// there is no `nil` left to grey the ＋ on.
     @Test func theNewFileChordOpensTheRowAndTakesFocus() throws {
-        let body = try Self.memberBody("var shortcutNewTextFile: (() -> Void)?", in: Self.editor())
+        let body = try Self.memberBody("var shortcutNewTextFile: () -> Void", in: Self.editor())
         #expect(body.contains("editorIsNaming = true"), "⌘N no longer opens the naming row")
         #expect(body.contains("editorNamingFocus &+= 1"), "⌘N no longer bumps the focus counter")
-        #expect(body.contains("guard !editorFolder.isEmpty else { return nil }"),
-                "⌘N is offered with no folder — the ＋ would not grey")
+        #expect(!body.contains("return nil"), "⌘N is withheld again — a pane with no folder has Notes to go to")
     }
 
     /// **Every Edit layout mounts the same workspace builder**, so the ＋ is in the header whether

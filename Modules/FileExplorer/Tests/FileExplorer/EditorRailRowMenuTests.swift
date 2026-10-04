@@ -114,6 +114,7 @@ import FileExplorerTestSupport
             typedName: .constant(""), prefilledName: { "" }, refusal: { _ in nil },
             filter: .constant(""), filterIsExpanded: .constant(false),
             outlineAnchors: .constant([:]), onOpen: { _ in }, onCreate: { _ in true },
+            onNewTextFile: nil,
             rowActions: recorder.actions)
         // Two rows' menus read the same, so each is told apart by what its first item does: it is
         // performed at every probe, and a run is a stretch of the same titles AND the same path.

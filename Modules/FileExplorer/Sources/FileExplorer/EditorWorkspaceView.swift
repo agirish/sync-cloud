@@ -90,6 +90,10 @@ public struct EditorWorkspaceView: View {
     /// last component is "com~apple~CloudDocs"). `nil` falls back to that last component, which is
     /// right for every folder but a source's top — and is what a test with no pane beside it gets.
     var folderDisplayName: String?
+    /// **Where ⌘N will make its file, when that is not `folder`** — "Notes", for a pane on a
+    /// folder that is no place for a new file (the host's `EditorNewFileFolder`). Named by the ＋'s
+    /// tooltips and the naming rows instead of `folderName`; `nil` names `folderName`, as before.
+    var newFileFolderName: String?
     /// Whether the file rail is drawn beside the document at all.
     ///
     /// **Decided by the host, not here** — `TopPaneVisibility.editorRailIsDrawn` is the rule, and
@@ -286,7 +290,8 @@ public struct EditorWorkspaceView: View {
                 onCloseDocument: @escaping () -> Void,
                 onAutosaveResumed: @escaping () -> Void = {},
                 paneShowsTabStrip: Bool = false,
-                folderDisplayName: String? = nil) {
+                folderDisplayName: String? = nil,
+                newFileFolderName: String? = nil) {
         self._railFilter = railFilter
         self._railFilterIsExpanded = railFilterIsExpanded
         self._railTab = railTab
@@ -326,6 +331,7 @@ public struct EditorWorkspaceView: View {
         self.onAutosaveResumed = onAutosaveResumed
         self.paneShowsTabStrip = paneShowsTabStrip
         self.folderDisplayName = folderDisplayName
+        self.newFileFolderName = newFileFolderName
     }
 
     /// What the "Just the text" glyph says — its label and its tooltip, one string. Names the
@@ -380,11 +386,17 @@ public struct EditorWorkspaceView: View {
         EditorMode.resolved(mode, isMarkdown: document.isMarkdown)
     }
 
-    /// The folder as the header, the naming row and the rail name it — see ``folderDisplayName``.
+    /// The folder as the header and the rail name it — see ``folderDisplayName``.
     var folderName: String {
         guard !folder.isEmpty else { return "" }
         if let folderDisplayName, !folderDisplayName.isEmpty { return folderDisplayName }
         return (folder as NSString).lastPathComponent
+    }
+
+    /// The folder the ＋ and the naming row name: where the new file will be made.
+    var newFileFolderLabel: String {
+        if let newFileFolderName, !newFileFolderName.isEmpty { return newFileFolderName }
+        return folderName
     }
 
     /// **Two cards, not one region with a rule down it.**
@@ -427,6 +439,8 @@ public struct EditorWorkspaceView: View {
                                onSelectHeading: goToHeading,
                                onOpen: onOpen,
                                onCreate: onCreate,
+                               onNewTextFile: onNewTextFile,
+                               newFileFolderName: newFileFolderName,
                                rowActions: railRowActions)
                 .frame(maxHeight: .infinity)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
@@ -516,7 +530,7 @@ public struct EditorWorkspaceView: View {
             if !showsRail && isNaming {
                 EditorNamingRow(isNaming: $isNaming, typedName: $typedName, namingFocus: namingFocus,
                                 accent: accent, prefilledName: prefilledName, refusal: refusal,
-                                onCreate: onCreate, folderName: folderName)
+                                onCreate: onCreate, folderName: newFileFolderLabel)
                     .padding(.top, 6)
             }
             body(for: document)
@@ -716,7 +730,7 @@ public struct EditorWorkspaceView: View {
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
         .accessibilityLabel("New text file")
         .shortcutKeycap(AppChord.newTextFile.display)
-        .help(ShortcutHint.tooltip(Self.newTextFileTitle(folderName: folderName),
+        .help(ShortcutHint.tooltip(Self.newTextFileTitle(folderName: newFileFolderLabel),
                                    AppChord.newTextFile.display))
         .disabled(onNewTextFile == nil)
     }

@@ -84,6 +84,14 @@ struct EditorFileRailView: View {
     /// refuse (an unsaved document the user declined to settle), and the row reopens with the typed
     /// name still in it rather than vanishing with the work.
     let onCreate: (String) -> Bool
+    /// The ＋ — **the host's ⌘N closure**, as the header's ＋ is (see
+    /// ``EditorWorkspaceView/onNewTextFile``). It used to set `isNaming` itself, which skipped what
+    /// ⌘N does first: take a pane on a folder that is no place for a new file to Notes. `nil` greys
+    /// it. No default, for the reason ``rowActions`` has none.
+    let onNewTextFile: (() -> Void)?
+    /// Where ⌘N will make its file when that is not the folder on the line above — see
+    /// ``EditorWorkspaceView/newFileFolderName``.
+    var newFileFolderName: String? = nil
     /// What each file row's context menu does — see ``EditorRailRowMenu``. Every act takes the
     /// ROW's path, which is not necessarily the open document's.
     ///
@@ -199,7 +207,7 @@ struct EditorFileRailView: View {
                     .help("Filter this list by name")
                     .disabled(entries.isEmpty)
                     Button {
-                        isNaming = true
+                        onNewTextFile?()
                     } label: {
                         Image(systemName: "plus")
                             .scaledFont(.system(size: 11, weight: .semibold))
@@ -209,7 +217,7 @@ struct EditorFileRailView: View {
                     .accessibilityLabel("New text file")
                     .shortcutKeycap(AppChord.newTextFile.display)
                     .help(ShortcutHint.tooltip(newFileDestination, AppChord.newTextFile.display))
-                    .disabled(folderName.isEmpty)
+                    .disabled(onNewTextFile == nil)
                 }
                 .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
             }
@@ -242,9 +250,10 @@ struct EditorFileRailView: View {
     /// folder line is there to answer**: the rail is not the sidebar, and "new file" with no
     /// destination in sight is the one act here that writes to a folder the user has not looked at.
     private var newFileDestination: String {
-        folderName.isEmpty
+        let destination = newFileFolderName ?? folderName
+        return destination.isEmpty
             ? "Pick a folder in the sidebar first"
-            : "New files are created in \(folderName)"
+            : "New files are created in \(destination)"
     }
 
     /// The folder's text files: the naming row, the filter field, and the list itself.
@@ -253,7 +262,8 @@ struct EditorFileRailView: View {
         if isNaming {
             EditorNamingRow(isNaming: $isNaming, typedName: $typedName, namingFocus: namingFocus,
                             accent: accent, prefilledName: prefilledName, refusal: refusal,
-                            onCreate: onCreate)
+                            // Named only when it is not the folder on the line above.
+                            onCreate: onCreate, folderName: newFileFolderName)
         }
         if filterIsExpanded {
             ExpandingSearchField(text: $filter, isExpanded: $filterIsExpanded,
@@ -386,6 +396,7 @@ struct EditorFileRailView: View {
                            typedName: .constant(""), prefilledName: { "" }, refusal: { _ in nil },
                            filter: .constant(""), filterIsExpanded: .constant(false),
                            outlineAnchors: .constant([:]), onOpen: { _ in }, onCreate: { _ in true },
+                           onNewTextFile: nil,
                            rowActions: EditorRailRowActions(revealInBrowse: { _ in }, getInfo: { _ in },
                                                             quickLook: { _ in }))
     }

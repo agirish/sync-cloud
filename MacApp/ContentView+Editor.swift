@@ -52,8 +52,14 @@ extension ContentView {
     }
 
     /// In Columns the deepest open column, in Tree the pane's root — `~` expanded.
+    ///
+    /// **`/` stays `/`.** `PaneBrowsePath.normalized` strips a root's trailing slash, which leaves
+    /// the whole disk's root as `""` — so at the top of a whole-disk source in Columns, Edit read
+    /// no folder at all where Tree reads `/` (measured 2026-10-03): the rail said "No folder
+    /// selected", and ⌘N's log blamed a missing folder rather than a system one.
     static func paneFolder(treeRoot: String, browsePath: PaneBrowsePath, drawsColumns: Bool) -> String {
         let target = drawsColumns ? browsePath.currentDirectory(treeRoot: treeRoot) : treeRoot
+        if target.isEmpty, treeRoot.hasPrefix("/") { return "/" }
         return (target as NSString).expandingTildeInPath
     }
 
@@ -328,8 +334,9 @@ extension ContentView {
             onShowWhatChanged: (editorAutosaveStop?.offersDiff ?? false)
                 ? { showEditorDivergenceDiff() } : nil,
             // Both closures, so neither walks the folder until the naming row is actually open.
-            prefilledName: { EditorFileStore.availableUntitledName(in: editorFolder) },
-            refusal: { typed in EditorFileStore.refusal(forName: typed, in: editorFolder) },
+            // Where ⌘N's file will go — the pane's folder, or Notes (`newTextFileDestination`).
+            prefilledName: { EditorFileStore.availableUntitledName(in: newTextFileDestination.folder) },
+            refusal: { typed in EditorFileStore.refusal(forName: typed, in: newTextFileDestination.folder) },
             onOpen: { entry in openInEditor(path: entry.path, selectsInPane: true) },
             onCreate: { name in createTextFile(named: name) },
             onRevealInBrowse: { path in revealInBrowse(path, from: .header) },
@@ -356,7 +363,8 @@ extension ContentView {
             onCloseDocument: { closeEditorDocument() },
             onAutosaveResumed: { runAutosave() },
             paneShowsTabStrip: editorPaneShowsTabStrip,
-            folderDisplayName: editorFolderDisplayName)
+            folderDisplayName: editorFolderDisplayName,
+            newFileFolderName: editorNewFileFolderName)
         // The rail is re-listed on arrival and whenever the folder or the hidden-files preference
         // moves — `.task(id:)` restarts on either.
         .task(id: EditorRailKey(folder: editorFolder, showsHidden: syncManager.showHiddenFiles)) {
@@ -1074,26 +1082,74 @@ extension ContentView {
 
     /// ⌘N, from every workspace.
     ///
-    /// **Offered from every workspace, gated only on there being a folder to create in.** The left
-    /// pane and the sidebar that re-roots it span every workspace, so the folder is nearly always
-    /// answerable — but "nearly" is not "always": a pane with no source configured has no current
-    /// path, and a ⌘N that switched to the editor and opened a naming row over an empty folder name
-    /// would be offering to create a file nowhere. From anywhere else this makes the ⌘4 move first,
-    /// so the file is created in the folder the user was already looking at.
-    var shortcutNewTextFile: (() -> Void)? {
-        guard !editorFolder.isEmpty else { return nil }
-        return {
+    /// **Offered always.** It used to be withheld with no folder in the pane — a pane with no
+    /// source has no path, and a naming row there offered to create a file nowhere. Now such a
+    /// file goes to Notes, as one in a system folder does (see `EditorNewFileFolder`). From
+    /// anywhere else this makes the ⌘4 move first, so the file is created in the folder the user
+    /// was already looking at.
+    var shortcutNewTextFile: () -> Void {
+        {
             // The tab first, so a rail this switch builds starts on its files half rather than
             // switching there in its first update — which, under a selection lens, glided across
             // the rail tabs on a window nobody had touched yet. The rail's own `onChange` still
             // moves the tab for a ⌘N made with the rail already on screen.
             editorRailTab = .files
             if selectedWorkspace != .editor { selectedWorkspace = .editor }
+            // After the switch: `editorFolder` reads the workspace on screen.
+            guard takePaneToNotesIfItIsNoPlaceForAFile() else { return }
             editorIsNaming = true
             // **Bumped every time, including when the row is already open.** Setting `isNaming`
             // true when it is already true is not a change, so the rail's `onChange` does not fire
             // and focus stays wherever it was — a second ⌘N looked like it did nothing.
             editorNamingFocus &+= 1
+        }
+    }
+
+    /// Where ⌘N's file goes: the pane's folder, or Notes and why — see `EditorNewFileFolder`.
+    /// Reads the disk: asked when ⌘N is pressed, when the file is made, and by the naming row while
+    /// it is open (whose refusal reads the folder anyway). The ＋'s tooltip is drawn always, so it
+    /// asks ``editorNewFileFolderName`` instead.
+    var newTextFileDestination: (folder: String, refusal: EditorNewFileFolder.Refusal?) {
+        EditorNewFileFolder.destination(paneFolder: editorFolder, home: NSHomeDirectory(),
+                                        isWritable: { FileManager.default.isWritableFile(atPath: $0) })
+    }
+
+    /// "Notes" when the ＋'s tooltip and the naming row must name it instead of the pane's folder —
+    /// the spelling half of the rule only, since this is read on every body pass. A folder that
+    /// can't be written to is still named until ⌘N finds out; the pane then goes to Notes.
+    var editorNewFileFolderName: String? {
+        EditorNewFileFolder.pathRefusal(of: editorFolder, home: NSHomeDirectory()) == nil
+            ? nil : EditorNewFileFolder.notesName
+    }
+
+    /// ⌘N's first step when the pane's folder is no place for a file: make Notes, and take the
+    /// pane there — a tab already showing it, or a new one — so the name is typed in the folder it
+    /// will land in. `false` when Notes could not be made; ⌘N then opens nothing.
+    func takePaneToNotesIfItIsNoPlaceForAFile() -> Bool {
+        let paneFolder = editorFolder
+        let (folder, refusal) = newTextFileDestination
+        guard let refusal else { return true }
+        guard makeNotesFolder(folder) else { return false }
+        Logger.shared.info("[new-file] \(refusal.why(paneFolder)) — ⌘N makes the file in \(folder)")
+        followFolderInTabs(folder)
+        return true
+    }
+
+    /// Makes `~/Documents/Notes` if it is not there. A new folder drops the cached walks that list
+    /// its parent, so a pane showing Documents lists it.
+    func makeNotesFolder(_ folder: String) -> Bool {
+        var isFolder: ObjCBool = false
+        // A FILE named Notes falls through to `createDirectory`, which refuses it with a reason.
+        if FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder), isFolder.boolValue { return true }
+        do {
+            try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+            Logger.shared.info("[new-file] Made \(folder)")
+            syncManager.prepareReread(afterWritingAt: folder)
+            return true
+        } catch {
+            Logger.shared.error("[new-file] Couldn't make \(folder): \(error.localizedDescription)")
+            syncManager.banner = .error("Couldn't make the Notes folder — \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -1104,13 +1160,17 @@ extension ContentView {
     ///   away the name typed for this one.
     @discardableResult
     func createTextFile(named name: String) -> Bool {
-        let folder = editorFolder
-        guard !folder.isEmpty else { return false }
+        let (folder, refusal) = newTextFileDestination
         guard settleEditorDocument() else { return false }
+        // Made at ⌘N already; again here for a Notes deleted while the name was being typed.
+        if refusal != nil, !makeNotesFolder(folder) { return false }
         do {
             let path = try EditorFileStore.createEmptyFile(named: name, in: folder)
             Logger.shared.info("Editor created \(path)")
             loadIntoEditor(path: path)
+            // ⌘N took the pane to Notes; this is for a pane that could not go, or was moved off
+            // it while the name was typed. The file is opened in Edit, and the pane follows that.
+            if refusal != nil { followFolderInTabs(folder) }
             // Both lists, whichever is on screen: the rail for the collapsed arm, the pane for the
             // expanded one — and the pane is re-read even while collapsed, so it is current when
             // it is next opened.
