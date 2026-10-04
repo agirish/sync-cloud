@@ -1066,6 +1066,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     /// Launch breadcrumb — fires exactly once per process (unlike App.init, which SwiftUI may
     /// re-run), so the log's first line unambiguously names the build that produced the session.
     func applicationDidFinishLaunching(_ notification: Notification) {
+        hasFinishedLaunching = true
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
@@ -1244,6 +1245,12 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     /// measured 2026-10-03, a window closed with the red button or hidden with ⌘H is on screen
     /// again before this runs, re-presented for the open event (which is also why `onAppear` runs
     /// again — see ``LaunchBootstrap``).
+    /// Set as `applicationDidFinishLaunching` begins. AppKit hands a launch's files to
+    /// `application(_:open:)` BEFORE that (measured 2026-10-03: the receipt line lands ahead of the
+    /// `launched` breadcrumb on every launch from Finder, and after it on every open into a running
+    /// app) — so a batch that arrives while this is false is the one the app was launched to open.
+    private var hasFinishedLaunching = false
+
     func application(_ application: NSApplication, open urls: [URL]) {
         // **The test host is SyncCloud.app too**, and it claims the same files. Launch Services
         // hands an open to a running copy of the app when it has one, so a double-click during a
@@ -1253,8 +1260,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             Logger.shared.info(ExternalOpen.receiptLine(urls) + " — this is a test host, which opens nothing")
             return
         }
-        Logger.shared.info(ExternalOpen.receiptLine(urls))
-        externalOpens.receive(urls)
+        Logger.shared.info(ExternalOpen.receiptLine(urls, atLaunch: !hasFinishedLaunching))
+        externalOpens.receive(urls, atLaunch: !hasFinishedLaunching)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

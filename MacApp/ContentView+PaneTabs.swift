@@ -438,6 +438,29 @@ extension ContentView {
         }
     }
 
+    /// A tab at `route` for the `isLeft` pane, cut like Open in New Tab's: on the pane's own source
+    /// and under its scope, the scope holds and the rest becomes column stack; anywhere else it is
+    /// all scope. A value only — it moves no pane.
+    func tabAtRoute(_ route: ExternalOpen.SourceRoute, isLeft: Bool, selecting selection: Set<String> = []) -> PaneTab {
+        let sameSource = route.providerId == paneProviderId(isLeft: isLeft)
+        let cut = PaneTabOpening.location(of: route.relativePath,
+                                          openedFromScope: sameSource ? paneScope(isLeft: isLeft) : "")
+        return PaneTab(providerId: route.providerId, relativePath: cut.scope, browsePath: cut.stack,
+                       selection: selection)
+    }
+
+    /// **Opens a tab at `route` on the `isLeft` pane and makes it live** — the pane following a file
+    /// Edit is opening (`ContentView.followFolderInTabs`). Through `tabAction`, so a tab on another
+    /// source adopts it exactly as clicking that tab's chip would, and the strip is saved.
+    func openTabAtRoute(_ route: ExternalOpen.SourceRoute, isLeft: Bool, log: String) {
+        let current = paneProviderId(isLeft: isLeft)
+        let tab = tabAtRoute(route, isLeft: isLeft)
+        tabAction(isLeft: isLeft) {
+            Logger.shared.info(log)
+            return syncManager.openTab(tab, isLeft: isLeft, currentProviderId: current)
+        }
+    }
+
     /// Right-click a folder ▸ Open in New Tab, and File ▸ Open in New Tab for the selected folder —
     /// the discovery route, and the only entry point that opens the new tab somewhere *different*.
     /// (⌘-double-click on a folder row was one too, until `2e26a50f` took the column row's gesture.)

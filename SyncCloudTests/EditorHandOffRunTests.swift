@@ -38,7 +38,8 @@ import FileExplorer
 
         @discardableResult
         func handOff(_ path: String, pane: EditorHandOffRun.Pane, openDocument: String? = nil,
-                     isRefused: Bool = false, settles: Bool = true) -> EditorHandOffRun.Outcome {
+                     isRefused: Bool = false, settles: Bool = true,
+                     followFolder: ((String) -> Void)? = nil) -> EditorHandOffRun.Outcome {
             EditorHandOffRun.run(
                 path, pane: pane, syncManager: manager, paneRoot: EditorHandOffRunTests.root,
                 openDocument: openDocument, isRefused: isRefused,
@@ -47,7 +48,8 @@ import FileExplorer
                 endNaming: { self.steps.append("endNaming") },
                 showEdit: { self.steps.append("showEdit") },
                 load: { self.steps.append("load \($0)") },
-                log: { self.log.append($0) })
+                log: { self.log.append($0) },
+                followFolder: followFolder)
         }
     }
 
@@ -58,6 +60,31 @@ import FileExplorer
     /// **The fix.** `.staysPut` opens the file and leaves the comparison exactly as it was: same
     /// scope, same history, same column stack, the session's ignores intact, and no refresh sent —
     /// so no reload and no new scan.
+    /// **The app's tab follow replaces the in-place re-root, and comes after the settle.** Handed the
+    /// file's folder, between the settle and the switch to Edit; the pane itself is left to it. Not
+    /// called on a Cancel, when the folder is already the one Edit shows, or for `.staysPut`.
+    /// Mutation: call `focusPane` as well, or before the settle, and this fails.
+    @Test func aSuppliedFollowIsHandedTheFolderAfterTheSettle() {
+        let scene = Scene()
+        scene.handOff(Self.file, pane: .followsTheFile, followFolder: { scene.steps.append("follow \($0)") })
+        #expect(scene.steps == ["settle", "endNaming", "follow /c/Documents/Finance/Tax", "showEdit", "load \(Self.file)"])
+        #expect(scene.manager.leftRelativePath == "Documents", "the pane was re-rooted as well as followed")
+
+        let cancelled = Scene()
+        cancelled.handOff(Self.file, pane: .followsTheFile, settles: false,
+                          followFolder: { cancelled.steps.append("follow \($0)") })
+        #expect(!cancelled.steps.contains { $0.hasPrefix("follow") }, "a Cancel moved the pane")
+
+        let alreadyThere = Scene()
+        alreadyThere.handOff("/c/Documents/notes.md", pane: .followsTheFile,
+                             followFolder: { alreadyThere.steps.append("follow \($0)") })
+        #expect(!alreadyThere.steps.contains { $0.hasPrefix("follow") }, "followed to the folder Edit already shows")
+
+        let put = Scene()
+        put.handOff(Self.file, pane: .staysPut, followFolder: { put.steps.append("follow \($0)") })
+        #expect(!put.steps.contains { $0.hasPrefix("follow") }, "the differences list's pane was moved")
+    }
+
     @Test func theDifferencesListsHandOffLeavesTheComparisonAlone() {
         let scene = Scene()
         let history = scene.manager.leftHistory

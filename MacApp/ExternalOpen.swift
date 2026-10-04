@@ -1,5 +1,6 @@
 import Foundation
 import Sync
+import Dashboard
 
 /// **Files handed to SyncCloud from outside it** — Finder's double-click or Open With, a file dropped
 /// on the Dock icon, `open -a SyncCloud notes.md` — and where they go: into Edit, through
@@ -16,8 +17,11 @@ import Sync
 /// `Makefile` someone deliberately asked for opens. A file still in the cloud is fetched and then
 /// opened — see `ContentView.fetchExternalOpenFromCloud`.
 ///
-/// **One file, because Edit holds one.** The first file of a batch opens; any others and any
-/// folder are named in a banner rather than dropped without a word.
+/// **One file in Edit, the rest in tabs.** The first file of a batch opens; each other one waits in
+/// the file pane, in a tab of its own at its folder with the file selected — on whichever source
+/// holds it. A folder is named in a banner rather than dropped without a word. **A launch from
+/// Finder opens Edit wide** ("Just the text"), the way someone who double-clicked a document
+/// expects to see it.
 enum ExternalOpen {
 
     /// What one batch of handed-over items comes to.
@@ -105,15 +109,50 @@ enum ExternalOpen {
     /// re-scopes the comparison, re-runs its scan and clears the session's "Ignore in comparison"
     /// entries. A file double-clicked in Finder is not a request to do any of that. A guided review
     /// counts as Compare whichever workspace is showing, because its scope is that comparison.
-    static func pane(workspace: Workspace, isReviewing: Bool) -> EditorHandOffRun.Pane {
-        workspace == .compare || isReviewing ? .staysPut : .followsTheFile
+    ///
+    /// **Except at launch**, when the workspace is only the one restored from last time and there is
+    /// no comparison yet worth keeping: a launch from Finder always goes to the file's folder.
+    static func pane(workspace: Workspace, isReviewing: Bool, atLaunch: Bool) -> EditorHandOffRun.Pane {
+        !atLaunch && (workspace == .compare || isReviewing) ? .staysPut : .followsTheFile
+    }
+
+    /// Where a folder lives among the configured sources: which one owns it, and the path inside it.
+    struct SourceRoute: Equatable {
+        var providerId: String
+        var relativePath: String
+    }
+
+    /// **The sidebar's own rule, so a file from Finder lands where the sidebar would take you.**
+    /// `SidebarSourceModel.owningSource` over the sidebar's claims (each source's root plus the
+    /// folders it links in — iCloud Drive's Desktop and Documents), longest root first; then the
+    /// path relativized against the owner's resolved root, through the link's name where it went
+    /// through one. Exactly what `openFolderSidebarShortcutInsideItsOwner` computes for a click.
+    ///
+    /// **A source over the whole disk (`/`, "Macintosh HD") is the last resort, asked separately.**
+    /// `SidebarSourceModel.contains` cannot see inside `/` — it tests for a `"//"` prefix — and the
+    /// sidebar never needed it to, because its Macintosh HD row IS that source rather than a place
+    /// inside one. Widening `contains` would change which sidebar rows read "in Macintosh HD"; this
+    /// falls back to it only when no deeper source owns the folder.
+    ///
+    /// - Returns: `nil` when no configured source contains the folder — the file still opens, and
+    ///   the pane stays where it is. A source is never added for it: that is a configuration change
+    ///   the sidebar makes only on a click, with a notice and a way back.
+    static func route(toFolder folder: String,
+                      claims: [(id: String, name: String, path: String)],
+                      roots: [String: String],
+                      resolve: (String) -> String) -> SourceRoute? {
+        let wholeDisk = claims.first { resolve($0.path) == "/" }.map { (id: $0.id, name: $0.name) }
+        guard let owner = SidebarSourceModel.owningSource(of: folder, among: claims, resolve: resolve) ?? wholeDisk,
+              let root = roots[owner.id],
+              let relative = PathBoundary.relativize(resolve(folder), under: resolve(root)) else { return nil }
+        return SourceRoute(providerId: owner.id, relativePath: relative)
     }
 
     /// One line on receipt, written by the delegate before anything else can happen to the files —
     /// so the log shows an open arrived even when the window then has to wait for it. Paths spelled
     /// as ``plan(_:isFolder:)`` spells them, so one search finds both lines.
-    static func receiptLine(_ urls: [URL]) -> String {
-        "[open] Handed \(urls.count) item(s) from outside the app: "
+    static func receiptLine(_ urls: [URL], atLaunch: Bool = false) -> String {
+        "[open] Handed \(urls.count) item(s) from outside the app\(atLaunch ? ", launching SyncCloud" : ""): "
             + urls.map { $0.isFileURL ? $0.standardizedFileURL.path : $0.absoluteString }.joined(separator: ", ")
     }
 
@@ -124,7 +163,7 @@ enum ExternalOpen {
         var parts: [String] = []
         if let opens = plan.opens { parts.append("handing \(opens) to Edit") }
         if !plan.alsoAsked.isEmpty {
-            parts.append("not opening \(plan.alsoAsked.count) more file(s), Edit holds one: "
+            parts.append("\(plan.alsoAsked.count) more file(s) to the file pane, Edit holds one: "
                          + plan.alsoAsked.joined(separator: ", "))
         }
         if !plan.folders.isEmpty {
@@ -142,21 +181,33 @@ enum ExternalOpen {
             + (parts.isEmpty ? "nothing to open" : parts.joined(separator: "; "))
     }
 
-    /// What the window says about anything it did not open, or `nil` when it opened everything it
-    /// was given. Names a single item and counts several, the way the app's other banners do.
-    static func banner(for plan: Plan) -> OperationBanner? {
+    /// What the window says about everything after the first file, or `nil` when there was nothing
+    /// after it. Names a single item and counts several, the way the app's other banners do.
+    ///
+    /// - Parameter unplaced: files that could not be put anywhere — their folder is in no source.
+    ///   Every other file after the first is in the file pane: in the open folder, or in a tab of its
+    ///   own.
+    static func banner(for plan: Plan, unplaced: [String] = []) -> OperationBanner? {
+        let placed = plan.alsoAsked.filter { !unplaced.contains($0) }
         var sentences: [String] = []
-        switch plan.alsoAsked.count {
+        switch placed.count {
         case 0: break
-        case 1: sentences.append("“\(name(plan.alsoAsked[0]))” wasn’t opened — Edit holds one file at a time.")
-        case let n: sentences.append("\(n) other files weren’t opened — Edit holds one file at a time.")
+        case 1: sentences.append("“\(name(placed[0]))” is waiting in the file pane — Edit holds one file at a time.")
+        case let n: sentences.append("The other \(n) files are waiting in the file pane, each folder in its own tab — Edit holds one file at a time.")
+        }
+        switch unplaced.count {
+        case 0: break
+        case 1: sentences.append("“\(name(unplaced[0]))” wasn’t opened — no source SyncCloud has contains it.")
+        case let n: sentences.append("\(n) files weren’t opened — no source SyncCloud has contains them.")
         }
         switch plan.folders.count {
         case 0: break
         case 1: sentences.append("“\(name(plan.folders[0]))” is a folder, and Edit opens files.")
         case let n: sentences.append("\(n) folders weren’t opened — Edit opens files.")
         }
-        return sentences.isEmpty ? nil : .warning(sentences.joined(separator: " "))
+        guard !sentences.isEmpty else { return nil }
+        let text = sentences.joined(separator: " ")
+        return unplaced.isEmpty && plan.folders.isEmpty ? .success(text) : .warning(text)
     }
 
     /// **The act, for one batch, in its order** — plan, log, hand off, then the banner — as one
@@ -168,23 +219,35 @@ enum ExternalOpen {
     /// replaced the hand-off's own "Couldn't save …" — the one message about the user's work. So it
     /// is skipped on a Cancel, and skipped when the hand-off put up a banner of its own.
     ///
-    /// - Returns: what was planned and what the hand-off did, `nil` when there was no file.
+    /// **The rest are placed only after the first is open** — and not at all after a Cancel, which
+    /// has to mean nothing happened: no file, no tabs.
+    ///
+    /// - Parameter placeRest: puts the files after the first in the file pane, beside `opened`;
+    ///   returns the ones it could not place.
+    /// - Returns: what was planned, what the hand-off did (`nil` when there was no file), and the
+    ///   files that could not be placed.
     @MainActor
     @discardableResult
     static func run(_ batch: [URL], superseded: Int = 0,
                     isFolder: (String) -> Bool,
                     handOff: (String) -> EditorHandOffRun.Outcome,
+                    placeRest: (_ rest: [String], _ opened: String) -> [String] = { rest, _ in rest },
                     banner currentBanner: () -> OperationBanner?,
                     setBanner: (OperationBanner) -> Void,
-                    log: (String) -> Void) -> (plan: Plan, outcome: EditorHandOffRun.Outcome?) {
+                    log: (String) -> Void) -> (plan: Plan, outcome: EditorHandOffRun.Outcome?, unplaced: [String]) {
         let plan = plan(batch, isFolder: isFolder)
         log(logLine(for: plan, superseded: superseded))
         let before = currentBanner()?.id
         let outcome = plan.opens.map(handOff)
-        if outcome != .cancelled, currentBanner()?.id == before, let note = banner(for: plan) {
+        var unplaced = plan.alsoAsked
+        if let opened = plan.opens, outcome != .cancelled, !plan.alsoAsked.isEmpty {
+            unplaced = placeRest(plan.alsoAsked, opened)
+        }
+        if outcome != .cancelled, currentBanner()?.id == before,
+           let note = banner(for: plan, unplaced: unplaced) {
             setBanner(note)
         }
-        return (plan, outcome)
+        return (plan, outcome, unplaced)
     }
 
     /// Fetches a file that is still in the cloud, by reading one byte of it — the read that makes
@@ -247,7 +310,8 @@ final class ExternalOpenQueue: ObservableObject {
     @Published private(set) var arrivals = 0
 
     /// One entry per open, oldest first. Kept apart rather than flattened: a batch is one request.
-    private var batches: [[URL]] = []
+    /// `atLaunch`: it arrived before the app finished launching — the app was launched to open it.
+    private var batches: [(urls: [URL], atLaunch: Bool)] = []
 
     /// Set while the window is acting on a batch. The hand-off can stop on a modal question about
     /// the open document, and an arrival announced during it must wait for the answer rather than
@@ -256,9 +320,9 @@ final class ExternalOpenQueue: ObservableObject {
 
     var isEmpty: Bool { batches.isEmpty }
 
-    func receive(_ urls: [URL]) {
+    func receive(_ urls: [URL], atLaunch: Bool = false) {
         guard !urls.isEmpty else { return }
-        batches.append(urls)
+        batches.append((urls, atLaunch))
         arrivals &+= 1
     }
 
@@ -268,9 +332,13 @@ final class ExternalOpenQueue: ObservableObject {
     /// done.** Opened one after another, `a.md` then `b.md` leave `b.md` in Edit; queued behind a
     /// launch they used to leave `a.md` and a banner calling `b.md` unopened. Taking the newest gives
     /// the same end state either way, and asks at most one unsaved-changes question, not two.
-    func takeNewest() -> (batch: [URL], superseded: Int)? {
+    ///
+    /// `atLaunch` is true when ANY of them arrived during launch: the newest can be a second
+    /// double-click made while the first was still launching the app, and the launch is still the
+    /// one the user is looking at.
+    func takeNewest() -> (batch: [URL], superseded: Int, atLaunch: Bool)? {
         guard let newest = batches.last else { return nil }
         defer { batches.removeAll() }
-        return (newest, batches.count - 1)
+        return (newest.urls, batches.count - 1, batches.contains { $0.atLaunch })
     }
 }

@@ -2,6 +2,7 @@ import Foundation
 import Events
 import FileExplorer
 import Sync
+import Dashboard
 
 /// **The hand-off: "Open in Edit" from any door, anywhere in the app** — as one act a test can run.
 ///
@@ -86,6 +87,11 @@ enum EditorHandOffRun {
     ///     `openInEditor` does the same for the rail's click.
     ///   - showEdit: switches to the Edit workspace when it is not already on screen.
     ///   - load: `loadIntoEditor(path:)`, which logs the load's own outcome.
+    ///   - followFolder: how the pane goes to the file's folder when it is not already showing it —
+    ///     the app passes ``EditorTabFollow`` (the tab showing that folder, or a new one, on whichever
+    ///     source holds it). `nil` keeps the in-place re-root ``focusPane(on:root:syncManager:)``
+    ///     does, which is what the tests of this act's order drive. Called after the settle, like
+    ///     every pane move here, so a Cancel still moves nothing.
     @discardableResult
     static func run(_ path: String, pane: Pane,
                     syncManager: FileSyncManager, paneRoot: String,
@@ -95,7 +101,8 @@ enum EditorHandOffRun {
                     endNaming: () -> Void,
                     showEdit: () -> Void,
                     load: (String) -> Void,
-                    log: (String) -> Void) -> Outcome {
+                    log: (String) -> Void,
+                    followFolder: ((String) -> Void)? = nil) -> Outcome {
         guard opens(path, openDocument: openDocument, isRefused: isRefused) else {
             // Already open and readable: just go there. Nothing to settle, nothing to move.
             //
@@ -124,7 +131,11 @@ enum EditorHandOffRun {
             // went on creating files there. One pane is read, so one pane is moved. Nothing to do
             // when it is already there: `focusOn` is not free.
             if !folder.isEmpty, folder != paneFolder() {
-                focusPane(on: folder, root: paneRoot, syncManager: syncManager)
+                if let followFolder {
+                    followFolder(folder)
+                } else {
+                    focusPane(on: folder, root: paneRoot, syncManager: syncManager)
+                }
             }
         case .staysPut:
             // Its own line, so a report of "Open in Edit didn't take me to the folder" from Compare
@@ -158,6 +169,58 @@ enum EditorHandOffRun {
         }
         syncManager.focusOn(relativePath: relative, isLeft: true)
         return true
+    }
+}
+
+/// **Where the file pane goes when Edit opens a file from somewhere else** — the tab already showing
+/// its folder, or a new one, on whichever source holds it.
+///
+/// Asked 2026-10-03: "if it's in same parent, use existing tab. If it's different, open a new tab
+/// (or one of the existing open tabs that may be most relevant)". So the tab you were in keeps its
+/// place, where the hand-off used to re-root it: open three notes from three folders and the pane
+/// holds three tabs, one per folder, rather than one tab that moved twice.
+///
+/// **"The same parent" is asked of the active tab's own location**, scope and column stack joined —
+/// not of the folder Edit happens to draw. The two differ when Browse is in Columns and Edit in
+/// Tree (`EditorHandOffRun.run`'s `paneFolder` note), and there the tab is already at the folder:
+/// only Edit's view of it moves, in place, as every hand-off always did.
+///
+/// Pure, over plain values, so each answer is a test; `ContentView.followFolderInTabs` acts on it.
+enum EditorTabFollow {
+
+    /// A tab, as far as this question needs one: which, where its root is, and where it is under it.
+    struct Tab: Equatable {
+        var id: UUID
+        var root: String
+        var location: String
+    }
+
+    enum Decision: Equatable {
+        /// The active tab is at this folder; only Edit's view of it differs — re-root that, in place.
+        case inPlace
+        /// Another open tab is already at this folder.
+        case switchTo(UUID)
+        /// No tab is: open one, at this source and path.
+        case open(ExternalOpen.SourceRoute)
+        /// No configured source holds the folder. The file still opens; the pane stays.
+        case nowhere
+    }
+
+    /// - Parameters:
+    ///   - relative: the folder under a root, or `nil` when it is not under it —
+    ///     `PaneLogic.relativePath(of:under:)`, which follows iCloud Drive's linked Desktop and
+    ///     Documents, injected so the rule runs without a disk.
+    ///   - route: the source that owns the folder, for a new tab — `ExternalOpen.route`.
+    static func decide(folder: String, active: Tab, others: [Tab],
+                       relative: (_ folder: String, _ root: String) -> String?,
+                       route: (String) -> ExternalOpen.SourceRoute?) -> Decision {
+        func isAt(_ tab: Tab) -> Bool {
+            guard !tab.root.isEmpty, let here = relative(folder, tab.root) else { return false }
+            return SidebarSourceModel.isSameFolder(here, tab.location)
+        }
+        if isAt(active) { return .inPlace }
+        if let tab = others.first(where: isAt) { return .switchTo(tab.id) }
+        return route(folder).map(Decision.open) ?? .nowhere
     }
 }
 

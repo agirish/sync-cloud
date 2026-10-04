@@ -2014,6 +2014,28 @@ struct ContentView: View {
         topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(overrides)
     }
 
+    /// **A launch from Finder opens Edit wide** — "Just the text": the Text Files rail hidden and
+    /// the file pane collapsed, which takes the folder sidebar with it (`FolderSidebarModel.appliesTo`
+    /// draws none beside a collapsed pane). Asked 2026-10-03: "on cold open, it should always have
+    /// the left side bar and file pane both closed. So it feels like a wide screen experience."
+    ///
+    /// **Remembered, as the header's own button is** — chosen that way when asked: Edit stays wide
+    /// until the pane or the rail is opened again. Written for `.editor` by name rather than through
+    /// `togglePanesForCurrentTab`, which writes whatever workspace is on screen and TOGGLES — this
+    /// has to close the pane whatever it was, and only Edit's.
+    func openEditWideForLaunchFromFinder() {
+        let overrides = TopPaneVisibility.decodeOverrides(topPaneOverridesRaw)
+        let paneWasOpen = !TopPaneVisibility.panesHidden(for: .editor, override: overrides[Workspace.editor.rawValue])
+        if paneWasOpen {
+            topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(
+                TopPaneVisibility.settingOverride(overrides, workspace: .editor, hidden: true))
+        }
+        let railWasShown = !editorRailHidden
+        if railWasShown { editorRailHidden = true }
+        Logger.shared.info("[open] Launched from Finder — Edit opens wide"
+            + (paneWasOpen || railWasShown ? " (closed \([paneWasOpen ? "the file pane and sidebar" : nil, railWasShown ? "the Text Files rail" : nil].compactMap { $0 }.joined(separator: " and ")))" : ", as it already was"))
+    }
+
     /// Entering a lens workspace from the workspace bar opens the source rail — and leaves the left
     /// pane exactly where it was. Fired only from the bar itself — the programmatic scan actions
     /// (Find Duplicates / loose files from a Compare menu) set the workspace directly and bypass this,

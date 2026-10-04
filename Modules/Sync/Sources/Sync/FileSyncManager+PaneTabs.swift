@@ -148,6 +148,17 @@ extension FileSyncManager {
         return tab
     }
 
+    /// Opens `tabs` at the trailing end and leaves the live tab live — see
+    /// ``PaneTabList/openInBackground(_:)``. Nothing is applied to the pane, because nothing on it
+    /// changed; the live tab is captured first so the strip's snapshot of it is not stale.
+    @MainActor public func openTabsInBackground(_ tabs: [PaneTab], isLeft: Bool, currentProviderId: String) {
+        guard !tabs.isEmpty else { return }
+        var list = paneTabs(isLeft: isLeft)
+        list.captureActive(captureTab(isLeft: isLeft, providerId: currentProviderId))
+        for tab in tabs { list.openInBackground(tab) }
+        setPaneTabs(list, isLeft: isLeft)
+    }
+
     /// Closes a tab. Returns the tab now live when the pane moved, `nil` when it did not — which
     /// includes closing a *parked* tab (the strip changes, the pane does not) and the refusal on
     /// the last tab. The caller distinguishes the two through `paneTabs(isLeft:).count`.

@@ -300,6 +300,16 @@ public struct PaneTabList: Equatable, Sendable {
         return tab.id
     }
 
+    /// Appends `tab` at the trailing end **without making it active** — a tab waiting for the user,
+    /// the way a ⌘-clicked link opens in a background tab. The active tab, and so the pane, stays
+    /// exactly where it is. Files opened together from Finder are its caller: the first is the one
+    /// on screen, and each of the others waits in a tab of its own.
+    @discardableResult
+    public mutating func openInBackground(_ tab: PaneTab) -> UUID {
+        tabs.append(tab)
+        return tab.id
+    }
+
     /// Closes one tab **and records it for Reopen Closed Tab**. Returns false — changing nothing —
     /// on the last tab, which is the signal for the caller to close the window instead.
     ///

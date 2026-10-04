@@ -520,9 +520,94 @@ extension ContentView {
             endNaming: { editorIsNaming = false },
             showEdit: { if selectedWorkspace != .editor { selectedWorkspace = .editor } },
             load: { loadIntoEditor(path: $0) },
-            log: { Logger.shared.info($0) })
+            log: { Logger.shared.info($0) },
+            followFolder: { followFolderInTabs($0) })
         if outcome != .cancelled { owePaneSelection(path) }
         return outcome
+    }
+
+    // MARK: - The pane follows the file, by tab
+
+    /// The left pane's tabs as ``EditorTabFollow`` reads them: each one's root, tilde-expanded, and
+    /// where it is under it. The active one from the LIVE pane — its entry in the strip is a parked
+    /// snapshot, stale by construction (see `saveBrowseTabs`).
+    func leftPaneTabsForFollow() -> (active: EditorTabFollow.Tab, others: [EditorTabFollow.Tab]) {
+        let list = syncManager.paneTabs(isLeft: true)
+        func root(_ providerId: String) -> String {
+            (settings.rootPath(for: providerId) as NSString).expandingTildeInPath
+        }
+        let active = EditorTabFollow.Tab(id: list.active.id, root: root(paneProviderId(isLeft: true)),
+                                         location: syncManager.combinedRelativePath(isLeft: true))
+        let others = list.tabs.filter { $0.id != list.active.id }.map {
+            EditorTabFollow.Tab(id: $0.id, root: root($0.providerId), location: $0.combinedRelativePath)
+        }
+        return (active, others)
+    }
+
+    /// Which configured source owns `folder`, and where in it — the sidebar's rule, see
+    /// ``ExternalOpen/route(toFolder:claims:roots:resolve:)``.
+    func sourceRoute(toFolder folder: String) -> ExternalOpen.SourceRoute? {
+        let providers = folderSidebarProviders
+        let roots = Dictionary(providers.map { ($0.id, ($0.rootPath as NSString).expandingTildeInPath) },
+                               uniquingKeysWith: { first, _ in first })
+        return ExternalOpen.route(toFolder: folder,
+                                  claims: Self.folderSidebarClaims(providers, links: PathBoundary.discoveredLinkedFolders),
+                                  roots: roots, resolve: Self.resolved)
+    }
+
+    /// **The hand-off's pane move: the tab showing the file's folder, or a new one.** See
+    /// ``EditorTabFollow`` for the rule. Every write here goes through the tab verbs the strip
+    /// itself uses — `selectTab`, and `tabAction` around `openTab` — so a tab on another source
+    /// adopts that source the way clicking its chip does, and the strip is saved.
+    func followFolderInTabs(_ folder: String) {
+        let (active, others) = leftPaneTabsForFollow()
+        let decision = EditorTabFollow.decide(
+            folder: folder, active: active, others: others,
+            relative: { PaneLogic.relativePath(of: $0, under: $1) },
+            route: { sourceRoute(toFolder: $0) })
+        switch decision {
+        case .inPlace:
+            EditorHandOffRun.focusPane(on: folder, root: active.root, syncManager: syncManager)
+        case .switchTo(let id):
+            Logger.shared.info("[pane-follow] \(folder) is open in another tab — switching to it")
+            selectTab(id: id, isLeft: true)
+        case .open(let route):
+            openTabAtRoute(route, isLeft: true, log: "[pane-follow] Opened a tab at \(folder) for the file Edit is opening")
+        case .nowhere:
+            Logger.shared.info("[pane-follow] \(folder) is in no source SyncCloud has — the pane stays where it is")
+        }
+    }
+
+    /// **The files after the first, each waiting in the file pane** — in the folder already on
+    /// screen, in a tab already showing its folder, or in a new tab opened behind the live one with
+    /// the file selected. Returns the files with nowhere to go: their folder is in no source.
+    func openWaitingTabs(for files: [String], besides opened: String) -> [String] {
+        var shown: Set<String> = [((opened as NSString).deletingLastPathComponent).lowercased()]
+        var waiting: [PaneTab] = []
+        var unplaced: [String] = []
+        let (active, others) = leftPaneTabsForFollow()
+        let current = paneProviderId(isLeft: true)
+        for file in files {
+            let folder = (file as NSString).deletingLastPathComponent
+            guard shown.insert(folder.lowercased()).inserted else { continue }
+            switch EditorTabFollow.decide(folder: folder, active: active, others: others,
+                                          relative: { PaneLogic.relativePath(of: $0, under: $1) },
+                                          route: { sourceRoute(toFolder: $0) }) {
+            case .inPlace, .switchTo:
+                continue
+            case .open(let route):
+                waiting.append(tabAtRoute(route, isLeft: true, selecting: [file]))
+            case .nowhere:
+                unplaced.append(file)
+            }
+        }
+        if !waiting.isEmpty {
+            syncManager.openTabsInBackground(waiting, isLeft: true, currentProviderId: current)
+            saveBrowseTabs(isLeft: true)
+            Logger.shared.info("[open] Opened \(waiting.count) tab(s) behind the open file, one per folder: "
+                + waiting.flatMap(\.selection).sorted().joined(separator: ", "))
+        }
+        return unplaced
     }
 
     /// **Files from Finder, the Dock or `open -a`**, taken from the delegate's queue and opened
@@ -540,17 +625,21 @@ extension ContentView {
             Logger.shared.info("[open] A file from outside the app is \(hold.reason)")
             return
         }
-        guard let (batch, superseded) = externalOpens.takeNewest() else { return }
+        guard let (batch, superseded, atLaunch) = externalOpens.takeNewest() else { return }
         externalOpens.isOpening = true
         closeViewersForExternalOpen()
-        let pane = ExternalOpen.pane(workspace: selectedWorkspace, isReviewing: reviewStore.isReviewing)
+        let pane = ExternalOpen.pane(workspace: selectedWorkspace, isReviewing: reviewStore.isReviewing,
+                                     atLaunch: atLaunch)
         let result = ExternalOpen.run(
             batch, superseded: superseded,
             isFolder: ExternalOpen.isFolder,
             handOff: { handOffToEditor($0, pane: pane) },
+            placeRest: { openWaitingTabs(for: $0, besides: $1) },
             banner: { syncManager.banner },
             setBanner: { syncManager.banner = $0 },
             log: { Logger.shared.info($0) })
+        // **A launch from Finder opens Edit wide**: the document, and nothing beside it.
+        if atLaunch, let outcome = result.outcome, outcome != .cancelled { openEditWideForLaunchFromFinder() }
         if let path = result.plan.opens, result.outcome == .opened { fetchExternalOpenFromCloud(path) }
         externalOpens.isOpening = false
         // Anything that arrived while the question was up.

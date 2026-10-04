@@ -37,6 +37,19 @@ import Events
         #expect(tabs.active.relativePath == "C")
     }
 
+    /// **A background tab waits; the live one stays live** — files opened together from Finder put
+    /// the first on screen and each other one in a tab of its own. Mutation: select the appended
+    /// tab, as `open` does, and the active check fails.
+    @Test func aBackgroundTabLandsAtTheTrailingEndAndLeavesTheActiveOne() {
+        var tabs = list(["A", "B"], selected: 0)
+        let id = tabs.openInBackground(PaneTab(providerId: "dropbox", relativePath: "C", selection: ["/c/C/x.md"]))
+        #expect(tabs.tabs.map(\.relativePath) == ["A", "B", "C"])
+        #expect(tabs.active.relativePath == "A")
+        let waiting = try? #require(tabs.tabs.first { $0.id == id })
+        #expect(waiting?.providerId == "dropbox" && waiting?.selection == ["/c/C/x.md"],
+                "the waiting tab lost its source or the file it was opened for")
+    }
+
     // MARK: Closing
 
     /// Finder's rule, and the one that lets you close several in a row without moving the pointer.

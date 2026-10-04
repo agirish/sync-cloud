@@ -907,9 +907,11 @@ import Sync
     /// check alone passes with a fourth opener added beside them still doing it the old way.
     @Test func everyTabOpenerCutsItsLocationThroughTheRule() throws {
         let code = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        // Four since 2026-10-03: `tabAtRoute` cuts the tab Edit opens for a file's folder (and the
+        // ones a batch from Finder leaves waiting) through the same rule.
         let uses = code.components(separatedBy: "PaneTabOpening.location(").count - 1
-        #expect(uses == 3, "\(uses) openers cut through the rule — expected ⌘T, Open in New Tab, and the mirror")
-        #expect(code.components(separatedBy: "browsePath: cut.stack").count - 1 == 3,
+        #expect(uses == 4, "\(uses) openers cut through the rule — expected ⌘T, Open in New Tab, the mirror, and tabAtRoute")
+        #expect(code.components(separatedBy: "browsePath: cut.stack").count - 1 == 4,
                 "an opener resolves the cut and then does not use its stack half")
         for flattened in ["relativePath: here)", "relativePath: relative)", "relativePath: landing)"] {
             #expect(!code.contains(flattened),
@@ -1392,8 +1394,13 @@ import Sync
         // `refreshForTabSwitch` (the one reload of the moved pane). Both are excluded from the
         // focus-door rule below by name, for the reason the readers are: they are not verbs a user
         // aimed at a pane, they are the tail of one.
+        //
+        // **`ContentView+Editor.swift` joined the list on 2026-10-03**: when Edit opens a file the
+        // pane follows it by tab — `selectTab` to a tab already at its folder, `openTabAtRoute` for a
+        // new one — and the waiting tabs of a batch from Finder are built with `tabAtRoute`.
         let wiringFiles = ["ContentView.swift", "ShortcutCommands.swift", "ContentView+PaneSearch.swift",
-                           "ContentView+FolderSidebar.swift", "CommandPaletteHost.swift"]
+                           "ContentView+FolderSidebar.swift", "CommandPaletteHost.swift",
+                           "ContentView+Editor.swift"]
         var derived: Set<String> = []
         for file in hostFiles where file.lastPathComponent != "ContentView+PaneTabs.swift" {
             let code = Self.codeOnly(try String(contentsOf: file, encoding: .utf8))
@@ -1426,10 +1433,14 @@ import Sync
         // their polarity. Requiring a getter to announce which pane the user is working in would
         // push a caller back to writing the ternary out, which is the shape this file exists to
         // keep out of the host.
+        //
+        // **`tabAtRoute` builds a tab value and moves no pane** — the tabs a batch from Finder leaves
+        // waiting are handed to `openTabsInBackground` precisely so the live tab, and the focus,
+        // stay where they are. The verb that opens one live, `openTabAtRoute`, is held to the rule.
         let notVerbs = ["paneTabItems", "paneShowsTabStrip", "seamInset",
                         "saveBrowseTabs", "restoreBrowseTabs",
                         "adoptProviderForTab", "refreshForTabSwitch",
-                        "paneProviderId", "paneScope", "paneStack"]
+                        "paneProviderId", "paneScope", "paneStack", "tabAtRoute"]
         for excluded in notVerbs {
             #expect(derived.contains(excluded),
                     "“\(excluded)” is excluded from this rule as a reader, and the derivation no longer finds it being called at all — the exclusion is now a name that could be hiding a real verb")
