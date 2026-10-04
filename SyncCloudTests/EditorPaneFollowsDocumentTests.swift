@@ -402,7 +402,7 @@ import FileExplorer
         #expect(owes.last.map { $0.lowerBound > load.lowerBound } ?? false,
                 "the selection is owed before the file is the document — the rule would drop it")
 
-        let handOff = try Self.body("func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane = .followsTheFile) -> EditorHandOffRun.Outcome {")
+        let handOff = try Self.body("func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane? = nil) -> EditorHandOffRun.Outcome {")
         #expect(handOff.contains("if outcome != .cancelled { owePaneSelection(path) }"),
                 "a hand-off no longer selects the file — or selects it after a Cancel")
 

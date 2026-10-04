@@ -1238,6 +1238,12 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     /// Whether this run's launch bootstrap has finished. See ``LaunchBootstrap``.
     let launchBootstrap = LaunchBootstrap()
 
+    /// Set as `applicationDidFinishLaunching` begins. AppKit hands a launch's files to
+    /// `application(_:open:)` BEFORE that (measured 2026-10-03: the receipt line lands ahead of the
+    /// `launched` breadcrumb on every launch from Finder, and after it on every open into a running
+    /// app) — so a batch that arrives while this is false is the one the app was launched to open.
+    private var hasFinishedLaunching = false
+
     /// Finder's double-click and Open With, a drop on the Dock icon, `open -a SyncCloud <file>`.
     ///
     /// **Queued, never acted on here**: on a cold launch this arrives before the launch bootstrap
@@ -1245,12 +1251,6 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     /// measured 2026-10-03, a window closed with the red button or hidden with ⌘H is on screen
     /// again before this runs, re-presented for the open event (which is also why `onAppear` runs
     /// again — see ``LaunchBootstrap``).
-    /// Set as `applicationDidFinishLaunching` begins. AppKit hands a launch's files to
-    /// `application(_:open:)` BEFORE that (measured 2026-10-03: the receipt line lands ahead of the
-    /// `launched` breadcrumb on every launch from Finder, and after it on every open into a running
-    /// app) — so a batch that arrives while this is false is the one the app was launched to open.
-    private var hasFinishedLaunching = false
-
     func application(_ application: NSApplication, open urls: [URL]) {
         // **The test host is SyncCloud.app too**, and it claims the same files. Launch Services
         // hands an open to a running copy of the app when it has one, so a double-click during a

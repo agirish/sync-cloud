@@ -41,7 +41,7 @@ import FileExplorerTestSupport
     }
 
     /// **Greyed where it shows.** `.disabled` alone leaves a `.glyph` hover-affordance button
-    /// pixel-identical at rest (see above), so the ＋ with no folder takes the tertiary style: the
+    /// pixel-identical at rest (see above), so a ＋ with no ⌘N closure takes the tertiary style: the
     /// first button's pixels differ between a header with the ⌘N closure and one without, on an open
     /// document and on the empty page. Mutation: drop the ＋'s `.foregroundStyle` and both fail.
     @Test func thePlusLooksGreyedWithNoFolder() throws {

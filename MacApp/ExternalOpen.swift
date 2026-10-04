@@ -5,8 +5,9 @@ import Dashboard
 /// **Files handed to SyncCloud from outside it** — Finder's double-click or Open With, a file dropped
 /// on the Dock icon, `open -a SyncCloud notes.md` — and where they go: into Edit, through
 /// `ContentView.handOffToEditor`, the hand-off every "Open in Edit" inside the app already takes.
-/// So a file from Finder settles the open document first, follows the left pane to its folder when
-/// that folder is in the pane's source, and logs however it ends, exactly as ⌘O does.
+/// So a file from Finder settles the open document first, takes the left pane to its folder by tab
+/// (see ``pane(workspace:isReviewing:atLaunch:)`` for where it does not), and logs however it ends,
+/// exactly as ⌘O does.
 ///
 /// **What Finder offers SyncCloud for is every kind of text macOS recognises** — the claim in
 /// `project.yml` is the parent type `public.text` — and that is what keeps an install from taking a
@@ -17,9 +18,9 @@ import Dashboard
 /// `Makefile` someone deliberately asked for opens. A file still in the cloud is fetched and then
 /// opened — see `ContentView.fetchExternalOpenFromCloud`.
 ///
-/// **One file in Edit, the rest in tabs.** The first file of a batch opens; each other one waits in
-/// the file pane, in a tab of its own at its folder with the file selected — on whichever source
-/// holds it. A folder is named in a banner rather than dropped without a word. **A launch from
+/// **One file in Edit, the rest in the file pane.** The first file of a batch opens; the others
+/// wait in the folder on screen, in a tab already showing theirs, or in a new tab per folder with
+/// its files selected — on whichever source holds it (``waitingFolders(_:)``). A folder is named in a banner rather than dropped without a word. **A launch from
 /// Finder opens Edit wide** ("Just the text"), the way someone who double-clicked a document
 /// expects to see it.
 enum ExternalOpen {
@@ -28,7 +29,8 @@ enum ExternalOpen {
     struct Plan: Equatable {
         /// The file Edit opens — the first file, in the order macOS handed them over.
         var opens: String?
-        /// Files after it. Edit holds one document, so these are not opened.
+        /// Files after it. Edit holds one document, so these wait in the file pane instead — see
+        /// ``run(_:superseded:isFolder:handOff:placeRest:paneIsFolded:banner:setBanner:log:)``.
         var alsoAsked: [String] = []
         /// Folders, which Edit cannot open at all.
         var folders: [String] = []
@@ -110,10 +112,15 @@ enum ExternalOpen {
     /// entries. A file double-clicked in Finder is not a request to do any of that. A guided review
     /// counts as Compare whichever workspace is showing, because its scope is that comparison.
     ///
+    /// **From Organize it follows only on the pane's own source**, as Organize's own doors do
+    /// (``EditorHandOffRun/pane(forDoorIn:isReviewing:)``): its results belong to that source.
+    ///
     /// **Except at launch**, when the workspace is only the one restored from last time and there is
     /// no comparison yet worth keeping: a launch from Finder always goes to the file's folder.
     static func pane(workspace: Workspace, isReviewing: Bool, atLaunch: Bool) -> EditorHandOffRun.Pane {
-        !atLaunch && (workspace == .compare || isReviewing) ? .staysPut : .followsTheFile
+        if atLaunch { return .followsTheFile }
+        if workspace == .compare || isReviewing { return .staysPut }
+        return EditorHandOffRun.pane(forDoorIn: workspace, isReviewing: false)
     }
 
     /// Where a folder lives among the configured sources: which one owns it, and the path inside it.
@@ -146,6 +153,27 @@ enum ExternalOpen {
               let root = roots[owner.id],
               let relative = PathBoundary.relativize(resolve(folder), under: resolve(root)) else { return nil }
         return SourceRoute(providerId: owner.id, relativePath: relative)
+    }
+
+    /// **The files after the first, by folder** — first-seen order, each folder once whatever its
+    /// case. A folder waits in ONE tab with all of its files selected, so two notes from one folder
+    /// are two selected rows, not one selected and one forgotten. **The opened file's own folder is
+    /// a group like any other**: whether the pane went there is the live pane's answer, not this
+    /// one's — it stays put in Compare, and a folder in no source has nowhere to go.
+    static func waitingFolders(_ files: [String]) -> [(folder: String, files: [String])] {
+        var groups: [(folder: String, files: [String])] = []
+        var index: [String: Int] = [:]
+        for file in files {
+            let folder = (file as NSString).deletingLastPathComponent
+            let key = folder.lowercased()
+            if let at = index[key] {
+                groups[at].files.append(file)
+            } else {
+                index[key] = groups.count
+                groups.append((folder, [file]))
+            }
+        }
+        return groups
     }
 
     /// One line on receipt, written by the delegate before anything else can happen to the files —
@@ -187,13 +215,16 @@ enum ExternalOpen {
     /// - Parameter unplaced: files that could not be put anywhere — their folder is in no source.
     ///   Every other file after the first is in the file pane: in the open folder, or in a tab of its
     ///   own.
-    static func banner(for plan: Plan, unplaced: [String] = []) -> OperationBanner? {
+    static func banner(for plan: Plan, unplaced: [String] = [], paneIsFolded: Bool = false) -> OperationBanner? {
         let placed = plan.alsoAsked.filter { !unplaced.contains($0) }
+        // Edit wide — a launch from Finder, or Just the text — folds the pane to its strip, and a
+        // banner pointing at a pane that is not on screen has to say where it went.
+        let pane = paneIsFolded ? "the file pane, folded to the strip at the left edge" : "the file pane"
         var sentences: [String] = []
         switch placed.count {
         case 0: break
-        case 1: sentences.append("“\(name(placed[0]))” is waiting in the file pane — Edit holds one file at a time.")
-        case let n: sentences.append("The other \(n) files are waiting in the file pane, each folder in its own tab — Edit holds one file at a time.")
+        case 1: sentences.append("“\(name(placed[0]))” is waiting in \(pane) — Edit holds one file at a time.")
+        case let n: sentences.append("The other \(n) files are waiting in \(pane) — Edit holds one file at a time.")
         }
         switch unplaced.count {
         case 0: break
@@ -222,8 +253,10 @@ enum ExternalOpen {
     /// **The rest are placed only after the first is open** — and not at all after a Cancel, which
     /// has to mean nothing happened: no file, no tabs.
     ///
-    /// - Parameter placeRest: puts the files after the first in the file pane, beside `opened`;
-    ///   returns the ones it could not place.
+    /// - Parameters:
+    ///   - placeRest: puts the files after the first in the file pane, against the pane as the
+    ///     hand-off left it; returns the ones it could not place.
+    ///   - paneIsFolded: whether the file pane will be folded to its strip — see ``banner(for:unplaced:paneIsFolded:)``.
     /// - Returns: what was planned, what the hand-off did (`nil` when there was no file), and the
     ///   files that could not be placed.
     @MainActor
@@ -231,7 +264,8 @@ enum ExternalOpen {
     static func run(_ batch: [URL], superseded: Int = 0,
                     isFolder: (String) -> Bool,
                     handOff: (String) -> EditorHandOffRun.Outcome,
-                    placeRest: (_ rest: [String], _ opened: String) -> [String] = { rest, _ in rest },
+                    placeRest: (_ rest: [String]) -> [String] = { $0 },
+                    paneIsFolded: Bool = false,
                     banner currentBanner: () -> OperationBanner?,
                     setBanner: (OperationBanner) -> Void,
                     log: (String) -> Void) -> (plan: Plan, outcome: EditorHandOffRun.Outcome?, unplaced: [String]) {
@@ -240,11 +274,11 @@ enum ExternalOpen {
         let before = currentBanner()?.id
         let outcome = plan.opens.map(handOff)
         var unplaced = plan.alsoAsked
-        if let opened = plan.opens, outcome != .cancelled, !plan.alsoAsked.isEmpty {
-            unplaced = placeRest(plan.alsoAsked, opened)
+        if plan.opens != nil, outcome != .cancelled, !plan.alsoAsked.isEmpty {
+            unplaced = placeRest(plan.alsoAsked)
         }
         if outcome != .cancelled, currentBanner()?.id == before,
-           let note = banner(for: plan, unplaced: unplaced) {
+           let note = banner(for: plan, unplaced: unplaced, paneIsFolded: paneIsFolded) {
             setBanner(note)
         }
         return (plan, outcome, unplaced)

@@ -113,8 +113,9 @@ public struct EditorWorkspaceView: View {
     ///
     /// ⌘N sets `isNaming` AND bumps the focus counter this view only reads (``namingFocus``); a
     /// button here that set `isNaming` alone would open the row and leave focus wherever it was,
-    /// the exact "second ⌘N did nothing" the counter was added for. `nil` when there is no folder
-    /// to create in — the same `nil` that greys File ▸ New Text File….
+    /// the exact "second ⌘N did nothing" the counter was added for. `nil` greys it. The app always
+    /// passes ⌘N's closure: with no folder in the pane, ⌘N makes its file in Notes, so there is no
+    /// longer a folderless state to grey it for.
     let onNewTextFile: (() -> Void)?
     /// The header's × (TE46): settle the buffer, then unload the document to the empty state. The
     /// host owns both halves — the unsaved-changes question is asked in `ContentView+Editor` and
@@ -716,7 +717,7 @@ public struct EditorWorkspaceView: View {
     /// document open too** — the empty page is where making a file is most likely to be the next
     /// thing — and by both headers from this one view.
     ///
-    /// **Greyed with no folder, as the menu item is — and greyed where it SHOWS.** `.disabled` stops
+    /// **Greyed with no ⌘N, as the menu item is — and greyed where it SHOWS.** `.disabled` stops
     /// the press, but a `.glyph` hover-affordance button draws the same at rest either way
     /// (measured with TE45: pixel-identical with and without the closure), so on its own it left a
     /// ＋ that looked pressable and did nothing. The glyph takes the tertiary style instead.

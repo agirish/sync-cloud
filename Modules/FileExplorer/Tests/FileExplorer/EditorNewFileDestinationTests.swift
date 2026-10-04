@@ -21,18 +21,20 @@ import FileExplorerTestSupport
     }
 
     /// Scanned: a SwiftUI `Button`'s action and tooltip can't be read from a hosted tree here (see
-    /// `EditorHeaderDoorsTests`). Mutations: the rail's ＋ back on `isNaming = true`, the workspace
-    /// not passing either value, or a site still naming `folderName` each fail a line.
+    /// `EditorHeaderDoorsTests`). Read with comments dropped and whitespace collapsed, so prose
+    /// cannot satisfy a check and a reflow cannot fail one. Mutations: the rail's ＋ back on
+    /// `isNaming = true`, the workspace not passing either value, or a site still naming
+    /// `folderName` each fail a line.
     @Test func everyPlusAndNamingRowNamesTheDestination() throws {
         let workspace = try Self.source("EditorWorkspaceView.swift")
-        #expect(workspace.contains("onNewTextFile: onNewTextFile,\n                               newFileFolderName: newFileFolderName,"),
+        #expect(workspace.contains("onNewTextFile: onNewTextFile, newFileFolderName: newFileFolderName,"),
                 "the rail is not handed ⌘N's closure and the destination's name")
         #expect(workspace.contains("onCreate: onCreate, folderName: newFileFolderLabel)"),
                 "the document column's naming row names the pane's folder, not the destination")
         #expect(workspace.contains("Self.newTextFileTitle(folderName: newFileFolderLabel)"),
                 "the header ＋'s tooltip names the pane's folder, not the destination")
         let rail = try Self.source("EditorFileRailView.swift")
-        #expect(rail.contains("Button {\n                        onNewTextFile?()\n"),
+        #expect(rail.contains("Button { onNewTextFile?() } label:"),
                 "the rail's ＋ opens the row itself — it skips ⌘N's move to Notes")
         #expect(!rail.contains("isNaming = true"), "the rail's ＋ sets isNaming directly again")
         #expect(rail.contains("let destination = newFileFolderName ?? folderName"))
@@ -49,6 +51,12 @@ import FileExplorerTestSupport
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read \(name) — this scan would be vacuous")
         try #require(text.count > 500, "\(name) is implausibly short — the scan would be near-vacuous")
-        return text
+        // Whole-line comments out (these files keep no `//` inside a string literal), then every
+        // run of whitespace as one space.
+        let code = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .map { line in line.range(of: " // ").map { String(line[..<$0.lowerBound]) } ?? String(line) }
+            .joined(separator: " ")
+        return code.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }

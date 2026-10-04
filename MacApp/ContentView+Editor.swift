@@ -508,15 +508,18 @@ extension ContentView {
     /// one log line whichever way it ends — are `EditorHandOffRun.run`'s; this supplies the window's
     /// pieces.
     ///
-    /// - Parameter pane: what happens to the left pane. `.followsTheFile` for every door but one;
+    /// - Parameter pane: what happens to the left pane — `nil` for the in-app doors, which take
+    ///   ``EditorHandOffRun/pane(forDoorIn:isReviewing:)``'s answer for the workspace they are in.
     ///   Compare's list of differences passes `.staysPut`, because there the left pane is half of
-    ///   the comparison the list is showing — see `EditorHandOffRun.Pane`.
+    ///   the comparison the list is showing; a file from Finder passes `ExternalOpen.pane`'s.
     ///
     /// Then, unless the settle was cancelled, the pane owes the file a selection (TE47): where it
     /// shows the file's folder — always, after a re-root — the document is selected there and
     /// brought into view.
     @discardableResult
-    func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane = .followsTheFile) -> EditorHandOffRun.Outcome {
+    func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane? = nil) -> EditorHandOffRun.Outcome {
+        // Asked of the workspace the door is in — before `showEdit` leaves it.
+        let pane = pane ?? EditorHandOffRun.pane(forDoorIn: selectedWorkspace, isReviewing: reviewStore.isReviewing)
         let outcome = EditorHandOffRun.run(
             path, pane: pane,
             syncManager: syncManager,
@@ -529,7 +532,7 @@ extension ContentView {
             showEdit: { if selectedWorkspace != .editor { selectedWorkspace = .editor } },
             load: { loadIntoEditor(path: $0) },
             log: { Logger.shared.info($0) },
-            followFolder: { followFolderInTabs($0) })
+            followFolder: { followFolderInTabs($0, keepsSource: pane == .followsOnItsSource) })
         if outcome != .cancelled { owePaneSelection(path) }
         return outcome
     }
@@ -538,18 +541,32 @@ extension ContentView {
 
     /// The left pane's tabs as ``EditorTabFollow`` reads them: each one's root, tilde-expanded, and
     /// where it is under it. The active one from the LIVE pane — its entry in the strip is a parked
-    /// snapshot, stale by construction (see `saveBrowseTabs`).
+    /// snapshot, stale by construction (see `saveBrowseTabs`). **A parked tab on a source the pane
+    /// can no longer show is no candidate**: switching to it would discard it and land somewhere
+    /// else (`tabAction`'s `.unavailable`).
     func leftPaneTabsForFollow() -> (active: EditorTabFollow.Tab, others: [EditorTabFollow.Tab]) {
         let list = syncManager.paneTabs(isLeft: true)
         func root(_ providerId: String) -> String {
             (settings.rootPath(for: providerId) as NSString).expandingTildeInPath
         }
-        let active = EditorTabFollow.Tab(id: list.active.id, root: root(paneProviderId(isLeft: true)),
-                                         location: syncManager.combinedRelativePath(isLeft: true))
-        let others = list.tabs.filter { $0.id != list.active.id }.map {
-            EditorTabFollow.Tab(id: $0.id, root: root($0.providerId), location: $0.combinedRelativePath)
+        let current = paneProviderId(isLeft: true)
+        let active = EditorTabFollow.Tab(id: list.active.id, root: root(current),
+                                         location: syncManager.combinedRelativePath(isLeft: true), providerId: current)
+        let others = list.tabs.filter { $0.id != list.active.id && paneCanShowSource($0.providerId) }.map {
+            EditorTabFollow.Tab(id: $0.id, root: root($0.providerId), location: $0.combinedRelativePath,
+                                providerId: $0.providerId)
         }
         return (active, others)
+    }
+
+    /// `folder` under `root`, **both resolved first** — the spelling `sourceRoute` reads them in, so
+    /// "a tab is already here" and "this source owns it" cannot disagree about one folder reached
+    /// two ways (`~/OneDrive/…` and `~/Library/CloudStorage/OneDrive-…/…`). Then iCloud Drive's
+    /// linked Desktop and Documents, as `PaneLogic.relativePath` follows them.
+    static func followRelative(_ folder: String, _ root: String) -> String? {
+        // `resolved("")` is the process's working directory, not "no folder".
+        guard !folder.isEmpty, !root.isEmpty else { return nil }
+        return PaneLogic.relativePath(of: resolved(folder), under: resolved(root))
     }
 
     /// Which configured source owns `folder`, and where in it — the sidebar's rule, see
@@ -567,46 +584,69 @@ extension ContentView {
     /// ``EditorTabFollow`` for the rule. Every write here goes through the tab verbs the strip
     /// itself uses — `selectTab`, and `tabAction` around `openTab` — so a tab on another source
     /// adopts that source the way clicking its chip does, and the strip is saved.
-    func followFolderInTabs(_ folder: String) {
+    ///
+    /// - Parameters:
+    ///   - purpose: what the move is for, for the log — a file being opened, or the one ⌘N is
+    ///     about to make, which does not exist yet.
+    ///   - keepsSource: `EditorHandOffRun.Pane.followsOnItsSource` — from Compare or Organize the
+    ///     pane follows only on the source it is on.
+    func followFolderInTabs(_ folder: String, for purpose: String = "the file Edit is opening",
+                            keepsSource: Bool = false) {
+        // The tab verbs refuse while the sources are still being set up (`tabAction`); said here,
+        // so the log does not claim a switch that never happened.
+        guard !isBootstrappingProviders else {
+            Logger.shared.info("[pane-follow] \(folder): the sources are still being set up — the pane stays where it is")
+            return
+        }
         let (active, others) = leftPaneTabsForFollow()
         let decision = EditorTabFollow.decide(
-            folder: folder, active: active, others: others,
-            relative: { PaneLogic.relativePath(of: $0, under: $1) },
-            route: { sourceRoute(toFolder: $0) })
+            folder: folder, active: active, others: others, keepsSource: keepsSource,
+            relative: Self.followRelative, route: { sourceRoute(toFolder: $0) })
         switch decision {
         case .inPlace:
-            EditorHandOffRun.focusPane(on: folder, root: active.root, syncManager: syncManager)
+            break
         case .switchTo(let id):
-            Logger.shared.info("[pane-follow] \(folder) is open in another tab — switching to it")
+            Logger.shared.info("[pane-follow] \(folder) is open in another tab — switching to it for \(purpose)")
             selectTab(id: id, isLeft: true)
         case .open(let route):
-            openTabAtRoute(route, isLeft: true, log: "[pane-follow] Opened a tab at \(folder) for the file Edit is opening")
+            openTabAtRoute(route, isLeft: true, log: "[pane-follow] Opened a tab at \(folder) for \(purpose)")
         case .nowhere:
-            Logger.shared.info("[pane-follow] \(folder) is in no source SyncCloud has — the pane stays where it is")
+            Logger.shared.info(keepsSource
+                ? "[pane-follow] \(folder) is outside the left pane's source, which a move from Compare or Organize keeps — the pane stays where it is"
+                : "[pane-follow] \(folder) is in no source SyncCloud has — the pane stays where it is")
+            return
+        }
+        // After the move, against the tab now live: Tree lists its scope only.
+        let root = (settings.rootPath(for: paneProviderId(isLeft: true)) as NSString).expandingTildeInPath
+        if EditorTabFollow.needsRerootInPlace(folder: folder, editShows: leftPaneFolder(in: .editor), root: root,
+                                              relative: Self.followRelative) {
+            EditorHandOffRun.focusPane(on: folder, root: root, syncManager: syncManager)
         }
     }
 
     /// **The files after the first, each waiting in the file pane** — in the folder already on
     /// screen, in a tab already showing its folder, or in a new tab opened behind the live one with
-    /// the file selected. Returns the files with nowhere to go: their folder is in no source.
-    func openWaitingTabs(for files: [String], besides opened: String) -> [String] {
-        var shown: Set<String> = [((opened as NSString).deletingLastPathComponent).lowercased()]
+    /// its files selected (`ExternalOpen.waitingFolders`). Asked of the pane as the hand-off left
+    /// it, so the opened file's neighbours wait in its folder only where the pane went there.
+    /// Returns the files with nowhere to go: their folder is in no source.
+    ///
+    /// **Never confined to the pane's source**, even from Organize: a tab opened BEHIND the live
+    /// one changes nothing the pane holds until it is chosen.
+    func openWaitingTabs(for files: [String]) -> [String] {
         var waiting: [PaneTab] = []
+        var inOpenTabs: [String] = []
         var unplaced: [String] = []
         let (active, others) = leftPaneTabsForFollow()
         let current = paneProviderId(isLeft: true)
-        for file in files {
-            let folder = (file as NSString).deletingLastPathComponent
-            guard shown.insert(folder.lowercased()).inserted else { continue }
-            switch EditorTabFollow.decide(folder: folder, active: active, others: others,
-                                          relative: { PaneLogic.relativePath(of: $0, under: $1) },
-                                          route: { sourceRoute(toFolder: $0) }) {
+        for group in ExternalOpen.waitingFolders(files) {
+            switch EditorTabFollow.decide(folder: group.folder, active: active, others: others,
+                                          relative: Self.followRelative, route: { sourceRoute(toFolder: $0) }) {
             case .inPlace, .switchTo:
-                continue
+                inOpenTabs += group.files
             case .open(let route):
-                waiting.append(tabAtRoute(route, isLeft: true, selecting: [file]))
+                waiting.append(Self.tabAtRoute(route, selecting: Set(group.files)))
             case .nowhere:
-                unplaced.append(file)
+                unplaced += group.files
             }
         }
         if !waiting.isEmpty {
@@ -615,6 +655,10 @@ extension ContentView {
             Logger.shared.info("[open] Opened \(waiting.count) tab(s) behind the open file, one per folder: "
                 + waiting.flatMap(\.selection).sorted().joined(separator: ", "))
         }
+        if !inOpenTabs.isEmpty {
+            Logger.shared.info("[open] \(inOpenTabs.count) file(s) wait in a tab already showing their folder: "
+                + inOpenTabs.joined(separator: ", "))
+        }
         return unplaced
     }
 
@@ -622,7 +666,7 @@ extension ContentView {
     /// through ``handOffToEditor(_:pane:)`` — the door every "Open in Edit" in the app goes through,
     /// so a file from outside settles the open document, moves the pane and logs exactly as ⌘O
     /// does. Called on every arrival and whenever something holding one back clears; a call with
-    /// nothing waiting does nothing. The act itself is ``ExternalOpen/run(_:superseded:isFolder:handOff:banner:setBanner:log:)``.
+    /// nothing waiting does nothing. The act itself is ``ExternalOpen/run(_:superseded:isFolder:handOff:placeRest:paneIsFolded:banner:setBanner:log:)``.
     func openExternalArrivals() {
         // An earlier arrival's hand-off is stopped on the unsaved-changes question; this one waits
         // for the answer and is taken at the bottom of that call.
@@ -642,7 +686,9 @@ extension ContentView {
             batch, superseded: superseded,
             isFolder: ExternalOpen.isFolder,
             handOff: { handOffToEditor($0, pane: pane) },
-            placeRest: { openWaitingTabs(for: $0, besides: $1) },
+            placeRest: { openWaitingTabs(for: $0) },
+            // Folded: a launch opens Edit wide (below), and Just the text already is.
+            paneIsFolded: atLaunch || editorPaneIsFolded,
             banner: { syncManager.banner },
             setBanner: { syncManager.banner = $0 },
             log: { Logger.shared.info($0) })
@@ -1089,6 +1135,10 @@ extension ContentView {
     /// was already looking at.
     var shortcutNewTextFile: () -> Void {
         {
+            // Asked of the workspace being LEFT, before the switch below: from Compare the pane
+            // is half of the comparison and stays; from Organize it keeps its source.
+            editorNewFilePane = ExternalOpen.pane(workspace: selectedWorkspace,
+                                                  isReviewing: reviewStore.isReviewing, atLaunch: false)
             // The tab first, so a rail this switch builds starts on its files half rather than
             // switching there in its first update — which, under a selection lens, glided across
             // the rail tabs on a window nobody had touched yet. The rail's own `onChange` still
@@ -1111,7 +1161,8 @@ extension ContentView {
     /// asks ``editorNewFileFolderName`` instead.
     var newTextFileDestination: (folder: String, refusal: EditorNewFileFolder.Refusal?) {
         EditorNewFileFolder.destination(paneFolder: editorFolder, home: NSHomeDirectory(),
-                                        isWritable: { FileManager.default.isWritableFile(atPath: $0) })
+                                        isWritable: { FileManager.default.isWritableFile(atPath: $0) },
+                                        resolve: { Self.resolved($0) })
     }
 
     /// "Notes" when the ＋'s tooltip and the naming row must name it instead of the pane's folder —
@@ -1124,32 +1175,49 @@ extension ContentView {
 
     /// ⌘N's first step when the pane's folder is no place for a file: make Notes, and take the
     /// pane there — a tab already showing it, or a new one — so the name is typed in the folder it
-    /// will land in. `false` when Notes could not be made; ⌘N then opens nothing.
+    /// will land in. **As the pane rule says** (`editorNewFilePane`): from Compare it stays put —
+    /// the file still goes to Notes, and the naming row says so — and from Organize it follows only
+    /// on its own source. `false` when Notes could not be made; ⌘N then opens nothing.
     func takePaneToNotesIfItIsNoPlaceForAFile() -> Bool {
         let paneFolder = editorFolder
         let (folder, refusal) = newTextFileDestination
         guard let refusal else { return true }
-        guard makeNotesFolder(folder) else { return false }
-        Logger.shared.info("[new-file] \(refusal.why(paneFolder)) — ⌘N makes the file in \(folder)")
-        followFolderInTabs(folder)
+        let notes = makeNotesFolder(folder)
+        guard notes != .couldNotMake else { return false }
+        switch editorNewFilePane {
+        case .staysPut:
+            Logger.shared.info("[new-file] \(refusal.why(paneFolder)) — ⌘N makes the file in \(folder), and leaves "
+                + "the left pane where it is: it is half of the comparison")
+        case .followsTheFile, .followsOnItsSource:
+            Logger.shared.info("[new-file] \(refusal.why(paneFolder)) — ⌘N makes the file in \(folder)")
+            followFolderInTabs(folder, for: "the file ⌘N is about to make",
+                               keepsSource: editorNewFilePane == .followsOnItsSource)
+        }
+        // **A folder made just now is in no walk yet** — a pane left on Documents or above it (from
+        // Compare, or with nowhere to go) would not list it until something re-read it. So the pane
+        // that holds Notes is re-read, as the move left it.
+        if notes == .madeNow { rereadPanesAfterEditorWrite(folder) }
         return true
     }
 
+    /// What ``makeNotesFolder(_:)`` found.
+    enum NotesFolder { case alreadyThere, madeNow, couldNotMake }
+
     /// Makes `~/Documents/Notes` if it is not there. A new folder drops the cached walks that list
     /// its parent, so a pane showing Documents lists it.
-    func makeNotesFolder(_ folder: String) -> Bool {
+    func makeNotesFolder(_ folder: String) -> NotesFolder {
         var isFolder: ObjCBool = false
         // A FILE named Notes falls through to `createDirectory`, which refuses it with a reason.
-        if FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder), isFolder.boolValue { return true }
+        if FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder), isFolder.boolValue { return .alreadyThere }
         do {
             try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
             Logger.shared.info("[new-file] Made \(folder)")
             syncManager.prepareReread(afterWritingAt: folder)
-            return true
+            return .madeNow
         } catch {
             Logger.shared.error("[new-file] Couldn't make \(folder): \(error.localizedDescription)")
             syncManager.banner = .error("Couldn't make the Notes folder — \(error.localizedDescription)")
-            return false
+            return .couldNotMake
         }
     }
 
@@ -1163,14 +1231,17 @@ extension ContentView {
         let (folder, refusal) = newTextFileDestination
         guard settleEditorDocument() else { return false }
         // Made at ⌘N already; again here for a Notes deleted while the name was being typed.
-        if refusal != nil, !makeNotesFolder(folder) { return false }
+        if refusal != nil, makeNotesFolder(folder) == .couldNotMake { return false }
         do {
             let path = try EditorFileStore.createEmptyFile(named: name, in: folder)
             Logger.shared.info("Editor created \(path)")
             loadIntoEditor(path: path)
             // ⌘N took the pane to Notes; this is for a pane that could not go, or was moved off
-            // it while the name was typed. The file is opened in Edit, and the pane follows that.
-            if refusal != nil { followFolderInTabs(folder) }
+            // it while the name was typed. The file is opened in Edit, and the pane follows that —
+            // by the same rule ⌘N's own move took (`editorNewFilePane`).
+            if refusal != nil, editorNewFilePane != .staysPut {
+                followFolderInTabs(folder, keepsSource: editorNewFilePane == .followsOnItsSource)
+            }
             // Both lists, whichever is on screen: the rail for the collapsed arm, the pane for the
             // expanded one — and the pane is re-read even while collapsed, so it is current when
             // it is next opened.

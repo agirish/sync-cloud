@@ -438,15 +438,19 @@ extension ContentView {
         }
     }
 
-    /// A tab at `route` for the `isLeft` pane, cut like Open in New Tab's: on the pane's own source
-    /// and under its scope, the scope holds and the rest becomes column stack; anywhere else it is
-    /// all scope. A value only — it moves no pane.
-    func tabAtRoute(_ route: ExternalOpen.SourceRoute, isLeft: Bool, selecting selection: Set<String> = []) -> PaneTab {
-        let sameSource = route.providerId == paneProviderId(isLeft: isLeft)
-        let cut = PaneTabOpening.location(of: route.relativePath,
-                                          openedFromScope: sameSource ? paneScope(isLeft: isLeft) : "")
-        return PaneTab(providerId: route.providerId, relativePath: cut.scope, browsePath: cut.stack,
-                       selection: selection)
+    /// **A tab at `route`, rooted at the folder** — the whole path its scope, no column stack. A
+    /// value only; it moves no pane.
+    ///
+    /// **Not cut like Open in New Tab's** (`PaneTabOpening.location`), deliberately. That cut keeps
+    /// the pane's scope and stacks the rest as columns, which is right for a tab opened from a row
+    /// on screen — the scope's walk has reached it. A followed folder can be anywhere, and a walk of
+    /// a large source stops at 200,000 entries: the stack is pruned back to what was walked, and
+    /// the pane landed a folder short of the file with nothing selected (measured 2026-10-03 —
+    /// `~/Downloads/pm/a` on the Home source landed on `pm`). Rooted at the folder, the tab walks
+    /// the folder itself, as the hand-off's re-root did before tabs; the breadcrumb still climbs.
+    static func tabAtRoute(_ route: ExternalOpen.SourceRoute, selecting selection: Set<String> = []) -> PaneTab {
+        PaneTab(providerId: route.providerId, relativePath: route.relativePath, browsePath: PaneBrowsePath(),
+                selection: selection)
     }
 
     /// **Opens a tab at `route` on the `isLeft` pane and makes it live** — the pane following a file
@@ -454,7 +458,7 @@ extension ContentView {
     /// source adopts it exactly as clicking that tab's chip would, and the strip is saved.
     func openTabAtRoute(_ route: ExternalOpen.SourceRoute, isLeft: Bool, log: String) {
         let current = paneProviderId(isLeft: isLeft)
-        let tab = tabAtRoute(route, isLeft: isLeft)
+        let tab = Self.tabAtRoute(route)
         tabAction(isLeft: isLeft) {
             Logger.shared.info(log)
             return syncManager.openTab(tab, isLeft: isLeft, currentProviderId: current)

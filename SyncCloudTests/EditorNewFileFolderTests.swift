@@ -84,6 +84,23 @@ import Sync
         #expect(EditorNewFileFolder.refusal(of: "/Volumes/Disk", home: Self.home, isWritable: { _ in true }) == nil)
     }
 
+    /// **Where a link leads counts** — `/Volumes/Macintosh HD` IS `/`, so its `Applications` is the
+    /// system's, writable for an admin, though the spelling sits under `/Volumes`. Resolved only
+    /// for a spelling that passes. Mutations: drop the resolved check and the first fails; resolve
+    /// before the spelling check and the second does.
+    @Test func aLinkIntoASystemFolderIsNoPlaceForAFile() {
+        let boot: (String) -> String = { $0.replacingOccurrences(of: "/Volumes/Macintosh HD", with: "") }
+        #expect(EditorNewFileFolder.refusal(of: "/Volumes/Macintosh HD/Applications", home: Self.home,
+                                            isWritable: { _ in true }, resolve: boot) == .system)
+        var resolved: [String] = []
+        _ = EditorNewFileFolder.refusal(of: "/Applications", home: Self.home, isWritable: { _ in true },
+                                        resolve: { resolved.append($0); return $0 })
+        #expect(resolved.isEmpty, "a spelling already refused was resolved anyway")
+        // A link that leads somewhere allowed stays allowed — `~/OneDrive` into CloudStorage.
+        #expect(EditorNewFileFolder.refusal(of: "/Users/tester/OneDrive/x", home: Self.home, isWritable: { _ in true },
+                                            resolve: { _ in "/Users/tester/Library/CloudStorage/OneDrive-Personal/x" }) == nil)
+    }
+
     /// The pane's folder when it takes the file; `~/Documents/Notes` and the reason when it does not.
     @Test func theDestinationIsThePanesFolderOrNotes() {
         let kept = EditorNewFileFolder.destination(paneFolder: "/Users/tester/Desktop", home: Self.home,
@@ -135,13 +152,21 @@ import Sync
     }
 
     /// **Notes is made, then the pane follows it by tab** — and only when the pane's folder was
-    /// refused. Mutations: drop `guard let refusal`, drop the make, or follow `paneFolder`.
+    /// refused. **A Notes made just now is re-read after the move**: a tab on the pane's own source
+    /// keeps its scope, so the switch re-reads nothing, and the column for a folder no walk has seen
+    /// would stay blank, then be pruned — sending ⌘N's file to Documents (the review's finding).
+    /// Mutations: drop `guard let refusal`, drop the make, follow `paneFolder`, or drop the re-read
+    /// (or move it above the follow), each fail a line.
     @Test func thePaneFollowsNotesOnlyOnceItExists() throws {
         let take = try Self.body("func takePaneToNotesIfItIsNoPlaceForAFile() -> Bool")
         #expect(take.contains("guard let refusal else { return true }"))
-        let make = try #require(take.range(of: "guard makeNotesFolder(folder) else { return false }"))
-        let follow = try #require(take.range(of: "followFolderInTabs(folder)"), "the pane is not taken to Notes")
+        let make = try #require(take.range(of: "let notes = makeNotesFolder(folder) guard notes != .couldNotMake else { return false }"))
+        let follow = try #require(take.range(of: "followFolderInTabs(folder, for: \"the file ⌘N is about to make\","),
+                                  "the pane is not taken to Notes, or the log says a file is being opened")
         #expect(make.lowerBound < follow.lowerBound, "the pane is sent to a Notes that may not exist yet")
+        let reread = try #require(take.range(of: "if notes == .madeNow { rereadPanesAfterEditorWrite(folder) }"),
+                                  "a Notes made just now is not re-read")
+        #expect(follow.lowerBound < reread.lowerBound, "the re-read reads the pane as it was, not as the move left it")
     }
 
     /// **The file is made where the rule says**, not in `editorFolder` — and the name the row offers
@@ -152,13 +177,35 @@ import Sync
         #expect(create.contains("let (folder, refusal) = newTextFileDestination"))
         #expect(create.contains("EditorFileStore.createEmptyFile(named: name, in: folder)"))
         #expect(!create.contains("editorFolder"), "createTextFile reads the pane's folder, not the destination")
-        #expect(create.contains("if refusal != nil { followFolderInTabs(folder) }"),
-                "a file made in Notes from a pane that is not there leaves the pane behind")
+        #expect(create.contains("if refusal != nil, editorNewFilePane != .staysPut { followFolderInTabs(folder, keepsSource: editorNewFilePane == .followsOnItsSource) }"),
+                "a file made in Notes leaves the pane behind, drags it out of a comparison, or out of Organize's source")
         let workspace = try Self.body("func editorWorkspace(showsRail: Bool)")
         let call = try EditorHeaderDoorsWiringTests.call("EditorWorkspaceView(", in: workspace)
         #expect(call.passes("prefilledName", "{ EditorFileStore.availableUntitledName(in: newTextFileDestination.folder) }"))
         #expect(call.passes("refusal", "{ typed in EditorFileStore.refusal(forName: typed, in: newTextFileDestination.folder) }"))
         #expect(call.passes("newFileFolderName", "editorNewFileFolderName"))
+    }
+
+    /// **From Compare the pane stays half of the comparison; from Organize it keeps its source** —
+    /// as every other way into Edit from there does (`ExternalOpen.pane`). Asked of the workspace
+    /// being LEFT, so before the switch to Edit; the file still goes to Notes. Mutations: the read
+    /// moved below the switch (it would always say Edit), Compare's arm following, or the follow
+    /// ignoring `.followsOnItsSource`, each fail.
+    @Test func fromCompareTheFileGoesToNotesAndThePaneStays() throws {
+        let chord = try Self.body("var shortcutNewTextFile: () -> Void")
+        let ask = try #require(chord.range(of: "editorNewFilePane = ExternalOpen.pane(workspace: selectedWorkspace, isReviewing: reviewStore.isReviewing, atLaunch: false)"),
+                               "⌘N no longer asks what the workspace it was pressed in does to the pane")
+        let switchTo = try #require(chord.range(of: "selectedWorkspace = .editor"))
+        #expect(ask.lowerBound < switchTo.lowerBound, "the workspace is asked after ⌘N has already left it")
+        let take = try Self.body("func takePaneToNotesIfItIsNoPlaceForAFile() -> Bool")
+        let stays = try #require(take.range(of: "case .staysPut:"))
+        let follows = try #require(take.range(of: "case .followsTheFile, .followsOnItsSource:"))
+        let follow = try #require(take.range(of: "followFolderInTabs(folder,"))
+        #expect(stays.lowerBound < follows.lowerBound && follows.lowerBound < follow.lowerBound,
+                "the pane follows Notes out of a comparison")
+        #expect(take.contains("keepsSource: editorNewFilePane == .followsOnItsSource)"),
+                "from Organize, ⌘N's move adopts another source")
+        #expect(take.contains("it is half of the comparison"), "the stay is not logged")
     }
 
     /// **What a body reads is the spelling half alone** — the ＋'s tooltip is drawn on every pass,
@@ -175,5 +222,6 @@ import Sync
         let destination = try Self.body("var newTextFileDestination: (folder: String, refusal: EditorNewFileFolder.Refusal?)")
         #expect(destination.contains("paneFolder: editorFolder, home: NSHomeDirectory()"))
         #expect(destination.contains("FileManager.default.isWritableFile(atPath: $0)"))
+        #expect(destination.contains("resolve: { Self.resolved($0) }"), "a link into a system folder is not followed")
     }
 }

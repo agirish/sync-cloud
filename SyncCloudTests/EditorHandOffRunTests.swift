@@ -83,6 +83,13 @@ import FileExplorer
         let put = Scene()
         put.handOff(Self.file, pane: .staysPut, followFolder: { put.steps.append("follow \($0)") })
         #expect(!put.steps.contains { $0.hasPrefix("follow") }, "the differences list's pane was moved")
+
+        // From Compare's panes and Organize the pane moves too — the follow is told to keep the
+        // source (`handOffToEditor` passes `keepsSource`), not skipped. Mutation: leave
+        // `.followsOnItsSource` out of the moving arm and this fails.
+        let ownSource = Scene()
+        ownSource.handOff(Self.file, pane: .followsOnItsSource, followFolder: { ownSource.steps.append("follow \($0)") })
+        #expect(ownSource.steps.contains("follow /c/Documents/Finance/Tax"), "a door that keeps the source did not move the pane")
     }
 
     @Test func theDifferencesListsHandOffLeavesTheComparisonAlone() {
@@ -412,8 +419,9 @@ import FileExplorer
                 "resolvedViewMode no longer delegates — two answers to one question")
     }
 
-    /// `handOffToEditor` runs this act with the window's own pieces, and the default is the
-    /// ordinary variant — so every door but the differences list keeps re-rooting.
+    /// `handOffToEditor` runs this act with the window's own pieces, and with no pane named it takes
+    /// the door's rule for the workspace it is in (`EditorHandOffRun.pane(forDoorIn:isReviewing:)`)
+    /// — so every door but the differences list moves the pane.
     ///
     /// Every argument is read by its label on the `EditorHandOffRun.run(` call itself, so the
     /// check is about what is passed and not how the call is laid out — and `paneRoot:` is pinned
@@ -422,7 +430,7 @@ import FileExplorer
     /// root is the only right answer (`~` is not a folder the pane can walk).
     @Test func theAppRunsTheSharedActWithItsOwnPieces() throws {
         let body = try EditorNewFilePaneWiringTests.body(
-            of: "func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane = .followsTheFile) -> EditorHandOffRun.Outcome {",
+            of: "func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane? = nil) -> EditorHandOffRun.Outcome {",
             in: "ContentView+Editor.swift")
         let run = try CallArguments(of: "EditorHandOffRun.run(", in: body.normalized)
         #expect(run.unlabeled == ["path"], "the act is handed \(run.unlabeled), not the path it was asked to open")

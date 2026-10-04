@@ -907,12 +907,17 @@ import Sync
     /// check alone passes with a fourth opener added beside them still doing it the old way.
     @Test func everyTabOpenerCutsItsLocationThroughTheRule() throws {
         let code = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
-        // Four since 2026-10-03: `tabAtRoute` cuts the tab Edit opens for a file's folder (and the
-        // ones a batch from Finder leaves waiting) through the same rule.
+        // Three: ⌘T, Open in New Tab and the mirror. **`tabAtRoute` is the one opener rooted at its
+        // folder on purpose** — a followed folder can lie beyond what the scope's walk reached, and
+        // a stacked tab there was pruned a folder short (its doc has the measurement). Pinned
+        // below, so it cannot drift into either the cut or a silent flattening of a user's columns.
         let uses = code.components(separatedBy: "PaneTabOpening.location(").count - 1
-        #expect(uses == 4, "\(uses) openers cut through the rule — expected ⌘T, Open in New Tab, the mirror, and tabAtRoute")
-        #expect(code.components(separatedBy: "browsePath: cut.stack").count - 1 == 4,
+        #expect(uses == 3, "\(uses) openers cut through the rule — expected ⌘T, Open in New Tab and the mirror")
+        #expect(code.components(separatedBy: "browsePath: cut.stack").count - 1 == 3,
                 "an opener resolves the cut and then does not use its stack half")
+        let rooted = try CodeText(declarationBody(of: "static func tabAtRoute(_ route: ExternalOpen.SourceRoute,", in: code))
+        #expect(rooted.contains("PaneTab(providerId: route.providerId, relativePath: route.relativePath, browsePath: PaneBrowsePath(),"),
+                "the followed tab is no longer rooted at its folder")
         for flattened in ["relativePath: here)", "relativePath: relative)", "relativePath: landing)"] {
             #expect(!code.contains(flattened),
                     "an opener still hands the joined path over as the scope — the tab opens with its columns collapsed")
@@ -1434,13 +1439,13 @@ import Sync
         // push a caller back to writing the ternary out, which is the shape this file exists to
         // keep out of the host.
         //
-        // **`tabAtRoute` builds a tab value and moves no pane** — the tabs a batch from Finder leaves
-        // waiting are handed to `openTabsInBackground` precisely so the live tab, and the focus,
-        // stay where they are. The verb that opens one live, `openTabAtRoute`, is held to the rule.
+        // (`tabAtRoute`, which builds the tab a follow opens, is a `static` value-maker now — it reads
+        // no pane — so it is not derived at all. The verb that opens one live, `openTabAtRoute`, is
+        // held to the rule.)
         let notVerbs = ["paneTabItems", "paneShowsTabStrip", "seamInset",
                         "saveBrowseTabs", "restoreBrowseTabs",
                         "adoptProviderForTab", "refreshForTabSwitch",
-                        "paneProviderId", "paneScope", "paneStack", "tabAtRoute"]
+                        "paneProviderId", "paneScope", "paneStack"]
         for excluded in notVerbs {
             #expect(derived.contains(excluded),
                     "“\(excluded)” is excluded from this rule as a reader, and the derivation no longer finds it being called at all — the exclusion is now a name that could be hiding a real verb")

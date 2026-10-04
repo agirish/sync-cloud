@@ -121,6 +121,11 @@ struct ContentView: View {
     /// Bumped by ⌘N so the naming row takes focus even when it is already open — a pure signal,
     /// never read for its value.
     @State var editorNamingFocus = 0
+    /// What the file the open naming row will make does to the pane, when it goes to Notes. Set by
+    /// each ⌘N from the workspace it was pressed in (`ExternalOpen.pane`): from Compare or during a
+    /// guided review the left pane is half of the comparison and stays put; from Organize it
+    /// follows only on its own source.
+    @State var editorNewFilePane: EditorHandOffRun.Pane = .followsTheFile
     /// A file the left pane owes a selection — the document just opened, created, revealed or
     /// shown — paid once the pane lists it. See ``owePaneSelection(_:)`` (TE47, generalising
     /// ⌘N's TE44 debt). `nil` whenever nothing is owed.
@@ -2014,6 +2019,13 @@ struct ContentView: View {
         topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(overrides)
     }
 
+    /// Whether Edit's file pane is folded to its strip — closed by the pane toggle, by Just the
+    /// text, or by a launch from Finder. Edit's override by name, whichever workspace is on screen.
+    var editorPaneIsFolded: Bool {
+        TopPaneVisibility.panesHidden(for: .editor,
+                                      override: TopPaneVisibility.decodeOverrides(topPaneOverridesRaw)[Workspace.editor.rawValue])
+    }
+
     /// **A launch from Finder opens Edit wide** — "Just the text": the Text Files rail hidden and
     /// the file pane collapsed, which takes the folder sidebar with it (`FolderSidebarModel.appliesTo`
     /// draws none beside a collapsed pane). Asked 2026-10-03: "on cold open, it should always have
@@ -2024,16 +2036,19 @@ struct ContentView: View {
     /// `togglePanesForCurrentTab`, which writes whatever workspace is on screen and TOGGLES — this
     /// has to close the pane whatever it was, and only Edit's.
     func openEditWideForLaunchFromFinder() {
+        var closed: [String] = []
         let overrides = TopPaneVisibility.decodeOverrides(topPaneOverridesRaw)
-        let paneWasOpen = !TopPaneVisibility.panesHidden(for: .editor, override: overrides[Workspace.editor.rawValue])
-        if paneWasOpen {
+        if !editorPaneIsFolded {
             topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(
                 TopPaneVisibility.settingOverride(overrides, workspace: .editor, hidden: true))
+            closed.append("the file pane and sidebar")
         }
-        let railWasShown = !editorRailHidden
-        if railWasShown { editorRailHidden = true }
+        if !editorRailHidden {
+            editorRailHidden = true
+            closed.append("the Text Files rail")
+        }
         Logger.shared.info("[open] Launched from Finder — Edit opens wide"
-            + (paneWasOpen || railWasShown ? " (closed \([paneWasOpen ? "the file pane and sidebar" : nil, railWasShown ? "the Text Files rail" : nil].compactMap { $0 }.joined(separator: " and ")))" : ", as it already was"))
+            + (closed.isEmpty ? ", as it already was" : " (closed \(closed.joined(separator: " and ")))"))
     }
 
     /// Entering a lens workspace from the workspace bar opens the source rail — and leaves the left

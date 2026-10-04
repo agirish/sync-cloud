@@ -10,8 +10,9 @@ import Foundation
 ///
 /// **Two halves, because one of them reads the disk.** ``pathRefusal(of:home:)`` decides on the
 /// spelling alone and is safe in a view body — the ＋'s tooltip asks it on every pass.
-/// ``refusal(of:home:isWritable:)`` adds whether the folder can be written to, an `access(2)` that
-/// can wait on a slow volume, so it is asked only when ⌘N is pressed and when the file is made.
+/// ``refusal(of:home:isWritable:resolve:)`` adds where the folder's links lead and whether it can be
+/// written to — reads that can wait on a slow volume — so it is asked when ⌘N is pressed, when the
+/// file is made, and by the naming row while it is open.
 ///
 /// **A list, not a writability test.** `/Applications` is group-writable for an admin, so "can I
 /// write here" alone would let a note land among the apps.
@@ -78,16 +79,22 @@ enum EditorNewFileFolder {
         return .system
     }
 
-    /// The whole rule: the spelling, then whether the folder can be written to.
-    static func refusal(of folder: String, home: String, isWritable: (String) -> Bool) -> Refusal? {
+    /// The whole rule: the spelling, then **the spelling the disk resolves it to**, then whether
+    /// the folder can be written to. The second because a link can lead into a system folder from a
+    /// place the list allows — `/Volumes/Macintosh HD` IS `/`, so its `Applications` is the one in
+    /// `/Applications`, writable for an admin. Asked only of a folder the first spelling allows.
+    static func refusal(of folder: String, home: String, isWritable: (String) -> Bool,
+                        resolve: (String) -> String = { $0 }) -> Refusal? {
         if let refusal = pathRefusal(of: folder, home: home) { return refusal }
+        let real = resolve(folder)
+        if real != folder, let refusal = pathRefusal(of: real, home: home) { return refusal }
         return isWritable(folder) ? nil : .notWritable
     }
 
     /// Where the file goes: the pane's folder, or Notes with the reason the pane's was refused.
-    static func destination(paneFolder: String, home: String,
-                            isWritable: (String) -> Bool) -> (folder: String, refusal: Refusal?) {
-        guard let refusal = refusal(of: paneFolder, home: home, isWritable: isWritable) else {
+    static func destination(paneFolder: String, home: String, isWritable: (String) -> Bool,
+                            resolve: (String) -> String = { $0 }) -> (folder: String, refusal: Refusal?) {
+        guard let refusal = refusal(of: paneFolder, home: home, isWritable: isWritable, resolve: resolve) else {
             return (paneFolder, nil)
         }
         return (notes(home: home), refusal)

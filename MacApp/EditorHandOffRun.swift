@@ -31,9 +31,15 @@ enum EditorHandOffRun {
 
     /// What the hand-off does to the left pane — the one thing its doors disagree about.
     enum Pane: Equatable {
-        /// Re-root the left pane on the file's folder, so the rail and the pane list where the
-        /// document lives. Every door but one.
+        /// Take the left pane to the file's folder, so the rail and the pane list where the
+        /// document lives — by tab, on whichever source holds it (`EditorTabFollow`). From Browse
+        /// and Edit, and for a launch from Finder.
         case followsTheFile
+        /// **The same, but only on the source the left pane is on** — from Compare's file panes
+        /// and Organize. There the left pane's source is what the comparison, the ignored items and
+        /// Organize's results belong to, and adopting another one resets or clears them; a folder
+        /// on another source opens the file and leaves the pane where it is, as before tabs.
+        case followsOnItsSource
         /// **Leave the left pane exactly where it is** — Compare's list of differences (TE31's
         /// fixup), and a file opened from Finder while Compare or a guided review is on screen
         /// (`ExternalOpen.pane`). There the left pane IS one half of the comparison the list is showing: re-rooting
@@ -121,7 +127,7 @@ enum EditorHandOffRun {
         }
         endNaming()
         switch pane {
-        case .followsTheFile:
+        case .followsTheFile, .followsOnItsSource:
             let folder = (path as NSString).deletingLastPathComponent
             // **The LEFT pane, whichever pane the row was in.** It took the row's side for a
             // while, which sounds more careful and is not: `editorFolder` reads the left pane and
@@ -149,13 +155,24 @@ enum EditorHandOffRun {
         return .opened
     }
 
+    /// **What an in-app "Open in Edit" does to the left pane, pressed in `workspace`.** From Browse
+    /// and Edit it follows the file by tab, to whichever source holds it. From Compare's file panes
+    /// and the inspector there, from Organize, and during a guided review, it follows only on the
+    /// pane's own source (`Pane.followsOnItsSource`) — the comparison, its ignored items and
+    /// Organize's results all belong to that source, and adopting another resets or clears them.
+    /// Compare's list of differences passes `.staysPut` itself.
+    nonisolated static func pane(forDoorIn workspace: Workspace, isReviewing: Bool) -> Pane {
+        (workspace == .browse || workspace == .editor) && !isReviewing ? .followsTheFile : .followsOnItsSource
+    }
+
     /// Points a pane at an absolute folder, the way the folder sidebar does.
     ///
     /// **`focusOn` takes a path RELATIVE to whatever root the pane is on**, which is the trap this
     /// exists to avoid: handing it an absolute path resolves it against the root and lands the pane
     /// somewhere real and wrong. A folder outside the pane's current root is refused rather than
-    /// guessed at — the file is still opened, it is the rail that will be showing a different
-    /// folder, and that is a smaller surprise than silently switching the user's source.
+    /// guessed at. **Reaching another source is the tab follow's** (`EditorTabFollow`): it opens a
+    /// tab there, which the strip shows, rather than re-pointing this one — and never from Compare
+    /// or Organize (`Pane.followsOnItsSource`).
     ///
     /// The LEFT pane, always — see `run`'s note on why one pane is read and one is moved.
     ///
@@ -188,11 +205,13 @@ enum EditorHandOffRun {
 /// Pure, over plain values, so each answer is a test; `ContentView.followFolderInTabs` acts on it.
 enum EditorTabFollow {
 
-    /// A tab, as far as this question needs one: which, where its root is, and where it is under it.
+    /// A tab, as far as this question needs one: which, where its root is, where it is under it,
+    /// and on which source.
     struct Tab: Equatable {
         var id: UUID
         var root: String
         var location: String
+        var providerId = ""
     }
 
     enum Decision: Equatable {
@@ -202,16 +221,20 @@ enum EditorTabFollow {
         case switchTo(UUID)
         /// No tab is: open one, at this source and path.
         case open(ExternalOpen.SourceRoute)
-        /// No configured source holds the folder. The file still opens; the pane stays.
+        /// No configured source holds the folder — or, keeping its source, the pane's does not.
+        /// The file still opens; the pane stays.
         case nowhere
     }
 
     /// - Parameters:
+    ///   - keepsSource: `Pane.followsOnItsSource` — only tabs on the active tab's source are
+    ///     candidates, and a new tab opens there when the folder is under its root; anywhere else is
+    ///     `.nowhere`, and the pane stays.
     ///   - relative: the folder under a root, or `nil` when it is not under it —
     ///     `PaneLogic.relativePath(of:under:)`, which follows iCloud Drive's linked Desktop and
     ///     Documents, injected so the rule runs without a disk.
     ///   - route: the source that owns the folder, for a new tab — `ExternalOpen.route`.
-    static func decide(folder: String, active: Tab, others: [Tab],
+    static func decide(folder: String, active: Tab, others: [Tab], keepsSource: Bool = false,
                        relative: (_ folder: String, _ root: String) -> String?,
                        route: (String) -> ExternalOpen.SourceRoute?) -> Decision {
         func isAt(_ tab: Tab) -> Bool {
@@ -219,8 +242,28 @@ enum EditorTabFollow {
             return SidebarSourceModel.isSameFolder(here, tab.location)
         }
         if isAt(active) { return .inPlace }
-        if let tab = others.first(where: isAt) { return .switchTo(tab.id) }
-        return route(folder).map(Decision.open) ?? .nowhere
+        let candidates = keepsSource ? others.filter { $0.providerId == active.providerId } : others
+        if let tab = candidates.first(where: isAt) { return .switchTo(tab.id) }
+        guard keepsSource else { return route(folder).map(Decision.open) ?? .nowhere }
+        guard !active.root.isEmpty, let here = relative(folder, active.root) else { return .nowhere }
+        return .open(ExternalOpen.SourceRoute(providerId: active.providerId, relativePath: here))
+    }
+
+    /// **Whether Edit still has to be re-rooted at `folder` once the pane's tab is there.** Tree
+    /// lists a tab's scope, not its column stack, so a tab at the folder BY its stack — the active
+    /// one, one switched to, or one opened on the same source (which keeps the scope it was opened
+    /// from) — still has Edit listing the scope. Re-rooted in place, as every hand-off did before
+    /// tabs. In Columns Edit shows the stack, so the two already agree and nothing moves.
+    ///
+    /// - Parameters:
+    ///   - editShows: the folder Edit draws now — `ContentView.leftPaneFolder(in: .editor)`.
+    ///   - root: the live tab's source root. A folder not under it means the move did not happen
+    ///     (a refused or abandoned tab verb), and re-rooting there would name a path that is not.
+    static func needsRerootInPlace(folder: String, editShows: String, root: String,
+                                   relative: (_ folder: String, _ root: String) -> String?) -> Bool {
+        guard !root.isEmpty, let wanted = relative(folder, root) else { return false }
+        guard let shown = relative(editShows, root) else { return true }
+        return !SidebarSourceModel.isSameFolder(shown, wanted)
     }
 }
 
