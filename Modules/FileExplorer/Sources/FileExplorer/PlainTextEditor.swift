@@ -460,12 +460,13 @@ struct PlainTextEditor: NSViewRepresentable {
                               height: CGFloat.greatestFiniteMagnitude)
     }
 
-    /// Applies a markup verb to the view's selection, as ONE edit the view can undo.
+    /// Applies a markup verb to the view's selection, as ONE edit the view can undo — on its own,
+    /// never merged with the typing before or after it.
     ///
-    /// **The one implementation, reached from two menus.** The context menu's items land here through
-    /// `Coordinator.applyMarkup`, and the menu bar's Markup items through
-    /// `EditorDocumentSurface.applyMarkup(_:in:)`; a second copy for the menu bar would be a second
-    /// place for the undo grouping or the selection arithmetic to drift.
+    /// **The one implementation, reached from three doors.** The context menu's items land here
+    /// through `Coordinator.applyMarkup`, and the menu bar's Markup items and the format bar through
+    /// `EditorDocumentSurface.applyMarkup(_:in:)`; a second copy would be a second place for the undo
+    /// grouping or the selection arithmetic to drift.
     ///
     /// - Returns: whether the verb applied — `false` when `MarkdownEdits` has nothing to do for
     ///   this selection, in which case the buffer and the undo stack are untouched.
@@ -478,7 +479,14 @@ struct PlainTextEditor: NSViewRepresentable {
         // the undo, applies the view's own typing attributes to what it inserts, and posts the
         // change notification that pushes the new buffer back into the document — three things
         // a direct `textStorage` splice would each have to be made to do by hand.
+        //
+        // **And so the view takes it for typing, and coalesces it with the typing either side.**
+        // "foo" then Bold came back as one ⌘Z that took the `****` and the "foo" together, and
+        // typing on from the end of a rule extended the rule's step. The breaks make the verb its
+        // own step: `MarkupVerbUndoTests` pins both sides, through all three doors.
+        view.breakUndoCoalescing()
         view.insertText(change.text, replacementRange: change.range)
+        view.breakUndoCoalescing()
         view.setSelectedRange(edit.selection)
         return true
     }
