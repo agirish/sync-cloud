@@ -2167,14 +2167,30 @@ struct ToggleStatusBarCommand: View {
     }
 }
 
-/// The two switches that add or remove a strip of pane chrome — **one child, because the View
-/// menu's builder was at its ten.** The same accommodation `PaneNavigationCommands` and
-/// `TextSizeMenuCommand` make, and grouped on the same argument they are: these two are adjacent
-/// in the menu and answer the same question about the same pane.
+/// View ▸ Format Bar — Edit's format bar, shown or hidden: the bar's twin of Status Bar above it,
+/// and greyed outside Edit as Status Bar is outside Browse. **In View, not Text**, where it first
+/// shipped: showing and hiding a bar is what View is for on a Mac, and Text keeps the switches about
+/// how the text behaves. Live on a `.txt` too — a preference, which comes back with the next
+/// Markdown file — so it greys only where no document is open. No chord, for Status Bar's reason.
+struct ToggleFormatBarCommand: View {
+    @FocusedValue(\.editorVerbs) private var verbs
+    @AppStorage(EditorTextSettings.showsFormatBarKey) private var showsFormatBar = EditorTextSettings.showsFormatBarDefault
+
+    var body: some View {
+        Toggle("Format Bar", isOn: $showsFormatBar)
+            .disabled(verbs == nil)
+    }
+}
+
+/// The switches that add or remove a strip of chrome — **one child, because the View menu's
+/// builder was at its ten.** The same accommodation `PaneNavigationCommands` and
+/// `TextSizeMenuCommand` make, and grouped on the same argument they are: these are adjacent in the
+/// menu and answer the same question — whether a bar is drawn.
 struct PaneChromeCommands: View {
     var body: some View {
         ToggleTabBarCommand()       // ⇧⌘T
         ToggleStatusBarCommand()    // no chord — see the type
+        ToggleFormatBarCommand()    // Edit's; no chord
     }
 }
 
@@ -2417,7 +2433,6 @@ struct EditorTextSettingCommands: View {
     @FocusedValue(\.editorVerbs) private var verbs
     @AppStorage(EditorTextSettings.wrapsKey) private var wrapsLines = EditorTextSettings.wrapsDefault
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling = EditorTextSettings.checksSpellingDefault
-    @AppStorage(EditorTextSettings.showsFormatBarKey) private var showsFormatBar = EditorTextSettings.showsFormatBarDefault
     @AppStorage(EditorTextSettings.continuesListsKey) private var continuesLists = EditorTextSettings.continuesListsDefault
 
     var body: some View {
@@ -2425,13 +2440,9 @@ struct EditorTextSettingCommands: View {
             .disabled(verbs == nil)
         Toggle("Check Spelling While Typing", isOn: $checksSpelling)
             .disabled(verbs == nil)
-        // **Live wherever the other two are**, plain text included: it is a preference, and the
-        // bar comes back on the next Markdown file — greying it on a `.txt` would make a setting
-        // reachable only from the files it applies to.
-        Toggle("Format Bar", isOn: $showsFormatBar)
-            .disabled(verbs == nil)
-        // Live wherever the others are, for the Format Bar's reason: a preference, reachable from
-        // a `.txt` too, where it changes nothing until the next Markdown file.
+        // Live wherever the others are: a preference, reachable from a `.txt` too, where it
+        // changes nothing until the next Markdown file. (Format Bar was here; it is a bar, so it
+        // moved to View, beside Status Bar — `ToggleFormatBarCommand`.)
         Toggle("Continue Lists", isOn: $continuesLists)
             .disabled(verbs == nil)
     }
@@ -2729,7 +2740,7 @@ struct EditorMenus: Commands {
             FindNextCommand()            // ⌘G
             UseSelectionForFindCommand() // ⌘E
             Divider()
-            EditorTextSettingCommands()  // Wrap Lines · Check Spelling While Typing · Format Bar · Continue Lists, ticked
+            EditorTextSettingCommands()  // Wrap Lines · Check Spelling While Typing · Continue Lists, ticked
             Divider()
             AutosaveThisFileCommand()    // the header switch, as an item
         }

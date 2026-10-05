@@ -6718,6 +6718,9 @@ does and a narrow column — the narrowest Split half, and Split at most window 
 exactly as it shipped. A right-click on the bar (`EditorFormatBarMenu`) chooses **Icon and Text** or
 **Icon Only**, stored as `editorFormatBarShowsLabels` (default on, decision Q = B; not tied to Row
 spacing), or hides the bar through Text ▸ Format Bar's own setting. No verb, menu or chord changes.
+A hidden bar comes back from Format Bar on the text's own right-click menu (writable Markdown only),
+and from View ▸ Format Bar — added after it shipped, when the right-click Hide left no way back on
+screen. The menu-bar switch moved from Text to View then, beside Status Bar (his call, 2026-10-04).
 
 ```sh
 for l in main v4.x v3.x v2.x; do

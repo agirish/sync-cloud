@@ -47,7 +47,7 @@ import Testing
         let text = Self.titles(try Self.menu("Text"))
         #expect(text == ["Source", "Preview", "Split", "Expand",
                          "Find Next", "Use Selection for Find",
-                         "Wrap Lines", "Check Spelling While Typing", "Format Bar", "Continue Lists",
+                         "Wrap Lines", "Check Spelling While Typing", "Continue Lists",
                          "Autosave This File"],
                 "the Text menu reads \(text)")
         // Expand sits with the modes, before the first divider — not in a group of its own.
@@ -57,6 +57,7 @@ import Testing
         #expect(expand < firstDivider, "Expand is not in the modes' group")
         #expect(!text.contains("Find…"), "Find… is duplicated into Text — ⌘F is registered twice")
         #expect(!text.contains("Save"), "Save is duplicated into Text — ⌘S is registered twice")
+        #expect(!text.contains("Format Bar"), "Format Bar is back in Text — it lives in View, beside Status Bar")
     }
 
     /// The Markup menu is the context menu's list, in the context menu's order — derived from the
@@ -105,7 +106,7 @@ import Testing
         walk(try #require(NSApp.mainMenu))
         #expect(claimants == ["Expand"], "⌃⌘E is claimed by \(claimants)")
         // Format Bar is a switch with no key — the bar's buttons carry the Markup chords already.
-        #expect(try Self.item("Format Bar", in: "Text").keyEquivalent.isEmpty, "Format Bar has acquired a key")
+        #expect(try Self.item("Format Bar", in: "View").keyEquivalent.isEmpty, "Format Bar has acquired a key")
         // Continue Lists likewise: a preference, not a verb.
         #expect(try Self.item("Continue Lists", in: "Text").keyEquivalent.isEmpty, "Continue Lists has acquired a key")
     }

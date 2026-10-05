@@ -1,6 +1,7 @@
 import Testing
 import AppKit
 @testable import FileExplorer
+import EventsTestSupport
 
 /// Wrapping and spell checking: what each switch actually does to the text view.
 @MainActor
@@ -91,5 +92,53 @@ import AppKit
 
         #expect(menu.items.first { $0.title == "Wrap Lines" }?.state == .off)
         #expect(menu.items.first { $0.title == "Check Spelling While Typing" }?.state == .on)
+    }
+
+    // MARK: The way back to a hidden format bar
+
+    /// **Format Bar is on the text's right-click menu wherever the bar can be drawn** — a writable
+    /// Markdown file — and nowhere else, ticked by the stored setting. Hiding the bar from its own
+    /// menu takes that menu away too, so this is the way back on screen.
+    @Test func theTextsMenuOffersFormatBarWhereTheBarCanBeDrawn() {
+        let defaults = UserDefaults.standard
+        let stored = defaults.object(forKey: EditorTextSettings.showsFormatBarKey)
+        defer { defaults.set(stored, forKey: EditorTextSettings.showsFormatBarKey) }
+        defaults.set(false, forKey: EditorTextSettings.showsFormatBarKey)
+
+        func titles(offersMarkup: Bool, editsMarkdown: Bool) -> [NSMenuItem] {
+            let menu = NSMenu()
+            let subject = coordinator()
+            subject.offersMarkup = offersMarkup
+            subject.editsMarkdown = editsMarkdown
+            subject.insertTextSettings(into: menu, at: 0)
+            return menu.items
+        }
+        let markdown = titles(offersMarkup: true, editsMarkdown: true)
+        let item = markdown.first { $0.title == "Format Bar" }
+        #expect(item != nil, "a Markdown file's right-click menu has no way back to the bar: \(markdown.map(\.title))")
+        #expect(item?.state == .off, "Format Bar is ticked over a hidden bar")
+        #expect(markdown.map(\.title).prefix(4) == ["Wrap Lines", "Check Spelling While Typing", "Format Bar", ""],
+                "the switches read \(markdown.map(\.title)) — Format Bar belongs with the other two, before the separator")
+        #expect(markdown[3].isSeparatorItem)
+        for (name, items) in [("plain text", titles(offersMarkup: true, editsMarkdown: false)),
+                              ("read-only Markdown", titles(offersMarkup: false, editsMarkdown: true))] {
+            #expect(!items.contains { $0.title == "Format Bar" }, "\(name) offers a format bar it never draws")
+        }
+    }
+
+    /// **The item flips View ▸ Format Bar's own setting, and says so.**
+    @Test func theTextsFormatBarItemFlipsTheSettingAndSaysSo() async {
+        let defaults = UserDefaults.standard
+        let stored = defaults.object(forKey: EditorTextSettings.showsFormatBarKey)
+        defer { defaults.set(stored, forKey: EditorTextSettings.showsFormatBarKey) }
+        defaults.set(false, forKey: EditorTextSettings.showsFormatBarKey)
+        let log = LogCapture()
+        let subject = coordinator()
+        subject.toggleFormatBar(NSMenuItem())
+        #expect(defaults.bool(forKey: EditorTextSettings.showsFormatBarKey), "Format Bar left the bar hidden")
+        #expect(await log.holds(containing: "[edit] Format bar shown from the text's right-click menu"))
+        subject.toggleFormatBar(NSMenuItem())
+        #expect(!defaults.bool(forKey: EditorTextSettings.showsFormatBarKey))
+        #expect(await log.holds(containing: "[edit] Format bar hidden from the text's right-click menu"))
     }
 }

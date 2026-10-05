@@ -257,7 +257,7 @@ public struct EditorWorkspaceView: View {
     @State private var formatState: MarkupFormatState = .none
     /// The text view, for the format bar's buttons — see ``EditorTextViewHandle``.
     @State private var textViewHandle = EditorTextViewHandle()
-    /// Text ▸ Format Bar. Read here like the glass settings above: a preference, not state.
+    /// View ▸ Format Bar. Read here like the glass settings above: a preference, not state.
     @AppStorage(EditorTextSettings.showsFormatBarKey) private var showsFormatBarPreference: Bool
         = EditorTextSettings.showsFormatBarDefault
     /// Icon and Text or Icon Only — the format bar's right-click choice (TE64).

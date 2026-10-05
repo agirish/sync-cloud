@@ -268,7 +268,7 @@ struct EditorFormatBar: View, Equatable {
     // MARK: - Where it is drawn
 
     /// **Shown only where a verb can do what it says:** a writable Markdown document, open (not
-    /// refused), in Source or Split, with Text ▸ Format Bar on. Preview has no text view to act on;
+    /// refused), in Source or Split, with View ▸ Format Bar on. Preview has no text view to act on;
     /// plain text has no Markdown for the verbs to write (the Markup menu still offers them there,
     /// but a strip of formatting buttons above a `.txt` would claim the file has formatting); a
     /// read-only file withholds the verbs everywhere, its Markup menu and context menu included.
@@ -640,7 +640,7 @@ struct EditorFormatBar: View, Equatable {
 ///
 /// **Bindings to the two stored settings, not state of its own**: Icon and Text is
 /// ``EditorTextSettings/formatBarShowsLabelsKey``, and Hide Format Bar turns off the very setting
-/// Text ▸ Format Bar ticks, so the menu bar and this menu cannot disagree. No Text Only (a bar of
+/// View ▸ Format Bar ticks, so the menu bar and this menu cannot disagree. No Text Only (a bar of
 /// bare words is the widest of the three and the slowest to read) and no Customize Toolbar…, which
 /// would let the bar stop matching the Markup menu verb for verb.
 struct EditorFormatBarMenu: View {
@@ -670,9 +670,9 @@ struct EditorFormatBarMenu: View {
         Logger.shared.info("[edit] Format bar ▸ \(labels ? iconAndText : iconOnly)")
     }
 
-    /// Hide Format Bar — Text ▸ Format Bar's setting, turned off, and the way back named in the log.
+    /// Hide Format Bar — View ▸ Format Bar's setting, turned off, and the way back named in the log.
     static func hide(_ showsBar: Binding<Bool>) {
         showsBar.wrappedValue = false
-        Logger.shared.info("[edit] Format bar hidden from its menu — Text ▸ Format Bar shows it again")
+        Logger.shared.info("[edit] Format bar hidden from its menu — Format Bar on the text's right-click menu, or View ▸ Format Bar, shows it again")
     }
 }

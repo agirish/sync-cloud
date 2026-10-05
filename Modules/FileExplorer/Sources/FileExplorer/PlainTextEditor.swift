@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Design
+import Events
 
 /// The writable text surface: an `NSTextView` in a scroll view, kept plain on purpose.
 ///
@@ -377,7 +378,35 @@ struct PlainTextEditor: NSViewRepresentable {
 
             menu.insertItem(spellItem, at: index)
             menu.insertItem(wrapItem, at: index)
-            menu.insertItem(.separator(), at: index + 2)
+            var next = index + 2
+            // **Format Bar, where the bar can be drawn: a writable Markdown file.** Hidden from its
+            // own right-click menu, the bar takes that menu with it, so without this the only way
+            // back was the menu bar's Format Bar — on screen, nothing pointed there. Right-clicking the
+            // text is where somebody looking for the bar will try next.
+            if offersMarkup && editsMarkdown {
+                let shows = defaults.object(forKey: EditorTextSettings.showsFormatBarKey) as? Bool
+                    ?? EditorTextSettings.showsFormatBarDefault
+                let barItem = NSMenuItem(title: Self.formatBarTitle, action: #selector(toggleFormatBar(_:)),
+                                         keyEquivalent: "")
+                barItem.target = self
+                barItem.state = shows ? .on : .off
+                menu.insertItem(barItem, at: next)
+                next += 1
+            }
+            menu.insertItem(.separator(), at: next)
+        }
+
+        /// The item's title — View ▸ Format Bar's, so the two read as one switch.
+        static let formatBarTitle = "Format Bar"
+
+        /// View ▸ Format Bar's setting, flipped — and said, since this is the way back from the
+        /// bar's own Hide Format Bar.
+        @objc func toggleFormatBar(_ sender: NSMenuItem) {
+            let defaults = UserDefaults.standard
+            let shows = !(defaults.object(forKey: EditorTextSettings.showsFormatBarKey) as? Bool
+                ?? EditorTextSettings.showsFormatBarDefault)
+            defaults.set(shows, forKey: EditorTextSettings.showsFormatBarKey)
+            Logger.shared.info("[edit] Format bar \(shows ? "shown" : "hidden") from the text's right-click menu")
         }
 
         /// **Written to `UserDefaults`, not to the view.** The `@AppStorage` properties on

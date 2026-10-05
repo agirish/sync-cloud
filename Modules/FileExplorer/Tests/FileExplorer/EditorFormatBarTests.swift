@@ -173,7 +173,7 @@ import EventsTestSupport
         #expect(!shown(isReadOnly: true), "a bar over a read-only file")
         #expect(!shown(isRefused: true), "a bar over a refused file")
         #expect(!shown(hasDocument: false), "a bar over the empty page")
-        #expect(!shown(preference: false), "a bar with Text ▸ Format Bar off")
+        #expect(!shown(preference: false), "a bar with View ▸ Format Bar off")
         #expect(EditorTextSettings.showsFormatBarDefault, "the bar is off by default")
     }
 
@@ -212,7 +212,7 @@ import EventsTestSupport
 
     static let width: CGFloat = 900
 
-    /// A workspace with the rail folded, in a window, with Text ▸ Format Bar set as asked: the rings
+    /// A workspace with the rail folded, in a window, with View ▸ Format Bar set as asked: the rings
     /// between the header's bottom and the text's top, and where the text starts.
     static func mounted(_ document: EditorDocument, mode: EditorMode,
                         preference: Bool = true, labels: Bool = true) -> (bar: [CGRect], textTop: CGFloat) {
@@ -813,7 +813,7 @@ import EventsTestSupport
 
     /// **The right-click menu: Icon and Text, Icon Only, then Hide Format Bar** — each choice
     /// written to its setting and said in the log once, a press on the ticked one changing nothing,
-    /// and Hide turning off the very setting Text ▸ Format Bar ticks.
+    /// and Hide turning off the very setting View ▸ Format Bar ticks.
     @Test func theRightClickMenuChoosesWordsOrIconsAndHidesTheBar() async throws {
         let log = LogCapture()
         var labels = true

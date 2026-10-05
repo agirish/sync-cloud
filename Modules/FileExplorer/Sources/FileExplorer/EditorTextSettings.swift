@@ -33,7 +33,9 @@ public enum EditorTextSettings {
     ///
     /// **On by default**, because the bar is the only place the Markup verbs show themselves — the
     /// menu and the right-click submenu have to be gone looking for. Off is for somebody who knows
-    /// the keys and wants the row back. Text ▸ Format Bar flips it; where the bar is drawn at all is
+    /// the keys and wants the row back. View ▸ Format Bar flips it, and so does Format Bar on the
+    /// text's right-click menu — the way back once the bar's own Hide Format Bar has taken the bar,
+    /// and its menu, off the screen. Where the bar is drawn at all is
     /// ``EditorFormatBar/isShown(preference:hasDocument:isRefused:isMarkdown:isReadOnly:mode:)``.
     public static let showsFormatBarKey = "editorShowsFormatBar"
     public static let showsFormatBarDefault = true

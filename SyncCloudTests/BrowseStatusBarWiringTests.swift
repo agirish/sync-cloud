@@ -29,6 +29,14 @@ import Foundation
                 "Status Bar has acquired a chord")
         #expect(!titles.contains { $0.hasPrefix("Show Status") || $0.hasPrefix("Hide Status") },
                 "the status bar switch became a Show/Hide pair")
+        // Edit's format bar is the next bar down: the same noun-with-a-tick, no chord, and greyed
+        // here (the test host shows no document), as Text's items are.
+        let format = try #require(titles.firstIndex(of: "Format Bar"), "View ▸ Format Bar is gone")
+        #expect(status + 1 == format, "the switches read \(titles[tabBar...format]) — Format Bar belongs under Status Bar")
+        let formatItem = try #require(view.items.first { $0.title == "Format Bar" })
+        #expect(formatItem.keyEquivalent.isEmpty, "Format Bar has acquired a chord")
+        #expect(!formatItem.isEnabled, "View ▸ Format Bar is live with no document open")
+        #expect(view.items.filter { $0.title == "Format Bar" }.count == 1)
     }
 
     /// **The View menu's builder is at its ten children**, which is why the two chrome switches are
