@@ -822,7 +822,7 @@ private struct EditorStyleRow: View {
             .foregroundStyle(hovering ? Color.white : Color.primary)
             .padding(.vertical, 4)
             .padding(.horizontal, 8)
-            .background(RoundedRectangle(cornerRadius: 5).fill(hovering ? Color.accentColor : .clear))
+            .background(RoundedRectangle(cornerRadius: Radius.chip).fill(hovering ? Color.accentColor : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

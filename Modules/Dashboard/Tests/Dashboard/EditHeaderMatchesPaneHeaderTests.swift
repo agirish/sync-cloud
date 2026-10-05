@@ -261,7 +261,7 @@ import FileExplorerTestSupport
                 #expect(abs(listTop - plainTop) < 0.51, "\(style), \(size.percent)%: the bar-less text starts off the list")
                 let bar = NSHostingView(rootView: AnyView(
                     EditorFormatBar(state: .none, accent: .blue, onVerb: { _ in },
-                                    forcedRung: EditorFormatBar.ladder[0])
+                                    forcedRung: EditorFormatBar.ladder(showsLabels: true, inTable: false)[0])
                         .environment(\.appFontScale, size.scale))).fittingSize.height
                 #expect(abs(barTop - listTop - (EditorWorkspaceView.formatBarInset + bar)) < 0.51,
                         "\(style), \(size.percent)%: the text starts \(barTop - listTop)pt under the list's top, not the bar's \(EditorWorkspaceView.formatBarInset) + \(bar)")
