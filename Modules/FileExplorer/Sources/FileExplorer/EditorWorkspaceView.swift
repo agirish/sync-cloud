@@ -368,8 +368,8 @@ public struct EditorWorkspaceView: View {
     /// What the Expand button says under the pointer, before its chord: the act in full, since the
     /// word alone does not say what "Expand" puts away.
     static func expandHelp(railIsHidden: Bool) -> String {
-        railIsHidden ? "Show the text files again"
-                     : "Give the document the window — put away the file list"
+        railIsHidden ? "Show the files again, as they were"
+                     : "Give the document the window — put away the file list and the sidebar"
     }
 
     /// The glyph: arrows out to expand, arrows in to come back to the files — the platform's own

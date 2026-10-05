@@ -45,11 +45,53 @@ extension ContentView {
 
     /// Whether the column is on screen — the one rule, so `browseLayout`'s `if` and the refresh's
     /// guard cannot come to disagree about it.
+    ///
+    /// **In Edit the preference is Expand's to override**: while Expand holds the sidebar off
+    /// (`EditorExpand.hidesSidebar`) the column is down whatever the shared preference says, and
+    /// the preference is never written for it — hiding it in Edit must not hide it in Compare.
     var folderSidebarIsShowing: Bool {
         FolderSidebarModel.isShowing(
             workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
             panesCollapsed: panesHiddenForCurrentTab,
-            preference: browseSidebarVisible)
+            outlivesCollapse: selectedWorkspace.folderSidebarOutlivesPaneCollapse,
+            preference: browseSidebarVisible && !folderSidebarHeldByExpand)
+    }
+
+    /// Whether Expand is holding the sidebar off on the workspace on screen — Edit only.
+    var folderSidebarHeldByExpand: Bool {
+        selectedWorkspace == .editor && editorExpand.hidesSidebar
+    }
+
+    /// Whether Edit's sidebar is drawn, whichever workspace is on screen — what Expand records as
+    /// put away when it starts from a launch that may land before the window is on Edit. In Edit
+    /// the column survives a collapsed pane, so only the preference and Expand decide it.
+    var editorSidebarIsShowing: Bool {
+        FolderSidebarModel.isShowing(
+            workspaceSupportsSidebar: Workspace.editor.supportsFolderSidebar,
+            panesCollapsed: editorPaneIsFolded,
+            outlivesCollapse: Workspace.editor.folderSidebarOutlivesPaneCollapse,
+            preference: browseSidebarVisible && !editorExpand.hidesSidebar)
+    }
+
+    /// Whether the sidebar can be switched on here at all — the toolbar button and View ▸ Sidebar
+    /// both ask this, so neither can offer a column the other refuses.
+    var folderSidebarIsAvailable: Bool {
+        FolderSidebarModel.appliesTo(
+            workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
+            panesCollapsed: panesHiddenForCurrentTab,
+            outlivesCollapse: selectedWorkspace.folderSidebarOutlivesPaneCollapse)
+    }
+
+    /// ⌃⌘S's act, from the toolbar and View ▸ Sidebar alike. Showing it while Expand holds it off
+    /// lifts the hold (`EditorExpand.sidebarShownByHand`) — otherwise the press would flip a
+    /// preference that is already on and nothing would appear.
+    func setFolderSidebarVisible(_ visible: Bool) {
+        if visible && folderSidebarHeldByExpand {
+            var expand = editorExpand
+            expand.sidebarShownByHand()
+            editorExpand = expand
+        }
+        browseSidebarVisible = visible
     }
 
     /// The provider root the target pane is on, expanded.

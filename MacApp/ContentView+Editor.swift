@@ -109,28 +109,26 @@ extension ContentView {
     }
 
     /// The Expand button's act, and Text ▸ Expand's (TE48), and the spine's Text Files rung's. On:
-    /// set the bit and, if the pane is open, fold it — the sidebar goes with it, since
-    /// `FolderSidebarModel.appliesTo` refuses to draw one beside a folded pane. Off: clear the bit,
-    /// which brings the rail back. **The pane is NOT re-expanded on the way out**: leaving Expand is
-    /// a request for the rail, not necessarily for the pane.
+    /// the text alone — the rail, the pane and the sidebar put away. Off: each given back as it
+    /// was when Expand began (asked 2026-10-04). `EditorExpand` is the rule; this writes it.
     ///
     /// Decided by ``editorIsExpanded``, not by the bit: with the bit left set and the pane open
     /// again, a press EXPANDS — folds the pane — which is what the unlit button offered.
     ///
-    /// **Logged, both ways.** Three doors reach it and none draws anything that outlives the
-    /// change, so the log is the one place a session can read back which happened and whether the
-    /// pane went with it.
+    /// **Logged, both ways, naming what moved.** Three doors reach it and none draws anything that
+    /// outlives the change, so the log is the one place a session can read back which happened
+    /// and what went or came back with it.
     func toggleJustTheText() {
+        let before = editorExpand
+        var expand = before
         if editorIsExpanded {
-            editorRailHidden = false
-            Logger.shared.info("[edit] Expand off — the Text Files list is back")
+            expand.leave()
+            editorExpand = expand
+            Logger.shared.info("[edit] Expand off — " + EditorExpand.moved(from: before, to: expand) + " back")
         } else {
-            editorRailHidden = true
-            let folds = !panesHiddenForCurrentTab
-            if folds { togglePanesForCurrentTab() }
-            Logger.shared.info("[edit] Expand on — "
-                               + (folds ? "the file pane folded, and the sidebar with it"
-                                        : "the Text Files list put away"))
+            expand.enter(sidebarShowing: folderSidebarIsShowing)
+            editorExpand = expand
+            Logger.shared.info("[edit] Expand on — " + EditorExpand.moved(from: before, to: expand) + " put away")
         }
     }
 
@@ -257,6 +255,11 @@ extension ContentView {
     /// hand-off into Edit — so with the pane open the rail is a second copy of the list beside it,
     /// and the expanded arm withholds it. The collapsed arm draws it unless "Just the text" is on
     /// (`editorRailIsDrawn`). Either way the document takes what the rail does not.
+    ///
+    /// **The sidebar is drawn in both arms** (asked 2026-10-04): in Edit it outlives a collapsed
+    /// pane (`Workspace.folderSidebarOutlivesPaneCollapse`), and a click in it re-points the rail,
+    /// which reads the folder the folded pane is on. Its width comes from `lensSidebarWidth`, which
+    /// reserves more than the collapsed row needs — `theCollapsedEditRowFitsTheLensClamp`.
     ///
     /// Clamped like `singleSourceLayout`, against the editor's own minimum rather than a lens
     /// panel's — and against the rail-less minimum, `EditorLayoutMetrics.minDocumentOnlyWidth`,

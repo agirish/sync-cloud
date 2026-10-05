@@ -811,6 +811,10 @@ enum PaneLogic {
     /// `lensSidebarWidth` has to reason about the same number, and two copies of a layout
     /// minimum is how a clamp comes to disagree with the thing it is clamping against.
     static let minRailWidth: CGFloat = 220
+    /// The collapsed pane's spine — its card adds `cardGutter` beyond this. Named so Edit's
+    /// collapsed row, sidebar included, can be checked against the clamp `lensSidebarWidth` gives
+    /// it (`theCollapsedEditRowFitsTheLensClamp`).
+    static let railSpineWidth: CGFloat = 34
     /// The lens panel's hard minimum, for the same reason.
     static let minLensWorkspaceWidth: CGFloat = 340
 

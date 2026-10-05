@@ -798,10 +798,11 @@ import FileExplorerTestSupport
         #expect(EditorWorkspaceView.expandSymbol(railIsHidden: false) == "arrow.up.left.and.arrow.down.right")
         #expect(EditorWorkspaceView.expandSymbol(railIsHidden: true) == "arrow.down.right.and.arrow.up.left")
         #expect(EditorWorkspaceView.expandHelp(railIsHidden: false).contains("put away the file list"))
-        // Not the sidebar: in Edit's ordinary layout (the pane folded, the rail showing) there is
-        // no sidebar on screen for the button to put away.
-        #expect(!EditorWorkspaceView.expandHelp(railIsHidden: false).contains("sidebar"))
-        #expect(EditorWorkspaceView.expandHelp(railIsHidden: true).contains("text files"))
+        // The sidebar too, since 2026-10-04: it stays beside Edit's folded pane, so the ordinary
+        // layout can have one on screen for the button to put away.
+        #expect(EditorWorkspaceView.expandHelp(railIsHidden: false).contains("sidebar"))
+        // Leaving gives back what was there, not only the list.
+        #expect(EditorWorkspaceView.expandHelp(railIsHidden: true).contains("as they were"))
         for hidden in [false, true] {
             for text in [EditorWorkspaceView.expandTitle(railIsHidden: hidden),
                          EditorWorkspaceView.expandHelp(railIsHidden: hidden)] {

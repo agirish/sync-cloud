@@ -153,13 +153,15 @@ import Foundation
         #expect(try Self.appSource().contains("refreshFolderSidebarRows()"))
     }
 
-    /// The three state values `FolderSidebarModel.isShowing` reads, each named as a trigger.
+    /// The four state values `folderSidebarIsShowing` reads, each named as a trigger — Expand's hold
+    /// in Edit is the fourth.
     ///
     /// Named individually rather than counted: a count says the right NUMBER of triggers exists,
     /// which is what a wrong one would also say.
     @Test func eachGateInputIsAlsoATrigger() throws {
         let code = try Self.appSource()
-        for input in ["browseSidebarVisible", "selectedWorkspace", "panesHiddenForCurrentTab"] {
+        for input in ["browseSidebarVisible", "selectedWorkspace", "panesHiddenForCurrentTab",
+                      "folderSidebarHeldByExpand"] {
             #expect(code.contains(".onChange(of: \(input)) { _, _ in refreshFolderSidebarRows() }"),
                     "\(input) decides whether the sidebar is showing but does not refresh it — anything that changed while it was hidden stays dropped")
         }
@@ -178,16 +180,17 @@ import Foundation
                 "the sidebar is built without the user's dragged order — every Favorites drag persists and draws nothing")
     }
 
-    /// And the gate really does read all three, so the list above cannot quietly fall behind the
+    /// And the gate really does read all four, so the list above cannot quietly fall behind the
     /// rule it is protecting.
-    @Test func theGateReadsExactlyThoseThree() throws {
+    @Test func theGateReadsExactlyThoseFour() throws {
         let sidebar = try #require(try? String(
             contentsOf: URL(fileURLWithPath: #filePath)
                 .deletingLastPathComponent().deletingLastPathComponent()
                 .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift"), encoding: .utf8))
         #expect(sidebar.contains("workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar"))
         #expect(sidebar.contains("panesCollapsed: panesHiddenForCurrentTab"))
-        #expect(sidebar.contains("preference: browseSidebarVisible"))
+        #expect(sidebar.contains("preference: browseSidebarVisible && !folderSidebarHeldByExpand"))
+        #expect(sidebar.contains("outlivesCollapse: selectedWorkspace.folderSidebarOutlivesPaneCollapse"))
     }
 }
 

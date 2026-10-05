@@ -278,10 +278,17 @@ public enum FolderSidebarModel {
     /// sidebar whose default is 180. What the lens workspaces need is a clamp, not an exclusion —
     /// `PaneLogic.lensSidebarWidth` is it.
     ///
-    /// **Not while the panes are collapsed.** Collapsing is a request for maximum workspace room,
-    /// and a 180pt column beside a 34pt spine takes 185 of it straight back. This is folded in here
-    /// rather than checked at the view for the same reason everything else is: the refresh guard
-    /// and the drawn column must not be able to disagree about whether a sidebar exists.
+    /// **Not while the panes are collapsed** — unless the workspace says its sidebar outlives the
+    /// collapse. Collapsing is a request for maximum workspace room, and a 180pt column beside a
+    /// 34pt spine takes 185 of it straight back; in a lens nothing on screen would answer a click
+    /// in it either, since the pane it re-roots is folded away. **Edit is the exception**
+    /// (`outlivesCollapse`, asked 2026-10-04): its Text Files list reads the folder the pane is
+    /// on, so a sidebar click re-points the list with the pane still folded — sidebar, list and
+    /// text is the layout the editor wants most. This is folded in here rather than checked at the
+    /// view for the same reason everything else is: the refresh guard and the drawn column must
+    /// not be able to disagree about whether a sidebar exists.
+    ///
+    /// - Parameter outlivesCollapse: the workspace keeps its sidebar beside a collapsed pane.
     ///
     /// - Parameter enabled: defaults to ``isEnabled``, which is what every caller in the app uses.
     ///   Injectable for the same reason `opensInNewTab(_:)` takes its modifiers: a test that could
@@ -289,8 +296,9 @@ public enum FolderSidebarModel {
     ///   for the two releases this was held — so the rule would go unasserted in whichever state
     ///   the switch happens to be in.
     public static func appliesTo(workspaceSupportsSidebar: Bool, panesCollapsed: Bool = false,
+                                 outlivesCollapse: Bool = false,
                                  enabled: Bool = FolderSidebarModel.isEnabled) -> Bool {
-        enabled && workspaceSupportsSidebar && !panesCollapsed
+        enabled && workspaceSupportsSidebar && (outlivesCollapse || !panesCollapsed)
     }
 
     /// **Why the toggle is greyed out**, when it is.
@@ -306,9 +314,11 @@ public enum FolderSidebarModel {
     /// Returns `nil` when the sidebar IS available, so a caller cannot render a reason that does
     /// not apply.
     public static func unavailableReason(workspaceSupportsSidebar: Bool, panesCollapsed: Bool,
+                                         outlivesCollapse: Bool = false,
                                          enabled: Bool = FolderSidebarModel.isEnabled) -> String? {
         guard !appliesTo(workspaceSupportsSidebar: workspaceSupportsSidebar,
-                         panesCollapsed: panesCollapsed, enabled: enabled) else { return nil }
+                         panesCollapsed: panesCollapsed, outlivesCollapse: outlivesCollapse,
+                         enabled: enabled) else { return nil }
         // Order matters where both apply: only one of the two is something the user can act on by
         // expanding a pane, and sending them to do work that changes nothing is worse than saying
         // less. Every shipping workspace supports the sidebar as of 2026-08-24, so in practice the
@@ -326,10 +336,10 @@ public enum FolderSidebarModel {
     /// Both callers must agree or the sidebar draws rows nobody refreshed — or refreshes rows
     /// nobody draws. Written once for that reason.
     public static func isShowing(workspaceSupportsSidebar: Bool, panesCollapsed: Bool = false,
-                                 preference: Bool,
+                                 outlivesCollapse: Bool = false, preference: Bool,
                                  enabled: Bool = FolderSidebarModel.isEnabled) -> Bool {
-        appliesTo(workspaceSupportsSidebar: workspaceSupportsSidebar,
-                  panesCollapsed: panesCollapsed, enabled: enabled) && preference
+        appliesTo(workspaceSupportsSidebar: workspaceSupportsSidebar, panesCollapsed: panesCollapsed,
+                  outlivesCollapse: outlivesCollapse, enabled: enabled) && preference
     }
 
     /// The rows of one group, in order — the view's `ForEach` and the tests read the same list.

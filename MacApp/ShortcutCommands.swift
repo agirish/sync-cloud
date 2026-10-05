@@ -1185,16 +1185,18 @@ extension ContentView {
     /// cannot come to disagree about where a sidebar is possible. Every shipping workspace supports
     /// one as of v4.4 — the lens workspaces were excluded on the reasoning that their 220pt-clamped
     /// rail left no room, which `PaneLogic.lensSidebarWidth` answered with a clamp instead — so in
-    /// practice the live `nil` is the collapsed-panes one.
+    /// practice the live `nil` is the collapsed-panes one — outside Edit, whose sidebar outlives a
+    /// collapsed pane (`Workspace.folderSidebarOutlivesPaneCollapse`).
     var shortcutFolderSidebar: Binding<Bool>? {
         // **`appliesTo`, not `isShowing`**: the item is live with the column switched off, because
         // the item is how it gets switched on. Asking `isShowing` here would make the
         // tick the only way to reach the tick. This call carried the v4.2/v4.3 hold too, through
         // `appliesTo`'s `isEnabled` — one condition, never a second one written at this site.
-        guard FolderSidebarModel.appliesTo(
-            workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
-            panesCollapsed: panesHiddenForCurrentTab) else { return nil }
-        return Binding(get: { browseSidebarVisible }, set: { browseSidebarVisible = $0 })
+        guard folderSidebarIsAvailable else { return nil }
+        // Ticked on what is DRAWN, not the shared preference: in Edit, Expand can hold the column
+        // off with the preference on, and a ticked item beside no sidebar would untick on the
+        // press that was meant to show it.
+        return Binding(get: { folderSidebarIsShowing }, set: { setFolderSidebarVisible($0) })
     }
 
     /// View ▸ Tab Bar — **ticked and disabled while a strip on screen holds a second tab**, so the

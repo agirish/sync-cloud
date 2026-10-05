@@ -1,5 +1,7 @@
 import Testing
 import AppKit
+import Design
+import FileExplorer
 @testable import SyncCloud
 
 @Suite struct TopPaneVisibilityTests {
@@ -90,6 +92,108 @@ import AppKit
         let withBitSet = TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: true)
         #expect(withBitClear == withBitSet, "an open pane answers differently depending on the rail bit")
         #expect(!withBitSet)
+    }
+
+    // MARK: The sidebar beside Edit's folded pane, and Expand
+
+    /// **Only Edit's sidebar outlives a collapsed pane.** Listed by name: in a lens a click would
+    /// re-root a pane nobody can see, so a workspace joining this set is a decision to write down.
+    @Test func onlyEditsSidebarOutlivesACollapsedPane() {
+        for workspace in Workspace.allCases {
+            #expect(workspace.folderSidebarOutlivesPaneCollapse == (workspace == .editor),
+                    "\(workspace.title) answers \(workspace.folderSidebarOutlivesPaneCollapse)")
+        }
+    }
+
+    /// Every starting state, as the person sees it: list hidden or not, pane folded or not,
+    /// sidebar showing or not. The record bits start clear — what a state reached by hand has.
+    static let startingStates: [(rail: Bool, pane: Bool, sidebar: Bool)] =
+        [false, true].flatMap { r in [false, true].flatMap { p in [false, true].map { (r, p, $0) } } }
+
+    /// **Leaving gives back exactly what was showing** (asked 2026-10-04) — from every one of the
+    /// eight states Expand can be entered from (one of which is already on, see below). The
+    /// sidebar is read as drawn: the preference, less Expand's hold. Mutation: drop the pane
+    /// restore from `leave` and every state with the pane open fails.
+    @Test(arguments: startingStates.filter { !($0.rail && $0.pane) })
+    func leavingExpandGivesBackExactlyWhatWasShowing(start: (rail: Bool, pane: Bool, sidebar: Bool)) {
+        let before = EditorExpand(railHidden: start.rail, paneFolded: start.pane,
+                                  sidebarPutAway: false, paneFoldedByExpand: false)
+        var expand = before
+        expand.enter(sidebarShowing: start.sidebar)
+        #expect(expand.isOn)
+        #expect(start.sidebar ? expand.hidesSidebar : true, "the sidebar was left on screen")
+        expand.leave()
+        #expect(!expand.isOn)
+        #expect(expand.paneFolded == start.pane, "the pane came back \(expand.paneFolded ? "folded" : "open")")
+        #expect(!expand.hidesSidebar, "Expand still holds the sidebar off after leaving")
+        // The rail comes back whatever it was — leaving Expand is the request for the list.
+        #expect(!expand.railHidden)
+        #expect(!expand.sidebarPutAway && !expand.paneFoldedByExpand, "a spent record was kept")
+    }
+
+    /// **A second entry keeps the record** — a launch from Finder into a window already expanded.
+    /// Reading the state afresh would see Expand's own work (pane folded, sidebar held) and leave
+    /// owing nothing. Mutation: drop the `isOn` branch and the pane stays folded on leaving.
+    @Test func enteringAgainKeepsWhatTheFirstEntryOwes() {
+        var expand = EditorExpand(railHidden: false, paneFolded: false,
+                                  sidebarPutAway: false, paneFoldedByExpand: false)
+        expand.enter(sidebarShowing: true)
+        expand.enter(sidebarShowing: false)
+        expand.leave()
+        #expect(!expand.paneFolded, "the pane Expand folded was not given back")
+    }
+
+    /// ⌃⌘S while expanded shows the sidebar and leaves Expand on; a second entry then puts it away
+    /// again and still gives it back.
+    @Test func showingTheSidebarByHandLiftsOnlyTheHold() {
+        var expand = EditorExpand(railHidden: false, paneFolded: true,
+                                  sidebarPutAway: false, paneFoldedByExpand: false)
+        expand.enter(sidebarShowing: true)
+        #expect(expand.hidesSidebar)
+        expand.sidebarShownByHand()
+        #expect(!expand.hidesSidebar && expand.isOn)
+        expand.enter(sidebarShowing: true)
+        #expect(expand.hidesSidebar, "a sidebar shown by hand survived a second entry")
+    }
+
+    /// **Opening the pane from its spine ends Expand and spends the record.** The sidebar comes
+    /// back with the pane, and a later fold from the spine — which re-lights Expand, the rail bit
+    /// having survived — does not leave Expand owing a pane or a sidebar.
+    @Test func openingThePaneByHandSpendsTheRecord() {
+        var expand = EditorExpand(railHidden: false, paneFolded: false,
+                                  sidebarPutAway: false, paneFoldedByExpand: false)
+        expand.enter(sidebarShowing: true)
+        expand.paneOpenedByHand()
+        #expect(!expand.isOn && !expand.hidesSidebar)
+        #expect(expand.railHidden, "the rail bit was cleared — editorRailIsDrawn requires it to survive")
+        expand.paneFolded = true            // the spine's fold
+        #expect(expand.isOn && !expand.hidesSidebar)
+        expand.leave()
+        #expect(expand.paneFolded, "leaving reopened a pane the person folded themselves")
+    }
+
+    /// The log names what moved, and only that.
+    @Test func theLogNamesWhatMoved() {
+        let quiet = EditorExpand(railHidden: false, paneFolded: true, sidebarPutAway: false, paneFoldedByExpand: false)
+        var all = EditorExpand(railHidden: false, paneFolded: false, sidebarPutAway: false, paneFoldedByExpand: false)
+        let open = all
+        all.enter(sidebarShowing: true)
+        #expect(EditorExpand.moved(from: open, to: all) == "the Text Files list, the file pane and the sidebar")
+        var listOnly = quiet
+        listOnly.enter(sidebarShowing: false)
+        #expect(EditorExpand.moved(from: quiet, to: listOnly) == "the Text Files list")
+        #expect(EditorExpand.moved(from: quiet, to: quiet) == "nothing")
+    }
+
+    /// **The collapsed Edit row fits beside the sidebar at any width the clamp allows.** The
+    /// sidebar takes its width from `lensSidebarWidth`, which reserves a rail and a lens panel;
+    /// Edit's collapsed row is the spine's card and the rail-and-document workspace, and must not
+    /// need more, or the document column is squeezed under its floor at the window minimum.
+    @Test func theCollapsedEditRowFitsTheLensClamp() {
+        let spineSlot = PaneLogic.railSpineWidth + LiquidGlass.cardGutter
+        let reserved = PaneLogic.minRailWidth + PaneLogic.minLensWorkspaceWidth
+        #expect(spineSlot + EditorLayoutMetrics.minWorkspaceWidth <= reserved,
+                "Edit's collapsed row needs \(spineSlot + EditorLayoutMetrics.minWorkspaceWidth)pt; the clamp leaves \(reserved)")
     }
 
     @Test func testOverrideWinsOnEveryWorkspace() {

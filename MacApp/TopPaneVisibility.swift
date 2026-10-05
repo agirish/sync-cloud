@@ -94,6 +94,11 @@ enum TopPaneVisibility {
     /// layout someone quit in is the layout they relaunch into.
     static let editorRailHiddenKey = "editorRailHidden"
 
+    /// Defaults keys for ``EditorExpand``'s two record bits. Persisted like the rail bit: a window
+    /// quit while expanded relaunches expanded, and leaving it then must still give back the same.
+    static let editorExpandSidebarPutAwayKey = "editorExpandSidebarPutAway"
+    static let editorExpandFoldedPaneKey = "editorExpandFoldedPane"
+
     // MARK: - Per-tab override persistence
 
     /// Decodes the persisted override map (workspace raw value → hidden). Malformed or empty input
@@ -190,5 +195,88 @@ enum TopPaneVisibility {
         let migrated = migratingOverrides(decoded)
         guard migrated != decoded else { return nil }
         return encodeOverrides(migrated)
+    }
+}
+
+/// **What Expand put away, and so what leaving it gives back** (TE48, revised 2026-10-04).
+///
+/// Expand leaves the text alone in the window: the Text Files list, the file pane and the sidebar
+/// all go. Leaving it gives back exactly what was showing when it began — asked 2026-10-04, when
+/// the sidebar stopped riding on the pane in Edit (`Workspace.folderSidebarOutlivesPaneCollapse`).
+/// Before that, leaving brought back the list only and the pane stayed folded.
+///
+/// Four bits, each persisted where it already lived, and one method per act that moves them, so a
+/// test can walk every combination without a window.
+struct EditorExpand: Equatable {
+    /// The Text Files list withheld — `editorRailHidden`. Survives the pane being opened by hand,
+    /// by design (see `TopPaneVisibility.editorRailIsDrawn`).
+    var railHidden: Bool
+    /// Edit's file pane folded to its spine — Edit's entry in the pane overrides.
+    var paneFolded: Bool
+    /// Expand put the sidebar away, so leaving shows it again. The sidebar's own preference is
+    /// shared by every workspace and is NOT written: hiding it here must not hide it in Compare.
+    var sidebarPutAway: Bool
+    /// Expand folded the pane, so leaving reopens it. False when the pane was folded already.
+    var paneFoldedByExpand: Bool
+
+    /// The bit AND the pane folded — see `ContentView.editorIsExpanded`, which asks the same of
+    /// the workspace on screen.
+    var isOn: Bool { railHidden && paneFolded }
+
+    /// Whether Expand is holding the sidebar off, whatever its preference says.
+    var hidesSidebar: Bool { sidebarPutAway && isOn }
+
+    /// Turns Expand on, recording what it puts away. `sidebarShowing` is Edit's column as drawn.
+    ///
+    /// **Already on, the record is kept**: a second entry (a launch from Finder into an expanded
+    /// window) would otherwise read "the pane was folded, the sidebar was hidden" off Expand's own
+    /// work and forget what to give back. Only a sidebar shown by hand since is added to it.
+    mutating func enter(sidebarShowing: Bool) {
+        if isOn {
+            if sidebarShowing { sidebarPutAway = true }
+        } else {
+            paneFoldedByExpand = !paneFolded
+            sidebarPutAway = sidebarShowing
+        }
+        railHidden = true
+        paneFolded = true
+    }
+
+    /// Turns Expand off, giving back each piece it took.
+    mutating func leave() {
+        railHidden = false
+        if paneFoldedByExpand { paneFolded = false }
+        paneFoldedByExpand = false
+        sidebarPutAway = false
+    }
+
+    /// The pane opened from its spine. That ends Expand, so the record is spent: the sidebar comes
+    /// back with the pane, as it always did, and a later fold from the spine does not leave Expand
+    /// owing a pane it never folded. The rail bit stays, as `editorRailIsDrawn` requires.
+    mutating func paneOpenedByHand() {
+        paneFolded = false
+        paneFoldedByExpand = false
+        sidebarPutAway = false
+    }
+
+    /// What changed between two states, for the log: "the Text Files list, the file pane and the
+    /// sidebar", or the subset that moved. The sidebar counts only through Expand's hold, which is
+    /// the only way Expand moves it. Never localised — it is a log line, read back by sessions.
+    static func moved(from before: EditorExpand, to after: EditorExpand) -> String {
+        var names: [String] = []
+        if before.railHidden != after.railHidden { names.append("the Text Files list") }
+        if before.paneFolded != after.paneFolded { names.append("the file pane") }
+        if before.hidesSidebar != after.hidesSidebar { names.append("the sidebar") }
+        switch names.count {
+        case 0: return "nothing"
+        case 1: return names[0]
+        default: return names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+        }
+    }
+
+    /// ⌃⌘S showed the sidebar while Expand had it put away — the person asked for it back, so
+    /// Expand stops holding it off. Expand itself stays on.
+    mutating func sidebarShownByHand() {
+        sidebarPutAway = false
     }
 }

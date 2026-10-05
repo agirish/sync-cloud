@@ -459,7 +459,7 @@ extension ContentView {
                     if !showsTextFilesRung { Spacer(minLength: 0) }
                 }
                 .padding(.top, 12)
-                .frame(width: 34)
+                .frame(width: PaneLogic.railSpineWidth)
                 // The whole strip is this button's target, as it always was — except while a
                 // second rung shares the strip, when it takes its glyphs' height and no more.
                 .frame(maxHeight: showsTextFilesRung ? nil : .infinity)
@@ -480,7 +480,7 @@ extension ContentView {
                     Image(systemName: "doc.text")
                         .scaledFont(.system(size: 14, weight: .semibold))
                         .foregroundStyle(glassHue.accentColor)
-                        .frame(width: 34, height: 30)
+                        .frame(width: PaneLogic.railSpineWidth, height: 30)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor, shape: .roundedRect(8)))
@@ -489,7 +489,7 @@ extension ContentView {
                 Spacer(minLength: 0)
             }
         }
-        .frame(width: 34)
+        .frame(width: PaneLogic.railSpineWidth)
         .frame(maxHeight: .infinity)
         // A slim card, not a docked `.bar` strip: the bar fill stayed opaque at Clear and sat
         // flush against the root padding while every neighbor floated — the spine joins the gap

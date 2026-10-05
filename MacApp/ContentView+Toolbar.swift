@@ -358,13 +358,11 @@ extension ContentView {
         // disabled switch is actually asking — and there are two answers with different remedies.
         // See `FolderSidebarModel.unavailableReason`.
         ToolbarItem(placement: .navigation) {
-            let available = FolderSidebarModel.appliesTo(
-                workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
-                panesCollapsed: panesHiddenForCurrentTab)
-            let showing = available && browseSidebarVisible
+            let available = folderSidebarIsAvailable
+            let showing = folderSidebarIsShowing
             Button {
                 withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
-                    browseSidebarVisible.toggle()
+                    setFolderSidebarVisible(!showing)
                 }
             } label: {
                 Label("Sidebar", systemImage: "sidebar.left")
@@ -379,7 +377,8 @@ extension ContentView {
                   // failure as publishing a chord for a column that cannot appear.
                   : (FolderSidebarModel.unavailableReason(
                         workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
-                        panesCollapsed: panesHiddenForCurrentTab) ?? ""))
+                        panesCollapsed: panesHiddenForCurrentTab,
+                        outlivesCollapse: selectedWorkspace.folderSidebarOutlivesPaneCollapse) ?? ""))
             .accessibilityLabel(showing ? "Hide sidebar" : "Show sidebar")
             // **Both halves of one control agree**, the rule the Info button below states at
             // length: the menu item is `nil`-disabled wherever the column cannot be drawn and

@@ -527,6 +527,29 @@ import Design
         #expect(FolderSidebarModel.appliesTo(workspaceSupportsSidebar: true,
                                              panesCollapsed: false, enabled: true))
     }
+
+    /// **A workspace whose sidebar outlives the collapse keeps it** — Edit, asked 2026-10-04: its
+    /// Text Files list follows the folded pane's folder, so the sidebar is useful with no pane
+    /// open. All three questions agree, and a collapsed pane still greys nothing there.
+    @Test func aSidebarThatOutlivesTheCollapseStaysBesideAFoldedPane() {
+        #expect(FolderSidebarModel.appliesTo(workspaceSupportsSidebar: true, panesCollapsed: true,
+                                             outlivesCollapse: true, enabled: true))
+        #expect(FolderSidebarModel.isShowing(workspaceSupportsSidebar: true, panesCollapsed: true,
+                                             outlivesCollapse: true, preference: true, enabled: true))
+        #expect(FolderSidebarModel.unavailableReason(workspaceSupportsSidebar: true, panesCollapsed: true,
+                                                     outlivesCollapse: true, enabled: true) == nil)
+    }
+
+    /// The exemption is from the collapse rule only: it does not conjure a sidebar for a workspace
+    /// that carries none, past the preference, or past the switch.
+    @Test func outlivingTheCollapseOverridesNothingElse() {
+        #expect(!FolderSidebarModel.appliesTo(workspaceSupportsSidebar: false, panesCollapsed: true,
+                                              outlivesCollapse: true, enabled: true))
+        #expect(!FolderSidebarModel.appliesTo(workspaceSupportsSidebar: true, panesCollapsed: true,
+                                              outlivesCollapse: true, enabled: false))
+        #expect(!FolderSidebarModel.isShowing(workspaceSupportsSidebar: true, panesCollapsed: true,
+                                              outlivesCollapse: true, preference: false, enabled: true))
+    }
 }
 
 /// **The switch is on, asserted where it is decided.**

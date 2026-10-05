@@ -96,6 +96,18 @@ enum Workspace: String, CaseIterable, Identifiable {
         }
     }
 
+    /// **Whether the sidebar stays beside a collapsed pane** — `FolderSidebarModel.appliesTo`'s
+    /// `outlivesCollapse`. Edit only (asked 2026-10-04): its Text Files list reads the folder the
+    /// pane is on, so the sidebar re-points the list with the pane folded, and the pane is folded
+    /// by default there. Everywhere else a collapse still takes the sidebar with it — a click would
+    /// re-root a pane nobody can see. No `default:`, like the property above.
+    var folderSidebarOutlivesPaneCollapse: Bool {
+        switch self {
+        case .editor: return true
+        case .browse, .filing, .compare: return false
+        }
+    }
+
     /// The label in the workspace bar. Separate from `rawValue` so these can be reworded without
     /// breaking a stored selection.
     var title: String {

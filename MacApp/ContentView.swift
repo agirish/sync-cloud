@@ -626,6 +626,9 @@ struct ContentView: View {
     /// bit, so the choice survives a trip into the pane and back. Persisted, like the pane
     /// override above it, for the same reason.
     @AppStorage(TopPaneVisibility.editorRailHiddenKey) var editorRailHidden: Bool = false
+    /// Expand's record of what it put away — see `EditorExpand`, the only thing that writes them.
+    @AppStorage(TopPaneVisibility.editorExpandSidebarPutAwayKey) var editorExpandSidebarPutAway: Bool = false
+    @AppStorage(TopPaneVisibility.editorExpandFoldedPaneKey) var editorExpandFoldedPane: Bool = false
 
 
     /// Whether the Compare Info inspector is shown. It replaces the old Details tab: a toggleable
@@ -2011,6 +2014,13 @@ struct ContentView: View {
     /// workspace and remembers the choice for it. The workspace bar is always on screen, so no
     /// region is forced back on to compensate.
     func togglePanesForCurrentTab() {
+        // Opening Edit's pane by hand ends Expand and spends its record (`paneOpenedByHand`).
+        if selectedWorkspace == .editor && panesHiddenForCurrentTab {
+            var expand = editorExpand
+            expand.paneOpenedByHand()
+            editorExpand = expand
+            return
+        }
         let overrides = TopPaneVisibility.settingOverride(
             TopPaneVisibility.decodeOverrides(topPaneOverridesRaw),
             workspace: selectedWorkspace,
@@ -2026,29 +2036,50 @@ struct ContentView: View {
                                       override: TopPaneVisibility.decodeOverrides(topPaneOverridesRaw)[Workspace.editor.rawValue])
     }
 
-    /// **A launch from Finder opens Edit wide** — "Just the text": the Text Files rail hidden and
-    /// the file pane collapsed, which takes the folder sidebar with it (`FolderSidebarModel.appliesTo`
-    /// draws none beside a collapsed pane). Asked 2026-10-03: "on cold open, it should always have
+    /// Edit's Expand state, read from and written back to the four places its bits live. Edit's
+    /// pane is written by name, like `openEditWideForLaunchFromFinder`, so the answer does not
+    /// depend on which workspace is on screen. Only changed bits are written: each is
+    /// `@AppStorage`, and an identical write is still a change to SwiftUI.
+    var editorExpand: EditorExpand {
+        get {
+            EditorExpand(railHidden: editorRailHidden, paneFolded: editorPaneIsFolded,
+                         sidebarPutAway: editorExpandSidebarPutAway,
+                         paneFoldedByExpand: editorExpandFoldedPane)
+        }
+        nonmutating set {
+            if newValue.paneFolded != editorPaneIsFolded {
+                topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(
+                    TopPaneVisibility.settingOverride(TopPaneVisibility.decodeOverrides(topPaneOverridesRaw),
+                                                      workspace: .editor, hidden: newValue.paneFolded))
+            }
+            if newValue.railHidden != editorRailHidden { editorRailHidden = newValue.railHidden }
+            if newValue.sidebarPutAway != editorExpandSidebarPutAway {
+                editorExpandSidebarPutAway = newValue.sidebarPutAway
+            }
+            if newValue.paneFoldedByExpand != editorExpandFoldedPane {
+                editorExpandFoldedPane = newValue.paneFoldedByExpand
+            }
+        }
+    }
+
+    /// **A launch from Finder opens Edit wide** — Expand: the Text Files rail hidden, the file pane
+    /// collapsed and the sidebar put away. Asked 2026-10-03: "on cold open, it should always have
     /// the left side bar and file pane both closed. So it feels like a wide screen experience."
     ///
     /// **Remembered, as the header's own button is** — chosen that way when asked: Edit stays wide
-    /// until the pane or the rail is opened again. Written for `.editor` by name rather than through
-    /// `togglePanesForCurrentTab`, which writes whatever workspace is on screen and TOGGLES — this
-    /// has to close the pane whatever it was, and only Edit's.
+    /// until it is left. It IS Expand's entry (`EditorExpand.enter`), so leaving gives back what
+    /// was showing before the launch, as leaving the button's Expand does. Written for `.editor`
+    /// by name through `editorExpand`, never through `togglePanesForCurrentTab`, which writes
+    /// whatever workspace is on screen and TOGGLES — this has to close the pane whatever it was,
+    /// and only Edit's.
     func openEditWideForLaunchFromFinder() {
-        var closed: [String] = []
-        let overrides = TopPaneVisibility.decodeOverrides(topPaneOverridesRaw)
-        if !editorPaneIsFolded {
-            topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(
-                TopPaneVisibility.settingOverride(overrides, workspace: .editor, hidden: true))
-            closed.append("the file pane and sidebar")
-        }
-        if !editorRailHidden {
-            editorRailHidden = true
-            closed.append("the Text Files rail")
-        }
+        let before = editorExpand
+        var expand = before
+        expand.enter(sidebarShowing: editorSidebarIsShowing)
+        editorExpand = expand
         Logger.shared.info("[open] Launched from Finder — Edit opens wide"
-            + (closed.isEmpty ? ", as it already was" : " (closed \(closed.joined(separator: " and ")))"))
+            + (expand == before ? ", as it already was"
+                                : " (closed \(EditorExpand.moved(from: before, to: expand)))"))
     }
 
     /// Entering a lens workspace from the workspace bar opens the source rail — and leaves the left
@@ -4391,6 +4422,9 @@ struct ContentView: View {
         // was landing on a list resolved before the collapse. `FolderSidebarWiringTests` now pins
         // that the set of triggers matches the set of gate inputs, since this is the second time.
         .onChange(of: panesHiddenForCurrentTab) { _, _ in refreshFolderSidebarRows() }
+        // Expand's hold is a gate input too: leaving Expand can bring the column back with no
+        // pane, workspace or preference change to trigger the refresh above.
+        .onChange(of: folderSidebarHeldByExpand) { _, _ in refreshFolderSidebarRows() }
         // **And the set of sources itself**, which is new in v4.4 because the column now draws one
         // row per source. Adding a folder source, removing one, or switching one off in Settings
         // all change what the Sources section should say — and one of those paths is the sidebar's

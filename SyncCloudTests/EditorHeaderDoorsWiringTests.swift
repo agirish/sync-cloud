@@ -121,6 +121,31 @@ import FileExplorer
     /// runs the same, and the value is gated on `EditorExpandSwitch.isOffered` with the window's
     /// workspace, document and bit. Mutations: hand the button `{}`, have the item flip
     /// `editorRailHidden` directly (skipping the pane's collapse), or drop the gate — each fails a line.
+    /// **The two hand-made doors out of Expand reach its record** (2026-10-04). Opening Edit's
+    /// pane from its spine ends Expand and spends what it owed; ⌃⌘S from the toolbar or View ▸
+    /// Sidebar lifts Expand's hold on the sidebar rather than flipping a preference that is
+    /// already on, and both doors tick on what is drawn. Mutations: drop the `paneOpenedByHand`
+    /// call, drop `sidebarShownByHand`, or hand either door `browseSidebarVisible` back — each
+    /// fails a line.
+    @Test func theHandMadeDoorsOutOfExpandReachItsRecord() throws {
+        let toggle = try Self.memberBody("func togglePanesForCurrentTab()", in: try Self.source("ContentView.swift"))
+        #expect(toggle.contains("if selectedWorkspace == .editor && panesHiddenForCurrentTab {"),
+                "opening Edit's pane by hand is not told apart from the other toggles")
+        #expect(toggle.contains("expand.paneOpenedByHand()"),
+                "opening the pane by hand leaves Expand owing a pane and a sidebar")
+        let sidebar = try Self.source("ContentView+FolderSidebar.swift")
+        let set = try Self.memberBody("func setFolderSidebarVisible(_ visible: Bool)", in: sidebar)
+        #expect(set.contains("if visible && folderSidebarHeldByExpand {") && set.contains("expand.sidebarShownByHand()"),
+                "⌃⌘S under Expand flips the preference and nothing appears")
+        let toolbar = try Self.source("ContentView+Toolbar.swift")
+        #expect(toolbar.contains("setFolderSidebarVisible(!showing)"), "the toolbar's Sidebar button bypasses the hold")
+        #expect(toolbar.contains("let showing = folderSidebarIsShowing"), "the toolbar's button lights on the preference")
+        #expect(!toolbar.contains("browseSidebarVisible.toggle()"))
+        let menu = try Self.memberBody("var shortcutFolderSidebar: Binding<Bool>?", in: try Self.source("ShortcutCommands.swift"))
+        #expect(menu.contains("Binding(get: { folderSidebarIsShowing }, set: { setFolderSidebarVisible($0) })"),
+                "View ▸ Sidebar ticks on, or writes, something other than what is drawn")
+    }
+
     @Test func expandAndTextExpandRunTheOneToggleByTheOneRule() throws {
         let source = try Self.editor()
         let workspace = try Self.memberBody("func editorWorkspace(showsRail: Bool)", in: source)
@@ -151,8 +176,12 @@ import FileExplorer
         // would be read as code and never match the same words inside a string.
         #expect(toggle.contains(#"Logger.shared.info("[edit] Expand on — ""#),
                 "turning Expand on is not logged")
-        #expect(toggle.contains(#"Logger.shared.info("[edit] Expand off — the Text Files list is back")"#),
+        #expect(toggle.contains(#"Logger.shared.info("[edit] Expand off — " + EditorExpand.moved(from: before, to: expand) + " back")"#),
                 "turning Expand off is not logged")
+        // Both ways go through the one rule, so neither writes a bit of its own.
+        #expect(toggle.contains("expand.leave()") && toggle.contains("expand.enter(sidebarShowing: folderSidebarIsShowing)"),
+                "the toggle moves the bits itself rather than through EditorExpand")
+        #expect(!toggle.contains("editorRailHidden ="), "the toggle flips the rail bit directly")
         // The spine's Text Files rung is the third door, and runs the same toggle — so it is logged.
         let spine = try Self.source("ContentView+SplitLayout.swift")
         #expect(spine.contains("Button { toggleJustTheText() } label: {"),
