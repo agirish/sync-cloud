@@ -14,6 +14,9 @@ struct MarkupFormatState: Equatable, Sendable {
     var lit: Set<MarkupVerb>
     /// What the Heading menu names.
     var heading: MarkdownEdits.HeadingLevel
+    /// The Table menu's items that would do something here — ``MarkdownTables/available(in:selection:)``.
+    /// Holding Tidy means the selection is IN a table, which is what the Table button's accent says.
+    var tables: Set<TableVerb> = [.insert]
 
     static let none = MarkupFormatState(lit: [], heading: .body)
 
@@ -27,8 +30,12 @@ struct MarkupFormatState: Equatable, Sendable {
             lit: Set(MarkupVerb.menuOrder.compactMap { $0 }.filter {
                 MarkdownEdits.isApplied($0, ns, selection, lines: lines)
             }),
-            heading: MarkdownEdits.headingLevel(ns, selection, lines: lines))
+            heading: MarkdownEdits.headingLevel(ns, selection, lines: lines),
+            tables: MarkdownTables.available(in: ns, selection: selection))
     }
+
+    /// Whether the selection is in a table — the Table button's accent.
+    var isInTable: Bool { tables.contains(.tidy) }
 }
 
 /// The document's text view, for the controls drawn beside it rather than inside it.
@@ -144,12 +151,28 @@ struct EditorFormatBar: View, Equatable {
     /// The menu's heading group: Heading 1–3 and Body. The bar draws it as one menu.
     static let headingVerbs: [MarkupVerb] = menuGroups.first { $0.allSatisfy { isHeading($0) } } ?? []
 
-    /// The menu's other groups, in the menu's order — what the bar draws as buttons, after the
-    /// Heading menu: the inline five, the four line kinds, the two blocks.
-    static let groups: [[MarkupVerb]] = menuGroups.filter { !$0.allSatisfy { isHeading($0) } }
+    /// The menu's table group (TE65): the bar draws it as one Table menu, as the menus draw it as
+    /// one submenu.
+    static let tableVerbs: [MarkupVerb] = menuGroups.first { $0.allSatisfy(\.isTable) } ?? []
 
-    /// The bar's whole reading order, headings first — what the parity test holds against the menu.
-    static var barOrder: [MarkupVerb] { headingVerbs + groups.flatMap { $0 } }
+    /// What stands for the Table menu among the bar's buttons — where it sits, what the » files
+    /// it under, what the ladder counts. Its press opens the menu rather than applying itself.
+    static let tableMenuStandIn = MarkupVerb.table(.insert)
+
+    /// The menu's other groups, in the menu's order — what the bar draws as buttons, after the
+    /// Heading menu: the inline five, the four line kinds, then the two blocks with the Table menu
+    /// beside them — one group, because the bar has room for one fewer separator than the menu.
+    static let groups: [[MarkupVerb]] = {
+        var groups = menuGroups.filter { !$0.allSatisfy { isHeading($0) } && !$0.allSatisfy(\.isTable) }
+        if !tableVerbs.isEmpty, !groups.isEmpty { groups[groups.count - 1].append(tableMenuStandIn) }
+        return groups
+    }()
+
+    /// The bar's whole reading order, headings first and the Table menu's items where its button
+    /// is — what the parity test holds against the menu.
+    static var barOrder: [MarkupVerb] {
+        headingVerbs + groups.flatMap { $0 }.flatMap { $0 == tableMenuStandIn ? tableVerbs : [$0] }
+    }
 
     private nonisolated static func isHeading(_ verb: MarkupVerb) -> Bool {
         if case .heading = verb { return true }
@@ -173,6 +196,7 @@ struct EditorFormatBar: View, Equatable {
         case .blockQuote: return "text.quote"
         case .codeBlock: return "curlybraces.square"
         case .horizontalRule: return "minus"
+        case .table: return "tablecells"
         }
     }
 
@@ -202,6 +226,7 @@ struct EditorFormatBar: View, Equatable {
         case .blockQuote: return "Quote"
         case .codeBlock: return "Code Block"
         case .horizontalRule: return "Rule"
+        case .table: return MarkupVerb.tableMenuTitle
         default: return verb.title
         }
     }
@@ -211,7 +236,7 @@ struct EditorFormatBar: View, Equatable {
     /// never answers yes for them; in a menu they are plain items, not toggles that are always off.
     static func canLight(_ verb: MarkupVerb) -> Bool {
         switch verb {
-        case .link, .codeBlock, .horizontalRule, .heading(0): return false
+        case .link, .codeBlock, .horizontalRule, .heading(0), .table: return false
         default: return true
         }
     }
@@ -395,7 +420,16 @@ struct EditorFormatBar: View, Equatable {
             .accessibilityHidden(true)
     }
 
+    @ViewBuilder
     private func button(_ verb: MarkupVerb, worded: Bool) -> some View {
+        if verb.isTable {
+            tableMenu(worded: worded)
+        } else {
+            verbButton(verb, worded: worded)
+        }
+    }
+
+    private func verbButton(_ verb: MarkupVerb, worded: Bool) -> some View {
         let lit = state.lit.contains(verb)
         let box = Self.box(at: scale)
         return Button { onVerb(verb) } label: {
@@ -480,6 +514,71 @@ struct EditorFormatBar: View, Equatable {
         .accessibilityLabel("Heading level: \(Self.headingTitle(state.heading, worded: true))")
     }
 
+    /// **The Table menu** (TE65, TE66) — the Markup menu's Table submenu, each item enabled only
+    /// where it would do something, so a row cannot be added outside a table or the header
+    /// deleted. Drawn like a button — the grid glyph, and in Icon and Text the word and a chevron —
+    /// and wearing the accent while the selection is in a table, as the Heading menu wears it over
+    /// a heading.
+    private func tableMenu(worded: Bool) -> some View {
+        let box = Self.box(at: scale)
+        let inTable = state.isInTable
+        return Menu {
+            tableItems
+        } label: {
+            Group {
+                if worded {
+                    HStack(spacing: 3) {
+                        Image(systemName: Self.symbol(Self.tableMenuStandIn))
+                            .scaledFont(.system(size: Self.glyphPoint, weight: .medium))
+                        Text(Self.word(Self.tableMenuStandIn))
+                            .scaledFont(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .scaledFont(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.leading, 5)
+                    .padding(.trailing, 7)
+                    .frame(minWidth: box, minHeight: box, maxHeight: box)
+                } else {
+                    Image(systemName: Self.symbol(Self.tableMenuStandIn))
+                        .scaledFont(.system(size: Self.glyphPoint, weight: .medium))
+                        .frame(width: box, height: box)
+                }
+            }
+            .foregroundStyle(inTable ? accent : .primary)
+            .background(RoundedRectangle(cornerRadius: Radius.chip)
+                .fill(inTable ? accent.opacity(0.18) : .clear))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(MarkupVerb.tableMenuTitle)
+        .accessibilityLabel(MarkupVerb.tableMenuTitle)
+        .accessibilityValue(inTable ? "In a table" : "")
+    }
+
+    /// The Table submenu's items, divided where ``MarkupVerb/tableSections`` divides them — on the
+    /// bar's Table menu and, when that is behind the », in the »'s Table submenu.
+    @ViewBuilder
+    private var tableItems: some View {
+        ForEach(Array(MarkupVerb.tableSections.enumerated()), id: \.offset) { index, section in
+            if index > 0 { Divider() }
+            ForEach(section, id: \.self) { verb in
+                Button(verb.title) { onVerb(verb) }
+                    .disabled(!Self.isOffered(verb, in: state))
+            }
+        }
+    }
+
+    /// Whether a Table item would do something for this selection; every other verb always can.
+    static func isOffered(_ verb: MarkupVerb, in state: MarkupFormatState) -> Bool {
+        guard case .table(let op) = verb else { return true }
+        return state.tables.contains(op)
+    }
+
     static func isCurrent(_ verb: MarkupVerb, _ heading: MarkdownEdits.HeadingLevel) -> Bool {
         switch (verb, heading) {
         case (.heading(0), .body): return true
@@ -498,7 +597,9 @@ struct EditorFormatBar: View, Equatable {
             ForEach(Array(hidden.enumerated()), id: \.offset) { index, group in
                 if index > 0 { Divider() }
                 ForEach(group, id: \.self) { verb in
-                    if Self.canLight(verb) {
+                    if verb.isTable {
+                        Menu(MarkupVerb.tableMenuTitle) { tableItems }
+                    } else if Self.canLight(verb) {
                         Toggle(verb.title, isOn: Binding(
                             get: { state.lit.contains(verb) },
                             set: { _ in onVerb(verb) }))

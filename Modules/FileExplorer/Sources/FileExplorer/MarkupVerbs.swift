@@ -24,12 +24,18 @@ public enum MarkupVerb: Hashable, Sendable {
     case blockQuote
     case codeBlock
     case horizontalRule
+    /// One of the Table submenu's items (TE65, TE66) — see ``TableVerb``.
+    case table(TableVerb)
 
     /// The verbs the context menu offers, in the order it offers them; `nil` is a separator.
     ///
     /// **One flat list, because a menu item carries an `Int` and not an enum.** `NSMenuItem.tag` is
     /// how the click gets back here, so the index in this array IS the identity — which makes the
     /// order load-bearing in a way a menu's usually is not. Appending is safe; reordering is not.
+    ///
+    /// **The table verbs come last, as one group, and every menu draws that group as a Table
+    /// submenu** — divided where ``tableSections`` divides it — and the format bar as one Table
+    /// menu, the way it draws the heading group as one Heading menu. Appended, so no tag moved.
     public static let menuOrder: [MarkupVerb?] = [
         .bold, .italic, .strikethrough, .inlineCode, .link,
         nil,
@@ -38,7 +44,26 @@ public enum MarkupVerb: Hashable, Sendable {
         .bulletList, .numberedList, .taskItem, .blockQuote,
         nil,
         .codeBlock, .horizontalRule,
+        nil,
+    ] + tableSections.joined().map(Optional.some)
+
+    /// The Table submenu, in its order, cut where it draws its separators: making a table, adding
+    /// to one, taking from one, tidying one.
+    public static let tableSections: [[MarkupVerb]] = [
+        [.table(.insert), .table(.fromSelection)],
+        [.table(.addRowAbove), .table(.addRowBelow), .table(.addColumnLeft), .table(.addColumnRight)],
+        [.table(.deleteRow), .table(.deleteColumn)],
+        [.table(.tidy)],
     ]
+
+    /// The submenu's own title, and the format bar's Table menu's.
+    public static let tableMenuTitle = "Table"
+
+    /// Whether this is one of the Table submenu's items.
+    public var isTable: Bool {
+        if case .table = self { return true }
+        return false
+    }
 
     /// The chord the menu bar registers for this verb, or `nil` for the verbs that are menu-only.
     ///
@@ -55,7 +80,7 @@ public enum MarkupVerb: Hashable, Sendable {
         case .inlineCode: return .inlineCode
         case .link: return .link
         case .heading, .bulletList, .numberedList, .taskItem, .blockQuote, .codeBlock,
-             .horizontalRule:
+             .horizontalRule, .table:
             return nil
         }
     }
@@ -75,6 +100,50 @@ public enum MarkupVerb: Hashable, Sendable {
         case .blockQuote: return "Block Quote"
         case .codeBlock: return "Code Block"
         case .horizontalRule: return "Horizontal Rule"
+        case .table(let op): return op.title
+        }
+    }
+}
+
+/// **What the Table submenu does** (TE65, TE66): make a table, add a row or column to one, take
+/// one away, or format one so its pipes line up — Format Table, `.tidy` in code. (Not "Tidy" on
+/// screen: Help retires that word, which was Organize's old name.) Each is a plain edit of the buffer —
+/// ``MarkdownTables`` — taken back with one ⌘Z, like every other Markup verb.
+public enum TableVerb: Hashable, Sendable, CaseIterable {
+    case insert
+    case fromSelection
+    case addRowAbove
+    case addRowBelow
+    case addColumnLeft
+    case addColumnRight
+    case deleteRow
+    case deleteColumn
+    case tidy
+
+    public var title: String {
+        switch self {
+        case .insert: return "Insert Table"
+        case .fromSelection: return "Make Table from Selection"
+        case .addRowAbove: return "Add Row Above"
+        case .addRowBelow: return "Add Row Below"
+        case .addColumnLeft: return "Add Column Left"
+        case .addColumnRight: return "Add Column Right"
+        case .deleteRow: return "Delete Row"
+        case .deleteColumn: return "Delete Column"
+        case .tidy: return "Format Table"
+        }
+    }
+
+    /// Why the item did nothing, for the log — the menu bar's items cannot know where the caret is
+    /// when they draw, so they stay enabled and a press that has nothing to do says so.
+    public var refusal: String {
+        switch self {
+        case .insert: return "the caret is in a table, and a table cannot hold one"
+        case .fromSelection: return "the selected lines hold no tabs or commas to split into cells"
+        case .addRowAbove: return "the caret is not in a table's body — nothing goes above the header"
+        case .deleteRow: return "the caret is not in a table's body — the header cannot be deleted"
+        case .deleteColumn: return "the caret is not in a table, or it has one column left"
+        case .addRowBelow, .addColumnLeft, .addColumnRight, .tidy: return "the caret is not in a table"
         }
     }
 }
@@ -108,6 +177,7 @@ extension MarkdownEdits {
             return prefixLines(text, selection, prefix)
         case .codeBlock: return fence(text, selection)
         case .horizontalRule: return rule(text, selection)
+        case .table(let op): return MarkdownTables.apply(op, to: text, selection: selection)
         }
     }
 
@@ -149,7 +219,9 @@ extension MarkdownEdits {
             guard let prefix = linePrefix(for: verb) else { return false }
             let written = lines.contains { !isBlank(ns.substring(with: $0)) }
             return written && everyLineHas(prefix, lines, in: ns)
-        case .link, .codeBlock, .horizontalRule:
+        case .link, .codeBlock, .horizontalRule, .table:
+            // Inserts, or a submenu — never a toggle that is on. Where the caret is IN a table is
+            // `MarkupFormatState.tables`, which the bar's Table menu reads.
             return false
         }
     }

@@ -65,7 +65,11 @@ import Design
     /// different key here would be worse.
     @Test func theContextMenuDrawsEachVerbsRegisteredChord() {
         let menu = PlainTextEditor.Coordinator.markupMenu(target: nil, action: #selector(NSText.copy(_:)))
-        let items = menu.items.filter { !$0.isSeparatorItem }
+        // Every verb's item, the Table submenu's included (TE65) — its host item is not a verb.
+        func verbItems(_ menu: NSMenu) -> [NSMenuItem] {
+            menu.items.filter { !$0.isSeparatorItem }.flatMap { $0.submenu.map(verbItems) ?? [$0] }
+        }
+        let items = verbItems(menu)
         // The positive control: the menu really is built from `menuOrder`, so the loop below
         // walks every verb rather than an empty list.
         #expect(items.count == MarkupVerb.menuOrder.compactMap { $0 }.count)
@@ -83,6 +87,11 @@ import Design
         }
         // …and the menu is genuinely divided the way the menu bar's will be.
         #expect(menu.items.filter(\.isSeparatorItem).count == MarkupVerb.menuOrder.filter { $0 == nil }.count)
+        let table = try? #require(menu.items.last?.submenu, "the Markup submenu does not end in Table")
+        #expect(menu.items.last?.title == "Table")
+        #expect(table?.items.filter { !$0.isSeparatorItem }.map(\.title) == MarkupVerb.tableSections.joined().map(\.title))
+        #expect(table?.items.filter(\.isSeparatorItem).count == MarkupVerb.tableSections.count - 1)
+        #expect(table?.autoenablesItems == false, "AppKit would enable the Table items whatever the caret's place")
     }
 
     // MARK: Where the caret has to be

@@ -337,7 +337,9 @@ struct PlainTextEditor: NSViewRepresentable {
                 insertTextSettings(into: menu, at: 0)
                 return menu
             }
-            let markup = Self.markupMenu(target: self, action: #selector(applyMarkup(_:)))
+            let markup = Self.markupMenu(target: self, action: #selector(applyMarkup(_:)),
+                                         tables: MarkdownTables.available(in: view.string as NSString,
+                                                                          selection: view.selectedRange()))
             let host = NSMenuItem(title: "Markup", action: nil, keyEquivalent: "")
             host.submenu = markup
             menu.insertItem(host, at: 0)
@@ -399,8 +401,17 @@ struct PlainTextEditor: NSViewRepresentable {
         /// its item. Static so a test can build it without a text view and read the key
         /// equivalents back — the claim "the context menu shows the chords the menu bar registers"
         /// is about these items, and nothing else can see them.
-        static func markupMenu(target: AnyObject?, action: Selector) -> NSMenu {
+        ///
+        /// **The table verbs go in a Table submenu** (TE65, TE66), divided where
+        /// ``MarkupVerb/tableSections`` divides them, each item tagged with its place in
+        /// `menuOrder` like the rest — and enabled only if it is in `tables`, the items that would
+        /// do something at the selection, since a right-click knows where the caret is. `nil`
+        /// enables them all.
+        static func markupMenu(target: AnyObject?, action: Selector, tables: Set<TableVerb>? = nil) -> NSMenu {
             let markup = NSMenu(title: "Markup")
+            let table = NSMenu(title: MarkupVerb.tableMenuTitle)
+            // Its items are enabled by hand, from `tables`, not by AppKit's validation.
+            table.autoenablesItems = false
             for (index, verb) in MarkupVerb.menuOrder.enumerated() {
                 guard let verb else {
                     markup.addItem(.separator())
@@ -411,7 +422,20 @@ struct PlainTextEditor: NSViewRepresentable {
                 if let chord = verb.chord { item.keyEquivalentModifierMask = chord.appKitModifierMask }
                 item.target = target
                 item.tag = index
-                markup.addItem(item)
+                if case .table(let op) = verb {
+                    if MarkupVerb.tableSections.dropFirst().contains(where: { $0.first == verb }) {
+                        table.addItem(.separator())
+                    }
+                    item.isEnabled = tables?.contains(op) ?? true
+                    table.addItem(item)
+                } else {
+                    markup.addItem(item)
+                }
+            }
+            if !table.items.isEmpty {
+                let host = NSMenuItem(title: MarkupVerb.tableMenuTitle, action: nil, keyEquivalent: "")
+                host.submenu = table
+                markup.addItem(host)
             }
             return markup
         }

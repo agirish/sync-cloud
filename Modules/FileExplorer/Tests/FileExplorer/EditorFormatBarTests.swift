@@ -30,15 +30,25 @@ import EventsTestSupport
         #expect(headings.count == 1, "the menu has \(headings.count) heading groups — the Heading menu is about nothing")
         #expect(EditorFormatBar.headingVerbs == headings.first,
                 "the Heading menu offers \(EditorFormatBar.headingVerbs.map(\.title))")
-        #expect(EditorFormatBar.groups == menuGroups.filter { $0 != headings.first },
-                "the bar's button groups are not the menu's, in the menu's order")
-        #expect(bar == EditorFormatBar.headingVerbs + EditorFormatBar.groups.flatMap { $0 },
-                "the bar's reading order is not headings first, then the menu's groups")
+        // The table group is one Table menu on the bar, beside the two blocks (TE65).
+        let tables = menuGroups.filter { $0.allSatisfy(\.isTable) }
+        #expect(tables.count == 1 && EditorFormatBar.tableVerbs == tables.first,
+                "the Table menu offers \(EditorFormatBar.tableVerbs.map(\.title))")
+        var expected = menuGroups.filter { $0 != headings.first && $0 != tables.first }
+        expected[expected.count - 1].append(EditorFormatBar.tableMenuStandIn)
+        #expect(EditorFormatBar.groups == expected, "the bar's button groups are not the menu's, in the menu's order")
+        #expect(bar == EditorFormatBar.headingVerbs
+                + EditorFormatBar.groups.flatMap { $0 }.filter { !$0.isTable } + EditorFormatBar.tableVerbs,
+                "the bar's reading order is not headings first, then the menu's groups, then the Table menu's")
         // The spelled-out order, so the derivation above cannot quietly agree with a changed menu.
         #expect(EditorFormatBar.groups.map { $0.map(\.title) } == [
             ["Bold", "Italic", "Strikethrough", "Inline Code", "Link…"],
             ["Bulleted List", "Numbered List", "Task Item", "Block Quote"],
-            ["Code Block", "Horizontal Rule"],
+            ["Code Block", "Horizontal Rule", "Insert Table"],
+        ])
+        #expect(EditorFormatBar.tableVerbs.map(\.title) == [
+            "Insert Table", "Make Table from Selection", "Add Row Above", "Add Row Below",
+            "Add Column Left", "Add Column Right", "Delete Row", "Delete Column", "Format Table",
         ])
         #expect(EditorFormatBar.headingVerbs.map(\.title) == ["Heading 1", "Heading 2", "Heading 3", "Body"])
     }
@@ -685,6 +695,7 @@ import EventsTestSupport
         let expected: [MarkupVerb: String] = [
             .inlineCode: "Code", .link: "Link", .bulletList: "Bullets", .numberedList: "Numbered",
             .taskItem: "Tasks", .blockQuote: "Quote", .codeBlock: "Code Block", .horizontalRule: "Rule",
+            .table(.insert): "Table",
         ]
         for verb in EditorFormatBar.groups.flatMap({ $0 }) {
             let letter = [MarkupVerb.bold, .italic, .strikethrough].contains(verb)
@@ -762,7 +773,9 @@ import EventsTestSupport
         let box = EditorFormatBar.box(at: 1)
         try #require(words.count == icons.count && words.count >= 12,
                      "Icon and Text draws \(words.count) controls, Icon Only \(icons.count)")
-        #expect(words.dropFirst().filter { $0.width > box + 8 }.count == 8,
+        let wordCount = EditorFormatBar.groups.flatMap { $0 }.filter(EditorFormatBar.wearsWord).count
+        #expect(wordCount == 9, "\(wordCount) buttons take a word — the eight verbs and the Table menu")
+        #expect(words.dropFirst().filter { $0.width > box + 8 }.count == wordCount,
                 "Icon and Text at \(Int(Self.width))pt words \(words.dropFirst().filter { $0.width > box + 8 }.count) buttons: \(words.map { Int($0.width) })")
         #expect(icons.dropFirst().allSatisfy { $0.width <= box + 2 }, "Icon Only draws a word: \(icons.map { Int($0.width) })")
         #expect(words.first == icons.first, "the Heading menu moved between the two")

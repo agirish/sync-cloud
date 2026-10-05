@@ -63,8 +63,12 @@ import Testing
     /// same `menuOrder`, and asserted against it rather than against a copy.
     @Test func theMarkupMenuIsTheContextMenusListInItsOrder() throws {
         let markup = Self.titles(try Self.menu("Markup"))
-        #expect(markup == MarkupVerb.menuOrder.compactMap { $0?.title },
+        // The table verbs are one Table submenu at the end (TE65), as the context menu draws them.
+        #expect(markup == MarkupVerb.menuOrder.compactMap { $0 }.filter { !$0.isTable }.map(\.title) + ["Table"],
                 "the Markup menu reads \(markup)")
+        let table = try #require(try Self.item("Table", in: "Markup").submenu, "Markup ▸ Table is not a submenu")
+        #expect(Self.titles(table) == MarkupVerb.tableSections.joined().map(\.title), "Markup ▸ Table reads \(Self.titles(table))")
+        #expect(table.items.filter(\.isSeparatorItem).count == MarkupVerb.tableSections.count - 1)
         // …and it is divided where the context menu is.
         #expect(try Self.menu("Markup").items.filter(\.isSeparatorItem).count
                 == MarkupVerb.menuOrder.filter { $0 == nil }.count)
@@ -118,8 +122,10 @@ import Testing
     @Test func eachMarkupItemCarriesItsVerbsChordAndNoOther() throws {
         let markup = try Self.menu("Markup")
         var chorded = 0
+        let table = try #require(markup.items.first { $0.title == "Table" }?.submenu, "Markup has no Table submenu")
         for verb in MarkupVerb.menuOrder.compactMap({ $0 }) {
-            let item = try #require(markup.items.first { $0.title == verb.title }, "Markup has no \(verb.title)")
+            let item = try #require((verb.isTable ? table : markup).items.first { $0.title == verb.title },
+                                    "Markup has no \(verb.title)")
             if let chord = verb.chord {
                 chorded += 1
                 #expect(item.keyEquivalent == chord.appKitKeyEquivalent,
@@ -164,11 +170,18 @@ import Testing
     /// is the state "Edit is not showing a document" reduces to. The positive control is the Edit
     /// menu beside them, whose four file verbs are pinned NEVER disabled in the same host.
     @Test func everyTextAndMarkupItemIsDisabledOutsideEdit() throws {
+        // A submenu's host (Markup ▸ Table) is a way in, not an action: what must be grey is what
+        // it holds.
+        func actions(_ menu: NSMenu) -> [NSMenuItem] {
+            menu.items.filter { !$0.isSeparatorItem }.flatMap { $0.submenu.map(actions) ?? [$0] }
+        }
         for name in ["Text", "Markup"] {
-            for item in try Self.menu(name).items where !item.isSeparatorItem {
+            for item in actions(try Self.menu(name)) {
                 #expect(!item.isEnabled, "\(name) ▸ \(item.title) is live with no document open")
             }
         }
+        #expect(actions(try Self.menu("Markup")).contains { $0.title == "Format Table" },
+                "the walk did not reach the Table submenu")
         #expect(try Self.item("Copy", in: "Edit").isEnabled,
                 "Edit ▸ Copy is disabled too — the host's items are all grey, so the check above proves nothing")
     }

@@ -2468,15 +2468,33 @@ struct MarkupVerbCommands: View {
     var body: some View {
         ForEach(Array(MarkupVerb.menuOrder.enumerated()), id: \.offset) { _, verb in
             if let verb {
-                Button(verb.title) {
-                    if verb == .italic { italic() } else { Self.apply(verb) }
+                // The table verbs are the Table submenu below, not items of their own.
+                if !verb.isTable {
+                    Button(verb.title) {
+                        if verb == .italic { italic() } else { Self.apply(verb) }
+                    }
+                    .keyboardShortcut(verb.chord.map { KeyboardShortcut($0.key, modifiers: $0.modifiers) })
+                    .disabled(verbs?.canMarkUp != true)
                 }
-                .keyboardShortcut(verb.chord.map { KeyboardShortcut($0.key, modifiers: $0.modifiers) })
-                .disabled(verbs?.canMarkUp != true)
             } else {
                 Divider()
             }
         }
+        // Markup ▸ Table (TE65, TE66): the table verbs, divided where the context menu divides
+        // them. Enabled with the rest — an item that has nothing to do where the caret is says so
+        // in the log (`EditorDocumentSurface.applyMarkup`).
+        Menu(MarkupVerb.tableMenuTitle) {
+            ForEach(Array(MarkupVerb.tableSections.enumerated()), id: \.offset) { index, section in
+                if index > 0 { Divider() }
+                ForEach(section, id: \.self) { verb in
+                    Button(verb.title) { Self.apply(verb) }
+                        // On each item as well as the submenu: a disabled `Menu` in the menu bar
+                        // still leaves its items live (measured — TextMarkupMenuTests).
+                        .disabled(verbs?.canMarkUp != true)
+                }
+            }
+        }
+        .disabled(verbs?.canMarkUp != true)
     }
 
     /// Markup ▸ Italic: the verb when clicked; when the key fired it, the same rule View ▸ Info

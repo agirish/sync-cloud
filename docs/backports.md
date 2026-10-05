@@ -6723,3 +6723,32 @@ done
 
 **`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the format bar, which this only
 changes, nor the Edit workspace it sits in (see the TE48/TE52 section above).
+
+## A Table menu in Markup and on the format bar (TE65, TE66) — main only
+
+Markup gained a **Table** submenu, drawn as one Table menu at the end of the format bar: Insert
+Table, Make Table from Selection (tab- or comma-separated lines, CSV quoting read), Add Row
+Above/Below, Add Column Left/Right, Delete Row, Delete Column and Format Table (`.tidy` in code). The verbs are
+`MarkupVerb.table(TableVerb)`, appended to `menuOrder` so no existing tag moved, and the edits are
+pure functions in `MarkdownTables` (`MarkdownTableEdits.swift`) reached through
+`MarkdownEdits.apply`, so each is one ⌘Z. A table is GitHub's (header, matching delimiter row,
+rows with pipes, outside fences). An edit keeps the table's style: an aligned table is re-padded,
+a ragged one changes only in the touched row or column (decided 2026-10-04). Items that would do
+nothing are disabled on the bar and in the right-click menu; from the menu bar they log why.
+`edit(_:source:table:row:column:offsetInCell:)`, `tidy(source:table:)` and `isAligned(source:table:)`
+need no selection, for editable Preview (TE67).
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s markupVerbs=%s tableEdits=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/MarkupVerbs.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/MarkdownTableEdits.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-04, against origin, before this landed:
+# main  markupVerbs=1 tableEdits=0
+# v4.x, v3.x, v2.x — every line: markupVerbs=0 tableEdits=0
+# and on this change's own tree: markupVerbs=1 tableEdits=1
+```
+
+**`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the Markup verbs or the Edit
+workspace, so there is no menu for a Table submenu and no text view for it to edit.

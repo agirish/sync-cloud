@@ -1,4 +1,5 @@
 import AppKit
+import Events
 
 /// Whether the caret is in the editor's document, asked from outside the editor.
 ///
@@ -101,7 +102,11 @@ public enum EditorDocumentSurface {
     @discardableResult
     public static func applyMarkup(_ verb: MarkupVerb, in window: NSWindow?) -> Bool {
         guard let view = caretTextView(in: window), view.isEditable else { return false }
-        PlainTextEditor.apply(verb, to: view)
+        if !PlainTextEditor.apply(verb, to: view), case .table(let op) = verb {
+            // The Table items cannot know where the caret is when the menu draws them; one that
+            // had nothing to do says why, rather than doing nothing silently.
+            Logger.shared.info("Markup ▸ \(verb.title) did nothing: \(op.refusal)")
+        }
         return true
     }
 }
