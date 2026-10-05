@@ -260,6 +260,9 @@ public struct EditorWorkspaceView: View {
     /// Text ▸ Format Bar. Read here like the glass settings above: a preference, not state.
     @AppStorage(EditorTextSettings.showsFormatBarKey) private var showsFormatBarPreference: Bool
         = EditorTextSettings.showsFormatBarDefault
+    /// Icon and Text or Icon Only — the format bar's right-click choice (TE64).
+    @AppStorage(EditorTextSettings.formatBarShowsLabelsKey) private var formatBarShowsLabels: Bool
+        = EditorTextSettings.formatBarShowsLabelsDefault
     /// Live only while the divider is being dragged; the committed value lives with the host.
     @State private var splitDrag: CGFloat?
 
@@ -1424,9 +1427,14 @@ public struct EditorWorkspaceView: View {
     private var sourceColumn: some View {
         VStack(spacing: 0) {
             if showsFormatBar {
-                EditorFormatBar(state: formatState, accent: accent,
+                EditorFormatBar(state: formatState, accent: accent, showsLabels: formatBarShowsLabels,
                                 onVerb: { verb in textViewHandle.applyMarkup(verb) })
                     .equatable()
+                    // On the bar itself, so a right-click on the text keeps the text view's menu.
+                    .contextMenu {
+                        EditorFormatBarMenu(showsLabels: $formatBarShowsLabels,
+                                            showsBar: $showsFormatBarPreference)
+                    }
                     .padding(.horizontal, Self.formatBarInset)
                     .padding(.top, Self.formatBarInset)
                     .frame(maxWidth: .infinity, alignment: .leading)

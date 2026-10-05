@@ -6697,3 +6697,29 @@ done
 **`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the Edit workspace, so there is no
 text view to carry a list in, nothing to paste a link or an image into, and no status line for the
 heading. Nothing to pick short of the workspace itself.
+
+## The format bar spells its buttons out (TE63, TE64) — main only
+
+The TE52 format bar drew bare glyphs. It now draws **Icon and Text** by default: a short word beside
+every button but B, I and S (Code, Link, Bullets, Numbered, Tasks, Quote, Code Block, Rule —
+`EditorFormatBar.word`), as long as the words fit. `EditorFormatBar.ladder(showsLabels:)` puts two
+worded rungs (`labelledRungs`) ahead of the shipped ladder, so the words come off before any button
+does and a narrow column — the narrowest Split half, and Split at most window widths — draws the bar
+exactly as it shipped. A right-click on the bar (`EditorFormatBarMenu`) chooses **Icon and Text** or
+**Icon Only**, stored as `editorFormatBarShowsLabels` (default on, decision Q = B; not tied to Row
+spacing), or hides the bar through Text ▸ Format Bar's own setting. No verb, menu or chord changes.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s formatBar=%s labelsKey=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorFormatBar.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorTextSettings.swift 2>/dev/null | grep -c 'formatBarShowsLabelsKey')"
+done
+# measured 2026-10-04, against origin, before this landed:
+# main  formatBar=1 labelsKey=0
+# v4.x, v3.x, v2.x — every line: formatBar=0 labelsKey=0
+# and on this change's own tree: formatBar=1 labelsKey=1
+```
+
+**`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the format bar, which this only
+changes, nor the Edit workspace it sits in (see the TE48/TE52 section above).

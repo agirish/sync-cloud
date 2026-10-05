@@ -205,9 +205,10 @@ import EventsTestSupport
     /// A workspace with the rail folded, in a window, with Text ▸ Format Bar set as asked: the rings
     /// between the header's bottom and the text's top, and where the text starts.
     static func mounted(_ document: EditorDocument, mode: EditorMode,
-                        preference: Bool = true) -> (bar: [CGRect], textTop: CGFloat) {
+                        preference: Bool = true, labels: Bool = true) -> (bar: [CGRect], textTop: CGFloat) {
         let defaults = ScratchDefaults("EditorFormatBarTests")
         defaults.set(preference, forKey: EditorTextSettings.showsFormatBarKey)
+        defaults.set(labels, forKey: EditorTextSettings.formatBarShowsLabelsKey)
         defaults.set(SurfaceStyle.unified.rawValue, forKey: LiquidGlass.surfaceStyleKey)
         let size = CGSize(width: width, height: 500)
         let host = NSHostingView(rootView: AnyView(
@@ -566,10 +567,13 @@ import EventsTestSupport
                 "a lit Bold compares equal to an unlit one — the bar would not light")
         #expect(a != EditorFormatBar(state: MarkupFormatState(lit: [], heading: .level(2)), accent: .blue, onVerb: { _ in }))
         #expect(a != EditorFormatBar(state: .none, accent: .red, onVerb: { _ in }), "an accent change is held off")
+        #expect(a != EditorFormatBar(state: .none, accent: .blue, showsLabels: false, onVerb: { _ in }),
+                "Icon Only compares equal to Icon and Text — the right-click choice would not redraw the bar")
         #expect(a != EditorFormatBar(state: .none, accent: .blue, onVerb: { _ in }, forcedRung: EditorFormatBar.ladder[2]))
         let workspace = try Self.source("EditorWorkspaceView.swift")
         let call = try Self.slice(workspace, from: "EditorFormatBar(state: formatState", to: ".padding")
         #expect(call.contains(".equatable()"), "the host does not apply .equatable() — a keystroke redraws the bar")
+        #expect(call.contains("showsLabels: formatBarShowsLabels"), "the host does not hand the bar the reader's Icon and Text choice")
     }
 
     // MARK: Narrow widths
@@ -584,11 +588,12 @@ import EventsTestSupport
 
     /// **Each rung of the ladder is narrower than the one before it, at every text size** — which is
     /// what makes the ladder a degrade order: `ViewThatFits` takes the first that fits, so a rung
-    /// wider than its predecessor would never be drawn.
+    /// wider than its predecessor would never be drawn. Measured over Icon and Text's whole ladder,
+    /// the worded rungs and then Icon Only's, so it holds for both.
     @Test func eachRungIsNarrowerThanTheOneBeforeIt() {
         for percent in FontSize.selectablePercents {
             let scale = CGFloat(percent) / 100
-            let widths = EditorFormatBar.ladder.map { Self.width(of: $0, scale: scale) }
+            let widths = EditorFormatBar.ladder(showsLabels: true).map { Self.width(of: $0, scale: scale) }
             for (a, b) in zip(widths, widths.dropFirst()) {
                 #expect(b < a, "at \(percent)% the ladder reads \(widths.map { Int($0) }) — a rung is no narrower than the one before")
             }
@@ -627,25 +632,219 @@ import EventsTestSupport
                         "at the default size the bar keeps \(rung.visible) buttons at \(available)pt — fewer than the inline \(inline)")
             }
 
-            // The real bar, choosing for itself, in that width.
-            let size = CGSize(width: available, height: 40)
-            let host = NSHostingView(rootView: AnyView(
-                EditorFormatBar(state: .none, accent: .blue, onVerb: { _ in })
-                    .environment(\.appFontScale, scale)
-                    .frame(width: size.width, height: size.height, alignment: .leading)))
-            host.frame = CGRect(origin: .zero, size: size)
-            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.contentView = host
-            host.layoutSubtreeIfNeeded()
-            let rings = FocusRings.frames(in: host)
-            #expect(!rings.isEmpty, "the bar drew no controls at \(percent)%")
-            #expect(rings.allSatisfy { $0.maxX <= available + 0.5 && $0.minX >= -0.5 },
-                    "at \(percent)% a control is drawn outside \(available)pt: \(rings.map { Int($0.maxX) })")
-            window.contentView = nil
-            window.close()
+            // Icon and Text changes nothing here (TE63): none of its worded rungs fits, so it draws
+            // the very rung Icon Only does.
+            let worded = EditorFormatBar.labelledRungs.map { Self.width(of: $0, scale: scale) }
+            #expect(worded.allSatisfy { $0 > available },
+                    "at \(percent)% a worded rung fits \(available)pt: \(worded.map { Int($0) })")
+
+            // The real bar, choosing for itself, in that width — each way.
+            var drawn: [[CGRect]] = []
+            for labels in [false, true] {
+                let rings = Self.rings(of: EditorFormatBar(state: .none, accent: .blue, showsLabels: labels,
+                                                           onVerb: { _ in }),
+                                       width: available, scale: scale)
+                #expect(!rings.isEmpty, "the bar drew no controls at \(percent)%")
+                #expect(rings.allSatisfy { $0.maxX <= available + 0.5 && $0.minX >= -0.5 },
+                        "at \(percent)% a control is drawn outside \(available)pt: \(rings.map { Int($0.maxX) })")
+                drawn.append(rings)
+            }
+            #expect(drawn[0] == drawn[1],
+                    "at \(percent)% Icon and Text draws \(drawn[1].map { Int($0.width) }) where Icon Only draws \(drawn[0].map { Int($0.width) })")
         }
         print("[format-bar-fit] at \(Int(available))pt: \(report.joined(separator: " · "))")
+    }
+
+    // MARK: Icon and Text (TE63, TE64)
+
+    /// **Icon Only is the bar exactly as it shipped; Icon and Text is two worded rungs ahead of it.**
+    /// Neither worded rung hides a button, the first words every group, the second takes the words
+    /// off the last group alone, and Icon Only's rungs wear none.
+    ///
+    /// Mutations: put a worded rung in Icon Only's ladder, hide a button on a worded rung, or take
+    /// the words off the first group rather than the last — each fails a line.
+    @Test func iconOnlyIsTheShippedLadderAndIconAndTextWordsItFirst() {
+        #expect(EditorFormatBar.ladder(showsLabels: false) == EditorFormatBar.ladder)
+        #expect(EditorFormatBar.ladder(showsLabels: true) == EditorFormatBar.labelledRungs + EditorFormatBar.ladder)
+        #expect(EditorFormatBar.ladder.allSatisfy { $0.wordedGroups == 0 }, "Icon Only draws a word")
+        let groups = EditorFormatBar.groups.count
+        #expect(EditorFormatBar.labelledRungs.map(\.wordedGroups) == [groups, groups - 1],
+                "the worded rungs word \(EditorFormatBar.labelledRungs.map(\.wordedGroups)) of \(groups) groups")
+        for rung in EditorFormatBar.labelledRungs {
+            #expect(rung.headingWorded, "\(rung) shortens the Heading menu while buttons wear words")
+            #expect(EditorFormatBar.layout(rung).hidden.isEmpty, "\(rung) puts a button behind the » to make room for words")
+        }
+        #expect(EditorFormatBar.layout(EditorFormatBar.ladder[0]).hidden.isEmpty,
+                "the first bare rung hides a button — the words would come off AFTER a button did")
+        #expect(EditorTextSettings.formatBarShowsLabelsDefault, "Icon and Text is not the default (decision Q)")
+    }
+
+    /// **Every button wears a word but B, I and S, and the word is the menu's title, shortened** —
+    /// pinned, because the words ARE the feature, and the full names stay in the tooltips.
+    @Test func everyButtonButTheLettersWearsAShortWord() {
+        let expected: [MarkupVerb: String] = [
+            .inlineCode: "Code", .link: "Link", .bulletList: "Bullets", .numberedList: "Numbered",
+            .taskItem: "Tasks", .blockQuote: "Quote", .codeBlock: "Code Block", .horizontalRule: "Rule",
+        ]
+        for verb in EditorFormatBar.groups.flatMap({ $0 }) {
+            let letter = [MarkupVerb.bold, .italic, .strikethrough].contains(verb)
+            #expect(EditorFormatBar.wearsWord(verb) == !letter, "\(verb.title) \(letter ? "wears" : "has no") word")
+            if !letter {
+                #expect(EditorFormatBar.word(verb) == expected[verb], "\(verb.title) reads “\(EditorFormatBar.word(verb))”")
+                #expect(EditorFormatBar.word(verb).count <= verb.title.count)
+                #expect(EditorFormatBar.tooltip(verb).hasPrefix(verb.title), "\(verb.title)'s tooltip lost the full name")
+            }
+        }
+    }
+
+    /// The bar's rings, drawn for itself in `width`, left to right.
+    static func rings(of bar: EditorFormatBar, width: CGFloat, scale: CGFloat) -> [CGRect] {
+        let size = CGSize(width: width, height: 40)
+        let host = NSHostingView(rootView: AnyView(
+            bar.environment(\.appFontScale, scale)
+                .frame(width: size.width, height: size.height, alignment: .leading)))
+        host.frame = CGRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        return FocusRings.frames(in: host).sorted { $0.minX < $1.minX }
+    }
+
+    /// **The words come off as the room shrinks — the last group's, then all of them — and never a
+    /// button**, at every text size, on the real bar choosing for itself. At exactly each worded
+    /// rung's width it draws that rung: words on the eight buttons that take one, then on six, then
+    /// on none; and every button is still on the bar, with no ».
+    ///
+    /// A ring counts as worded when it is clearly wider than a bare glyph's box. Mutations: drop a
+    /// word, drop the second worded rung, or word B — each fails a count.
+    @Test func theWordsComeOffBeforeAnyButtonAsTheBarNarrows() {
+        let buttons = EditorFormatBar.groups.flatMap { $0 }
+        let worded = buttons.filter(EditorFormatBar.wearsWord)
+        let lastGroup = EditorFormatBar.groups.last ?? []
+        var report: [String] = []
+        for percent in FontSize.selectablePercents {
+            let scale = CGFloat(percent) / 100
+            let box = EditorFormatBar.box(at: scale)
+            let ladder = EditorFormatBar.ladder(showsLabels: true)
+            let widths = ladder.prefix(EditorFormatBar.labelledRungs.count + 1).map { Self.width(of: $0, scale: scale) }
+            report.append("\(percent)%: " + widths.map { "\(Int($0.rounded(.up)))" }.joined(separator: " · "))
+            let expected = [worded.count, worded.filter { !lastGroup.contains($0) }.count, 0]
+            for (index, width) in widths.enumerated() {
+                // 8pt over the measured width, because `ViewThatFits` asks for a little more room
+                // than the rung draws in. Measured 2026-10-04 on the worded rung: drawn to 702.5 ·
+                // 724.5 · 747.5pt at 95 · 100 · 105%, `fittingSize` 703 · 727 · 748, and chosen
+                // only from 707 · 729 · 752 — up to 4pt over. The rungs are ~100pt apart, so 8pt
+                // cannot reach the one before.
+                let rings = Self.rings(of: EditorFormatBar(state: .none, accent: .blue, showsLabels: true, onVerb: { _ in }),
+                                       width: width.rounded(.up) + 8, scale: scale)
+                // The Heading menu, then one ring per button: nothing behind a ».
+                #expect(rings.count == 1 + buttons.count,
+                        "at \(percent)%, \(Int(width))pt, the bar draws \(rings.count) controls — a button went behind the »")
+                let wide = rings.dropFirst().filter { $0.width > box + 8 }.count
+                #expect(wide == expected[index],
+                        "at \(percent)%, \(Int(width))pt, \(wide) buttons wear words — \(expected[index]) expected")
+                // B, I and S stay bare even with every word drawn.
+                #expect(rings.dropFirst().prefix(3).allSatisfy { $0.width <= box + 2 },
+                        "at \(percent)% B, I or S wears a word: \(rings.dropFirst().prefix(3).map { Int($0.width) })")
+            }
+        }
+        print("[format-bar-words] worded · last group bare · Icon Only, in pt: \(report.joined(separator: " — "))")
+    }
+
+    /// **In the workspace, Icon and Text draws the words and Icon Only does not** — the choice read
+    /// from the stored setting by the host, at a Source width with room for every word.
+    @Test func theStoredChoiceDecidesWordsInTheWorkspace() throws {
+        let markdown = try TestTextFiles.document(named: "Notes.md", text: "# Notes\n\nhello\n")
+        let words = Self.mounted(markdown, mode: .edit, labels: true).bar.sorted { $0.minX < $1.minX }
+        let icons = Self.mounted(markdown, mode: .edit, labels: false).bar.sorted { $0.minX < $1.minX }
+        let box = EditorFormatBar.box(at: 1)
+        try #require(words.count == icons.count && words.count >= 12,
+                     "Icon and Text draws \(words.count) controls, Icon Only \(icons.count)")
+        #expect(words.dropFirst().filter { $0.width > box + 8 }.count == 8,
+                "Icon and Text at \(Int(Self.width))pt words \(words.dropFirst().filter { $0.width > box + 8 }.count) buttons: \(words.map { Int($0.width) })")
+        #expect(icons.dropFirst().allSatisfy { $0.width <= box + 2 }, "Icon Only draws a word: \(icons.map { Int($0.width) })")
+        #expect(words.first == icons.first, "the Heading menu moved between the two")
+    }
+
+    /// **A lit worded button lights its word too** — the wash spans the glyph and the word, not the
+    /// glyph's square alone. Counted as in `theExpandButtonLightsWhenTheRailIsHidden`: pixels of the
+    /// accent's soft tint, in square points, here in the word's half of the Bullets ring.
+    ///
+    /// Mutation: wash the glyph alone (the old square) and the word half holds none.
+    @Test(.machinePinned(.pixelSampling))
+    func aLitWordedButtonWashesItsWordToo() throws {
+        let rung = EditorFormatBar.labelledRungs[0]
+        let size = CGSize(width: 1_000, height: 40)
+        func render(_ lit: Set<MarkupVerb>) throws -> Rendered {
+            try #require(Rendered(EditorFormatBar(state: MarkupFormatState(lit: lit, heading: .body), accent: .blue,
+                                                  onVerb: { _ in }, forcedRung: rung), size: size))
+        }
+        let on = try render([.bulletList])
+        let off = try render([])
+        let row = off.nameRowRings
+        let index = try #require(EditorFormatBar.groups.flatMap { $0 }.firstIndex(of: .bulletList)) + 1
+        try #require(row.count > index, "the bar drew \(row.count) controls")
+        let bullets = row[index]
+        let wordHalf = CGRect(x: bullets.midX, y: bullets.minY, width: bullets.width / 2, height: bullets.height)
+        let wash: (CGFloat, CGFloat, CGFloat) -> Bool = { r, g, b in b > 0.95 && (0.6...0.93).contains(r) && g > r }
+        let lit = CGFloat(on.pixels(in: wordHalf, matching: wash)) / on.pixelsPerPoint
+        let unlit = CGFloat(off.pixels(in: wordHalf, matching: wash)) / off.pixelsPerPoint
+        let area = wordHalf.width * wordHalf.height
+        print("[format-bar-lit-word] wash \(Int(lit))pt² lit, \(Int(unlit))pt² unlit, in the word's \(Int(area))pt²")
+        #expect(unlit < 1, "the unlit word wears \(unlit)pt² of the wash")
+        #expect(lit > area * 0.4, "the lit word's half holds \(lit)pt² of wash of \(area)pt² — the wash stops at the glyph")
+        #expect(on.nameRowRings == row, "lighting Bullets moved the bar's buttons")
+    }
+
+    /// **The right-click menu: Icon and Text, Icon Only, then Hide Format Bar** — each choice
+    /// written to its setting and said in the log once, a press on the ticked one changing nothing,
+    /// and Hide turning off the very setting Text ▸ Format Bar ticks.
+    @Test func theRightClickMenuChoosesWordsOrIconsAndHidesTheBar() async throws {
+        let log = LogCapture()
+        var labels = true
+        var shown = true
+        let labelsBinding = Binding(get: { labels }, set: { labels = $0 })
+        let shownBinding = Binding(get: { shown }, set: { shown = $0 })
+        EditorFormatBarMenu.choose(labels: true, labelsBinding)
+        #expect(labels, "Icon and Text, pressed while ticked, turned the words off")
+        EditorFormatBarMenu.choose(labels: false, labelsBinding)
+        #expect(!labels, "Icon Only left the words on")
+        #expect(await log.holds(containing: "[edit] Format bar ▸ Icon Only"), "Icon Only said nothing")
+        EditorFormatBarMenu.choose(labels: true, labelsBinding)
+        #expect(labels)
+        #expect(await log.holds(containing: "[edit] Format bar ▸ Icon and Text"), "Icon and Text said nothing")
+        EditorFormatBarMenu.hide(shownBinding)
+        #expect(!shown, "Hide Format Bar left the bar on")
+        #expect(await log.holds(containing: "[edit] Format bar hidden from its menu"), "Hide Format Bar said nothing")
+
+        #expect([EditorFormatBarMenu.iconAndText, EditorFormatBarMenu.iconOnly, EditorFormatBarMenu.hide]
+                == ["Icon and Text", "Icon Only", "Hide Format Bar"])
+        let source = try Self.source("EditorFormatBar.swift")
+        let body = try Self.slice(source, from: "struct EditorFormatBarMenu: View", to: "static func choose")
+        let order = ["Toggle(Self.iconAndText", "Toggle(Self.iconOnly", "Divider()", "Button(Self.hide)"]
+            .map { body.range(of: $0)?.lowerBound }
+        #expect(order.allSatisfy { $0 != nil } && zip(order, order.dropFirst()).allSatisfy { $0! < $1! },
+                "the menu is not Icon and Text, Icon Only, a divider, then Hide Format Bar")
+        // …and each item does what it says.
+        let iconAndText = try Self.slice(body, from: "Toggle(Self.iconAndText", to: "Toggle(Self.iconOnly")
+        let iconOnly = try Self.slice(body, from: "Toggle(Self.iconOnly", to: "Divider()")
+        #expect(iconAndText.contains("choose(labels: true") && !iconAndText.contains("choose(labels: false"),
+                "Icon and Text does not choose the words")
+        #expect(iconOnly.contains("choose(labels: false") && !iconOnly.contains("choose(labels: true"),
+                "Icon Only does not choose the icons")
+        #expect(Self.squeezed(body).contains("Button(Self.hide){Self.hide($showsBar)}"), "Hide Format Bar does not hide the bar")
+
+        // On the bar, writing the two stored settings the rest of the app reads.
+        let workspace = try Self.source("EditorWorkspaceView.swift")
+        let call = try Self.slice(workspace, from: "EditorFormatBar(state: formatState", to: ".padding")
+        #expect(call.contains(".contextMenu {") && call.contains("EditorFormatBarMenu(showsLabels: $formatBarShowsLabels")
+                && call.contains("showsBar: $showsFormatBarPreference"),
+                "the bar's right-click menu is not attached to the bar, or writes the wrong settings")
+        #expect(Self.squeezed(workspace).contains(Self.squeezed(
+            "@AppStorage(EditorTextSettings.formatBarShowsLabelsKey) private var formatBarShowsLabels: Bool = EditorTextSettings.formatBarShowsLabelsDefault")),
+                "the host does not read Icon and Text from its stored setting")
     }
 
     // MARK: Helpers
@@ -720,6 +919,12 @@ import EventsTestSupport
             previous = inString ? nil : c
         }
         return line
+    }
+
+    /// `code` with every space and line break taken out, so a scan survives the source being
+    /// rewrapped — the reason `ChromeGlassWiringTests` moved to a whitespace-blind match.
+    static func squeezed(_ code: String) -> String {
+        code.filter { !$0.isWhitespace }
     }
 
     static func slice(_ code: String, from start: String, to end: String) throws -> String {

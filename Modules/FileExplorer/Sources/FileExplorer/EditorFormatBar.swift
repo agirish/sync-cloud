@@ -91,13 +91,22 @@ final class EditorTextViewHandle {
 ///
 /// **It sheds from the end when it is narrow** — see ``ladder``.
 ///
+/// **And it spells its buttons out when it is wide** (TE63): Icon and Text, the default, puts a
+/// short word beside every icon but B, I and S, as long as the words fit; where they do not, it is
+/// the icons-only bar above, unchanged. Its right-click menu (``EditorFormatBarMenu``) chooses
+/// between the two — see ``ladder(showsLabels:)``.
+///
 /// **`Equatable`, and wrapped in `.equatable()` by its host**, because the host is the view a
 /// keystroke redraws (`EditorWorkspaceView` observes the buffer), and without it every keystroke
-/// rebuilt and re-measured all six rungs of a bar whose look had not changed.
+/// rebuilt and re-measured every rung of a bar whose look had not changed.
 struct EditorFormatBar: View, Equatable {
 
     let state: MarkupFormatState
     let accent: Color
+    /// Icon and Text (`true`) or Icon Only — the reader's choice from the right-click menu,
+    /// ``EditorTextSettings/formatBarShowsLabelsKey``. Only ever a preference: the width decides
+    /// whether the words are drawn.
+    let showsLabels: Bool
     /// The press. The host routes it through ``EditorTextViewHandle/applyMarkup(_:)``.
     let onVerb: (MarkupVerb) -> Void
     /// Forces a rung. `nil` picks by width; the fit test forces each in turn, the way
@@ -106,10 +115,12 @@ struct EditorFormatBar: View, Equatable {
 
     @Environment(\.appFontScale) private var scale
 
-    init(state: MarkupFormatState, accent: Color, onVerb: @escaping (MarkupVerb) -> Void,
-         forcedRung: Rung? = nil) {
+    init(state: MarkupFormatState, accent: Color,
+         showsLabels: Bool = EditorTextSettings.formatBarShowsLabelsDefault,
+         onVerb: @escaping (MarkupVerb) -> Void, forcedRung: Rung? = nil) {
         self.state = state
         self.accent = accent
+        self.showsLabels = showsLabels
         self.onVerb = onVerb
         self.forcedRung = forcedRung
     }
@@ -119,7 +130,8 @@ struct EditorFormatBar: View, Equatable {
     /// site over the host's `@State` handle, which does not move. `nonisolated`, because
     /// `Equatable` is; every member read is an immutable `let` of a `Sendable` type.
     nonisolated static func == (lhs: EditorFormatBar, rhs: EditorFormatBar) -> Bool {
-        lhs.state == rhs.state && lhs.accent == rhs.accent && lhs.forcedRung == rhs.forcedRung
+        lhs.state == rhs.state && lhs.accent == rhs.accent && lhs.showsLabels == rhs.showsLabels
+            && lhs.forcedRung == rhs.forcedRung
     }
 
     // MARK: - What it holds
@@ -166,6 +178,33 @@ struct EditorFormatBar: View, Equatable {
 
     /// The overflow menu's glyph — the » the hidden verbs sit behind.
     static let overflowSymbol = "chevron.right.2"
+
+    /// **Whether a button gets a word beside its glyph in Icon and Text** — every one but Bold,
+    /// Italic and Strikethrough, whose glyphs ARE their letters: “B Bold” says one thing twice, and
+    /// leaving those three words off is about a hundred points the other words can use.
+    static func wearsWord(_ verb: MarkupVerb) -> Bool {
+        switch verb {
+        case .bold, .italic, .strikethrough: return false
+        default: return true
+        }
+    }
+
+    /// **The word a button wears in Icon and Text: the menu title, shortened** — the bar is a row,
+    /// and “Horizontal Rule” would be its widest button for its least-pressed verb. The tooltip and
+    /// both menus keep the full name; ``tooltip(_:)`` is unchanged.
+    static func word(_ verb: MarkupVerb) -> String {
+        switch verb {
+        case .inlineCode: return "Code"
+        case .link: return "Link"
+        case .bulletList: return "Bullets"
+        case .numberedList: return "Numbered"
+        case .taskItem: return "Tasks"
+        case .blockQuote: return "Quote"
+        case .codeBlock: return "Code Block"
+        case .horizontalRule: return "Rule"
+        default: return verb.title
+        }
+    }
 
     /// **Whether a verb can ever be lit** — the ones whose press can take formatting off. Link, Code
     /// Block and Horizontal Rule only insert, and Body only removes, so ``MarkdownEdits/isApplied(_:in:selection:)``
@@ -220,11 +259,14 @@ struct EditorFormatBar: View, Equatable {
 
     // MARK: - Narrow widths
 
-    /// One way of drawing the bar: whether the Heading menu wears its word, and how many of the
-    /// buttons — counted along ``groups`` flattened — stay on the bar. The rest go behind the ».
+    /// One way of drawing the bar: whether the Heading menu wears its word, how many of the
+    /// buttons — counted along ``groups`` flattened — stay on the bar, and how many of ``groups``,
+    /// from the first, put a word beside their buttons' glyphs (Icon and Text). The rest of the
+    /// buttons go behind the ».
     struct Rung: Equatable, Sendable {
         var headingWorded: Bool
         var visible: Int
+        var wordedGroups: Int = 0
     }
 
     /// **The degrade order, widest first.** `ViewThatFits` draws the first rung that fits.
@@ -253,6 +295,31 @@ struct EditorFormatBar: View, Equatable {
             Rung(headingWorded: false, visible: 0),
         ]
     }()
+
+    /// **The worded rungs Icon and Text tries first, widest first** (TE63): every button on the bar,
+    /// with a word beside all of them but B, I and S; then the same with the last group — Code
+    /// Block and Horizontal Rule — back to bare glyphs, because it is the end people press least.
+    /// Neither hides a button: a bar too narrow for the lists' words is ``ladder``, whose first rung
+    /// keeps every button too, so the words never cost a button a bare bar would show.
+    static let labelledRungs: [Rung] = {
+        let all = groups.map(\.count).reduce(0, +)
+        return [
+            Rung(headingWorded: true, visible: all, wordedGroups: groups.count),
+            Rung(headingWorded: true, visible: all, wordedGroups: groups.count - 1),
+        ]
+    }()
+
+    /// **The degrade order for the reader's choice.** Icon Only is ``ladder`` — the bar exactly as
+    /// it first shipped. Icon and Text is the worded rungs and then that same ladder, so the words
+    /// come off before any button does, and wherever the words do not fit (the narrowest Split half,
+    /// or Split at most window widths) the bar drawn is the icons-only one.
+    ///
+    /// **Pinned by measurement** in `EditorFormatBarTests`: each rung narrower than the one before
+    /// at every text size, and at the narrowest Split half the Icon and Text bar draws the very rung
+    /// Icon Only would.
+    static func ladder(showsLabels: Bool) -> [Rung] {
+        showsLabels ? labelledRungs + ladder : ladder
+    }
 
     /// **What one rung draws: the button groups kept on the bar, and the groups behind the »** —
     /// the first ``Rung/visible`` buttons along ``groups``, then the rest, each piece still in the
@@ -288,7 +355,7 @@ struct EditorFormatBar: View, Equatable {
                 bar(forcedRung)
             } else {
                 ViewThatFits(in: .horizontal) {
-                    ForEach(Array(Self.ladder.enumerated()), id: \.offset) { _, rung in
+                    ForEach(Array(Self.ladder(showsLabels: showsLabels).enumerated()), id: \.offset) { _, rung in
                         bar(rung)
                     }
                 }
@@ -302,9 +369,10 @@ struct EditorFormatBar: View, Equatable {
         let layout = Self.layout(rung)
         return HStack(spacing: 2) {
             headingMenu(worded: rung.headingWorded)
-            ForEach(Array(layout.shown.enumerated()), id: \.offset) { _, group in
+            // A worded rung keeps every group whole, so the piece at `index` IS `groups[index]`.
+            ForEach(Array(layout.shown.enumerated()), id: \.offset) { index, group in
                 separator
-                ForEach(group, id: \.self) { button($0) }
+                ForEach(group, id: \.self) { button($0, worded: index < rung.wordedGroups) }
             }
             if !layout.hidden.isEmpty {
                 separator
@@ -327,19 +395,38 @@ struct EditorFormatBar: View, Equatable {
             .accessibilityHidden(true)
     }
 
-    private func button(_ verb: MarkupVerb) -> some View {
+    private func button(_ verb: MarkupVerb, worded: Bool) -> some View {
         let lit = state.lit.contains(verb)
         let box = Self.box(at: scale)
         return Button { onVerb(verb) } label: {
-            Image(systemName: Self.symbol(verb))
-                .scaledFont(.system(size: Self.glyphPoint, weight: .medium))
+            if worded && Self.wearsWord(verb) {
+                // Icon and Text: the glyph and its word in one wash, so a lit Bullets lights the
+                // word with it. The same height as a bare glyph's box — the bar does not grow.
+                HStack(spacing: 3) {
+                    Image(systemName: Self.symbol(verb))
+                        .scaledFont(.system(size: Self.glyphPoint, weight: .medium))
+                    Text(Self.word(verb))
+                        .scaledFont(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+                }
                 .foregroundStyle(lit ? accent : .primary)
-                .frame(width: box, height: box)
-                // Lit: the accent ink on a soft accent wash, as the header's Expand wears it — in
-                // the chip-cornered square a glyph button's hover takes, where Expand's word makes
-                // its wash a capsule. The hover style paints its own wash over it.
+                .padding(.leading, 5)
+                .padding(.trailing, 7)
+                .frame(minWidth: box, minHeight: box, maxHeight: box)
                 .background(RoundedRectangle(cornerRadius: Radius.chip)
                     .fill(lit ? accent.opacity(0.18) : .clear))
+                .contentShape(Rectangle())
+            } else {
+                Image(systemName: Self.symbol(verb))
+                    .scaledFont(.system(size: Self.glyphPoint, weight: .medium))
+                    .foregroundStyle(lit ? accent : .primary)
+                    .frame(width: box, height: box)
+                    // Lit: the accent ink on a soft accent wash, as the header's Expand wears it —
+                    // in the chip-cornered square a glyph button's hover takes, where Expand's word
+                    // makes its wash a capsule. The hover style paints its own wash over it.
+                    .background(RoundedRectangle(cornerRadius: Radius.chip)
+                        .fill(lit ? accent.opacity(0.18) : .clear))
+            }
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
         .help(Self.tooltip(verb))
@@ -444,5 +531,47 @@ struct EditorFormatBar: View, Equatable {
     static func overflowValue(hidden: [[MarkupVerb]], lit: Set<MarkupVerb>) -> String {
         let applied = hidden.joined().filter { lit.contains($0) }.map(\.title)
         return applied.isEmpty ? "" : "Applied: " + applied.joined(separator: ", ")
+    }
+}
+
+/// **The format bar's right-click menu** (TE64): Icon and Text or Icon Only — ticked at the one in
+/// force — and Hide Format Bar, as Finder's toolbar offers on its own right-click.
+///
+/// **Bindings to the two stored settings, not state of its own**: Icon and Text is
+/// ``EditorTextSettings/formatBarShowsLabelsKey``, and Hide Format Bar turns off the very setting
+/// Text ▸ Format Bar ticks, so the menu bar and this menu cannot disagree. No Text Only (a bar of
+/// bare words is the widest of the three and the slowest to read) and no Customize Toolbar…, which
+/// would let the bar stop matching the Markup menu verb for verb.
+struct EditorFormatBarMenu: View {
+    @Binding var showsLabels: Bool
+    @Binding var showsBar: Bool
+
+    static let iconAndText = "Icon and Text"
+    static let iconOnly = "Icon Only"
+    static let hide = "Hide Format Bar"
+
+    var body: some View {
+        // Toggles, so each draws its tick; a press on the ticked one leaves it ticked, which is
+        // what a pair of radio items does.
+        Toggle(Self.iconAndText, isOn: Binding(get: { showsLabels },
+                                               set: { _ in Self.choose(labels: true, $showsLabels) }))
+        Toggle(Self.iconOnly, isOn: Binding(get: { !showsLabels },
+                                            set: { _ in Self.choose(labels: false, $showsLabels) }))
+        Divider()
+        Button(Self.hide) { Self.hide($showsBar) }
+    }
+
+    /// Icon and Text (`labels`) or Icon Only — said in the log when it changes, as Expand's switch
+    /// is, so a bar that "lost its words" can be traced to a click.
+    static func choose(labels: Bool, _ showsLabels: Binding<Bool>) {
+        guard showsLabels.wrappedValue != labels else { return }
+        showsLabels.wrappedValue = labels
+        Logger.shared.info("[edit] Format bar ▸ \(labels ? iconAndText : iconOnly)")
+    }
+
+    /// Hide Format Bar — Text ▸ Format Bar's setting, turned off, and the way back named in the log.
+    static func hide(_ showsBar: Binding<Bool>) {
+        showsBar.wrappedValue = false
+        Logger.shared.info("[edit] Format bar hidden from its menu — Text ▸ Format Bar shows it again")
     }
 }

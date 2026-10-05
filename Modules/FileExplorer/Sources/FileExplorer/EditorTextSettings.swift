@@ -49,6 +49,17 @@ public enum EditorTextSettings {
     public static let continuesListsKey = "editorContinuesLists"
     public static let continuesListsDefault = true
 
+    /// Whether the format bar puts a word beside each icon — Icon and Text — or draws icons alone,
+    /// as it first shipped (TE63, TE64).
+    ///
+    /// **On by default, for everyone** (decision Q = B, 2026-10-04): the words are what make the
+    /// bar readable to somebody who does not yet know its glyphs. It is NOT tied to Row spacing,
+    /// which stays a setting about lists. Set from the bar's own right-click menu, as Finder's
+    /// toolbar is, and only ever a preference: where the words do not fit, the bar draws icons
+    /// whatever this says — see ``EditorFormatBar/ladder(showsLabels:)``.
+    public static let formatBarShowsLabelsKey = "editorFormatBarShowsLabels"
+    public static let formatBarShowsLabelsDefault = true
+
     // MARK: - There is deliberately no "Show Invisibles"
     //
     // **It was specified, costed and dropped on 2026-09-01, and the reason is worth keeping so it
