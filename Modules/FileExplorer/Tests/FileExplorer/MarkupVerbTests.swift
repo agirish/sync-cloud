@@ -136,6 +136,75 @@ import Foundation
                 "the blank line broke the toggle")
     }
 
+    // MARK: Starting on a blank line (reported 2026-10-05)
+
+    /// The line verbs and the marker each writes on a blank line.
+    private static let starts: [(MarkupVerb, String)] = [
+        (.bulletList, "- "), (.numberedList, "1. "), (.taskItem, "- [ ] "),
+        (.heading(1), "# "), (.heading(2), "## "), (.heading(3), "### "), (.blockQuote, "> "),
+    ]
+
+    /// **On a blank line — or in an empty note — a list, heading or quote verb STARTS one**, the
+    /// caret after its marker so typing begins the item. He found Bullets, Numbered and Tasks did
+    /// nothing there. Body has nothing to put on a blank line. Mutation: return `nil` for blank
+    /// lines again (the old rule) and every line fails.
+    @Test func aLineVerbOnABlankLineStartsOne() {
+        for (verb, marker) in Self.starts {
+            let between = apply(verb, "Para.\n\nNext.", range(6, 0))
+            #expect(between?.text == "Para.\n\(marker)\nNext.", "\(verb.title) on a blank line wrote \(String(describing: between?.text))")
+            #expect(between?.selection == range(6 + marker.count, 0), "\(verb.title) left the caret at \(String(describing: between?.selection))")
+            let empty = apply(verb, "", range(0, 0))
+            #expect(empty?.text == marker && empty?.selection == range(marker.count, 0),
+                    "\(verb.title) in an empty note wrote \(String(describing: empty?.text))")
+            // The last line, after the final line break, and a line of spaces.
+            #expect(apply(verb, "Para.\n", range(6, 0))?.text == "Para.\n\(marker)")
+            #expect(apply(verb, "Para.\n   \nNext.", range(8, 0))?.text == "Para.\n\(marker)\nNext.")
+        }
+        #expect(apply(.heading(0), "Para.\n\nNext.", range(6, 0)) == nil, "Body put something on a blank line")
+    }
+
+    /// **Numbered on a blank line takes up from a numbered item directly above** — "3." under
+    /// "2." — and starts at 1 anywhere else.
+    @Test func numberedOnABlankLineCarriesOnFromTheItemAbove() {
+        #expect(apply(.numberedList, "1. one\n2. two\n", range(14, 0))?.text == "1. one\n2. two\n3. ")
+        #expect(apply(.numberedList, "9) nine\n\n", range(8, 0))?.text == "9) nine\n10. \n")
+        #expect(apply(.numberedList, "Para.\n\n", range(6, 0))?.text == "Para.\n1. \n")
+        #expect(apply(.numberedList, "- one\n", range(6, 0))?.text == "- one\n1. ")
+    }
+
+    /// **Pressed again on the bare marker, the verb takes it off** and the caret goes back to the
+    /// line's start — and the bare marker lights its button, as the bar's lit state promises.
+    @Test func pressedAgainOnTheBareMarkerItComesOff() throws {
+        for (verb, marker) in Self.starts {
+            let on = try #require(apply(verb, "a\n\nb", range(2, 0)))
+            #expect(MarkdownEdits.isApplied(verb, in: on.text, selection: on.selection),
+                    "the bare \(marker) does not light \(verb.title)")
+            #expect(MarkupFormatState.of(on.text, selection: on.selection).lit.contains(verb))
+            let off = apply(verb, on.text, on.selection)
+            #expect(off?.text == "a\n\nb" && off?.selection == range(2, 0),
+                    "\(verb.title) again left \(String(describing: off?.text)) at \(String(describing: off?.selection))")
+        }
+    }
+
+    /// **A selection keeps its inner blank lines blank** (the rule above it), and one that covers
+    /// ONLY blank lines starts an item on each.
+    @Test func aSelectionKeepsItsInnerBlankLinesUnlessThatIsAllItHolds() {
+        #expect(apply(.bulletList, "one\n\ntwo", range(0, 8))?.text == "- one\n\n- two")
+        #expect(apply(.numberedList, "one\n\ntwo", range(0, 8))?.text == "1. one\n\n2. two")
+        #expect(apply(.bulletList, "a\n\n\nb", range(2, 2))?.text == "a\n- \n- \nb")
+    }
+
+    /// **A bare caret stays with its text when a marker goes on or comes off** — after Bullets on
+    /// "foo|" the caret is still after "foo", not at "- f|oo".
+    @Test func aCaretStaysWithItsTextWhenAMarkerGoesOnOrOff() {
+        #expect(apply(.bulletList, "foo", range(3, 0))?.selection == range(5, 0))
+        #expect(apply(.bulletList, "- foo", range(5, 0))?.selection == range(3, 0))
+        #expect(apply(.heading(2), "x\nfoo", range(3, 0))?.selection == range(6, 0))
+        #expect(apply(.bulletList, "- foo", range(1, 0))?.selection == range(0, 0), "a caret inside the marker left the line")
+        // A selection still keeps the whole run.
+        #expect(apply(.bulletList, "foo", range(0, 3))?.selection == range(0, 5))
+    }
+
     // MARK: Blocks
 
     @Test func aFenceWrapsTheTouchedLines() {

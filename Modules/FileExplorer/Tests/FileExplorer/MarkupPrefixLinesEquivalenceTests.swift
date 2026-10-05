@@ -96,7 +96,8 @@ import Foundation
         var compared = 0
         var changed = 0
         for text in Self.corpus {
-            let length = (text as NSString).length
+            let ns = text as NSString
+            let length = ns.length
             var selections: [NSRange] = [NSRange(location: 0, length: 0),
                                          NSRange(location: length, length: 0),
                                          NSRange(location: 0, length: length)]
@@ -109,8 +110,16 @@ import Foundation
             }
             for (name, prefix) in Self.prefixes {
                 for selection in selections {
-                    let old = Self.oldPrefixLines(text, selection, prefix)
+                    // Two departures on purpose (2026-10-05), each pinned in `MarkupVerbTests`: on
+                    // blank lines alone the verb now starts an item, and a bare caret on one line
+                    // stays with its text. So those are left out, and a caret compares text only.
+                    let touched = MarkdownEdits.lineRanges(covering: selection, in: ns)
+                    if touched.allSatisfy({ ns.substring(with: $0).trimmingCharacters(in: .whitespaces).isEmpty }) {
+                        continue
+                    }
+                    var old = Self.oldPrefixLines(text, selection, prefix)
                     let new = MarkdownEdits.prefixLines(text, selection, prefix)
+                    if selection.length == 0, touched.count == 1, let n = new { old?.selection = n.selection }
                     compared += 1
                     if new != nil { changed += 1 }
                     let report = "\(name) over \(text.debugDescription) at \(selection):"

@@ -539,6 +539,15 @@ extension MarkdownEdits {
         let lines = lineRanges(covering: selection, in: ns)
         guard !lines.isEmpty else { return nil }
 
+        // **On blank lines alone the verb STARTS one** — a caret on an empty line, or an empty
+        // note: Bullets writes "- ", Numbered "1. ", Tasks "- [ ] ", a heading "# ", Quote "> ",
+        // and the caret goes after it. Reported 2026-10-05 ("Bullets, Numbered, Tasks don't seem
+        // to work … not on blank lines"): the blank-line rule below left nothing to change, so the
+        // press did nothing, where every editor starts the item.
+        if lines.allSatisfy({ isBlank(ns.substring(with: $0)) }) {
+            return startingLines(ns, selection, lines, prefix)
+        }
+
         // Body is a removal with nothing to put back, so it is never a toggle.
         let isRemoval: Bool
         if case .heading(let level) = prefix, level <= 0 {
@@ -584,7 +593,53 @@ extension MarkdownEdits {
         guard (rebuilt as NSString).length != covered.length
                 || rebuilt != ns.substring(with: covered) else { return nil }
         let result = ns.replacingCharacters(in: covered, with: rebuilt)
+        // A bare caret on one line stays with the character it was beside — after a marker that
+        // went on, at the line's start when a bare marker came off — rather than keeping its
+        // index, which left "- f|oo" after Bullets on "foo|", and put the caret on the NEXT line
+        // after taking a bare "- " off. A selection keeps the whole run selected, as before.
+        if selection.length == 0, lines.count == 1 {
+            return MarkupEdit(text: result,
+                              selection: NSRange(location: max(lines[0].location, selection.location + delta), length: 0))
+        }
         return MarkupEdit(text: result, selection: selectionAfter(selection, delta: delta, in: result))
+    }
+
+    /// **A list, heading or quote started on blank lines** — the case ``prefixLines(_:_:_:)``
+    /// hands here: each covered line becomes the bare marker (a line of spaces loses them, since
+    /// nothing is on it to indent), numbered on from a numbered item directly above, so a "3." is
+    /// the next one under "2.". A caret lands after its marker; a selection keeps the run. Body has
+    /// nothing to put on a blank line and answers `nil`.
+    static func startingLines(_ ns: NSString, _ selection: NSRange, _ lines: [NSRange],
+                              _ prefix: LinePrefix) -> MarkupEdit? {
+        if case .heading(let level) = prefix, level <= 0 { return nil }
+        let first = numberAbove(lines[0], in: ns, for: prefix)
+        let covered = NSRange(location: lines[0].location,
+                              length: NSMaxRange(lines[lines.count - 1]) - lines[0].location)
+        var rebuilt = ""
+        var cursor = covered.location
+        for (index, range) in lines.enumerated() {
+            if range.location > cursor {
+                rebuilt += ns.substring(with: NSRange(location: cursor, length: range.location - cursor))
+            }
+            cursor = NSMaxRange(range)
+            rebuilt += prefix.text(at: first + index)
+        }
+        let result = ns.replacingCharacters(in: covered, with: rebuilt)
+        if selection.length == 0, lines.count == 1 {
+            let marker = (prefix.text(at: first) as NSString).length
+            return MarkupEdit(text: result, selection: NSRange(location: covered.location + marker, length: 0))
+        }
+        let delta = (rebuilt as NSString).length - covered.length
+        return MarkupEdit(text: result, selection: selectionAfter(selection, delta: delta, in: result))
+    }
+
+    /// The number a numbered list started on `line` takes up from: the number of a numbered item on
+    /// the line directly above it, or `0` — the index ``LinePrefix/text(at:)`` counts from.
+    static func numberAbove(_ line: NSRange, in ns: NSString, for prefix: LinePrefix) -> Int {
+        guard case .numbered = prefix, line.location > 0 else { return 0 }
+        let above = ns.substring(with: ns.lineRange(for: NSRange(location: line.location - 1, length: 0)))
+        guard firstMatch(LinePrefix.numbered.pattern, in: above) != nil else { return 0 }
+        return Int(above.prefix(while: \.isNumber)) ?? 0
     }
 
     /// **The "already applied" half of ``prefixLines(_:_:_:)``, on its own** — whether every line
