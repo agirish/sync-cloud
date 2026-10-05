@@ -6796,3 +6796,28 @@ done
 
 **`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the Edit workspace (see "The Edit
 workspace" above), so there is no text view, no editor undo stack and no preview to tick in.
+
+## Edit writes LF only, converting a file on its first edit — main only
+
+Measured 2026-10-05: every way Source wrote a line break — Return, Return in a list, the Code Block
+and Horizontal Rule verbs, a paste or drop of several lines, Replace with a line break — wrote `\n`
+into CRLF and lone-CR files, leaving them mixed (the status line read "Mixed"). The table verbs
+followed CRLF but not CR. He chose LF only: a CRLF, CR or mixed file keeps its bytes until its
+first edit, which converts every break to LF inside that edit's undo step, and everything written
+after is LF, pasted text included. `EditorLineEndings` holds the rules; `EditorTextView` converts
+before a key command, paste or image drop measures its edit, and its `shouldChangeText` is the net
+under the rest; `EditorSourceStorage.replace` does the same for a Preview checkbox tick. `LineEndingPathsTests` pins every path against LF's own bytes.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s plainTextEditor=%s editorTextView=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PlainTextEditor.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorTextView.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-05, against origin, before this landed:
+# main  plainTextEditor=1 editorTextView=1
+# v4.x, v3.x, v2.x — every line: plainTextEditor=0 editorTextView=0
+```
+
+**`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the Edit workspace, so there is no
+text view writing line breaks.

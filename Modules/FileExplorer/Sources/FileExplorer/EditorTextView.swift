@@ -9,6 +9,10 @@ import AppKit
 /// way. So this overrides exactly those two, asks ``handler`` first, and otherwise calls `super` —
 /// every paste and drop the handler does not claim is AppKit's, unchanged.
 ///
+/// **And where a typed line ending is decided:** Edit writes LF only, converting a CRLF or CR file
+/// on its first edit (``EditorLineEndings``, ``convertLineEndingsToLF()``). An edit from outside the
+/// view goes through ``EditorSourceStorage/replace(_:with:undoManager:actionName:)``, which does the same.
+///
 /// **Built by `EditorTextView.scrollableTextView()`**, the same factory as before: measured
 /// 2026-10-04, it builds the subclass and the view still comes up on TextKit 2
 /// (`textLayoutManager` non-nil).
@@ -19,14 +23,115 @@ final class EditorTextView: NSTextView {
     weak var handler: EditorTextViewHandling?
 
     override func paste(_ sender: Any?) {
-        if handler?.handlePaste(from: .general, in: self) == true { return }
+        if handledPaste(from: .general) { return }
         super.paste(sender)
+    }
+
+    /// Whether the handler took the paste — after the buffer is converted, because the handler
+    /// measures where its link or image goes (see ``convertLineEndingsToLF()``). Its own method so a
+    /// test can hand it a private pasteboard.
+    func handledPaste(from pasteboard: NSPasteboard) -> Bool {
+        convertLineEndingsToLF()
+        return handler?.handlePaste(from: pasteboard, in: self) == true
+    }
+
+    /// Return, Tab and every other key command: the buffer is converted to LF first, so TE54's list
+    /// rules — which read the buffer and hand back ranges in it — measure the converted text.
+    override func doCommand(by selector: Selector) {
+        convertLineEndingsToLF()
+        super.doCommand(by: selector)
+    }
+
+    // MARK: LF only — see `EditorLineEndings`
+
+    private var isConvertingLineEndings = false
+
+    /// Turns every CRLF and lone CR in the buffer into LF — on the first edit to a file that is not
+    /// LF, and in that edit's undo step: AppKit groups undo by event, so the ⌘Z that takes back the
+    /// first edit also puts the carriage returns back, and the file is its original bytes again
+    /// (measured 2026-10-05, `undoTakesBackTheFirstEditAndTheConversionTogether`). Does nothing to an LF buffer, a read-only view, or while an input
+    /// method is composing (the marked text sits in the buffer and must not move under it).
+    ///
+    /// **Called before an edit is MEASURED wherever this view can see that moment** — a key
+    /// command, a paste, a drop — and by ``PlainTextEditor/apply(_:to:)`` before a verb reads the
+    /// buffer, because an edit measured on the CRLF text carries offsets that are wrong after it.
+    /// ``shouldChangeText(inRanges:replacementStrings:)`` is the net under the rest: plain typing and
+    /// Replace measure their range before any of this can run, and it maps the range across.
+    ///
+    /// The `isEditable` check is belt and braces, not the guard: a non-editable view's own
+    /// `shouldChangeText` refuses too (mutation-tested 2026-10-05 — removing the check changes
+    /// nothing). It stays so a read-only file is not even scanned.
+    @discardableResult
+    func convertLineEndingsToLF() -> Bool {
+        guard isEditable, !hasMarkedText(), !isConvertingLineEndings, let storage = textStorage else {
+            return false
+        }
+        let changes = EditorLineEndings.carriageReturns(in: storage.mutableString)
+        guard !changes.isEmpty else { return false }
+        let selection = selectedRanges.map(\.rangeValue)
+        isConvertingLineEndings = true
+        defer { isConvertingLineEndings = false }
+        breakUndoCoalescing()
+        // One multi-range change rather than one replacement of the whole text: the undo restores
+        // exactly the carriage returns, and the view keeps its scroll and layout.
+        guard super.shouldChangeText(inRanges: changes.map { NSValue(range: $0.range) },
+                                     replacementStrings: changes.map(\.replacement)) else { return false }
+        storage.beginEditing()
+        for change in changes.reversed() {
+            storage.replaceCharacters(in: change.range, with: change.replacement)
+        }
+        storage.endEditing()
+        didChangeText()
+        breakUndoCoalescing()
+        selectedRanges = selection.map { NSValue(range: EditorLineEndings.mapped($0, through: changes)) }
+        return true
+    }
+
+    /// The net under every edit: a buffer that still holds a carriage return is converted first,
+    /// and a line break in what is being inserted — a pasted CRLF, a Replace string — is written as
+    /// LF. Either way the edit is made HERE, with its ranges mapped across the conversion, and
+    /// `false` tells the caller its own (now stale) edit is not wanted.
+    override func shouldChangeText(inRanges affectedRanges: [NSValue],
+                                   replacementStrings: [String]?) -> Bool {
+        guard !isConvertingLineEndings, !hasMarkedText(), let strings = replacementStrings,
+              let storage = textStorage else {
+            return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
+        }
+        let changes = EditorLineEndings.carriageReturns(in: storage.mutableString)
+        let normalized = strings.map(EditorLineEndings.normalized)
+        guard !changes.isEmpty || normalized != strings else {
+            return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
+        }
+        var ranges = affectedRanges.map(\.rangeValue)
+        if !changes.isEmpty {
+            guard convertLineEndingsToLF() else {
+                return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
+            }
+            ranges = ranges.map { EditorLineEndings.mapped($0, through: changes) }
+        }
+        guard super.shouldChangeText(inRanges: ranges.map { NSValue(range: $0) },
+                                     replacementStrings: normalized) else { return false }
+        isConvertingLineEndings = true
+        defer { isConvertingLineEndings = false }
+        storage.beginEditing()
+        for (range, text) in zip(ranges, normalized).sorted(by: { $0.0.location > $1.0.location }) {
+            storage.replaceCharacters(in: range, with: text)
+        }
+        storage.endEditing()
+        didChangeText()
+        // Where the caller's own edit would have left the caret: after what it inserted.
+        if ranges.count == 1 {
+            setSelectedRange(NSRange(location: ranges[0].location + normalized[0].utf16.count, length: 0))
+        }
+        return false
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         // A drag that started in this view is text being moved, never a file.
         if let handler, (sender.draggingSource as AnyObject?) !== self,
            let files = Self.imageFiles(on: sender.draggingPasteboard) {
+            // Before the drop point becomes an offset: the offset is into the converted buffer.
+            convertLineEndingsToLF()
             let point = convert(sender.draggingLocation, from: nil)
             let index = characterIndexForInsertion(at: point)
             switch handler.handleDrop(imageFiles: files, at: index, in: self) {

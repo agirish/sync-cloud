@@ -118,13 +118,24 @@ public final class EditorSourceStorage: NSObject {
     /// after it. NSTextView already leaves an interleaved registration alone (measured: typing "ab",
     /// this, then "c" undoes as c, this, ab), so this is the boundary stated rather than relied on.
     ///
+    /// **Writes LF only** (``EditorLineEndings``): a file still holding a carriage return is
+    /// converted first, inside this step's undo, and `range` is mapped across the conversion — except
+    /// while a word is being composed, which must not move under the input method. That check is belt
+    /// and braces: this edit ends the composition, and the commit converts the file through the view
+    /// either way (mutation-tested 2026-10-04 — removing it changes nothing a test or a probe can see).
+    ///
     /// - Parameter range: UTF-16, in the storage as it stands.
     public func replace(_ range: NSRange, with string: String, undoManager: UndoManager?,
                         actionName: String? = nil) {
-        let removed = textStorage.mutableString.substring(with: range)
+        let composing = textView.map { $0.textStorage === textStorage && $0.hasMarkedText() } ?? false
+        let endings = composing ? [] : EditorLineEndings.carriageReturns(in: textStorage.mutableString)
+        let range = EditorLineEndings.mapped(range, through: endings)
+        let string = EditorLineEndings.normalized(string)
         textView?.breakUndoCoalescing()
         isReplacing = true
         textStorage.beginEditing()
+        apply(endings, undoManager: undoManager)
+        let removed = textStorage.mutableString.substring(with: range)
         insert(string, over: range)
         textStorage.endEditing()
         isReplacing = false
@@ -136,6 +147,28 @@ public final class EditorSourceStorage: NSObject {
             source.replace(inserted, with: removed, undoManager: undoManager, actionName: actionName)
         }
         if let actionName { undoManager?.setActionName(actionName) }
+    }
+
+    /// Makes `changes` — ascending, not overlapping — and registers their exact inverse, which
+    /// registers this again: ⌘Z puts the carriage returns back and ⌘⇧Z takes them out.
+    private func apply(_ changes: [EditorLineEndings.Change], undoManager: UndoManager?) {
+        guard !changes.isEmpty else { return }
+        var inverse: [EditorLineEndings.Change] = []
+        var shift = 0
+        for change in changes {
+            let length = (change.replacement as NSString).length
+            inverse.append(.init(range: NSRange(location: change.range.location + shift, length: length),
+                                 replacement: textStorage.mutableString.substring(with: change.range)))
+            shift += length - change.range.length
+        }
+        textStorage.beginEditing()
+        for change in changes.reversed() {
+            textStorage.replaceCharacters(in: change.range, with: change.replacement)
+        }
+        textStorage.endEditing()
+        undoManager?.registerUndo(withTarget: self) { [weak undoManager] source in
+            source.apply(inverse, undoManager: undoManager)
+        }
     }
 
     /// Puts the storage in step with a buffer written from outside it — **with no undo**, which is

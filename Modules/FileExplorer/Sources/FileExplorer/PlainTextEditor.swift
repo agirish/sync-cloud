@@ -526,6 +526,9 @@ struct PlainTextEditor: NSViewRepresentable {
     ///   this selection, in which case the buffer and the undo stack are untouched.
     @discardableResult
     static func apply(_ verb: MarkupVerb, to view: NSTextView) -> Bool {
+        // A CRLF file becomes LF before the verb reads it: the selection it hands back is measured
+        // on the text it read (see `EditorLineEndings`).
+        (view as? EditorTextView)?.convertLineEndingsToLF()
         guard let edit = MarkdownEdits.apply(verb, to: view.string,
                                              selection: view.selectedRange()) else { return false }
         let change = MarkdownEdits.minimalReplacement(from: view.string, to: edit.text)
