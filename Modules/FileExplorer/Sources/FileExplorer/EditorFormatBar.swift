@@ -12,11 +12,14 @@ import Events
 struct MarkupFormatState: Equatable, Sendable {
     /// The verbs whose press would take their formatting off — ``MarkdownEdits/isApplied(_:in:selection:)``.
     var lit: Set<MarkupVerb>
-    /// What the Heading menu names.
+    /// What the Body menu names.
     var heading: MarkdownEdits.HeadingLevel
-    /// The Table menu's items that would do something here — ``MarkdownTables/available(in:selection:)``.
-    /// Holding Tidy means the selection is IN a table, which is what the Table button's accent says.
+    /// The Table items that would do something here — ``MarkdownTables/available(in:selection:)``.
+    /// Holding Format Table (`.tidy`) means the selection starts IN a table: the Table capsule's cue.
     var tables: Set<TableVerb> = [.insert]
+    /// Whether either end of the selection is in a table — where the verbs that rewrite whole lines
+    /// would break it, and so are greyed (TE76, ``MarkdownTables/touches(_:_:)``).
+    var touchesTable = false
 
     static let none = MarkupFormatState(lit: [], heading: .body)
 
@@ -31,10 +34,11 @@ struct MarkupFormatState: Equatable, Sendable {
                 MarkdownEdits.isApplied($0, ns, selection, lines: lines)
             }),
             heading: MarkdownEdits.headingLevel(ns, selection, lines: lines),
-            tables: MarkdownTables.available(in: ns, selection: selection))
+            tables: MarkdownTables.available(in: ns, selection: selection),
+            touchesTable: MarkdownTables.touches(ns, selection))
     }
 
-    /// Whether the selection is in a table — the Table button's accent.
+    /// Whether the selection starts in a table — when the Table capsule is drawn (TE73).
     var isInTable: Bool { tables.contains(.tidy) }
 }
 
@@ -90,18 +94,25 @@ final class EditorTextViewHandle {
 /// the card simply starts with the bar and the text starts under it — and in Split the bar spans the
 /// Source half alone, because that is the half it acts on.
 ///
-/// **The menu's verbs, in the menu's groups, with one move.** Headings lead, folded into one menu
-/// that names the level the caret is at, because four buttons reading H1 H2 H3 ¶ would be the
-/// widest group for the least-pressed verbs, and a heading is the first thing a writer sets on a
-/// line. Every other group keeps its place and its order — ``groups`` derives all of it from
-/// ``MarkupVerb/menuOrder``, so the bar cannot gain or lose a verb the menu does not.
+/// **A capsule for each of the menu's groups** (TE68, TE70, decision AA = C6): the Body menu, then
+/// Bold, Italic and Strikethrough, then the lists, then Code, Code Block and Quote, then Link, Table
+/// and Divider — each its own capsule, apart from the next, as Notes groups its toolbar. Headings
+/// lead, folded into the Body menu, because four buttons reading H1 H2 H3 ¶ would be the widest
+/// group for the least-pressed verbs. Every other group keeps the menu's order — ``groups``
+/// derives all of it from ``MarkupVerb/menuOrder``, so the bar cannot gain or lose a verb the menu
+/// does not.
 ///
-/// **It sheds from the end when it is narrow** — see ``ladder``.
+/// **In a table, a Table capsule joins them** (TE73) with the edits a table needs, and the buttons
+/// that would take the table's lines out of it grey (TE76, ``MarkdownEdits/breaksTable(_:in:selection:)``).
 ///
-/// **And it spells its buttons out when it is wide** (TE63): Icon and Text, the default, puts a
-/// short word beside every icon but B, I and S, as long as the words fit; where they do not, it is
-/// the icons-only bar above, unchanged. Its right-click menu (``EditorFormatBarMenu``) chooses
-/// between the two — see ``ladder(showsLabels:)``.
+/// **A quarter larger than it first shipped** (TE75, decision AD): 14-point glyphs in 25-point
+/// buttons, 12.5-point words.
+///
+/// **It narrows group by group** (TE72, decision Y) — see ``ladder(showsLabels:inTable:)``: the
+/// words come off, the Body menu shortens to ¶, and then each group folds into one button of its own,
+/// so a hidden button is under its group's icon rather than behind an anonymous ». Icon and Text,
+/// the default, starts with every word; Icon Only starts where the words are off. Its right-click
+/// menu (``EditorFormatBarMenu``) chooses between the two.
 ///
 /// **`Equatable`, and wrapped in `.equatable()` by its host**, because the host is the view a
 /// keystroke redraws (`EditorWorkspaceView` observes the buffer), and without it every keystroke
@@ -121,6 +132,8 @@ struct EditorFormatBar: View, Equatable {
     let forcedRung: Rung?
 
     @Environment(\.appFontScale) private var scale
+    /// The Body menu's popover (TE74) — one flag for every rung, because `ViewThatFits` draws one.
+    @State private var showsStyles = false
 
     init(state: MarkupFormatState, accent: Color,
          showsLabels: Bool = EditorTextSettings.formatBarShowsLabelsDefault,
@@ -148,31 +161,38 @@ struct EditorFormatBar: View, Equatable {
     static let menuGroups: [[MarkupVerb]] =
         MarkupVerb.menuOrder.split(separator: nil).map { $0.compactMap { $0 } }
 
-    /// The menu's heading group: Heading 1–3 and Body. The bar draws it as one menu.
+    /// The menu's heading group: Heading 1–3 and Body. The bar draws it as the Body menu.
     static let headingVerbs: [MarkupVerb] = menuGroups.first { $0.allSatisfy { isHeading($0) } } ?? []
 
-    /// The menu's table group (TE65): the bar draws it as one Table menu, as the menus draw it as
-    /// one submenu.
-    static let tableVerbs: [MarkupVerb] = menuGroups.first { $0.allSatisfy(\.isTable) } ?? []
+    /// The menu's table run (TE65): every menu draws it as one Table submenu; the bar draws one
+    /// Table button where it starts, and the editing items in the Table capsule (TE73).
+    static let tableVerbs: [MarkupVerb] = MarkupVerb.menuOrder.compactMap { $0 }.filter(\.isTable)
 
-    /// What stands for the Table menu among the bar's buttons — where it sits, what the » files
-    /// it under, what the ladder counts. Its press opens the menu rather than applying itself.
+    /// What stands for the table run among the bar's buttons — where the Table button sits, what
+    /// its group's folded menu lists. **A plain button that makes tables** (decision AB): it
+    /// inserts one, or makes one from the selected lines — ``tableVerb(in:)``.
     static let tableMenuStandIn = MarkupVerb.table(.insert)
 
-    /// The menu's other groups, in the menu's order — what the bar draws as buttons, after the
-    /// Heading menu: the inline five, the four line kinds, then the two blocks with the Table menu
-    /// beside them — one group, because the bar has room for one fewer separator than the menu.
-    static let groups: [[MarkupVerb]] = {
-        var groups = menuGroups.filter { !$0.allSatisfy { isHeading($0) } && !$0.allSatisfy(\.isTable) }
-        if !tableVerbs.isEmpty, !groups.isEmpty { groups[groups.count - 1].append(tableMenuStandIn) }
-        return groups
-    }()
+    /// **The bar's capsules after the Body menu, in the menu's order** — the menu's groups but the
+    /// headings, each table run drawn as the one Table button where it starts. With C6 that is
+    /// Bold, Italic, Strikethrough · the three lists · Code, Code Block, Quote · Link, Table, Divider.
+    static let groups: [[MarkupVerb]] = menuGroups.filter { !$0.allSatisfy { isHeading($0) } }.map { group in
+        var buttons: [MarkupVerb] = []
+        for verb in group where !verb.isTable || !buttons.contains(tableMenuStandIn) {
+            buttons.append(verb.isTable ? tableMenuStandIn : verb)
+        }
+        return buttons
+    }
 
-    /// The bar's whole reading order, headings first and the Table menu's items where its button
-    /// is — what the parity test holds against the menu.
+    /// The bar's whole reading order, headings first and the table run where its button is — what
+    /// the parity test holds against the menu.
     static var barOrder: [MarkupVerb] {
         headingVerbs + groups.flatMap { $0 }.flatMap { $0 == tableMenuStandIn ? tableVerbs : [$0] }
     }
+
+    /// **The Table capsule's items** (TE73): the table run but its first section, which makes
+    /// tables — this capsule is only there when the caret is already in one.
+    static let tableEditVerbs: [MarkupVerb] = Array(MarkupVerb.tableSections.dropFirst().joined())
 
     private nonisolated static func isHeading(_ verb: MarkupVerb) -> Bool {
         if case .heading = verb { return true }
@@ -195,17 +215,41 @@ struct EditorFormatBar: View, Equatable {
         case .taskItem: return "checklist"
         case .blockQuote: return "text.quote"
         case .codeBlock: return "curlybraces.square"
-        case .horizontalRule: return "minus"
+        // A page cut in two, rather than the bare dash that read as a minus (TE69).
+        case .horizontalRule: return "rectangle.split.1x2"
+        case .table(.addRowAbove), .table(.addRowBelow): return "rectangle.bottomthird.inset.filled"
+        case .table(.addColumnLeft), .table(.addColumnRight): return "rectangle.rightthird.inset.filled"
+        case .table(.deleteRow), .table(.deleteColumn): return "trash"
+        case .table(.tidy): return "align.horizontal.left"
         case .table: return "tablecells"
         }
     }
 
-    /// The overflow menu's glyph — the » the hidden verbs sit behind.
+    /// The glyph a folded part's button wears — its group's first glyph, Insert's +.
+    static func symbol(_ part: Part) -> String {
+        switch part {
+        case .group(let index) where index == groups.count - 1: return "plus"
+        case .group(let index): return groups.indices.contains(index) ? symbol(groups[index][0]) : "plus"
+        case .table: return "tablecells"
+        }
+    }
+
+    /// The merged menu's glyph — the last resort, at the narrowest widths.
     static let overflowSymbol = "chevron.right.2"
 
+    /// What a folded part's button and its submenu in the merged menu are called.
+    static func title(_ part: Part) -> String {
+        switch part {
+        case .group(1): return "Lists"
+        case .group(2): return "Code and Quote"
+        case .group(let index) where index == groups.count - 1: return "Insert"
+        case .group: return "Formatting"
+        case .table: return MarkupVerb.tableMenuTitle
+        }
+    }
+
     /// **Whether a button gets a word beside its glyph in Icon and Text** — every one but Bold,
-    /// Italic and Strikethrough, whose glyphs ARE their letters: “B Bold” says one thing twice, and
-    /// leaving those three words off is about a hundred points the other words can use.
+    /// Italic and Strikethrough, whose glyphs ARE their letters: “B Bold” says one thing twice.
     static func wearsWord(_ verb: MarkupVerb) -> Bool {
         switch verb {
         case .bold, .italic, .strikethrough: return false
@@ -213,9 +257,8 @@ struct EditorFormatBar: View, Equatable {
         }
     }
 
-    /// **The word a button wears in Icon and Text: the menu title, shortened** — the bar is a row,
-    /// and “Horizontal Rule” would be its widest button for its least-pressed verb. The tooltip and
-    /// both menus keep the full name; ``tooltip(_:)`` is unchanged.
+    /// **The word a button wears in Icon and Text: the menu title, shortened** — the bar is a row.
+    /// The tooltip and both menus keep the full name; ``tooltip(_:)`` is unchanged.
     static func word(_ verb: MarkupVerb) -> String {
         switch verb {
         case .inlineCode: return "Code"
@@ -225,14 +268,18 @@ struct EditorFormatBar: View, Equatable {
         case .taskItem: return "Tasks"
         case .blockQuote: return "Quote"
         case .codeBlock: return "Code Block"
-        case .horizontalRule: return "Rule"
+        case .horizontalRule: return "Divider"
+        case .table(.addRowAbove), .table(.addRowBelow): return "Row"
+        case .table(.addColumnLeft), .table(.addColumnRight): return "Column"
+        case .table(.deleteRow), .table(.deleteColumn): return "Delete"
+        case .table(.tidy): return "Format"
         case .table: return MarkupVerb.tableMenuTitle
         default: return verb.title
         }
     }
 
     /// **Whether a verb can ever be lit** — the ones whose press can take formatting off. Link, Code
-    /// Block and Horizontal Rule only insert, and Body only removes, so ``MarkdownEdits/isApplied(_:in:selection:)``
+    /// Block and Divider only insert, and Body only removes, so ``MarkdownEdits/isApplied(_:in:selection:)``
     /// never answers yes for them; in a menu they are plain items, not toggles that are always off.
     static func canLight(_ verb: MarkupVerb) -> Bool {
         switch verb {
@@ -249,7 +296,25 @@ struct EditorFormatBar: View, Equatable {
         return ShortcutHint.tooltip(verb.title, chord.display)
     }
 
-    /// What the Heading menu's label reads.
+    /// **What the Table button does here: make a table from the selected lines when they split
+    /// into cells, else insert a new one** (decision AB) — the one button for both, named by its
+    /// tooltip.
+    static func tableVerb(in state: MarkupFormatState) -> MarkupVerb {
+        state.tables.contains(.fromSelection) ? .table(.fromSelection) : .table(.insert)
+    }
+
+    /// **Whether a press would do something for this selection** — the Table items where the
+    /// caret's place allows them, the Table button where it can make a table, and every verb but
+    /// those that would break a table it is in (TE76). A button that would not is greyed.
+    static func isOffered(_ verb: MarkupVerb, in state: MarkupFormatState) -> Bool {
+        if verb == tableMenuStandIn {
+            return state.tables.contains(.insert) || state.tables.contains(.fromSelection)
+        }
+        if case .table(let op) = verb { return state.tables.contains(op) }
+        return !(verb.breaksTables && state.touchesTable)
+    }
+
+    /// What the Body menu's label reads.
     static func headingTitle(_ heading: MarkdownEdits.HeadingLevel, worded: Bool) -> String {
         switch heading {
         case .level(let level): return worded ? "Heading \(level)" : "H\(level)"
@@ -259,10 +324,18 @@ struct EditorFormatBar: View, Equatable {
         }
     }
 
-    /// Every label the Heading menu can show, so it is laid out at the widest and does not move the
+    /// Every label the Body menu can show, so it is laid out at the widest and does not move the
     /// buttons after it as the caret crosses from a heading into body text.
     private static func headingTitles(worded: Bool) -> [String] {
         ([.body, .mixed, .otherHeading] + (1...3).map { .level($0) }).map { headingTitle($0, worded: worded) }
+    }
+
+    static func isCurrent(_ verb: MarkupVerb, _ heading: MarkdownEdits.HeadingLevel) -> Bool {
+        switch (verb, heading) {
+        case (.heading(0), .body): return true
+        case (.heading(let a), .level(let b)): return a == b
+        default: return false
+        }
     }
 
     // MARK: - Where it is drawn
@@ -284,89 +357,102 @@ struct EditorFormatBar: View, Equatable {
 
     // MARK: - Narrow widths
 
-    /// One way of drawing the bar: whether the Heading menu wears its word, how many of the
-    /// buttons — counted along ``groups`` flattened — stay on the bar, and how many of ``groups``,
-    /// from the first, put a word beside their buttons' glyphs (Icon and Text). The rest of the
-    /// buttons go behind the ».
+    /// A capsule the ladder can strip of its words or fold: one of ``groups`` after the plain
+    /// marks (by index), or the Table capsule a table brings (TE73).
+    enum Part: Hashable, Sendable {
+        case group(Int)
+        case table
+    }
+
+    /// One way of drawing the bar: whether the Body menu wears its word, which parts wear words
+    /// beside their glyphs, which are folded into one button each, and — the last resort — whether
+    /// the folded parts are one » menu instead, with B, I and S in it too when `marksFolded`.
     struct Rung: Equatable, Sendable {
-        var headingWorded: Bool
-        var visible: Int
-        var wordedGroups: Int = 0
+        var headingWorded = true
+        var worded: Set<Part> = []
+        var folded: Set<Part> = []
+        var merged = false
+        var marksFolded = false
     }
 
-    /// **The degrade order, widest first.** `ViewThatFits` draws the first rung that fits.
-    ///
-    /// Trailing groups go first, whole — the two blocks, then the four line kinds — because they are
-    /// the least pressed and because a group split across the » reads as a mistake. Then the Heading
-    /// menu's word shortens ("Heading 2" → "H2"), then the inline group sheds Code and Link, and last
-    /// of all everything but the Heading menu goes behind the ». The inline five outlast the line
-    /// kinds because three of them carry the chords somebody is most likely to be looking up.
-    ///
-    /// **Pinned by measurement**: `EditorFormatBarTests.theBarFitsTheNarrowestSplitHalfAtEveryTextSize`
-    /// finds, at ``EditorLayoutMetrics/minSplitColumnWidth`` and every selectable text size, which
-    /// rung is drawn. Measured 2026-10-03: the inline five stay up to 105%, and Bold, Italic and
-    /// Strikethrough at every size above it — the test fails if the bar overflows, keeps fewer than
-    /// those three anywhere, or fewer than the five at the default size. Below 220pt (a Split at the
-    /// smallest windows halves a narrower column) the last two rungs carry on shedding.
-    static let ladder: [Rung] = {
-        let all = groups.map(\.count)
-        let inline = all.first ?? 0
-        return [
-            Rung(headingWorded: true, visible: all.reduce(0, +)),
-            Rung(headingWorded: true, visible: all.dropLast().reduce(0, +)),
-            Rung(headingWorded: true, visible: inline),
-            Rung(headingWorded: false, visible: inline),
-            Rung(headingWorded: false, visible: max(inline - 2, 0)),
-            Rung(headingWorded: false, visible: 0),
-        ]
-    }()
+    /// The parts after B, I and S that can lose their words and fold — Lists, Code and Quote, Insert.
+    static let foldableGroups: [Part] = groups.indices.dropFirst().map(Part.group)
 
-    /// **The worded rungs Icon and Text tries first, widest first** (TE63): every button on the bar,
-    /// with a word beside all of them but B, I and S; then the same with the last group — Code
-    /// Block and Horizontal Rule — back to bare glyphs, because it is the end people press least.
-    /// Neither hides a button: a bar too narrow for the lists' words is ``ladder``, whose first rung
-    /// keeps every button too, so the words never cost a button a bare bar would show.
-    static let labelledRungs: [Rung] = {
-        let all = groups.map(\.count).reduce(0, +)
-        return [
-            Rung(headingWorded: true, visible: all, wordedGroups: groups.count),
-            Rung(headingWorded: true, visible: all, wordedGroups: groups.count - 1),
-        ]
-    }()
-
-    /// **The degrade order for the reader's choice.** Icon Only is ``ladder`` — the bar exactly as
-    /// it first shipped. Icon and Text is the worded rungs and then that same ladder, so the words
-    /// come off before any button does, and wherever the words do not fit (the narrowest Split half,
-    /// or Split at most window widths) the bar drawn is the icons-only one.
+    /// **The degrade order, widest first** (TE72). `ViewThatFits` draws the first rung that fits.
     ///
-    /// **Pinned by measurement** in `EditorFormatBarTests`: each rung narrower than the one before
-    /// at every text size, and at the narrowest Split half the Icon and Text bar draws the very rung
-    /// Icon Only would.
-    static func ladder(showsLabels: Bool) -> [Rung] {
-        showsLabels ? labelledRungs + ladder : ladder
-    }
-
-    /// **What one rung draws: the button groups kept on the bar, and the groups behind the »** —
-    /// the first ``Rung/visible`` buttons along ``groups``, then the rest, each piece still in the
-    /// menu's order and still divided where the menu divides it. The » is drawn exactly when
-    /// `hidden` is not empty.
-    static func layout(_ rung: Rung) -> (shown: [[MarkupVerb]], hidden: [[MarkupVerb]]) {
-        var remaining = max(rung.visible, 0)
-        var shown: [[MarkupVerb]] = []
-        var hidden: [[MarkupVerb]] = []
-        for group in groups {
-            let kept = Array(group.prefix(remaining))
-            remaining -= kept.count
-            if !kept.isEmpty { shown.append(kept) }
-            let rest = Array(group.dropFirst(kept.count))
-            if !rest.isEmpty { hidden.append(rest) }
+    /// The words come off group by group — Insert's, then Code and Quote's, then the lists', the
+    /// end people press least first; in a table, the greyed groups first and the Table capsule's
+    /// last. Then the Body menu shortens to ¶. Then each group folds into ONE button of its own, in
+    /// the same order, so what is hidden is under its group's icon. Then the folded groups merge
+    /// into one » beside Bold, Italic and Strikethrough, a submenu each — and only after that does
+    /// the Table capsule fold into it, so in a table the table's own edits outlast every group's:
+    /// measured 2026-10-05, half of a Split (490pt to draw in) keeps the Table capsule open, where
+    /// folding it before the merge would have hidden it there. Last of all B, I and S join the ».
+    ///
+    /// **Icon Only starts where the words are off**; Icon and Text has the worded rungs ahead.
+    /// Pinned by measurement in `EditorFormatBarTests`: each rung narrower than the one before, at
+    /// every text size, in a table and out of one.
+    static func ladder(showsLabels: Bool, inTable: Bool) -> [Rung] {
+        let parts = foldableGroups + (inTable ? [.table] : [])
+        let wordOrder: [Part] = inTable ? parts : foldableGroups.reversed()
+        let foldOrder: [Part] = inTable ? foldableGroups : foldableGroups.reversed()
+        var rungs: [Rung] = []
+        var rung = Rung(worded: Set(parts))
+        if showsLabels {
+            rungs.append(rung)
+            for part in wordOrder.dropLast() {
+                rung.worded.remove(part)
+                rungs.append(rung)
+            }
         }
-        return (shown, hidden)
+        rung.worded = []
+        rungs.append(rung)
+        rung.headingWorded = false
+        rungs.append(rung)
+        for part in foldOrder {
+            rung.folded.insert(part)
+            rungs.append(rung)
+        }
+        rung.merged = true
+        rungs.append(rung)
+        if inTable {
+            rung.folded.insert(.table)
+            rungs.append(rung)
+        }
+        rung.marksFolded = true
+        rungs.append(rung)
+        return rungs
     }
 
-    /// The glyph's point size at the default text size, and the square button it sits in.
-    static let glyphPoint: CGFloat = 11
-    static let boxSize: CGFloat = 20
+    /// The parts a rung folds, in the bar's order — what the merged » holds, a submenu each.
+    static func foldedParts(_ rung: Rung, inTable: Bool) -> [Part] {
+        (foldableGroups + (inTable ? [.table] : [])).filter { rung.folded.contains($0) }
+    }
+
+    /// The verbs a folded part holds, in its order.
+    static func verbs(of part: Part) -> [MarkupVerb] {
+        switch part {
+        case .group(let index): return groups.indices.contains(index) ? groups[index] : []
+        case .table: return tableEditVerbs
+        }
+    }
+
+    /// **A folded part's — or the merged menu's — accessibility value: what it hides that is
+    /// applied**, by name, as its accent says it on screen.
+    static func appliedValue(_ verbs: [MarkupVerb], lit: Set<MarkupVerb>) -> String {
+        let applied = verbs.filter { lit.contains($0) }.map(\.title)
+        return applied.isEmpty ? "" : "Applied: " + applied.joined(separator: ", ")
+    }
+
+    /// The glyph's point size at the default text size, the square button it sits in, and the
+    /// words' size — a quarter larger than the bar first shipped (11, 20, 11; TE75).
+    static let glyphPoint: CGFloat = 14
+    static let boxSize: CGFloat = 25
+    static let wordPoint: CGFloat = 12.5
+    static let chevronPoint: CGFloat = 10
+    /// The room between two capsules, and around a capsule's buttons.
+    static let capsuleGap: CGFloat = 8
+    static let capsuleInset: CGFloat = 3
 
     /// The box at `scale`, through the type ramp — ``CapsuleGlyph``'s rule: a box that did not
     /// scale left the glyph overflowing it at the large sizes.
@@ -380,7 +466,8 @@ struct EditorFormatBar: View, Equatable {
                 bar(forcedRung)
             } else {
                 ViewThatFits(in: .horizontal) {
-                    ForEach(Array(Self.ladder(showsLabels: showsLabels).enumerated()), id: \.offset) { _, rung in
+                    ForEach(Array(Self.ladder(showsLabels: showsLabels, inTable: state.isInTable).enumerated()),
+                            id: \.offset) { _, rung in
                         bar(rung)
                     }
                 }
@@ -391,39 +478,90 @@ struct EditorFormatBar: View, Equatable {
     }
 
     private func bar(_ rung: Rung) -> some View {
-        let layout = Self.layout(rung)
-        return HStack(spacing: 2) {
-            headingMenu(worded: rung.headingWorded)
-            // A worded rung keeps every group whole, so the piece at `index` IS `groups[index]`.
-            ForEach(Array(layout.shown.enumerated()), id: \.offset) { index, group in
-                separator
-                ForEach(group, id: \.self) { button($0, worded: index < rung.wordedGroups) }
+        let inTable = state.isInTable
+        return HStack(spacing: Self.capsuleGap) {
+            capsule { headingMenu(worded: rung.headingWorded) }
+            // The merged », when there is one, rides in B, I and S's capsule: a capsule of its own
+            // would cost the gap and the insets the narrowest Split half has no room for at 135%.
+            if !rung.marksFolded, let marks = Self.groups.first {
+                capsule {
+                    ForEach(marks, id: \.self) { button($0, worded: false) }
+                    if rung.merged { mergedMenu(rung) }
+                }
+            } else if rung.merged {
+                capsule { mergedMenu(rung) }
             }
-            if !layout.hidden.isEmpty {
-                separator
-                overflowMenu(layout.hidden)
+            ForEach(Array(Self.foldableGroups.enumerated()), id: \.offset) { _, part in
+                if !rung.folded.contains(part) {
+                    capsule {
+                        ForEach(Self.verbs(of: part), id: \.self) { button($0, worded: rung.worded.contains(part)) }
+                    }
+                } else if !rung.merged {
+                    capsule { foldMenu(part) }
+                }
+            }
+            // Folded, the Table capsule is a submenu of the merged » — it folds only after the merge.
+            if inTable && !rung.folded.contains(.table) {
+                capsule(accented: true) { tableCapsule(worded: rung.worded.contains(.table)) }
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
         .fixedSize()
-        // Frosted and Clear: one glass track under the whole bar, as Finder's toolbar groups its
-        // buttons; Solid: today's quaternary capsule (`ChromeGlass`).
-        .chromeGlassTrack()
     }
 
-    private var separator: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.3))
-            .frame(width: 1, height: Self.box(at: scale) * 0.6)
-            .padding(.horizontal, 3)
-            .accessibilityHidden(true)
+    /// **One group's capsule** — its own glass track, apart from the next (TE70): Frosted and Clear
+    /// draw glass, Solid the quaternary capsule (`ChromeGlass`). The Table capsule wears an accent
+    /// tint, because it comes and goes with the caret.
+    private func capsule<Content: View>(accented: Bool = false,
+                                        @ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 2) { content() }
+            .padding(.horizontal, Self.capsuleInset)
+            // One WHOLE-point height for every capsule on every rung, so the text under the bar
+            // never moves as it narrows. Whole, because the scaled box is fractional (27.2pt at
+            // 125%) and a fractional bar rounds one way measured alone and the other in the card —
+            // measured 2026-10-05, the text sat a point off what the bar's own height said.
+            .frame(height: (Self.box(at: scale) + 4).rounded())
+            .chromeGlassTrack()
+            // A tint, not an outline: a 1pt ring broke up at the capsule's ends where the curve
+            // runs nearly vertical (rendered 2026-10-05); a fill antialiases cleanly.
+            .background(Capsule().fill(accent.opacity(accented ? 0.12 : 0)))
+    }
+
+    /// **What every button wears**: the glyph, its word in Icon and Text, a chevron on a menu — in
+    /// one wash, so a lit Bullets lights its word with it. As tall as a bare glyph's box: words do
+    /// not grow the bar.
+    private func label(_ symbol: String, word: String?, lit: Bool, offered: Bool = true,
+                       chevron: Bool = false) -> some View {
+        let box = Self.box(at: scale)
+        let padded = word != nil || chevron
+        return HStack(spacing: word == nil ? 2 : 4) {
+            Image(systemName: symbol)
+                .scaledFont(.system(size: Self.glyphPoint, weight: .medium))
+            if let word {
+                Text(word)
+                    .scaledFont(.system(size: Self.wordPoint, weight: .medium))
+                    .lineLimit(1)
+            }
+            if chevron {
+                Image(systemName: "chevron.down")
+                    .scaledFont(.system(size: Self.chevronPoint, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .foregroundStyle(lit ? accent : .primary)
+        .padding(.leading, padded ? 6 : 0)
+        .padding(.trailing, padded ? (word == nil ? 5 : 8) : 0)
+        .frame(minWidth: box, minHeight: box, maxHeight: box)
+        // Lit: the accent ink on a soft accent wash, as the header's Expand wears it.
+        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(lit ? accent.opacity(0.18) : .clear))
+        // Greyed where it would do nothing, or break the table the caret is in (TE76).
+        .opacity(offered ? 1 : 0.35)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
     private func button(_ verb: MarkupVerb, worded: Bool) -> some View {
-        if verb.isTable {
-            tableMenu(worded: worded)
+        if verb == Self.tableMenuStandIn {
+            tableButton(worded: worded)
         } else {
             verbButton(verb, worded: worded)
         }
@@ -431,48 +569,40 @@ struct EditorFormatBar: View, Equatable {
 
     private func verbButton(_ verb: MarkupVerb, worded: Bool) -> some View {
         let lit = state.lit.contains(verb)
-        let box = Self.box(at: scale)
+        let offered = Self.isOffered(verb, in: state)
         return Button { onVerb(verb) } label: {
-            if worded && Self.wearsWord(verb) {
-                // Icon and Text: the glyph and its word in one wash, so a lit Bullets lights the
-                // word with it. The same height as a bare glyph's box — the bar does not grow.
-                HStack(spacing: 3) {
-                    Image(systemName: Self.symbol(verb))
-                        .scaledFont(.system(size: Self.glyphPoint, weight: .medium))
-                    Text(Self.word(verb))
-                        .scaledFont(.system(size: 11, weight: .medium))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(lit ? accent : .primary)
-                .padding(.leading, 5)
-                .padding(.trailing, 7)
-                .frame(minWidth: box, minHeight: box, maxHeight: box)
-                .background(RoundedRectangle(cornerRadius: Radius.chip)
-                    .fill(lit ? accent.opacity(0.18) : .clear))
-                .contentShape(Rectangle())
-            } else {
-                Image(systemName: Self.symbol(verb))
-                    .scaledFont(.system(size: Self.glyphPoint, weight: .medium))
-                    .foregroundStyle(lit ? accent : .primary)
-                    .frame(width: box, height: box)
-                    // Lit: the accent ink on a soft accent wash, as the header's Expand wears it —
-                    // in the chip-cornered square a glyph button's hover takes, where Expand's word
-                    // makes its wash a capsule. The hover style paints its own wash over it.
-                    .background(RoundedRectangle(cornerRadius: Radius.chip)
-                        .fill(lit ? accent.opacity(0.18) : .clear))
-            }
+            label(Self.symbol(verb), word: worded && Self.wearsWord(verb) ? Self.word(verb) : nil,
+                  lit: lit, offered: offered)
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        .disabled(!offered)
         .help(Self.tooltip(verb))
         .accessibilityLabel(verb.title)
         .accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton)
     }
 
-    /// **The Heading menu — Heading 1, 2, 3 and Body, ticked at the level the selection is at**, and
-    /// labelled with it. A `Menu` in the button style, as the header's folded crumb is, so it takes
-    /// this bar's hover wash and type size rather than AppKit's pop-up chrome.
+    /// **The Table button** (decision AB): one press makes a table — from the selected lines when
+    /// they split into cells, else a new one — named by its tooltip. Greyed in a table; the Table
+    /// capsule is there for that.
+    private func tableButton(worded: Bool) -> some View {
+        let verb = Self.tableVerb(in: state)
+        let offered = Self.isOffered(Self.tableMenuStandIn, in: state)
+        return Button { onVerb(verb) } label: {
+            label(Self.symbol(Self.tableMenuStandIn), word: worded ? Self.word(Self.tableMenuStandIn) : nil,
+                  lit: false, offered: offered)
+        }
+        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        .disabled(!offered)
+        .help(verb.title)
+        .accessibilityLabel(verb.title)
+    }
+
+    /// **The Body menu — a popover of the styles, each drawn as it looks** (TE74, decision AC), as
+    /// Notes draws its Aa list: a menu cannot set a size per item, a popover can. Labelled with the
+    /// level the selection is at; greyed in a table, where every heading would break it (TE76).
     private func headingMenu(worded: Bool) -> some View {
         let box = Self.box(at: scale)
+        let offered = !state.touchesTable
         // Accent while what the selection IS is a heading — not over body text, nor over a mix.
         let isHeading: Bool = {
             switch state.heading {
@@ -480,13 +610,7 @@ struct EditorFormatBar: View, Equatable {
             case .mixed, .body: return false
             }
         }()
-        return Menu {
-            ForEach(Self.headingVerbs, id: \.self) { verb in
-                Toggle(verb.title, isOn: Binding(
-                    get: { Self.isCurrent(verb, state.heading) },
-                    set: { _ in onVerb(verb) }))
-            }
-        } label: {
+        return Button { showsStyles.toggle() } label: {
             HStack(spacing: 3) {
                 // Laid out at the widest label, so the buttons after it never move.
                 ZStack(alignment: .leading) {
@@ -496,126 +620,123 @@ struct EditorFormatBar: View, Equatable {
                     Text(Self.headingTitle(state.heading, worded: worded))
                         .foregroundStyle(isHeading ? accent : .primary)
                 }
-                .scaledFont(.system(size: 11, weight: .semibold))
+                .scaledFont(.system(size: Self.wordPoint, weight: .semibold))
                 .lineLimit(1)
                 Image(systemName: "chevron.down")
-                    .scaledFont(.system(size: 8, weight: .bold))
+                    .scaledFont(.system(size: Self.chevronPoint, weight: .bold))
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 7)
             .frame(height: box)
+            .opacity(offered ? 1 : 0.35)
             .contentShape(Rectangle())
         }
-        .menuStyle(.button)
         .buttonStyle(.hoverAffordance(.segment, tint: accent))
-        .menuIndicator(.hidden)
+        .disabled(!offered)
         .fixedSize()
-        .help("Heading level")
-        .accessibilityLabel("Heading level: \(Self.headingTitle(state.heading, worded: true))")
+        .popover(isPresented: $showsStyles, arrowEdge: .bottom) {
+            EditorStylePicker(current: state.heading) { verb in
+                showsStyles = false
+                onVerb(verb)
+            }
+        }
+        .help("Paragraph style")
+        .accessibilityLabel("Paragraph style: \(Self.headingTitle(state.heading, worded: true))")
     }
 
-    /// **The Table menu** (TE65, TE66) — the Markup menu's Table submenu, each item enabled only
-    /// where it would do something, so a row cannot be added outside a table or the header
-    /// deleted. Drawn like a button — the grid glyph, and in Icon and Text the word and a chevron —
-    /// and wearing the accent while the selection is in a table, as the Heading menu wears it over
-    /// a heading.
-    private func tableMenu(worded: Bool) -> some View {
-        let box = Self.box(at: scale)
-        let inTable = state.isInTable
+    /// **The Table capsule** (TE73): there while the caret is in a table, gone when it leaves. Row
+    /// adds one below and Column one to the right, each with a chevron for the other side; Delete
+    /// asks Row or Column; Format lines up the pipes. Each greyed where it would do nothing — no row
+    /// above the header, no deleting the header or the only column.
+    @ViewBuilder
+    private func tableCapsule(worded: Bool) -> some View {
+        Image(systemName: Self.symbol(.table(.insert)))
+            .scaledFont(.system(size: Self.glyphPoint, weight: .medium))
+            .foregroundStyle(accent)
+            .padding(.leading, 6)
+            .padding(.trailing, 2)
+            .accessibilityLabel("Table")
+        tableEdit(.addRowBelow, other: .addRowAbove, worded: worded)
+        tableEdit(.addColumnRight, other: .addColumnLeft, worded: worded)
+        tableChoice([.table(.deleteRow), .table(.deleteColumn)], worded: worded)
+        verbButton(.table(.tidy), worded: worded)
+    }
+
+    /// An edit with a side: the press does `primary`, the chevron beside it offers both.
+    @ViewBuilder
+    private func tableEdit(_ primary: TableVerb, other: TableVerb, worded: Bool) -> some View {
+        verbButton(.table(primary), worded: worded)
+        tableChoice([.table(other), .table(primary)], worded: false, chevronOnly: true)
+    }
+
+    /// A menu of table items, each enabled where it would do something.
+    private func tableChoice(_ verbs: [MarkupVerb], worded: Bool, chevronOnly: Bool = false) -> some View {
+        let offered = verbs.contains { Self.isOffered($0, in: state) }
+        let lead = verbs[0]
         return Menu {
-            tableItems
+            ForEach(verbs, id: \.self) { verb in
+                Button(verb.title) { onVerb(verb) }
+                    .disabled(!Self.isOffered(verb, in: state))
+            }
         } label: {
             Group {
-                if worded {
-                    HStack(spacing: 3) {
-                        Image(systemName: Self.symbol(Self.tableMenuStandIn))
-                            .scaledFont(.system(size: Self.glyphPoint, weight: .medium))
-                        Text(Self.word(Self.tableMenuStandIn))
-                            .scaledFont(.system(size: 11, weight: .medium))
-                            .lineLimit(1)
-                        Image(systemName: "chevron.down")
-                            .scaledFont(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.leading, 5)
-                    .padding(.trailing, 7)
-                    .frame(minWidth: box, minHeight: box, maxHeight: box)
+                if chevronOnly {
+                    Image(systemName: "chevron.down")
+                        .scaledFont(.system(size: Self.chevronPoint, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: Self.box(at: scale) * 0.6, height: Self.box(at: scale))
+                        .opacity(offered ? 1 : 0.35)
+                        .contentShape(Rectangle())
                 } else {
-                    Image(systemName: Self.symbol(Self.tableMenuStandIn))
-                        .scaledFont(.system(size: Self.glyphPoint, weight: .medium))
-                        .frame(width: box, height: box)
+                    label(Self.symbol(lead), word: worded ? Self.word(lead) : nil, lit: false,
+                          offered: offered, chevron: true)
                 }
             }
-            .foregroundStyle(inTable ? accent : .primary)
-            .background(RoundedRectangle(cornerRadius: Radius.chip)
-                .fill(inTable ? accent.opacity(0.18) : .clear))
-            .contentShape(Rectangle())
         }
         .menuStyle(.button)
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
         .menuIndicator(.hidden)
         .fixedSize()
-        .help(MarkupVerb.tableMenuTitle)
-        .accessibilityLabel(MarkupVerb.tableMenuTitle)
-        .accessibilityValue(inTable ? "In a table" : "")
+        .disabled(!offered)
+        .help(verbs.map(\.title).joined(separator: " or "))
+        .accessibilityLabel(chevronOnly ? "More: " + verbs.map(\.title).joined(separator: ", ") : Self.word(lead))
     }
 
-    /// The Table submenu's items, divided where ``MarkupVerb/tableSections`` divides them — on the
-    /// bar's Table menu and, when that is behind the », in the »'s Table submenu.
-    @ViewBuilder
-    private var tableItems: some View {
-        ForEach(Array(MarkupVerb.tableSections.enumerated()), id: \.offset) { index, section in
-            if index > 0 { Divider() }
-            ForEach(section, id: \.self) { verb in
-                Button(verb.title) { onVerb(verb) }
-                    .disabled(!Self.isOffered(verb, in: state))
-            }
-        }
-    }
-
-    /// Whether a Table item would do something for this selection; every other verb always can.
-    static func isOffered(_ verb: MarkupVerb, in state: MarkupFormatState) -> Bool {
-        guard case .table(let op) = verb else { return true }
-        return state.tables.contains(op)
-    }
-
-    static func isCurrent(_ verb: MarkupVerb, _ heading: MarkdownEdits.HeadingLevel) -> Bool {
-        switch (verb, heading) {
-        case (.heading(0), .body): return true
-        case (.heading(let a), .level(let b)): return a == b
-        default: return false
-        }
-    }
-
-    /// **The verbs the bar had no room for, in the bar's order, divided where it divides them** —
-    /// each a ticked item while its formatting is applied. The » lights when it hides a lit verb,
-    /// so a narrow bar never hides the answer to "is this already a list?".
-    private func overflowMenu(_ hidden: [[MarkupVerb]]) -> some View {
-        let box = Self.box(at: scale)
-        let lit = hidden.joined().contains { state.lit.contains($0) }
+    /// **A folded group: one button, its group's glyph and a chevron, its verbs in a menu** (TE72) —
+    /// lit while one of them is applied, so a narrow bar never hides the answer to "is this already
+    /// a list?".
+    private func foldMenu(_ part: Part) -> some View {
+        let verbs = Self.verbs(of: part)
+        let lit = verbs.contains { state.lit.contains($0) }
         return Menu {
-            ForEach(Array(hidden.enumerated()), id: \.offset) { index, group in
-                if index > 0 { Divider() }
-                ForEach(group, id: \.self) { verb in
-                    if verb.isTable {
-                        Menu(MarkupVerb.tableMenuTitle) { tableItems }
-                    } else if Self.canLight(verb) {
-                        Toggle(verb.title, isOn: Binding(
-                            get: { state.lit.contains(verb) },
-                            set: { _ in onVerb(verb) }))
-                    } else {
-                        Button(verb.title) { onVerb(verb) }
-                    }
-                }
+            items(of: part)
+        } label: {
+            label(Self.symbol(part), word: nil, lit: lit, chevron: true)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(Self.title(part))
+        .accessibilityLabel(Self.title(part))
+        .accessibilityValue(Self.appliedValue(verbs, lit: state.lit))
+    }
+
+    /// **The last resort: every folded group in one » menu, a submenu each** — and Bold, Italic and
+    /// Strikethrough at its top once they fold too.
+    private func mergedMenu(_ rung: Rung) -> some View {
+        let parts = Self.foldedParts(rung, inTable: state.isInTable)
+        let marks = rung.marksFolded ? (Self.groups.first ?? []) : []
+        let hidden = marks + parts.flatMap(Self.verbs(of:))
+        let lit = hidden.contains { state.lit.contains($0) }
+        return Menu {
+            ForEach(marks, id: \.self) { item($0) }
+            if !marks.isEmpty { Divider() }
+            ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+                Menu(Self.title(part)) { items(of: part) }
             }
         } label: {
-            Image(systemName: Self.overflowSymbol)
-                .scaledFont(.system(size: Self.glyphPoint, weight: .medium))
-                .foregroundStyle(lit ? accent : .primary)
-                .frame(width: box, height: box)
-                .background(RoundedRectangle(cornerRadius: Radius.chip)
-                    .fill(lit ? accent.opacity(0.18) : .clear))
-                .contentShape(Rectangle())
+            label(Self.overflowSymbol, word: nil, lit: lit)
         }
         .menuStyle(.button)
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
@@ -623,15 +744,91 @@ struct EditorFormatBar: View, Equatable {
         .fixedSize()
         .help("More formatting")
         .accessibilityLabel("More formatting")
-        // What the accent says to a sighted reader — "something behind this is applied here" —
-        // said to VoiceOver as the verbs themselves.
-        .accessibilityValue(Self.overflowValue(hidden: hidden, lit: state.lit))
+        .accessibilityValue(Self.appliedValue(hidden, lit: state.lit))
     }
 
-    /// The » menu's accessibility value: the hidden verbs that are applied, by name, or nothing.
-    static func overflowValue(hidden: [[MarkupVerb]], lit: Set<MarkupVerb>) -> String {
-        let applied = hidden.joined().filter { lit.contains($0) }.map(\.title)
-        return applied.isEmpty ? "" : "Applied: " + applied.joined(separator: ", ")
+    /// A folded part's items, in its order: ticked toggles for what can be lit, plain items for the
+    /// rest, the Table button as its two items. Each greyed where the bar would grey it.
+    @ViewBuilder
+    private func items(of part: Part) -> some View {
+        ForEach(Self.verbs(of: part), id: \.self) { verb in
+            if verb == Self.tableMenuStandIn {
+                ForEach(MarkupVerb.tableSections.first ?? [], id: \.self) { item($0) }
+            } else {
+                item(verb)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func item(_ verb: MarkupVerb) -> some View {
+        if Self.canLight(verb) {
+            Toggle(verb.title, isOn: Binding(get: { state.lit.contains(verb) }, set: { _ in onVerb(verb) }))
+                .disabled(!Self.isOffered(verb, in: state))
+        } else {
+            Button(verb.title) { onVerb(verb) }
+                .disabled(!Self.isOffered(verb, in: state))
+        }
+    }
+}
+
+/// **The Body menu's styles, each drawn as it looks** (TE74, decision AC) — Heading 1 large and
+/// bold down to Body, ticked at the level the selection is at, as Notes draws its Aa list.
+struct EditorStylePicker: View {
+    let current: MarkdownEdits.HeadingLevel
+    let onPick: (MarkupVerb) -> Void
+
+    /// Each style's size and weight in the list — the headings in steps above the body's 13 points.
+    static func font(_ verb: MarkupVerb) -> (size: CGFloat, weight: Font.Weight) {
+        switch verb {
+        case .heading(1): return (21, .bold)
+        case .heading(2): return (17, .bold)
+        case .heading(3): return (14.5, .bold)
+        default: return (13, .regular)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(EditorFormatBar.headingVerbs, id: \.self) { verb in
+                EditorStyleRow(verb: verb, isCurrent: EditorFormatBar.isCurrent(verb, current)) { onPick(verb) }
+            }
+        }
+        .padding(6)
+        .frame(minWidth: 190)
+    }
+}
+
+/// One style in ``EditorStylePicker``: a tick where it is current, its name in its own size, the
+/// row washed in the accent under the pointer, as a menu item is.
+private struct EditorStyleRow: View {
+    let verb: MarkupVerb
+    let isCurrent: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let font = EditorStylePicker.font(verb)
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark")
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .opacity(isCurrent ? 1 : 0)
+                Text(verb.title)
+                    .scaledFont(.system(size: font.size, weight: font.weight))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(hovering ? Color.white : Color.primary)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+            .background(RoundedRectangle(cornerRadius: 5).fill(hovering ? Color.accentColor : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityLabel(verb.title)
+        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
     }
 }
 

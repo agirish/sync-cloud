@@ -30,22 +30,26 @@ public enum MarkupVerb: Hashable, Sendable {
     /// The verbs the context menu offers, in the order it offers them; `nil` is a separator.
     ///
     /// **One flat list, because a menu item carries an `Int` and not an enum.** `NSMenuItem.tag` is
-    /// how the click gets back here, so the index in this array IS the identity — which makes the
-    /// order load-bearing in a way a menu's usually is not. Appending is safe; reordering is not.
+    /// how the click gets back here, so the index in this array IS the identity. Nothing stores a
+    /// tag, so the order may change, but every builder must read the tag back through this list.
     ///
-    /// **The table verbs come last, as one group, and every menu draws that group as a Table
-    /// submenu** — divided where ``tableSections`` divides it — and the format bar as one Table
-    /// menu, the way it draws the heading group as one Heading menu. Appended, so no tag moved.
+    /// **Grouped by what each verb changes (TE68, decision AA = C6)**, the format bar's capsules:
+    /// the three plain marks; the paragraph's kind (the bar's Body menu); the lists; the two Codes
+    /// with Quote, the three ways to set text apart from the prose; and what adds something new,
+    /// Link, Table and Divider. **The table verbs run together inside that last group**, and every
+    /// menu draws the run as one Table submenu where it starts, divided where ``tableSections``
+    /// divides it; the format bar draws it as one Table button there.
     public static let menuOrder: [MarkupVerb?] = [
-        .bold, .italic, .strikethrough, .inlineCode, .link,
+        .bold, .italic, .strikethrough,
         nil,
         .heading(1), .heading(2), .heading(3), .heading(0),
         nil,
-        .bulletList, .numberedList, .taskItem, .blockQuote,
+        .bulletList, .numberedList, .taskItem,
         nil,
-        .codeBlock, .horizontalRule,
+        .inlineCode, .codeBlock, .blockQuote,
         nil,
-    ] + tableSections.joined().map(Optional.some)
+        .link,
+    ] + tableSections.joined().map(Optional.some) + [.horizontalRule]
 
     /// The Table submenu, in its order, cut where it draws its separators: making a table, adding
     /// to one, taking from one, tidying one.
@@ -56,8 +60,21 @@ public enum MarkupVerb: Hashable, Sendable {
         [.table(.tidy)],
     ]
 
-    /// The submenu's own title, and the format bar's Table menu's.
+    /// The submenu's own title, and the format bar's Table button's word.
     public static let tableMenuTitle = "Table"
+
+    /// **Whether this verb would take a table's lines out of it** (TE76) — the verbs that rewrite
+    /// whole lines: a heading, a list or a quote marker in front of a row, a fence around rows, or
+    /// a divider between them each end the table there. The inline marks and Link only wrap words
+    /// inside a cell, and the Table items are the table's own. See ``MarkdownEdits/breaksTable(_:in:selection:)``.
+    public var breaksTables: Bool {
+        switch self {
+        case .heading, .bulletList, .numberedList, .taskItem, .blockQuote, .codeBlock, .horizontalRule:
+            return true
+        case .bold, .italic, .strikethrough, .inlineCode, .link, .table:
+            return false
+        }
+    }
 
     /// Whether this is one of the Table submenu's items.
     public var isTable: Bool {
@@ -99,7 +116,9 @@ public enum MarkupVerb: Hashable, Sendable {
         case .taskItem: return "Task Item"
         case .blockQuote: return "Block Quote"
         case .codeBlock: return "Code Block"
-        case .horizontalRule: return "Horizontal Rule"
+        // "Divider", not "Horizontal Rule" (TE69, decision X): what you get, in one word. The case
+        // keeps its Markdown name.
+        case .horizontalRule: return "Divider"
         case .table(let op): return op.title
         }
     }
@@ -165,6 +184,9 @@ extension MarkdownEdits {
         guard selection.location != NSNotFound,
               selection.location >= 0,
               NSMaxRange(selection) <= ns.length else { return nil }
+        // Refused, not applied, where it would break a table (TE76) — the format bar greys these
+        // buttons there, and the menus that cannot grey them say so in the log.
+        if breaksTable(verb, ns, selection) { return nil }
 
         switch verb {
         case .bold, .italic, .strikethrough, .inlineCode:
@@ -181,6 +203,25 @@ extension MarkdownEdits {
         }
     }
 
+    /// **Whether `verb` would break a table here** (TE76): it rewrites whole lines
+    /// (``MarkupVerb/breaksTables``) and the selection starts or ends inside a table, so the lines
+    /// it would rewrite include rows. A heading, list or quote marker in front of a row, or a fence
+    /// or divider among them, ends the table at that line, and the rows after it read as text.
+    ///
+    /// **Pure, and the one rule for every door** — ``apply(_:to:selection:)`` refuses on it, the
+    /// format bar greys on it (``MarkupFormatState/touchesTable``), and editable Preview (TE67) can
+    /// ask it of the same buffer. A selection running from prose before a table to prose after it
+    /// is not refused: it says, by its own ends, that the table is part of what it means.
+    static func breaksTable(_ verb: MarkupVerb, in text: String, selection: NSRange) -> Bool {
+        let ns = text as NSString
+        guard isValid(selection, in: ns) else { return false }
+        return breaksTable(verb, ns, selection)
+    }
+
+    static func breaksTable(_ verb: MarkupVerb, _ ns: NSString, _ selection: NSRange) -> Bool {
+        verb.breaksTables && MarkdownTables.touches(ns, selection)
+    }
+
     /// **Whether pressing `verb` now would TAKE its formatting off** — the format bar's lit state
     /// (TE52), answered by the very tests ``apply(_:to:selection:)`` uses to choose between adding
     /// and removing: ``wrapState(_:_:delimiter:guardingAgainst:)`` for the inline verbs and
@@ -193,7 +234,7 @@ extension MarkdownEdits {
     /// rule, kept rather than widened: a button that lit for a press that would then add `****`
     /// would be promising a toggle the verb does not perform.
     ///
-    /// **Never lit:** Link, Code Block and Horizontal Rule, which only ever insert; Body, which only
+    /// **Never lit:** Link, Code Block and Divider, which only ever insert; Body, which only
     /// ever removes and so has no "on"; and a line verb over blank lines alone, where the press
     /// changes nothing (``prefixLines(_:_:_:)`` answers `nil` there).
     static func isApplied(_ verb: MarkupVerb, in text: String, selection: NSRange) -> Bool {
@@ -221,12 +262,12 @@ extension MarkdownEdits {
             return written && everyLineHas(prefix, lines, in: ns)
         case .link, .codeBlock, .horizontalRule, .table:
             // Inserts, or a submenu — never a toggle that is on. Where the caret is IN a table is
-            // `MarkupFormatState.tables`, which the bar's Table menu reads.
+            // `MarkupFormatState.tables`, which the bar's Table button and capsule read.
             return false
         }
     }
 
-    /// What the format bar's Heading menu names: the level the selection's lines are at.
+    /// What the format bar's Body menu names: the level the selection's lines are at.
     enum HeadingLevel: Equatable, Sendable {
         /// Heading 1, 2 or 3 — the three the menu offers — on every written line.
         case level(Int)

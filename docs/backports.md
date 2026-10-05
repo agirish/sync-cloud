@@ -6821,3 +6821,29 @@ done
 
 **`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the Edit workspace, so there is no
 text view writing line breaks.
+
+## The format bar regrouped into capsules, a Table capsule in tables (TE68–TE76) — main only
+
+The format bar became a capsule per group, in the order the Markup menu now follows too (decision
+AA = C6): Body · Bold, Italic, Strikethrough · the three lists · Inline Code, Code Block, Block Quote
+· Link…, Table, Divider. `menuOrder` was regrouped, the table run moved inside the last group, and
+both menu builders draw the Table submenu where the run starts. "Horizontal Rule" is titled
+**Divider** (the case keeps its name). The bar is a quarter larger (14pt glyphs, 25pt boxes) and
+narrows group by group: words off, Body to ¶, each group folded into one button, then one merged
+» beside B, I and S. With the caret in a table a Table capsule appears (Row, Column, Delete,
+Format) and the verbs that rewrite whole lines are greyed. They are refused by
+`MarkdownEdits.breaksTable(_:in:selection:)` in `apply` when either end of the selection is in a
+table, and the menu bar logs why. The Body menu is a popover that draws each style as it looks.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s formatBar=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorFormatBar.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-05, against origin, before this landed:
+# main  formatBar=1
+# v4.x, v3.x, v2.x — every line: formatBar=0
+```
+
+**`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the format bar or the Markup
+verbs (see the TE48/TE52 and TE65/TE66 entries above), so there is nothing to regroup.

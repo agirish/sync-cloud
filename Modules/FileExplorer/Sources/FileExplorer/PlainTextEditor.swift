@@ -339,9 +339,10 @@ struct PlainTextEditor: NSViewRepresentable {
                 insertTextSettings(into: menu, at: 0)
                 return menu
             }
+            let ns = view.string as NSString
             let markup = Self.markupMenu(target: self, action: #selector(applyMarkup(_:)),
-                                         tables: MarkdownTables.available(in: view.string as NSString,
-                                                                          selection: view.selectedRange()))
+                                         tables: MarkdownTables.available(in: ns, selection: view.selectedRange()),
+                                         inTable: MarkdownTables.touches(ns, view.selectedRange()))
             let host = NSMenuItem(title: "Markup", action: nil, keyEquivalent: "")
             host.submenu = markup
             menu.insertItem(host, at: 0)
@@ -432,15 +433,21 @@ struct PlainTextEditor: NSViewRepresentable {
         /// equivalents back — the claim "the context menu shows the chords the menu bar registers"
         /// is about these items, and nothing else can see them.
         ///
-        /// **The table verbs go in a Table submenu** (TE65, TE66), divided where
+        /// **The table verbs go in a Table submenu** (TE65, TE66), drawn where their run starts in
+        /// ``MarkupVerb/menuOrder`` — between Link and Divider — and divided where
         /// ``MarkupVerb/tableSections`` divides them, each item tagged with its place in
-        /// `menuOrder` like the rest — and enabled only if it is in `tables`, the items that would
-        /// do something at the selection, since a right-click knows where the caret is. `nil`
-        /// enables them all.
-        static func markupMenu(target: AnyObject?, action: Selector, tables: Set<TableVerb>? = nil) -> NSMenu {
+        /// `menuOrder` like the rest. Enabled only if it is in `tables`, the items that would do
+        /// something at the selection, since a right-click knows where the caret is. `nil` enables
+        /// them all.
+        ///
+        /// **And with `inTable`, the verbs that would break a table are greyed** (TE76), as the
+        /// format bar greys them — ``MarkupVerb/breaksTables``, refused there by the verbs
+        /// themselves. So the Markup submenu enables its items by hand too.
+        static func markupMenu(target: AnyObject?, action: Selector, tables: Set<TableVerb>? = nil,
+                               inTable: Bool = false) -> NSMenu {
             let markup = NSMenu(title: "Markup")
+            markup.autoenablesItems = false
             let table = NSMenu(title: MarkupVerb.tableMenuTitle)
-            // Its items are enabled by hand, from `tables`, not by AppKit's validation.
             table.autoenablesItems = false
             for (index, verb) in MarkupVerb.menuOrder.enumerated() {
                 guard let verb else {
@@ -453,19 +460,20 @@ struct PlainTextEditor: NSViewRepresentable {
                 item.target = target
                 item.tag = index
                 if case .table(let op) = verb {
-                    if MarkupVerb.tableSections.dropFirst().contains(where: { $0.first == verb }) {
+                    if table.items.isEmpty {
+                        // The run's first item: the submenu goes here, and fills as the run goes on.
+                        let host = NSMenuItem(title: MarkupVerb.tableMenuTitle, action: nil, keyEquivalent: "")
+                        host.submenu = table
+                        markup.addItem(host)
+                    } else if MarkupVerb.tableSections.dropFirst().contains(where: { $0.first == verb }) {
                         table.addItem(.separator())
                     }
                     item.isEnabled = tables?.contains(op) ?? true
                     table.addItem(item)
                 } else {
+                    item.isEnabled = !(inTable && verb.breaksTables)
                     markup.addItem(item)
                 }
-            }
-            if !table.items.isEmpty {
-                let host = NSMenuItem(title: MarkupVerb.tableMenuTitle, action: nil, keyEquivalent: "")
-                host.submenu = table
-                markup.addItem(host)
             }
             return markup
         }

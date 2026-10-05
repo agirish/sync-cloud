@@ -516,8 +516,20 @@ enum MarkdownTables {
         }
     }
 
-    /// Which Table menu items apply at `selection` — what the bar's Table menu and the text's
-    /// right-click menu enable, exactly the ones ``apply(_:to:selection:)`` would not refuse.
+    /// **Whether either end of the selection is inside a table** — what decides that a verb
+    /// rewriting whole lines would break one (``MarkdownEdits/breaksTable(_:in:selection:)``, TE76).
+    /// Either end, not both: a selection from a row down into the prose after it still rewrites
+    /// the row.
+    static func touches(_ ns: NSString, _ selection: NSRange) -> Bool {
+        guard selection.location != NSNotFound, selection.location >= 0,
+              NSMaxRange(selection) <= ns.length else { return false }
+        return locate(in: ns, at: selection.location) != nil
+            || locate(in: ns, at: NSMaxRange(selection)) != nil
+    }
+
+    /// Which Table menu items apply at `selection` — what the bar's Table button and Table capsule,
+    /// and the text's right-click menu, enable: exactly the ones ``apply(_:to:selection:)`` would
+    /// not refuse.
     /// Inside a table: the row and column edits and Tidy, but no row above the header, no deleting
     /// it, and no deleting the only column. Outside: Insert Table, and Make Table from Selection
     /// over lines holding tabs or commas.

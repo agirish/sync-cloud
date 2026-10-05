@@ -357,7 +357,7 @@ import FileExplorerTestSupport
     static func formatBarHeight(scale: CGFloat) -> CGFloat {
         NSHostingView(rootView: AnyView(
             EditorFormatBar(state: .none, accent: .blue, onVerb: { _ in },
-                            forcedRung: EditorFormatBar.ladder[0])
+                            forcedRung: EditorFormatBar.ladder(showsLabels: true, inTable: false)[0])
                 .environment(\.appFontScale, scale))).fittingSize.height
     }
 

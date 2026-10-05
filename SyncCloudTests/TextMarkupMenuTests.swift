@@ -64,9 +64,14 @@ import Testing
     /// same `menuOrder`, and asserted against it rather than against a copy.
     @Test func theMarkupMenuIsTheContextMenusListInItsOrder() throws {
         let markup = Self.titles(try Self.menu("Markup"))
-        // The table verbs are one Table submenu at the end (TE65), as the context menu draws them.
-        #expect(markup == MarkupVerb.menuOrder.compactMap { $0 }.filter { !$0.isTable }.map(\.title) + ["Table"],
-                "the Markup menu reads \(markup)")
+        // The table verbs are one Table submenu where their run starts — between Link… and Divider
+        // (TE68) — as the context menu draws them.
+        var expected: [String] = []
+        for verb in MarkupVerb.menuOrder.compactMap({ $0 }) {
+            if !verb.isTable { expected.append(verb.title) } else if !expected.contains("Table") { expected.append("Table") }
+        }
+        #expect(markup == expected, "the Markup menu reads \(markup)")
+        #expect(markup.suffix(3) == ["Link…", "Table", "Divider"], "the Markup menu ends \(markup.suffix(3))")
         let table = try #require(try Self.item("Table", in: "Markup").submenu, "Markup ▸ Table is not a submenu")
         #expect(Self.titles(table) == MarkupVerb.tableSections.joined().map(\.title), "Markup ▸ Table reads \(Self.titles(table))")
         #expect(table.items.filter(\.isSeparatorItem).count == MarkupVerb.tableSections.count - 1)

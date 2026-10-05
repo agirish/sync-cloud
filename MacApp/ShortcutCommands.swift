@@ -2481,21 +2481,27 @@ struct MarkupVerbCommands: View {
     var body: some View {
         ForEach(Array(MarkupVerb.menuOrder.enumerated()), id: \.offset) { _, verb in
             if let verb {
-                // The table verbs are the Table submenu below, not items of their own.
                 if !verb.isTable {
                     Button(verb.title) {
                         if verb == .italic { italic() } else { Self.apply(verb) }
                     }
                     .keyboardShortcut(verb.chord.map { KeyboardShortcut($0.key, modifiers: $0.modifiers) })
                     .disabled(verbs?.canMarkUp != true)
+                } else if verb == MarkupVerb.tableSections.first?.first {
+                    // The table verbs are one Table submenu, drawn where their run starts — between
+                    // Link and Divider, as the context menu draws it.
+                    tableMenu
                 }
             } else {
                 Divider()
             }
         }
-        // Markup ▸ Table (TE65, TE66): the table verbs, divided where the context menu divides
-        // them. Enabled with the rest — an item that has nothing to do where the caret is says so
-        // in the log (`EditorDocumentSurface.applyMarkup`).
+    }
+
+    /// Markup ▸ Table (TE65, TE66): the table verbs, divided where the context menu divides them.
+    /// Enabled with the rest — an item that has nothing to do where the caret is says so in the log
+    /// (`EditorDocumentSurface.applyMarkup`).
+    private var tableMenu: some View {
         Menu(MarkupVerb.tableMenuTitle) {
             ForEach(Array(MarkupVerb.tableSections.enumerated()), id: \.offset) { index, section in
                 if index > 0 { Divider() }

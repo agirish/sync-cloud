@@ -87,8 +87,13 @@ import Design
         }
         // …and the menu is genuinely divided the way the menu bar's will be.
         #expect(menu.items.filter(\.isSeparatorItem).count == MarkupVerb.menuOrder.filter { $0 == nil }.count)
-        let table = try? #require(menu.items.last?.submenu, "the Markup submenu does not end in Table")
-        #expect(menu.items.last?.title == "Table")
+        // The Table submenu sits where the table run starts in `menuOrder`: between Link… and
+        // Divider, in the group that adds something new (TE68).
+        let titles = menu.items.map(\.title)
+        let at = titles.firstIndex(of: "Table")
+        #expect(at.map { titles[$0 - 1] == "Link…" && titles[$0 + 1] == "Divider" } == true,
+                "the Markup submenu reads \(titles) — Table is not between Link… and Divider")
+        let table = at.flatMap { menu.items[$0].submenu }
         #expect(table?.items.filter { !$0.isSeparatorItem }.map(\.title) == MarkupVerb.tableSections.joined().map(\.title))
         #expect(table?.items.filter(\.isSeparatorItem).count == MarkupVerb.tableSections.count - 1)
         #expect(table?.autoenablesItems == false, "AppKit would enable the Table items whatever the caret's place")

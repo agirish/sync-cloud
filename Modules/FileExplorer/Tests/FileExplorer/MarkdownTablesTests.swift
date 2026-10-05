@@ -281,7 +281,7 @@ import EventsTestSupport
         #expect(EditorFormatBar.isOffered(.bold, in: outside))
         // The right-click menu's Table items too.
         let menu = PlainTextEditor.Coordinator.markupMenu(target: nil, action: #selector(NSText.copy(_:)), tables: [.insert])
-        let table = menu.items.last?.submenu
+        let table = menu.items.first { $0.title == MarkupVerb.tableMenuTitle }?.submenu
         #expect(table?.items.filter { !$0.isSeparatorItem && $0.isEnabled }.map(\.title) == ["Insert Table"],
                 "the right-click Table menu enables \(table?.items.filter { $0.isEnabled }.map(\.title) ?? [])")
         #expect(!MarkupFormatState.of("plain", selection: NSRange(location: 1, length: 0)).isInTable)
@@ -314,5 +314,14 @@ import EventsTestSupport
         #expect(view.string == "plain words")
         #expect(await log.holds(containing: "Markup ▸ Delete Row did nothing: the caret is not in a table's body"),
                 "a Table item with nothing to do said nothing")
+
+        // TE76: a verb that would take the table's lines out of it, chosen from the menu bar —
+        // which cannot grey it — leaves the table alone and says why.
+        view.string = Self.ragged
+        view.setSelectedRange(NSRange(location: (Self.ragged as NSString).range(of: "3").location, length: 0))
+        #expect(EditorDocumentSurface.applyMarkup(.bulletList, in: window))
+        #expect(view.string == Self.ragged, "Bulleted List on a table row left “\(view.string)”")
+        #expect(await log.holds(containing: "Markup ▸ Bulleted List did nothing: the selection is in a table"),
+                "a verb refused in a table said nothing")
     }
 }

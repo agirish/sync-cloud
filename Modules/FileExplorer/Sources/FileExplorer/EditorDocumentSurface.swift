@@ -102,10 +102,18 @@ public enum EditorDocumentSurface {
     @discardableResult
     public static func applyMarkup(_ verb: MarkupVerb, in window: NSWindow?) -> Bool {
         guard let view = caretTextView(in: window), view.isEditable else { return false }
-        if !PlainTextEditor.apply(verb, to: view), case .table(let op) = verb {
-            // The Table items cannot know where the caret is when the menu draws them; one that
-            // had nothing to do says why, rather than doing nothing silently.
-            Logger.shared.info("Markup ▸ \(verb.title) did nothing: \(op.refusal)")
+        // Asked before the press, which would refuse on it: the menu bar's items cannot know where
+        // the caret is when they draw, so the ones that would break a table stay enabled there.
+        let breaks = MarkdownEdits.breaksTable(verb, in: view.string, selection: view.selectedRange())
+        if !PlainTextEditor.apply(verb, to: view) {
+            if breaks {
+                // TE76 — the format bar greys these; a press from the menu bar says why instead.
+                Logger.shared.info("Markup ▸ \(verb.title) did nothing: the selection is in a table, and it would take the table's lines out of it")
+            } else if case .table(let op) = verb {
+                // The Table items cannot know where the caret is when the menu draws them; one that
+                // had nothing to do says why, rather than doing nothing silently.
+                Logger.shared.info("Markup ▸ \(verb.title) did nothing: \(op.refusal)")
+            }
         }
         return true
     }

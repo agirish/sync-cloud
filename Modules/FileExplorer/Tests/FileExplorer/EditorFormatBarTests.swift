@@ -14,42 +14,46 @@ import EventsTestSupport
     // MARK: Parity with the Markup menu
 
     /// **The bar holds the Markup menu's verbs — every one, once — in the menu's groups and the
-    /// menu's order, with one move: the heading group leads, as a menu.** All of it read off
+    /// menu's order, with one move: the heading group leads, as the Body menu.** All of it read off
     /// `MarkupVerb.menuOrder`, the list the menu bar's Markup menu and the right-click submenu are
-    /// built from (`TextMarkupMenuTests` holds the built menu to the same list).
+    /// built from (`TextMarkupMenuTests` holds the built menu to the same list). The table run sits
+    /// inside the last group and is one Table button where it starts (TE68, decision AA = C6).
     ///
-    /// Mutations: drop a verb from a group, reorder two within one, or move the lists ahead of the
-    /// inline verbs — each fails a line.
-    @Test func theBarHoldsTheMarkupMenusVerbsInItsGroupsAndOrder() {
+    /// Mutations: drop a verb from a group, reorder two within one, move Quote back to the lists,
+    /// or move the table run to the end — each fails a line.
+    @Test func theBarHoldsTheMarkupMenusVerbsInItsGroupsAndOrder() throws {
         let menu = MarkupVerb.menuOrder.compactMap { $0 }
         let bar = EditorFormatBar.barOrder
         #expect(bar.count == menu.count && Set(bar) == Set(menu),
                 "the bar holds \(bar.map(\.title)), the menu \(menu.map(\.title))")
         let menuGroups = MarkupVerb.menuOrder.split(separator: nil).map { Array($0.compactMap { $0 }) }
         let headings = menuGroups.filter { $0.allSatisfy { if case .heading = $0 { true } else { false } } }
-        #expect(headings.count == 1, "the menu has \(headings.count) heading groups — the Heading menu is about nothing")
+        #expect(headings.count == 1, "the menu has \(headings.count) heading groups — the Body menu is about nothing")
         #expect(EditorFormatBar.headingVerbs == headings.first,
-                "the Heading menu offers \(EditorFormatBar.headingVerbs.map(\.title))")
-        // The table group is one Table menu on the bar, beside the two blocks (TE65).
-        let tables = menuGroups.filter { $0.allSatisfy(\.isTable) }
-        #expect(tables.count == 1 && EditorFormatBar.tableVerbs == tables.first,
-                "the Table menu offers \(EditorFormatBar.tableVerbs.map(\.title))")
-        var expected = menuGroups.filter { $0 != headings.first && $0 != tables.first }
-        expected[expected.count - 1].append(EditorFormatBar.tableMenuStandIn)
-        #expect(EditorFormatBar.groups == expected, "the bar's button groups are not the menu's, in the menu's order")
-        #expect(bar == EditorFormatBar.headingVerbs
-                + EditorFormatBar.groups.flatMap { $0 }.filter { !$0.isTable } + EditorFormatBar.tableVerbs,
-                "the bar's reading order is not headings first, then the menu's groups, then the Table menu's")
-        // The spelled-out order, so the derivation above cannot quietly agree with a changed menu.
+                "the Body menu offers \(EditorFormatBar.headingVerbs.map(\.title))")
+        // The table verbs are one unbroken run, the Table submenu's, in its sections' order.
+        let firstTable = menu.firstIndex { $0.isTable }
+        let first = try #require(firstTable, "the menu holds no table verb")
+        let run = Array(menu[first...].prefix { $0.isTable })
+        #expect(run == Array(MarkupVerb.tableSections.joined()) && EditorFormatBar.tableVerbs == run,
+                "the table verbs are not one run in the Table submenu's order")
+        #expect(menu.filter(\.isTable).count == run.count, "a table verb sits outside the run")
+        // The bar reads as the menu does, headings moved to the front.
+        #expect(bar == EditorFormatBar.headingVerbs + menu.filter { !EditorFormatBar.headingVerbs.contains($0) },
+                "the bar's reading order is not headings first, then the menu's order")
+        // The spelled-out groups, so the derivation above cannot quietly agree with a changed menu.
         #expect(EditorFormatBar.groups.map { $0.map(\.title) } == [
-            ["Bold", "Italic", "Strikethrough", "Inline Code", "Link…"],
-            ["Bulleted List", "Numbered List", "Task Item", "Block Quote"],
-            ["Code Block", "Horizontal Rule", "Insert Table"],
+            ["Bold", "Italic", "Strikethrough"],
+            ["Bulleted List", "Numbered List", "Task Item"],
+            ["Inline Code", "Code Block", "Block Quote"],
+            ["Link…", "Insert Table", "Divider"],
         ])
         #expect(EditorFormatBar.tableVerbs.map(\.title) == [
             "Insert Table", "Make Table from Selection", "Add Row Above", "Add Row Below",
             "Add Column Left", "Add Column Right", "Delete Row", "Delete Column", "Format Table",
         ])
+        #expect(EditorFormatBar.tableEditVerbs.map(\.title) == Array(EditorFormatBar.tableVerbs.map(\.title).dropFirst(2)),
+                "the Table capsule's items are not the run less the two that make tables")
         #expect(EditorFormatBar.headingVerbs.map(\.title) == ["Heading 1", "Heading 2", "Heading 3", "Body"])
     }
 
@@ -63,8 +67,9 @@ import EventsTestSupport
     @Test func everyPressRunsTheMarkupMenusFunction() throws {
         let bar = try Self.source("EditorFormatBar.swift")
         #expect(bar.contains("Button { onVerb(verb) }"), "a bar button does not hand its verb to onVerb")
-        #expect(bar.components(separatedBy: "set: { _ in onVerb(verb) }").count - 1 == 2,
-                "the Heading menu and the » menu do not both hand their verbs to onVerb")
+        #expect(bar.components(separatedBy: "set: { _ in onVerb(verb) }").count - 1 == 1,
+                "the folded menus' toggles do not hand their verbs to onVerb")
+        #expect(bar.contains("Button(verb.title) { onVerb(verb) }"), "a folded menu's or the Table capsule's item does not hand its verb to onVerb")
         let handle = try Self.slice(bar, from: "func applyMarkup(_ verb: MarkupVerb) -> Bool",
                                     to: "\n    }\n")
         #expect(handle.contains("EditorDocumentSurface.applyMarkup(verb, in: window)"),
@@ -210,7 +215,8 @@ import EventsTestSupport
                 "the bar takes no height — the text starts where a plain file's does")
     }
 
-    static let width: CGFloat = 900
+    /// Wide enough for every word at the default size, a quarter larger (TE75).
+    static let width: CGFloat = 1_300
 
     /// A workspace with the rail folded, in a window, with View ▸ Format Bar set as asked: the rings
     /// between the header's bottom and the text's top, and where the text starts.
@@ -287,7 +293,7 @@ import EventsTestSupport
             let (text, selection) = Self.unmark(marked)
             let state = MarkupFormatState.of(text, selection: selection)
             #expect(state.lit == lit, "“\(marked)” lights \(state.lit.map(\.title).sorted()), expected \(lit.map(\.title).sorted())")
-            // Never Link, Code Block, Horizontal Rule or Body: they insert, or only remove.
+            // Never Link, Code Block, Divider or Body: they insert, or only remove.
             for verb in [MarkupVerb.link, .codeBlock, .horizontalRule, .heading(0)] {
                 #expect(!state.lit.contains(verb), "“\(marked)” lights \(verb.title)")
             }
@@ -510,58 +516,93 @@ import EventsTestSupport
         }
     }
 
-    /// **Every glyph is a symbol the system has.** A misspelt name draws an empty button and fails
-    /// nothing else.
+    /// **Every glyph is a symbol the system has** — the verbs', the folded groups', the Table
+    /// capsule's and the merged menu's. A misspelt name draws an empty button and fails nothing else.
     @Test func everyGlyphIsASymbolTheSystemHas() {
-        for name in MarkupVerb.menuOrder.compactMap({ $0 }).map(EditorFormatBar.symbol) + [EditorFormatBar.overflowSymbol] {
+        let parts = EditorFormatBar.foldableGroups + [.table]
+        let names = MarkupVerb.menuOrder.compactMap({ $0 }).map(EditorFormatBar.symbol)
+            + parts.map(EditorFormatBar.symbol) + [EditorFormatBar.overflowSymbol, "chevron.down", "checkmark"]
+        for name in names {
             #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "\(name) is not a symbol")
         }
+        // Divider no longer wears the bare dash that read as a minus (TE69).
+        #expect(EditorFormatBar.symbol(.horizontalRule) != "minus")
+        #expect(MarkupVerb.horizontalRule.title == "Divider" && EditorFormatBar.word(.horizontalRule) == "Divider")
     }
 
-    // MARK: The » menu
+    // MARK: Narrowing, group by group (TE72)
 
-    /// **Every rung keeps a prefix of the buttons and puts the rest behind the », in order** — the
-    /// kept buttons and the hidden ones are the button groups, flattened, split at the rung's count;
-    /// each piece stays in the group it came from, so the » divides where the bar does; and the »
-    /// is drawn exactly when something is hidden. Mutations: hide from the front, or merge the
-    /// hidden groups into one, and a line fails.
-    @Test func eachRungKeepsAPrefixAndHidesTheRestInOrder() {
-        let flat = EditorFormatBar.groups.flatMap { $0 }
-        for rung in EditorFormatBar.ladder {
-            let layout = EditorFormatBar.layout(rung)
-            let shown = layout.shown.flatMap { $0 }
-            let hidden = layout.hidden.flatMap { $0 }
-            #expect(shown == Array(flat.prefix(rung.visible)), "\(rung): the bar keeps \(shown.map(\.title))")
-            #expect(shown + hidden == flat, "\(rung): kept and hidden are not the buttons, in order")
-            for piece in layout.shown + layout.hidden {
-                #expect(EditorFormatBar.groups.contains { group in
-                    group.count >= piece.count && (0...(group.count - piece.count)).contains { Array(group[$0..<($0 + piece.count)]) == piece }
-                }, "\(rung): \(piece.map(\.title)) runs across two of the menu's groups")
+    /// **The ladder: words off group by group, then the Body menu shortens, then each group folds
+    /// into a button of its own, and only last do the folded groups merge into one » — Bold, Italic
+    /// and Strikethrough last of all.** Out of a table, Insert's words go first and Insert folds
+    /// first, the end people press least; in one, the greyed groups go first and the Table capsule
+    /// last. Icon Only is the same ladder from where the words are off.
+    ///
+    /// Mutations: fold before the words are off, fold Lists before Insert, merge before every
+    /// group is folded, or start Icon Only on a worded rung — each fails a line.
+    @Test func theLadderTakesWordsOffThenFoldsGroupByGroup() {
+        typealias Part = EditorFormatBar.Part
+        let lists = Part.group(1), code = Part.group(2), insert = Part.group(3)
+        #expect(EditorFormatBar.foldableGroups == [lists, code, insert])
+        #expect([lists, code, insert].map(EditorFormatBar.title) == ["Lists", "Code and Quote", "Insert"])
+
+        let out = EditorFormatBar.ladder(showsLabels: true, inTable: false)
+        #expect(out.count == 10, "the ladder has \(out.count) rungs")
+        #expect(out.map(\.worded) == [[lists, code, insert], [lists, code], [lists], [], [], [], [], [], [], []],
+                "out of a table the words come off \(out.map { $0.worded.map(EditorFormatBar.title) })")
+        #expect(out.map(\.headingWorded) == [true, true, true, true, false, false, false, false, false, false])
+        #expect(out.map(\.folded) == [[], [], [], [], [], [insert], [insert, code], [insert, code, lists],
+                                      [insert, code, lists], [insert, code, lists]],
+                "out of a table the groups fold \(out.map { $0.folded.map(EditorFormatBar.title) })")
+        #expect(out.map(\.merged) == Array(repeating: false, count: 8) + [true, true])
+        #expect(out.map(\.marksFolded) == Array(repeating: false, count: 9) + [true])
+
+        let inside = EditorFormatBar.ladder(showsLabels: true, inTable: true)
+        #expect(inside.count == 12, "in a table the ladder has \(inside.count) rungs")
+        #expect(inside.map(\.worded).prefix(5) == [[lists, code, insert, .table], [code, insert, .table],
+                                                   [insert, .table], [.table], []],
+                "in a table the words come off \(inside.map { $0.worded.map(EditorFormatBar.title) })")
+        #expect(inside.map(\.folded).dropFirst(6) == [[lists], [lists, code], [lists, code, insert],
+                                                      [lists, code, insert], [lists, code, insert, .table],
+                                                      [lists, code, insert, .table]],
+                "in a table the groups fold \(inside.map { $0.folded.map(EditorFormatBar.title) })")
+        // The groups merge BEFORE the Table capsule folds, so the table's own edits outlast them.
+        #expect(inside.map(\.merged) == Array(repeating: false, count: 9) + [true, true, true])
+        #expect(inside.last?.marksFolded == true && inside.filter(\.marksFolded).count == 1)
+
+        for ladder in [out, inside] {
+            // Each rung changes one thing from the one before.
+            for (a, b) in zip(ladder, ladder.dropFirst()) {
+                let changes = [a.worded != b.worded, a.headingWorded != b.headingWorded, a.folded != b.folded,
+                               a.merged != b.merged, a.marksFolded != b.marksFolded].filter { $0 }.count
+                #expect(changes == 1, "\(a) → \(b) changes \(changes) things")
+                #expect(b.worded.isSubset(of: a.worded) && a.folded.isSubset(of: b.folded), "\(a) → \(b) puts something back")
             }
-            #expect(layout.shown.count + layout.hidden.count
-                    <= EditorFormatBar.groups.count + 1, "\(rung): a group was split more than once")
+            // Nothing folds while a word is still on, and nothing merges while a group is out.
+            for rung in ladder where !rung.folded.isEmpty { #expect(rung.worded.isEmpty && !rung.headingWorded) }
+            for rung in ladder where rung.merged { #expect(rung.folded.isSuperset(of: [lists, code, insert])) }
+            for rung in ladder where rung.folded.contains(.table) { #expect(rung.merged, "the Table capsule folds before the merge") }
         }
-        #expect(EditorFormatBar.layout(EditorFormatBar.ladder[0]).hidden.isEmpty, "the widest rung hides a button")
-        #expect(EditorFormatBar.layout(EditorFormatBar.ladder.last!).shown.isEmpty, "the narrowest rung keeps a button")
-        // The rung that sheds Code and Link splits the inline group: Bold, Italic, Strikethrough
-        // stay, and the » leads with the other two, ahead of the lists.
-        let split = EditorFormatBar.layout(EditorFormatBar.Rung(headingWorded: false, visible: 3))
-        #expect(split.shown.map { $0.map(\.title) } == [["Bold", "Italic", "Strikethrough"]])
-        #expect(split.hidden.first?.map(\.title) == ["Inline Code", "Link…"])
+        #expect(EditorFormatBar.ladder(showsLabels: false, inTable: false) == Array(out.drop { !$0.worded.isEmpty }),
+                "Icon Only is not Icon and Text's ladder from where the words are off")
+        #expect(EditorFormatBar.ladder(showsLabels: false, inTable: true) == Array(inside.drop { !$0.worded.isEmpty }))
+        #expect(EditorTextSettings.formatBarShowsLabelsDefault, "Icon and Text is not the default (decision Q)")
     }
 
-    /// **The » says what it hides that is applied** — to VoiceOver, as its accent says it on screen
-    /// — and the verbs that never light are plain items in it, not toggles that are always off.
-    @Test func theOverflowNamesWhatItHidesThatIsApplied() {
-        let hidden = EditorFormatBar.layout(EditorFormatBar.ladder.last!).hidden
-        #expect(EditorFormatBar.overflowValue(hidden: hidden, lit: []) == "")
-        #expect(EditorFormatBar.overflowValue(hidden: hidden, lit: [.bulletList, .bold])
-                == "Applied: Bold, Bulleted List", "the » reads \(EditorFormatBar.overflowValue(hidden: hidden, lit: [.bulletList, .bold]))")
-        // A lit verb on the bar itself is not the »'s to announce.
-        let wide = EditorFormatBar.layout(EditorFormatBar.ladder[1]).hidden
-        #expect(EditorFormatBar.overflowValue(hidden: wide, lit: [.bold]) == "")
-        #expect(EditorFormatBar.overflowValue(hidden: wide, lit: [.codeBlock]) == "Applied: Code Block")
-        for verb in [MarkupVerb.link, .codeBlock, .horizontalRule, .heading(0)] {
+    /// **A folded group, and the merged », say what they hide that is applied** — to VoiceOver, as
+    /// their accent says it on screen — and the verbs that never light are plain items in them, not
+    /// toggles that are always off.
+    @Test func aFoldedGroupNamesWhatItHidesThatIsApplied() {
+        let lists = EditorFormatBar.verbs(of: .group(1))
+        #expect(EditorFormatBar.appliedValue(lists, lit: []) == "")
+        #expect(EditorFormatBar.appliedValue(lists, lit: [.bulletList, .bold]) == "Applied: Bulleted List",
+                "a folded Lists announces a verb it does not hold")
+        let merged = (EditorFormatBar.groups.first ?? []) + lists
+        #expect(EditorFormatBar.appliedValue(merged, lit: [.bulletList, .bold]) == "Applied: Bold, Bulleted List")
+        #expect(EditorFormatBar.verbs(of: .table) == EditorFormatBar.tableEditVerbs)
+        #expect(EditorFormatBar.foldedParts(EditorFormatBar.ladder(showsLabels: false, inTable: true).last!, inTable: true)
+                == EditorFormatBar.foldableGroups + [.table], "the merged » does not hold every group, in order")
+        for verb in [MarkupVerb.link, .codeBlock, .horizontalRule, .heading(0), .table(.insert)] {
             #expect(!EditorFormatBar.canLight(verb), "\(verb.title) is drawn as a toggle")
         }
     }
@@ -576,10 +617,13 @@ import EventsTestSupport
         #expect(a != EditorFormatBar(state: MarkupFormatState(lit: [.bold], heading: .body), accent: .blue, onVerb: { _ in }),
                 "a lit Bold compares equal to an unlit one — the bar would not light")
         #expect(a != EditorFormatBar(state: MarkupFormatState(lit: [], heading: .level(2)), accent: .blue, onVerb: { _ in }))
+        #expect(a != EditorFormatBar(state: MarkupFormatState(lit: [], heading: .body, touchesTable: true),
+                                     accent: .blue, onVerb: { _ in }), "a caret moving into a table would not grey the bar")
         #expect(a != EditorFormatBar(state: .none, accent: .red, onVerb: { _ in }), "an accent change is held off")
         #expect(a != EditorFormatBar(state: .none, accent: .blue, showsLabels: false, onVerb: { _ in }),
                 "Icon Only compares equal to Icon and Text — the right-click choice would not redraw the bar")
-        #expect(a != EditorFormatBar(state: .none, accent: .blue, onVerb: { _ in }, forcedRung: EditorFormatBar.ladder[2]))
+        #expect(a != EditorFormatBar(state: .none, accent: .blue, onVerb: { _ in },
+                                     forcedRung: EditorFormatBar.ladder(showsLabels: false, inTable: false)[1]))
         let workspace = try Self.source("EditorWorkspaceView.swift")
         let call = try Self.slice(workspace, from: "EditorFormatBar(state: formatState", to: ".padding")
         #expect(call.contains(".equatable()"), "the host does not apply .equatable() — a keystroke redraws the bar")
@@ -588,105 +632,84 @@ import EventsTestSupport
 
     // MARK: Narrow widths
 
+    /// A caret in a table's body row, as `MarkupFormatState.of` reports one.
+    static let inTable = MarkupFormatState(lit: [], heading: .body,
+                                           tables: [.addRowAbove, .addRowBelow, .addColumnLeft, .addColumnRight,
+                                                    .deleteRow, .deleteColumn, .tidy],
+                                           touchesTable: true)
+
     /// The bar at one rung, at one text size, as it lays out with room to spare.
-    static func width(of rung: EditorFormatBar.Rung, scale: CGFloat) -> CGFloat {
+    static func width(of rung: EditorFormatBar.Rung, scale: CGFloat, state: MarkupFormatState = .none) -> CGFloat {
         NSHostingView(rootView: AnyView(
-            EditorFormatBar(state: .none, accent: .blue, onVerb: { _ in }, forcedRung: rung)
+            EditorFormatBar(state: state, accent: .blue, onVerb: { _ in }, forcedRung: rung)
                 .environment(\.appFontScale, scale)
         )).fittingSize.width
     }
 
-    /// **Each rung of the ladder is narrower than the one before it, at every text size** — which is
-    /// what makes the ladder a degrade order: `ViewThatFits` takes the first that fits, so a rung
-    /// wider than its predecessor would never be drawn. Measured over Icon and Text's whole ladder,
-    /// the worded rungs and then Icon Only's, so it holds for both.
+    /// **Each rung of the ladder is narrower than the one before it, at every text size, in a table
+    /// and out of one** — which is what makes the ladder a degrade order: `ViewThatFits` takes the
+    /// first that fits, so a rung wider than its predecessor would never be drawn.
     @Test func eachRungIsNarrowerThanTheOneBeforeIt() {
-        for percent in FontSize.selectablePercents {
-            let scale = CGFloat(percent) / 100
-            let widths = EditorFormatBar.ladder(showsLabels: true).map { Self.width(of: $0, scale: scale) }
-            for (a, b) in zip(widths, widths.dropFirst()) {
-                #expect(b < a, "at \(percent)% the ladder reads \(widths.map { Int($0) }) — a rung is no narrower than the one before")
+        for table in [false, true] {
+            for percent in FontSize.selectablePercents {
+                let scale = CGFloat(percent) / 100
+                let widths = EditorFormatBar.ladder(showsLabels: true, inTable: table)
+                    .map { Self.width(of: $0, scale: scale, state: table ? Self.inTable : .none) }
+                for (a, b) in zip(widths, widths.dropFirst()) {
+                    #expect(b < a, "\(table ? "in a table" : "out of one"), at \(percent)% the ladder reads \(widths.map { Int($0) }) — a rung is no narrower than the one before")
+                }
             }
         }
     }
 
     /// **At the narrowest a Split half may be — `minSplitColumnWidth`, 220pt — and at every
-    /// selectable text size, the bar fits.** The widest case: the bar's width does not depend on what
-    /// is lit (the Heading menu is laid out at its widest label), so the forced rungs measured with
-    /// nothing lit ARE its widths. The rung drawn is the first that fits the half less the bar's
-    /// insets, which is `ViewThatFits`' own rule; the real, unforced bar is then mounted at that
-    /// width and every control it draws must lie inside.
+    /// selectable text size, the bar fits**, in a table and out of one. The bar's width does not
+    /// depend on what is lit (the Body menu is laid out at its widest label), so the forced rungs
+    /// measured with nothing lit ARE its widths. The rung drawn is the first that fits the half less
+    /// the bar's insets, which is `ViewThatFits`' own rule; the real, unforced bar is then mounted at
+    /// that width and every control it draws must lie inside.
     ///
-    /// **What it keeps there, measured 2026-10-03** (208pt once the insets are off): up to 105% the
-    /// compact Heading menu and all five inline buttons — 186 · 193 · 199 · 206pt; from 110% to 135%
-    /// Bold, Italic and Strikethrough, with Code and Link behind the » — 165 to 190pt. The floors
-    /// pinned are those two facts: the inline five at the default size, and never fewer than B I S.
+    /// **What it keeps there**, measured 2026-10-05 (208pt once the insets are off) and printed as
+    /// `[format-bar-fit]`: at every size, in a table and out of one, the Body menu shortened to ¶
+    /// and Bold, Italic and Strikethrough with the merged » beside them — 161 to 199pt from 90% to
+    /// 135%. In a table the Table capsule has folded into the » too. The floor pinned is that
+    /// fact: B, I and S never leave the bar there.
     ///
-    /// Mutations: drop the compact Heading rung, or shed the inline group before the line kinds, and
-    /// a floor fails; give the last rung a button too many and the bar overflows.
+    /// Mutations: drop the merged rungs, or fold the marks before the groups merge, and a floor
+    /// fails or the bar overflows.
     @Test func theBarFitsTheNarrowestSplitHalfAtEveryTextSize() throws {
         let available = EditorLayoutMetrics.minSplitColumnWidth - 2 * EditorWorkspaceView.formatBarInset
-        let inline = EditorFormatBar.groups.first?.count ?? 0
         var report: [String] = []
-        for percent in FontSize.selectablePercents {
-            let scale = CGFloat(percent) / 100
-            let widths = EditorFormatBar.ladder.map { Self.width(of: $0, scale: scale) }
-            let chosen = try #require(widths.firstIndex { $0 <= available },
-                                      "at \(percent)% no rung fits \(available)pt: \(widths.map { Int($0) })")
-            let rung = EditorFormatBar.ladder[chosen]
-            report.append("\(percent)%: rung \(chosen) (\(Int(widths[chosen]))pt)")
-            #expect(rung.visible >= inline - 2,
-                    "at \(percent)% the bar keeps \(rung.visible) buttons at \(available)pt — fewer than Bold, Italic and Strikethrough")
-            if percent == FontSize.medium.percent {
-                #expect(rung.visible >= inline,
-                        "at the default size the bar keeps \(rung.visible) buttons at \(available)pt — fewer than the inline \(inline)")
-            }
+        for table in [false, true] {
+            let state = table ? Self.inTable : .none
+            for percent in FontSize.selectablePercents {
+                let scale = CGFloat(percent) / 100
+                let ladder = EditorFormatBar.ladder(showsLabels: false, inTable: table)
+                let widths = ladder.map { Self.width(of: $0, scale: scale, state: state) }
+                let chosen = try #require(widths.firstIndex { $0 <= available },
+                                          "at \(percent)% no rung fits \(available)pt: \(widths.map { Int($0) })")
+                let rung = ladder[chosen]
+                report.append("\(table ? "table " : "")\(percent)%: \(chosen) (\(Int(widths[chosen]))pt)")
+                #expect(!rung.marksFolded,
+                        "\(table ? "in a table, " : "")at \(percent)% Bold, Italic and Strikethrough go behind the » at \(available)pt")
 
-            // Icon and Text changes nothing here (TE63): none of its worded rungs fits, so it draws
-            // the very rung Icon Only does.
-            let worded = EditorFormatBar.labelledRungs.map { Self.width(of: $0, scale: scale) }
-            #expect(worded.allSatisfy { $0 > available },
-                    "at \(percent)% a worded rung fits \(available)pt: \(worded.map { Int($0) })")
-
-            // The real bar, choosing for itself, in that width — each way.
-            var drawn: [[CGRect]] = []
-            for labels in [false, true] {
-                let rings = Self.rings(of: EditorFormatBar(state: .none, accent: .blue, showsLabels: labels,
-                                                           onVerb: { _ in }),
-                                       width: available, scale: scale)
-                #expect(!rings.isEmpty, "the bar drew no controls at \(percent)%")
-                #expect(rings.allSatisfy { $0.maxX <= available + 0.5 && $0.minX >= -0.5 },
-                        "at \(percent)% a control is drawn outside \(available)pt: \(rings.map { Int($0.maxX) })")
-                drawn.append(rings)
+                // The real bar, choosing for itself, in that width — each way. Icon and Text
+                // changes nothing here: none of its worded rungs fits.
+                var drawn: [[CGRect]] = []
+                for labels in [false, true] {
+                    let rings = Self.rings(of: EditorFormatBar(state: state, accent: .blue, showsLabels: labels,
+                                                               onVerb: { _ in }),
+                                           width: available, scale: scale)
+                    #expect(!rings.isEmpty, "the bar drew no controls at \(percent)%")
+                    #expect(rings.allSatisfy { $0.maxX <= available + 0.5 && $0.minX >= -0.5 },
+                            "at \(percent)% a control is drawn outside \(available)pt: \(rings.map { Int($0.maxX) })")
+                    drawn.append(rings)
+                }
+                #expect(drawn[0] == drawn[1],
+                        "at \(percent)% Icon and Text draws \(drawn[1].map { Int($0.width) }) where Icon Only draws \(drawn[0].map { Int($0.width) })")
             }
-            #expect(drawn[0] == drawn[1],
-                    "at \(percent)% Icon and Text draws \(drawn[1].map { Int($0.width) }) where Icon Only draws \(drawn[0].map { Int($0.width) })")
         }
         print("[format-bar-fit] at \(Int(available))pt: \(report.joined(separator: " · "))")
-    }
-
-    // MARK: Icon and Text (TE63, TE64)
-
-    /// **Icon Only is the bar exactly as it shipped; Icon and Text is two worded rungs ahead of it.**
-    /// Neither worded rung hides a button, the first words every group, the second takes the words
-    /// off the last group alone, and Icon Only's rungs wear none.
-    ///
-    /// Mutations: put a worded rung in Icon Only's ladder, hide a button on a worded rung, or take
-    /// the words off the first group rather than the last — each fails a line.
-    @Test func iconOnlyIsTheShippedLadderAndIconAndTextWordsItFirst() {
-        #expect(EditorFormatBar.ladder(showsLabels: false) == EditorFormatBar.ladder)
-        #expect(EditorFormatBar.ladder(showsLabels: true) == EditorFormatBar.labelledRungs + EditorFormatBar.ladder)
-        #expect(EditorFormatBar.ladder.allSatisfy { $0.wordedGroups == 0 }, "Icon Only draws a word")
-        let groups = EditorFormatBar.groups.count
-        #expect(EditorFormatBar.labelledRungs.map(\.wordedGroups) == [groups, groups - 1],
-                "the worded rungs word \(EditorFormatBar.labelledRungs.map(\.wordedGroups)) of \(groups) groups")
-        for rung in EditorFormatBar.labelledRungs {
-            #expect(rung.headingWorded, "\(rung) shortens the Heading menu while buttons wear words")
-            #expect(EditorFormatBar.layout(rung).hidden.isEmpty, "\(rung) puts a button behind the » to make room for words")
-        }
-        #expect(EditorFormatBar.layout(EditorFormatBar.ladder[0]).hidden.isEmpty,
-                "the first bare rung hides a button — the words would come off AFTER a button did")
-        #expect(EditorTextSettings.formatBarShowsLabelsDefault, "Icon and Text is not the default (decision Q)")
     }
 
     /// **Every button wears a word but B, I and S, and the word is the menu's title, shortened** —
@@ -694,18 +717,41 @@ import EventsTestSupport
     @Test func everyButtonButTheLettersWearsAShortWord() {
         let expected: [MarkupVerb: String] = [
             .inlineCode: "Code", .link: "Link", .bulletList: "Bullets", .numberedList: "Numbered",
-            .taskItem: "Tasks", .blockQuote: "Quote", .codeBlock: "Code Block", .horizontalRule: "Rule",
+            .taskItem: "Tasks", .blockQuote: "Quote", .codeBlock: "Code Block", .horizontalRule: "Divider",
             .table(.insert): "Table",
+            .table(.addRowBelow): "Row", .table(.addColumnRight): "Column", .table(.deleteRow): "Delete",
+            .table(.tidy): "Format",
         ]
-        for verb in EditorFormatBar.groups.flatMap({ $0 }) {
+        for verb in EditorFormatBar.groups.flatMap({ $0 }) + EditorFormatBar.tableEditVerbs {
             let letter = [MarkupVerb.bold, .italic, .strikethrough].contains(verb)
             #expect(EditorFormatBar.wearsWord(verb) == !letter, "\(verb.title) \(letter ? "wears" : "has no") word")
+            if !letter, let word = expected[verb] {
+                #expect(EditorFormatBar.word(verb) == word, "\(verb.title) reads “\(EditorFormatBar.word(verb))”")
+            }
             if !letter {
-                #expect(EditorFormatBar.word(verb) == expected[verb], "\(verb.title) reads “\(EditorFormatBar.word(verb))”")
                 #expect(EditorFormatBar.word(verb).count <= verb.title.count)
                 #expect(EditorFormatBar.tooltip(verb).hasPrefix(verb.title), "\(verb.title)'s tooltip lost the full name")
             }
         }
+    }
+
+    /// **A quarter larger than it first shipped** (TE75, decision AD): 14-point glyphs in 25-point
+    /// boxes and 12.5-point words, against 11, 20 and 11 — and a bare button really is its box wide,
+    /// and the capsules really stand apart: the room between Strikethrough and Bullets is a capsule
+    /// gap wider than the room between Bold and Italic.
+    @Test func theBarIsAQuarterLargerAndItsGroupsStandApart() throws {
+        #expect(EditorFormatBar.glyphPoint == 14 && EditorFormatBar.boxSize == 25 && EditorFormatBar.wordPoint == 12.5)
+        #expect(EditorFormatBar.box(at: 1) == 25)
+        let rings = Self.rings(of: EditorFormatBar(state: .none, accent: .blue, showsLabels: false, onVerb: { _ in }),
+                               width: 1_400, scale: 1)
+        try #require(rings.count == 13, "the icons-only bar draws \(rings.count) controls")
+        #expect(abs(rings[1].width - 25) < 1, "a bare Bold is \(rings[1].width)pt wide, not its 25pt box")
+        let inside = rings[2].minX - rings[1].maxX
+        let between = rings[4].minX - rings[3].maxX
+        // A fixed figure, not `capsuleGap` itself, which a mutation would move with the bar: the
+        // two capsules' insets (3pt each) and an 8pt gap stand between them, against the 2pt between
+        // two buttons in one capsule.
+        #expect(between >= inside + 10, "Strikethrough and Bullets are \(between)pt apart, Bold and Italic \(inside)pt — no capsule gap")
     }
 
     /// The bar's rings, drawn for itself in `width`, left to right.
@@ -723,45 +769,47 @@ import EventsTestSupport
         return FocusRings.frames(in: host).sorted { $0.minX < $1.minX }
     }
 
-    /// **The words come off as the room shrinks — the last group's, then all of them — and never a
-    /// button**, at every text size, on the real bar choosing for itself. At exactly each worded
-    /// rung's width it draws that rung: words on the eight buttons that take one, then on six, then
-    /// on none; and every button is still on the bar, with no ».
+    /// **The words come off group by group as the room shrinks — Insert's, then Code and Quote's,
+    /// then the lists' — and never a button**, at every text size, on the real bar choosing for
+    /// itself. At exactly each worded rung's width it draws that rung: words on nine buttons, then
+    /// six, then three, then none; and every button is still on the bar, nothing folded.
     ///
     /// A ring counts as worded when it is clearly wider than a bare glyph's box. Mutations: drop a
-    /// word, drop the second worded rung, or word B — each fails a count.
+    /// word, take Lists' words off first, or word B — each fails a count.
     @Test func theWordsComeOffBeforeAnyButtonAsTheBarNarrows() {
         let buttons = EditorFormatBar.groups.flatMap { $0 }
-        let worded = buttons.filter(EditorFormatBar.wearsWord)
-        let lastGroup = EditorFormatBar.groups.last ?? []
+        let ladder = EditorFormatBar.ladder(showsLabels: true, inTable: false)
         var report: [String] = []
         for percent in FontSize.selectablePercents {
             let scale = CGFloat(percent) / 100
             let box = EditorFormatBar.box(at: scale)
-            let ladder = EditorFormatBar.ladder(showsLabels: true)
-            let widths = ladder.prefix(EditorFormatBar.labelledRungs.count + 1).map { Self.width(of: $0, scale: scale) }
+            let widths = ladder.prefix(4).map { Self.width(of: $0, scale: scale) }
             report.append("\(percent)%: " + widths.map { "\(Int($0.rounded(.up)))" }.joined(separator: " · "))
-            let expected = [worded.count, worded.filter { !lastGroup.contains($0) }.count, 0]
+            let expected = [9, 6, 3, 0]
             for (index, width) in widths.enumerated() {
                 // 8pt over the measured width, because `ViewThatFits` asks for a little more room
-                // than the rung draws in. Measured 2026-10-04 on the worded rung: drawn to 702.5 ·
-                // 724.5 · 747.5pt at 95 · 100 · 105%, `fittingSize` 703 · 727 · 748, and chosen
-                // only from 707 · 729 · 752 — up to 4pt over. The rungs are ~100pt apart, so 8pt
-                // cannot reach the one before.
+                // than the rung draws in (measured 2026-10-04: up to 4pt over). The rungs are far
+                // more than 8pt apart, so 8pt cannot reach the one before.
                 let rings = Self.rings(of: EditorFormatBar(state: .none, accent: .blue, showsLabels: true, onVerb: { _ in }),
                                        width: width.rounded(.up) + 8, scale: scale)
-                // The Heading menu, then one ring per button: nothing behind a ».
+                // The Body menu, then one ring per button: nothing folded.
                 #expect(rings.count == 1 + buttons.count,
-                        "at \(percent)%, \(Int(width))pt, the bar draws \(rings.count) controls — a button went behind the »")
+                        "at \(percent)%, \(Int(width))pt, the bar draws \(rings.count) controls — a group folded")
                 let wide = rings.dropFirst().filter { $0.width > box + 8 }.count
                 #expect(wide == expected[index],
                         "at \(percent)%, \(Int(width))pt, \(wide) buttons wear words — \(expected[index]) expected")
                 // B, I and S stay bare even with every word drawn.
                 #expect(rings.dropFirst().prefix(3).allSatisfy { $0.width <= box + 2 },
                         "at \(percent)% B, I or S wears a word: \(rings.dropFirst().prefix(3).map { Int($0.width) })")
+                // And the words that are on are the groups still worded, from the front.
+                if index > 0 && index < 3 {
+                    let worded = rings.dropFirst(4).map { $0.width > box + 8 }
+                    #expect(worded == Array(repeating: true, count: 3 * (3 - index)) + Array(repeating: false, count: 3 * index),
+                            "at \(percent)%, rung \(index), the words sit on \(worded) — not the front groups")
+                }
             }
         }
-        print("[format-bar-words] worded · last group bare · Icon Only, in pt: \(report.joined(separator: " — "))")
+        print("[format-bar-words] all · Insert bare · Code bare · icons, in pt: \(report.joined(separator: " — "))")
     }
 
     /// **In the workspace, Icon and Text draws the words and Icon Only does not** — the choice read
@@ -774,7 +822,7 @@ import EventsTestSupport
         try #require(words.count == icons.count && words.count >= 12,
                      "Icon and Text draws \(words.count) controls, Icon Only \(icons.count)")
         let wordCount = EditorFormatBar.groups.flatMap { $0 }.filter(EditorFormatBar.wearsWord).count
-        #expect(wordCount == 9, "\(wordCount) buttons take a word — the eight verbs and the Table menu")
+        #expect(wordCount == 9, "\(wordCount) buttons take a word — the eight verbs and the Table button")
         #expect(words.dropFirst().filter { $0.width > box + 8 }.count == wordCount,
                 "Icon and Text at \(Int(Self.width))pt words \(words.dropFirst().filter { $0.width > box + 8 }.count) buttons: \(words.map { Int($0.width) })")
         #expect(icons.dropFirst().allSatisfy { $0.width <= box + 2 }, "Icon Only draws a word: \(icons.map { Int($0.width) })")
@@ -788,8 +836,8 @@ import EventsTestSupport
     /// Mutation: wash the glyph alone (the old square) and the word half holds none.
     @Test(.machinePinned(.pixelSampling))
     func aLitWordedButtonWashesItsWordToo() throws {
-        let rung = EditorFormatBar.labelledRungs[0]
-        let size = CGSize(width: 1_000, height: 40)
+        let rung = EditorFormatBar.ladder(showsLabels: true, inTable: false)[0]
+        let size = CGSize(width: 1_400, height: 40)
         func render(_ lit: Set<MarkupVerb>) throws -> Rendered {
             try #require(Rendered(EditorFormatBar(state: MarkupFormatState(lit: lit, heading: .body), accent: .blue,
                                                   onVerb: { _ in }, forcedRung: rung), size: size))
@@ -858,6 +906,135 @@ import EventsTestSupport
         #expect(Self.squeezed(workspace).contains(Self.squeezed(
             "@AppStorage(EditorTextSettings.formatBarShowsLabelsKey) private var formatBarShowsLabels: Bool = EditorTextSettings.formatBarShowsLabelsDefault")),
                 "the host does not read Icon and Text from its stored setting")
+    }
+
+    // MARK: In a table (TE73, TE76) and the Body menu (TE74)
+
+    /// A small table with prose either side, and where the caret sits in it.
+    static let tableText = "Intro, then:\n\n| Day | Where |\n|-----|-------|\n| Sat | Gion  |\n\nAfter."
+    static func offset(of needle: String, in text: String = tableText) -> Int {
+        (text as NSString).range(of: needle).location
+    }
+
+    /// **The Table capsule comes with the caret into a table and goes when it leaves** (TE73): six
+    /// more controls — Row and its chevron, Column and its chevron, Delete, Format — on the real
+    /// bar, from the state the caret's place derives. Mutations: draw the capsule on `touchesTable`
+    /// rather than `isInTable`, or drop a control — a count fails.
+    @Test func theTableCapsuleComesAndGoesWithTheCaret() {
+        let text = Self.tableText
+        let inCell = MarkupFormatState.of(text, selection: NSRange(location: Self.offset(of: "Gion"), length: 0))
+        let outside = MarkupFormatState.of(text, selection: NSRange(location: Self.offset(of: "After"), length: 0))
+        #expect(inCell.isInTable && inCell.touchesTable, "a caret in a cell is not in the table")
+        #expect(!outside.isInTable && !outside.touchesTable, "a caret in the prose after is in the table")
+        // From the prose INTO the table: it touches the table (and greys), but no capsule — its start is outside.
+        let into = MarkupFormatState.of(text, selection: NSRange(location: Self.offset(of: "Intro"),
+                                                                  length: Self.offset(of: "Gion") - Self.offset(of: "Intro")))
+        #expect(into.touchesTable && !into.isInTable)
+        let count = { (state: MarkupFormatState) in
+            Self.rings(of: EditorFormatBar(state: state, accent: .blue, showsLabels: true, onVerb: { _ in }),
+                       width: 2_000, scale: 1).count
+        }
+        #expect(count(outside) == 13, "out of a table the bar draws \(count(outside)) controls")
+        #expect(count(inCell) == 13 + 6, "in a table the bar draws \(count(inCell)) controls — not the Table capsule's six more")
+        #expect(count(into) == 13, "a selection that only ends in a table draws the Table capsule")
+    }
+
+    /// **In a table, what would break it greys — on the bar, in the right-click menu, and in the
+    /// verbs themselves** (TE76): headings, the lists, Quote, Code Block and Divider rewrite whole
+    /// lines and would take rows out of the table; the inline marks and Link work inside a cell.
+    /// The bar's Table button greys too, since a table cannot hold one. A selection from the prose
+    /// before a table to the prose after is NOT refused — its ends say the table is part of it.
+    ///
+    /// Mutations: drop `touchesTable` from `isOffered`, refuse on one end only, take `.blockQuote`
+    /// out of `breaksTables`, or drop the refusal from `apply` — each fails a line.
+    @Test func whatWouldBreakATableGreysAndIsRefusedThere() throws {
+        let breaking: Set<MarkupVerb> = [.heading(1), .heading(2), .heading(3), .heading(0), .bulletList,
+                                         .numberedList, .taskItem, .blockQuote, .codeBlock, .horizontalRule]
+        let all = MarkupVerb.menuOrder.compactMap { $0 }
+        #expect(Set(all.filter(\.breaksTables)) == breaking, "the verbs that break a table read \(all.filter(\.breaksTables).map(\.title))")
+
+        let text = Self.tableText
+        let cell = NSRange(location: Self.offset(of: "Gion"), length: 0)
+        let state = MarkupFormatState.of(text, selection: cell)
+        for verb in all where !verb.isTable {
+            let breaks = breaking.contains(verb)
+            #expect(EditorFormatBar.isOffered(verb, in: state) == !breaks, "\(verb.title) \(breaks ? "is live" : "greys") in a table")
+            #expect(MarkdownEdits.breaksTable(verb, in: text, selection: cell) == breaks)
+            if breaks {
+                #expect(MarkdownEdits.apply(verb, to: text, selection: cell) == nil, "\(verb.title) broke the table")
+            }
+        }
+        #expect(MarkdownEdits.apply(.bold, to: text, selection: NSRange(location: Self.offset(of: "Gion"), length: 4)) != nil,
+                "Bold in a cell is refused")
+        #expect(!EditorFormatBar.isOffered(EditorFormatBar.tableMenuStandIn, in: state), "the Table button is live in a table")
+        // Out of a table, everything but the table edits is offered.
+        let outside = MarkupFormatState.of(text, selection: NSRange(location: Self.offset(of: "After"), length: 0))
+        for verb in all where !verb.isTable { #expect(EditorFormatBar.isOffered(verb, in: outside)) }
+        // Either end in a table refuses; both ends outside it does not.
+        let into = NSRange(location: 0, length: Self.offset(of: "Gion"))
+        let outOf = NSRange(location: Self.offset(of: "Sat"), length: (text as NSString).length - Self.offset(of: "Sat"))
+        let across = NSRange(location: 0, length: (text as NSString).length)
+        #expect(MarkdownEdits.apply(.bulletList, to: text, selection: into) == nil, "a list from the prose into a table broke it")
+        #expect(MarkdownEdits.apply(.bulletList, to: text, selection: outOf) == nil, "a list from a table into the prose broke it")
+        #expect(MarkdownEdits.apply(.blockQuote, to: text, selection: across) != nil, "quoting the whole note, table and all, is refused")
+
+        // The right-click menu greys the same items, and only with the caret in a table.
+        func enabled(_ menu: NSMenu) -> [String: Bool] {
+            Dictionary(menu.items.filter { !$0.isSeparatorItem && $0.submenu == nil }.map { ($0.title, $0.isEnabled) },
+                       uniquingKeysWith: { a, _ in a })
+        }
+        let inMenu = enabled(PlainTextEditor.Coordinator.markupMenu(target: nil, action: #selector(NSText.copy(_:)),
+                                                                     tables: state.tables, inTable: true))
+        let outMenu = enabled(PlainTextEditor.Coordinator.markupMenu(target: nil, action: #selector(NSText.copy(_:)),
+                                                                      tables: outside.tables, inTable: false))
+        for verb in all where !verb.isTable {
+            #expect(inMenu[verb.title] == !breaking.contains(verb), "the right-click \(verb.title) is \(inMenu[verb.title] == true ? "live" : "greyed") in a table")
+            #expect(outMenu[verb.title] == true, "the right-click \(verb.title) greys out of a table")
+        }
+        let surface = try Self.source("EditorDocumentSurface.swift")
+        #expect(surface.contains("MarkdownEdits.breaksTable(verb, in: view.string, selection: view.selectedRange())"),
+                "a press from the menu bar that a table refuses says nothing")
+        let editor = try Self.source("PlainTextEditor.swift")
+        #expect(editor.contains("inTable: MarkdownTables.touches(ns, view.selectedRange())"),
+                "the right-click menu is not told the caret is in a table")
+    }
+
+    /// **The Table button makes a table from the selected lines when they split into cells, else
+    /// inserts one** (decision AB) — and says which in its tooltip; it is the run's first section
+    /// in a folded Insert. Mutation: always insert, and the first line fails.
+    @Test func theTableButtonMakesATableFromTheSelectionOrInsertsOne() throws {
+        let rows = "a,b\nc,d\n"
+        let selected = MarkupFormatState.of(rows, selection: NSRange(location: 0, length: (rows as NSString).length))
+        #expect(EditorFormatBar.tableVerb(in: selected) == .table(.fromSelection))
+        let caret = MarkupFormatState.of(rows, selection: NSRange(location: 0, length: 0))
+        #expect(EditorFormatBar.tableVerb(in: caret) == .table(.insert))
+        #expect(EditorFormatBar.isOffered(EditorFormatBar.tableMenuStandIn, in: caret))
+        let bar = try Self.source("EditorFormatBar.swift")
+        let button = try Self.slice(bar, from: "private func tableButton(worded: Bool)", to: "\n    }\n")
+        #expect(button.contains("let verb = Self.tableVerb(in: state)") && button.contains("Button { onVerb(verb) }")
+                && button.contains(".help(verb.title)"), "the Table button does not press, or name, the verb it chose")
+    }
+
+    /// **The Body menu draws each style as it looks** (TE74, decision AC): a popover of Heading 1,
+    /// 2, 3 and Body, each larger than the next and the headings bold, as Notes draws its Aa list —
+    /// ticked at the level the selection is at. Mutations: draw every row at 13 points, or tick by
+    /// anything but `isCurrent`, and a line fails.
+    @Test func theBodyMenuDrawsEachStyleAsItLooks() throws {
+        let sizes = EditorFormatBar.headingVerbs.map { EditorStylePicker.font($0).size }
+        #expect(sizes == sizes.sorted(by: >) && Set(sizes).count == sizes.count, "the styles' sizes read \(sizes)")
+        #expect(EditorFormatBar.headingVerbs.dropLast().allSatisfy { EditorStylePicker.font($0).weight == .bold })
+        #expect(EditorStylePicker.font(.heading(0)) == (13, .regular))
+        // Drawn: the picker is taller than four rows of body text would be.
+        let height = NSHostingView(rootView: AnyView(EditorStylePicker(current: .body, onPick: { _ in })
+            .environment(\.appFontScale, 1))).fittingSize.height
+        #expect(height > 4 * (13 + 8) + 12, "the picker lays out \(height)pt high — its styles are not drawn in their sizes")
+        let bar = try Self.source("EditorFormatBar.swift")
+        #expect(Self.squeezed(bar).contains(Self.squeezed(".popover(isPresented: $showsStyles, arrowEdge: .bottom) {\nEditorStylePicker(current: state.heading) { verb in\nshowsStyles = false\nonVerb(verb)\n}")),
+                "the Body menu does not open the picker, or the picker's choice does not reach onVerb")
+        let picker = try Self.slice(bar, from: "struct EditorStylePicker: View", to: "private struct EditorStyleRow")
+        #expect(picker.contains("isCurrent: EditorFormatBar.isCurrent(verb, current)"), "the picker ticks by something else")
+        let row = try Self.slice(bar, from: "private struct EditorStyleRow", to: "\n}\n")
+        #expect(row.contains(".scaledFont(.system(size: font.size, weight: font.weight))"), "a row is not drawn in its style")
     }
 
     // MARK: Helpers
