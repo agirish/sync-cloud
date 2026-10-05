@@ -7,11 +7,6 @@ struct MarkdownSplice: Equatable, Sendable {
     var text: String
     /// In the buffer AFTER the replacement.
     var selection: NSRange
-
-    /// The buffer with the replacement made — what the tests read character for character.
-    func applied(to buffer: String) -> String {
-        (buffer as NSString).replacingCharacters(in: range, with: text)
-    }
 }
 
 /// What a paste or a drop writes into Markdown source when it is not plain text being pasted
@@ -19,10 +14,6 @@ struct MarkdownSplice: Equatable, Sendable {
 enum MarkdownPasteEdits {
 
     // MARK: - TE55: a link pasted onto words
-
-    static func linkPaste(_ pasted: String, over selection: NSRange, in text: String) -> MarkdownSplice? {
-        linkPaste(pasted, over: selection, in: text as NSString)
-    }
 
     /// The words in `selection` made a link to `pasted`, or `nil` for "paste as it always pasted".
     ///
@@ -41,47 +32,57 @@ enum MarkdownPasteEdits {
     ///   CommonMark's backtick-run rule — where `[words](url)` would be literal characters.
     ///
     /// **Whitespace at either end of the selection stays outside the link**, every space character
-    /// as it was — a drag that took the space after a word makes `[word](url) `. So do the line's
-    /// own markers when the selection starts the line — every one of them, `> - ` included — and a
-    /// heading's closing `#`s: `- [milk](url)`, not `[- milk](url)`.
+    /// as it was — a drag that took the space after a word makes `[word](url) `. So does the line
+    /// break at the end of a line selected whole (a triple-click takes it). So do the line's own
+    /// markers, whatever part of them the selection covers — every one of them, `> - ` included,
+    /// and a list marker after a quote's `> ` — and a heading's closing `#`s: `- [milk](url)`, not
+    /// `[- milk](url)`, and `1. [milk](url)` from a selection that started on the `.`.
     ///
     /// The returned selection is a caret after the link, where a plain paste leaves it.
-    static func linkPaste(_ pasted: String, over selection: NSRange, in ns: NSString) -> MarkdownSplice? {
-        guard selection.length > 0, MarkdownEdits.isValid(selection, in: ns),
+    static func linkPaste(_ pasted: String, over whole: NSRange, in ns: NSString) -> MarkdownSplice? {
+        guard whole.length > 0, MarkdownEdits.isValid(whole, in: ns),
               let url = webAddress(pasted) else { return nil }
+        // A line selected whole ends in its line break, which is not a word: it stays after the link.
+        var selection = whole
+        let last = ns.character(at: NSMaxRange(whole) - 1)
+        if last == 0x0A || last == 0x0D {
+            let crlf = last == 0x0A && whole.length > 1 && ns.character(at: NSMaxRange(whole) - 2) == 0x0D
+            selection.length -= crlf ? 2 : 1
+        }
+        let terminator = ns.substring(with: NSRange(location: NSMaxRange(selection),
+                                                    length: NSMaxRange(whole) - NSMaxRange(selection)))
+        guard selection.length > 0 else { return nil }
         let selected = ns.substring(with: selection)
-        guard selected.rangeOfCharacter(from: lineBreaks) == nil else { return nil }
+        guard selected.rangeOfCharacter(from: .newlines) == nil else { return nil }
 
-        // Split into what stays outside the link and the words, scalar for scalar, so nothing in the
-        // selection is dropped on the way.
-        let scalars = Array(selected.unicodeScalars)
+        // The line's markers — indent, `>`s, list marker and box, heading `#`s: whatever of them the
+        // selection covers stays outside the link.
+        let line = MarkdownSourceLines.line(containing: selection.location, in: ns)
+        let lineText = ns.substring(with: line.content)
+        let markers = markerPrefix(of: lineText)
+        let covered = max(0, min(line.content.location + markers.length, NSMaxRange(selection)) - selection.location)
+        var leading = (selected as NSString).substring(to: covered)
+
+        // Then whitespace at either end, scalar for scalar, so nothing in the selection is dropped
+        // on the way.
+        let scalars = Array((selected as NSString).substring(from: covered).unicodeScalars)
         var front = 0
         while front < scalars.count, CharacterSet.whitespaces.contains(scalars[front]) { front += 1 }
         var back = scalars.count
         while back > front, CharacterSet.whitespaces.contains(scalars[back - 1]) { back -= 1 }
-        var leading = String(String.UnicodeScalarView(scalars[0..<front]))
+        leading += String(String.UnicodeScalarView(scalars[0..<front]))
         var core = String(String.UnicodeScalarView(scalars[front..<back]))
         var trailing = String(String.UnicodeScalarView(scalars[back...]))
-
-        let line = MarkdownSourceLines.line(containing: selection.location, in: ns)
-        let lineBefore = ns.substring(with: NSRange(location: line.content.location,
-                                                    length: selection.location - line.content.location))
-        if lineBefore.unicodeScalars.allSatisfy(CharacterSet.whitespaces.contains) {
-            var heading = false
-            // Every marker, in order: `> > - [ ] ` is four.
-            for _ in 0..<8 {
-                guard let marker = blockMarker(at: core) else { break }
-                heading = heading || marker.hasPrefix("#")
-                leading += marker
-                core = (core as NSString).substring(from: (marker as NSString).length)
-            }
-            if heading, let closing = core.range(of: "[ \t]+#+$", options: .regularExpression) {
-                trailing = String(core[closing]) + trailing
-                core.removeSubrange(closing)
-            }
+        if markers.isHeading, let closing = core.range(of: "[ \t]+#+$", options: .regularExpression) {
+            trailing = String(core[closing]) + trailing
+            core.removeSubrange(closing)
         }
-        guard !core.isEmpty, webAddress(core) == nil, !core.contains("://"),
-              core.rangeOfCharacter(from: linkBreakers) == nil, !core.hasSuffix("\\") else { return nil }
+        // A table cell ends at a `|`: words holding one, on a line with others, cross into the next cell.
+        let outside = (lineText as NSString).replacingCharacters(
+            in: NSRange(location: selection.location - line.content.location, length: selection.length), with: "")
+        guard !core.isEmpty, !core.contains("://"),
+              core.rangeOfCharacter(from: linkBreakers) == nil, !core.hasSuffix("\\"),
+              !(core.contains("|") && outside.contains("|")) else { return nil }
         // The character before the link's `[`: `!` would make it an image, `\` would escape it.
         let lead = selection.location + (leading as NSString).length
         if lead > 0, [UInt16(0x21), UInt16(0x5C)].contains(ns.character(at: lead - 1)) { return nil }
@@ -89,9 +90,9 @@ enum MarkdownPasteEdits {
               !isInsideLinkOrCode(selection, in: ns) else { return nil }
 
         let link = "[\(core)](\(destination(url)))"
-        let replacement = leading + link + trailing
+        let replacement = leading + link + trailing + terminator
         let caret = selection.location + ((leading + link) as NSString).length
-        return MarkdownSplice(range: selection, text: replacement,
+        return MarkdownSplice(range: whole, text: replacement,
                               selection: NSRange(location: caret, length: 0))
     }
 
@@ -120,9 +121,9 @@ enum MarkdownPasteEdits {
     private static func hasGluedSecondAddress(_ text: String) -> Bool {
         guard let regex = try? NSRegularExpression(pattern: "(https?)://", options: .caseInsensitive) else { return false }
         let ns = text as NSString
+        // The first match is the address's own scheme, at the start; any other starts past it.
         for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).dropFirst() {
             let start = match.range(at: 1).location
-            guard start > 0 else { continue }
             let before = ns.substring(with: NSRange(location: start - 1, length: 1))
             if before.rangeOfCharacter(from: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ",;|"))) != nil {
                 return true
@@ -131,36 +132,57 @@ enum MarkdownPasteEdits {
         return false
     }
 
-    /// Line breaks of every kind — a link's words stay on one line.
-    private static let lineBreaks = CharacterSet.newlines.union(CharacterSet(charactersIn: "\u{2028}\u{2029}\u{0085}"))
-
     /// Characters that end link text early, or nest a link: brackets, and a backtick that could
     /// open a code span across the link's own `]`.
     private static let linkBreakers = CharacterSet(charactersIn: "[]`")
 
     /// The link's destination as written: bare, or in `<…>` when its parentheses do not balance —
     /// CommonMark ends a bare destination at the first unmatched `)`.
+    ///
+    /// **A `|` is written `\|`**: in a table it would end the cell, and GFM takes the escape out of a
+    /// cell before reading the link; anywhere else a backslash before punctuation in a destination
+    /// is that punctuation. Either way the address is the one pasted.
     private static func destination(_ url: String) -> String {
         var depth = 0
         for character in url {
             if character == "(" { depth += 1 }
             if character == ")" { depth -= 1; if depth < 0 { break } }
         }
-        return depth == 0 ? url : "<\(url)>"
+        let escaped = url.replacingOccurrences(of: "|", with: "\\|")
+        return depth == 0 ? escaped : "<\(escaped)>"
     }
 
-    /// The list, task, heading or quote marker opening `text`, or `nil`.
-    private static func blockMarker(at text: String) -> String? {
-        let patterns = ["^#{1,6}[ \t]+", "^>[ \t]?",
-                        "^(?:[-*+]|[0-9]{1,9}[.)])[ \t]+(?:\\[[ xX]\\][ \t]+)?"]
-        let ns = text as NSString
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern),
-                  let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) else { continue }
-            return ns.substring(with: match.range)
+    /// The markers a line opens with — its indent, every quote `>`, a list marker and its task box,
+    /// heading `#`s — each with the whitespace after it: how many UTF-16 units they take, and whether
+    /// one was a heading's. Read by UTF-16 offset, as the selection is: a combining mark after a
+    /// marker's space is the first character of the words, not part of the space.
+    private static func markerPrefix(of line: String) -> (length: Int, isHeading: Bool) {
+        let ns = line as NSString
+        var at = 0
+        func skipIndent() {
+            while at < ns.length, ns.character(at: at) == 0x20 || ns.character(at: at) == 0x09 { at += 1 }
         }
-        return nil
+        skipIndent()
+        var heading = false
+        // Every marker, in order: `> > - [ ] ` is four.
+        markers: for _ in 0..<8 {
+            for regex in markerPatterns {
+                guard let match = regex.firstMatch(in: line, options: .anchored,
+                                                   range: NSRange(location: at, length: ns.length - at)),
+                      match.range.length > 0 else { continue }
+                heading = heading || ns.character(at: at) == 0x23
+                at = NSMaxRange(match.range)
+                skipIndent()
+                continue markers
+            }
+            break
+        }
+        return (at, heading)
     }
+
+    private static let markerPatterns: [NSRegularExpression] = [
+        "#{1,6}(?:[ \\t]|$)", ">[ \\t]?", "(?:[-*+]|[0-9]{1,9}[.)])(?:[ \\t]|$)(?:[ \\t]*\\[[ xX]\\](?:[ \\t]|$))?",
+    ].compactMap { try? NSRegularExpression(pattern: $0) }
 
     /// **Whether the selection is already inside a link or a code span, anywhere in its paragraph**
     /// — the lines around it up to a blank line, because link text and code spans both wrap.
@@ -171,10 +193,11 @@ enum MarkdownPasteEdits {
     ///   is a `](` whose parentheses have not closed by the selection; an autolink is a `<scheme:`
     ///   with no `>` yet; a reference definition is its line's `[label]:`, after any list or quote
     ///   markers. Each has an answer already, and it is the plain paste.
+    /// - Inside angle brackets — an autolink (`<me@example.com>` too) or an HTML tag's attribute —
+    ///   and between an HTML `<a …>` and its `</a>`, which is a link written in HTML.
     private static func isInsideLinkOrCode(_ selection: NSRange, in ns: NSString) -> Bool {
         let (paragraph, offset) = Self.paragraph(around: selection, in: ns)
-        let chars = Array((paragraph as NSString).length == 0 ? [] : (0..<(paragraph as NSString).length)
-            .map { (paragraph as NSString).character(at: $0) })
+        let chars = Array(paragraph.utf16)
         let start = selection.location - offset
         let end = NSMaxRange(selection) - offset
         var masked = chars
@@ -215,6 +238,21 @@ enum MarkdownPasteEdits {
                                              options: .regularExpression) != nil {
             return true
         }
+        // Between `<` and `>` with neither in between: a tag, a comment or an autolink.
+        let after = String(utf16CodeUnits: Array(masked[end...]), count: masked.count - end)
+        if let open = before.range(of: "<", options: .backwards),
+           !before[open.upperBound...].contains(">"),
+           before[open.upperBound...].first.map({ $0.isLetter || "/!?".contains($0) }) == true,
+           let close = after.firstIndex(of: ">"), !after[..<close].contains("<") {
+            return true
+        }
+        // Inside an HTML link: an `<a>` opened before the selection and not yet closed.
+        func last(_ pattern: String) -> Int? {
+            let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+            return regex?.matches(in: before, range: NSRange(location: 0, length: (before as NSString).length))
+                .last?.range.location
+        }
+        if let opened = last("<a(?:\\s[^>]*)?>"), (last("</a\\s*>") ?? -1) < opened { return true }
         return false
     }
 
@@ -275,28 +313,42 @@ enum MarkdownPasteEdits {
 
     // MARK: - TE56: an image on its own line
 
-    /// `![](link)` for each link, at `range`, **on lines of their own with a blank line on each
-    /// side** — the only shape ``MarkdownBlocks`` draws as a picture (an image paragraph that holds
-    /// nothing else). Blank lines already there are used rather than doubled, and nothing is added at
-    /// the very start or end of the buffer.
+    /// `![](link)` for each link, replacing `range`, **on lines of their own with a blank line on
+    /// each side** — the only shape ``MarkdownBlocks`` draws as a picture (an image paragraph that
+    /// holds nothing else). Blank lines already there are used rather than doubled, and nothing is
+    /// added at the very start or end of the buffer.
+    ///
+    /// **Where**: at `range` on a blank line; on a line with anything on it, after the block that
+    /// line is in, indented to stay in its list item — see
+    /// ``MarkdownSourceContext/imageSpot(at:in:)``. A selection is replaced as a paste replaces one,
+    /// and the image goes where the caret then is. `nil` where no image may go: inside code, raw
+    /// HTML, a link definition or the front matter.
     ///
     /// Several images are separate paragraphs, so each one draws. The caret lands after the last
     /// link — on its line, where it would be after typing it.
-    static func imageBlock(_ links: [String], at range: NSRange, in text: String) -> MarkdownSplice? {
-        imageBlock(links, at: range, in: text as NSString)
-    }
-
-    static func imageBlock(_ links: [String], at range: NSRange, in ns: NSString) -> MarkdownSplice? {
+    static func imageBlock(_ links: [String], replacing range: NSRange, in ns: NSString) -> MarkdownSplice? {
         guard !links.isEmpty, MarkdownEdits.isValid(range, in: ns) else { return nil }
+        // The buffer as it reads with the selection gone — the same as `ns` up to `range.location`.
+        let rest = range.length > 0 ? ns.replacingCharacters(in: range, with: "") as NSString : ns
+        guard let spot = MarkdownSourceContext.imageSpot(at: range.location, in: rest) else { return nil }
+        let spotLine = MarkdownSourceLines.line(containing: spot.location, in: rest)
+        // On a blank line — only ever the one it was dropped on: a spot after a block is the end of
+        // its last written line — that line's own spaces go: kept, four of them would make the
+        // image code.
+        let blank = rest.substring(with: spotLine.content).allSatisfy { $0 == " " || $0 == "\t" }
+        let start = blank ? min(spotLine.content.location, range.location) : range.location
+        let end = blank ? NSMaxRange(spotLine.content) : spot.location
+        let between = blank ? "" : rest.substring(with: NSRange(location: range.location,
+                                                                length: spot.location - range.location))
         let newline = lineEnding(of: ns)
-        let before = blankLinesBefore(range.location, in: ns)
-        let after = blankLinesAfter(NSMaxRange(range), in: ns)
-        let lead = String(repeating: newline, count: before)
-        let trail = String(repeating: newline, count: after)
-        let images = links.map { "![](\($0))" }.joined(separator: newline + newline)
-        let inserted = lead + images + trail
-        let caret = range.location + ((lead + images) as NSString).length
-        return MarkdownSplice(range: range, text: inserted, selection: NSRange(location: caret, length: 0))
+        let lead = String(repeating: newline, count: blankLinesBefore(blank ? start : end, in: rest))
+        let trail = String(repeating: newline, count: blankLinesAfter(end, in: rest))
+        let indent = String(repeating: " ", count: spot.indent)
+        let images = links.map { indent + "![](\($0))" }.joined(separator: newline + newline)
+        let caret = start + ((between + lead + images) as NSString).length
+        return MarkdownSplice(range: NSRange(location: start, length: end - start + range.length),
+                              text: between + lead + images + trail,
+                              selection: NSRange(location: caret, length: 0))
     }
 
     /// How many line breaks to put before an image inserted at `location`: none at the start of the

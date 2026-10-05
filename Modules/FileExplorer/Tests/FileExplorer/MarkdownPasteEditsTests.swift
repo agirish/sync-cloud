@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import cmark_gfm
 @testable import FileExplorer
 
 /// TE55 (a web address pasted onto words) and TE56's text half (where an image's link goes), as
@@ -193,6 +194,72 @@ struct MarkdownPasteEditsTests {
         #expect(paste("https://e.com", over: "a `code` «b»") != nil)
     }
 
+    // MARK: - Found by the review of TE55
+
+    /// **A line selected whole — a triple-click takes its line break — is linked**, the break kept
+    /// after the link. Before, the break made it a plain paste, which joined the two lines.
+    @Test(arguments: [
+        ("«- milk\n»- eggs", "- [milk](https://e.com)\n- eggs"),
+        ("«- milk\r\n»- eggs", "- [milk](https://e.com)\r\n- eggs"),
+        ("«Just words\n»", "[Just words](https://e.com)\n"),
+    ])
+    func aWholeLineSelectedWithItsBreakIsLinked(_ marked: String, _ expected: String) throws {
+        #expect(try #require(paste("https://e.com", over: marked)).0 == expected)
+    }
+
+    /// **The line's markers stay outside the link wherever the selection starts** — after a quote's
+    /// `> `, and part-way through a marker.
+    @Test(arguments: [
+        ("> «- milk»", "> - [milk](https://e.com)"),
+        ("> «## Title»", "> ## [Title](https://e.com)"),
+        ("> > «1. [ ] milk»", "> > 1. [ ] [milk](https://e.com)"),
+        ("1«. milk»", "1. [milk](https://e.com)"),
+        ("#«# Method»", "## [Method](https://e.com)"),
+        ("  - «milk»", "  - [milk](https://e.com)"),
+    ])
+    func markersStayOutsideTheLinkWhereverTheSelectionStarts(_ marked: String, _ expected: String) throws {
+        #expect(try #require(paste("https://e.com", over: marked)).0 == expected)
+    }
+
+    /// **A `|` in the address is escaped**, so a table cell is not cut at it — and GFM takes the
+    /// escape out before reading the link, as a backslash before punctuation does anywhere else.
+    @Test func aPipeInTheAddressIsEscaped() throws {
+        let address = "https://fonts.example.com/css?family=Roboto|Open+Sans"
+        let table = try #require(paste(address, over: "| a | b |\n|---|---|\n| «milk» | 2 |")).0
+        #expect(table == "| a | b |\n|---|---|\n| [milk](https://fonts.example.com/css?family=Roboto\\|Open+Sans) | 2 |")
+        guard case .table(_, let rows)? = MarkdownBlocks.blocks(from: table).first?.kind else {
+            Issue.record("the table is not a table")
+            return
+        }
+        #expect(rows.first?.count == 2, "the row was cut at the address's |")
+        #expect(rows.first?.last?.plain == "2")
+        #expect(try #require(paste(address, over: "«milk»")).0 == "[milk](https://fonts.example.com/css?family=Roboto\\|Open+Sans)")
+    }
+
+    /// Words that cross a table's cells, or sit inside a link written as HTML, an email autolink
+    /// or an HTML tag, are a plain paste.
+    @Test(arguments: [
+        "| a | b |\n|---|---|\n| «milk | 2» |",
+        "<a href=\"https://x.com\">«click»</a>",
+        "<A HREF='https://x.com'>see «this» here</A>",
+        "<me@«example».com>",
+        "<img alt=\"«words»\" src=\"a.png\">",
+    ])
+    func insideHTMLOrAcrossCellsIsAPlainPaste(_ marked: String) {
+        #expect(paste("https://e.com", over: marked) == nil, "\(marked.debugDescription)")
+    }
+
+    /// The positive controls: after an HTML link has closed, and beside a `<` that opens no tag.
+    @Test func afterAClosedHTMLLinkWordsAreLinked() throws {
+        #expect(try #require(paste("https://e.com", over: "<a href=\"x\">a</a> and «b»")).0
+                == "<a href=\"x\">a</a> and [b](https://e.com)")
+        #expect(try #require(paste("https://e.com", over: "if a < b then «c»")).0 == "if a < b then [c](https://e.com)")
+        // A `<` before a letter with no `>` after the words opens no tag either, nor one before a digit.
+        #expect(try #require(paste("https://e.com", over: "x <y then «c»")).0 == "x <y then [c](https://e.com)")
+        #expect(try #require(paste("https://e.com", over: "Files <10 MB are «inlined»; files >10 MB are linked")).0
+                == "Files <10 MB are [inlined](https://e.com); files >10 MB are linked")
+    }
+
     // MARK: - TE56: where the image's line goes
 
     private func caret(_ marked: String) -> (text: String, range: NSRange) {
@@ -203,26 +270,30 @@ struct MarkdownPasteEditsTests {
 
     private func image(_ marked: String, _ links: [String] = ["Images/Pasta-1.jpg"]) -> (String, NSRange)? {
         let (text, range) = caret(marked)
-        return MarkdownPasteEdits.imageBlock(links, at: range, in: text).map { ($0.applied(to: text), $0.selection) }
+        return MarkdownPasteEdits.imageBlock(links, replacing: range, in: text as NSString)
+            .map { ($0.applied(to: text), $0.selection) }
     }
 
     @Test(arguments: [
-        // Mid-line: split, with a blank line each side.
-        ("foo|bar", "foo\n\n![](Images/Pasta-1.jpg)\n\nbar"),
-        // End of a line with text below.
-        ("foo|\nbar", "foo\n\n![](Images/Pasta-1.jpg)\n\nbar"),
-        // An empty line between paragraphs.
+        // On a line with words, after the block that line is in — never in the middle of it.
+        ("foo|bar", "foobar\n\n![](Images/Pasta-1.jpg)"),
+        ("foo|bar\n\nnext", "foobar\n\n![](Images/Pasta-1.jpg)\n\nnext"),
+        // A paragraph's lines are one block: after its last.
+        ("foo|\nbar", "foo\nbar\n\n![](Images/Pasta-1.jpg)"),
+        ("foo\n\n|bar", "foo\n\nbar\n\n![](Images/Pasta-1.jpg)"),
+        ("|foo", "foo\n\n![](Images/Pasta-1.jpg)"),
+        // An empty line between paragraphs: right there.
         ("foo\n|\nbar", "foo\n\n![](Images/Pasta-1.jpg)\n\nbar"),
         // Blank lines already there are used, not doubled.
-        ("foo\n\n|bar", "foo\n\n![](Images/Pasta-1.jpg)\n\nbar"),
         ("foo\n\n|\n\nbar", "foo\n\n![](Images/Pasta-1.jpg)\n\nbar"),
         // Nothing added at the very start or end.
-        ("|foo", "![](Images/Pasta-1.jpg)\n\nfoo"),
         ("foo|", "foo\n\n![](Images/Pasta-1.jpg)"),
         ("|", "![](Images/Pasta-1.jpg)"),
-        // A Windows file keeps its line ending — at the end of a line, and at the start of one.
-        ("foo|\r\nbar", "foo\r\n\r\n![](Images/Pasta-1.jpg)\r\n\r\nbar"),
-        ("foo\r\n|bar", "foo\r\n\r\n![](Images/Pasta-1.jpg)\r\n\r\nbar"),
+        // A blank line's own spaces go — four of them would make the image code.
+        ("foo\n\n    |\n\nbar", "foo\n\n![](Images/Pasta-1.jpg)\n\nbar"),
+        // A Windows file keeps its line ending.
+        ("foo|\r\nbar", "foo\r\nbar\r\n\r\n![](Images/Pasta-1.jpg)"),
+        ("foo\r\n\r\n|\r\nbar", "foo\r\n\r\n![](Images/Pasta-1.jpg)\r\n\r\nbar"),
     ])
     func theImageIsOnALineOfItsOwn(_ before: String, _ after: String) throws {
         #expect(try #require(image(before)).0 == after)
@@ -230,7 +301,8 @@ struct MarkdownPasteEditsTests {
 
     /// **The real check: the preview draws it as a picture** — an image paragraph, the only shape
     /// `MarkdownBlocks` turns into one — with the text either side still its own paragraph.
-    @Test(arguments: ["foo|bar", "- list item|", "# Heading|\nText", "> quote|", "foo|", "foo\r\n|bar"])
+    @Test(arguments: ["foo|bar", "- list item|", "# Heading|\nText", "> quote|", "foo|", "foo\r\n|bar",
+                      "- a\n  - b|\n  - c"])
     func thePreviewDrawsWhatWasInserted(_ marked: String) throws {
         let result = try #require(image(marked)).0
         let images = MarkdownBlocks.blocks(from: result).filter {
@@ -251,11 +323,80 @@ struct MarkdownPasteEditsTests {
         #expect(selection == NSRange(location: (result as NSString).length, length: 0))
     }
 
-    /// A selection is replaced, as any paste replaces it.
+    /// A selection is replaced, as any paste replaces it — and the image goes where the caret then
+    /// is, by the same rule.
     @Test func aSelectionIsReplaced() throws {
-        let text = "keep this, drop this"
+        let text = "keep this, drop this\nand this line"
         let range = NSRange(location: 11, length: 9)
-        let splice = try #require(MarkdownPasteEdits.imageBlock(["Images/x-1.png"], at: range, in: text))
-        #expect(splice.applied(to: text) == "keep this, \n\n![](Images/x-1.png)")
+        let splice = try #require(MarkdownPasteEdits.imageBlock(["Images/x-1.png"], replacing: range, in: text as NSString))
+        #expect(splice.applied(to: text) == "keep this, \nand this line\n\n![](Images/x-1.png)")
+        #expect(splice.selection == NSRange(location: (splice.applied(to: text) as NSString).length, length: 0))
+        // A whole line selected: the image takes its place.
+        let whole = try #require(MarkdownPasteEdits.imageBlock(["Images/x-1.png"], replacing: NSRange(location: 4, length: 4),
+                                                               in: "one\ntwo\n\nthree" as NSString))
+        #expect(whole.applied(to: "one\ntwo\n\nthree") == "one\n\n![](Images/x-1.png)\n\nthree")
+    }
+
+    /// **A written line no image may break gives no splice at all**: raw HTML, indented code, a code
+    /// fence's own line, a link definition, the front matter.
+    @Test(arguments: [
+        "<p al‸ign=\"center\">\n  <img src=\"x.png\">\n</p>",
+        "    let ‸x = 1",
+        "``‸`py\ncode\n```",
+        "[logo]: https://ex‸ample.com/logo.png",
+        "---\nti‸tle: x\n---\n\nBody",
+        "<!--\nnote\n-‸->",
+    ])
+    func aLiteralLineTakesNoImage(_ marked: String) {
+        let ns = marked as NSString
+        let at = ns.range(of: "‸")
+        let text = ns.replacingCharacters(in: at, with: "") as NSString
+        #expect(MarkdownPasteEdits.imageBlock(["Images/x-1.png"], replacing: NSRange(location: at.location, length: 0),
+                                              in: text) == nil, "\(marked.debugDescription)")
+    }
+
+    /// **An image never splits the block it lands in** (review of TE56): a table stays one table,
+    /// a heading keeps its words, a quote stays whole — and in a list item, the image joins the item
+    /// at its words' column, so the items after it keep their nesting.
+    @Test(arguments: [
+        ("| a | b |\n|---|---|\n| 1‸ | 2 |\n| 3 | 4 |\n\nafter",
+         "| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\n![](Images/x-1.png)\n\nafter"),
+        // A line straight under a table is one of its rows, to GFM: the image goes after it too.
+        ("| a |\n|---|\n| 1‸ |\nmore", "| a |\n|---|\n| 1 |\nmore\n\n![](Images/x-1.png)"),
+        ("# Week‸night Pasta\nText", "# Weeknight Pasta\n\n![](Images/x-1.png)\n\nText"),
+        ("> quote‸\n> more\n\nafter", "> quote\n> more\n\n![](Images/x-1.png)\n\nafter"),
+        ("- a\n  - b‸\n  - c", "- a\n  - b\n\n    ![](Images/x-1.png)\n\n  - c"),
+        ("1. a‸\n2. b", "1. a\n\n   ![](Images/x-1.png)\n\n2. b"),
+        // A blank line inside an item is the item's; after its last line it is not.
+        ("- a\n‸\n  more", "- a\n\n  ![](Images/x-1.png)\n\n  more"),
+        ("- a\n‸\n- b", "- a\n\n![](Images/x-1.png)\n\n- b"),
+        // A setext heading: after its underline, not after the line the next block opens on — nor
+        // past the blank line cmark reports it ending on.
+        ("Tit‸le\n=====\nText", "Title\n=====\n\n![](Images/x-1.png)\n\nText"),
+        ("Tit‸le\n=====\n\nText", "Title\n=====\n\n![](Images/x-1.png)\n\nText"),
+        ("- a\n‸- \n\nText", "- a\n- \n\n![](Images/x-1.png)\n\nText"),
+    ])
+    func anImageNeverSplitsTheBlockItLandsIn(_ marked: String, _ expected: String) throws {
+        // `‸` for the caret: a table's own `|` would be read as one.
+        let ns = marked as NSString
+        let at = ns.range(of: "‸")
+        let text = ns.replacingCharacters(in: at, with: "")
+        let splice = try #require(MarkdownPasteEdits.imageBlock(["Images/x-1.png"],
+                                                                replacing: NSRange(location: at.location, length: 0),
+                                                                in: text as NSString))
+        let result = splice.applied(to: text)
+        #expect(result == expected)
+        // The rest of the document reads as it did — the same words, every item at its depth — and
+        // the picture is one block of its own (an image paragraph has no words of its own).
+        func shape(_ text: String) -> [String] {
+            MarkdownSourceContext.leaves(in: text as NSString).compactMap { leaf in
+                leaf.kind == CMARK_NODE_ITEM.rawValue ? "item at \(leaf.depth)" : leaf.text.isEmpty ? nil : leaf.text
+            }
+        }
+        #expect(shape(result) == shape(text), "\(result.debugDescription)")
+        let pictures = MarkdownBlocks.blocks(from: result).filter {
+            if case .image = $0.kind { return true } else { return false }
+        }
+        #expect(pictures.count == 1, "\(result.debugDescription) draws \(pictures.count) pictures")
     }
 }

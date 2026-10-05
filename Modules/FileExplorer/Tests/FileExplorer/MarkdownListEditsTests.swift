@@ -41,9 +41,10 @@ struct MarkdownListEditsTests {
         switch MarkdownListEdits.returnEdit(in: text, selection: selection) {
         case .continueWith(let opening)?:
             return (text as NSString).replacingCharacters(in: selection, with: "\n" + opening)
-        case .endList(let range)?, .clearMarker(let range)?:
-            // The marker off; for `.endList` the text view then puts the Return in after it.
-            return (text as NSString).replacingCharacters(in: range, with: "")
+        case .endList(let range, let indent, let separatesNext)?:
+            // The marker off, then the Return the text view puts in after it and the indent — and a
+            // second Return after the caret when a line follows.
+            return (text as NSString).replacingCharacters(in: range, with: "\n" + indent + (separatesNext ? "\n" : ""))
         case nil:
             return nil
         }
@@ -95,14 +96,14 @@ struct MarkdownListEditsTests {
     // MARK: - Return on an empty item ends the list
 
     @Test(arguments: [
-        ("- Parmesan to finish\n- |", "- Parmesan to finish\n"),
-        ("1. one\n2. |", "1. one\n"),
-        ("- [ ] a\n- [ ] |", "- [ ] a\n"),
+        ("- Parmesan to finish\n- |", "- Parmesan to finish\n\n"),
+        ("1. one\n2. |", "1. one\n\n"),
+        ("- [ ] a\n- [ ] |", "- [ ] a\n\n"),
         // Nested: the indent goes too, so no line of stray spaces is left. CommonMark reads this
         // empty line as paragraph text (an empty item may not interrupt one), and it is still the
         // item Tab just made — so it is read as though a word followed the marker.
-        ("- a\n  - |", "- a\n"),
-        ("some words\n- |", "some words\n"),
+        ("- a\n  - |", "- a\n\n  "),
+        ("some words\n- |", "some words\n\n"),
     ])
     func returnOnAnEmptyItemTakesItsMarkerOff(_ before: String, _ after: String) {
         #expect(afterReturn(before) == after)
@@ -451,11 +452,109 @@ struct MarkdownListEditsTests {
         #expect(out == "- Groceries\n  - \n    - eggs")
     }
 
-    /// **Return on an empty item with another after it clears the marker and nothing else** — a
-    /// blank line there would make the next item the words of whatever is typed above it.
-    @Test func anEmptyItemMidListOnlyLosesItsMarker() {
-        #expect(returnEdit("1. Preheat\n2. |\n3. Bake") == .clearMarker(NSRange(location: 11, length: 3)))
-        #expect(returnEdit("1. Preheat\n2. |") == .endList(NSRange(location: 11, length: 3)))
+    /// **Return on an empty item with another after it ends the list there, and keeps a blank line
+    /// below the caret** — so what is typed is a paragraph of its own, and the items after it stay
+    /// items: `3. Bake` cannot start a list under a paragraph, and with no blank line between would
+    /// be its words. (It used to only take the marker off, and what was typed joined the item above.)
+    @Test func anEmptyItemMidListEndsTheListAndKeepsTheRestItems() {
+        #expect(returnEdit("1. Preheat\n2. |\n3. Bake")
+                == .endList(NSRange(location: 11, length: 3), indent: "", separatesNext: true))
+        #expect(returnEdit("1. Preheat\n2. |") == .endList(NSRange(location: 11, length: 3), indent: "", separatesNext: false))
+        #expect(returnEdit("1. Preheat\n2. |\n\n3. Bake")
+                == .endList(NSRange(location: 11, length: 3), indent: "", separatesNext: false))
+        // A plain line straight under the empty item is not its words, whatever the word it was read
+        // with makes of it.
+        #expect(returnEdit("- a\n- |\nText") == .endList(NSRange(location: 4, length: 2), indent: "", separatesNext: true))
+        // **In a sub-list, the sub-list ends and the item it is in carries on**: what is typed is a
+        // paragraph of `a`, and `b` stays `a`'s child.
+        for (before, depth) in [("1. Preheat\n2. |\n3. Bake", 0), ("- a\n- |\n- b", 0),
+                                ("- a\n  - |\n  - b\n- c", 1), ("1. Step\n   - x\n   - |\n2. Next", 1)] {
+            guard case .endList(let range, let indent, _)? = returnEdit(before), let after = afterReturn(before) else {
+                Issue.record("\(before.debugDescription) did not end the list")
+                continue
+            }
+            // The caret is after the first break and the indent; type there.
+            let typed = (after as NSString).replacingCharacters(
+                in: NSRange(location: range.location + 1 + (indent as NSString).length, length: 0), with: "More")
+            let leaves = MarkdownSourceContext.leaves(in: typed as NSString)
+            #expect(leaves.contains { $0.depth == depth && $0.text == "More" }, "\(typed.debugDescription) reads \(leaves)")
+            func items(_ text: String) -> [Int] {
+                MarkdownSourceContext.leaves(in: text as NSString).filter { $0.kind == CMARK_NODE_ITEM.rawValue }.map(\.depth)
+            }
+            var expected = items((before as NSString).replacingOccurrences(of: "|", with: "x"))
+            expected.remove(at: before.components(separatedBy: "\n").firstIndex { $0.contains("|") }!)
+            #expect(items(typed) == expected, "an item moved in \(typed.debugDescription)")
+        }
+    }
+
+    /// **The middle of an item is not its end**, whatever line the caret is at the end of: words
+    /// carrying on below (indented or lazy), or an empty opening with its words on the next line.
+    @Test(arguments: [
+        "- Preheat the oven to|\n  200 degrees",
+        "- a|\nlazy",
+        "1. a|\n   more",
+        "- |\n  more",
+        // A later paragraph of the item.
+        "- a|\n\n  more",
+        // A heading underline, which makes the line a heading inside the item.
+        "- a|\n  ---",
+        // A quoted item's second line: its opening is quoted, and is never rewritten.
+        "> - a\n> more|",
+        // A quote inside the item: its line is the quote's, not the item's words.
+        "- a\n  > quoted|",
+    ])
+    func returnInsideAnItemIsLeftAlone(_ marked: String) {
+        #expect(returnEdit(marked) == nil, "\(marked.debugDescription)")
+    }
+
+    /// **The end of an item whose words wrapped onto more lines carries it on**, from the item's
+    /// own opening — as does a lazy line and a later paragraph of it.
+    @Test(arguments: [
+        ("- Preheat the oven\n  to 200|", "- Preheat the oven\n  to 200\n- "),
+        ("- a\nlazy|", "- a\nlazy\n- "),
+        ("3. a\n   more|", "3. a\n   more\n4. "),
+        ("- a\n\n  more|", "- a\n\n  more\n- "),
+        ("- [x] a\n  more|\n- b", "- [x] a\n  more\n- [ ] \n- b"),
+        ("- \n  more|", "- \n  more\n- "),
+    ])
+    func theEndOfAWrappedItemCarriesItOn(_ before: String, _ after: String) {
+        #expect(afterReturn(before) == after)
+    }
+
+    /// **An item with children carries on as its FIRST CHILD**, in the child's indent and marker —
+    /// a sibling there would take the children as its own.
+    @Test(arguments: [
+        ("- Groceries|\n  - eggs\n- Hardware", "- Groceries\n  - \n  - eggs\n- Hardware"),
+        ("1. a|\n   1. x", "1. a\n   1. \n   1. x"),
+        ("- a|\n  - [x] b", "- a\n  - [ ] \n  - [x] b"),
+        ("- a|\n\n  * b", "- a\n  * \n\n  * b"),
+        // A numbered sub-list starting past 1 gets a 1 — the only number that can open it under
+        // the item's words.
+        ("1. a|\n\n   2. b", "1. a\n   1. \n\n   2. b"),
+    ])
+    func anItemWithChildrenCarriesOnAsItsFirstChild(_ before: String, _ after: String) {
+        #expect(afterReturn(before) == after)
+        // Every child is still the parent's — read with a word typed on the new line, as CommonMark
+        // reads an empty item only once it has one (it may not interrupt a paragraph before).
+        guard case .continueWith(let opening)? = returnEdit(before) else { return }
+        let typed = (after as NSString).replacingCharacters(
+            in: NSRange(location: caret(before).selection.location + 1 + (opening as NSString).length, length: 0), with: "x")
+        let leaves = MarkdownSourceContext.leaves(in: typed as NSString)
+        let parent = try! #require(leaves.first { $0.kind == CMARK_NODE_ITEM.rawValue })
+        #expect(leaves.filter { $0.kind == CMARK_NODE_ITEM.rawValue && $0.depth == parent.depth + 1 }.count == 2,
+                "\(typed.debugDescription) reads \(leaves)")
+    }
+
+    /// A sibling below, even after a blank line, is not this item's: the list carries on.
+    @Test func aSiblingBelowIsNotTheItemsOwn() {
+        #expect(returnEdit("- a|\n\n- b") == .continueWith("- "))
+        #expect(returnEdit("- a|\n\npara") == .continueWith("- "))
+        #expect(returnEdit("- a\n  - b|\n- c") == .continueWith("  - "))
+    }
+
+    /// The last number a marker can carry is still counted on to.
+    @Test func theLastNineDigitNumberIsCountedOnTo() {
+        #expect(afterReturn("999999998. a|") == "999999998. a\n999999999. ")
     }
 
     // MARK: - Found by the third review
@@ -468,14 +567,28 @@ struct MarkdownListEditsTests {
         #expect(try #require(tab("1. a\r\n2. b|\r\n   - c")).0 == "1. a\r\n   1. b\r\n      - c")
     }
 
-    /// **The empty last item of a sub-list, with a numbered item after it**: Return clears the
-    /// marker and leaves no blank line, or `2. Next` would be the words of what is typed above it.
-    /// A bullet after it can follow a paragraph, so there the list ends properly.
+    /// **The empty last item of a sub-list, with an item after it**: the list ends with a blank line
+    /// on each side of the caret, or `2. Next` would be the words of what is typed above it.
     @Test func anEmptyLastSubItemKeepsTheOuterListItsItems() {
         #expect(returnEdit("1. Step\n   - detail\n   - |\n2. Next\n3. Last")
-                == .clearMarker(NSRange(location: 20, length: 5)))
-        #expect(returnEdit("- a\n  - |\n- b") == .endList(NSRange(location: 4, length: 4)))
-        #expect(returnEdit("- a\n  - |\n1. b") == .endList(NSRange(location: 4, length: 4)))
+                == .endList(NSRange(location: 20, length: 5), indent: "   ", separatesNext: true))
+        #expect(returnEdit("- a\n  - |\n- b") == .endList(NSRange(location: 4, length: 4), indent: "  ", separatesNext: true))
+        #expect(returnEdit("- a\n  - |\n1. b") == .endList(NSRange(location: 4, length: 4), indent: "  ", separatesNext: true))
+    }
+
+    /// **Tab and ⇧Tab next to an EMPTY item** — the empty item gaining or losing a child is still
+    /// the same item, so the move is made rather than refused.
+    @Test func tabMovesAnItemUnderAnEmptyOne() throws {
+        #expect(try #require(tab("- \n- b|")).0 == "- \n  - b")
+        #expect(try #require(tab("- \n  - b|", outdent: true)).0 == "- \n- b")
+    }
+
+    /// **A blank line after an HTML block is not HTML** — the block ended at it. The closing line of
+    /// a comment, reported one line short by cmark, still is.
+    @Test func aBlankLineAfterAnHTMLBlockIsNotLiteral() {
+        let text = "<details>\nx\n</details>\n\nmore" as NSString
+        #expect(!MarkdownSourceContext.isLiteral(at: text.range(of: "\n\nmore").location + 1, in: text))
+        #expect(MarkdownSourceContext.isLiteral(at: 6, in: "<!--\nx\n-->" as NSString))
     }
 
     /// **A whitespace-only line inside code under the item moves with the code** — kept as it was,
@@ -524,7 +637,7 @@ struct MarkdownListEditsTests {
                 let caret = NSRange(location: end, length: 0)
                 if let edit = MarkdownListEdits.returnEdit(in: text, selection: caret) {
                     switch edit {
-                    case .endList(let range), .clearMarker(let range):
+                    case .endList(let range, _, _):
                         #expect(NSMaxRange(range) <= text.length && range.location >= start,
                                 "Return reached outside its line in \((text as String).debugDescription)")
                     case .continueWith(let opening):

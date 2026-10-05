@@ -1212,6 +1212,15 @@ public struct EditorWorkspaceView: View {
             // bar coming on finds a length nobody kept while it was off. Left stale, the next
             // selection of that same length would leave the key unchanged and the bar unlit.
             .onChange(of: resolvedMode) { _, _ in selectionLength = 0 }
+            // **A preview a mode switch builds opens where the caret is** — not on the last heading
+            // chosen, whose request was still standing and was replayed to every preview a switch
+            // built, over wherever the reader had gone since (TE57 review). On `mode`, the reader's
+            // own choice, and not `resolvedMode`: opening a Markdown file after a plain one moves
+            // that too, while `caret` still holds the old file's line.
+            .onChange(of: mode) { _, _ in
+                scrollToken &+= 1
+                previewScrollRequest = EditorScrollRequest(line: caret.line, token: scrollToken)
+            }
             .onChange(of: showsFormatBar) { _, isShown in
                 if isShown { selectionLength = textViewHandle.textView?.selectedRange().length ?? 0 }
             }
@@ -1230,8 +1239,10 @@ public struct EditorWorkspaceView: View {
                     if !blocks.isEmpty { blocks = [] }
                     return
                 }
-                // Cancelled by the next keystroke, which is the whole mechanism.
-                try? await Task.sleep(for: .milliseconds(150))
+                // Cancelled by the next keystroke, which is the whole mechanism. **Not for a file just
+                // opened** (its blocks were cleared): nobody is typing, and the status line's
+                // heading would arrive 150ms late and push the counts sideways as it did.
+                if !blocks.isEmpty { try? await Task.sleep(for: .milliseconds(150)) }
                 guard !Task.isCancelled else { return }
                 let source = document.text
                 let parsed = await Task.detached(priority: .userInitiated) {

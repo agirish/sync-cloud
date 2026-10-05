@@ -6664,8 +6664,7 @@ directly, configured as swift-markdown configures it, over the buffer up to the 
 `FileExplorer` now names the `cmark-gfm` products it already linked through `Markdown`). **TE54:**
 Return at the end of a list item adds the next opening (`MarkdownListEdits.returnEdit` — same
 bullet, number + 1, `[ ]` after a task), the Return and the opening one undo step; Return on an
-empty item takes the opening off (`.endList` adds the blank line, `.clearMarker` mid-list does
-not). Tab/⇧Tab move an item and the lines the parser gives it (`itemExtent`) by its content column,
+empty item takes the opening off and ends the list (`.endList`). Tab/⇧Tab move an item and the lines the parser gives it (`itemExtent`) by its content column,
 and keep the result only if `MarkdownSourceContext.leaves` reads back the same blocks and words
 with that item one level moved (a first sub-list item may be renumbered `1.`, the only number that
 interrupts a paragraph); Text ▸ Continue Lists (`editorContinuesLists`) turns it off. **TE55:** a
@@ -6697,6 +6696,17 @@ done
 **`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the Edit workspace, so there is no
 text view to carry a list in, nothing to paste a link or an image into, and no status line for the
 heading. Nothing to pick short of the workspace itself.
+
+**Revised by the review of 2026-10-04, main only, same verdict.** Return now asks the parser what
+lies BELOW the line too (`MarkdownSourceContext.itemAtLineEnd`): the end of a line an item's words
+carry on from is a plain Return, the end of a multi-line item carries on from its opening, an item
+with children carries on as its first child (numbered `1.`), and `.endList` replaced `.clearMarker`
+— an empty item mid-list ends the list with a blank line kept under the caret, and in a sub-list
+the caret stays indented in the item above. Tab's check counts every item, so it moves next to an
+empty one. Link paste keeps a selected line break and every marker outside the link, escapes `|`,
+and leaves HTML and email autolinks alone. An image goes after the block it lands in, never inside
+it (`MarkdownSourceContext.imageSpot`), and a pasted image FILE is copied in as a drop is. Nothing
+here exists on `v4.x`, `v3.x` or `v2.x` either: checked by the same command, the same answer.
 
 ## The format bar spells its buttons out (TE63, TE64) — main only
 

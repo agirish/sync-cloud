@@ -12,7 +12,7 @@ import Sync
 public enum EditorImageImport {
 
     /// What arrived.
-    public enum Source: Equatable, Sendable {
+    enum Source: Equatable, Sendable {
         /// A file dropped from Finder, by path.
         case file(String)
         /// Image data from the clipboard — a screenshot taken with ⌃⇧⌘4 — already PNG.
@@ -31,11 +31,11 @@ public enum EditorImageImport {
     }
 
     /// The folder's name. One word, capitalised as Finder's own folders are.
-    public static let folderName = "Images"
+    static let folderName = "Images"
 
     /// Whether `path` names an image file — by its type, the way Finder decides, so `.HEIC` and
     /// `.jpeg` count and a `.pdf` does not.
-    public static func isImageFile(_ path: String) -> Bool {
+    static func isImageFile(_ path: String) -> Bool {
         let ext = (path as NSString).pathExtension
         guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else { return false }
         return type.conforms(to: .image)
@@ -51,7 +51,7 @@ public enum EditorImageImport {
     /// **Files written before a later one fails stay, and are linked** — undo here must never delete
     /// a file, and a file nothing links to is worse than one the note shows. An Images folder made
     /// for an import that then wrote nothing is taken away again, and only if it is still empty.
-    public static func importImages(_ sources: [Source], forNote notePath: String, linkedIn noteText: String = "",
+    static func importImages(_ sources: [Source], forNote notePath: String, linkedIn noteText: String = "",
                                     isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
                                     isWritable: (String) -> Bool = { FileManager.default.isWritableFile(atPath: $0) })
         -> Report {
@@ -80,6 +80,10 @@ public enum EditorImageImport {
             // answer hangs the window (`DatalessFolderReads`). The pane offers Download.
             guard !isCloudOnly(path) else {
                 return .refused("“\(name)” is still in the cloud. Download it first, then drop it again.")
+            }
+            // Asked here, so an unreadable photo is not reported as one that "couldn't be saved".
+            guard fileManager.isReadableFile(atPath: path) else {
+                return .refused("“\(name)” can't be read, so it couldn't be added. Check its permissions in Finder.")
             }
         }
 
@@ -117,7 +121,7 @@ public enum EditorImageImport {
         var links: [String] = []
         var failure: String?
         let resolvedFolder = URL(fileURLWithPath: folder.path).resolvingSymlinksInPath().path
-        for source in sources {
+        for (index, source) in sources.enumerated() {
             // An image already in the folder is linked where it is — a second copy of it beside
             // itself is clutter in a synced folder, and nothing to protect.
             if case .file(let path) = source, folder.exists,
@@ -153,19 +157,30 @@ public enum EditorImageImport {
                 } catch {
                     // **A failure AFTER the file landed is still a file that landed** — the door's
                     // read-back can fail once the move is done, and an image on disk that the note
-                    // does not link is the worst of both.
-                    if (try? fileManager.attributesOfItem(atPath: path)) != nil { landed = name }
-                    failure = "\(label) couldn't be saved in \(folder.name) — \(error.localizedDescription)"
+                    // does not link is the worst of both. Said as what it is: saved, then not checked.
+                    if (try? fileManager.attributesOfItem(atPath: path)) != nil {
+                        landed = name
+                        failure = "\(label) was saved in \(folder.name) and linked, but it couldn't be read "
+                            + "back straight afterwards — look at it before relying on it."
+                    } else {
+                        failure = "\(label) couldn't be saved in \(folder.name) — \(error.localizedDescription)"
+                    }
                 }
                 break
             }
-            guard let landed else {
+            if landed == nil {
                 failure = failure ?? "\(label) couldn't be saved in \(folder.name) — every name was taken."
+            }
+            if let landed {
+                written.append((folder.path as NSString).appendingPathComponent(landed))
+                links.append(link(folder: folder.name, file: landed))
+            }
+            if let reason = failure {
+                // The images after it are not tried: say so, rather than leave them unmentioned.
+                let left = sources.count - index - 1
+                if left > 0 { failure = reason + (left == 1 ? " The image after it wasn't added." : " The \(left) images after it weren't added.") }
                 break
             }
-            written.append((folder.path as NSString).appendingPathComponent(landed))
-            links.append(link(folder: folder.name, file: landed))
-            if failure != nil { break }
         }
 
         guard !links.isEmpty else {
@@ -177,10 +192,24 @@ public enum EditorImageImport {
             }
             return .refused(failure ?? "The image couldn't be saved.")
         }
-        return .wrote(files: written, madeFolder: madeFolder, linked: links,
-                      failed: links.count < sources.count || failure != nil
-                          ? (failure ?? "Only \(links.count) of \(sources.count) images could be saved.")
-                          : nil)
+        return .wrote(files: written, madeFolder: madeFolder, linked: links, failed: failure)
+    }
+
+    /// **What to tell the reader about images just written that Preview will not draw** — a file
+    /// over ``MarkdownImageSource/maxBytes`` is linked like any other and shows there as "Too large
+    /// to draw", which nobody should find out by looking. `nil` when every one will draw.
+    public static func drawWarning(for files: [String]) -> String? {
+        let large = files.compactMap { path -> (String, Int)? in
+            let size = ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.intValue ?? 0
+            return size > MarkdownImageSource.maxBytes ? ((path as NSString).lastPathComponent, size) : nil
+        }
+        guard let first = large.first else { return nil }
+        let limit = FileSyncManager.formatBytes(MarkdownImageSource.maxBytes)
+        return large.count == 1
+            ? "“\(first.0)” is \(FileSyncManager.formatBytes(first.1)), and Preview draws images up to \(limit), "
+                + "so it shows there as too large to draw. The file and its link are kept."
+            : "\(large.count) of the images are over \(limit), the most Preview draws, so they show there as too "
+                + "large to draw. The files and their links are kept."
     }
 
     // MARK: - The rules, each on its own
@@ -217,8 +246,12 @@ public enum EditorImageImport {
 
     /// The note's name without its extension — what the images are called after. A leading dot
     /// would make every image hidden, so it is dropped; a name that is nothing else becomes "Image".
+    ///
+    /// **Composed (NFC)**, whatever form the file system handed the name back in: git stores the
+    /// composed form, so a decomposed `Café` in the link would not find `Café-1.png` once pushed.
     static func imageStem(forNote notePath: String) -> String {
         let stem = ((notePath as NSString).lastPathComponent as NSString).deletingPathExtension
+            .precomposedStringWithCanonicalMapping
         let visible = String(stem.drop { $0 == "." })
         return visible.isEmpty ? "Image" : visible
     }
@@ -240,11 +273,13 @@ public enum EditorImageImport {
     }
 
     /// The highest `N` the note's own text links as `<folder>/<stem>-N.…`, written either way —
-    /// percent-encoded as Edit writes it, or plain inside `<…>`.
+    /// percent-encoded as Edit writes it, or plain inside `<…>` — and with the name composed or
+    /// decomposed, since the match is by bytes and a link typed or pasted may be either.
     static func highestLinkedNumber(for stem: String, folder: String, in text: String) -> Int {
         guard !text.isEmpty else { return 0 }
         var highest = 0
-        for spelling in Set([link(folder: folder, file: stem), folder + "/" + stem]) {
+        let forms = [stem.precomposedStringWithCanonicalMapping, stem.decomposedStringWithCanonicalMapping]
+        for spelling in Set(forms.flatMap { [link(folder: folder, file: $0), folder + "/" + $0] }) {
             let pattern = NSRegularExpression.escapedPattern(for: spelling + "-") + "([0-9]{1,6})\\."
             guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { continue }
             let ns = text as NSString
@@ -266,11 +301,6 @@ public enum EditorImageImport {
         var fitted = stem
         while fitted.utf8.count > 255 - 24, !fitted.isEmpty { fitted.removeLast() }
         return fitted.isEmpty ? "Image" : fitted
-    }
-
-    /// `<stem>-N.<ext>`, the stem shortened to fit the 255-byte limit on a name.
-    static func fittedName(stem: String, number: Int, ext: String) -> String {
-        fittedStem(stem) + "-\(number)" + (ext.isEmpty ? "" : ".\(ext)")
     }
 
     /// The link as it goes in the note: `Images/<name>`, each part percent-encoded down to letters,

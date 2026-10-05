@@ -42,7 +42,7 @@ struct EditorStatusLine: View, Equatable {
     enum HeadingFit: CaseIterable { case whole, floor, glyph }
 
     /// **Compared on everything it DRAWS** — the heading's closures left out, as the format bar's
-    /// is, so a keystroke that changes none of it does not rebuild and re-measure seven rungs. The
+    /// is, so a keystroke that changes none of it does not rebuild and re-measure five rungs. The
     /// closures are written at the one call site over the host's `@State`, which does not move.
     nonisolated static func == (a: EditorStatusLine, b: EditorStatusLine) -> Bool {
         a.facts == b.facts && a.caret == b.caret && a.fileSize == b.fileSize
@@ -55,6 +55,10 @@ struct EditorStatusLine: View, Equatable {
     /// The whole-name rung comes first so a name SHORTER than the floor costs only its own width.
     /// The last rung lets the name go entirely, so nothing can push the caret past the column's
     /// edge (`theHeadingFitsBesideTheNarrowestRung`).
+    ///
+    /// **One caret rung, not three.** The strip is fixed at its own width, so beside the caret alone
+    /// the name is drawn at whatever is left, up to its whole width, whichever fit is asked for — a
+    /// whole-name and a floor rung there would draw exactly what this one draws.
     var body: some View {
         Group {
             if let headings {
@@ -66,8 +70,6 @@ struct EditorStatusLine: View, Equatable {
                         rung(.full, headings, fit: .floor)
                         rung(.counts, headings, fit: .whole)
                         rung(.counts, headings, fit: .floor)
-                        rung(.caret, headings, fit: .whole)
-                        rung(.caret, headings, fit: .floor)
                         rung(.caret, headings, fit: .glyph)
                     }
                 }
@@ -216,12 +218,21 @@ struct EditorStatusHeadings: Equatable {
     /// What the line says: "in Method", or "Headings" above the first one.
     var title: String { currentEntry.map { "in \(Self.name($0))" } ?? "Headings" }
 
-    /// What VoiceOver says, from the same entry the line names.
-    var accessibilityName: String { currentEntry.map { "Heading: \(Self.name($0))" } ?? "Headings" }
+    /// What VoiceOver says, from the same entry the line names — "Section", because "Heading" is
+    /// what VoiceOver calls a heading itself, and this is a menu.
+    var accessibilityName: String { currentEntry.map { "Section: \(Self.name($0))" } ?? "Headings" }
 
-    /// A heading's name — the rail's words for one written with none.
+    /// The tooltip: about the heading the caret is in when there is one, about the menu when not.
+    var help: String {
+        currentEntry == nil ? "The document's headings — choose one to go to it"
+            : "The heading the caret is in — choose another to go to it"
+    }
+
+    /// A heading's name — the rail's words for one written with none, and on ONE line: a setext
+    /// heading's hard break is a line break in its text, and a menu item or the status line has one.
     static func name(_ entry: MarkdownOutlineEntry) -> String {
-        entry.title.isEmpty ? "Untitled heading" : entry.title
+        let title = entry.title.components(separatedBy: .newlines).joined(separator: " ")
+        return title.trimmingCharacters(in: .whitespaces).isEmpty ? "Untitled heading" : title
     }
 
     /// An item's title in the menu: indented one em per level below the document's shallowest
@@ -231,6 +242,13 @@ struct EditorStatusHeadings: Equatable {
     }
 
     static let railOutlineTitle = "Show the Outline in the rail"
+
+    /// **A menu item's tick, and what choosing it does** — on for the heading the caret is in, and
+    /// set either way it goes to that heading: a click on the ticked one goes to it too.
+    func choice(_ index: Int) -> Binding<Bool> {
+        Binding(get: { index == current },
+                set: { _ in if outline.indices.contains(index) { onSelect(outline[index]) } })
+    }
 }
 
 /// **"in Method ▾"** — the heading the caret is in, and a menu of the document's headings with
@@ -241,9 +259,7 @@ struct EditorHeadingMenu: View {
     var body: some View {
         Menu {
             ForEach(Array(headings.outline.enumerated()), id: \.element.id) { index, entry in
-                Toggle(EditorStatusHeadings.menuTitle(entry), isOn: Binding(
-                    get: { index == headings.current },
-                    set: { _ in headings.onSelect(entry) }))
+                Toggle(EditorStatusHeadings.menuTitle(entry), isOn: headings.choice(index))
             }
             if headings.offersRailOutline {
                 Divider()
@@ -270,7 +286,7 @@ struct EditorHeadingMenu: View {
         // The wash's own padding taken back outside it, as the header's folded crumb does, so the
         // glyph starts on the line's 14pt edge and the counts keep their 14pt gap.
         .padding(.horizontal, -4)
-        .help("The heading the caret is in — choose another to go to it")
+        .help(headings.help)
         .accessibilityLabel(headings.accessibilityName)
         .accessibilityHint("Shows the document's headings")
     }

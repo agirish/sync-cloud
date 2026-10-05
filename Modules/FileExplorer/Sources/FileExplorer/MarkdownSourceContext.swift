@@ -63,7 +63,171 @@ enum MarkdownSourceContext {
         return bytes.withUnsafeMutableBufferPointer { buffer -> Block in
             guard let root = parse(buffer) else { return .other }
             defer { cmark_node_free(root) }
-            return classify(lastLine, in: root, bodyStartLine: body.line)
+            return classify(lastLine, in: root, bodyStartLine: body.line,
+                            lineIsBlank: !asIfWritten && ns.substring(with: line.content)
+                                .allSatisfy { $0 == " " || $0 == "\t" })
+        }
+    }
+
+    /// **The list item a Return at the end of `location`'s line would carry on, and what of it lies
+    /// BELOW that line** — which ``block(at:in:asIfWritten:body:)`` cannot say, parsing nothing below.
+    ///
+    /// A Return is only "at the end of an item" when the item ends there: `- Preheat the oven to`
+    /// with `  200 degrees` under it is the middle of one, and a marker there would split its
+    /// sentence into two items. So the parse runs on to the next line with anything on it — enough,
+    /// because whether a line belongs to an item is settled by that line and the ones above it.
+    struct ItemAtLineEnd: Equatable {
+        /// The 1-based line asked about, in the file's numbering.
+        var line: Int
+        /// The 1-based line the innermost item holding it opens on — `line` itself, or above it for
+        /// the item's second line, a lazy line or a later paragraph of it.
+        var itemLine: Int
+        var below: Below
+        /// Whether the item is in a list inside another item — a sub-list's.
+        var nested = false
+
+        enum Below: Equatable {
+            /// Nothing: the line ends the item.
+            case nothing
+            /// The item's first child item, opening on this 1-based line.
+            case child(Int)
+            /// More of the item — its words carrying on, a paragraph, a block: the line is inside it.
+            case more
+        }
+    }
+
+    /// `nil` when the line is not the words of a list item — code, raw HTML, the front matter, a
+    /// quote or a table inside the item, or no item at all.
+    static func itemAtLineEnd(at location: Int, in ns: NSString, asIfWritten: Bool = false) -> ItemAtLineEnd? {
+        let line = MarkdownSourceLines.line(containing: location, in: ns)
+        let body = MarkdownFrontMatter.bodyStart(in: ns)
+        guard line.content.location >= body.offset else { return nil }
+
+        // The next line with anything on it, and how far below it is.
+        var next = MarkdownSourceLines.line(after: line, in: ns)
+        var distance = 1
+        while let current = next, ns.substring(with: current.content).allSatisfy({ $0 == " " || $0 == "\t" }) {
+            next = MarkdownSourceLines.line(after: current, in: ns)
+            distance += 1
+        }
+        let upTo = ns.substring(with: NSRange(location: body.offset, length: NSMaxRange(line.content) - body.offset))
+        let rest = next.map { ns.substring(with: NSRange(location: NSMaxRange(line.content),
+                                                         length: NSMaxRange($0.content) - NSMaxRange(line.content))) } ?? ""
+        // The word an empty item is read with goes at the end of its line, so no line moves.
+        var bytes = Array((upTo + (asIfWritten ? "x" : "") + rest).utf8)
+        let lineNumber = MarkdownSourceLines.lineCount(utf8: Array(upTo.utf8))
+        let nextNumber = next == nil ? nil : lineNumber + distance
+
+        return bytes.withUnsafeMutableBufferPointer { buffer -> ItemAtLineEnd? in
+            guard let root = parse(buffer) else { return nil }
+            defer { cmark_node_free(root) }
+            let chain = self.chain(holding: lineNumber, in: root)
+            let types = chain.map(cmark_node_get_type)
+            guard !types.contains(CMARK_NODE_CODE_BLOCK), !types.contains(CMARK_NODE_HTML_BLOCK),
+                  let item = chain.last(where: { cmark_node_get_type($0) == CMARK_NODE_ITEM }) else { return nil }
+            // The line's own block sits in the item directly: not in a quote or a table inside it.
+            if let leaf = chain.last, leaf != item, cmark_node_parent(leaf) != item { return nil }
+
+            func fileLine(_ number: Int) -> Int { number + body.line - 1 }
+            var below: ItemAtLineEnd.Below = .nothing
+            if let nextNumber, Int(cmark_node_get_end_line(item)) >= nextNumber {
+                below = .more
+                var list = cmark_node_first_child(item)
+                while let current = list, below == .more {
+                    if cmark_node_get_type(current) == CMARK_NODE_LIST {
+                        var child = cmark_node_first_child(current)
+                        while let candidate = child {
+                            if Int(cmark_node_get_start_line(candidate)) == nextNumber {
+                                below = .child(fileLine(nextNumber))
+                                break
+                            }
+                            child = cmark_node_next(candidate)
+                        }
+                    }
+                    list = cmark_node_next(current)
+                }
+            }
+            let nested = cmark_node_parent(item).flatMap(cmark_node_parent).map {
+                cmark_node_get_type($0) == CMARK_NODE_ITEM } ?? false
+            return ItemAtLineEnd(line: fileLine(lineNumber),
+                                 itemLine: fileLine(Int(cmark_node_get_start_line(item))), below: below, nested: nested)
+        }
+    }
+
+    /// **Where an image dropped or pasted at `location` goes so that it splits no block** (TE56),
+    /// and how many columns it is indented to stay in the list item it lands in.
+    ///
+    /// On a blank line, right there. On a line with anything on it, after the block that line is
+    /// in — a paragraph, a heading, a whole table, a whole quote — never inside it: a drop between a
+    /// table's `|`s cut it in two and left the rows below as a paragraph of pipes, and one in a
+    /// heading's words made half of them body text. In a list item the image stays in the item, at
+    /// its words' column, so the items after it stay where they were.
+    ///
+    /// **`nil` for a written line no image may break**: in code, raw HTML or the front matter, or a
+    /// line no block holds — a link definition, the closing line of an HTML comment. A blank line in
+    /// one of those is the caller's to ask about, of the text with the image in it: the blank lines
+    /// it adds end some of them and not others.
+    static func imageSpot(at location: Int, in ns: NSString) -> (location: Int, indent: Int)? {
+        let line = MarkdownSourceLines.line(containing: location, in: ns)
+        let body = MarkdownFrontMatter.bodyStart(in: ns)
+        func blank(_ line: MarkdownSourceLines.Line) -> Bool {
+            ns.substring(with: line.content).allSatisfy { $0 == " " || $0 == "\t" }
+        }
+        guard line.content.location >= body.offset else { return blank(line) ? (location, 0) : nil }
+        let number = MarkdownSourceLines.lineCount(utf8: Array(ns.substring(with: NSRange(
+            location: body.offset, length: line.content.location - body.offset)).utf8))
+        /// The line `target` (body-relative), walked to from the drop's.
+        func lineAt(_ target: Int) -> MarkdownSourceLines.Line? {
+            if target <= number { return MarkdownSourceLines.line(target, from: line, number: number, in: ns) }
+            var current: MarkdownSourceLines.Line? = line
+            for _ in number..<target { current = current.flatMap { MarkdownSourceLines.line(after: $0, in: ns) } }
+            return current
+        }
+        /// The column an item's words start at, read off its opening line from its marker on.
+        func contentColumn(_ item: UnsafeMutablePointer<cmark_node>) -> Int {
+            guard let opening = lineAt(Int(cmark_node_get_start_line(item))) else { return 0 }
+            let bytes = Array(ns.substring(with: opening.content).utf8)
+            let column = min(max(Int(cmark_node_get_start_column(item)) - 1, 0), bytes.count)
+            let before = String(decoding: bytes[..<column], as: UTF8.self)
+            let from = String(decoding: bytes[column...], as: UTF8.self)
+            let shape = String(repeating: " ", count: MarkdownListLine.columns(of: before)) + from
+            return MarkdownListLine.parse(shape)?.contentColumn ?? 0
+        }
+
+        var bytes = Array(ns.substring(from: body.offset).utf8)
+        return bytes.withUnsafeMutableBufferPointer { buffer -> (location: Int, indent: Int)? in
+            guard let root = parse(buffer) else { return nil }
+            defer { cmark_node_free(root) }
+            let chain = chain(holding: number, in: root)
+            let types = chain.map(cmark_node_get_type)
+            if blank(line) {
+                // Between two of an item's blocks, it is the item's; after its last, it is not.
+                for item in chain.reversed() where cmark_node_get_type(item) == CMARK_NODE_ITEM {
+                    let end = Int(cmark_node_get_end_line(item))
+                    if end > number, ((number + 1)...end).contains(where: { lineAt($0).map { !blank($0) } ?? false }) {
+                        return (location, contentColumn(item))
+                    }
+                }
+                return (location, 0)
+            }
+            guard !types.contains(CMARK_NODE_CODE_BLOCK), !types.contains(CMARK_NODE_HTML_BLOCK),
+                  let leaf = chain.last else { return nil }
+            let target = chain.first { cmark_node_get_type($0) == CMARK_NODE_BLOCK_QUOTE }
+                ?? chain.first { String(cString: cmark_node_get_type_string($0)) == "table" }
+                ?? leaf
+            // Its last WRITTEN line — clipped above whatever opens next, and back over blank lines:
+            // a setext heading's end is reported one line past its underline, which is a blank line
+            // as often as it is the next block's first.
+            var end = Int(cmark_node_get_end_line(target))
+            var node: UnsafeMutablePointer<cmark_node>? = target
+            while let current = node, current != root {
+                if let next = cmark_node_next(current) { end = min(end, Int(cmark_node_get_start_line(next)) - 1) }
+                node = cmark_node_parent(current)
+            }
+            while end > number, lineAt(end).map(blank) ?? true { end -= 1 }
+            let inside = chain.prefix { $0 != target }.last { cmark_node_get_type($0) == CMARK_NODE_ITEM }
+            guard let last = lineAt(max(end, number)) else { return nil }
+            return (NSMaxRange(last.content), inside.map(contentColumn) ?? 0)
         }
     }
 
@@ -82,7 +246,7 @@ enum MarkdownSourceContext {
     /// The whole body is parsed, because the answer is BELOW the line. Asked by Tab and ⇧Tab
     /// alone, which move every one of these lines and nothing past them: a note indented under a
     /// list but outside its last item stays where it is, and a child after a lazy line goes along.
-    struct ItemExtent: Equatable {
+    struct ItemExtent {
         /// The item's last line, 1-based in the file's numbering — its opening line when it is one line.
         var lastLine: Int
         /// Lines whose characters past the item's edge are CONTENT, kept byte for byte: a fenced
@@ -91,6 +255,9 @@ enum MarkdownSourceContext {
         /// Lines of an indented code block: four columns of their whitespace are the block's
         /// indentation, and the rest is code.
         var indentedCodeLines = IndexSet()
+        /// The whole body's ``leaves(in:body:)``, read off the same parse — what a move is held to,
+        /// and one parse of the document fewer per Tab.
+        var leaves: [Leaf] = []
     }
 
     static func itemExtent(at location: Int, in ns: NSString, asIfWritten: Bool = false,
@@ -135,6 +302,7 @@ enum MarkdownSourceContext {
             guard let item else { return nil }
             var extent = ItemExtent(lastLine: Int(cmark_node_get_end_line(item)) + body.line - 1)
             classifyLines(under: item, offset: body.line - 1, into: &extent, in: text)
+            extent.leaves = leaves(of: root, bodyLine: body.line)
             return extent
         }
     }
@@ -204,42 +372,47 @@ enum MarkdownSourceContext {
         var text: String
     }
 
-    /// **Every leaf block of the body, in order** — what Tab and ⇧Tab hold their result to. A move
-    /// is accepted only when the document still reads as the same blocks with the same words and
-    /// code, the moved item's own one level deeper or shallower and nothing else changed.
+    /// **Every leaf block of the body and every list item, in order** — what Tab and ⇧Tab hold their
+    /// result to. A move is accepted only when the document still reads as the same blocks with the
+    /// same words and code, the moved item's own one level deeper or shallower and nothing else changed.
     static func leaves(in ns: NSString, body known: (line: Int, offset: Int)? = nil) -> [Leaf] {
         let body = known ?? MarkdownFrontMatter.bodyStart(in: ns)
         var bytes = Array(ns.substring(from: body.offset).utf8)
         return bytes.withUnsafeMutableBufferPointer { buffer -> [Leaf] in
             guard let root = parse(buffer) else { return [] }
             defer { cmark_node_free(root) }
-            var leaves: [Leaf] = []
-            func walk(_ node: UnsafeMutablePointer<cmark_node>, depth: Int) {
-                var child = cmark_node_first_child(node)
-                while let current = child {
-                    if isBlock(current) {
-                        let type = cmark_node_get_type(current)
-                        let deeper = type == CMARK_NODE_ITEM ? depth + 1 : depth
-                        if cmark_node_first_child(current) == nil || !isBlock(cmark_node_first_child(current)!) {
-                            // An EMPTY item is a leaf too, at its own depth — or its nesting would be
-                            // the one thing a move could change unseen.
-                            if type == CMARK_NODE_ITEM {
-                                leaves.append(Leaf(line: Int(cmark_node_get_start_line(current)) + body.line - 1,
-                                                   depth: deeper, kind: type.rawValue, text: ""))
-                            } else if type != CMARK_NODE_LIST {
-                                leaves.append(Leaf(line: Int(cmark_node_get_start_line(current)) + body.line - 1,
-                                                   depth: depth, kind: type.rawValue, text: words(current)))
-                            }
-                        } else {
-                            walk(current, depth: deeper)
-                        }
-                    }
-                    child = cmark_node_next(current)
-                }
-            }
-            walk(root, depth: 0)
-            return leaves
+            return leaves(of: root, bodyLine: body.line)
         }
+    }
+
+    private static func leaves(of root: UnsafeMutablePointer<cmark_node>, bodyLine: Int) -> [Leaf] {
+        var leaves: [Leaf] = []
+        func walk(_ node: UnsafeMutablePointer<cmark_node>, depth: Int) {
+            var child = cmark_node_first_child(node)
+            while let current = child {
+                if isBlock(current) {
+                    let type = cmark_node_get_type(current)
+                    let line = Int(cmark_node_get_start_line(current)) + bodyLine - 1
+                    if type == CMARK_NODE_ITEM {
+                        // **Every item is counted where it opens, at its depth**, empty or not —
+                        // or an empty one's nesting would be the one thing a move could change
+                        // unseen. Counted as itself, not as a leaf, so an empty item that GAINS a
+                        // child (Tab on the item under it) is still the same item.
+                        leaves.append(Leaf(line: line, depth: depth + 1, kind: type.rawValue, text: ""))
+                        walk(current, depth: depth + 1)
+                    } else if cmark_node_first_child(current) == nil || !isBlock(cmark_node_first_child(current)!) {
+                        if type != CMARK_NODE_LIST {
+                            leaves.append(Leaf(line: line, depth: depth, kind: type.rawValue, text: words(current)))
+                        }
+                    } else {
+                        walk(current, depth: depth)
+                    }
+                }
+                child = cmark_node_next(current)
+            }
+        }
+        walk(root, depth: 0)
+        return leaves
     }
 
     /// A block's words, or its code: every literal under it, a soft or hard break as a space.
@@ -287,29 +460,16 @@ enum MarkdownSourceContext {
     /// Walks down the blocks that hold `line` — the LAST child at each level, because nothing was
     /// parsed below it — and reads the answer off that chain.
     private static func classify(_ line: Int, in root: UnsafeMutablePointer<cmark_node>,
-                                 bodyStartLine: Int) -> Block {
-        var chain: [UnsafeMutablePointer<cmark_node>] = []
-        var node: UnsafeMutablePointer<cmark_node>? = root
-        while let current = node {
-            var child = cmark_node_last_child(current)
-            node = nil
-            while let candidate = child {
-                if isBlock(candidate),
-                   Int(cmark_node_get_start_line(candidate)) <= line,
-                   Int(cmark_node_get_end_line(candidate)) >= line {
-                    chain.append(candidate)
-                    node = candidate
-                    break
-                }
-                child = cmark_node_previous(candidate)
-            }
-        }
+                                 bodyStartLine: Int, lineIsBlank: Bool) -> Block {
+        let chain = chain(holding: line, in: root)
         let types = chain.map(cmark_node_get_type)
         if types.contains(CMARK_NODE_CODE_BLOCK) { return .code }
         if types.contains(CMARK_NODE_HTML_BLOCK) { return .html }
         // cmark reports an HTML block that closes on its own end condition (`-->`, `</pre>`) as
         // ending one line short — so the closing line, last in what was parsed, is still its.
-        if chain.isEmpty, let last = cmark_node_last_child(root),
+        // **Never a blank line**: one after `</details>`, the last in what was parsed, is reported
+        // the same way, and it is the line that ENDS that block.
+        if chain.isEmpty, !lineIsBlank, let last = cmark_node_last_child(root),
            cmark_node_get_type(last) == CMARK_NODE_HTML_BLOCK,
            Int(cmark_node_get_end_line(last)) == line - 1 {
             return .html
@@ -336,6 +496,30 @@ enum MarkdownSourceContext {
         let parent = grandparent.flatMap { cmark_node_get_type($0) == CMARK_NODE_ITEM ? fileLine($0) : nil }
         return .listItem(ListItem(line: line + bodyStartLine - 1, previousSiblingLine: previous,
                                   parentItemLine: parent))
+    }
+
+    /// The blocks that hold `line`, outermost first — walked from the LAST child back at each
+    /// level: a setext heading's end line is reported one past its underline, so from the front it
+    /// would claim the line the next block opens on.
+    private static func chain(holding line: Int, in root: UnsafeMutablePointer<cmark_node>)
+        -> [UnsafeMutablePointer<cmark_node>] {
+        var chain: [UnsafeMutablePointer<cmark_node>] = []
+        var node: UnsafeMutablePointer<cmark_node>? = root
+        while let current = node {
+            var child = cmark_node_last_child(current)
+            node = nil
+            while let candidate = child {
+                if isBlock(candidate),
+                   Int(cmark_node_get_start_line(candidate)) <= line,
+                   Int(cmark_node_get_end_line(candidate)) >= line {
+                    chain.append(candidate)
+                    node = candidate
+                    break
+                }
+                child = cmark_node_previous(candidate)
+            }
+        }
+        return chain
     }
 
     private static func isBlock(_ node: UnsafeMutablePointer<cmark_node>) -> Bool {

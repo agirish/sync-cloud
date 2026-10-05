@@ -328,8 +328,8 @@ public enum EditorFileStore {
     /// Thrown by ``createNew(_:atPath:)`` and ``createNew(copying:toPath:)`` when something is
     /// already at the destination — the one failure a caller choosing names can recover from by
     /// choosing the next one.
-    public struct AlreadyExists: Error, Equatable {
-        public let path: String
+    struct AlreadyExists: Error, Equatable {
+        let path: String
     }
 
     /// **Puts NEW bytes on disk at `path`, and never replaces anything there** (TE56).
@@ -342,7 +342,7 @@ public enum EditorFileStore {
     /// `path` by then, in the same step that would otherwise have replaced it. No check-then-write
     /// window.
     @discardableResult
-    public static func createNew(_ data: Data, atPath path: String) throws -> Stamp {
+    static func createNew(_ data: Data, atPath path: String) throws -> Stamp {
         try createNew(atPath: path, expectedSize: data.count) { staged in
             try data.write(to: staged)
         }
@@ -361,7 +361,7 @@ public enum EditorFileStore {
     /// same review at about 70ms for a 200 MB file, on the main thread. Images are rarely that size;
     /// a locked hidden file left in somebody's cloud folder is not a price worth that saving.
     @discardableResult
-    public static func createNew(copying source: String, toPath path: String) throws -> Stamp {
+    static func createNew(copying source: String, toPath path: String) throws -> Stamp {
         let size = (try? FileManager.default.attributesOfItem(atPath: source))?[.size] as? NSNumber
         return try createNew(atPath: path, expectedSize: size?.intValue) { staged in
             guard copyfile(source, staged.path, nil, copyfile_flags_t(COPYFILE_DATA)) == 0 else {
@@ -379,7 +379,19 @@ public enum EditorFileStore {
         var installed = false
         defer { if !installed { try? fileManager.removeItem(at: staged) } }
 
-        try stage(staged)
+        do {
+            try stage(staged)
+        } catch let failure as Failure {
+            throw failure
+        } catch {
+            // **The reason, not the staged file's name**: Foundation's sentence names the hidden
+            // `.tmp_…` file, which the reader never asked for and will not find.
+            if let underlying = (error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError,
+               underlying.domain == NSPOSIXErrorDomain {
+                throw Failure(message: String(cString: strerror(Int32(underlying.code))))
+            }
+            throw Failure(message: "it couldn't be written there")
+        }
         // Flushed before it is moved in, for the reason the save path gives: the rename can reach
         // the disk before the data does.
         if let handle = try? FileHandle(forWritingTo: staged) {

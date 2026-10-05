@@ -91,6 +91,23 @@ import FileExplorerTestSupport
         #expect(listing(folder(of: note)).filter { $0.hasPrefix(".tmp_") }.isEmpty)
     }
 
+    /// **A failed write gives the reason, not the hidden staged file's name** — Foundation's own
+    /// sentence names `.tmp_<UUID>`, which the reader never asked for and cannot find.
+    @Test func aFailedWriteSaysWhyAndNotWhere() throws {
+        let note = try note()
+        let locked = folder(of: note) + "/Locked"
+        try fm.createDirectory(atPath: locked, withIntermediateDirectories: false)
+        chmod(locked, 0o555)
+        defer { chmod(locked, 0o755) }
+        do {
+            try EditorFileStore.createNew(png(), atPath: locked + "/x.png")
+            Issue.record("wrote into a folder that cannot be written to")
+        } catch let failure as EditorFileStore.Failure {
+            #expect(!failure.message.contains(".tmp_"), "\(failure.message)")
+            #expect(failure.message == "Permission denied", "\(failure.message)")
+        }
+    }
+
     @Test func aDroppedFileIsCopiedNeverMoved() throws {
         let note = try note()
         let source = try imageElsewhere("IMG_4120.JPG")
@@ -152,10 +169,59 @@ import FileExplorerTestSupport
                     "Images/" + (files[0] as NSString).lastPathComponent)))
     }
 
-    @Test func aLongNoteNameStillFitsTheLimit() {
-        let name = EditorImageImport.fittedName(stem: String(repeating: "é", count: 200), number: 12, ext: "jpeg")
+    /// **The name actually written** for the longest note name a disk allows — 240 bytes of "é" —
+    /// fits the 255-byte limit, the stem shortened and the number and extension kept.
+    @Test func aLongNoteNameStillFitsTheLimit() throws {
+        let note = try note(String(repeating: "é", count: 120) + ".md")
+        let source = try imageElsewhere("photo.jpeg")
+        guard case .wrote(let files, _, let links, _) = EditorImageImport.importImages([.file(source)], forNote: note) else {
+            Issue.record("refused")
+            return
+        }
+        let name = try #require(files.first.map { ($0 as NSString).lastPathComponent })
         #expect(name.utf8.count <= 255)
-        #expect(name.hasSuffix("-12.jpeg"))
+        #expect(name.hasSuffix("-1.jpeg"))
+        #expect(fm.fileExists(atPath: files[0]))
+        #expect(links.count == 1)
+    }
+
+    /// **A decomposed note name gives a composed image name and link** — git stores names composed,
+    /// so a decomposed link would not find the file once the folder is pushed. A link the note
+    /// already holds counts in either form.
+    @Test func aDecomposedNameIsWrittenComposed() throws {
+        let note = try note("Cafe\u{301}.md")
+        guard case .wrote(_, _, let links, _) = EditorImageImport.importImages(
+            [.png(png())], forNote: note, linkedIn: "![](Images/Cafe%CC%81-4.png)") else {
+            Issue.record("refused")
+            return
+        }
+        #expect(links == ["Images/Caf%C3%A9-5.png"])
+    }
+
+    /// An unreadable photo is refused as unreadable, before anything is written — not reported
+    /// as one that "couldn't be saved".
+    @Test func anUnreadableSourceIsRefusedAsUnreadable() throws {
+        let note = try note()
+        let source = try imageElsewhere()
+        chmod(source, 0)
+        defer { chmod(source, 0o644) }
+        let before = listing(folder(of: note))
+        expectRefusal(EditorImageImport.importImages([.file(source)], forNote: note),
+                      in: folder(of: note), before: before, mentioning: "can't be read")
+    }
+
+    /// **An image Preview will not draw is said so at once**, not found out by looking.
+    @Test func anImageTooLargeToDrawIsSaidSo() throws {
+        let small = try imageElsewhere()
+        #expect(EditorImageImport.drawWarning(for: [small]) == nil)
+        let large = try TestTextFiles.write("", named: "Huge.png")
+        let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: large))
+        try handle.truncate(atOffset: UInt64(MarkdownImageSource.maxBytes + 1))
+        try handle.close()
+        let warning = try #require(EditorImageImport.drawWarning(for: [small, large]))
+        #expect(warning.contains("“Huge.png”"))
+        #expect(warning.contains("too large to draw"))
+        #expect(EditorImageImport.drawWarning(for: [large, large])?.contains("2 of the images") == true)
     }
 
     // MARK: - Refusals: nothing written, a reason given

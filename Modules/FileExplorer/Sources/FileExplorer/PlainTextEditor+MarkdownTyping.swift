@@ -7,8 +7,9 @@ import Events
 ///
 /// **Each is a narrow exception to "Edit never writes what you did not type"**, so each asks every
 /// question first and does what the key or the paste always did when any answer is no: not Markdown,
-/// not writable, the IME composing (marked text), Continue Lists off, the caret in code or the front
-/// matter — see ``MarkdownListEdits`` and ``MarkdownPasteEdits`` for the rest.
+/// not writable, the IME composing (marked text), the caret in code or the front matter — and, for
+/// Return and Tab alone, Continue Lists off. See ``MarkdownListEdits`` and ``MarkdownPasteEdits``
+/// for the rest.
 ///
 /// **Every edit is its own undo step, apart from the typing on either side of it** —
 /// `breakUndoCoalescing()` before and after the `insertText(_:replacementRange:)` that typing itself
@@ -55,11 +56,16 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         case .continueWith(let opening):
             view.insertNewline(nil)
             view.insertText(opening, replacementRange: view.selectedRange())
-        case .endList(let range):
+        case .endList(let range, let indent, let separatesNext):
             view.insertText("", replacementRange: range)
             view.insertNewline(nil)
-        case .clearMarker(let range):
-            view.insertText("", replacementRange: range)
+            if !indent.isEmpty { view.insertText(indent, replacementRange: view.selectedRange()) }
+            if separatesNext {
+                // The second break goes in after the caret, which stays on the line to type on.
+                let caret = view.selectedRange()
+                view.insertNewline(nil)
+                view.setSelectedRange(caret)
+            }
         }
         view.breakUndoCoalescing()
         return true
@@ -89,6 +95,15 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         // the rest; neither edit here has an answer for the rest, so it is AppKit's paste.
         guard typesMarkdown(in: view), view.selectedRanges.count == 1 else { return false }
         let selection = view.selectedRange()
+
+        // TE56: image FILES, copied in Finder or a pane — copied in as a drop copies them. Their
+        // names come along as text, and the names are not what anybody meant — except where no
+        // image may go (code, raw HTML, the front matter), where the names paste as they always did.
+        if let importer = imageImport, let files = EditorTextView.imageFiles(on: pasteboard),
+           Self.imageCanGo(count: files.count, at: selection, in: buffer(of: view)) {
+            insertImages(files.map(EditorImageImport.Source.file), at: selection, in: view, importer: importer)
+            return true
+        }
         let string = pasteboard.string(forType: .string)
 
         // TE55: one web address, pasted over words. "Nothing else" on the clipboard: a file copied
@@ -104,11 +119,10 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
             return true
         }
 
-        // TE56: image data and no text — a screenshot. Anything carrying text pastes the text, as
-        // it always did: a file copied in Finder is its name plus its icon, and the icon is not
-        // what anybody meant.
-        guard string == nil, Self.webURL(on: pasteboard) == nil, let importer = imageImport,
-              let png = Self.pngData(on: pasteboard) else {
+        // TE56: image data and no text — a screenshot, or a picture copied in a browser, which puts
+        // its address beside it as a URL. Anything carrying text pastes the text, as it always did:
+        // rich text copied from a document often carries a picture OF itself too.
+        guard string == nil, let importer = imageImport, let png = Self.pngData(on: pasteboard) else {
             return false
         }
         insertImages([.png(png)], at: selection, in: view, importer: importer)
@@ -145,21 +159,32 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
 
     // MARK: Images
 
+    /// **Whether `count` images may go at `range`, asked of the text as it will read with them in
+    /// it** — placeholder links, the same lines. A link inside a code block, raw HTML, a link
+    /// definition or the front matter is literal text, and the image would be a file nothing shows.
+    /// Asked of the result and not only of the drop point, because on a blank line the blank lines
+    /// added decide it: inside a fence they are code, after an HTML block they end it.
+    static func imageCanGo(count: Int, at range: NSRange, in ns: NSString) -> Bool {
+        guard let trial = MarkdownPasteEdits.imageBlock(Array(repeating: "x", count: max(count, 1)),
+                                                        replacing: range, in: ns) else { return false }
+        return !MarkdownSourceContext.isLiteral(at: trial.selection.location,
+                                                in: ns.replacingCharacters(in: trial.range, with: trial.text) as NSString)
+    }
+
     /// Saves the images and links them at `range` — or says why not, and writes nothing.
     @discardableResult
     private func insertImages(_ sources: [EditorImageImport.Source], at range: NSRange,
                               in view: NSTextView, importer: EditorImageImporter) -> Bool {
-        // **Asked before anything is written**: a link inside a code block or the front matter is
-        // literal text, and the image would be a file nothing shows.
-        if MarkdownSourceContext.isLiteral(at: range.location, in: buffer(of: view)) {
-            importer.report(.refused("An image can't go in a code block or the front matter — drop or "
-                                     + "paste it somewhere else in the note."))
+        // **Asked before anything is written** — see `imageCanGo`.
+        let ns = buffer(of: view)
+        guard Self.imageCanGo(count: sources.count, at: range, in: ns) else {
+            importer.report(.refused("An image can't go in a code block, raw HTML, a link definition or the "
+                                     + "front matter — drop or paste it somewhere else in the note."))
             return false
         }
-        let report = EditorImageImport.importImages(sources, forNote: importer.notePath,
-                                                    linkedIn: buffer(of: view) as String)
+        let report = EditorImageImport.importImages(sources, forNote: importer.notePath, linkedIn: ns as String)
         guard case .wrote(_, _, let links, _) = report, !links.isEmpty,
-              let splice = MarkdownPasteEdits.imageBlock(links, at: range, in: buffer(of: view)) else {
+              let splice = MarkdownPasteEdits.imageBlock(links, replacing: range, in: ns) else {
             importer.report(report)
             return false
         }

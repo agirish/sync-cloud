@@ -30,7 +30,12 @@ final class EditorTextView: NSTextView {
             let point = convert(sender.draggingLocation, from: nil)
             let index = characterIndexForInsertion(at: point)
             switch handler.handleDrop(imageFiles: files, at: index, in: self) {
-            case .handled: return true
+            case .handled:
+                // **The caret goes to the text, as AppKit's own drop puts it there** — or ⌘Z, sent
+                // to whatever had focus (a pane), would undo the last FILE operation rather than
+                // this link: the window's undo stack is the file operations', not the editor's.
+                window?.makeFirstResponder(self)
+                return true
             case .refused: return false
             case .notMine: break
             }
@@ -77,14 +82,14 @@ protocol EditorTextViewHandling: AnyObject {
 /// **Where a note's dropped and pasted images go, and who hears about it** — handed to the editor
 /// only for a writable Markdown document. `nil` means images are not this editor's business, and a
 /// drop or paste of one does what it always did.
-public struct EditorImageImporter {
+struct EditorImageImporter {
     /// The open note. Its folder's `Images` folder is where the images go.
-    public var notePath: String
+    var notePath: String
     /// Told about every import — what was written, so the panes can be re-read and Compare told,
     /// or why nothing was, for the banner.
-    public var report: (EditorImageImport.Report) -> Void
+    var report: (EditorImageImport.Report) -> Void
 
-    public init(notePath: String, report: @escaping (EditorImageImport.Report) -> Void) {
+    init(notePath: String, report: @escaping (EditorImageImport.Report) -> Void) {
         self.notePath = notePath
         self.report = report
     }

@@ -44,8 +44,9 @@ let package = Package(
         // packages that can change under a build nobody touched, which is exactly how the
         // duplicate-PIF-GUID incident above happened. Bump all four together.
         //
-        // Only `Markdown` links into the app. `swift-cmark` is its C parser; the other two are
-        // documentation tooling, resolved because they are declared and never linked.
+        // `Markdown` and its C parser `swift-cmark` link into the app — the parser also named
+        // directly by the FileExplorer target below; the other two are documentation tooling,
+        // resolved because they are declared and never linked.
         .package(url: "https://github.com/swiftlang/swift-markdown", exact: "0.8.0"),
         .package(url: "https://github.com/swiftlang/swift-cmark", exact: "0.8.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin", exact: "1.5.0"),

@@ -42,6 +42,14 @@ import FileExplorerTestSupport
         view.isRichText = false
         view.importsGraphics = false
         view.allowsUndo = true
+        // Every substitution off, as `makeNSView` has them — or the machine's own settings decide
+        // what a typed quote or dash becomes here.
+        view.isAutomaticQuoteSubstitutionEnabled = false
+        view.isAutomaticDashSubstitutionEnabled = false
+        view.isAutomaticTextReplacementEnabled = false
+        view.isAutomaticSpellingCorrectionEnabled = false
+        view.isAutomaticDataDetectionEnabled = false
+        view.isAutomaticLinkDetectionEnabled = false
         view.isEditable = editable
         view.string = text
         coordinator.pushedText = text
@@ -146,6 +154,48 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "- eggs\n- ")
     }
 
+    /// **Return on an empty item with more of the list below** ends the list there with a line to
+    /// type on and a blank line under it, so what is typed is a paragraph and `3. Bake` stays an
+    /// item. One ⌘Z puts the item back.
+    /// **An empty sub-item ends its sub-list and keeps the caret in the item above** — indented to
+    /// it, so what is typed is a paragraph of that item and the sub-items after stay its own.
+    @Test func returnOnAnEmptySubItemStaysInTheItemAbove() {
+        let rig = rig("- a\n  - \n  - b")
+        rig.view.setSelectedRange(NSRange(location: 8, length: 0))
+        spin()
+        press(returnKey, in: rig)
+        #expect(rig.view.string == "- a\n\n  \n\n  - b")
+        #expect(rig.view.selectedRange() == NSRange(location: 7, length: 0))
+        undo(rig)
+        #expect(rig.view.string == "- a\n  - \n  - b")
+    }
+
+    @Test func returnOnAnEmptyItemMidListLeavesALineToTypeOn() {
+        let rig = rig("1. Preheat\n2. \n3. Bake")
+        rig.view.setSelectedRange(NSRange(location: 14, length: 0))
+        spin()
+        press(returnKey, in: rig)
+        #expect(rig.view.string == "1. Preheat\n\n\n\n3. Bake")
+        #expect(rig.view.selectedRange() == NSRange(location: 12, length: 0))
+        #expect(rig.box.text == rig.view.string)
+        type("More", in: rig)
+        #expect(rig.view.string == "1. Preheat\n\nMore\n\n3. Bake")
+        let kinds = MarkdownBlocks.blocks(from: rig.view.string).map(\.kind)
+        #expect(kinds.contains { if case .paragraph(let text) = $0 { return text.plain == "More" } else { return false } })
+        #expect(kinds.contains { if case .listItem(.ordered(3), let text) = $0 { return text.plain == "Bake" } else { return false } },
+                "\(kinds)")
+        undo(rig)
+        undo(rig)
+        #expect(rig.view.string == "1. Preheat\n2. \n3. Bake")
+    }
+
+    /// **Return in the middle of an item is a Return** — at the end of a line its words carry on from.
+    @Test func returnMidItemIsAReturn() {
+        let rig = rig("- Preheat the oven to\n  200 degrees")
+        rig.view.setSelectedRange(NSRange(location: 20, length: 0))
+        #expect(!rig.coordinator.textView(rig.view, doCommandBy: returnKey))
+    }
+
     /// **Each door that must leave Return alone**, by what reaches the buffer: a plain newline.
     @Test(arguments: ["off", "plain text", "read-only", "composing", "selection", "mid-item"])
     func returnIsAReturnWhereTheRuleDoesNotApply(_ why: String) {
@@ -199,6 +249,22 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "plain words\t")
     }
 
+    /// **Each door that must leave Tab and ⇧Tab alone** — the same doors as Return's.
+    @Test(arguments: ["off", "read-only", "composing"])
+    func tabIsTheKeysOwnWhereTheRuleDoesNotApply(_ why: String) {
+        let rig = rig("- a\n- b", editable: why != "read-only")
+        switch why {
+        case "off": rig.coordinator.continuesLists = false
+        case "composing":
+            rig.view.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
+                                   replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(rig.view.hasMarkedText(), "the IME case composed nothing, so it proves nothing")
+        default: break
+        }
+        #expect(!rig.coordinator.textView(rig.view, doCommandBy: tabKey), "\(why): the delegate took Tab")
+        #expect(!rig.coordinator.textView(rig.view, doCommandBy: backtabKey), "\(why): the delegate took ⇧Tab")
+    }
+
     @Test func tabInAListInAPlainTextFileIsATab() {
         let rig = rig("- a\n- b", markdown: false)
         press(tabKey, in: rig)
@@ -237,8 +303,9 @@ import FileExplorerTestSupport
             switch why {
             case "not an address": board.setString("just words", forType: .string)
             case "a file":
-                // What Finder puts on the clipboard for a copied file: its URL, and its name.
-                board.writeObjects([URL(fileURLWithPath: "/tmp/https:/x.png") as NSURL])
+                // What Finder puts on the clipboard for a copied file: its URL, and its name. Not
+                // an image, which would be copied in — see `anImageFileCopiedInFinderIsCopiedIn`.
+                board.writeObjects([URL(fileURLWithPath: "/tmp/https:/x.txt") as NSURL])
                 board.setString("https://example.com", forType: .string)
             default: board.setString("https://example.com", forType: .string)
             }
@@ -343,6 +410,69 @@ import FileExplorerTestSupport
         #expect(!FileManager.default.fileExists(atPath: (note as NSString).deletingLastPathComponent + "/Images"))
     }
 
+    /// **An image file copied in Finder is copied in** — its name comes along as text, and the
+    /// name is not what anybody meant. The file is copied, never moved.
+    @Test func anImageFileCopiedInFinderIsCopiedIn() throws {
+        let note = try TestTextFiles.write("x", named: "Pasta.md")
+        let source = try TestTextFiles.write("", named: "IMG_4120.png")
+        try pngData().write(to: URL(fileURLWithPath: source))
+        let rig = rig("x", importer: note)
+        let board = pasteboard {
+            $0.writeObjects([URL(fileURLWithPath: source) as NSURL])
+            $0.setString("IMG_4120.png", forType: .string)
+        }
+        defer { board.releaseGlobally() }
+        #expect(rig.coordinator.handlePaste(from: board, in: rig.view))
+        #expect(rig.view.string == "x\n\n![](Images/Pasta-1.png)")
+        #expect(FileManager.default.fileExists(atPath: source), "the copied file was moved")
+        #expect(FileManager.default.contentsEqual(atPath: source, andPath: (note as NSString).deletingLastPathComponent
+                                                  + "/Images/Pasta-1.png"))
+    }
+
+    /// **Where no image may go, an image file copied in Finder pastes its name**, as it always did
+    /// — not a refusal, and nothing written.
+    @Test func anImageFileCopiedIntoCodePastesItsName() throws {
+        let note = try TestTextFiles.write("x", named: "Pasta.md")
+        let source = try TestTextFiles.write("", named: "IMG_4125.png")
+        try pngData().write(to: URL(fileURLWithPath: source))
+        let rig = rig("```\ncode", importer: note)
+        let board = pasteboard {
+            $0.writeObjects([URL(fileURLWithPath: source) as NSURL])
+            $0.setString("IMG_4125.png", forType: .string)
+        }
+        defer { board.releaseGlobally() }
+        #expect(!rig.coordinator.handlePaste(from: board, in: rig.view))
+        #expect(rig.box.reports.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: (note as NSString).deletingLastPathComponent + "/Images"))
+    }
+
+    /// **A drop on a written line of raw HTML is refused** before anything is written — it would
+    /// cut the tag in two.
+    @Test func aDropOnAnHTMLLineIsRefused() throws {
+        let note = try TestTextFiles.write("x", named: "Note.md")
+        let source = try TestTextFiles.write("", named: "IMG_4126.png")
+        try pngData().write(to: URL(fileURLWithPath: source))
+        let rig = rig("<p align=\"center\">\n  hi\n</p>", importer: note)
+        #expect(rig.coordinator.handleDrop(imageFiles: [source], at: 5, in: rig.view) == .refused)
+        #expect(rig.view.string == "<p align=\"center\">\n  hi\n</p>")
+        #expect(!FileManager.default.fileExists(atPath: (note as NSString).deletingLastPathComponent + "/Images"))
+    }
+
+    /// **A picture copied in a browser** — image data with its address beside it as a URL, and no
+    /// text — is the picture, written as a PNG. With words selected, the address links them (TE55).
+    @Test func aPictureCopiedInABrowserIsThePicture() throws {
+        let note = try TestTextFiles.write("x", named: "Note.md")
+        let rig = rig("x", importer: note)
+        let board = pasteboard {
+            $0.setData(pngData(), forType: .png)
+            $0.writeObjects([URL(string: "https://example.com/photo.png")! as NSURL])
+        }
+        defer { board.releaseGlobally() }
+        #expect(board.string(forType: .string) == nil, "the URL came with text, so this proves nothing")
+        #expect(rig.coordinator.handlePaste(from: board, in: rig.view))
+        #expect(rig.view.string == "x\n\n![](Images/Note-1.png)")
+    }
+
     @Test func noImporterNoImage() {
         let rig = rig("x")
         let board = pasteboard { $0.setData(pngData(), forType: .png) }
@@ -374,6 +504,151 @@ import FileExplorerTestSupport
         #expect(rig.coordinator.handleDrop(imageFiles: [source], at: 3, in: rig.view) == .handled)
         #expect(rig.view.string == "one\n\n![](Images/Pasta-1.png)\n\ntwo")
         #expect(FileManager.default.fileExists(atPath: source), "the dropped file was moved")
+    }
+
+    /// **A drop lands after the block it falls in**, never inside it — here, a table row.
+    @Test func aDropInATableGoesAfterTheTable() throws {
+        let text = "| a | b |\n|---|---|\n| 1 | 2 |\n\nafter"
+        let note = try TestTextFiles.write(text, named: "Pasta.md")
+        let source = try TestTextFiles.write("", named: "IMG_4121.png")
+        try pngData().write(to: URL(fileURLWithPath: source))
+        let rig = rig(text, importer: note)
+        #expect(rig.coordinator.handleDrop(imageFiles: [source], at: 22, in: rig.view) == .handled)
+        #expect(rig.view.string == "| a | b |\n|---|---|\n| 1 | 2 |\n\n![](Images/Pasta-1.png)\n\nafter")
+    }
+
+    /// **A blank line inside a code block is code** — refused before anything is written, though the
+    /// drop point itself is a blank line; and a blank line after raw HTML is not, and takes the image.
+    @Test func aBlankLineIsLiteralOnlyWhereTheImageWouldBe() throws {
+        let note = try TestTextFiles.write("x", named: "Note.md")
+        let source = try TestTextFiles.write("", named: "IMG_4122.png")
+        try pngData().write(to: URL(fileURLWithPath: source))
+        let fenced = rig("```\ncode\n\nmore\n```", importer: note)
+        #expect(fenced.coordinator.handleDrop(imageFiles: [source], at: 9, in: fenced.view) == .refused)
+        #expect(fenced.view.string == "```\ncode\n\nmore\n```")
+        #expect(!FileManager.default.fileExists(atPath: (note as NSString).deletingLastPathComponent + "/Images"))
+        let html = rig("<details>\nx\n</details>\n\nmore", importer: note)
+        #expect(html.coordinator.handleDrop(imageFiles: [source], at: 23, in: html.view) == .handled)
+        #expect(html.view.string == "<details>\nx\n</details>\n\n![](Images/Note-1.png)\n\nmore")
+    }
+
+    /// A read-only Markdown note takes no image: the drop is AppKit's, which a read-only view refuses.
+    @Test func aDropOnAReadOnlyNoteIsAppKits() throws {
+        let note = try TestTextFiles.write("x", named: "Note.md")
+        let rig = rig("x", editable: false, importer: note)
+        #expect(rig.coordinator.handleDrop(imageFiles: ["/tmp/a.png"], at: 0, in: rig.view) == .notMine)
+    }
+
+    // MARK: - The view's own doors
+
+    /// A drag, as AppKit hands one to `performDragOperation(_:)`.
+    @MainActor final class Drag: NSObject, @MainActor NSDraggingInfo {
+        let draggingPasteboard: NSPasteboard
+        let draggingLocation: NSPoint
+        let draggingSource: Any?
+        @MainActor init(_ pasteboard: NSPasteboard, at location: NSPoint, from source: Any? = nil) {
+            draggingPasteboard = pasteboard
+            draggingLocation = location
+            draggingSource = source
+        }
+        var draggingDestinationWindow: NSWindow? { nil }
+        var draggingSourceOperationMask: NSDragOperation { .copy }
+        var draggedImageLocation: NSPoint { draggingLocation }
+        var draggedImage: NSImage? { nil }
+        var draggingSequenceNumber: Int { 1 }
+        func slideDraggedImage(to screenPoint: NSPoint) {}
+        var draggingFormation: NSDraggingFormation = .default
+        var animatesToDestination = false
+        var numberOfValidItemsForDrop = 1
+        func enumerateDraggingItems(options enumOpts: NSDraggingItemEnumerationOptions = [], for view: NSView?,
+                                    classes classArray: [AnyClass], searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
+                                    using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
+        var springLoadingHighlight: NSSpringLoadingHighlight { .none }
+        func resetSpringLoading() {}
+    }
+
+    /// **A handled drop puts the caret in the text**, as AppKit's own drop does — so the next ⌘Z
+    /// is the editor's, taking the link back, and not the window's, which is the file operations'.
+    @Test func aHandledDropPutsTheCaretInTheText() throws {
+        let note = try TestTextFiles.write("one\n\ntwo", named: "Pasta.md")
+        let source = try TestTextFiles.write("", named: "IMG_4123.png")
+        try pngData().write(to: URL(fileURLWithPath: source))
+        let rig = rig("one\n\ntwo", importer: note)
+        let elsewhere = NSTextField(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        rig.window.contentView?.addSubview(elsewhere)
+        rig.window.makeFirstResponder(elsewhere)
+        #expect(rig.window.firstResponder !== rig.view, "the text already had focus, so this proves nothing")
+        let board = pasteboard { $0.writeObjects([URL(fileURLWithPath: source) as NSURL]) }
+        defer { board.releaseGlobally() }
+        let point = rig.view.convert(NSPoint(x: 20, y: 20), to: nil)
+        #expect(rig.view.performDragOperation(Drag(board, at: point)))
+        #expect(rig.view.string.contains("![](Images/Pasta-1.png)"))
+        #expect(rig.window.firstResponder === rig.view, "the caret did not go to the text")
+        spin()
+        undo(rig)
+        #expect(rig.view.string == "one\n\ntwo")
+    }
+
+    /// **A refused drop is rejected** — `false` back to AppKit, the text untouched, the host told.
+    @Test func aRefusedDropIsRejected() throws {
+        let note = try TestTextFiles.write("```\ncode", named: "Pasta.md")
+        let source = try TestTextFiles.write("", named: "IMG_4124.png")
+        try pngData().write(to: URL(fileURLWithPath: source))
+        let rig = rig("```\ncode", importer: note)
+        let board = pasteboard { $0.writeObjects([URL(fileURLWithPath: source) as NSURL]) }
+        defer { board.releaseGlobally() }
+        #expect(!rig.view.performDragOperation(Drag(board, at: rig.view.convert(NSPoint(x: 20, y: 20), to: nil))))
+        #expect(rig.view.string == "```\ncode")
+        #expect(rig.box.reports.count == 1)
+    }
+
+    /// **A drag that started in this view is text being moved**, never a file — the handler is
+    /// not asked, whatever the pasteboard holds.
+    @Test func aDragFromTheViewItselfIsNotAnImageDrop() throws {
+        final class Spy: EditorTextViewHandling {
+            var drops = 0
+            func handlePaste(from pasteboard: NSPasteboard, in view: NSTextView) -> Bool { false }
+            func handleDrop(imageFiles: [String], at index: Int, in view: NSTextView) -> EditorDropOutcome {
+                drops += 1
+                return .refused
+            }
+        }
+        let rig = rig("one")
+        let spy = Spy()
+        rig.view.handler = spy
+        let board = pasteboard { $0.writeObjects([URL(fileURLWithPath: "/tmp/a.png") as NSURL]) }
+        defer { board.releaseGlobally() }
+        _ = rig.view.performDragOperation(Drag(board, at: .zero, from: rig.view))
+        #expect(spy.drops == 0)
+        _ = rig.view.performDragOperation(Drag(board, at: .zero))
+        #expect(spy.drops == 1, "the positive control: a drag from elsewhere is asked about")
+    }
+
+    /// **What the editor is handed, from where it is built** — `PlainTextEditor` forwards Continue
+    /// Lists, the Markdown flag and the importer on every pass, and the workspace hands them in, the
+    /// heading menu its jump, and a jump in Preview moves the caret.
+    @Test func theSettingsAreHandedInFromTheWorkspace() throws {
+        let editor = try EditorFormatBarTests.source("PlainTextEditor.swift")
+        for forwarded in ["context.coordinator.continuesLists = continuesLists",
+                          "context.coordinator.editsMarkdown = editsMarkdown",
+                          "context.coordinator.imageImport = imageImport"] {
+            #expect(editor.components(separatedBy: forwarded).count - 1 == 2,
+                    "\(forwarded) is not on both makeNSView and updateNSView")
+        }
+        #expect(editor.contains("(view as? EditorTextView)?.handler = context.coordinator"))
+        let workspace = try EditorFormatBarTests.source("EditorWorkspaceView.swift")
+        #expect(workspace.contains("editsMarkdown: document.isMarkdown,"))
+        #expect(workspace.contains("imageImport: imageImporter,"))
+        #expect(workspace.contains("onSelect: goToHeading"))
+        let jump = try EditorFormatBarTests.slice(workspace, from: "private func goToHeading(", to: "\n    }\n")
+        #expect(jump.contains("if resolvedMode == .preview"))
+        #expect(jump.contains("caretOffset = clamped"))
+        // A mode switch sends the preview it builds to the caret, not to the last heading chosen.
+        let modeSwitch = try EditorFormatBarTests.slice(workspace, from: ".onChange(of: mode) { _, _ in",
+                                                        to: "\n            }\n")
+        #expect(modeSwitch.contains("previewScrollRequest = EditorScrollRequest(line: caret.line, token: scrollToken)"))
+        // A file just opened is parsed at once — its heading is not 150ms behind its counts.
+        #expect(workspace.contains("if !blocks.isEmpty { try? await Task.sleep(for: .milliseconds(150)) }"))
     }
 
     @Test func aDropOnPlainTextIsAppKits() throws {

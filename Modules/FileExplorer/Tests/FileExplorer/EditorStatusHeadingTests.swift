@@ -59,7 +59,7 @@ import Design
     /// VoiceOver hears the name the line shows, from the same entry — and "Headings" for none,
     /// an index out of range included.
     @Test func voiceOverHearsTheSameName() throws {
-        #expect(try #require(make(pasta, caretLine: 16)).accessibilityName == "Heading: Method")
+        #expect(try #require(make(pasta, caretLine: 16)).accessibilityName == "Section: Method")
         #expect(try #require(make([entry("Later", level: 2, line: 5)], caretLine: 2)).accessibilityName == "Headings")
         var stray = try #require(make(pasta, caretLine: 16))
         stray.current = 9
@@ -77,7 +77,7 @@ import Design
     }
 
     /// **Equal when it draws the same, whatever the closures** — so a keystroke that changes
-    /// nothing on the line does not rebuild its seven rungs — and unequal when it does not.
+    /// nothing on the line does not rebuild its five rungs — and unequal when it does not.
     @Test func theLineIsComparedOnWhatItDraws() throws {
         let a = try #require(make(pasta, caretLine: 16, picked: { _ in }))
         let b = try #require(make(pasta, caretLine: 16, picked: { _ in Issue.record("never called") }))
@@ -93,19 +93,36 @@ import Design
         #expect(EditorStatusHeadings.menuTitle(entry("Deep", level: 4, line: 9, depth: 3)) == "\u{2003}\u{2003}\u{2003}Deep")
     }
 
-    /// The host's own wiring: the rail's Outline is offered while the rail is drawn on its Text
-    /// Files tab — and choosing a heading is the rail's scroll request.
-    @Test func choosingCallsTheHostsActs() throws {
+    /// **The menu's items, as the menu builds them**: the heading the caret is in is ticked and
+    /// no other, and choosing any item — the ticked one too — goes to that heading, never another.
+    @Test func eachItemTicksItsHeadingAndGoesToIt() throws {
         var picked: [Int] = []
+        let item = try #require(make(pasta, caretLine: 16, picked: { picked.append($0.line) }))
+        #expect(pasta.indices.map { item.choice($0).wrappedValue } == [false, false, true])
+        item.choice(1).wrappedValue = true
+        item.choice(2).wrappedValue = false
+        #expect(picked == [5, 12])
+        // An index the outline no longer has goes nowhere.
+        item.choice(7).wrappedValue = true
+        #expect(picked == [5, 12])
+    }
+
+    /// The menu's last item says what it does, and is the rail's own act.
+    @Test func theRailItemShowsTheOutline() throws {
         var shown = 0
-        let item = try #require(make(pasta, caretLine: 16, rail: true,
-                                     picked: { picked.append($0.line) }, showRail: { shown += 1 }))
-        item.onSelect(pasta[1])
-        item.onShowRailOutline()
-        #expect(picked == [5])
-        #expect(shown == 1)
+        let item = try #require(make(pasta, caretLine: 16, rail: true, showRail: { shown += 1 }))
         #expect(item.offersRailOutline)
-        #expect(try #require(make(pasta, caretLine: 16, rail: false)).offersRailOutline == false)
+        item.onShowRailOutline()
+        #expect(shown == 1)
+    }
+
+    /// **A setext heading's hard break is not a line in the menu**, and the tooltip speaks of the
+    /// heading only when there is one to speak of.
+    @Test func aNameIsOneLineAndTheTooltipFitsWhatIsShown() throws {
+        #expect(EditorStatusHeadings.name(entry("Two\nlines", level: 1, line: 1)) == "Two lines")
+        #expect(EditorStatusHeadings.name(entry("  ", level: 1, line: 1)) == "Untitled heading")
+        #expect(try #require(make(pasta, caretLine: 16)).help.hasPrefix("The heading the caret is in"))
+        #expect(try #require(make([entry("Later", level: 2, line: 5)], caretLine: 2)).help.hasPrefix("The document's headings"))
     }
 
     // MARK: - The fit

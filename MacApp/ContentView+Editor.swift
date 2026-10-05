@@ -1307,9 +1307,17 @@ extension ContentView {
                 Logger.shared.info("[edit] Image not added: \(failed ?? "nothing was saved"); left \(madeFolder ?? "nothing")")
             } else {
                 Logger.shared.info("[edit] Image added: wrote \(files.count) file(s)"
-                    + (madeFolder.map { " and made \($0)" } ?? "") + ", linked \(linked.joined(separator: ", "))")
+                    + (madeFolder.map { " and made \($0)" } ?? "") + ", linked \(linked.joined(separator: ", "))"
+                    + (failed.map { "; then stopped: \($0)" } ?? ""))
             }
-            if let failed { syncManager.banner = .error(failed) }
+            let warning = EditorImageImport.drawWarning(for: files)
+            if let warning { Logger.shared.info("[edit] \(warning)") }
+            // One banner: a failure outranks the warning, which the log still has.
+            if let failed {
+                syncManager.banner = .error(failed)
+            } else if let warning {
+                syncManager.banner = .warning(warning)
+            }
             if let reread = madeFolder ?? files.first { rereadPanesAfterEditorWrite(reread) }
         }
     }
