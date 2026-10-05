@@ -20,12 +20,21 @@ import Events
 /// against the text after them. So every stack is kept beside a fingerprint of the text it was
 /// parted from, and a stack whose fingerprint does not match what was loaded is thrown away rather
 /// than handed back. **Refusing is always safe; replaying a stale stack is what is not.**
+///
+/// **Each stack is kept beside the text storage its actions were made against** (TE67.0) — see
+/// ``EditorSourceStorage``. An `NSTextView` registers undo against its storage, not against the
+/// buffer, so a stack is only replayable against the storage it was made in; the two are kept,
+/// refused, handed back and evicted together.
 @MainActor
 public final class EditorUndoStore: ObservableObject {
 
     /// The manager the editor is currently using. Published, because the text view has to be handed
     /// the new one the moment the document changes.
     @Published public private(set) var current = UndoManager()
+
+    /// The text storage ``current``'s actions edit — the open document's, handed to its buffer by
+    /// ``EditorBuffer/follow(_:)`` once ``activate(path:text:)`` has chosen it.
+    @Published public private(set) var source = EditorSourceStorage()
 
     /// How many documents keep their history.
     ///
@@ -102,6 +111,8 @@ public final class EditorUndoStore: ObservableObject {
 
     private struct Entry {
         var manager: UndoManager
+        /// The storage `manager`'s actions edit. Its text is what `fingerprint` was taken from.
+        var source: EditorSourceStorage
         var fingerprint: Fingerprint
     }
 
@@ -121,9 +132,15 @@ public final class EditorUndoStore: ObservableObject {
     /// Puts the open document's stack away, against the text it is being parted from.
     ///
     /// Called on the way OUT, which is the one moment the buffer and the stack are known to agree.
+    ///
+    /// **The storage stops listening to the buffer here, document or not**, before the buffer is
+    /// replaced: a load or a close writes the buffer next, and a storage still attached would take
+    /// that text in — the incoming file's text, into the storage kept for the outgoing one, against
+    /// a fingerprint of what it held before.
     public func remember(text: String) {
+        source.buffer = nil
         guard let path = activePath else { return }
-        stacks[path] = Entry(manager: current, fingerprint: Fingerprint(text))
+        stacks[path] = Entry(manager: current, source: source, fingerprint: Fingerprint(text))
         promote(path)
         evictIfNeeded()
     }
@@ -133,10 +150,12 @@ public final class EditorUndoStore: ObservableObject {
         activePath = path
         guard let path else {
             current = fresh()
+            source = EditorSourceStorage(text: text)
             return
         }
         if let entry = stacks[path], entry.fingerprint == Fingerprint(text) {
             current = entry.manager
+            source = entry.source
             promote(path)
         } else {
             // Either nothing was kept, or what was kept describes a buffer this is not.
@@ -147,6 +166,7 @@ public final class EditorUndoStore: ObservableObject {
             stacks[path] = nil
             order.removeAll { $0 == path }
             current = fresh()
+            source = EditorSourceStorage(text: text)
         }
     }
 

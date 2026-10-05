@@ -14,7 +14,16 @@ import Design
 /// qualification, so there is deliberately nothing to register here.
 struct PlainTextEditor: NSViewRepresentable {
 
-    @Binding var text: String
+    /// **The open document's text storage, which this view is built around rather than owning one**
+    /// (TE67.0) — see ``EditorSourceStorage``.
+    ///
+    /// It used to be a binding to the buffer's `String`, handed into a storage the text view made
+    /// for itself. Edit and Split mount this view from two `switch` arms, so every mode switch built
+    /// a new view with a new storage, while the undo stack (below) was shared — and an `NSTextView`
+    /// registers undo against its own storage. ⌘Z after a switch reverted the discarded view's text
+    /// and left the screen and the document as they were. The storage now outlives the view, so every
+    /// view of a document edits the same one, and the buffer follows it.
+    var source: EditorSourceStorage
     /// Read-only documents are shown, not hidden — a lossy decode is still worth reading.
     var isEditable: Bool
     /// Settings ▸ Text size, so the monospace ramp scales with the rest of the app.
@@ -46,6 +55,10 @@ struct PlainTextEditor: NSViewRepresentable {
     /// empty stack — clicking Split to check the render and clicking back silently ended the undo
     /// history. `document`, `mode` and the split fraction were all hoisted to the host so a
     /// workspace switch could not reset them; this is the fourth thing that needed it.
+    ///
+    /// **Sharing the stack was half the fix**, and the half that showed: the stack survived the
+    /// switch while the text storage its actions named did not, so ⌘Z after a switch was used up
+    /// reverting text nobody could see. ``source`` is the other half.
     var undoManager: UndoManager
 
     /// Called whenever the selection moves, with its UTF-16 range in the buffer.
@@ -158,7 +171,8 @@ struct PlainTextEditor: NSViewRepresentable {
     // and because every delegate callback below arrives on the main thread anyway.
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
-        var text: Binding<String>
+        /// The storage the text view shows — re-assigned every pass, like ``onSelectionChange``.
+        var source: EditorSourceStorage
         /// The window's editor stack, handed over so text edits never reach the engine's.
         var undoManager: UndoManager
         /// The document the stack currently holds edits for.
@@ -184,23 +198,6 @@ struct PlainTextEditor: NSViewRepresentable {
         /// job: a 4 MiB string held alive to answer a question a table of offsets answers, and to
         /// answer it by walking every grapheme in it.
         var lineIndex: EditorLineIndex = .empty
-        /// **The string this view was last given, which IS the echo guard.**
-        ///
-        /// It used to be `view.string != text`, and that comparison was the expensive half of every
-        /// render pass. `NSTextView.string` bridges the mutable text storage out as a fresh Swift
-        /// string — a real copy of the whole buffer — and the two sides are then distinct instances
-        /// holding equal contents, so `==` can never take its pointer-identity shortcut and any
-        /// non-ASCII character sends it down Unicode's normalising path. That ran on the keystroke,
-        /// on the caret update after it, on every arrival of facts or blocks or outline, and on
-        /// every scrolled line in split.
-        ///
-        /// Remembering what was pushed removes both halves: `textDidChange` reads `view.string`
-        /// once (it needs it anyway) and records it here, so the ordinary case compares a string
-        /// against itself — the same storage, so the identity shortcut fires and nothing is walked.
-        /// A string that arrives from OUTSIDE the view (a reload from disk, a file switch, an undo
-        /// across documents, the preview ticking a checkbox) still differs from this and still
-        /// reaches the view, which is the half the guard exists for.
-        var pushedText: String = ""
         /// The view these callbacks belong to. Weak: the coordinator outlives a torn-down view, and
         /// a strong reference here would be a retain cycle through the delegate.
         weak var textView: NSTextView?
@@ -212,9 +209,9 @@ struct PlainTextEditor: NSViewRepresentable {
         var imageImport: EditorImageImporter?
         private var boundsObserver: (any NSObjectProtocol)?
 
-        init(text: Binding<String>, undoManager: UndoManager, documentID: String?,
+        init(source: EditorSourceStorage, undoManager: UndoManager, documentID: String?,
              onSelectionChange: @escaping (NSRange) -> Void) {
-            self.text = text
+            self.source = source
             self.undoManager = undoManager
             self.documentID = documentID
             self.onSelectionChange = onSelectionChange
@@ -303,15 +300,19 @@ struct PlainTextEditor: NSViewRepresentable {
 
         func undoManager(for view: NSTextView) -> UndoManager? { undoManager }
 
+        /// **The buffer is published by the storage now, not from here** — see
+        /// ``EditorSourceStorage``. This only catches up an edit the storage held back while an
+        /// input method was composing. **A net, and measured as one:** in the factory's view the
+        /// commit and `unmarkText` both arrive with the composition already cleared, so the storage
+        /// publishes them itself and this finds nothing to do (one integer compare); a hand-built
+        /// TextKit 2 view delivered `unmarkText`'s edit still marked (2026-10-04), which without
+        /// this would leave the committed word out of the document until the next keystroke.
+        ///
+        /// It used to be the only way the buffer heard of an edit, and on TextKit 2 an `NSTextView`
+        /// undo never sends it (measured 2026-10-04) — so after ⌘Z the screen showed the old text
+        /// while the document, autosave and the dirty dot kept the new, until the next keystroke.
         func textDidChange(_ notification: Notification) {
-            guard let view = notification.object as? NSTextView else { return }
-            // **Read once, then recorded as well as published.** `view.string` copies the whole
-            // buffer out of the text storage, so asking for it twice per keystroke — once here and
-            // once in `updateNSView`'s guard — was the copy paid twice. Recording it is what lets
-            // the render pass that follows compare a string against itself and stop.
-            let string = view.string
-            pushedText = string
-            text.wrappedValue = string
+            source.publishIfNeeded()
         }
 
         var offersMarkup = true
@@ -538,30 +539,45 @@ struct PlainTextEditor: NSViewRepresentable {
         view.performTextFinderAction(sender)
     }
 
-    /// The echo guard: hands `text` to the view unless the view was already given it.
+    /// Points `view` at `source`'s text storage — at construction, and whenever the document changes.
     ///
-    /// **Its own function so it can be driven without a SwiftUI `Context`.** The guard is now
-    /// *state* — what the coordinator last handed over — rather than a question about the view's
-    /// own contents, and state that drifts out of step with the view is a silent failure: an
-    /// external write (Reload from Disk, a file switch, an undo across documents) that matches the
-    /// stale record is skipped, and the text on screen and the text in the document quietly
-    /// disagree. That failure is only visible by pushing, typing, and pushing again, which is what
-    /// `PlainTextEditorBridgeTests` does through this.
+    /// **The view is still built by the factory and then re-pointed**, rather than assembled by hand
+    /// around the storage. The factory's view is the one this editor has always shipped, property for
+    /// property; re-pointing its `NSTextContentStorage` keeps it on TextKit 2 (measured 2026-10-04,
+    /// with typing, undo and a second re-point all landing on the storage now shown).
     ///
-    /// - Returns: whether the view was actually given a new string.
+    /// **The attributes are the ones `view.string = text` applied** — the view's typing attributes,
+    /// its font and its text colour, over the whole storage — measured identical run for run. They
+    /// register no undo (measured: 0 registrations, against 1 for a keystroke), which is what lets a
+    /// mode switch mount a view over a document's storage without adding a step to its history.
+    ///
+    /// **Never through `layoutManager` on a TextKit 2 view** — merely reading it drops the view to
+    /// TextKit 1 for good. The fallback reads it only where the view is TextKit 1 already.
+    static func show(_ source: EditorSourceStorage, in view: NSTextView) {
+        let storage = source.textStorage
+        if view.textStorage !== storage {
+            if let content = view.textContentStorage {
+                content.textStorage = storage
+            } else {
+                view.layoutManager?.replaceTextStorage(storage)
+            }
+        }
+        storage.setAttributes(view.typingAttributes, range: NSRange(location: 0, length: storage.length))
+        source.textView = view
+    }
+
+    /// The document changed under a mounted view: show the incoming storage, with the caret where it
+    /// was, clamped to the new length — and scrolled back into view, since a caret at offset 0 in a
+    /// freshly opened file is otherwise left behind a scroller still sitting where the previous
+    /// document was. The same caret the whole-string push this replaced kept.
+    ///
+    /// - Returns: whether the view was re-pointed.
     @discardableResult
-    static func pushIfChanged(_ text: String, into view: NSTextView,
-                              coordinator: Coordinator) -> Bool {
-        guard coordinator.pushedText != text else { return false }
+    static func follow(_ source: EditorSourceStorage, in view: NSTextView) -> Bool {
+        guard view.textStorage !== source.textStorage else { return false }
         let selected = view.selectedRange()
-        view.string = text
-        coordinator.pushedText = text
-        // Keep the caret where it was when the change came from outside (a reload, a file switch),
-        // clamped to the new length — and scrolled back into view, since a caret at offset 0 in a
-        // freshly opened file is otherwise left behind a scroller still sitting where the previous
-        // document was.
-        let location = min(selected.location, (text as NSString).length)
-        let range = NSRange(location: location, length: 0)
+        show(source, in: view)
+        let range = NSRange(location: min(selected.location, source.textStorage.length), length: 0)
         view.setSelectedRange(range)
         view.scrollRangeToVisible(range)
         return true
@@ -589,8 +605,16 @@ struct PlainTextEditor: NSViewRepresentable {
         return index.utf16Offset(ofLine: line)
     }
 
+    /// **The storage forgets this view as it goes, unless a newer one already took its place** — a
+    /// mode switch can build the next view before this one is taken down. Undo actions keep a
+    /// dismantled view alive, so a weak reference alone would go on naming it.
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
-        MainActor.assumeIsolated { coordinator.stopWatchingScrolling() }
+        MainActor.assumeIsolated {
+            coordinator.stopWatchingScrolling()
+            if let view = scroll.documentView as? NSTextView, coordinator.source.textView === view {
+                coordinator.source.textView = nil
+            }
+        }
     }
 
     /// **The find request is taken as already answered.** The counter lives in the workspace, which
@@ -599,7 +623,7 @@ struct PlainTextEditor: NSViewRepresentable {
     /// started at `0` read any count above that as a fresh press, so one Find, then ×, then opening
     /// any file, put the find bar up over a document nobody had asked to search.
     func makeCoordinator() -> Coordinator {
-        let coordinator = Coordinator(text: $text, undoManager: undoManager, documentID: documentID,
+        let coordinator = Coordinator(source: source, undoManager: undoManager, documentID: documentID,
                                       onSelectionChange: onSelectionChange)
         coordinator.lastFindRequest = findRequest
         // **The scroll request too, for the same reason** — it outlives the text view as the find
@@ -658,11 +682,11 @@ struct PlainTextEditor: NSViewRepresentable {
         view.drawsBackground = false
         view.textContainerInset = NSSize(width: 14, height: 12)
         view.font = Self.font(scale: fontScale)
-        view.string = text
+        // Where `view.string = text` was: the document's own storage, shared with every view of it
+        // that came before this one — which is what lets ⌘Z after a mode switch reach the screen.
+        Self.show(source, in: view)
         view.isEditable = isEditable
         Self.applyWrapping(wrapsLines, to: view, in: scroll)
-        // The view now holds exactly this string, so the echo guard starts in step with it.
-        context.coordinator.pushedText = text
         context.coordinator.lineIndex = lineIndex
         context.coordinator.onVisibleLineChange = onVisibleLineChange
         context.coordinator.textView = view
@@ -673,7 +697,7 @@ struct PlainTextEditor: NSViewRepresentable {
         (view as? EditorTextView)?.handler = context.coordinator
         textViewHandle?.textView = view
         context.coordinator.watchScrolling(of: scroll, textView: view)
-        Self.restoreCaret(to: initialSelection, in: view, text: text)
+        Self.restoreCaret(to: initialSelection, in: view, text: source.text)
         // **Wired LAST, after the string and the caret, and this is a fix rather than tidiness.**
         //
         // `NSTextView` calls `textViewDidChangeSelection` for programmatic moves as readily as for
@@ -738,9 +762,8 @@ struct PlainTextEditor: NSViewRepresentable {
             //
             // **`textStorage?.length`, never `view.string`.** Reading `string` copies the entire
             // text storage out of AppKit to produce a Swift `String` — on a 4 MiB document that is
-            // a 4 MiB copy to answer a question about a count, and it is the same copy
-            // `updateNSView`'s echo guard was rewritten to stop paying. The storage's own length is
-            // the number, in the units `NSRange` is measured in.
+            // a 4 MiB copy to answer a question about a count. The storage's own length is the
+            // number, in the units `NSRange` is measured in.
             guard let view, bounded <= (view.textStorage?.length ?? 0) else { return }
             view.scrollRangeToVisible(range)
         }
@@ -748,20 +771,10 @@ struct PlainTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let view = scroll.documentView as? NSTextView else { return }
-        // **The echo guard is `coordinator.pushedText != text`, and it has to be a comparison of
-        // some kind.** Typing writes the binding, which re-renders, which lands here — by which
-        // point the view already holds the string being pushed at it, so the guard is false and the
-        // caret is left alone. An `isPushing` flag set and cleared inside `textDidChange` looks like
-        // the guard and is not: SwiftUI runs this pass *after* that method has returned, so the flag
-        // is always back to false by the time it would be read.
-        //
-        // What changed is which two strings are compared. It used to ask `view.string != text`,
-        // which copies the entire text storage out of AppKit to produce a distinct instance holding
-        // equal contents — so `==` could never take its identity shortcut and had to walk, per
-        // keystroke, per caret move, per arrival of facts or blocks, and per scrolled line in split.
-        // The coordinator now remembers what it last handed the view, and that string and the one
-        // arriving through the binding are the same storage in the ordinary case, so the comparison
-        // ends on a pointer. See ``Coordinator/pushedText``.
+        // **No echo guard any more, because nothing is pushed.** The view shows the document's own
+        // storage and the buffer follows that storage, so typing never has to be handed back to
+        // the view it came from. What can still change under a mounted view is WHICH storage — a
+        // file switch hands the buffer another document's — and that is an identity check.
         context.coordinator.undoManager = undoManager
         // **The undo stack goes with the DOCUMENT**, and this is the one line standing between the
         // editor and a crash. `NSTextView`'s registrations name character RANGES in the buffer they
@@ -775,14 +788,15 @@ struct PlainTextEditor: NSViewRepresentable {
         // This used to call `removeAllActions()` whenever the document changed, because
         // `NSTextView` registers undo by character range and replaying one document's ranges into
         // another splices or crashes. `EditorUndoStore` now hands this view a stack that belongs to
-        // the document being shown — so the two documents' registrations can never meet, and the
+        // the document being shown, beside the storage that stack's actions edit (`follow` below
+        // re-points the view at it) — so the two documents' registrations can never meet, and the
         // history survives a round trip instead of being thrown away to make it safe. The store
         // also refuses a stack whose fingerprint no longer fits the buffer, which is the case the
         // wipe could not distinguish from any other.
         if context.coordinator.documentID != documentID {
             context.coordinator.documentID = documentID
         }
-        Self.pushIfChanged(text, into: view, coordinator: context.coordinator)
+        Self.follow(source, in: view)
         if view.isEditable != isEditable { view.isEditable = isEditable }
         if view.isContinuousSpellCheckingEnabled != checksSpelling {
             view.isContinuousSpellCheckingEnabled = checksSpelling
@@ -794,7 +808,7 @@ struct PlainTextEditor: NSViewRepresentable {
         if view.font != font {
             view.font = font
         }
-        context.coordinator.text = $text
+        context.coordinator.source = source
         context.coordinator.onSelectionChange = onSelectionChange
         context.coordinator.onVisibleLineChange = onVisibleLineChange
         context.coordinator.lineIndex = lineIndex
@@ -817,6 +831,7 @@ struct PlainTextEditor: NSViewRepresentable {
         // computed against the previous buffer is an offset into the wrong document.
         if let scrollRequest, scrollRequest != context.coordinator.lastScrollRequest {
             context.coordinator.lastScrollRequest = scrollRequest
+            let text = source.text
             if let offset = Self.utf16Offset(ofLine: scrollRequest.line, in: text,
                                              using: lineIndex) {
                 let range = NSRange(location: min(offset, (text as NSString).length), length: 0)

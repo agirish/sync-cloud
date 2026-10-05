@@ -16,10 +16,10 @@ import AppKit
 /// and with a run-loop turn between every edit and every ⌘Z: the undo manager groups by event, so
 /// without one every edit in a test is a single group and "one ⌘Z" proves nothing.
 ///
-/// **What the document holds after a ⌘Z is not asserted, and that is a known gap, not an oversight.**
-/// Measured 2026-10-04: on TextKit 2 an undo edits the storage without `shouldChangeText` or
-/// `didChangeText`, so `textDidChange` never runs and the binding keeps the undone text until the
-/// next keystroke — on TextKit 1 it follows. That is the same with or without the breaks here.
+/// **What the document holds after every ⌘Z is asserted too.** On TextKit 2 an undo edits the
+/// storage without `shouldChangeText` or `didChangeText` (measured 2026-10-04), so while the buffer
+/// followed `textDidChange` it kept the undone text until the next keystroke. The buffer follows the
+/// storage now (TE67.0, ``EditorSourceStorage``), and `undo(_:)` checks it against the screen.
 @MainActor
 @Suite(.serialized) struct MarkupVerbUndoTests {
 
@@ -27,6 +27,8 @@ import AppKit
         let view: NSTextView
         let coordinator: PlainTextEditor.Coordinator
         let undo: UndoManager
+        /// The document's buffer, following the storage the view is built around.
+        let buffer: EditorBuffer
         let window: NSWindow
     }
 
@@ -46,8 +48,12 @@ import AppKit
     /// substitutions that could rewrite a typed word off — in a window, the caret at the end.
     private func rig(_ text: String) -> Rig {
         let undo = UndoManager()
+        let buffer = EditorBuffer()
+        buffer.text = text
+        let source = EditorSourceStorage(text: text)
+        buffer.follow(source)
         let coordinator = PlainTextEditor.Coordinator(
-            text: .constant(text), undoManager: undo,
+            source: source, undoManager: undo,
             documentID: "/scratch/a.md", onSelectionChange: { _ in })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -64,14 +70,13 @@ import AppKit
         view.isAutomaticTextReplacementEnabled = false
         view.isAutomaticSpellingCorrectionEnabled = false
         view.isContinuousSpellCheckingEnabled = false
-        view.string = text
-        coordinator.pushedText = text
+        PlainTextEditor.show(source, in: view)
         coordinator.textView = view
         view.delegate = coordinator
         window.makeFirstResponder(view)
         view.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
         spin()
-        return Rig(view: view, coordinator: coordinator, undo: undo, window: window)
+        return Rig(view: view, coordinator: coordinator, undo: undo, buffer: buffer, window: window)
     }
 
     /// One turn of the run loop — what separates two events, and closes the undo group of the first.
@@ -102,9 +107,11 @@ import AppKit
         spin()
     }
 
-    private func undo(_ rig: Rig) {
+    private func undo(_ rig: Rig, sourceLocation: SourceLocation = #_sourceLocation) {
         rig.undo.undo()
         spin()
+        #expect(rig.buffer.text == rig.view.string, "⌘Z changed the screen and not the document",
+                sourceLocation: sourceLocation)
     }
 
     /// The review's case: "foo", then Bold over the empty selection after it. One ⌘Z takes back the

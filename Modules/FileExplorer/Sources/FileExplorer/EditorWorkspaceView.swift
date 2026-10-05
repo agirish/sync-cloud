@@ -1459,7 +1459,7 @@ public struct EditorWorkspaceView: View {
     static let formatBarInset: CGFloat = 6
 
     private var editorSurface: some View {
-        PlainTextEditor(text: $buffer.text,
+        PlainTextEditor(source: buffer.source,
                         isEditable: !document.isReadOnly,
                         fontScale: fontScale,
                         documentID: document.path,
@@ -1536,14 +1536,38 @@ public struct EditorWorkspaceView: View {
     private var taskToggle: ((Int) -> Void)? {
         guard !document.isReadOnly, document.refusal == nil else { return nil }
         return { line in
-            // A stale click — the line no longer holds a checkbox — leaves the buffer alone. See
-            // `MarkdownEdits.toggleTask`.
-            guard let rewritten = MarkdownEdits.toggleTask(onLine: line, in: document.text) else {
-                return
-            }
-            document.text = rewritten
+            Self.toggleTask(onLine: line, in: buffer.source, undoManager: undoManager)
         }
     }
+
+    /// Ticks or unticks the checkbox on a 1-based source line, **as a step ⌘Z can take back.**
+    ///
+    /// It was `document.text = rewritten`: a whole-buffer write the undo stack never heard of, so a
+    /// tick could not be undone and left every range the stack held pointing at a buffer that had
+    /// moved under it. It is now the few characters that changed, through the document's storage
+    /// (`EditorSourceStorage.replace`), registered on the document's own stack. The rewrite is still
+    /// `MarkdownEdits.toggleTask`'s, so what a tick does to the file is unchanged.
+    ///
+    /// A stale click — the line no longer holds a checkbox — leaves the text and the stack alone.
+    ///
+    /// **Measured against the storage's characters, not the published text.** The two differ by a
+    /// word an input method is composing in Split, and a range taken from one and applied to the
+    /// other would land that many characters early.
+    ///
+    /// - Returns: whether anything was ticked.
+    @discardableResult
+    static func toggleTask(onLine line: Int, in source: EditorSourceStorage,
+                           undoManager: UndoManager) -> Bool {
+        let current = source.textStorage.string
+        guard let rewritten = MarkdownEdits.toggleTask(onLine: line, in: current) else { return false }
+        let change = MarkdownEdits.minimalReplacement(from: current, to: rewritten)
+        source.replace(change.range, with: change.text, undoManager: undoManager,
+                       actionName: Self.taskActionName)
+        return true
+    }
+
+    /// The Undo item's word for a tick — Edit ▸ Undo Checkbox, whichever way it went.
+    static let taskActionName = "Checkbox"
 
     /// The folder the open document lives in — what a relative image path resolves against.
     ///

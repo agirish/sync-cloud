@@ -106,7 +106,7 @@ import SwiftUI
     }
 
     private func editor(findRequest: Int) -> PlainTextEditor {
-        PlainTextEditor(text: .constant("one two three\n"), isEditable: true, fontScale: 1,
+        PlainTextEditor(source: EditorSourceStorage(text: "one two three\n"), isEditable: true, fontScale: 1,
                         documentID: "/a/b.md", undoManager: UndoManager(),
                         findRequest: findRequest)
     }
@@ -203,7 +203,7 @@ import SwiftUI
     /// above sets the identifier by hand, so deleting the line from `makeNSView` would leave them
     /// all green while ⌘F silently stopped finding the document. This mounts the real view.
     @Test func theEditorReallyMarksItsScrollView() {
-        let editor = PlainTextEditor(text: .constant("hello"), isEditable: true, fontScale: 1,
+        let editor = PlainTextEditor(source: EditorSourceStorage(text: "hello"), isEditable: true, fontScale: 1,
                                      documentID: "/a/b.md", undoManager: UndoManager())
         let host = NSHostingView(rootView: editor)
         host.frame = NSRect(x: 0, y: 0, width: 400, height: 300)

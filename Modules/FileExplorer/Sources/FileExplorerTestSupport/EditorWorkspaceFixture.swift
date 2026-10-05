@@ -33,7 +33,8 @@ extension EditorWorkspaceView {
         onNewTextFile: (() -> Void)? = {},
         paneShowsTabStrip: Bool = false,
         folderDisplayName: String? = nil,
-        newFileFolderName: String? = nil
+        newFileFolderName: String? = nil,
+        undoManager: UndoManager = UndoManager()
     ) -> EditorWorkspaceView {
         EditorWorkspaceView(
             document: document,
@@ -52,7 +53,7 @@ extension EditorWorkspaceView {
             railFilterIsExpanded: .constant(false),
             railTab: .constant(.files),
             railOutlineAnchors: .constant([:]),
-            undoManager: UndoManager(),
+            undoManager: undoManager,
             stopped: stopped,
             onShowWhatChanged: onShowWhatChanged,
             prefilledName: { "Untitled.md" },

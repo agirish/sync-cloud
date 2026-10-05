@@ -187,9 +187,17 @@ import FileExplorer
         history.registerUndo(withTarget: doc) { _ in }
         try #require(history.canUndo)
 
+        let storage = store.source
+        doc.buffer.follow(storage)
         close(doc, store, Window(), settle: true)
         #expect(store.current !== history && !store.current.canUndo,
                 "the empty editor inherited the closed file's undo stack")
+        // The storage goes with the stack (TE67.0): the empty editor follows a fresh, empty one, and
+        // the file's own is left holding the file's text.
+        #expect(doc.buffer.source === store.source && store.source !== storage,
+                "the empty editor still follows the closed file's storage")
+        #expect(store.source.textStorage.string.isEmpty)
+        #expect(storage.textStorage.string == "hello\n", "closing wrote the empty buffer into the file's storage")
 
         _ = EditorFileStore.load(path: path, into: doc)
         store.activate(path: path, text: doc.text)

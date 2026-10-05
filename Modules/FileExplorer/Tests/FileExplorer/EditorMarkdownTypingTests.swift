@@ -14,7 +14,15 @@ import FileExplorerTestSupport
 @MainActor
 @Suite(.serialized) struct EditorMarkdownTypingTests {
 
-    final class Box { var text = ""; var selections: [NSRange] = []; var reports: [EditorImageImport.Report] = [] }
+    /// What the rig hears back. `text` is the document's own buffer, which follows the storage the
+    /// view is built around (TE67.0) — so asserting it is asserting the document heard the edit.
+    @MainActor
+    final class Box {
+        let buffer = EditorBuffer()
+        var text: String { buffer.text }
+        var selections: [NSRange] = []
+        var reports: [EditorImageImport.Report] = []
+    }
 
     struct Rig {
         let view: EditorTextView
@@ -28,10 +36,12 @@ import FileExplorerTestSupport
     private func rig(_ text: String, markdown: Bool = true, editable: Bool = true,
                      importer notePath: String? = nil) -> Rig {
         let box = Box()
-        box.text = text
+        box.buffer.text = text
+        let source = EditorSourceStorage(text: text)
+        box.buffer.follow(source)
         let undo = UndoManager()
         let coordinator = PlainTextEditor.Coordinator(
-            text: Binding(get: { box.text }, set: { box.text = $0 }), undoManager: undo,
+            source: source, undoManager: undo,
             documentID: "/scratch/a.md", onSelectionChange: { box.selections.append($0) })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -51,8 +61,7 @@ import FileExplorerTestSupport
         view.isAutomaticDataDetectionEnabled = false
         view.isAutomaticLinkDetectionEnabled = false
         view.isEditable = editable
-        view.string = text
-        coordinator.pushedText = text
+        PlainTextEditor.show(source, in: view)
         coordinator.textView = view
         coordinator.editsMarkdown = markdown
         coordinator.imageImport = notePath.map { path in
@@ -346,7 +355,7 @@ import FileExplorerTestSupport
     /// heading chosen, over wherever it had gone since.
     @Test func aRebuiltTextViewDoesNotReplayTheLastHeadingJump() {
         let request = EditorScrollRequest(line: 12, token: 7)
-        let editor = PlainTextEditor(text: .constant("x"), isEditable: true, fontScale: 1, documentID: "/a.md",
+        let editor = PlainTextEditor(source: EditorSourceStorage(text: "x"), isEditable: true, fontScale: 1, documentID: "/a.md",
                                      undoManager: UndoManager(), scrollRequest: request)
         #expect(editor.makeCoordinator().lastScrollRequest == request)
     }

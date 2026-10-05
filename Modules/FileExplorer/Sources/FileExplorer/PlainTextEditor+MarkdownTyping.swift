@@ -25,7 +25,8 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
     }
 
     /// The buffer as the storage holds it — **not `view.string`, which copies the whole document**
-    /// out of the text storage to answer one keystroke (see `Coordinator.pushedText`).
+    /// out of the text storage to answer one keystroke (see ``EditorSourceStorage/text``, the copy
+    /// kept so nothing else has to).
     private func buffer(of view: NSTextView) -> NSString {
         view.textStorage?.mutableString ?? (view.string as NSString)
     }

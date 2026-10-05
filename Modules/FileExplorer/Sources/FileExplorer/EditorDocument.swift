@@ -23,11 +23,56 @@ import Sync
 @MainActor
 public final class EditorBuffer: ObservableObject {
 
-    public init() {}
+    public init() {
+        source.buffer = self
+    }
 
-    /// The text. Written by the text view, read by everything that renders it.
+    /// The text. **Published from ``source``** — every character edit to the storage, whoever made
+    /// it — and read by everything that renders it.
+    ///
+    /// A write from anywhere else is taken into the storage, with no undo (see
+    /// ``EditorSourceStorage/takeBufferText(_:)``), so the two cannot disagree while attached. The
+    /// document's own writes — a load, a close — happen while the storage is put away, and do not.
     @Published public var text: String = "" {
-        didSet { textVersion &+= 1 }
+        didSet {
+            textVersion &+= 1
+            if !isPublishing, source.buffer === self { source.takeBufferText(text) }
+        }
+    }
+
+    /// The open document's text storage (TE67.0) — what every Source text view is built around, and
+    /// what an edit from outside the text view goes through. See ``EditorSourceStorage``.
+    ///
+    /// **Swapped on every load and close** by ``follow(_:)``, to the storage ``EditorUndoStore``
+    /// keeps beside the incoming document's undo stack. Published, so a mounted text view is
+    /// re-pointed at it even when the incoming text equals the outgoing.
+    @Published public private(set) var source = EditorSourceStorage()
+
+    /// Set while ``source`` is the writer, so its edit is not taken straight back into it.
+    private var isPublishing = false
+
+    /// Called by ``source`` on every edit to it.
+    func publish(_ string: String) {
+        isPublishing = true
+        text = string
+        isPublishing = false
+    }
+
+    /// Follows `incoming` from here on — **the last step of every load and close**, after
+    /// ``EditorUndoStore/activate(path:text:)`` has chosen the storage that fits the text loaded.
+    ///
+    /// The outgoing storage stops publishing here; ``EditorUndoStore/remember(text:)`` has already
+    /// stopped it listening. The incoming one is the store's: either fresh from this text, or the
+    /// one kept beside a stack whose fingerprint — a byte hash — matched it. So the two agree by
+    /// construction, and **they are not compared here**: measured at 4 MiB in a release build, the
+    /// byte comparison against a kept storage's text (bridged out of AppKit) cost 161 ms on every
+    /// switch back to it, against 4 ms for the fingerprint that already establishes the same thing.
+    public func follow(_ incoming: EditorSourceStorage) {
+        if source !== incoming {
+            if source.buffer === self { source.buffer = nil }
+            source = incoming
+        }
+        incoming.buffer = self
     }
 
     /// Bumped on every write to ``text``.

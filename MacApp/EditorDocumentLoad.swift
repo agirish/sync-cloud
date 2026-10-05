@@ -19,18 +19,22 @@ import FileExplorer
 /// 2. The buffer is replaced.
 /// 3. ``EditorUndoStore/activate(path:text:)`` asks for the incoming document's stack against what
 ///    ACTUALLY loaded, so a stack that no longer fits is dropped rather than handed back.
+/// 4. ``EditorBuffer/follow(_:)`` hands the buffer the text storage kept beside that stack (TE67.0) —
+///    the storage the stack's actions edit, and what the text view is re-pointed at. Step 1 stopped
+///    the outgoing storage listening, so the load in step 2 wrote only the buffer.
 ///
 /// Get 1 and 2 the wrong way round and the outgoing stack is filed against the incoming text, which
 /// makes its fingerprint agree next time and hands a stale stack to a buffer it does not fit. Leave
 /// 3 out and the new document is handed the old one's manager. Either way a later ⌘Z splices
 /// characters out of the wrong document, or throws `NSRangeException` and takes the window down with
-/// every unsaved buffer in it.
+/// every unsaved buffer in it. Leave 4 out and the text view goes on showing the outgoing document's
+/// storage beside the incoming document's stack.
 ///
-/// **Nothing here suspends, and that is load-bearing rather than incidental.** All three steps run
+/// **Nothing here suspends, and that is load-bearing rather than incidental.** All four steps run
 /// in one main-actor turn, so SwiftUI cannot render between them and no pass can see one document's
 /// text beside another's undo manager. If the read is ever moved off the main actor, the `await`
 /// belongs BEFORE step 2 — while the buffer and the stack are both still the outgoing document's —
-/// and steps 2 and 3 must stay in a single synchronous block. Four callers also read the document
+/// and steps 2 to 4 must stay in a single synchronous block. Four callers also read the document
 /// straight after this returns, `owePaneSelection` included.
 enum EditorDocumentLoad {
 
@@ -48,6 +52,7 @@ enum EditorDocumentLoad {
         // it produced, which is what stops a save transcoding it. See `EditorFileStore.load`.
         let result = EditorFileStore.load(path: path, into: document)
         undoStore.activate(path: document.path, text: document.text)
+        document.buffer.follow(undoStore.source)
         log(Self.logLine(path: path, result: result))
         return result
     }

@@ -207,4 +207,47 @@ import FileExplorer
             Issue.record("fixture did not decode lossily; got \(result)")
         }
     }
+
+    // MARK: The text storage (TE67.0)
+
+    /// **Step 4: the buffer follows the storage kept beside the stack** — on the way in, and back to
+    /// the same storage object on a round trip. Without it the text view goes on showing the
+    /// outgoing document's storage beside the incoming document's stack. Mutation: drop
+    /// `document.buffer.follow(undoStore.source)` from `run` and every assertion here fails.
+    @Test func theBufferFollowsTheStorageKeptBesideTheStack() throws {
+        let a = try file("a.md", "alpha")
+        let b = try file("b.md", "bravo")
+        let document = EditorDocument()
+        let store = EditorUndoStore()
+
+        load(a, document, store)
+        #expect(document.buffer.source === store.source, "the buffer does not follow a's storage")
+        #expect(document.buffer.source.textStorage.string == "alpha")
+        let storageForA = store.source
+
+        load(b, document, store)
+        #expect(document.buffer.source === store.source, "the buffer does not follow b's storage")
+        #expect(document.buffer.source.textStorage.string == "bravo")
+        #expect(storageForA.textStorage.string == "alpha", "loading b wrote into the storage kept for a")
+
+        load(a, document, store)
+        #expect(document.buffer.source === storageForA, "a came back without the storage its stack edits")
+    }
+
+    /// **An edit through the storage reaches the document, and ⌘Z takes it back out** — the bridge
+    /// the text view and the task tick both use, through the shipped load.
+    @Test func anEditToTheFollowedStorageReachesTheDocument() throws {
+        let a = try file("a.md", "- [ ] one\n")
+        let document = EditorDocument()
+        let store = EditorUndoStore()
+        load(a, document, store)
+
+        document.buffer.source.replace(NSRange(location: 3, length: 1), with: "x", undoManager: store.current)
+        #expect(document.text == "- [x] one\n", "an edit to the storage did not reach the document")
+        #expect(document.isDirty)
+        store.current.undo()
+        #expect(document.text == "- [ ] one\n", "⌘Z did not reach the document")
+        #expect(!document.isDirty, "an undo back to the file's text still reads as dirty")
+    }
 }
+

@@ -50,7 +50,8 @@ enum EditorDocumentClose {
     ///
     /// **The undo stack is put away the way a file switch puts it away** — remembered against the
     /// text it is parted from, then a fresh stack for the empty editor — so reopening the file
-    /// hands its history back exactly as switching to it would.
+    /// hands its history back exactly as switching to it would. The text storage goes with it, the
+    /// way `EditorDocumentLoad` moves it (step 4 there).
     ///
     /// One log line whichever way it ends, as `handOffToEditor` does.
     @MainActor
@@ -68,6 +69,7 @@ enum EditorDocumentClose {
         undoStore.remember(text: document.text)
         document.close()
         undoStore.activate(path: nil, text: "")
+        document.buffer.follow(undoStore.source)
         if let next = Self.paneSelection(afterClosing: path, selection: paneSelection()) {
             setPaneSelection(next)
         }

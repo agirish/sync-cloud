@@ -113,7 +113,7 @@ import Testing
 
     private static func editor(text: String, initialSelection: Int,
                                onSelectionChange: @escaping (NSRange) -> Void = { _ in }) -> PlainTextEditor {
-        PlainTextEditor(text: .constant(text), isEditable: true, fontScale: 1,
+        PlainTextEditor(source: EditorSourceStorage(text: text), isEditable: true, fontScale: 1,
                         documentID: "/a/b.md", undoManager: UndoManager(),
                         onSelectionChange: onSelectionChange,
                         initialSelection: initialSelection)

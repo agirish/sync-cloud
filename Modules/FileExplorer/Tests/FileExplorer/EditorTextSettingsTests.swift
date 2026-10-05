@@ -56,7 +56,7 @@ import AppKit
     // MARK: The two switches on the menu
 
     private func coordinator() -> PlainTextEditor.Coordinator {
-        PlainTextEditor.Coordinator(text: .constant(""), undoManager: UndoManager(),
+        PlainTextEditor.Coordinator(source: EditorSourceStorage(), undoManager: UndoManager(),
                                     documentID: nil, onSelectionChange: { _ in })
     }
 

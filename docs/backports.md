@@ -6762,3 +6762,34 @@ done
 
 **`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the Markup verbs or the Edit
 workspace, so there is no menu for a Table submenu and no text view for it to edit.
+
+## ⌘Z after a mode switch, after any undo, and after a checkbox tick reaches the screen and the document (TE67.0) — main only
+
+Three defects in Edit's undo, one cause: the text lived in a storage each `NSTextView` made for
+itself, while the undo stack was shared. Edit and Split mount the Source view from two `switch` arms
+and Preview mounts none, so every mode switch built a new view, and an `NSTextView` registers undo
+against its own storage — ⌘Z after a switch reverted the discarded view's text and moved nothing on
+screen. On TextKit 2 an undo also sends no `textDidChange`, which the buffer followed alone, so after
+ANY ⌘Z the document, autosave and the dirty dot kept the undone text until the next keystroke. And a
+Preview checkbox tick wrote the buffer whole, with no undo. Now each document has ONE
+`EditorSourceStorage`, kept by `EditorUndoStore` beside its stack (kept, refused and evicted
+together); every Source view is the factory's view re-pointed at it (`PlainTextEditor.show`), the
+buffer is published from the storage's own edits, and the tick goes through
+`EditorSourceStorage.replace`, which registers its undo against the storage.
+`EditorDocumentLoad`/`EditorDocumentClose` gained a fourth step, `document.buffer.follow(undoStore.source)`.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s undoStore=%s textView=%s sourceStorage=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorUndoStore.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PlainTextEditor.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorSourceStorage.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-04, against origin, before this landed:
+# main  undoStore=1 textView=1 sourceStorage=0
+# v4.x, v3.x, v2.x — every line: undoStore=0 textView=0 sourceStorage=0
+# and on this change's own tree: 1 1 1
+```
+
+**`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the Edit workspace (see "The Edit
+workspace" above), so there is no text view, no editor undo stack and no preview to tick in.
