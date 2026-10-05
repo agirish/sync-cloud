@@ -605,7 +605,9 @@ public struct PaneTabStrip: View {
             }
         } label: {
             HStack(spacing: PaneTabStripLadder.contentGap) {
-                ProviderLogo(active.markImageName, size: PaneTabStripLadder.markSide)
+                // `inAppKitLabel`: AppKit draws this label and ignores the frame around a resizable
+                // image, so a catalog mark came out at its native 512pt across the pane.
+                ProviderLogo(active.markImageName, size: PaneTabStripLadder.markSide, inAppKitLabel: true)
                 Text(active.title)
                     .scaledFont(PaneTabStripLadder.titleFont)
                     .truncationMode(.middle)
