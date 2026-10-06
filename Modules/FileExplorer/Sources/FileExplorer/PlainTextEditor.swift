@@ -141,6 +141,12 @@ struct PlainTextEditor: NSViewRepresentable {
     /// ``EditorImageImporter``.
     var imageImport: EditorImageImporter?
 
+    /// Split, with Preview editable: bring this line to the top as the person scrolls Preview —
+    /// **the view only**. Not ``scrollRequest``, which means "go to this heading" and so moves the
+    /// caret and takes focus; following must touch neither, or scrolling Preview would pull the
+    /// caret out of it (TE67.4).
+    var followRequest: EditorScrollRequest? = nil
+
     /// Where this view leaves a weak reference to its text view, for the format bar above it — see
     /// ``EditorTextViewHandle``. `nil` where nothing beside the text acts on it.
     var textViewHandle: EditorTextViewHandle?
@@ -185,6 +191,7 @@ struct PlainTextEditor: NSViewRepresentable {
         var onVisibleLineChange: ((Int) -> Void)?
         /// The last request acted on, so the same one is not replayed on every render pass.
         var lastScrollRequest: EditorScrollRequest?
+        var lastFollowRequest: EditorScrollRequest?
         /// The last find request acted on — **seeded with the request standing when this view was
         /// built**, so a text view answers only presses made while it is on screen. See
         /// ``PlainTextEditor/makeCoordinator()`` for the find bar that opened by itself without it.
@@ -869,6 +876,15 @@ struct PlainTextEditor: NSViewRepresentable {
         // **After the string has been pushed, never before.** A request arrives in the same render
         // pass as the text it names when a file is opened straight at a heading, and an offset
         // computed against the previous buffer is an offset into the wrong document.
+        if let followRequest, followRequest != context.coordinator.lastFollowRequest {
+            context.coordinator.lastFollowRequest = followRequest
+            let text = source.text
+            if let offset = Self.utf16Offset(ofLine: followRequest.line, in: text, using: lineIndex) {
+                // The line's own report is the echo of this scroll: not sent on.
+                context.coordinator.lastVisibleLine = followRequest.line
+                PreviewTextView.scrollLineToTop(view, at: min(offset, (text as NSString).length))
+            }
+        }
         if let scrollRequest, scrollRequest != context.coordinator.lastScrollRequest {
             context.coordinator.lastScrollRequest = scrollRequest
             let text = source.text

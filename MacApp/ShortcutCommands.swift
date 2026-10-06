@@ -223,8 +223,10 @@ struct EditorVerbs {
     /// What the verbs that need a TEXT VIEW may do in a given mode: everything but Preview draws
     /// one. `EditorMode.resolved` has already narrowed the mode for a plain-text file, so this is
     /// asked of the mode being drawn.
-    static func hasTextView(in mode: EditorMode) -> Bool {
-        mode != .preview
+    static func hasTextView(in mode: EditorMode, previewEditing: Bool = false) -> Bool {
+        // Preview is a text view while Edit in Preview is on (TE67): its verbs and Find are made
+        // through Preview's translation.
+        mode != .preview || previewEditing
     }
 }
 
@@ -2450,6 +2452,21 @@ struct EditorTextSettingCommands: View {
     }
 }
 
+/// Text ▸ Edit in Preview (Experimental) — the Preview pill's switch, as a menu item (TE67 §1.2).
+///
+/// **No chord**: ⌥ is barred app-wide and the ⌃⌘ family is spent on 1, 2, 3 and E. A preference
+/// rather than a verb, on its own key, so it is live wherever the other switches are and does
+/// nothing visible until Preview shows a writable Markdown file.
+struct EditInPreviewCommand: View {
+    @FocusedValue(\.editorVerbs) private var verbs
+    @AppStorage(EditorTextSettings.editsInPreviewKey) private var editsInPreview = EditorTextSettings.editsInPreviewDefault
+
+    var body: some View {
+        Toggle("Edit in Preview (Experimental)", isOn: $editsInPreview)
+            .disabled(verbs == nil)
+    }
+}
+
 /// Text ▸ Autosave This File — the header's switch, as a menu item. Same state, same toggle,
 /// withheld by the same rule (`EditorWorkspaceView.showsAutosaveSwitch`).
 struct AutosaveThisFileCommand: View {
@@ -2744,6 +2761,7 @@ struct EditorMenus: Commands {
         CommandMenu("Text") {
             EditorModeCommands()         // ⌃⌘1 ⌃⌘2 ⌃⌘3 — Source / Preview / Split, ticked
             EditorExpandCommand()        // ⌃⌘E — Expand, ticked while the document has the window
+            EditInPreviewCommand()       // TE67 — no chord, ticked
             Divider()
             FindNextCommand()            // ⌘G
             UseSelectionForFindCommand() // ⌘E

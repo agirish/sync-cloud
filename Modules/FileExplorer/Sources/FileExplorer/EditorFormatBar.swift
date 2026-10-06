@@ -341,7 +341,9 @@ struct EditorFormatBar: View, Equatable {
     // MARK: - Where it is drawn
 
     /// **Shown only where a verb can do what it says:** a writable Markdown document, open (not
-    /// refused), in Source or Split, with View ▸ Format Bar on. Preview has no text view to act on;
+    /// refused), in Source or Split, with View ▸ Format Bar on — or in Preview while it is
+    /// editable (`previewEditing`, TE67), where the verbs go through Preview's translation. A read-only
+    /// Preview has no text view to act on;
     /// plain text has no Markdown for the verbs to write (the Markup menu still offers them there,
     /// but a strip of formatting buttons above a `.txt` would claim the file has formatting); a
     /// read-only file withholds the verbs everywhere, its Markup menu and context menu included.
@@ -350,9 +352,9 @@ struct EditorFormatBar: View, Equatable {
     /// plain-text file, and asking the resolved one here alone would leave that narrowing to the
     /// caller to remember.
     static func isShown(preference: Bool, hasDocument: Bool, isRefused: Bool, isMarkdown: Bool,
-                        isReadOnly: Bool, mode: EditorMode) -> Bool {
+                        isReadOnly: Bool, mode: EditorMode, previewEditing: Bool = false) -> Bool {
         preference && hasDocument && !isRefused && isMarkdown && !isReadOnly
-            && EditorMode.resolved(mode, isMarkdown: isMarkdown) != .preview
+            && (EditorMode.resolved(mode, isMarkdown: isMarkdown) != .preview || previewEditing)
     }
 
     // MARK: - Narrow widths

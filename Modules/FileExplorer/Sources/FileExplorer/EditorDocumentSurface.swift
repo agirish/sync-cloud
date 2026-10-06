@@ -102,6 +102,11 @@ public enum EditorDocumentSurface {
     @discardableResult
     public static func applyMarkup(_ verb: MarkupVerb, in window: NSWindow?) -> Bool {
         guard let view = caretTextView(in: window), view.isEditable else { return false }
+        // Editable Preview (TE67): the verb is translated into the source like any edit there.
+        if let preview = view as? PreviewTextView {
+            preview.performMarkup(verb)
+            return true
+        }
         // Asked before the press, which would refuse on it: the menu bar's items cannot know where
         // the caret is when they draw, so the ones that would break a table stay enabled there.
         let breaks = MarkdownEdits.breaksTable(verb, in: view.string, selection: view.selectedRange())

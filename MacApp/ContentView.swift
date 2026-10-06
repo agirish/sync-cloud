@@ -240,6 +240,9 @@ struct ContentView: View {
     @AppStorage(OrganizeLens.defaultsKey) var paletteRailLens: OrganizeLens?
 
     @AppStorage("selectedLeftProviderId") var leftProviderId: String = "iCloud"
+    /// Text ▸ Edit in Preview (Experimental): whether Preview has a text view for the Markup and
+    /// find items to act on (TE67) — read here so the menus follow the switch at once.
+    @AppStorage(EditorTextSettings.editsInPreviewKey) var editsInPreviewSetting = EditorTextSettings.editsInPreviewDefault
     @AppStorage("selectedRightProviderId") var rightProviderId: String = "iCloud"
     @State var isScanning = false
 

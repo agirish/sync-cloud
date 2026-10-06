@@ -62,6 +62,17 @@ public enum EditorTextSettings {
     public static let formatBarShowsLabelsKey = "editorFormatBarShowsLabels"
     public static let formatBarShowsLabelsDefault = true
 
+    /// Whether Preview can be typed in — Text ▸ Edit in Preview (Experimental), and the pill in the
+    /// Preview column's corner (TE67).
+    ///
+    /// **Off by default**: it is experimental, and the read-only preview is what Preview has always
+    /// been. App-wide rather than per file, because it is about how somebody likes to work.
+    public static let editsInPreviewKey = "editorEditsInPreview"
+    public static let editsInPreviewDefault = false
+
+    /// Whether the one-time "Editing in Preview is experimental" popover has been dismissed.
+    public static let editsInPreviewIntroSeenKey = "editorEditsInPreviewIntroSeen"
+
     // MARK: - There is deliberately no "Show Invisibles"
     //
     // **It was specified, costed and dropped on 2026-09-01, and the reason is worth keeping so it

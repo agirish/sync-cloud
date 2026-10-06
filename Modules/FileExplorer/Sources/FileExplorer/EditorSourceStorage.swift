@@ -149,6 +149,22 @@ public final class EditorSourceStorage: NSObject {
         if let actionName { undoManager?.setActionName(actionName) }
     }
 
+    /// Turns every CRLF and lone CR into LF, as one step ⌘Z can take back — for an editor that must
+    /// measure its edit on the converted text, which is any but the Source view (TE67's Preview).
+    /// Call it in the same event as the edit, so the two share an undo group. `false` when there was
+    /// nothing to convert, or a word is being composed.
+    @discardableResult
+    public func convertLineEndingsToLF(undoManager: UndoManager?) -> Bool {
+        guard textView.map({ !($0.textStorage === textStorage && $0.hasMarkedText()) }) ?? true else { return false }
+        let changes = EditorLineEndings.carriageReturns(in: textStorage.mutableString)
+        guard !changes.isEmpty else { return false }
+        textView?.breakUndoCoalescing()
+        isReplacing = true
+        apply(changes, undoManager: undoManager)
+        isReplacing = false
+        return true
+    }
+
     /// Makes `changes` — ascending, not overlapping — and registers their exact inverse, which
     /// registers this again: ⌘Z puts the carriage returns back and ⌘⇧Z takes them out.
     private func apply(_ changes: [EditorLineEndings.Change], undoManager: UndoManager?) {

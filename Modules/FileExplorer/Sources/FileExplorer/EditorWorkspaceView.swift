@@ -265,6 +265,16 @@ public struct EditorWorkspaceView: View {
         = EditorTextSettings.formatBarShowsLabelsDefault
     /// Live only while the divider is being dragged; the committed value lives with the host.
     @State private var splitDrag: CGFloat?
+    /// Text ▸ Edit in Preview (Experimental) and the pill in the Preview column (TE67).
+    @AppStorage(EditorTextSettings.editsInPreviewKey) private var editsInPreviewPreference: Bool
+        = EditorTextSettings.editsInPreviewDefault
+    @AppStorage(EditorTextSettings.editsInPreviewIntroSeenKey) private var editsInPreviewIntroSeen = false
+    /// "That change needs Source." while Preview has just refused an edit — see ``EditorStatusHint``.
+    @State private var statusHint: EditorStatusHint?
+    /// Split with Preview editable: which half leads the scroll (TE67.4).
+    @State private var splitFollow = SplitScrollFollow()
+    /// Split with Preview editable: where Source scrolls to follow Preview — the view, not the caret.
+    @State private var editorFollowRequest: EditorScrollRequest?
 
     public init(document: EditorDocument,
                 autosavePolicy: EditorAutosavePolicy,
@@ -576,7 +586,7 @@ public struct EditorWorkspaceView: View {
                 Divider()
                 // Formatted when the stamp moved, not here — see ``EditorDocument/sizeCaption``.
                 EditorStatusLine(facts: facts, caret: caret, fileSize: document.sizeCaption,
-                                 headings: statusHeadings)
+                                 headings: statusHeadings, hint: statusHint)
                     // Compared on what it draws, the closures left out — see `EditorStatusLine.==`.
                     .equatable()
             }
@@ -1330,7 +1340,15 @@ public struct EditorWorkspaceView: View {
                                 isRefused: document.refusal != nil,
                                 isMarkdown: document.isMarkdown,
                                 isReadOnly: document.isReadOnly,
-                                mode: mode)
+                                mode: mode,
+                                previewEditing: editsInPreview)
+    }
+
+    /// Whether Preview is the editable one, for this document now — see ``editsInPreview(preference:hasDocument:isRefused:isMarkdown:isReadOnly:mode:)``.
+    private var editsInPreview: Bool {
+        Self.editsInPreview(preference: editsInPreviewPreference, hasDocument: document.path != nil,
+                            isRefused: document.refusal != nil, isMarkdown: document.isMarkdown,
+                            isReadOnly: document.isReadOnly, mode: resolvedMode)
     }
 
     /// What re-derives the caret: a new position, OR the text moving under a position that did not.
@@ -1376,9 +1394,7 @@ public struct EditorWorkspaceView: View {
         case .edit:
             sourceColumn
         case .preview:
-            MarkdownPreview(blocks: blocks, accent: accent, scrollRequest: previewScrollRequest,
-                            onToggleTask: taskToggle, documentFolder: documentFolder,
-                            onFollowAnchor: followAnchor)
+            previewColumn(inSplit: false)
         case .split:
             GeometryReader { geo in
                 let width = geo.size.width
@@ -1390,10 +1406,7 @@ public struct EditorWorkspaceView: View {
                     Divider()
                     // `max(0, …)` because the first layout pass can report a zero width, and
                     // `0 - 0 - 1` is the negative dimension SwiftUI logs and refuses to lay out.
-                    MarkdownPreview(blocks: blocks, accent: accent,
-                                    scrollRequest: previewScrollRequest,
-                                    onToggleTask: taskToggle, documentFolder: documentFolder,
-                                    onFollowAnchor: followAnchor)
+                    previewColumn(inSplit: true)
                         .frame(width: max(0, width - editorWidth - 1))
                 }
                 // Compare's divider ergonomics: a 1pt rule with an invisible 12pt grab strip
@@ -1404,6 +1417,94 @@ public struct EditorWorkspaceView: View {
                 }
                 .coordinateSpace(.named(Self.splitSpace))
             }
+        }
+    }
+
+    /// **Preview: the editable one when Edit in Preview is on, the read-only one otherwise** (TE67),
+    /// with the pill that switches them in its top-trailing corner wherever it is offered.
+    @ViewBuilder
+    private func previewColumn(inSplit: Bool) -> some View {
+        Group {
+            if editsInPreview {
+                VStack(spacing: 0) {
+                    // In Split the bar stays over Source's half, and acts on Source. Over Preview the
+                    // pill ends the bar's row rather than lying over its last buttons (reported
+                    // 2026-10-05: it covered Link, Table and Divider); the bar sheds words into the
+                    // width that leaves it, as it does for any narrow column.
+                    if showsFormatBar, !inSplit {
+                        HStack(alignment: .top, spacing: 0) {
+                            formatBar
+                            if offersPreviewEditing {
+                                previewEditToggle
+                                    .fixedSize()
+                                    .padding(.top, Self.formatBarInset)
+                                    .padding(.trailing, 12)
+                            }
+                        }
+                    }
+                    PreviewEditorView(source: buffer.source, undoManager: undoManager, fontScale: fontScale,
+                                      onRefusal: { _ in raiseHint() },
+                                      onSourceSelection: { selection in
+                                          caretOffset = selection.location
+                                          if showsFormatBar, selectionLength != selection.length {
+                                              selectionLength = selection.length
+                                          }
+                                          document.caretAnchors.remember(selection.location, for: document.path)
+                                      },
+                                      onFollowAnchor: followAnchor,
+                                      textViewHandle: inSplit ? nil : textViewHandle,
+                                      documentFolder: documentFolder,
+                                      followRequest: inSplit ? previewScrollRequest : nil,
+                                      onVisibleLineChange: inSplit ? { line in followThePreview(line) } : nil)
+                        // A new document is a new storage, and a new session to project it.
+                        .id(ObjectIdentifier(buffer.source))
+                }
+            } else {
+                MarkdownPreview(blocks: blocks, accent: accent, scrollRequest: previewScrollRequest,
+                                onToggleTask: taskToggle, documentFolder: documentFolder,
+                                onFollowAnchor: followAnchor)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            // In the corner wherever no bar is drawn over this Preview to carry it.
+            if offersPreviewEditing, !(editsInPreview && showsFormatBar && !inSplit) {
+                previewEditToggle
+                    .padding(.top, 8)
+                    .padding(.trailing, 12)
+            }
+        }
+    }
+
+    private var offersPreviewEditing: Bool {
+        PreviewEditToggle.isOffered(hasDocument: document.path != nil, isRefused: document.refusal != nil,
+                                    isMarkdown: document.isMarkdown, isReadOnly: document.isReadOnly,
+                                    mode: resolvedMode)
+    }
+
+    private var previewEditToggle: some View {
+        PreviewEditToggle(isOn: $editsInPreviewPreference, introSeen: $editsInPreviewIntroSeen,
+                          accent: accent, scale: fontScale)
+    }
+
+    /// **Whether Preview is the editable one** — the setting, and a document the pill is offered
+    /// for: a writable Markdown file in Preview, and nothing else. Markdown only (the user's
+    /// decision, 2026-10-05): a `.txt` has no Preview to type into, and an `.rtf` is not Markdown.
+    public static func editsInPreview(preference: Bool, hasDocument: Bool, isRefused: Bool, isMarkdown: Bool,
+                                      isReadOnly: Bool, mode: EditorMode) -> Bool {
+        preference && PreviewEditToggle.isOffered(hasDocument: hasDocument, isRefused: isRefused,
+                                                  isMarkdown: isMarkdown, isReadOnly: isReadOnly, mode: mode)
+    }
+
+    /// Says "That change needs Source." for ``EditorStatusHint/duration`` — restarted by each refusal.
+    private func raiseHint() {
+        let token = (statusHint?.token ?? 0) + 1
+        statusHint = EditorStatusHint(token: token, onShowInSource: {
+            statusHint = nil
+            mode = .edit
+        })
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(EditorStatusHint.duration))
+            if statusHint?.token == token { statusHint = nil }
         }
     }
 
@@ -1437,21 +1538,24 @@ public struct EditorWorkspaceView: View {
     /// off leaves the text view's identity — and its caret, scroll and undo — where they were.
     private var sourceColumn: some View {
         VStack(spacing: 0) {
-            if showsFormatBar {
-                EditorFormatBar(state: formatState, accent: accent, showsLabels: formatBarShowsLabels,
-                                onVerb: { verb in textViewHandle.applyMarkup(verb) })
-                    .equatable()
-                    // On the bar itself, so a right-click on the text keeps the text view's menu.
-                    .contextMenu {
-                        EditorFormatBarMenu(showsLabels: $formatBarShowsLabels,
-                                            showsBar: $showsFormatBarPreference)
-                    }
-                    .padding(.horizontal, Self.formatBarInset)
-                    .padding(.top, Self.formatBarInset)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            if showsFormatBar { formatBar }
             editorSurface
         }
+    }
+
+    /// The format bar, over Source or over an editable Preview — whichever text view the handle holds.
+    private var formatBar: some View {
+        EditorFormatBar(state: formatState, accent: accent, showsLabels: formatBarShowsLabels,
+                        onVerb: { verb in textViewHandle.applyMarkup(verb) })
+            .equatable()
+            // On the bar itself, so a right-click on the text keeps the text view's menu.
+            .contextMenu {
+                EditorFormatBarMenu(showsLabels: $formatBarShowsLabels,
+                                    showsBar: $showsFormatBarPreference)
+            }
+            .padding(.horizontal, Self.formatBarInset)
+            .padding(.top, Self.formatBarInset)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The format bar's inset from the text card's edges — the bar is a strip IN the card, and the
@@ -1494,6 +1598,7 @@ public struct EditorWorkspaceView: View {
                         offersMarkup: !document.isReadOnly,
                         editsMarkdown: document.isMarkdown,
                         imageImport: imageImporter,
+                        followRequest: editsInPreview ? editorFollowRequest : nil,
                         textViewHandle: textViewHandle)
     }
 
@@ -1597,8 +1702,18 @@ public struct EditorWorkspaceView: View {
     /// only one surface is on screen and there is nothing to keep level with.
     private func followTheText(_ line: Int) {
         guard mode == .split else { return }
+        // The echo of Preview leading is dropped — with Preview editable, it scrolls too.
+        guard splitFollow.shouldFollow(from: .source) else { return }
         scrollToken &+= 1
         previewScrollRequest = EditorScrollRequest(line: line, token: scrollToken)
+    }
+
+    /// Split, Preview editable: Source follows Preview the way Preview follows Source — by line,
+    /// the view only, and never the echo of its own lead.
+    private func followThePreview(_ line: Int) {
+        guard mode == .split, splitFollow.shouldFollow(from: .preview) else { return }
+        scrollToken &+= 1
+        editorFollowRequest = EditorScrollRequest(line: line, token: scrollToken)
     }
 
     /// The name of the row's own coordinate space, which the drag reads positions in.

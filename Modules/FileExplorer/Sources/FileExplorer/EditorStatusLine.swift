@@ -30,6 +30,10 @@ struct EditorStatusLine: View, Equatable {
     /// **The heading the caret is in, leading the line, as a menu of every heading (TE57)** — or
     /// `nil` when there is none to name: a plain-text file, or Markdown with no headings.
     var headings: EditorStatusHeadings?
+    /// **An edit Preview could not make (TE67 §1.2)**, said in the line's leading slot for a few
+    /// seconds instead of the counts — the "only minor edits work here" message, at the moment it
+    /// matters rather than as a standing warning. The host clears it after ``EditorStatusHint/duration``.
+    var hint: EditorStatusHint?
 
     @Environment(\.appFontScale) private var scale
 
@@ -46,7 +50,7 @@ struct EditorStatusLine: View, Equatable {
     /// closures are written at the one call site over the host's `@State`, which does not move.
     nonisolated static func == (a: EditorStatusLine, b: EditorStatusLine) -> Bool {
         a.facts == b.facts && a.caret == b.caret && a.fileSize == b.fileSize
-            && a.forcedRung == b.forcedRung && a.headings == b.headings
+            && a.forcedRung == b.forcedRung && a.headings == b.headings && a.hint == b.hint
     }
 
     /// **The heading joins the ladder by giving way FIRST.** Each rung of counts comes twice — with
@@ -61,7 +65,9 @@ struct EditorStatusLine: View, Equatable {
     /// whole-name and a floor rung there would draw exactly what this one draws.
     var body: some View {
         Group {
-            if let headings {
+            if let hint {
+                hinted(hint)
+            } else if let headings {
                 if let forcedRung {
                     rung(forcedRung, headings, fit: .floor)
                 } else {
@@ -90,6 +96,29 @@ struct EditorStatusLine: View, Equatable {
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// **Shed as the counts are**, so a narrow column at a large text size keeps the way to Source:
+    /// the sentence, then its short form, then the link alone (`theHintFitsTheNarrowestColumnAtEveryTextSize`).
+    @ViewBuilder
+    private func hinted(_ hint: EditorStatusHint) -> some View {
+        if let rung = hint.forcedRung {
+            hintRow(rung, hint)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                ForEach(EditorStatusHint.Rung.allCases, id: \.self) { hintRow($0, hint) }
+            }
+        }
+    }
+
+    private func hintRow(_ rung: EditorStatusHint.Rung, _ hint: EditorStatusHint) -> some View {
+        HStack(spacing: 6) {
+            if let sentence = rung.sentence { Text(sentence) }
+            Button { hint.onShowInSource() } label: { Text(EditorStatusHint.showInSource) }
+                .buttonStyle(.link)
+                .accessibilityHint(EditorStatusHint.needsSource)
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     /// The counts, as one element for VoiceOver — the heading beside them is a control of its own.
@@ -173,6 +202,36 @@ struct EditorStatusLine: View, Equatable {
 /// choosing does (TE57). **The rail's Outline tab, one click from anywhere** — same outline
 /// (``MarkdownOutline``), same "which heading am I in" rule, same scroll request — for the two
 /// layouts that hide the rail: the file pane open, and Expand.
+/// What the status line says when Preview refuses an edit: one sentence and the way to Source.
+struct EditorStatusHint: Equatable {
+    static let needsSource = "That change needs Source."
+    static let needsSourceShort = "Needs Source."
+    static let showInSource = "Show in Source"
+    /// How long the host keeps it up, in seconds (§1.2).
+    static let duration: Double = 4
+
+    /// The hint's rungs, widest first.
+    enum Rung: CaseIterable {
+        case sentence, short, link
+        var sentence: String? {
+            switch self {
+            case .sentence: return EditorStatusHint.needsSource
+            case .short: return EditorStatusHint.needsSourceShort
+            case .link: return nil
+            }
+        }
+    }
+
+    /// Bumped per refusal, so a second refusal while the first is up restarts the host's timer.
+    var token: Int
+    /// Switches to Source with the caret at the refused edit.
+    var onShowInSource: () -> Void
+    /// Forces a rung, for the tests that measure each one. `nil` picks by width.
+    var forcedRung: Rung? = nil
+
+    nonisolated static func == (a: EditorStatusHint, b: EditorStatusHint) -> Bool { a.token == b.token }
+}
+
 struct EditorStatusHeadings: Equatable {
     var outline: [MarkdownOutlineEntry]
     /// The index in ``outline`` of the heading holding the caret — `nil` above the first one,

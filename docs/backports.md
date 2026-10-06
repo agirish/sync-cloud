@@ -6847,3 +6847,28 @@ done
 
 **`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the format bar or the Markup
 verbs (see the TE48/TE52 and TE65/TE66 entries above), so there is nothing to regroup.
+
+## Edit in Preview — typing in a Markdown file's Preview and Split, experimental (TE67.1–.5) — main only
+
+Preview can be typed in, behind Text ▸ Edit in Preview (Experimental) and a pill in the Preview
+column, off by default and for Markdown only. Each keystroke is translated into the smallest source
+edit that renders as what was typed, verified by re-parsing, and refused otherwise
+(`PreviewEditTranslator`, over the position model in `MarkdownProjection`); `PreviewEditSession`
+writes it through `EditorSourceStorage.replace`, so it is on the document's undo stack and in Source
+at once. In Split both halves are editable and each follows the other's scroll; tables are laid
+out on tab stops and stay aligned as you type. Built on the shared source storage (TE67.0) and on
+LF-only writing, both main only.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s sourceStorage=%s markupVerbs=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorSourceStorage.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/MarkupVerbs.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-05, against origin, before this landed:
+# main  sourceStorage=1 markupVerbs=1
+# v4.x, v3.x, v2.x — every line: sourceStorage=0 markupVerbs=0
+```
+
+**`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the Edit workspace, its shared
+source storage or the Markup verbs, so there is no Preview to type into.

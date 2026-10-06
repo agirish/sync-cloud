@@ -848,6 +848,10 @@ extension ContentView {
         // The mode being drawn, so the tick agrees with the capsule on a plain-text file — and so
         // the verbs that need a text view are withheld in Preview, where none is on screen.
         let drawn = EditorMode.resolved(editorMode, isMarkdown: isMarkdown)
+        // Preview editable (TE67): the same rule the workspace mounts it by.
+        let previewEditing = EditorWorkspaceView.editsInPreview(
+            preference: editsInPreviewSetting, hasDocument: true, isRefused: false, isMarkdown: isMarkdown,
+            isReadOnly: editorDocument.isReadOnly, mode: drawn)
         let showsSwitch = EditorWorkspaceView.showsAutosaveSwitch(
             hasPath: true, wasRefused: false, isReadOnly: editorDocument.isReadOnly)
         return EditorVerbs(
@@ -867,8 +871,8 @@ extension ContentView {
                     if editorAutosavePolicy.toggle(path) { runAutosave() }
                 }
                 : nil,
-            canMarkUp: !editorDocument.isReadOnly && EditorVerbs.hasTextView(in: drawn),
-            canFind: EditorVerbs.hasTextView(in: drawn))
+            canMarkUp: !editorDocument.isReadOnly && EditorVerbs.hasTextView(in: drawn, previewEditing: previewEditing),
+            canFind: EditorVerbs.hasTextView(in: drawn, previewEditing: previewEditing))
     }
 
     /// Text ▸ Expand ⌃⌘E — the header button's bit and act, offered where the header draws the

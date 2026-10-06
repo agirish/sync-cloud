@@ -199,17 +199,36 @@ import EventsTestSupport
         #expect(on.textTop - LiquidGlass.headerHeight > 20, "the text starts \(on.textTop - LiquidGlass.headerHeight)pt under the header — not under a bar")
         let split = Self.mounted(markdown, mode: .split)
         #expect(split.bar.count >= 1, "Split draws no bar")
-        #expect(split.bar.allSatisfy { $0.maxX <= Self.width / 2 + 1 }, "the bar reaches past Split's Source half")
+        // The Edit pill (TE67) sits in Split's Preview half; the bar's own buttons stay in Source's.
+        let splitBar = split.bar.filter { !($0.width < 90 && $0.height < 30 && $0.minX > Self.width / 2) }
+        #expect(split.bar.count - splitBar.count <= 1, "Split's Preview half draws more than the Edit pill")
+        #expect(splitBar.allSatisfy { $0.maxX <= Self.width / 2 + 1 }, "the bar reaches past Split's Source half")
 
+        // Preview draws no bar — only Edit in Preview's pill (TE67), one small control at its
+        // trailing edge, which the bar's rule says nothing about.
+        let preview = Self.mounted(markdown, mode: .preview)
+        #expect(preview.bar.count <= 1, "Preview draws \(preview.bar.count) controls above its text")
+        #expect(preview.bar.allSatisfy { $0.width < 90 && $0.height < 30 },
+                "Preview draws something other than the Edit pill above its text: \(preview.bar)")
+        // Editable Preview draws the bar over its text — and the Edit pill ends the bar's row,
+        // overlapping none of its buttons (reported 2026-10-05: it lay over Link, Table and Divider)
+        // — at every width, including the ones where the bar runs to the column's edge.
+        for width: CGFloat in [Self.width, 1_000, 900, 800] {
+            let editing = Self.mounted(markdown, mode: .preview, editsInPreview: true, width: width)
+            #expect(editing.bar.count >= 6, "editable Preview at \(width) draws \(editing.bar.count) controls above its text")
+            for (i, a) in editing.bar.enumerated() {
+                for b in editing.bar[(i + 1)...] {
+                    #expect(!a.insetBy(dx: 1, dy: 1).intersects(b.insetBy(dx: 1, dy: 1)),
+                            "at \(width), two controls over editable Preview overlap: \(a) and \(b)")
+                }
+            }
+        }
         for (name, case_) in [("plain text", Self.mounted(plain, mode: .edit)),
                               ("read-only", Self.mounted(readOnly, mode: .edit)),
-                              ("Preview", Self.mounted(markdown, mode: .preview)),
                               ("preference off", Self.mounted(markdown, mode: .edit, preference: false))] {
             #expect(case_.bar.isEmpty, "\(name) draws \(case_.bar.count) controls above its text")
-            if name != "Preview" {
-                #expect(abs(case_.textTop - LiquidGlass.headerHeight) < 40,
-                        "\(name): the text starts \(case_.textTop)pt down — room was kept for a bar that is not there")
-            }
+            #expect(abs(case_.textTop - LiquidGlass.headerHeight) < 40,
+                    "\(name): the text starts \(case_.textTop)pt down — room was kept for a bar that is not there")
         }
         #expect(on.textTop > Self.mounted(plain, mode: .edit).textTop + 20,
                 "the bar takes no height — the text starts where a plain file's does")
@@ -221,8 +240,10 @@ import EventsTestSupport
     /// A workspace with the rail folded, in a window, with View ▸ Format Bar set as asked: the rings
     /// between the header's bottom and the text's top, and where the text starts.
     static func mounted(_ document: EditorDocument, mode: EditorMode,
-                        preference: Bool = true, labels: Bool = true) -> (bar: [CGRect], textTop: CGFloat) {
+                        preference: Bool = true, labels: Bool = true,
+                        editsInPreview: Bool = false, width: CGFloat = width) -> (bar: [CGRect], textTop: CGFloat) {
         let defaults = ScratchDefaults("EditorFormatBarTests")
+        defaults.set(editsInPreview, forKey: EditorTextSettings.editsInPreviewKey)
         defaults.set(preference, forKey: EditorTextSettings.showsFormatBarKey)
         defaults.set(labels, forKey: EditorTextSettings.formatBarShowsLabelsKey)
         defaults.set(SurfaceStyle.unified.rawValue, forKey: LiquidGlass.surfaceStyleKey)

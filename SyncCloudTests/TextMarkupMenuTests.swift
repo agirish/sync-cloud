@@ -45,7 +45,7 @@ import Testing
     /// Save**, which stay in Edit and File — one action, one item, so no chord is registered twice.
     @Test func theTextMenuIsInTheRoadmapsOrder() throws {
         let text = Self.titles(try Self.menu("Text"))
-        #expect(text == ["Source", "Preview", "Split", "Expand",
+        #expect(text == ["Source", "Preview", "Split", "Expand", "Edit in Preview (Experimental)",
                          "Find Next", "Use Selection for Find",
                          "Wrap Lines", "Check Spelling While Typing", "Continue Lists",
                          "Autosave This File"],
@@ -114,6 +114,9 @@ import Testing
         #expect(try Self.item("Format Bar", in: "View").keyEquivalent.isEmpty, "Format Bar has acquired a key")
         // Continue Lists likewise: a preference, not a verb.
         #expect(try Self.item("Continue Lists", in: "Text").keyEquivalent.isEmpty, "Continue Lists has acquired a key")
+        // Edit in Preview too (TE67): ⌥ is barred and ⌃⌘ is spent.
+        #expect(try Self.item("Edit in Preview (Experimental)", in: "Text").keyEquivalent.isEmpty,
+                "Edit in Preview has acquired a key")
     }
 
     @Test func theFindBarsPairCarryTheirPlatformChords() throws {
@@ -358,11 +361,13 @@ import Testing
     }
 
     /// **Preview has no text view**, so the verbs that need one are withheld there rather than
-    /// left as enabled items that log a refusal on every press.
+    /// left as enabled items that log a refusal on every press — unless Edit in Preview is on
+    /// (TE67), when Preview's own text view takes them.
     @Test func onlyPreviewLacksATextView() {
         #expect(EditorVerbs.hasTextView(in: .edit))
         #expect(EditorVerbs.hasTextView(in: .split))
         #expect(!EditorVerbs.hasTextView(in: .preview))
+        #expect(EditorVerbs.hasTextView(in: .preview, previewEditing: true))
     }
 
     /// The call-site half: `shortcutEditorVerbs` resolves through the rule rather than spelling a
@@ -379,8 +384,10 @@ import Testing
         let body = String(rest[..<end.lowerBound])
         #expect(body.contains("EditorVerbs.isOffered(workspace: selectedWorkspace"),
                 "the editor's menus are gated by hand rather than through the rule")
-        #expect(body.contains("EditorVerbs.hasTextView(in: drawn)"),
-                "Preview no longer withholds the text-view verbs")
+        #expect(body.contains("EditorVerbs.hasTextView(in: drawn, previewEditing: previewEditing)"),
+                "Preview no longer withholds the text-view verbs, or no longer offers them while editable")
+        #expect(body.contains("EditorWorkspaceView.editsInPreview("),
+                "the menus decide Preview's editability by a rule of their own, not the workspace's")
         #expect(!body.contains("selectedWorkspace == .editor"),
                 "a second spelling of the workspace test sits beside the rule")
     }
