@@ -542,8 +542,15 @@ struct PlainTextEditor: NSViewRepresentable {
     @discardableResult
     static func apply(_ verb: MarkupVerb, to view: NSTextView) -> Bool {
         // A CRLF file becomes LF before the verb reads it: the selection it hands back is measured
-        // on the text it read (see `EditorLineEndings`).
-        (view as? EditorTextView)?.convertLineEndingsToLF()
+        // on the text it read (see `EditorLineEndings`). Asked first on the converted text, so a
+        // verb with nothing to do converts nothing.
+        if let editor = view as? EditorTextView, view.string.utf16.contains(0x0D) {
+            let changes = EditorLineEndings.carriageReturns(in: view.string as NSString)
+            guard MarkdownEdits.apply(verb, to: EditorLineEndings.normalized(view.string),
+                                      selection: EditorLineEndings.mapped(view.selectedRange(), through: changes)) != nil
+            else { return false }
+            editor.convertLineEndingsToLF()
+        }
         guard let edit = MarkdownEdits.apply(verb, to: view.string,
                                              selection: view.selectedRange()) else { return false }
         let change = MarkdownEdits.minimalReplacement(from: view.string, to: edit.text)
@@ -680,6 +687,9 @@ struct PlainTextEditor: NSViewRepresentable {
         // text view is up (from Preview) has already moved the caret's anchor, which is where a
         // new text view puts the caret.
         coordinator.lastScrollRequest = scrollRequest
+        // A follow standing from before this view was built is not news to it (review: Split →
+        // Source → Split replayed an old follow over the restored caret).
+        coordinator.lastFollowRequest = followRequest
         return coordinator
     }
 

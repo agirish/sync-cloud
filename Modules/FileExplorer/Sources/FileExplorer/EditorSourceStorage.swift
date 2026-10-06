@@ -58,8 +58,24 @@ public final class EditorSourceStorage: NSObject {
     public init(text: String = "") {
         textStorage = NSTextStorage(string: text)
         self.text = text
+        mayHoldCarriageReturn = text.utf16.contains(0x0D)
         super.init()
         textStorage.delegate = self
+    }
+
+    // MARK: Line endings
+
+    /// **False only when the storage certainly holds no carriage return** — so the LF-only rule
+    /// (``EditorLineEndings``) costs an LF file nothing per keystroke. Set by any edit that brings a
+    /// CR in, read on that edit's own range; cleared by a scan that finds none.
+    private(set) var mayHoldCarriageReturn: Bool
+
+    /// Every carriage return in the storage — without reading it when none can be there.
+    func carriageReturns() -> [EditorLineEndings.Change] {
+        guard mayHoldCarriageReturn else { return [] }
+        let changes = EditorLineEndings.carriageReturns(in: textStorage.mutableString)
+        if changes.isEmpty { mayHoldCarriageReturn = false }
+        return changes
     }
 
     // MARK: Publishing to the buffer
@@ -128,7 +144,7 @@ public final class EditorSourceStorage: NSObject {
     public func replace(_ range: NSRange, with string: String, undoManager: UndoManager?,
                         actionName: String? = nil) {
         let composing = textView.map { $0.textStorage === textStorage && $0.hasMarkedText() } ?? false
-        let endings = composing ? [] : EditorLineEndings.carriageReturns(in: textStorage.mutableString)
+        let endings = composing ? [] : carriageReturns()
         let range = EditorLineEndings.mapped(range, through: endings)
         let string = EditorLineEndings.normalized(string)
         textView?.breakUndoCoalescing()
@@ -156,7 +172,7 @@ public final class EditorSourceStorage: NSObject {
     @discardableResult
     public func convertLineEndingsToLF(undoManager: UndoManager?) -> Bool {
         guard textView.map({ !($0.textStorage === textStorage && $0.hasMarkedText()) }) ?? true else { return false }
-        let changes = EditorLineEndings.carriageReturns(in: textStorage.mutableString)
+        let changes = carriageReturns()
         guard !changes.isEmpty else { return false }
         textView?.breakUndoCoalescing()
         isReplacing = true
@@ -235,6 +251,12 @@ extension EditorSourceStorage: NSTextStorageDelegate {
                                         range editedRange: NSRange, changeInLength delta: Int) {
         // Characters only: a font change, or the attributes a mount applies, says nothing new.
         guard editedMask.contains(.editedCharacters) else { return }
-        MainActor.assumeIsolated { charactersDidChange() }
+        // A CR can only arrive in the edited range: look there, not at the whole text.
+        let bringsCR = textStorage.mutableString.range(of: "\r", options: .literal, range: editedRange).location
+            != NSNotFound
+        MainActor.assumeIsolated {
+            if bringsCR { mayHoldCarriageReturn = true }
+            charactersDidChange()
+        }
     }
 }

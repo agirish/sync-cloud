@@ -37,7 +37,7 @@ import FileExplorerTestSupport
         let undo = UndoManager()
         let coordinator = PreviewEditorView.Coordinator(
             session: PreviewEditSession(source: source, undoManager: undo, documentFolder: folder))
-        coordinator.onRefusal = { box.refusals.append($0) }
+        coordinator.onRefusal = { reason, _ in box.refusals.append(reason) }
         coordinator.onFollowAnchor = { box.anchors.append($0) }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -494,5 +494,175 @@ import FileExplorerTestSupport
         r.undo.undo(); spin()
         #expect(r.source.text == table)
         #expect(!r.undo.canUndo)
+    }
+
+    // MARK: Review fixes, 2026-10-05
+
+    /// ⌫ after two held spaces takes a held space — never the next paragraph's first letter.
+    @Test func backspaceAfterHeldSpacesTakesASpaceNotTheNextLetter() {
+        let r = rig("Hello\n\nworld")
+        caret(after: "Hello", in: r)
+        type(" ", in: r); type(" ", in: r)
+        r.view.deleteBackward(nil); spin()
+        #expect(r.source.text == "Hello\n\nworld")
+        #expect(r.display == "Hello \nworld")
+        r.view.deleteBackward(nil); spin()
+        #expect(r.display == "Hello\nworld")
+        #expect(r.source.text == "Hello\n\nworld")
+        #expect(r.box.refusals.isEmpty)
+    }
+
+    /// ⌫ in the empty paragraph Return opened closes it, quietly.
+    @Test func backspaceInAnOpenedParagraphClosesIt() {
+        let r = rig("one\n\ntwo")
+        caret(after: "one", in: r)
+        r.view.doCommand(by: #selector(NSResponder.insertNewline(_:))); spin()
+        #expect(r.display == "one\n\ntwo")
+        r.view.deleteBackward(nil); spin()
+        #expect(r.display == "one\ntwo")
+        #expect(r.source.text == "one\n\ntwo")
+        #expect(r.box.refusals.isEmpty)
+    }
+
+    /// A word composed on the opened paragraph is written there — not into the next one.
+    @Test func aCompositionOnAnOpenedParagraphIsWrittenThere() {
+        let r = rig("one\n\ntwo")
+        caret(after: "one", in: r)
+        r.view.doCommand(by: #selector(NSResponder.insertNewline(_:))); spin()
+        r.view.setMarkedText("k", selectedRange: NSRange(location: 1, length: 0),
+                             replacementRange: NSRange(location: NSNotFound, length: 0)); spin()
+        r.view.insertText("か", replacementRange: NSRange(location: NSNotFound, length: 0)); spin()
+        #expect(r.source.text == "one\n\nか\n\ntwo")
+    }
+
+    /// Replace All measures on the display: its ranges are mapped past a held space.
+    @Test func replaceAllIsMappedPastAHeldSpace() {
+        let r = rig("Hello\n\nworld and world")
+        caret(after: "Hello", in: r)
+        type(" ", in: r)
+        let display = r.display as NSString
+        let first = display.range(of: "world")
+        let second = display.range(of: "world", options: .backwards)
+        r.coordinator.apply(r.coordinator.session.performAll([
+            RenderedEdit(range: first, text: "earth", action: .typing),
+            RenderedEdit(range: second, text: "earth", action: .typing)])); spin()
+        #expect(r.source.text == "Hello\n\nearth and earth")
+    }
+
+    /// Another undo manager's group closing is none of this run's business.
+    @Test func anotherUndoManagerDoesNotEndTheRun() {
+        let r = rig("x")
+        type("a", in: r)
+        let other = UndoManager()
+        other.registerUndo(withTarget: r.view) { _ in }
+        spin()
+        type("b", in: r)
+        r.undo.undo(); spin()
+        #expect(r.source.text == "x")
+    }
+
+    /// ⌘B with nothing selected, then typing: the bold character is a step of its own.
+    @Test func aStyledCharacterIsItsOwnUndoStep() {
+        let r = rig("x")
+        type("a", in: r)
+        r.view.performMarkup(.bold); spin()
+        type("b", in: r)
+        #expect(r.source.text == "xa**b**")
+        r.undo.undo(); spin()
+        #expect(r.source.text == "xa")
+    }
+
+    /// A space held after a task's box is a space: it does not draw a second box.
+    @Test func aHeldSpaceAfterABoxIsNoBox() {
+        let r = rig("- [ ] ")
+        type(" ", in: r)
+        let storage = r.view.textStorage!
+        let boxes = (0..<storage.length).filter { storage.attribute(.attachment, at: $0, effectiveRange: nil) != nil }
+        #expect(boxes.count == 1)
+    }
+
+    /// A table wider than the column is read-only at the column's default width too — and the rule
+    /// survives a text-size change.
+    @Test func theWideTableRuleHoldsAtEveryWidthAndSize() {
+        let cells = String(repeating: "wide ", count: 40)
+        let source = "| a | b |\n| --- | --- |\n| \(cells) | \(cells) |"
+        let session = PreviewEditSession(source: EditorSourceStorage(text: source), undoManager: nil)
+        #expect(session.projection.blocks[0].readOnly == .wideTable)
+        session.style = .init(scale: 1.2, columnWidth: session.style.columnWidth)
+        #expect(session.projection.blocks[0].readOnly == .wideTable)
+    }
+
+    /// A rule spans the column it is in, after the column changes too.
+    @Test func attachmentsAreSizedAgainWhenTheColumnChanges() throws {
+        let session = PreviewEditSession(source: EditorSourceStorage(text: "a\n\n---\n\nb"), undoManager: nil)
+        func rule() -> NSTextAttachment? {
+            (0..<session.display.length).lazy.compactMap {
+                session.display.attribute(.previewAttachment, at: $0, effectiveRange: nil) as? String == "rule"
+                    ? session.display.attribute(.attachment, at: $0, effectiveRange: nil) as? NSTextAttachment : nil
+            }.first
+        }
+        let wide = try #require(rule()).bounds.width
+        session.columnWidth = 300
+        #expect(try #require(rule()).bounds.width < wide)
+        #expect(try #require(rule()).bounds.width <= 300)
+    }
+
+    /// In Split, typing in Source leaves Preview's caret and scroll alone — Preview moving would
+    /// scroll Source after it.
+    @Test func typingInSourceLeavesPreviewsCaretAlone() {
+        let r = rig("one two three")
+        let sourceScroll = EditorTextView.scrollableTextView()
+        sourceScroll.frame = NSRect(x: 0, y: 0, width: 200, height: 200)
+        r.window.contentView?.addSubview(sourceScroll)
+        let sourceView = sourceScroll.documentView as! EditorTextView
+        PlainTextEditor.show(r.source, in: sourceView)
+        r.view.setSelectedRange(NSRange(location: 2, length: 0)); spin()
+        r.window.makeFirstResponder(sourceView)
+        sourceView.setSelectedRange(NSRange(location: 13, length: 0))
+        sourceView.insertText("!", replacementRange: sourceView.selectedRange()); spin()
+        #expect(r.display == "one two three!")
+        #expect(r.view.selectedRange() == NSRange(location: 2, length: 0))
+    }
+
+    /// The heading menu, the outline and a `#fragment` link go to a line in Preview too: caret and
+    /// scroll — not only in Split.
+    @Test func navigatingToALinePutsTheCaretThere() {
+        let paragraphs = (1...60).map { "Paragraph number \($0) with some words in it." }
+        let r = rig(paragraphs.joined(separator: "\n\n"))
+        r.coordinator.navigate(toLine: 81); spin()
+        #expect(r.coordinator.topVisibleLine() == 81)
+        let block = r.coordinator.session.projection.blocks.first { $0.line == 81 }!
+        #expect(r.view.selectedRange() == NSRange(location: block.rendered.location, length: 0))
+    }
+
+    /// Preview's right-click menu carries the Markup verbs and the Format Bar switch, as Source's.
+    @Test func theRightClickMenuIsSources() throws {
+        let r = rig("Salt the pasta.")
+        let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [],
+                                                    timestamp: 0, windowNumber: r.window.windowNumber, context: nil,
+                                                    eventNumber: 0, clickCount: 1, pressure: 1))
+        let menu = try #require(r.coordinator.textView(r.view, menu: NSMenu(), for: event, at: 0))
+        #expect(menu.items.first?.title == "Markup")
+        #expect(menu.items.contains { $0.title == PlainTextEditor.Coordinator.formatBarTitle })
+    }
+
+    /// A refusal says where it was, so Show in Source can put the caret there.
+    @Test func aRefusalCarriesItsSourceOffset() {
+        let r = rig("one\n\ntwo")
+        var offsets: [Int] = []
+        r.coordinator.onRefusal = { _, offset in offsets.append(offset) }
+        caret(after: "one\n", in: r)
+        r.view.deleteBackward(nil); spin()
+        #expect(offsets == [5])     // the start of "two"
+    }
+
+    /// Links say how to follow them; text Preview cannot edit says where to.
+    @Test func linksAndReadOnlyTextExplainThemselves() {
+        let r = rig("See [it](http://x.y).\n\n<div>raw</div>")
+        let storage = r.view.textStorage!
+        let link = (r.display as NSString).range(of: "it")
+        #expect(storage.attribute(.toolTip, at: link.location, effectiveRange: nil) as? String == PreviewEditSession.linkTip)
+        let raw = (r.display as NSString).range(of: "raw")
+        #expect(storage.attribute(.toolTip, at: raw.location, effectiveRange: nil) as? String == PreviewEditSession.readOnlyTip)
     }
 }

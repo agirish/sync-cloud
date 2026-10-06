@@ -450,4 +450,55 @@ import FileExplorerTestSupport
         #expect(r.box.text == text)
         #expect(!r.undo.canUndo)
     }
+
+    // MARK: Review, 2026-10-05
+
+    /// Nothing to paste, or a verb with nothing to do, is no edit: the file keeps its bytes.
+    @Test func anEditThatDoesNothingConvertsNothing() {
+        let text = "one\r\ntwo\r\n"
+        let r = rig(text, caret: 2)
+        let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
+        board.clearContents()
+        _ = r.view.handledPaste(from: board); spin()
+        board.releaseGlobally()
+        #expect(!PlainTextEditor.apply(.table(.addRowBelow), to: r.view))   // not in a table
+        spin()
+        #expect(r.view.string == text)
+        #expect(!r.undo.canUndo)
+    }
+
+    /// A pasted CRLF alone — no lone CR beside it — is written as LF too.
+    @Test func aPastedCRLFAloneIsWrittenAsLF() {
+        let r = rig("one\n", caret: 3)
+        let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
+        board.clearContents(); board.setString("x\r\ny", forType: .string)
+        r.view.readSelection(from: board, type: .string); spin()
+        board.releaseGlobally()
+        #expect(r.view.string == "onex\ny\n")
+    }
+
+    /// Text the net writes itself — a paste with a line break, into an empty note — wears the
+    /// view's font, not none.
+    @Test func whatTheNetWritesKeepsTheViewsFont() throws {
+        let r = rig("", caret: 0)
+        let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
+        board.clearContents(); board.setString("a\r\nb", forType: .string)
+        r.view.readSelection(from: board, type: .string); spin()
+        board.releaseGlobally()
+        #expect(r.view.string == "a\nb")
+        let font = try #require(r.view.textStorage?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        #expect(font == r.view.typingAttributes[.font] as? NSFont)
+    }
+
+    /// An LF file is not scanned for carriage returns per keystroke: the storage knows there are
+    /// none until an edit brings one in.
+    @Test func theStorageKnowsWhenItHoldsNoCarriageReturn() {
+        let source = EditorSourceStorage(text: "a\nb")
+        #expect(!source.mayHoldCarriageReturn)
+        #expect(source.carriageReturns().isEmpty)
+        source.textStorage.replaceCharacters(in: NSRange(location: 1, length: 0), with: "\r")
+        #expect(source.mayHoldCarriageReturn)
+        #expect(source.carriageReturns().count == 1)
+        #expect(EditorSourceStorage(text: "a\r\nb").mayHoldCarriageReturn)
+    }
 }

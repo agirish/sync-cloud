@@ -271,6 +271,9 @@ public struct EditorWorkspaceView: View {
     @AppStorage(EditorTextSettings.editsInPreviewIntroSeenKey) private var editsInPreviewIntroSeen = false
     /// "That change needs Source." while Preview has just refused an edit — see ``EditorStatusHint``.
     @State private var statusHint: EditorStatusHint?
+    /// Counts every hint raised, so each has its own token for as long as this view lives — one
+    /// restarted at 1 had an earlier timer clear a later hint early (review).
+    @State private var hintsRaised = 0
     /// Split with Preview editable: which half leads the scroll (TE67.4).
     @State private var splitFollow = SplitScrollFollow()
     /// Split with Preview editable: where Source scrolls to follow Preview — the view, not the caret.
@@ -729,7 +732,7 @@ public struct EditorWorkspaceView: View {
                 // are looking at; this acts on the one you are in. It is withheld in `.preview`,
                 // where there is no text view to search — the preview is a rendering, and a find
                 // bar over it would be searching a copy of the document rather than the document.
-                if resolvedMode != .preview {
+                if resolvedMode != .preview || editsInPreview {
                     Button { findRequest &+= 1 } label: {
                         Image(systemName: "magnifyingglass")
                             .scaledFont(.system(size: 11, weight: .semibold))
@@ -1216,12 +1219,18 @@ public struct EditorWorkspaceView: View {
                 // last file's lit buttons must not stand over it for the debounce.
                 selectionLength = 0
                 formatState = .none
+                // …nor the last file's refusal hint, whose link would act on this one.
+                statusHint = nil
             }
             // **The stored length follows the text view it describes.** A mode switch builds a new
             // text view whose selection is a bare caret (`PlainTextEditor.restoreCaret`), and the
             // bar coming on finds a length nobody kept while it was off. Left stale, the next
             // selection of that same length would leave the key unchanged and the bar unlit.
-            .onChange(of: resolvedMode) { _, _ in selectionLength = 0 }
+            .onChange(of: resolvedMode) { _, _ in
+                selectionLength = 0
+                // A hint is about the Preview it was raised in.
+                statusHint = nil
+            }
             // **A preview a mode switch builds opens where the caret is** — not on the last heading
             // chosen, whose request was still standing and was replayed to every preview a switch
             // built, over wherever the reader had gone since (TE57 review). On `mode`, the reader's
@@ -1424,53 +1433,63 @@ public struct EditorWorkspaceView: View {
     /// with the pill that switches them in its top-trailing corner wherever it is offered.
     @ViewBuilder
     private func previewColumn(inSplit: Bool) -> some View {
-        Group {
-            if editsInPreview {
-                VStack(spacing: 0) {
-                    // In Split the bar stays over Source's half, and acts on Source. Over Preview the
-                    // pill ends the bar's row rather than lying over its last buttons (reported
-                    // 2026-10-05: it covered Link, Table and Divider); the bar sheds words into the
-                    // width that leaves it, as it does for any narrow column.
-                    if showsFormatBar, !inSplit {
-                        HStack(alignment: .top, spacing: 0) {
-                            formatBar
-                            if offersPreviewEditing {
-                                previewEditToggle
-                                    .fixedSize()
-                                    .padding(.top, Self.formatBarInset)
-                                    .padding(.trailing, 12)
+        VStack(spacing: 0) {
+            // The pill in a row of its own wherever no bar is drawn over this Preview to carry it —
+            // never over the text, whose first line it covered in Split and with the bar off (review).
+            if offersPreviewEditing, !(editsInPreview && showsFormatBar && !inSplit) {
+                HStack {
+                    Spacer(minLength: 0)
+                    previewEditToggle
+                }
+                .padding(.top, 6)
+                .padding(.trailing, 12)
+            }
+            Group {
+                if editsInPreview {
+                    VStack(spacing: 0) {
+                        // In Split the bar stays over Source's half, and acts on Source. Over Preview the
+                        // pill ends the bar's row rather than lying over its last buttons (reported
+                        // 2026-10-05: it covered Link, Table and Divider); the bar sheds words into the
+                        // width that leaves it, as it does for any narrow column.
+                        if showsFormatBar, !inSplit {
+                            HStack(alignment: .top, spacing: 0) {
+                                formatBar
+                                if offersPreviewEditing {
+                                    previewEditToggle
+                                        .fixedSize()
+                                        .padding(.top, Self.formatBarInset)
+                                        .padding(.trailing, 12)
+                                }
                             }
                         }
+                        PreviewEditorView(source: buffer.source, undoManager: undoManager, fontScale: fontScale,
+                                          onRefusal: { _, offset in raiseHint(at: offset) },
+                                          // In Split, Source owns the caret the status line and the
+                                          // format bar read — the bar acts on Source (review: it lit
+                                          // for Preview's selection and pressed Source's).
+                                          onSourceSelection: inSplit ? nil : { selection in
+                                              caretOffset = selection.location
+                                              if showsFormatBar, selectionLength != selection.length {
+                                                  selectionLength = selection.length
+                                              }
+                                              document.caretAnchors.remember(selection.location, for: document.path)
+                                          },
+                                          onFollowAnchor: followAnchor,
+                                          textViewHandle: inSplit ? nil : textViewHandle,
+                                          documentFolder: documentFolder,
+                                          followRequest: inSplit ? previewScrollRequest : nil,
+                                          onVisibleLineChange: inSplit ? { line in followThePreview(line) } : nil,
+                                          scrollRequest: inSplit ? nil : previewScrollRequest,
+                                          initialSourceOffset: document.caretAnchors.offset(for: document.path),
+                                          findRequest: inSplit ? 0 : findRequest)
+                            // A new document is a new storage, and a new session to project it.
+                            .id(ObjectIdentifier(buffer.source))
                     }
-                    PreviewEditorView(source: buffer.source, undoManager: undoManager, fontScale: fontScale,
-                                      onRefusal: { _ in raiseHint() },
-                                      onSourceSelection: { selection in
-                                          caretOffset = selection.location
-                                          if showsFormatBar, selectionLength != selection.length {
-                                              selectionLength = selection.length
-                                          }
-                                          document.caretAnchors.remember(selection.location, for: document.path)
-                                      },
-                                      onFollowAnchor: followAnchor,
-                                      textViewHandle: inSplit ? nil : textViewHandle,
-                                      documentFolder: documentFolder,
-                                      followRequest: inSplit ? previewScrollRequest : nil,
-                                      onVisibleLineChange: inSplit ? { line in followThePreview(line) } : nil)
-                        // A new document is a new storage, and a new session to project it.
-                        .id(ObjectIdentifier(buffer.source))
+                } else {
+                    MarkdownPreview(blocks: blocks, accent: accent, scrollRequest: previewScrollRequest,
+                                    onToggleTask: taskToggle, documentFolder: documentFolder,
+                                    onFollowAnchor: followAnchor)
                 }
-            } else {
-                MarkdownPreview(blocks: blocks, accent: accent, scrollRequest: previewScrollRequest,
-                                onToggleTask: taskToggle, documentFolder: documentFolder,
-                                onFollowAnchor: followAnchor)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            // In the corner wherever no bar is drawn over this Preview to carry it.
-            if offersPreviewEditing, !(editsInPreview && showsFormatBar && !inSplit) {
-                previewEditToggle
-                    .padding(.top, 8)
-                    .padding(.trailing, 12)
             }
         }
     }
@@ -1496,12 +1515,20 @@ public struct EditorWorkspaceView: View {
     }
 
     /// Says "That change needs Source." for ``EditorStatusHint/duration`` — restarted by each refusal.
-    private func raiseHint() {
-        let token = (statusHint?.token ?? 0) + 1
+    private func raiseHint(at sourceOffset: Int) {
+        hintsRaised &+= 1
+        let token = hintsRaised
         statusHint = EditorStatusHint(token: token, onShowInSource: {
             statusHint = nil
+            // The caret where the refused edit was: Source opens at the remembered anchor.
+            caretOffset = sourceOffset
+            document.caretAnchors.remember(sourceOffset, for: document.path)
             mode = .edit
         })
+        // Heard as well as seen: the keystroke went nowhere, and VoiceOver should say why.
+        NSAccessibility.post(element: NSApp.mainWindow as Any, notification: .announcementRequested,
+                             userInfo: [.announcement: EditorStatusHint.needsSource,
+                                        .priority: NSAccessibilityPriorityLevel.high.rawValue])
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(EditorStatusHint.duration))
             if statusHint?.token == token { statusHint = nil }

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Events
 
 /// **The editable Preview** (TE67.3): a TextKit 2 text view drawing ``PreviewEditSession/display``,
 /// with every edit sent through the session to the document's source.
@@ -13,8 +14,9 @@ struct PreviewEditorView: NSViewRepresentable {
     /// file operation (§3.9).
     let undoManager: UndoManager
     var fontScale: CGFloat = 1
-    /// A refused edit: the status line shows "That change needs Source."
-    var onRefusal: ((PreviewRefusal) -> Void)?
+    /// A refused edit, and where in the source it was: the status line shows "That change needs
+    /// Source.", and Show in Source puts the caret there.
+    var onRefusal: ((PreviewRefusal, Int) -> Void)?
     /// The selection, mapped into the source — for Line and Column, and for Show in Source.
     var onSourceSelection: ((NSRange) -> Void)?
     /// A `#fragment` link, ⌘-clicked.
@@ -27,6 +29,14 @@ struct PreviewEditorView: NSViewRepresentable {
     var followRequest: EditorScrollRequest?
     /// Split: the source line of the block at the top of what is on screen, as the person scrolls.
     var onVisibleLineChange: ((Int) -> Void)?
+    /// Preview: go to this source line — the heading menu, the outline, a `#fragment` link: the caret
+    /// there and the line at the top, as Source does (review: these were dropped outside Split).
+    var scrollRequest: EditorScrollRequest?
+    /// Where the caret goes when this view is BUILT — the document's remembered caret, as Source
+    /// opens there: a mode switch or a reload no longer opens Preview at the top.
+    var initialSourceOffset: Int?
+    /// Bumped to open the find bar — the header's magnifying glass, as over Source.
+    var findRequest: Int = 0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(session: PreviewEditSession(source: source, undoManager: undoManager,
@@ -40,6 +50,15 @@ struct PreviewEditorView: NSViewRepresentable {
         context.coordinator.watchScrolling(of: scroll)
         update(context.coordinator)
         textViewHandle?.textView = view
+        // Requests already standing are not news to a view built after them: replaying one would
+        // jump somewhere asked for long ago (review).
+        context.coordinator.lastFollowRequest = followRequest
+        context.coordinator.lastScrollRequest = scrollRequest
+        context.coordinator.lastFindRequest = findRequest
+        if let offset = initialSourceOffset {
+            // After the first layout, which is what a line's place is measured against.
+            DispatchQueue.main.async { [coordinator = context.coordinator] in coordinator.place(atSource: offset) }
+        }
         return scroll
     }
 
@@ -49,6 +68,15 @@ struct PreviewEditorView: NSViewRepresentable {
             context.coordinator.lastFollowRequest = followRequest
             context.coordinator.follow(line: followRequest.line)
         }
+        if findRequest != context.coordinator.lastFindRequest, let view = context.coordinator.textView {
+            context.coordinator.lastFindRequest = findRequest
+            view.window?.makeFirstResponder(view)
+            PlainTextEditor.showFindBar(in: view)
+        }
+        if let scrollRequest, scrollRequest != context.coordinator.lastScrollRequest {
+            context.coordinator.lastScrollRequest = scrollRequest
+            context.coordinator.navigate(toLine: scrollRequest.line)
+        }
         if let view = scroll.documentView as? PreviewTextView, textViewHandle?.textView !== view {
             textViewHandle?.textView = view
         }
@@ -57,7 +85,14 @@ struct PreviewEditorView: NSViewRepresentable {
     private func update(_ coordinator: Coordinator) {
         coordinator.session.undoManager = undoManager
         coordinator.session.documentFolder = documentFolder
-        if coordinator.session.style.scale != fontScale { coordinator.session.style = .init(scale: fontScale) }
+        if coordinator.session.style.scale != fontScale {
+            // The column stays as it was: only the text size moved.
+            coordinator.session.style = .init(scale: fontScale, columnWidth: coordinator.session.style.columnWidth)
+            coordinator.fragments.scale = fontScale
+            if let manager = coordinator.textView?.textLayoutManager {
+                manager.invalidateLayout(for: manager.documentRange)
+            }
+        }
         coordinator.onRefusal = onRefusal
         coordinator.onSourceSelection = onSourceSelection
         coordinator.onFollowAnchor = onFollowAnchor
@@ -68,7 +103,7 @@ struct PreviewEditorView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         let session: PreviewEditSession
         weak var textView: PreviewTextView?
-        var onRefusal: ((PreviewRefusal) -> Void)?
+        var onRefusal: ((PreviewRefusal, Int) -> Void)?
         var onSourceSelection: ((NSRange) -> Void)?
         var onFollowAnchor: ((String) -> Void)?
         /// Set while this coordinator moves the selection itself, so the move is not taken for the
@@ -78,6 +113,38 @@ struct PreviewEditorView: NSViewRepresentable {
         let fragments = PreviewFragmentDelegate()
         var onVisibleLineChange: ((Int) -> Void)?
         var lastFollowRequest: EditorScrollRequest?
+        var lastScrollRequest: EditorScrollRequest?
+        var lastFindRequest = 0
+
+        /// The caret at source `offset`'s place, scrolled to — the view only just built.
+        func place(atSource offset: Int) {
+            guard let view = textView else { return }
+            let rendered = PreviewEditRules.renderedOffset(forSource: offset, in: session.projection)
+            isSelecting = true
+            view.setSelectedRange(NSRange(location: min(rendered, session.display.length), length: 0))
+            isSelecting = false
+            isScrollingItself = true
+            PreviewTextView.scrollLineToTop(view, at: min(rendered, session.display.length))
+            isScrollingItself = false
+        }
+
+        /// The heading menu, the outline, a `#fragment` link: the caret at the start of the block
+        /// for source `line`, that block at the top, and the keyboard here.
+        func navigate(toLine line: Int) {
+            guard let view = textView else { return }
+            let blocks = session.projection.blocks
+            guard let block = blocks.last(where: { ($0.line ?? .max) <= line }) ?? blocks.first else { return }
+            let at = min(block.rendered.location, session.display.length)
+            session.selectionMoved(to: NSRange(location: at, length: 0))
+            isSelecting = true
+            view.setSelectedRange(NSRange(location: at, length: 0))
+            isSelecting = false
+            isScrollingItself = true
+            PreviewTextView.scrollLineToTop(view, at: at)
+            isScrollingItself = false
+            view.window?.makeFirstResponder(view)
+            reportSelection()
+        }
         private var lastVisibleLine: Int?
         nonisolated(unsafe) private var boundsObserver: NSObjectProtocol?
 
@@ -90,7 +157,9 @@ struct PreviewEditorView: NSViewRepresentable {
                 forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, let report = self.onVisibleLineChange,
+                    // A scroll this coordinator made — following a caret it placed — is not the
+                    // person scrolling, and must not lead the other pane.
+                    guard let self, !self.isScrollingItself, let report = self.onVisibleLineChange,
                           let line = self.topVisibleLine(), line != self.lastVisibleLine else { return }
                     self.lastVisibleLine = line
                     report(line)
@@ -122,9 +191,13 @@ struct PreviewEditorView: NSViewRepresentable {
         init(session: PreviewEditSession) {
             self.session = session
             super.init()
-            session.onRefusal = { [weak self] in self?.onRefusal?($0) }
+            session.onRefusal = { [weak self] in self?.onRefusal?($0, $1) }
             session.onSourceChange = { [weak self] offset in
-                self?.select(NSRange(location: min(offset, self?.session.display.length ?? 0), length: 0))
+                // An undo or redo made here puts the caret where it landed. A change made in Source
+                // (Split) leaves this pane alone: moving its caret and scrolling to it there would
+                // scroll Source after it, and overwrite the caret Source reports (review).
+                guard let self, let view = self.textView, view.window?.firstResponder === view else { return }
+                self.select(NSRange(location: min(offset, self.session.display.length), length: 0))
             }
         }
 
@@ -153,13 +226,18 @@ struct PreviewEditorView: NSViewRepresentable {
             isSelecting = true
             view.setSelectedRange(NSRange(location: min(range.location, session.display.length),
                                           length: min(range.length, max(0, session.display.length - range.location))))
+            isScrollingItself = true
             view.scrollRangeToVisible(view.selectedRange())
+            isScrollingItself = false
             isSelecting = false
             reportSelection()
         }
 
+        fileprivate var isScrollingItself = false
+
         private func reportSelection() {
-            guard let view = textView, let mapped = session.sourceSelection(for: view.selectedRange()) else { return }
+            guard let view = textView, view.window?.firstResponder === view,
+                  let mapped = session.sourceSelection(for: view.selectedRange()) else { return }
             onSourceSelection?(mapped)
         }
 
@@ -204,9 +282,51 @@ struct PreviewEditorView: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            guard !isSelecting, let view = textView else { return }
+            // Not while an input method composes: the caret moves inside the marked text, and the
+            // opened paragraph or held space the composition began in must outlive it (review) —
+            // its commit too, which takes the marks away before it moves the caret.
+            guard !isSelecting, let view = textView, !view.hasMarkedText(), !view.isComposing else { return }
             session.selectionMoved(to: view.selectedRange())
             reportSelection()
+        }
+
+        /// **The text's right-click menu, as Source's**: AppKit's own items, with the Markup verbs and
+        /// the Format Bar switch on top — what Help says right-clicking the text offers (review:
+        /// Preview had AppKit's menu alone).
+        func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+            let ns = session.source.text as NSString
+            let selection = session.sourceSelection(for: view.selectedRange()) ?? NSRange(location: 0, length: 0)
+            let markup = PlainTextEditor.Coordinator.markupMenu(
+                target: self, action: #selector(applyMarkupItem(_:)),
+                tables: MarkdownTables.available(in: ns, selection: selection),
+                inTable: MarkdownTables.touches(ns, selection))
+            let host = NSMenuItem(title: "Markup", action: nil, keyEquivalent: "")
+            host.submenu = markup
+            let shows = UserDefaults.standard.object(forKey: EditorTextSettings.showsFormatBarKey) as? Bool
+                ?? EditorTextSettings.showsFormatBarDefault
+            let bar = NSMenuItem(title: PlainTextEditor.Coordinator.formatBarTitle,
+                                 action: #selector(toggleFormatBar(_:)), keyEquivalent: "")
+            bar.target = self
+            bar.state = shows ? .on : .off
+            menu.insertItem(host, at: 0)
+            menu.insertItem(.separator(), at: 1)
+            menu.insertItem(bar, at: 2)
+            menu.insertItem(.separator(), at: 3)
+            return menu
+        }
+
+        @objc func applyMarkupItem(_ sender: NSMenuItem) {
+            guard MarkupVerb.menuOrder.indices.contains(sender.tag),
+                  let verb = MarkupVerb.menuOrder[sender.tag] else { return }
+            textView?.performMarkup(verb)
+        }
+
+        @objc func toggleFormatBar(_ sender: NSMenuItem) {
+            let defaults = UserDefaults.standard
+            let shows = !(defaults.object(forKey: EditorTextSettings.showsFormatBarKey) as? Bool
+                ?? EditorTextSettings.showsFormatBarDefault)
+            defaults.set(shows, forKey: EditorTextSettings.showsFormatBarKey)
+            Logger.shared.info("[edit] Format bar \(shows ? "shown" : "hidden") from Preview's right-click menu")
         }
 
         /// **A plain click on a link places the caret, as in every editor; ⌘-click opens it** (§1.2).
@@ -395,6 +515,17 @@ final class PreviewTextView: NSTextView {
     /// into the display.
     func performMarkup(_ verb: MarkupVerb) {
         coordinator?.perform(RenderedEdit(range: selectedRange(), action: .format(verb)))
+    }
+
+    // MARK: Read-only text (§1.2)
+
+    /// The arrow over text Preview cannot edit — front matter, HTML, a table too wide — so it does
+    /// not look typeable until a keystroke is refused. Its tooltip says where to edit it.
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard let storage = textStorage, storage.length > 0 else { return }
+        let index = min(characterIndexForInsertion(at: convert(event.locationInWindow, from: nil)), storage.length - 1)
+        if storage.attribute(.previewReadOnly, at: index, effectiveRange: nil) != nil { NSCursor.arrow.set() }
     }
 
     // MARK: Task boxes (A8)

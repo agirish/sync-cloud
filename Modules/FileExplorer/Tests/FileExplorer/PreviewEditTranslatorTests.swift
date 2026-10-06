@@ -530,4 +530,120 @@ import Foundation
             #expect(result?.source == "one\n\n" + marker, "\(verb): \(String(reflecting: result?.source))")
         }
     }
+
+    // MARK: Review fixes, 2026-10-05
+
+    private func edit(_ range: NSRange, _ action: RenderedEdit.Action, _ text: String = "", in source: String,
+                      context: PreviewEditContext = PreviewEditContext()) -> PreviewEditOutcome {
+        PreviewEditTranslator.translate(RenderedEdit(range: range, text: text, action: action),
+                                        in: project(source), context: context)
+    }
+
+    /// Typed text that the parser would take for HTML goes in escaped — never as a tag every other
+    /// renderer drops.
+    @Test func typedTextThatWouldBeHTMLIsEscaped() {
+        let source = "Use Vec<T"
+        let result = applied(type(">", at: after("Vec<T", in: project(source)), in: source))
+        #expect(result?.source == "Use Vec<T\\>")
+        #expect(result?.projection.renderedString == "Use Vec<T>")
+    }
+
+    /// ⌫ that would leave a space at a line's end takes the space too: it was refused.
+    @Test func deletingTheLastWordTakesTheSpaceBeforeIt() {
+        let source = "hello w\n\nnext"
+        let p = project(source)
+        let result = applied(edit(NSRange(location: at("w", in: p), length: 1), .delete, in: source))
+        #expect(result?.source == "hello\n\nnext")
+    }
+
+    /// Quote and a Heading on the opened paragraph leave somewhere to type — in the new block.
+    @Test func quoteAndHeadingOnTheOpenedParagraphCanBeTypedInto() {
+        for (verb, marker) in [(MarkupVerb.blockQuote, "> "), (.heading(2), "## ")] {
+            let opened = applied(edit(NSRange(location: 3, length: 0), .format(verb), in: "one",
+                                      context: PreviewEditContext(phantomAfterBlock: 0)))
+            guard let opened else { continue }
+            let typed = PreviewEditTranslator.translate(
+                RenderedEdit(range: opened.renderedSelection, text: "x", action: .typing), in: opened.projection)
+            #expect(applied(typed)?.source == "one\n\n" + marker + "x", "\(verb)")
+        }
+    }
+
+    /// Typing over a selection that covers a whole link from before it replaces the link too —
+    /// no empty `[](…)` is left in the file.
+    @Test func typingOverAWholeLinkFromBeforeItReplacesIt() {
+        let source = "See [docs](http://x.y) now"
+        let p = project(source)
+        let range = NSRange(location: at(" docs", in: p), length: 5)
+        #expect(applied(edit(range, .typing, "x", in: source))?.source == "Seex now")
+        // From the link's own start, the link keeps its style for the new text.
+        let inside = NSRange(location: at("docs", in: p), length: 4)
+        #expect(applied(edit(inside, .typing, "x", in: source))?.source == "See [x](http://x.y) now")
+    }
+
+    /// Return at the end of a list item that ends in bold carries the list on.
+    @Test func returnAfterAnItemEndingInBoldCarriesTheListOn() {
+        let source = "- **done**"
+        let p = project(source)
+        let result = applied(edit(NSRange(location: after("done", in: p), length: 0), .returnKey, in: source))
+        #expect(result?.source == "- **done**\n- ")
+    }
+
+    /// A compact table is the author's style: typing in it changes only its row.
+    @Test func aCompactTableKeepsItsStyle() {
+        let source = "|a|b|\n|-|-|\n|c|d|"
+        let result = applied(type("x", at: after("c", in: project(source)), in: source))
+        #expect(result?.source == "|a|b|\n|-|-|\n|cx|d|")
+        // …and so is a table written without its outer pipes, lined up or not.
+        let bare = "a | b\n--|--\nc | d"
+        let typed = applied(type("x", at: after("c", in: project(bare)), in: bare))
+        #expect(typed?.source == "a | b\n--|--\ncx | d")
+    }
+
+    /// Bullets over two paragraphs makes two items.
+    @Test func aLineVerbOverSeveralBlocksAppliesToEach() {
+        let source = "one\n\ntwo"
+        let p = project(source)
+        let range = NSRange(location: 0, length: (p.renderedString as NSString).length)
+        let result = applied(edit(range, .format(.bulletList), in: source))
+        #expect(result?.source.contains("- one") == true)
+        #expect(result?.source.contains("- two") == true)
+    }
+
+    /// Typed on a blank line of fenced code inside a list, the line takes the list's indent first.
+    @Test func typingOnABlankCodeLineInAListKeepsItInTheBlock() {
+        let source = "- a\n\n  ```\n  b\n\n  c\n  ```"
+        let p = project(source)
+        let blank = at("b\n", in: p, plus: 2)
+        let result = applied(type("x", at: blank, in: source))
+        #expect(result?.source == "- a\n\n  ```\n  b\n  x\n  c\n  ```")
+    }
+
+    /// Replace All with two matches in one tidy table: both made, the table re-padded once.
+    @Test func replaceAllInATidyTableReAlignsItOnce() {
+        let source = "| c   | d   |\n| --- | --- |\n| c   | e   |"
+        let p = project(source)
+        let rendered = p.renderedString as NSString
+        let first = rendered.range(of: "c")
+        let second = rendered.range(of: "c", options: .backwards)
+        let result = applied(PreviewEditTranslator.translateAll(
+            [RenderedEdit(range: first, text: "cccc", action: .typing),
+             RenderedEdit(range: second, text: "cccc", action: .typing)], in: p))
+        #expect(result?.source == "| cccc | d   |\n| ---- | --- |\n| cccc | e   |")
+    }
+
+    /// A line pasted with its line break is that line.
+    @Test func aLinePastedWithItsBreakIsOneLine() {
+        let source = "one two"
+        let p = project(source)
+        let result = applied(edit(NSRange(location: after("one", in: p), length: 0), .paste, " more\n", in: source))
+        #expect(result?.source == "one more two")
+    }
+
+    /// Return right after bold mid-paragraph splits after the `**`, not between the asterisks.
+    @Test func returnAfterClosingBoldSplitsAfterIt() {
+        let source = "a **b** c"
+        let p = project(source)
+        let result = applied(edit(NSRange(location: after("b", in: p), length: 0), .returnKey, in: source))
+        #expect(result?.source.hasPrefix("a **b**\n\n") == true)
+    }
 }

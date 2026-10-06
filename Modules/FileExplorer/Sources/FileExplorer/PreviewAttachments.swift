@@ -7,6 +7,7 @@ import AppKit
 /// Each is atomic — one character the caret steps over and an edit cannot enter (the translator
 /// refuses ``PreviewRefusal/notText``). A task box is the one that does something when clicked:
 /// ``PreviewTextView`` sends the click as ``RenderedEdit/Action/tickTask``.
+@MainActor
 enum PreviewAttachments {
 
     /// What a `previewAttachment` value stands for.
@@ -38,9 +39,7 @@ enum PreviewAttachments {
         case .task, .taskDone:
             let side = 14 * scale
             let symbol = kind == .task ? "square" : "checkmark.square.fill"
-            let configuration = NSImage.SymbolConfiguration(pointSize: side, weight: .regular)
-            attachment.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-                .withSymbolConfiguration(configuration)
+            attachment.image = symbolImage(symbol, side: side)
             attachment.bounds = CGRect(x: 0, y: -2 * scale, width: side, height: side)
         case .rule:
             let width = max(40, columnWidth - 4)
@@ -66,6 +65,19 @@ enum PreviewAttachments {
             }
             attachment.bounds = CGRect(origin: CGPoint(x: 0, y: -3 * scale), size: box)
         }
+    }
+
+    /// One image per symbol and size, made once: a document's every box was a new SF Symbol image
+    /// on every keystroke.
+    private static var symbols: [String: NSImage] = [:]
+
+    private static func symbolImage(_ name: String, side: CGFloat) -> NSImage? {
+        let key = "\(name)@\(side)"
+        if let image = symbols[key] { return image }
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: side, weight: .regular))
+        symbols[key] = image
+        return image
     }
 
     static func accessibilityLabel(for kind: Kind) -> String {

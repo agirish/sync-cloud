@@ -133,6 +133,8 @@ extension NSAttributedString.Key {
     /// On a table's rows: where its columns start, and where the last ends, from the text's left
     /// edge — `[CGFloat]`, for the grid the fragment draws.
     static let previewTableColumns = NSAttributedString.Key("SyncCloud.preview.tableColumns")
+    /// Set by the editable view on text it cannot edit — for the arrow cursor over it.
+    static let previewReadOnly = NSAttributedString.Key("SyncCloud.preview.readOnly")
     /// On an image block's U+FFFC: the image's source as written, for the view to load.
     static let previewImageSource = NSAttributedString.Key("SyncCloud.preview.imageSource")
 }
@@ -182,6 +184,19 @@ struct MarkdownProjection {
     let spans: [PreviewInlineSpan]
 
     var renderedString: String { rendered.string }
+
+    /// What an entity reference decodes to, asked of cmark once per reference and kept: the walk
+    /// met every `&amp;` in a document on every keystroke, and parsed a document for each.
+    static func decodedEntity(_ reference: String) -> String {
+        entityLock.lock()
+        defer { entityLock.unlock() }
+        if let known = entities[reference] { return known }
+        let decoded = MarkdownBlocks.text(of: Document(parsing: reference)).plain
+        entities[reference] = decoded
+        return decoded
+    }
+    nonisolated(unsafe) private static var entities: [String: String] = [:]
+    private static let entityLock = NSLock()
 
     static func project(_ source: String, style: Style = Style()) -> MarkdownProjection {
         var builder = Builder(source: source, style: style)
@@ -361,6 +376,14 @@ private struct Builder {
             for child in quote.children {
                 append(child, indent: indent, quoteDepth: quoteDepth + 1)
             }
+            // An empty quote — `> ` just written by Quote on an opened paragraph — has no block to
+            // type into, and the caret would map onto the paragraph above (review): give it one.
+            if quote.childCount == 0, let source = range(of: quote) {
+                let block = beginBlock(.paragraph, indent: indent, quoteDepth: quoteDepth + 1, line: line,
+                                       source: source, tag: "paragraph")
+                appendEmptyAnchor(atEndOfLineFrom: source.location, block: block, font: font(size: 13))
+                endBlock(block)
+            }
 
         case let code as CodeBlock:
             codeBlock(code, indent: indent, quoteDepth: quoteDepth, line: line)
@@ -414,7 +437,21 @@ private struct Builder {
                              line: line, tag: tag, font: font, source: source)
             return
         }
+        if markup.childCount == 0 {
+            // A heading with no words yet — `## ` just written by a Heading verb: somewhere to type.
+            appendEmptyAnchor(atEndOfLineFrom: source.location, block: block, font: font)
+        }
         endBlock(block)
+    }
+
+    /// An insertion point at the end of the line holding `offset`, as an empty list item and an
+    /// empty cell have one — but only after a space, so a word typed there stays part of the block
+    /// (typed onto `##` it would make `##x`, which is no heading).
+    private mutating func appendEmptyAnchor(atEndOfLineFrom offset: Int, block: Int, font: NSFont) {
+        let end = index.line(index.lineNumber(containing: offset))?.end ?? offset
+        guard end > offset, [0x20, 0x09].contains(index.units[end - 1]) else { return }
+        appendText("", attributes: [.font: font], segment: (.content, NSRange(location: end, length: 0)),
+                   block: block)
     }
 
     /// The block, shown as its plain text and not editable, because its positions did not line up.
@@ -708,9 +745,12 @@ private struct Builder {
         paragraph.lineSpacing = 6 * style.scale
         paragraph.paragraphSpacing = 0
         out.addAttribute(.paragraphStyle, value: paragraph, range: range)
-        out.addAttribute(.previewTableColumns, value: edges.map { $0 - lead }, range: range)
         if let column = style.columnWidth, edges[edges.count - 1] > column {
+            // Too wide: left to Source, and no grid — its cells wrap, and lines drawn at the stops
+            // would cross them.
             blocks[block].readOnly = .wideTable
+        } else {
+            out.addAttribute(.previewTableColumns, value: edges.map { $0 - lead }, range: range)
         }
     }
 
@@ -1010,7 +1050,7 @@ private struct Builder {
         guard cursor < limit, source[cursor] == 0x3B, cursor > offset + 1 else { return nil }
         let reference = String(utf16CodeUnits: Array(source[offset...cursor]),
                                count: cursor - offset + 1)
-        let decoded = MarkdownBlocks.text(of: Document(parsing: reference)).plain
+        let decoded = MarkdownProjection.decodedEntity(reference)
         guard decoded != reference, !decoded.isEmpty else { return nil }
         return (cursor + 1, Array(decoded.utf16))
     }

@@ -44,19 +44,51 @@ import Foundation
                     "overlapping edits: \(where_)")
             #expect(PreviewEditTranslator.applied(result.edits, to: source) == result.source, "\(where_)")
 
+            // 5. **Nothing outside the edited block changes** — the check that catches an edit which
+            // renders right and means something else elsewhere. A table's edit may re-pad the table.
+            let touched = p.blocks.filter {
+                NSIntersectionRange($0.rendered, edit.range).length > 0
+                    || ($0.rendered.location <= edit.range.location && edit.range.location <= NSMaxRange($0.rendered))
+            }
+            if !touched.isEmpty {
+                let lo = touched.map(\.source.location).min()!
+                let hi = touched.map { NSMaxRange($0.source) }.max()!
+                for change in result.edits {
+                    #expect(change.range.location >= lo - 1 && NSMaxRange(change.range) <= hi + 1,
+                            "edit \(change) reaches outside the block(s) \(lo)..<\(hi): \(where_)")
+                }
+            }
+
+            // 6. Nothing typed becomes something Preview cannot edit — HTML, an unalignable block.
+            func readOnly(_ q: MarkdownProjection) -> Int {
+                q.blocks.filter { $0.readOnly != nil }.count
+                    + q.segments.filter { if case .readOnly = $0.kind { true } else { false } }.count
+            }
+            #expect(readOnly(result.projection) <= readOnly(p), "the edit made read-only text: \(where_)")
+
             // 4. Undo is exact.
             #expect(PreviewEditTranslatorTests.undo(result.edits, before: source, after: result.source)
                     == source, "undo did not restore: \(where_)")
 
             // 1 and 3, for the text edits checked against an expectation.
             guard [.typing, .delete].contains(edit.action) else { continue }
-            let expected = (p.renderedString as NSString).replacingCharacters(in: edit.range, with: edit.text)
+            // A deletion ending at a line's end takes the spaces it would leave there: Markdown
+            // draws them as nothing (review, 2026-10-05).
+            var range = edit.range
+            let rendered = p.renderedString as NSString
+            if edit.text.isEmpty, range.length > 0,
+               NSMaxRange(range) == rendered.length || rendered.character(at: NSMaxRange(range)) == 0x0A {
+                while range.location > 0, rendered.character(at: range.location - 1) == 0x20 {
+                    range = NSRange(location: range.location - 1, length: range.length + 1)
+                }
+            }
+            let expected = rendered.replacingCharacters(in: range, with: edit.text)
             #expect(PreviewEditTranslator.comparable(result.projection.renderedString, structural: false)
                     == PreviewEditTranslator.comparable(expected, structural: false),
                     "rendered \(String(reflecting: result.projection.renderedString)): \(where_)")
             if result.projection.renderedString == expected {
                 #expect(result.renderedSelection.location
-                        == edit.range.location + (edit.text as NSString).length,
+                        == range.location + (edit.text as NSString).length,
                         "caret at \(result.renderedSelection.location): \(where_)")
             }
             // The two carets must agree: the source caret, mapped into the new rendering, may sit
@@ -74,7 +106,8 @@ import Foundation
     // MARK: Documents
 
     private static let words = ["salt", "the", "pasta", "Café", "naïve", "中文", "😀", "snake_case",
-                                "a*b", "x", "plenty", "don't", "1.5", "&amp;", "\\*"]
+                                "a*b", "x", "plenty", "don't", "1.5", "&amp;", "\\*", "Vec<T", "a > b",
+                                "f(x)", "2.", "#tag"]
 
     private static func inline(_ r: inout SplitMix) -> String {
         var parts: [String] = []
@@ -117,7 +150,8 @@ import Foundation
     // MARK: Edits
 
     private static let typed = ["a", "Z", " ", "*", "_", "`", "[", "]", "|", "\\", "'", "\"", "-",
-                                "#", "&", "<", "!", "é", "中", "ab", "x*y", "~~"]
+                                "#", "&", "<", "!", "é", "中", "ab", "x*y", "~~", ">", "(", ")", "1",
+                                "1.", "<b>", "&gt;", "](u)"]
 
     static func edit(_ r: inout SplitMix, in p: MarkdownProjection) -> RenderedEdit {
         let length = (p.renderedString as NSString).length

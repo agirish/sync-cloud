@@ -207,7 +207,10 @@ import EventsTestSupport
         // Preview draws no bar — only Edit in Preview's pill (TE67), one small control at its
         // trailing edge, which the bar's rule says nothing about.
         let preview = Self.mounted(markdown, mode: .preview)
-        #expect(preview.bar.count <= 1, "Preview draws \(preview.bar.count) controls above its text")
+        #expect(preview.bar.count == 1, "Preview draws \(preview.bar.count) controls above its text — the pill alone")
+        // The pill: small, and at the column's trailing side — not one of the bar's buttons leaking in.
+        #expect(preview.bar.allSatisfy { $0.minX > Self.width / 2 },
+                "the one control over Preview is not at its trailing side: \(preview.bar)")
         #expect(preview.bar.allSatisfy { $0.width < 90 && $0.height < 30 },
                 "Preview draws something other than the Edit pill above its text: \(preview.bar)")
         // Editable Preview draws the bar over its text — and the Edit pill ends the bar's row,
@@ -216,6 +219,9 @@ import EventsTestSupport
         for width: CGFloat in [Self.width, 1_000, 900, 800] {
             let editing = Self.mounted(markdown, mode: .preview, editsInPreview: true, width: width)
             #expect(editing.bar.count >= 6, "editable Preview at \(width) draws \(editing.bar.count) controls above its text")
+            // The pill is there, ending the row.
+            let last = editing.bar.max { $0.maxX < $1.maxX }
+            #expect(last.map { $0.minX > width * 0.55 } == true, "at \(width), no pill ends the bar's row: \(editing.bar)")
             for (i, a) in editing.bar.enumerated() {
                 for b in editing.bar[(i + 1)...] {
                     #expect(!a.insetBy(dx: 1, dy: 1).intersects(b.insetBy(dx: 1, dy: 1)),

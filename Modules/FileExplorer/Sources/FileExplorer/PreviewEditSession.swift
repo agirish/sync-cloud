@@ -23,7 +23,11 @@ final class PreviewEditSession {
     }
 
     let source: EditorSourceStorage
-    var undoManager: UndoManager?
+    /// The document's undo stack. Its own notifications only are observed — never every undo
+    /// manager in the process, any of which may close a group off the main thread.
+    var undoManager: UndoManager? {
+        didSet { if undoManager !== oldValue { observeUndoManager() } }
+    }
     /// What the view draws: the projection's text, coloured, plus an empty phantom paragraph while one
     /// is open (§3.5).
     let display = NSTextStorage()
@@ -31,11 +35,25 @@ final class PreviewEditSession {
     private(set) var context = PreviewEditContext()
 
     var style: MarkdownProjection.Style {
-        didSet { if style != oldValue { followSource() } }
+        didSet {
+            guard style != oldValue else { return }
+            followSource()
+            redressAttachments()
+        }
     }
 
-    /// Told about every refusal: the view shows the hint.
-    var onRefusal: ((PreviewRefusal) -> Void)?
+    /// Told about every refusal, with where in the source the refused edit was — the view shows the
+    /// hint, and Show in Source puts the caret there.
+    var onRefusal: ((PreviewRefusal, Int) -> Void)?
+    /// Where the edit being made was aimed, in the projection — for a refusal's source offset.
+    private var attemptedAt = 0
+
+    /// The source offset nearest rendered `offset`: where typing would go, else its block's start.
+    func sourceOffset(near offset: Int) -> Int {
+        if let point = PreviewEditRules.insertionPoint(at: offset, in: projection) { return point.source }
+        if let block = PreviewEditRules.block(at: offset, in: projection) { return projection.blocks[block].source.location }
+        return 0
+    }
     /// The source changed under the view — an undo, a redo, Source in Split — and the display has
     /// been brought up to it. The rendered offset is where that change ended, for the caret.
     var onSourceChange: ((Int) -> Void)?
@@ -64,6 +82,8 @@ final class PreviewEditSession {
          style: MarkdownProjection.Style = MarkdownProjection.Style(), documentFolder: String? = nil) {
         self.source = source
         self.undoManager = undoManager
+        var style = style
+        if style.columnWidth == nil { style.columnWidth = Self.defaultColumn }
         self.style = style
         // Before the first decoration below, which starts the images loading against it.
         self.documentFolder = documentFolder
@@ -77,12 +97,20 @@ final class PreviewEditSession {
                 let end = storage.map { NSMaxRange($0.editedRange) } ?? 0
                 MainActor.assumeIsolated { self?.sourceDidChange(mask: mask, endingAt: end) }
             })
+        observeUndoManager()
+    }
+
+    nonisolated(unsafe) private var undoObservers: [NSObjectProtocol] = []
+
+    private func observeUndoManager() {
+        for observer in undoObservers { NotificationCenter.default.removeObserver(observer) }
+        undoObservers = []
+        guard let undoManager else { return }
         for name in [Notification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange,
                      .NSUndoManagerDidCloseUndoGroup] {
-            observers.append(NotificationCenter.default.addObserver(
-                forName: name, object: nil, queue: nil) { [weak self] note in
-                    let manager = (note.object as AnyObject?).map(ObjectIdentifier.init)
-                    MainActor.assumeIsolated { self?.undoManagerChanged(name, manager) }
+            undoObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: undoManager, queue: nil) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.undoManagerChanged(name) }
                 })
         }
     }
@@ -90,7 +118,7 @@ final class PreviewEditSession {
     // `NotificationCenter` holds the blocks, not this object; nothing to remove at deinit that a
     // dead `self` would act on, but the observers are dropped with it all the same.
     deinit {
-        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        for observer in observers + undoObservers { NotificationCenter.default.removeObserver(observer) }
     }
 
     // MARK: Edits
@@ -99,14 +127,23 @@ final class PreviewEditSession {
     @discardableResult
     func perform(_ edit: RenderedEdit) -> Result {
         var edit = edit
+        // **Held spaces and an opened paragraph are in the display only**, so an edit's range is
+        // measured on text the projection does not have. Each is handled here, and every other
+        // range is mapped past them — never left pointing at whatever now stands there (review,
+        // 2026-10-05: ⌫ after two held spaces deleted the next paragraph's first letter).
         if let held {
-            let end = held.at + (held.text as NSString).length
-            dropHeld()
-            if [.typing, .paste].contains(edit.action), edit.range == NSRange(location: end, length: 0) {
+            let heldRange = NSRange(location: held.at, length: (held.text as NSString).length)
+            if [.typing, .paste].contains(edit.action), edit.range == NSRange(location: NSMaxRange(heldRange), length: 0) {
+                dropHeld()
                 edit.range = NSRange(location: held.at, length: 0)
                 edit.text = held.text + edit.text
-            } else if edit.range.location >= end {
-                edit.range.location -= (held.text as NSString).length
+            } else if edit.action == .delete, edit.range.length > 0,
+                      NSIntersectionRange(edit.range, heldRange) == edit.range {
+                return deleteHeld(edit.range)
+            } else {
+                guard let mapped = Self.mapped(edit.range, past: heldRange) else { dropHeld(); return refuse(.notSupported) }
+                dropHeld()
+                edit.range = mapped
             }
         }
         // An edit anywhere but into the phantom closes it first; one into it is the translator's.
@@ -116,11 +153,21 @@ final class PreviewEditSession {
                 && edit.range.location == phantom + 1 && edit.range.length == 0
             if typesIntoIt {
                 edit.range = NSRange(location: phantom, length: 0)
-            } else {
+            } else if edit.action == .delete, edit.range == NSRange(location: phantom, length: 1) {
+                // ⌫ in the empty paragraph Return opened: it closes, as it never was.
                 closePhantom()
-                if edit.range.location > phantom { edit.range.location -= 1 }
+                return .select(NSRange(location: phantom, length: 0))
+            } else {
+                guard let mapped = Self.mapped(edit.range, past: NSRange(location: phantom, length: 1)) else {
+                    closePhantom(); return refuse(.notSupported)
+                }
+                closePhantom()
+                edit.range = mapped
             }
         }
+        // A deletion is aimed where the caret was — ⌫ at a paragraph's start is about that paragraph,
+        // not the line break before it.
+        attemptedAt = edit.action == .delete ? NSMaxRange(edit.range) : edit.range.location
         let context = self.context
         let result = resolve(edit.action, quiet: Self.isTrailingSpace(edit)) {
             PreviewEditTranslator.translate(edit, in: $0, context: context)
@@ -129,6 +176,33 @@ final class PreviewEditSession {
             return hold(edit.text, at: edit.range.location)
         }
         return result
+    }
+
+    /// `range`, measured on the display, in the projection's terms once `overlay` — display-only
+    /// text — is gone. `nil` when it reaches into the overlay: there is no honest place for it.
+    static func mapped(_ range: NSRange, past overlay: NSRange) -> NSRange? {
+        if NSMaxRange(range) <= overlay.location { return range }
+        if range.location >= NSMaxRange(overlay) {
+            return NSRange(location: range.location - overlay.length, length: range.length)
+        }
+        return nil
+    }
+
+    private func refuse(_ reason: PreviewRefusal) -> Result {
+        Logger.shared.debug("[edit] preview refused \(reason)")
+        onRefusal?(reason, sourceOffset(near: min(attemptedAt, (projection.renderedString as NSString).length)))
+        return .unchanged
+    }
+
+    /// ⌫ within held spaces takes them away — from the display, where they are; the file never
+    /// had them.
+    private func deleteHeld(_ range: NSRange) -> Result {
+        guard let held else { return .unchanged }
+        let text = (held.text as NSString).replacingCharacters(
+            in: NSRange(location: range.location - held.at, length: range.length), with: "")
+        changeDisplay { display.replaceCharacters(in: range, with: "") }
+        self.held = text.isEmpty ? nil : (text, held.at)
+        return .select(NSRange(location: range.location, length: 0))
     }
 
     private static func isLineVerb(_ action: RenderedEdit.Action) -> Bool {
@@ -146,7 +220,11 @@ final class PreviewEditSession {
     }
 
     private func hold(_ text: String, at offset: Int) -> Result {
-        let attributes = offset > 0 ? display.attributes(at: offset - 1, effectiveRange: nil) : [:]
+        var attributes = offset > 0 ? display.attributes(at: offset - 1, effectiveRange: nil) : [:]
+        // The text's look, never what the character before IS: a box, an image, a link's target.
+        for key in [NSAttributedString.Key.attachment, .previewAttachment, .previewImageSource, .link, .toolTip] {
+            attributes.removeValue(forKey: key)
+        }
         held = (text, offset)
         changeDisplay {
             display.replaceCharacters(in: NSRange(location: offset, length: 0),
@@ -167,8 +245,20 @@ final class PreviewEditSession {
     /// ⌘Z. Ranges are in ``display`` and must not reach into an open phantom paragraph.
     @discardableResult
     func performAll(_ edits: [RenderedEdit]) -> Result {
+        var edits = edits
+        for overlay in [held.map { NSRange(location: $0.at, length: ($0.text as NSString).length) },
+                        phantomOffset.map { NSRange(location: $0, length: 1) }].compactMap({ $0 }) {
+            let mapped = edits.map { edit -> RenderedEdit? in
+                Self.mapped(edit.range, past: overlay).map { var e = edit; e.range = $0; return e }
+            }
+            guard mapped.allSatisfy({ $0 != nil }) else {
+                dropHeld(); closePhantom(); return refuse(.notSupported)
+            }
+            edits = mapped.compactMap { $0 }
+        }
         dropHeld()
         closePhantom()
+        attemptedAt = edits.first?.range.location ?? 0
         return resolve(.typing, all: true) { PreviewEditTranslator.translateAll(edits, in: $0) }
     }
 
@@ -189,13 +279,19 @@ final class PreviewEditSession {
         lastRefusal = nil
         // Measured on the text as it will be written: LF only. A CRLF or CR file is converted in
         // the same step as this edit — and only if the edit is made.
-        let needsConversion = source.textStorage.mutableString.range(of: "\r").location != NSNotFound
+        let needsConversion = !source.carriageReturns().isEmpty
         let measured = needsConversion
             ? MarkdownProjection.project(EditorLineEndings.normalized(source.textStorage.string), style: style)
             : projection
         switch translate(measured) {
         case .apply(let application):
-            write(application, for: action, converting: needsConversion, own: all)
+            // Measured on the LF text: written only once the storage IS that text. The conversion
+            // declines while Source (in Split) is composing a word, and then so does this edit.
+            if needsConversion, !convertSource() {
+                Logger.shared.debug("[edit] preview edit held back: the file could not be converted to LF yet")
+                return .unchanged
+            }
+            write(application, for: action, own: all)
             return .select(application.renderedSelection)
         case .moveCaret(let offset):
             breakTypingRun()
@@ -204,15 +300,15 @@ final class PreviewEditSession {
             breakTypingRun()
             return .select(NSRange(location: openPhantom(after: block) + 1, length: 0))
         case .setPending(let pending):
+            // A styled character is a step of its own, as a verb is in Source.
+            breakTypingRun()
             context.pending = pending
             return .unchanged
         case .refuse(let reason):
             lastRefusal = reason
             // A space at a line's end is held, not refused: no hint for it.
             if quiet, reason == .unverified { return .unchanged }
-            Logger.shared.debug("[edit] preview refused \(reason)")
-            onRefusal?(reason)
-            return .unchanged
+            return refuse(reason)
         case .ignore:
             return .unchanged
         }
@@ -239,11 +335,17 @@ final class PreviewEditSession {
         return PreviewEditTranslator.sourceSelection(for: range, in: projection)
     }
 
-    private func write(_ application: PreviewEditApplication, for action: RenderedEdit.Action,
-                       converting: Bool, own: Bool) {
+    /// The conversion, as this session's own write — not an outside change to follow.
+    private func convertSource() -> Bool {
         isWriting = true
         defer { isWriting = false }
-        if converting { source.convertLineEndingsToLF(undoManager: undoManager) }
+        return source.convertLineEndingsToLF(undoManager: undoManager)
+    }
+
+    private func write(_ application: PreviewEditApplication, for action: RenderedEdit.Action,
+                       own: Bool) {
+        isWriting = true
+        defer { isWriting = false }
         if !own, application.undo == .typing, application.edits.count == 1 {
             type(application.edits[0])
         } else {
@@ -327,8 +429,7 @@ final class PreviewEditSession {
         expectsOwnGroupClose = false
     }
 
-    private func undoManagerChanged(_ name: Notification.Name, _ manager: ObjectIdentifier?) {
-        guard let undoManager, manager == ObjectIdentifier(undoManager) else { return }
+    private func undoManagerChanged(_ name: Notification.Name) {
         if name == .NSUndoManagerDidCloseUndoGroup, expectsOwnGroupClose {
             expectsOwnGroupClose = false
             return
@@ -380,10 +481,36 @@ final class PreviewEditSession {
 
     // MARK: Drawing
 
+    static let linkTip = "⌘-click to open"
+    static let readOnlyTip = "Edit in Source — Preview can't change this part"
+
     /// The text column's width, which a rule spans and a table must fit to be editable. The view
-    /// sets it as the window resizes.
-    var columnWidth: CGFloat = 676 {
-        didSet { if columnWidth != oldValue { style.columnWidth = columnWidth } }
+    /// sets it as the window resizes. **Kept in ``style``, the one place**: held beside it, a scale
+    /// change rebuilt the style without it and a table no longer fitted anything (review).
+    var columnWidth: CGFloat {
+        get { style.columnWidth ?? Self.defaultColumn }
+        set { if style.columnWidth != newValue { style.columnWidth = newValue } }
+    }
+    static let defaultColumn: CGFloat = 676
+
+    /// Every attachment sized again — after the column or the text size changed, which the splice
+    /// cannot see: attachments are compared by what they stand for, not by their size.
+    private func redressAttachments() {
+        changeDisplay {
+            display.beginEditing()
+            display.enumerateAttribute(.previewAttachment, in: NSRange(location: 0, length: display.length)) { value, range, _ in
+                guard let raw = value as? String, let kind = PreviewAttachments.Kind(rawValue: raw),
+                      let attachment = display.attribute(.attachment, at: range.location, effectiveRange: nil)
+                        as? NSTextAttachment else { return }
+                if let image = display.attribute(.previewImageSource, at: range.location, effectiveRange: nil) as? String {
+                    dressImage(attachment, source: image)
+                } else {
+                    PreviewAttachments.dress(attachment, as: kind, scale: style.scale, columnWidth: columnWidth)
+                }
+                display.edited(.editedAttributes, range: range, changeInLength: 0)
+            }
+            display.endEditing()
+        }
     }
 
     // MARK: Images
@@ -393,6 +520,8 @@ final class PreviewEditSession {
     /// Every image this session has decoded, by its source as written — or why it could not be.
     private var images: [String: Swift.Result<NSImage, ImageRefusal>] = [:]
     private var loadingImages: Set<String> = []
+    private var failedAt: [String: Date] = [:]
+    static let imageRetry: TimeInterval = 5
     struct ImageRefusal: Error { var reason: String }
     /// The tallest an image is drawn, as the read-only preview caps it.
     static let maxImageHeight: CGFloat = 420
@@ -410,6 +539,11 @@ final class PreviewEditSession {
         case .failure(let refusal)?:
             PreviewAttachments.dress(attachment, as: .image, scale: style.scale, columnWidth: columnWidth,
                                      label: "Image — \(refusal.reason)")
+            // Not for ever: the file may be written, or downloaded, after the note names it.
+            if let at = failedAt[raw], Date().timeIntervalSince(at) > Self.imageRetry {
+                images[raw] = nil
+                loadImage(raw)
+            }
         case nil:
             loadImage(raw)
         }
@@ -442,6 +576,7 @@ final class PreviewEditSession {
             guard let self else { return }
             self.loadingImages.remove(raw)
             self.images[raw] = result
+            if case .failure = result { self.failedAt[raw] = Date() } else { self.failedAt[raw] = nil }
             self.redrawImages(raw)
             self.onImageLoaded?(raw)
         }
@@ -475,30 +610,53 @@ final class PreviewEditSession {
         }
         text.addAttribute(.foregroundColor, value: NSColor.textColor, range: whole)
         text.enumerateAttribute(.link, in: whole) { value, range, _ in
-            if value != nil { text.addAttribute(.foregroundColor, value: NSColor.linkColor, range: range) }
+            guard value != nil else { return }
+            text.addAttribute(.foregroundColor, value: NSColor.linkColor, range: range)
+            // A plain click places the caret here; say how to follow it (§1.2).
+            text.addAttribute(.toolTip, value: Self.linkTip, range: range)
+        }
+        // What cannot be edited here says so where the pointer is, before a keystroke is refused.
+        for block in projection.blocks where block.readOnly != nil && NSMaxRange(block.rendered) <= text.length {
+            text.addAttribute(.toolTip, value: Self.readOnlyTip, range: block.rendered)
+            text.addAttribute(.previewReadOnly, value: true, range: block.rendered)
         }
         return text
     }
 
     /// Replaces only what differs between `display` and `fresh` — characters or attributes — so the
     /// view keeps its layout and scroll position (§3.7: never replace the whole storage).
+    ///
+    /// **Characters compared as one buffer, attributes by RUN**: a document's few hundred runs, not
+    /// a dictionary bridged per character, which on a long note was the bulk of a keystroke.
     static func splice(_ fresh: NSAttributedString, into display: NSTextStorage) {
-        let old = display.string as NSString
-        let new = fresh.string as NSString
-        let shorter = min(old.length, new.length)
+        let old = Array(display.string.utf16)
+        let new = Array(fresh.string.utf16)
+        let shorter = min(old.count, new.count)
         var prefix = 0
-        while prefix < shorter, old.character(at: prefix) == new.character(at: prefix),
-              sameAttributes(display, at: prefix, fresh, at: prefix) {
-            prefix += 1
-        }
+        while prefix < shorter, old[prefix] == new[prefix] { prefix += 1 }
         var suffix = 0
-        while suffix < shorter - prefix,
-              old.character(at: old.length - 1 - suffix) == new.character(at: new.length - 1 - suffix),
-              sameAttributes(display, at: old.length - 1 - suffix, fresh, at: new.length - 1 - suffix) {
-            suffix += 1
+        while suffix < shorter - prefix, old[old.count - 1 - suffix] == new[new.count - 1 - suffix] { suffix += 1 }
+        // Pull each end back to where the attributes first differ.
+        var at = 0
+        while at < prefix {
+            var a = NSRange(), b = NSRange()
+            let left = display.attributes(at: at, effectiveRange: &a)
+            let right = fresh.attributes(at: at, effectiveRange: &b)
+            guard sameAttributes(left, right) else { prefix = at; break }
+            at = min(NSMaxRange(a), NSMaxRange(b))
         }
-        let replaced = NSRange(location: prefix, length: old.length - prefix - suffix)
-        let replacement = NSRange(location: prefix, length: new.length - prefix - suffix)
+        var back = 0
+        while back < suffix {
+            var a = NSRange(), b = NSRange()
+            let i = old.count - 1 - back, j = new.count - 1 - back
+            let left = display.attributes(at: i, effectiveRange: &a)
+            let right = fresh.attributes(at: j, effectiveRange: &b)
+            guard sameAttributes(left, right) else { suffix = back; break }
+            back += min(i - a.location, j - b.location) + 1
+        }
+        suffix = min(suffix, shorter - prefix)
+        let replaced = NSRange(location: prefix, length: old.count - prefix - suffix)
+        let replacement = NSRange(location: prefix, length: new.count - prefix - suffix)
         guard replaced.length > 0 || replacement.length > 0 else { return }
         display.beginEditing()
         display.replaceCharacters(in: replaced, with: fresh.attributedSubstring(from: replacement))
@@ -506,10 +664,8 @@ final class PreviewEditSession {
     }
 
     /// Attachments compare by what they stand for: every projection makes new attachment objects.
-    private static func sameAttributes(_ a: NSAttributedString, at i: Int,
-                                       _ b: NSAttributedString, at j: Int) -> Bool {
-        var left = a.attributes(at: i, effectiveRange: nil)
-        var right = b.attributes(at: j, effectiveRange: nil)
+    private static func sameAttributes(_ a: [NSAttributedString.Key: Any], _ b: [NSAttributedString.Key: Any]) -> Bool {
+        var left = a, right = b
         guard (left.removeValue(forKey: .attachment) == nil) == (right.removeValue(forKey: .attachment) == nil)
         else { return false }
         return NSDictionary(dictionary: left).isEqual(to: right)

@@ -41,7 +41,8 @@ enum EditorLineEndings {
 
     /// `text` with every CRLF and lone CR as LF.
     static func normalized(_ text: String) -> String {
-        guard text.contains("\r") else { return text }
+        // By unit: `"\r\n"` is one Character, and a Character search for "\r" would not find it.
+        guard text.utf16.contains(0x0D) else { return text }
         // `"\r\n"` is one Character, so the replacements go by unit, CRLF first.
         return text.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")

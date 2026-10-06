@@ -37,6 +37,9 @@ struct PreviewEditContext: Equatable {
     /// A Return at the end of this block opened an empty paragraph the source does not have yet
     /// (§3.5): the next character typed is what writes it.
     var phantomAfterBlock: Int?
+    /// Whether an edit in a tidy table re-pads it (decision T). Off for each match of a Replace All,
+    /// whose re-paddings would overlap; the whole is re-padded once instead.
+    var realignsTables = true
 }
 
 /// One replacement in the source.
@@ -135,8 +138,10 @@ enum PreviewEditTranslator {
     static func translateAll(_ edits: [RenderedEdit], in p: MarkdownProjection) -> PreviewEditOutcome {
         var source: [PreviewSourceEdit] = []
         var failed = 0
+        var each = PreviewEditContext()
+        each.realignsTables = false
         for edit in edits {
-            guard case .apply(let one) = translate(edit, in: p) else { failed += 1; continue }
+            guard case .apply(let one) = translate(edit, in: p, context: each) else { failed += 1; continue }
             source += one.edits
         }
         guard failed == 0 else { return .refuse(.replaceAll(failed: failed, of: edits.count)) }
@@ -148,8 +153,33 @@ enum PreviewEditTranslator {
             .reduce(p.renderedString as NSString) { text, edit in
                 text.replacingCharacters(in: edit.range, with: edit.text) as NSString
             } as String
-        guard let after = verified(source, expected: expected, in: p) else {
+        guard var after = verified(source, expected: expected, in: p) else {
             return .refuse(.replaceAll(failed: edits.count, of: edits.count))
+        }
+        // Decision T, once for the whole: each tidy table a match fell in is re-padded around all
+        // of its matches together (review: per match, the re-paddings overlapped and all failed).
+        let tables = Set(edits.compactMap { edit -> Int? in
+            guard let b = PreviewEditRules.block(at: edit.range.location, in: p), case .table = p.blocks[b].kind,
+                  let before = MarkdownTables.locate(in: p.source as NSString, at: p.blocks[b].source.location),
+                  realignsAsYouType(p.source, table: before.table) else { return nil }
+            return b
+        })
+        var tidied = after.source
+        for b in tables.sorted(by: >) {
+            let start = p.blocks[b].source.location
+            let shift = source.filter { NSMaxRange($0.range) <= start }
+                .reduce(0) { $0 + ($1.text as NSString).length - $1.range.length }
+            guard let here = MarkdownTables.locate(in: tidied as NSString, at: start + shift),
+                  let tidy = MarkdownTables.tidy(source: tidied, table: here.table) else { continue }
+            tidied = tidy.text
+        }
+        if tidied != after.source {
+            let realigned = MarkdownProjection.project(tidied, style: p.style)
+            if realigned.renderedString == after.renderedString {
+                let change = MarkdownEdits.minimalReplacement(from: p.source, to: tidied)
+                source = [PreviewSourceEdit(range: change.range, text: change.text)]
+                after = realigned
+            }
         }
         return .apply(PreviewEditApplication(edits: source, undo: .own, source: after.source,
                                              projection: after,
@@ -161,6 +191,23 @@ enum PreviewEditTranslator {
 
     private static func text(_ edit: RenderedEdit, in p: MarkdownProjection,
                              context: PreviewEditContext) -> PreviewEditOutcome {
+        var edit = edit
+        // One line copied with its line break is one line: the break is not a paragraph's worth.
+        if edit.action == .paste, edit.text.hasSuffix("\n"),
+           !edit.text.dropLast().contains(where: { $0.isNewline }) {
+            edit.text.removeLast()
+        }
+        // A deletion that would leave spaces at a line's end takes them too: Markdown draws them as
+        // nothing, so they could never be what the rendering shows — "hello w" ⌫ was refused (review).
+        if edit.text.isEmpty, edit.range.length > 0 {
+            let rendered = p.renderedString as NSString
+            let end = NSMaxRange(edit.range)
+            if end == rendered.length || rendered.character(at: end) == 0x0A {
+                var start = edit.range.location
+                while start > 0, rendered.character(at: start - 1) == 0x20 { start -= 1 }
+                edit.range = NSRange(location: start, length: end - start)
+            }
+        }
         if edit.text.contains(where: { $0.isNewline }) {
             // Several lines pasted: verbatim in fenced code (A10), refused anywhere else.
             return multilinePaste(edit, in: p)
@@ -182,7 +229,10 @@ enum PreviewEditTranslator {
             }
             point = found
         } else {
-            switch removalRanges(edit.range, in: p, removingEmptiedSpans: edit.text.isEmpty) {
+            // Typed over: a span the selection covers from inside its start keeps its style for the
+            // new text; one it covers from before its start is replaced whole (review: ` docs`
+            // over a link left an empty `[](…)` behind).
+            switch removalRanges(edit.range, in: p, keepingSpansAt: edit.text.isEmpty ? nil : edit.range.location) {
             case .failure(let refusal): return .refuse(refusal)
             case .success(let found):
                 removals = found.ranges
@@ -194,13 +244,21 @@ enum PreviewEditTranslator {
             }
         }
 
+        // A blank line of fenced code inside a list or quote holds no prefix in the file: the first
+        // character typed there brings it, or the line would fall out of the block (review).
+        var linePrefix = ""
+        if edit.range.length == 0, p.blocks[point.block].kind.isCode, !p.blocks[point.block].linePrefix.isEmpty,
+           let line = p.index.line(p.index.lineNumber(containing: point.source)),
+           line.start == point.source, line.end == point.source {
+            linePrefix = p.blocks[point.block].linePrefix
+        }
         let inCode = p.blocks[point.block].kind.isCode
             || point.spans.contains { p.spans[$0].kind == .code }
         let pending = inCode ? [] : context.pending
         let attempts = inCode || edit.text.isEmpty ? [edit.text] : [edit.text, escaped(edit.text)]
         for typed in attempts {
             let (open, close) = delimiters(for: pending)
-            let inserted = typed.isEmpty ? "" : open + typed + close
+            let inserted = typed.isEmpty ? "" : linePrefix + open + typed + close
             let edits = merged(removals: removals, insertion: inserted, at: point.source)
             guard let after = verified(edits, expected: expected, in: p) else { continue }
             if !typed.isEmpty {
@@ -212,7 +270,7 @@ enum PreviewEditTranslator {
             let caret = typed.isEmpty
                 ? (edits.first?.range.location ?? point.source)
                 : sourceCaret(after: edits, insertionAt: point.source,
-                              typedLength: (open + typed).utf16.count)
+                              typedLength: (linePrefix + open + typed).utf16.count)
             var result = application(edits, undo: undo, caret: caret, after: after)
             // When the rendering is exactly the old one with the edit made, the caret's place in it
             // is known without mapping: after what was typed. Mapping is the fallback for when the
@@ -222,7 +280,7 @@ enum PreviewEditTranslator {
                 let rendered = edit.range.location + (edit.text as NSString).length
                 result.renderedSelection = NSRange(location: rendered, length: 0)
             }
-            return .apply(realigned(result, typedInto: point, in: p) ?? result)
+            return .apply((context.realignsTables ? realigned(result, typedInto: point, in: p) : nil) ?? result)
         }
         return .refuse(.unverified)
     }
@@ -236,7 +294,7 @@ enum PreviewEditTranslator {
                                   in p: MarkdownProjection) -> PreviewEditApplication? {
         guard case .table = p.blocks[point.block].kind,
               let before = MarkdownTables.locate(in: p.source as NSString, at: point.source),
-              MarkdownTables.isAligned(source: p.source, table: before.table),
+              realignsAsYouType(p.source, table: before.table),
               let here = MarkdownTables.locate(in: result.source as NSString, at: result.sourceSelection.location),
               let tidy = MarkdownTables.edit(.tidy, source: result.source, table: here.table, row: here.row,
                                              column: here.column, offsetInCell: here.offsetInCell),
@@ -249,13 +307,23 @@ enum PreviewEditTranslator {
                                       sourceSelection: tidy.selection, renderedSelection: result.renderedSelection)
     }
 
+    /// **Which tables decision T re-pads:** those whose pipes line up AND are written padded —
+    /// `| a | b |`, the way Format Table writes them. A compact `|a|b|` or a pipe-less `a | b` can
+    /// line up too, but re-padding would rewrite the author's style on the first keystroke
+    /// (review, 2026-10-05); those keep it, as a ragged table does.
+    static func realignsAsYouType(_ source: String, table range: NSRange) -> Bool {
+        guard MarkdownTables.isAligned(source: source, table: range),
+              let header = MarkdownTables.lines(of: source as NSString, in: range).lines.first else { return false }
+        return header.drop(while: { $0 == " " || $0 == "\t" }).hasPrefix("| ")
+    }
+
     /// The source ranges a rendered selection removes, and where text typed over it goes.
     ///
     /// **Markers survive (A2):** deleting "nty of" across `**plenty** of` deletes the characters and
     /// keeps the `**`. **A span left with no text loses its markers too**, so no `****` is left
     /// behind — but only when nothing replaces the text: typing over a whole bold word keeps it bold.
     private static func removalRanges(_ range: NSRange, in p: MarkdownProjection,
-                                      removingEmptiedSpans: Bool)
+                                      keepingSpansAt keep: Int?)
         -> Result<(ranges: [NSRange], start: PreviewEditRules.InsertionPoint), PreviewRefusal> {
         let touched = p.segments.enumerated().filter {
             NSIntersectionRange($0.element.rendered, range).length > 0
@@ -288,17 +356,16 @@ enum PreviewEditTranslator {
                 return .failure(.readOnly(reason))
             }
         }
-        if removingEmptiedSpans {
-            // A span whose every piece of text is going: take its delimiters with it.
-            let candidates = Set(touched.flatMap { $0.element.spans })
-            for span in candidates {
-                let holders = p.segments.indices.filter {
-                    p.segments[$0].kind == .content && p.segments[$0].spans.contains(span)
-                }
-                if !holders.isEmpty, holders.allSatisfy(fullyRemoved.contains) {
-                    ranges.append(p.spans[span].source)
-                }
+        // A span whose every piece of text is going takes its delimiters with it — unless what is
+        // typed is to take its place, from where the span starts.
+        let candidates = Set(touched.flatMap { $0.element.spans })
+        for span in candidates {
+            let holders = p.segments.indices.filter {
+                p.segments[$0].kind == .content && p.segments[$0].spans.contains(span)
             }
+            guard !holders.isEmpty, holders.allSatisfy(fullyRemoved.contains) else { continue }
+            if let keep, p.segments[holders[0]].rendered.location == keep { continue }
+            ranges.append(p.spans[span].source)
         }
         let start = first.element
         let startOffset = start.kind == .content
@@ -370,13 +437,16 @@ enum PreviewEditTranslator {
             let ending = PreviewEditRules.lineEnding
             let prefix = PreviewEditRules.paragraphPrefix(of: blockIndex, in: p)
             let text = ending + PreviewEditRules.blankLine(for: prefix) + ending + prefix
-            let edits = [PreviewSourceEdit(range: NSRange(location: point.source, length: 0), text: text)]
             let expected = (p.renderedString as NSString).replacingCharacters(in: range, with: "\n")
-            guard let after = verified(edits, expected: expected, in: p, structural: true) else {
-                return .refuse(.unverified)
+            // Inside the span the caret is in first; failing that, after each span that closes
+            // there — a Return just after bold splits after its `**`, not between them (review).
+            let splits = [point.source] + point.spans.reversed().map { NSMaxRange(p.spans[$0].source) }
+            for split in splits {
+                let edits = [PreviewSourceEdit(range: NSRange(location: split, length: 0), text: text)]
+                guard let after = verified(edits, expected: expected, in: p, structural: true) else { continue }
+                return .apply(application(edits, undo: .own, caret: split + text.utf16.count, after: after))
             }
-            return .apply(application(edits, undo: .own, caret: point.source + text.utf16.count,
-                                      after: after))
+            return .refuse(.unverified)
 
         default:
             return .refuse(.notSupported)
@@ -390,7 +460,10 @@ enum PreviewEditTranslator {
         let ns = p.source as NSString
         // The end of the item's line in the source: after its words, or after its marker when empty.
         let words = p.segments.last { $0.block == block && $0.kind == .content }
-        let wordsEnd = words.map { NSMaxRange($0.source) } ?? NSMaxRange(p.blocks[block].source)
+        // Past any span closing on the last words — `- **done**` ends after its `**` (review).
+        let wordsEnd = words.map { segment in
+            segment.spans.map { NSMaxRange(p.spans[$0].source) }.reduce(NSMaxRange(segment.source), max)
+        } ?? NSMaxRange(p.blocks[block].source)
         guard let line = p.index.line(p.index.lineNumber(containing: wordsEnd)) else {
             return .refuse(.notSupported)
         }
@@ -546,7 +619,8 @@ enum PreviewEditTranslator {
             base = (p.source as NSString).replacingCharacters(in: NSRange(location: end, length: 0), with: line)
             selection = NSRange(location: end + line.utf16.count, length: 0)
         } else {
-            guard let mapped = sourceSelection(for: range, in: p) else { return .refuse(.notText) }
+            guard let mapped = sourceSelection(for: range, in: p) ?? (lineVerb ? acrossBlocks(range, in: p) : nil)
+            else { return .refuse(.notText) }
             selection = mapped
         }
         guard let edit = MarkdownEdits.apply(verb, to: base, selection: selection) else {
@@ -570,6 +644,22 @@ enum PreviewEditTranslator {
                                              projection: after, sourceSelection: edit.selection,
                                              renderedSelection: NSRange(location: start,
                                                                         length: max(0, end - start))))
+    }
+
+    /// A selection reaching over several blocks, for the line verbs — Bullets over three paragraphs
+    /// makes three items (review: refused). From the first character's place to the last's, none of
+    /// the blocks it crosses read-only.
+    private static func acrossBlocks(_ range: NSRange, in p: MarkdownProjection) -> NSRange? {
+        guard range.length > 0 else { return nil }
+        let crossed = p.blocks.filter { NSIntersectionRange($0.rendered, range).length > 0 }
+        guard !crossed.isEmpty, crossed.allSatisfy({ $0.readOnly == nil }),
+              let first = p.segments.first(where: { $0.kind == .content && NSMaxRange($0.rendered) > range.location }),
+              let last = p.segments.last(where: { $0.kind == .content && $0.rendered.location < NSMaxRange(range) }),
+              let start = first.sourceOffset(forRenderedBoundary: max(0, range.location - first.rendered.location)),
+              let end = last.sourceOffset(forRenderedBoundary: min(last.rendered.length,
+                                                                   NSMaxRange(range) - last.rendered.location)),
+              end >= start else { return nil }
+        return NSRange(location: start, length: end - start)
     }
 
     /// A rendered selection as a source selection, for the verbs (§3.6): its start where the first
@@ -660,7 +750,15 @@ enum PreviewEditTranslator {
                 == comparable(expected, structural: structural) else { return nil }
         // An edit that renders right but leaves the projection unable to map a block it could map
         // before would strand the caret — and every keystroke after it — so it is refused too.
-        func stranded(_ q: MarkdownProjection) -> Int { q.blocks.filter { $0.readOnly == .unalignable }.count }
+        //
+        // **And so is one that renders right but MEANS something else** — typed text that the
+        // parser took for HTML (`Vec<T` + `>` is a tag, and dropped by every other renderer), or a
+        // table pushed too wide to edit. Each shows up as a read-only piece the source did not have
+        // (review, 2026-10-05); the escaped retry is what gets written instead.
+        func stranded(_ q: MarkdownProjection) -> Int {
+            q.blocks.filter { $0.readOnly != nil }.count
+                + q.segments.filter { if case .readOnly = $0.kind { true } else { false } }.count
+        }
         guard stranded(after) <= stranded(p) else { return nil }
         return after
     }

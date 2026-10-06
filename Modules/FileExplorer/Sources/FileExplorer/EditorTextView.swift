@@ -31,7 +31,8 @@ final class EditorTextView: NSTextView {
     /// measures where its link or image goes (see ``convertLineEndingsToLF()``). Its own method so a
     /// test can hand it a private pasteboard.
     func handledPaste(from pasteboard: NSPasteboard) -> Bool {
-        convertLineEndingsToLF()
+        // Converted only when something can be pasted: an empty clipboard is no edit.
+        if pasteboard.availableType(from: readablePasteboardTypes) != nil { convertLineEndingsToLF() }
         return handler?.handlePaste(from: pasteboard, in: self) == true
     }
 
@@ -43,6 +44,13 @@ final class EditorTextView: NSTextView {
     // list rules, which measure the buffer before they write, convert first themselves — once they
     // know they will write (`PlainTextEditor+MarkdownTyping`).
 
+    /// The storage's carriage returns, asked of its ``EditorSourceStorage`` where it has one — which
+    /// knows when there can be none, so an LF file is not scanned per keystroke.
+    private func pendingCarriageReturns(in storage: NSTextStorage) -> [EditorLineEndings.Change] {
+        if let source = storage.delegate as? EditorSourceStorage { return source.carriageReturns() }
+        return EditorLineEndings.carriageReturns(in: storage.mutableString)
+    }
+
     // MARK: LF only — see `EditorLineEndings`
 
     private var isConvertingLineEndings = false
@@ -53,8 +61,8 @@ final class EditorTextView: NSTextView {
     /// (measured 2026-10-05, `undoTakesBackTheFirstEditAndTheConversionTogether`). Does nothing to an LF buffer, a read-only view, or while an input
     /// method is composing (the marked text sits in the buffer and must not move under it).
     ///
-    /// **Called before an edit is MEASURED wherever this view can see that moment** — a key
-    /// command, a paste, a drop — and by ``PlainTextEditor/apply(_:to:)`` before a verb reads the
+    /// **Called before an edit is MEASURED wherever this view can see that moment** — a list
+    /// rule once it knows it will write, a paste, a drop — and by ``PlainTextEditor/apply(_:to:)`` before a verb reads the
     /// buffer, because an edit measured on the CRLF text carries offsets that are wrong after it.
     /// ``shouldChangeText(inRanges:replacementStrings:)`` is the net under the rest: plain typing and
     /// Replace measure their range before any of this can run, and it maps the range across.
@@ -67,7 +75,7 @@ final class EditorTextView: NSTextView {
         guard isEditable, !hasMarkedText(), !isConvertingLineEndings, let storage = textStorage else {
             return false
         }
-        let changes = EditorLineEndings.carriageReturns(in: storage.mutableString)
+        let changes = pendingCarriageReturns(in: storage)
         guard !changes.isEmpty else { return false }
         let selection = selectedRanges.map(\.rangeValue)
         isConvertingLineEndings = true
@@ -98,7 +106,7 @@ final class EditorTextView: NSTextView {
               let storage = textStorage else {
             return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
         }
-        let changes = EditorLineEndings.carriageReturns(in: storage.mutableString)
+        let changes = pendingCarriageReturns(in: storage)
         let normalized = strings.map(EditorLineEndings.normalized)
         guard !changes.isEmpty || normalized != strings else {
             return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
@@ -116,7 +124,9 @@ final class EditorTextView: NSTextView {
         defer { isConvertingLineEndings = false }
         storage.beginEditing()
         for (range, text) in zip(ranges, normalized).sorted(by: { $0.0.location > $1.0.location }) {
-            storage.replaceCharacters(in: range, with: text)
+            // In the view's typing attributes, as AppKit's own insertion would be — a plain string
+            // into an empty storage would carry no font or colour at all.
+            storage.replaceCharacters(in: range, with: NSAttributedString(string: text, attributes: typingAttributes))
         }
         storage.endEditing()
         didChangeText()
