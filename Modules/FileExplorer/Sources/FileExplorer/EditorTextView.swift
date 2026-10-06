@@ -35,12 +35,13 @@ final class EditorTextView: NSTextView {
         return handler?.handlePaste(from: pasteboard, in: self) == true
     }
 
-    /// Return, Tab and every other key command: the buffer is converted to LF first, so TE54's list
-    /// rules — which read the buffer and hand back ranges in it — measure the converted text.
-    override func doCommand(by selector: Selector) {
-        convertLineEndingsToLF()
-        super.doCommand(by: selector)
-    }
+    // **No conversion on a key command as such** (fixed 2026-10-05). Every key command passes
+    // through `doCommand(by:)` — arrows, Page Down, ⌘-arrows, Esc, ⇧Tab on a line that is no list
+    // item — and converting there rewrote a file that was only being read: ↓ in an opened CRLF
+    // note marked it changed, and autosave wrote it. A command that does write goes through
+    // ``shouldChangeText(inRanges:replacementStrings:)``, which converts and maps its range; TE54's
+    // list rules, which measure the buffer before they write, convert first themselves — once they
+    // know they will write (`PlainTextEditor+MarkdownTyping`).
 
     // MARK: LF only — see `EditorLineEndings`
 

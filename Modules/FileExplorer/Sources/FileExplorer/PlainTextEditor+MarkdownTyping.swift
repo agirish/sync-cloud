@@ -50,6 +50,10 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
     /// Return at the end of a list item: the line break EXACTLY as Return makes it, and the
     /// opening after it — or the empty item's opening taken off before it.
     private func carryOnList(in view: NSTextView) -> Bool {
+        guard MarkdownListEdits.returnEdit(in: buffer(of: view), selection: view.selectedRange()) != nil
+        else { return false }
+        // This Return writes: the file to LF first, then measured again on it (`EditorLineEndings`).
+        (view as? EditorTextView)?.convertLineEndingsToLF()
         guard let edit = MarkdownListEdits.returnEdit(in: buffer(of: view), selection: view.selectedRange())
         else { return false }
         view.breakUndoCoalescing()
@@ -74,9 +78,14 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
 
     /// Tab or ⇧Tab on a list item's line.
     private func moveListItem(in view: NSTextView, outdent: Bool) -> Bool {
-        guard let edit = MarkdownListEdits.tabEdit(in: buffer(of: view), selection: view.selectedRange(),
-                                                   outdent: outdent) else { return false }
-        guard case .rewrite(let range, let text, let selection) = edit else { return true }
+        guard let first = MarkdownListEdits.tabEdit(in: buffer(of: view), selection: view.selectedRange(),
+                                                    outdent: outdent) else { return false }
+        // Taken but changing nothing — an item that cannot move: no edit, so no conversion either.
+        guard case .rewrite = first else { return true }
+        (view as? EditorTextView)?.convertLineEndingsToLF()
+        guard case .rewrite(let range, let text, let selection)? =
+                MarkdownListEdits.tabEdit(in: buffer(of: view), selection: view.selectedRange(), outdent: outdent)
+        else { return true }
         replace(range, with: text, in: view)
         view.setSelectedRange(selection)
         return true

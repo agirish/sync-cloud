@@ -376,4 +376,78 @@ import FileExplorerTestSupport
         #expect(EditorLineEndings.mapped(1, through: changes) == 1)        // at the CR itself: unmoved
         #expect(EditorLineEndings.mapped(2, through: changes) == 1)        // between CR and LF: on the LF
     }
+
+    // MARK: Reading never converts (fixed 2026-10-05)
+
+    /// **Moving is not editing.** Every key command reaches `doCommand(by:)` — the arrows, paging,
+    /// ⌘-arrows, scrolling, Esc — and converting on every one of them rewrote a file that was only
+    /// being read: ↓ in an opened CRLF note marked it changed, and autosave wrote it. Sent the way
+    /// AppKit sends them; `moveDown(nil)` called directly skipped the override and passed with
+    /// the bug in place.
+    @Test func movingSelectingAndScrollingAFileChangesNothing() {
+        let text = "one\r\ntwo\r\nthree\r\n"
+        let r = rig(text, caret: 0)
+        for selector in [#selector(NSResponder.moveDown(_:)), #selector(NSResponder.moveUp(_:)),
+                         #selector(NSResponder.moveRight(_:)), #selector(NSResponder.moveWordRight(_:)),
+                         #selector(NSResponder.moveToEndOfLine(_:)), #selector(NSResponder.pageDown(_:)),
+                         #selector(NSResponder.pageUp(_:)), #selector(NSResponder.moveToEndOfDocument(_:)),
+                         #selector(NSResponder.moveToBeginningOfDocument(_:)),
+                         #selector(NSResponder.moveDownAndModifySelection(_:)),
+                         #selector(NSResponder.selectAll(_:)), #selector(NSResponder.scrollLineDown(_:)),
+                         #selector(NSResponder.scrollPageDown(_:)), #selector(NSResponder.cancelOperation(_:))] {
+            r.view.doCommand(by: selector); spin()
+        }
+        r.view.setSelectedRange(NSRange(location: 2, length: 6)); spin()
+        #expect(r.view.string == text)
+        #expect(r.box.text == text)
+        #expect(!r.undo.canUndo)
+    }
+
+    /// ⇧Tab on a line that is no list item writes nothing — nor does Tab on an item that cannot
+    /// move — so neither converts; and a read-only file is never converted, whatever is pressed.
+    @Test func keysThatWriteNothingConvertNothing() {
+        let text = "one\r\n- first\r\n"
+        let r = rig(text, caret: 1)
+        r.view.doCommand(by: #selector(NSResponder.insertBacktab(_:))); spin()
+        r.view.setSelectedRange(NSRange(location: 8, length: 0))     // in "first", the list's first item
+        r.view.doCommand(by: #selector(NSResponder.insertTab(_:))); spin()
+        r.view.doCommand(by: #selector(NSResponder.insertBacktab(_:))); spin()
+        #expect(r.view.string == text)
+        #expect(!r.undo.canUndo)
+        let locked = rig(text, caret: 1, editable: false)
+        for selector in [#selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)),
+                         #selector(NSResponder.insertBacktab(_:)), #selector(NSResponder.deleteBackward(_:))] {
+            locked.view.doCommand(by: selector); spin()
+        }
+        #expect(locked.view.string == text)
+    }
+
+    /// Find — opening the bar, finding next — reads; it does not convert.
+    @Test func findingInAFileChangesNothing() {
+        let text = "one\r\ntwo\r\none\r\n"
+        let r = rig(text, caret: 0)
+        PlainTextEditor.showFindBar(in: r.view); spin()
+        r.view.setSelectedRange(NSRange(location: 0, length: 3)); spin()
+        for action in [NSTextFinder.Action.setSearchString, .nextMatch, .previousMatch] {
+            let sender = NSMenuItem()
+            sender.tag = action.rawValue
+            r.view.performTextFinderAction(sender); spin()
+        }
+        #expect(r.view.string == text)
+        #expect(!r.undo.canUndo)
+    }
+
+    /// A mode switch shows the same storage in a new text view; opening Preview — read-only or
+    /// editable — projects it. None of them writes.
+    @Test func showingTheFileElsewhereChangesNothing() {
+        let text = "# one\r\n\r\n- [ ] two\r\n"
+        let r = rig(text, caret: 0)
+        let other = EditorTextView.scrollableTextView().documentView as! EditorTextView
+        PlainTextEditor.show(r.source, in: other); spin()
+        _ = PreviewEditSession(source: r.source, undoManager: r.undo); spin()
+        _ = MarkdownBlocks.blocks(from: r.source.text)
+        #expect(r.source.text == text)
+        #expect(r.box.text == text)
+        #expect(!r.undo.canUndo)
+    }
 }
