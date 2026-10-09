@@ -133,7 +133,10 @@ extension NSAttributedString.Key {
     /// On a table's rows: where its columns start, and where the last ends, from the text's left
     /// edge — `[CGFloat]`, for the grid the fragment draws.
     static let previewTableColumns = NSAttributedString.Key("SyncCloud.preview.tableColumns")
-    /// Set by the editable view on text it cannot edit — for the arrow cursor over it.
+    /// On every character of a block that cannot be edited here — for the arrow cursor over it,
+    /// and its tooltip. Set by the projection, so a block that turns read-only, or back, differs
+    /// in the rendering and is redrawn whole: a code block's other lines kept their old look when
+    /// only the decoration knew (review, 2026-10-09).
     static let previewReadOnly = NSAttributedString.Key("SyncCloud.preview.readOnly")
     /// On an image block's U+FFFC: the image's source as written, for the view to load.
     static let previewImageSource = NSAttributedString.Key("SyncCloud.preview.imageSource")
@@ -205,6 +208,31 @@ struct MarkdownProjection {
                                   rendered: builder.out, blocks: builder.blocks,
                                   segments: builder.segments, spans: builder.spans)
     }
+
+    /// What one stretch of the body projects to, in the file's own positions — the re-read
+    /// ``project(_:style:after:)`` makes in place of the whole document.
+    struct Slice {
+        var rendered: NSAttributedString
+        var blocks: [PreviewBlock]
+        var segments: [PreviewSegment]
+        var spans: [PreviewInlineSpan]
+        /// How many document-level blocks the stretch parsed to.
+        var topLevelCount: Int
+    }
+
+    /// `range` of `source` — whole lines, outside any front matter — projected as if it were the
+    /// document, with every position given in `source`: lines, source ranges and `topLevel` count
+    /// from `topLevel` and the line `range` starts on. Rendered ranges, block indices and span
+    /// indices start at 0.
+    static func projectSlice(_ range: NSRange, of source: String, index: MarkdownSourceIndex, style: Style,
+                             topLevel: Int, previousBlockSourceEnd: Int) -> Slice {
+        var builder = Builder(source: source, style: style, index: index)
+        let body = (source as NSString).substring(with: range)
+        builder.runSlice(body, firstLine: index.lineNumber(containing: range.location), topLevel: topLevel,
+                         previousBlockSourceEnd: previousBlockSourceEnd)
+        return Slice(rendered: builder.out, blocks: builder.blocks, segments: builder.segments,
+                     spans: builder.spans, topLevelCount: builder.topLevel - topLevel)
+    }
 }
 
 // MARK: - The walk
@@ -221,15 +249,28 @@ private struct Builder {
     var blocks: [PreviewBlock] = []
     var spans: [PreviewInlineSpan] = []
 
-    private var topLevel = 0
+    private(set) var topLevel = 0
     private var previousBlockSourceEnd = 0
     /// The `NSTextList` of every list the walk is inside, outermost first.
     private var lists: [NSTextList] = []
 
-    init(source: String, style: MarkdownProjection.Style) {
+    init(source: String, style: MarkdownProjection.Style, index: MarkdownSourceIndex? = nil) {
         self.source = source
         self.style = style
-        self.index = MarkdownSourceIndex(source)
+        self.index = index ?? MarkdownSourceIndex(source)
+    }
+
+    /// `body` — whole lines of ``source``, the first of them line `firstLine` — parsed as the
+    /// document: no front matter, and the positions of the file around it.
+    mutating func runSlice(_ body: String, firstLine: Int, topLevel: Int, previousBlockSourceEnd: Int) {
+        lineOffset = firstLine - 1
+        self.topLevel = topLevel
+        self.previousBlockSourceEnd = previousBlockSourceEnd
+        let document = Document(parsing: body)
+        for child in document.children {
+            append(child, indent: 0, quoteDepth: 0)
+            self.topLevel += 1
+        }
     }
 
     mutating func run() {
@@ -305,6 +346,9 @@ private struct Builder {
             out.addAttribute(.previewBlock, value: currentTag, range: range)
             if currentQuoteDepth > 0 {
                 out.addAttribute(.previewQuoteDepth, value: currentQuoteDepth, range: range)
+            }
+            if readOnly != nil {
+                out.addAttribute(.previewReadOnly, value: true, range: range)
             }
         }
         previousBlockSourceEnd = max(previousBlockSourceEnd, NSMaxRange(blocks[blockIndex].source))

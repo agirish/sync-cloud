@@ -298,6 +298,23 @@ import FileExplorerTestSupport
         #expect(!offered(.preview, document: false))
     }
 
+    /// **Past 256 KB Preview is read-only, and the pill says so** (plan C23): still offered — the
+    /// setting is kept — but the gate the workspace and the menus mount by says no.
+    ///
+    /// Mutation: drop `isTooLong` from `editsInPreview`, and the over-long note is editable.
+    @Test func aDocumentOverTheLimitIsReadOnlyInPreview() {
+        func edits(_ length: Int) -> Bool {
+            EditorWorkspaceView.editsInPreview(preference: true, hasDocument: true, isRefused: false,
+                                               isMarkdown: true, isReadOnly: false, mode: .preview, length: length)
+        }
+        #expect(PreviewEditToggle.maximumLength == 262_144)
+        #expect(edits(PreviewEditToggle.maximumLength))
+        #expect(!edits(PreviewEditToggle.maximumLength + 1))
+        #expect(PreviewEditToggle.isOffered(hasDocument: true, isRefused: false, isMarkdown: true, isReadOnly: false,
+                                            mode: .preview), "the pill stays, dimmed")
+        #expect(PreviewEditToggle.tooLongTooltip == "Too long to edit in Preview — use Source.")
+    }
+
     /// The intro shows the first time editing is turned on, and only then; off by default.
     @Test func theIntroShowsOnceAndEditingStartsOff() {
         #expect(PreviewEditToggle.showsIntro(turningOn: true, introSeen: false))
@@ -338,16 +355,16 @@ import FileExplorerTestSupport
         for mode in EditorMode.allCases {
             #expect(!EditorWorkspaceView.editsInPreview(preference: true, hasDocument: true, isRefused: false,
                                                         isMarkdown: PairContentKind.isMarkdown(path: "/n/notes.txt"),
-                                                        isReadOnly: false, mode: mode), "\(mode)")
+                                                        isReadOnly: false, mode: mode, length: 0), "\(mode)")
             #expect(!EditorWorkspaceView.editsInPreview(preference: true, hasDocument: true, isRefused: false,
                                                         isMarkdown: PairContentKind.isMarkdown(path: "/n/letter.rtf"),
-                                                        isReadOnly: false, mode: mode), "\(mode)")
+                                                        isReadOnly: false, mode: mode, length: 0), "\(mode)")
         }
         #expect(EditorWorkspaceView.editsInPreview(preference: true, hasDocument: true, isRefused: false,
                                                    isMarkdown: PairContentKind.isMarkdown(path: "/n/Notes.MD"),
-                                                   isReadOnly: false, mode: .preview))
+                                                   isReadOnly: false, mode: .preview, length: 0))
         #expect(!EditorWorkspaceView.editsInPreview(preference: false, hasDocument: true, isRefused: false,
-                                                    isMarkdown: true, isReadOnly: false, mode: .preview))
+                                                    isMarkdown: true, isReadOnly: false, mode: .preview, length: 0))
     }
 
     // MARK: Routing

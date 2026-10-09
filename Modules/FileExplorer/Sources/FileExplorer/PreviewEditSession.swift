@@ -37,6 +37,7 @@ final class PreviewEditSession {
     var style: MarkdownProjection.Style {
         didSet {
             guard style != oldValue else { return }
+            lastDecoration = nil
             followSource()
             redressAttachments()
         }
@@ -88,7 +89,12 @@ final class PreviewEditSession {
         // Before the first decoration below, which starts the images loading against it.
         self.documentFolder = documentFolder
         projection = MarkdownProjection.project(source.textStorage.string, style: style)
-        display.setAttributedString(decorated(projection.rendered))
+        display.setAttributedString(decoratedProjection())
+        // Both storages fix their attributes lazily, and left to it they do it on the first edit —
+        // the first keystroke, which took 300 ms on a 256 KB note against 11 ms after it. Asked for
+        // here it costs 25 ms, at open, beside the projection's 130 (measured 2026-10-08).
+        display.ensureAttributesAreFixed(in: NSRange(location: 0, length: display.length))
+        source.textStorage.ensureAttributesAreFixed(in: NSRange(location: 0, length: source.textStorage.length))
         observers.append(NotificationCenter.default.addObserver(
             forName: NSTextStorage.didProcessEditingNotification, object: source.textStorage,
             queue: nil) { [weak self] note in
@@ -126,6 +132,13 @@ final class PreviewEditSession {
     /// Makes `edit` — or refuses it — and says where the selection goes.
     @discardableResult
     func perform(_ edit: RenderedEdit) -> Result {
+        // From the keystroke to the display holding its result — the layout after it is AppKit's.
+        // `.debug`, so count these lines since a launch with the log level at Debug (§TE67.6).
+        let started = DispatchTime.now().uptimeNanoseconds
+        defer {
+            let ms = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
+            Logger.shared.debug("[edit] preview edit \(String(format: "%.2f", ms)) ms, \(source.textStorage.length) characters")
+        }
         var edit = edit
         // **Held spaces and an opened paragraph are in the display only**, so an edit's range is
         // measured on text the projection does not have. Each is handled here, and every other
@@ -220,9 +233,18 @@ final class PreviewEditSession {
     }
 
     private func hold(_ text: String, at offset: Int) -> Result {
-        var attributes = offset > 0 ? display.attributes(at: offset - 1, effectiveRange: nil) : [:]
-        // The text's look, never what the character before IS: a box, an image, a link's target.
-        for key in [NSAttributedString.Key.attachment, .previewAttachment, .previewImageSource, .link, .toolTip] {
+        // At a paragraph's start, the paragraph's own first character: the storage gives a whole
+        // paragraph its first character's style, and the break before belongs to the paragraph
+        // above — a held space there took the paragraph's spacing away (found 2026-10-08, by the
+        // session chains, once the splice stopped replacing the whole page on the next keystroke).
+        let units = display.string as NSString
+        let startsParagraph = offset == 0 || Self.endsParagraph(units.character(at: offset - 1))
+        let from: Int? = startsParagraph && offset < display.length ? offset : offset > 0 ? offset - 1 : nil
+        var attributes = from.map { display.attributes(at: $0, effectiveRange: nil) } ?? [:]
+        // The text's look, never what the character beside it IS: a box and the gap after it, an
+        // image, a link's target.
+        for key in [NSAttributedString.Key.attachment, .previewAttachment, .previewImageSource, .link, .toolTip,
+                    .kern] {
             attributes.removeValue(forKey: key)
         }
         held = (text, offset)
@@ -268,7 +290,7 @@ final class PreviewEditSession {
         held = nil
         phantomOffset = nil
         context.phantomAfterBlock = nil
-        changeDisplay { Self.splice(decorated(projection.rendered), into: display) }
+        changeDisplay { Self.splice(decoratedProjection(), into: display) }
     }
 
     /// The last refusal ``resolve`` met, for the held-space rule.
@@ -358,15 +380,17 @@ final class PreviewEditSession {
         }
         context = PreviewEditContext()
         phantomOffset = nil
-        if source.text != application.source {
+        // Unit for unit: `!=` on two long Strings compares them as Unicode, and their `utf8`
+        // walks a storage's String a character at a time — each a sixth of a keystroke, measured.
+        if !(source.textStorage.string as NSString).isEqual(to: application.source) {
             // The translator's copy and the storage disagree — a bug, and one the display must not
             // hide: show what the file holds.
             Logger.shared.info("[edit] preview wrote a source that differs from the one it verified")
-            projection = MarkdownProjection.project(source.textStorage.string, style: style)
+            projection = MarkdownProjection.project(source.textStorage.string, style: style, after: projection)
         } else {
             projection = application.projection
         }
-        changeDisplay { Self.splice(decorated(projection.rendered), into: display) }
+        changeDisplay { Self.splice(decoratedProjection(), into: display) }
     }
 
     static func actionName(for action: RenderedEdit.Action) -> String {
@@ -452,8 +476,8 @@ final class PreviewEditSession {
         held = nil
         context = PreviewEditContext()
         phantomOffset = nil
-        projection = MarkdownProjection.project(source.textStorage.string, style: style)
-        changeDisplay { Self.splice(decorated(projection.rendered), into: display) }
+        projection = MarkdownProjection.project(source.textStorage.string, style: style, after: projection)
+        changeDisplay { Self.splice(decoratedProjection(), into: display) }
     }
 
     // MARK: The phantom paragraph
@@ -521,7 +545,8 @@ final class PreviewEditSession {
     private var images: [String: Swift.Result<NSImage, ImageRefusal>] = [:]
     private var loadingImages: Set<String> = []
     private var failedAt: [String: Date] = [:]
-    static let imageRetry: TimeInterval = 5
+    /// How long a picture that could not be shown waits before it is looked for again.
+    var imageRetry: TimeInterval = 5
     struct ImageRefusal: Error { var reason: String }
     /// The tallest an image is drawn, as the read-only preview caps it.
     static let maxImageHeight: CGFloat = 420
@@ -539,11 +564,6 @@ final class PreviewEditSession {
         case .failure(let refusal)?:
             PreviewAttachments.dress(attachment, as: .image, scale: style.scale, columnWidth: columnWidth,
                                      label: "Image — \(refusal.reason)")
-            // Not for ever: the file may be written, or downloaded, after the note names it.
-            if let at = failedAt[raw], Date().timeIntervalSince(at) > Self.imageRetry {
-                images[raw] = nil
-                loadImage(raw)
-            }
         case nil:
             loadImage(raw)
         }
@@ -582,6 +602,31 @@ final class PreviewEditSession {
         }
     }
 
+    /// Looks again, once ``imageRetry`` has passed, for every picture in the note that could not be
+    /// shown: the file may be written, or downloaded, after the note names it. At any keystroke, as
+    /// when each one decorated the whole page — only the paragraphs that changed are decorated now,
+    /// and a picture elsewhere was never looked for again (review, 2026-10-09). Its attachment is
+    /// the display's, so the load redraws it there.
+    private func retryFailedImages() {
+        let now = Date()
+        let due = failedAt.filter { now.timeIntervalSince($0.value) > imageRetry && !loadingImages.contains($0.key) }
+        guard !due.isEmpty else { return }
+        let shown = Set(projection.blocks.compactMap { block -> String? in
+            if case .image(let source, _) = block.kind { return source }
+            return nil
+        })
+        for raw in due.keys {
+            guard shown.contains(raw) else {
+                // Gone from the note: forgotten, so it is looked for afresh if it comes back.
+                failedAt[raw] = nil
+                images[raw] = nil
+                continue
+            }
+            images[raw] = nil
+            loadImage(raw)
+        }
+    }
+
     private func redrawImages(_ raw: String) {
         changeDisplay {
             display.beginEditing()
@@ -596,10 +641,83 @@ final class PreviewEditSession {
         }
     }
 
+    /// The last decoration, and the rendering it was made from.
+    private var lastDecoration: (rendered: NSAttributedString, decorated: NSAttributedString)?
+
+    /// ``decorated(_:)`` of the projection — redone only for the paragraphs whose rendering changed
+    /// since the last one, the rest kept. Decorating a 40 KB note whole was most of a keystroke once
+    /// the projection stopped re-reading all of it (measured 2026-10-07).
+    ///
+    /// Paragraphs, because everything decoration adds is per character except the paragraph style
+    /// `fixAttributes` evens out across each paragraph.
+    private func decoratedProjection() -> NSAttributedString {
+        retryFailedImages()
+        let rendered = projection.rendered
+        guard let last = lastDecoration, last.rendered.length > 0, rendered.length > 0 else {
+            let whole = decorated(rendered)
+            lastDecoration = (rendered, whole)
+            return whole
+        }
+        if last.rendered === rendered { return last.decorated }
+        guard let difference = PreviewAttributeShape.difference(from: last.rendered, to: rendered) else {
+            lastDecoration = (rendered, last.decorated)
+            return last.decorated
+        }
+        // Whole paragraphs, and the one after them; then whole lists where a list's identity
+        // changed — a list must not be left half one projection's `NSTextList` and half another's,
+        // or TextKit numbers it as two — and again, until neither widens it. Against the last
+        // DECORATION, whose lists are what the kept part holds: an earlier one's, where a list was
+        // kept through a re-read that did not change how it looks.
+        let units = PreviewAttributeShape.units(rendered)
+        var fresh = Self.followingParagraph(after: Self.paragraphs(around: difference.new, in: units), in: units)
+        while true {
+            let lists = PreviewListIdentity.wholeLists(around: fresh, in: rendered, against: last.decorated)
+            let widened = Self.paragraphs(around: lists, in: units)
+            if widened == fresh { break }
+            fresh = widened
+        }
+        let stale = NSRange(location: fresh.location,
+                            length: last.rendered.length - (rendered.length - NSMaxRange(fresh)) - fresh.location)
+        let whole = NSMutableAttributedString(attributedString: last.decorated)
+        whole.replaceCharacters(in: stale, with: decorated(rendered, in: fresh))
+        lastDecoration = (rendered, whole)
+        return whole
+    }
+
+    /// `range` widened to whole paragraphs — from just after a paragraph's end to just after one.
+    static func paragraphs(around range: NSRange, in units: [unichar]) -> NSRange {
+        var start = range.location, end = NSMaxRange(range)
+        while start > 0, !endsParagraph(units[start - 1]) { start -= 1 }
+        while end < units.count, !(end > start && endsParagraph(units[end - 1])) { end += 1 }
+        return NSRange(location: start, length: end - start)
+    }
+
+    /// Whole paragraphs `range`, and **the paragraph after them**, which may have been the tail of
+    /// a longer one before: its last character took that paragraph's style, and keeps it until
+    /// decorated again (found 2026-10-09, by Source edits in the session chains: a fence typed into
+    /// a quote left the break after it in the quote's style).
+    static func followingParagraph(after range: NSRange, in units: [unichar]) -> NSRange {
+        var end = NSMaxRange(range)
+        guard end < units.count else { return range }
+        end += 1
+        while end < units.count, !endsParagraph(units[end - 1]) { end += 1 }
+        return NSRange(location: range.location, length: end - range.location)
+    }
+
+    /// Whether `unit` ends a paragraph, as the text system counts them.
+    static func endsParagraph(_ unit: unichar) -> Bool {
+        unit == 0x0A || unit == 0x0D || unit == 0x2029 || unit == 0x85
+    }
+
     /// The projection's text with what the view adds — colour, and something for each attachment to
-    /// draw. The projection carries layout only.
+    /// draw. The projection carries layout, and what is read-only.
     func decorated(_ rendered: NSAttributedString) -> NSAttributedString {
-        let text = NSMutableAttributedString(attributedString: rendered)
+        decorated(rendered, in: NSRange(location: 0, length: rendered.length))
+    }
+
+    /// ``decorated(_:)`` of whole paragraphs `range` of `rendered`, which is the projection's.
+    private func decorated(_ rendered: NSAttributedString, in range: NSRange) -> NSAttributedString {
+        let text = NSMutableAttributedString(attributedString: rendered.attributedSubstring(from: range))
         let whole = NSRange(location: 0, length: text.length)
         PreviewAttachments.dress(text, scale: style.scale, columnWidth: columnWidth)
         text.enumerateAttribute(.previewImageSource, in: whole) { value, range, _ in
@@ -616,58 +734,35 @@ final class PreviewEditSession {
             text.addAttribute(.toolTip, value: Self.linkTip, range: range)
         }
         // What cannot be edited here says so where the pointer is, before a keystroke is refused.
-        for block in projection.blocks where block.readOnly != nil && NSMaxRange(block.rendered) <= text.length {
-            text.addAttribute(.toolTip, value: Self.readOnlyTip, range: block.rendered)
-            text.addAttribute(.previewReadOnly, value: true, range: block.rendered)
+        text.enumerateAttribute(.previewReadOnly, in: whole) { value, range, _ in
+            guard value != nil else { return }
+            text.addAttribute(.toolTip, value: Self.readOnlyTip, range: range)
         }
+        // What the display's storage would add on its own — a font for the breaks between blocks,
+        // one paragraph style per paragraph — added here, so the splice compares like with like.
+        // Unfixed, the first break differed every time, and every keystroke replaced the whole page
+        // from there (measured 2026-10-07: 28,592 of 28,612 characters on a 40 KB note).
+        text.fixAttributes(in: whole)
         return text
     }
 
     /// Replaces only what differs between `display` and `fresh` — characters or attributes — so the
     /// view keeps its layout and scroll position (§3.7: never replace the whole storage).
     ///
-    /// **Characters compared as one buffer, attributes by RUN**: a document's few hundred runs, not
-    /// a dictionary bridged per character, which on a long note was the bulk of a keystroke.
+    /// **Lists compare by shape, and one that changed identity is replaced whole.** A projection
+    /// can make new `NSTextList`s, which are equal only to themselves, so comparing them as they are
+    /// found "changed" from the note's first list on — and the view re-laid all of it (measured
+    /// 2026-10-07: a third of a keystroke on a 40 KB note). But TextKit numbers a list's items by
+    /// that same identity, so a list whose identity did change is swapped as a whole, never half
+    /// old, half new (`PreviewListIdentity`).
     static func splice(_ fresh: NSAttributedString, into display: NSTextStorage) {
-        let old = Array(display.string.utf16)
-        let new = Array(fresh.string.utf16)
-        let shorter = min(old.count, new.count)
-        var prefix = 0
-        while prefix < shorter, old[prefix] == new[prefix] { prefix += 1 }
-        var suffix = 0
-        while suffix < shorter - prefix, old[old.count - 1 - suffix] == new[new.count - 1 - suffix] { suffix += 1 }
-        // Pull each end back to where the attributes first differ.
-        var at = 0
-        while at < prefix {
-            var a = NSRange(), b = NSRange()
-            let left = display.attributes(at: at, effectiveRange: &a)
-            let right = fresh.attributes(at: at, effectiveRange: &b)
-            guard sameAttributes(left, right) else { prefix = at; break }
-            at = min(NSMaxRange(a), NSMaxRange(b))
-        }
-        var back = 0
-        while back < suffix {
-            var a = NSRange(), b = NSRange()
-            let i = old.count - 1 - back, j = new.count - 1 - back
-            let left = display.attributes(at: i, effectiveRange: &a)
-            let right = fresh.attributes(at: j, effectiveRange: &b)
-            guard sameAttributes(left, right) else { suffix = back; break }
-            back += min(i - a.location, j - b.location) + 1
-        }
-        suffix = min(suffix, shorter - prefix)
-        let replaced = NSRange(location: prefix, length: old.count - prefix - suffix)
-        let replacement = NSRange(location: prefix, length: new.count - prefix - suffix)
-        guard replaced.length > 0 || replacement.length > 0 else { return }
+        guard let difference = PreviewAttributeShape.difference(from: display, to: fresh) else { return }
+        let whole = PreviewListIdentity.wholeLists(around: difference.new, in: fresh, against: display)
+        let replaced = NSRange(location: whole.location,
+                               length: display.length - (fresh.length - NSMaxRange(whole)) - whole.location)
         display.beginEditing()
-        display.replaceCharacters(in: replaced, with: fresh.attributedSubstring(from: replacement))
+        display.replaceCharacters(in: replaced, with: fresh.attributedSubstring(from: whole))
         display.endEditing()
     }
 
-    /// Attachments compare by what they stand for: every projection makes new attachment objects.
-    private static func sameAttributes(_ a: [NSAttributedString.Key: Any], _ b: [NSAttributedString.Key: Any]) -> Bool {
-        var left = a, right = b
-        guard (left.removeValue(forKey: .attachment) == nil) == (right.removeValue(forKey: .attachment) == nil)
-        else { return false }
-        return NSDictionary(dictionary: left).isEqual(to: right)
-    }
 }

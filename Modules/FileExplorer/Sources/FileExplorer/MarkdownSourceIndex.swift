@@ -27,8 +27,19 @@ struct MarkdownSourceIndex: Sendable {
     let units: [UInt16]
     let lines: [Line]
 
+    /// `string`'s UTF-16 units, copied in one go: a String bridged from a text view's storage hands
+    /// `utf16` over a unit at a time, which on a long note cost more than everything else here.
+    static func units(of string: NSString, in range: NSRange? = nil) -> [UInt16] {
+        let range = range ?? NSRange(location: 0, length: string.length)
+        guard range.length > 0 else { return [] }
+        return [UInt16](unsafeUninitializedCapacity: range.length) { buffer, count in
+            string.getCharacters(buffer.baseAddress!, range: range)
+            count = range.length
+        }
+    }
+
     init(_ source: String) {
-        let units = Array(source.utf16)
+        let units = Self.units(of: source as NSString)
         var lines: [Line] = []
         var start = 0
         var index = 0

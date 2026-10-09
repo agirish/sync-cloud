@@ -174,7 +174,7 @@ enum PreviewEditTranslator {
             tidied = tidy.text
         }
         if tidied != after.source {
-            let realigned = MarkdownProjection.project(tidied, style: p.style)
+            let realigned = MarkdownProjection.project(tidied, style: p.style, after: p)
             if realigned.renderedString == after.renderedString {
                 let change = MarkdownEdits.minimalReplacement(from: p.source, to: tidied)
                 source = [PreviewSourceEdit(range: change.range, text: change.text)]
@@ -299,7 +299,7 @@ enum PreviewEditTranslator {
               let tidy = MarkdownTables.edit(.tidy, source: result.source, table: here.table, row: here.row,
                                              column: here.column, offsetInCell: here.offsetInCell),
               tidy.text != result.source else { return nil }
-        let after = MarkdownProjection.project(tidy.text, style: p.style)
+        let after = MarkdownProjection.project(tidy.text, style: p.style, after: p)
         guard after.renderedString == result.projection.renderedString else { return nil }
         let change = MarkdownEdits.minimalReplacement(from: p.source, to: tidy.text)
         return PreviewEditApplication(edits: [PreviewSourceEdit(range: change.range, text: change.text)],
@@ -494,7 +494,7 @@ enum PreviewEditTranslator {
         // comparison cannot describe. TE54's rules are verified by the parser themselves.
         let source = applied(edits, to: p.source)
         return .apply(application(edits, undo: .own, caret: caret,
-                                  after: MarkdownProjection.project(source, style: p.style)))
+                                  after: MarkdownProjection.project(source, style: p.style, after: p)))
     }
 
     /// ⇧Return: a hard line break, written as two trailing spaces and a newline (decision U) — the
@@ -535,7 +535,7 @@ enum PreviewEditTranslator {
                 let edits = [PreviewSourceEdit(range: rewritten, text: text)]
                 let source = applied(edits, to: p.source)
                 return .apply(application(edits, undo: .own, caret: selection.location,
-                                          after: MarkdownProjection.project(source, style: p.style)))
+                                          after: MarkdownProjection.project(source, style: p.style, after: p)))
             case .unchanged, nil:
                 return .ignore
             }
@@ -636,7 +636,7 @@ enum PreviewEditTranslator {
             }
             after = checked
         } else {
-            after = MarkdownProjection.project(edit.text, style: p.style)
+            after = MarkdownProjection.project(edit.text, style: p.style, after: p)
         }
         let start = PreviewEditRules.renderedOffset(forSource: edit.selection.location, in: after)
         let end = PreviewEditRules.renderedOffset(forSource: NSMaxRange(edit.selection), in: after)
@@ -693,7 +693,7 @@ enum PreviewEditTranslator {
               case .listItem(.task(let done)) = p.blocks[box.block].kind else { return .refuse(.notText) }
         let edits = [PreviewSourceEdit(range: box.source, text: done ? "[ ]" : "[x]")]
         let source = applied(edits, to: p.source)
-        let after = MarkdownProjection.project(source, style: p.style)
+        let after = MarkdownProjection.project(source, style: p.style, after: p)
         guard after.blocks.indices.contains(box.block),
               after.blocks[box.block].kind == .listItem(marker: .task(done: !done)) else {
             return .refuse(.unverified)
@@ -745,9 +745,8 @@ enum PreviewEditTranslator {
     /// `structural` also forgives whitespace beside a new line or break, which the parser trims.
     static func verified(_ edits: [PreviewSourceEdit], expected: String, in p: MarkdownProjection,
                          structural: Bool = false) -> MarkdownProjection? {
-        let after = MarkdownProjection.project(applied(edits, to: p.source), style: p.style)
-        guard comparable(after.renderedString, structural: structural)
-                == comparable(expected, structural: structural) else { return nil }
+        let after = MarkdownProjection.project(applied(edits, to: p.source), style: p.style, after: p)
+        guard sameComparable(after.renderedString, expected, structural: structural) else { return nil }
         // An edit that renders right but leaves the projection unable to map a block it could map
         // before would strand the caret — and every keystroke after it — so it is refused too.
         //
@@ -761,6 +760,36 @@ enum PreviewEditTranslator {
         }
         guard stranded(after) <= stranded(p) else { return nil }
         return after
+    }
+
+    /// `comparable(a) == comparable(b)`, without making either of a long note's two copies: the
+    /// part they share as written is the same either way, so only what lies between is compared.
+    ///
+    /// Cut where two ASCII letters or digits meet — always a character boundary, and never beside
+    /// the spaces and breaks `structural` trims, or inside a `--` or `...` the parser joined.
+    static func sameComparable(_ a: String, _ b: String, structural: Bool) -> Bool {
+        let x = a as NSString, y = b as NSString
+        if x.isEqual(to: b) { return true }
+        let left = MarkdownSourceIndex.units(of: x), right = MarkdownSourceIndex.units(of: y)
+        let shorter = min(left.count, right.count)
+        var prefix = 0
+        while prefix < shorter, left[prefix] == right[prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < shorter - prefix, left[left.count - 1 - suffix] == right[right.count - 1 - suffix] { suffix += 1 }
+        func plain(_ unit: UInt16) -> Bool {
+            (0x30...0x39).contains(unit) || (0x41...0x5A).contains(unit) || (0x61...0x7A).contains(unit)
+        }
+        // A cut is a boundary in both strings: the units either side of it are plain in each.
+        func cuts(_ units: [unichar], at offset: Int) -> Bool {
+            offset > 0 && offset < units.count && plain(units[offset - 1]) && plain(units[offset])
+        }
+        while prefix > 0, !(cuts(left, at: prefix) && cuts(right, at: prefix)) { prefix -= 1 }
+        while suffix > 0, !(cuts(left, at: left.count - suffix) && cuts(right, at: right.count - suffix)) { suffix -= 1 }
+        let middle = { (s: NSString, count: Int) in
+            s.substring(with: NSRange(location: prefix, length: count - prefix - suffix))
+        }
+        return comparable(middle(x, left.count), structural: structural)
+            == comparable(middle(y, right.count), structural: structural)
     }
 
     static func comparable(_ text: String, structural: Bool) -> String {

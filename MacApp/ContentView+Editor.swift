@@ -851,7 +851,8 @@ extension ContentView {
         // Preview editable (TE67): the same rule the workspace mounts it by.
         let previewEditing = EditorWorkspaceView.editsInPreview(
             preference: editsInPreviewSetting, hasDocument: true, isRefused: false, isMarkdown: isMarkdown,
-            isReadOnly: editorDocument.isReadOnly, mode: drawn)
+            isReadOnly: editorDocument.isReadOnly, mode: drawn,
+            length: editorDocument.buffer.source.textStorage.length)
         let showsSwitch = EditorWorkspaceView.showsAutosaveSwitch(
             hasPath: true, wasRefused: false, isReadOnly: editorDocument.isReadOnly)
         return EditorVerbs(

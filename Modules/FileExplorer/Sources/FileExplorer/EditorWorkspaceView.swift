@@ -1353,11 +1353,12 @@ public struct EditorWorkspaceView: View {
                                 previewEditing: editsInPreview)
     }
 
-    /// Whether Preview is the editable one, for this document now — see ``editsInPreview(preference:hasDocument:isRefused:isMarkdown:isReadOnly:mode:)``.
+    /// Whether Preview is the editable one, for this document now — see ``editsInPreview(preference:hasDocument:isRefused:isMarkdown:isReadOnly:mode:length:)``.
     private var editsInPreview: Bool {
         Self.editsInPreview(preference: editsInPreviewPreference, hasDocument: document.path != nil,
                             isRefused: document.refusal != nil, isMarkdown: document.isMarkdown,
-                            isReadOnly: document.isReadOnly, mode: resolvedMode)
+                            isReadOnly: document.isReadOnly, mode: resolvedMode,
+                            length: buffer.source.textStorage.length)
     }
 
     /// What re-derives the caret: a new position, OR the text moving under a position that did not.
@@ -1502,16 +1503,19 @@ public struct EditorWorkspaceView: View {
 
     private var previewEditToggle: some View {
         PreviewEditToggle(isOn: $editsInPreviewPreference, introSeen: $editsInPreviewIntroSeen,
-                          accent: accent, scale: fontScale)
+                          accent: accent, scale: fontScale,
+                          isTooLong: PreviewEditToggle.isTooLong(length: buffer.source.textStorage.length))
     }
 
     /// **Whether Preview is the editable one** — the setting, and a document the pill is offered
     /// for: a writable Markdown file in Preview, and nothing else. Markdown only (the user's
     /// decision, 2026-10-05): a `.txt` has no Preview to type into, and an `.rtf` is not Markdown.
+    /// And no longer than ``PreviewEditToggle/maximumLength`` — `length` in UTF-16 units.
     public static func editsInPreview(preference: Bool, hasDocument: Bool, isRefused: Bool, isMarkdown: Bool,
-                                      isReadOnly: Bool, mode: EditorMode) -> Bool {
+                                      isReadOnly: Bool, mode: EditorMode, length: Int) -> Bool {
         preference && PreviewEditToggle.isOffered(hasDocument: hasDocument, isRefused: isRefused,
                                                   isMarkdown: isMarkdown, isReadOnly: isReadOnly, mode: mode)
+            && !PreviewEditToggle.isTooLong(length: length)
     }
 
     /// Says "That change needs Source." for ``EditorStatusHint/duration`` — restarted by each refusal.
