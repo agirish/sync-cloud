@@ -2422,9 +2422,9 @@ struct UseSelectionForFindCommand: View {
     }
 }
 
-/// Text ▸ Wrap Lines and Check Spelling While Typing — the two switches the text view's context
-/// menu already carries, on the same two `UserDefaults` keys — and Format Bar (TE52), the third
-/// preference about how the document is drawn, on its own key. Continue Lists (TE54) is the one
+/// Text ▸ Wrap Lines, Readable Line Length (TE51) and Check Spelling While Typing — the switches
+/// the text view's context menu already carries, on the same `UserDefaults` keys — and Format Bar
+/// (TE52), the third preference about how the document is drawn, on its own key. Continue Lists (TE54) is the one
 /// about what Return WRITES, on its own key too, and only here: the context menu's switches are
 /// about drawing.
 ///
@@ -2436,12 +2436,18 @@ struct UseSelectionForFindCommand: View {
 struct EditorTextSettingCommands: View {
     @FocusedValue(\.editorVerbs) private var verbs
     @AppStorage(EditorTextSettings.wrapsKey) private var wrapsLines = EditorTextSettings.wrapsDefault
+    @AppStorage(EditorTextSettings.readableLineLengthKey) private var readableLineLength
+        = EditorTextSettings.readableLineLengthDefault
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling = EditorTextSettings.checksSpellingDefault
     @AppStorage(EditorTextSettings.continuesListsKey) private var continuesLists = EditorTextSettings.continuesListsDefault
 
     var body: some View {
         Toggle("Wrap Lines", isOn: $wrapsLines)
             .disabled(verbs == nil)
+        // TE51. Greyed while lines do not wrap too, where it changes nothing — the context menu's
+        // `validateMenuItem` says the same.
+        Toggle("Readable Line Length", isOn: $readableLineLength)
+            .disabled(verbs == nil || !wrapsLines)
         Toggle("Check Spelling While Typing", isOn: $checksSpelling)
             .disabled(verbs == nil)
         // Live wherever the others are: a preference, reachable from a `.txt` too, where it
@@ -2766,7 +2772,7 @@ struct EditorMenus: Commands {
             FindNextCommand()            // ⌘G
             UseSelectionForFindCommand() // ⌘E
             Divider()
-            EditorTextSettingCommands()  // Wrap Lines · Check Spelling While Typing · Continue Lists, ticked
+            EditorTextSettingCommands()  // Wrap Lines · Readable Line Length · Check Spelling While Typing · Continue Lists, ticked
             Divider()
             AutosaveThisFileCommand()    // the header switch, as an item
         }

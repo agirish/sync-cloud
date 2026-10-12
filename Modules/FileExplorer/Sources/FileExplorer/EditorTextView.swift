@@ -1,4 +1,6 @@
 import AppKit
+import Design
+import Events
 
 /// **The editor's text view: AppKit's own, plus the two doors no delegate method reaches** — a
 /// paste (TE55, TE56) and a drop (TE56).
@@ -174,6 +176,140 @@ final class EditorTextView: NSTextView {
             paths.append(url.path)
         }
         return paths
+    }
+
+    // MARK: Readable line length (TE51) — see `EditorReadableColumn`
+
+    /// The widest the text column may be, or `nil` for edge to edge — what the editor has always
+    /// done, and what it does whenever Readable Line Length or Wrap Lines is off. Set by
+    /// `PlainTextEditor` on every pass; the side insets follow at once.
+    var readableColumnWidth: CGFloat? {
+        didSet {
+            guard readableColumnWidth != oldValue else { return }
+            applyReadableInset(forWidth: frame.width)
+            // Once per change of the column, never per resize: enough to tie a report about Source
+            // to the switch, and quiet while a window is dragged.
+            Logger.shared.info("[edit] Readable line length \(readableColumnWidth.map { "on — a \(Int($0.rounded()))pt column" } ?? "off") in a \(Int(frame.width.rounded()))pt editor, inset \(Int(textContainerInset.width.rounded()))pt")
+        }
+    }
+
+    /// **Every width change re-centres the column — a resize, a split divider, the rail folding.**
+    ///
+    /// The frame, not the clip view: the text view is the clip's width by autoresizing while it
+    /// wraps, and unwrapped there is no cap to apply.
+    ///
+    /// **The container is sized once, by hand, while the frame and the inset both move.** A
+    /// container that tracks the view's width is resized the moment the inset is set — against the
+    /// view's OLD width, `super` not having run — and then again by `super`: two widths for one
+    /// resize, the first one wrong (`[630, 720]` going from 1000 to 1100pt, measured 2026-10-10).
+    /// TextKit 2 drops the layout of the visible text on any width change, even 721 and back to
+    /// 720, and lays it out again from an estimate — so in a scrolled long document the text under
+    /// a still pointer moved by 10–15 lines on every frame of a resize or of Expand, and a click
+    /// landed on whatever had moved there. Tracking is off for the two steps and back on before
+    /// returning, because `updateNSView` reads `widthTracksTextView` to know whether lines wrap.
+    override func setFrameSize(_ newSize: NSSize) {
+        guard !isSettingReadableInset, readableColumnWidth != nil, newSize.width != frame.width,
+              let container = textContainer, container.widthTracksTextView else {
+            if !isSettingReadableInset { applyReadableInset(forWidth: newSize.width) }
+            super.setFrameSize(newSize)
+            return
+        }
+        container.widthTracksTextView = false
+        defer { container.widthTracksTextView = true }
+        applyReadableInset(forWidth: newSize.width)
+        super.setFrameSize(newSize)
+        let width = max(0, newSize.width - 2 * textContainerInset.width)
+        if container.size.width != width {
+            container.size = NSSize(width: width, height: container.size.height)
+        }
+    }
+
+    /// **Set while this view moves its own inset, so the resize that move causes cannot undo it.**
+    ///
+    /// Setting `textContainerInset` makes the text view re-fit itself at its CURRENT width — and
+    /// inside `setFrameSize` that is still the old one, because `super` has not run yet. Without
+    /// this the nested call recomputed the inset for the old width, and the outer one's own later
+    /// re-fit put it back: measured 2026-10-09 in the app, every frame of the Expand animation set
+    /// the inset three times — new, old, new — each one a full re-wrap of the visible text, with
+    /// the column sliding back and forth under the pointer while it happened.
+    private var isSettingReadableInset = false
+
+    /// Called with each inset this view gives itself — for the tests that count them.
+    var onReadableInset: ((CGFloat) -> Void)?
+
+    /// Sets the side inset for a view `width` wide, when it differs from the one standing.
+    ///
+    /// Called before `super.setFrameSize`, with the container's tracking held off around both —
+    /// see ``setFrameSize(_:)`` for why the order alone was not enough.
+    ///
+    /// **No feedback loop, and the reason is the input, not the guard.** The inset is a function of
+    /// the view's WIDTH alone, and nothing an inset does changes that width: wrapping, the view is
+    /// the clip view's width by autoresizing, whatever its text. A taller text can bring a legacy
+    /// vertical scroller and narrow the clip by its width — once, and then this answers for the
+    /// narrower width, which is the question it was asked; the column it gives is never wider for a
+    /// narrower view, so no width can make the text shorter and take the scroller away again. The
+    /// equality check makes a repeat call — the height-only `setFrameSize` a re-wrap causes — do
+    /// nothing at all.
+    private func applyReadableInset(forWidth width: CGFloat) {
+        let inset = EditorReadableColumn.horizontalInset(viewWidth: width, column: readableColumnWidth)
+        guard textContainerInset.width != inset else { return }
+        isSettingReadableInset = true
+        defer { isSettingReadableInset = false }
+        textContainerInset = NSSize(width: inset, height: textContainerInset.height)
+        onReadableInset?(inset)
+    }
+}
+
+/// **Source's readable line length (TE51): the text in a centred column as wide as Preview's at
+/// the default Text size, made by growing the side insets as the view widens.**
+///
+/// Insets rather than a narrower container or a narrower view, and the difference is what a
+/// reader can do in the margins: the text view still spans the editor, so a click in the margin
+/// puts the caret at the near end of the line, a drag there selects, the scroll wheel scrolls and
+/// the find bar's highlights land where the text is — all AppKit's own, measuring from the
+/// container's origin. The header, format bar and status line are other views and keep the width.
+///
+/// **No `layoutManager`.** Every number here is the view's own frame and inset; the editor stays
+/// on TextKit 2 (see ``EditorTextSettings``). Main-actor, as the editor's font size it reads is.
+@MainActor
+enum EditorReadableColumn {
+
+    /// The widest column, at the default Text size — the read-only preview's `maxWidth: 720`, so at
+    /// that size switching Source ↔ Preview does not move the measure the eye is holding. At other
+    /// sizes the two part: this one scales with the font (648pt at 0.9, 878pt at 1.35) to hold the
+    /// same number of characters, and Preview stays at 720.
+    static let maxColumn: CGFloat = 720
+
+    /// The text view's inset where nothing caps it, which is what the editor always had. A view
+    /// narrower than the column plus these keeps exactly them.
+    static let baseInset = NSSize(width: 14, height: 12)
+
+    /// The cap for these settings, or `nil` for none.
+    ///
+    /// **Nothing while lines do not wrap**: there the long line running past the edge is the point
+    /// of turning wrapping off, and a column would only move where it starts.
+    ///
+    /// **Scaled as the editor's glyphs are**, through ``FontSize/scaledBox(_:basePoint:scale:)``
+    /// against the editor's own 13pt — so the column holds the same number of characters at every
+    /// Text size. A flat `720 × scale` would hold fewer at Largest, where the ramp damps the font
+    /// but the multiply would not damp the column.
+    static func column(enabled: Bool, wraps: Bool, fontScale: CGFloat) -> CGFloat? {
+        guard enabled, wraps else { return nil }
+        return FontSize.scaledBox(maxColumn, basePoint: PlainTextEditor.baseFontSize, scale: fontScale)
+    }
+
+    /// The side inset that centres a `column`-wide text column in a view `viewWidth` wide — never
+    /// less than ``baseInset``, so a view narrower than the column (and every view with no cap) is
+    /// exactly what it was before this existed.
+    ///
+    /// **Not rounded to whole points**, so that past the cap the column is exactly `column` at every
+    /// width: a live resize then slides the text without re-wrapping it. Rounded, the column
+    /// alternated between 720 and 721 a pixel apart, and a line that fits one and not the other
+    /// re-wrapped back and forth as the window was dragged. Glyphs sit at fractional positions
+    /// anyway — a monospace advance is not a whole number of points.
+    static func horizontalInset(viewWidth: CGFloat, column: CGFloat?) -> CGFloat {
+        guard let column else { return baseInset.width }
+        return max(baseInset.width, (viewWidth - column) / 2)
     }
 }
 

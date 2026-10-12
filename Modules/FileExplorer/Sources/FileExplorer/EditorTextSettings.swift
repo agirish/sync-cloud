@@ -19,6 +19,20 @@ public enum EditorTextSettings {
     public static let wrapsKey = "editorWrapsLines"
     public static let wrapsDefault = true
 
+    /// Whether wrapped text keeps to a readable column in a wide window, rather than running edge
+    /// to edge (TE51) — Text ▸ Readable Line Length, and beside Wrap Lines on the right-click menu.
+    ///
+    /// **Off by default**, so nobody's editor changes shape under them: Source has always used the
+    /// whole width, and a person who likes that is not asked to find a switch. On, the text sits in
+    /// a centred column as wide as Preview's 720pt at the default Text size, and held to the same
+    /// number of characters at every other size — see ``EditorReadableColumn``. It means nothing while ``wrapsKey`` is off,
+    /// where one long line is the point, so both menus grey it then.
+    ///
+    /// Named for what the reader gets rather than for the mechanism ("Limit Width", "Margins"):
+    /// "readable width" is the platform's own term for this measure.
+    public static let readableLineLengthKey = "editorReadableLineLength"
+    public static let readableLineLengthDefault = false
+
     /// Whether the spell checker underlines as you type.
     ///
     /// **Off by default, and this is the half that had to be separated from the other.** Everything

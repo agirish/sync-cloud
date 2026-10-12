@@ -117,9 +117,10 @@ import EventsTestSupport
         let item = markdown.first { $0.title == "Format Bar" }
         #expect(item != nil, "a Markdown file's right-click menu has no way back to the bar: \(markdown.map(\.title))")
         #expect(item?.state == .off, "Format Bar is ticked over a hidden bar")
-        #expect(markdown.map(\.title).prefix(4) == ["Wrap Lines", "Check Spelling While Typing", "Format Bar", ""],
-                "the switches read \(markdown.map(\.title)) — Format Bar belongs with the other two, before the separator")
-        #expect(markdown[3].isSeparatorItem)
+        #expect(markdown.map(\.title).prefix(5) == ["Wrap Lines", "Readable Line Length",
+                                                    "Check Spelling While Typing", "Format Bar", ""],
+                "the switches read \(markdown.map(\.title)) — Format Bar belongs with the others, before the separator")
+        #expect(markdown[4].isSeparatorItem)
         for (name, items) in [("plain text", titles(offersMarkup: true, editsMarkdown: false)),
                               ("read-only Markdown", titles(offersMarkup: false, editsMarkdown: true))] {
             #expect(!items.contains { $0.title == "Format Bar" }, "\(name) offers a format bar it never draws")

@@ -155,6 +155,8 @@ struct PlainTextEditor: NSViewRepresentable {
     // settings: these are preferences, not state a caller owns. See `EditorTextSettings`.
     @AppStorage(EditorTextSettings.wrapsKey) private var wrapsLines: Bool
         = EditorTextSettings.wrapsDefault
+    @AppStorage(EditorTextSettings.readableLineLengthKey) private var readableLineLength: Bool
+        = EditorTextSettings.readableLineLengthDefault
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling: Bool
         = EditorTextSettings.checksSpellingDefault
     @AppStorage(EditorTextSettings.continuesListsKey) private var continuesLists: Bool
@@ -177,7 +179,7 @@ struct PlainTextEditor: NSViewRepresentable {
     // `@MainActor` because it holds an `UndoManager`, whose initialiser is main-actor isolated —
     // and because every delegate callback below arrives on the main thread anyway.
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate, NSMenuItemValidation {
         /// The storage the text view shows — re-assigned every pass, like ``onSelectionChange``.
         var source: EditorSourceStorage
         /// The window's editor stack, handed over so text edits never reach the engine's.
@@ -342,7 +344,7 @@ struct PlainTextEditor: NSViewRepresentable {
         func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent,
                       at charIndex: Int) -> NSMenu? {
             guard offersMarkup else {
-                // Read-only: no verbs, but the two view switches still apply.
+                // Read-only: no verbs, but the view switches still apply.
                 insertTextSettings(into: menu, at: 0)
                 return menu
             }
@@ -358,7 +360,8 @@ struct PlainTextEditor: NSViewRepresentable {
             return menu
         }
 
-        /// The two switches that change how the text is DRAWN rather than what it says.
+        /// The switches that change how the text is DRAWN rather than what it says — Wrap Lines,
+        /// Readable Line Length beside it (TE51), Check Spelling While Typing.
         ///
         /// **Above the standard items and below Markup**, because that is the order they are
         /// reached in: the verbs act on the selection you right-clicked, these act on the view you
@@ -379,14 +382,23 @@ struct PlainTextEditor: NSViewRepresentable {
             wrapItem.target = self
             wrapItem.state = wraps ? .on : .off
 
+            let readableItem = NSMenuItem(title: Self.readableLineLengthTitle,
+                                          action: #selector(toggleReadableLineLength(_:)), keyEquivalent: "")
+            readableItem.target = self
+            readableItem.state = Self.storedReadableLineLength(in: defaults) ? .on : .off
+            // Greyed while lines do not wrap, where it changes nothing — said here for a menu that
+            // does not validate, and by `validateMenuItem` for the one AppKit hands over, which does.
+            readableItem.isEnabled = Self.readableLineLengthApplies(in: defaults)
+
             let spellItem = NSMenuItem(title: "Check Spelling While Typing",
                                        action: #selector(toggleSpellChecking(_:)), keyEquivalent: "")
             spellItem.target = self
             spellItem.state = checks ? .on : .off
 
             menu.insertItem(spellItem, at: index)
+            menu.insertItem(readableItem, at: index)
             menu.insertItem(wrapItem, at: index)
-            var next = index + 2
+            var next = index + 3
             // **Format Bar, where the bar can be drawn: a writable Markdown file.** Hidden from its
             // own right-click menu, the bar takes that menu with it, so without this the only way
             // back was the menu bar's Format Bar — on screen, nothing pointed there. Right-clicking the
@@ -426,6 +438,36 @@ struct PlainTextEditor: NSViewRepresentable {
             let current = defaults.object(forKey: EditorTextSettings.wrapsKey) as? Bool
                 ?? EditorTextSettings.wrapsDefault
             defaults.set(!current, forKey: EditorTextSettings.wrapsKey)
+        }
+
+        /// The item's title — Text ▸ Readable Line Length's, so the two read as one switch.
+        static let readableLineLengthTitle = "Readable Line Length"
+
+        static func storedReadableLineLength(in defaults: UserDefaults) -> Bool {
+            defaults.object(forKey: EditorTextSettings.readableLineLengthKey) as? Bool
+                ?? EditorTextSettings.readableLineLengthDefault
+        }
+
+        /// Written to `UserDefaults` like ``toggleWrapping(_:)``, for the same reason: every mounted
+        /// editor — both halves of a split — re-renders from the key.
+        @objc func toggleReadableLineLength(_ sender: NSMenuItem) {
+            let defaults = UserDefaults.standard
+            let on = !Self.storedReadableLineLength(in: defaults)
+            defaults.set(on, forKey: EditorTextSettings.readableLineLengthKey)
+            Logger.shared.info("[edit] Readable Line Length \(on ? "on" : "off") from the text's right-click menu")
+        }
+
+        /// **Readable Line Length is greyed while Wrap Lines is off**, as the Text menu greys it.
+        /// The text view's own context menu enables its items automatically, which asks this and
+        /// ignores `isEnabled`; every other item here is always available.
+        func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+            guard menuItem.action == #selector(toggleReadableLineLength(_:)) else { return true }
+            return Self.readableLineLengthApplies(in: .standard)
+        }
+
+        /// Whether Readable Line Length can do anything: only while lines wrap.
+        static func readableLineLengthApplies(in defaults: UserDefaults) -> Bool {
+            defaults.object(forKey: EditorTextSettings.wrapsKey) as? Bool ?? EditorTextSettings.wrapsDefault
         }
 
         @objc func toggleSpellChecking(_ sender: NSMenuItem) {
@@ -527,6 +569,11 @@ struct PlainTextEditor: NSViewRepresentable {
         }
         view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
                               height: CGFloat.greatestFiniteMagnitude)
+    }
+
+    /// The widest the text may run here, or `nil` for edge to edge — see ``EditorReadableColumn``.
+    var readableColumn: CGFloat? {
+        EditorReadableColumn.column(enabled: readableLineLength, wraps: wrapsLines, fontScale: fontScale)
     }
 
     /// Applies a markup verb to the view's selection, as ONE edit the view can undo — on its own,
@@ -737,7 +784,7 @@ struct PlainTextEditor: NSViewRepresentable {
         view.isContinuousSpellCheckingEnabled = checksSpelling
         view.isGrammarCheckingEnabled = false
         view.drawsBackground = false
-        view.textContainerInset = NSSize(width: 14, height: 12)
+        view.textContainerInset = EditorReadableColumn.baseInset
         view.font = Self.font(scale: fontScale)
         // Where `view.string = text` was: the document's own storage, shared with every view of it
         // that came before this one — which is what lets ⌘Z after a mode switch reach the screen.
@@ -865,6 +912,11 @@ struct PlainTextEditor: NSViewRepresentable {
         if view.font != font {
             view.font = font
         }
+        // **Here only, not in `makeNSView` as well**: SwiftUI runs this straight after building the
+        // view, and a second call site there was mutation-equivalent. Its order against the
+        // wrapping does not matter — the width that wrapping resets re-centres the column through
+        // `setFrameSize` either way (mutation-tested). The view ignores a value it already has.
+        (view as? EditorTextView)?.readableColumnWidth = readableColumn
         context.coordinator.source = source
         context.coordinator.onSelectionChange = onSelectionChange
         context.coordinator.onVisibleLineChange = onVisibleLineChange
