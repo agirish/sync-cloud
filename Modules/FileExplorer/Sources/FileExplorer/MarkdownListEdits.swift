@@ -179,7 +179,14 @@ enum MarkdownListEdits {
     /// on from (`- Preheat the oven to` above `  200 degrees`) — the parser's answer, not the line's.
     ///
     /// **An item with children carries on as its first child**, in the child's own indent and
-    /// marker, rather than as a sibling the children would then belong to.
+    /// marker, rather than as a sibling the children would then belong to — but only where that
+    /// child is an item as written, empty. Under words that are a paragraph only a task box is;
+    /// anywhere it is not, Return is a Return (decided 2026-10-10). Tab, asked the same question,
+    /// nests an empty item there anyway (decided 2026-10-12): see `anEmptyNestedItemStillMoves`.
+    ///
+    /// **The same holds for a sibling**: an empty item's content column is one past its marker, so
+    /// after `-\th` or `-   wide`, whose words start further in, the `  - b` that was their sibling
+    /// would become the new item's child. The parser is asked there too; see ``opensAnItem``.
     static func returnEdit(in ns: NSString, selection: NSRange) -> ReturnEdit? {
         guard selection.length == 0, MarkdownEdits.isValid(selection, in: ns) else { return nil }
         let line = MarkdownSourceLines.line(containing: selection.location, in: ns)
@@ -203,8 +210,7 @@ enum MarkdownListEdits {
             // The word the empty item was read with can make the line under it a lazy line of that
             // word; only a line indented to the item's content column is really the item's.
             let written = MarkdownSourceLines.line(after: line, in: ns).flatMap { firstWritten(from: $0, in: ns) }
-            let reallyBelow = written.map { MarkdownListLine.columns(of: String(ns.substring(with: $0.content)
-                .prefix { $0 == " " || $0 == "\t" })) >= opening.contentColumn } ?? false
+            let reallyBelow = written.map { indentColumns(of: $0, in: ns) >= opening.contentColumn } ?? false
             guard place.below == .nothing || !reallyBelow else { return nil }
             let next = MarkdownSourceLines.line(after: line, in: ns)
             return .endList(line.content, indent: place.nested ? opening.indent : "",
@@ -212,14 +218,26 @@ enum MarkdownListEdits {
         }
         switch place.below {
         case .nothing:
-            return opening.opening(countingOn: true).map(ReturnEdit.continueWith)
+            guard let next = opening.opening(countingOn: true) else { return nil }
+            // **Asked of the parser only where a line below reaches the new item's content column**
+            // — none that does not can become its own, and most Returns are spared the parse.
+            let below = MarkdownSourceLines.line(after: line, in: ns).flatMap { firstWritten(from: $0, in: ns) }
+            let reaches = below.map { indentColumns(of: $0, in: ns) >= (MarkdownListLine.parse(next)?.contentColumn ?? 0) }
+            guard reaches != true || opensAnItem(next, at: selection, on: place.line, in: ns) else { return nil }
+            return .continueWith(next)
         case .child(let childLine):
             var child: MarkdownSourceLines.Line? = line
             for _ in place.line..<childLine { child = child.flatMap { MarkdownSourceLines.line(after: $0, in: ns) } }
             // Numbered 1 if numbered: it opens the sub-list right under the item's words, and only
             // a list starting at 1 may interrupt a paragraph.
-            return child.flatMap { MarkdownListLine.parse(ns.substring(with: $0.content)) }?
-                .renumbered(1).opening(countingOn: false).map(ReturnEdit.continueWith)
+            guard let opening = child.flatMap({ MarkdownListLine.parse(ns.substring(with: $0.content)) })?
+                .renumbered(1).opening(countingOn: false) else { return nil }
+            // **Only where the opening is an item as it stands, empty.** Under the item's words it
+            // almost never is: an empty item may not interrupt a paragraph, so `  - ` there is a
+            // setext underline that makes the words a heading, and `  * ` or `  1. ` are more of the
+            // words (found 2026-10-09). A task box is content, and words that are a `#` heading are
+            // no paragraph; those carry on.
+            return opensAnItem(opening, at: selection, on: place.line, in: ns) ? .continueWith(opening) : nil
         case .more:
             return nil
         }
@@ -371,6 +389,23 @@ enum MarkdownListEdits {
     }
 
     private static func isBlank(_ text: String) -> Bool { text.allSatisfy { $0 == " " || $0 == "\t" } }
+
+    /// The columns of whitespace `line` starts with.
+    private static func indentColumns(of line: MarkdownSourceLines.Line, in ns: NSString) -> Int {
+        MarkdownListLine.columns(of: String(ns.substring(with: line.content).prefix { $0 == " " || $0 == "\t" }))
+    }
+
+    /// **Whether `opening`, written after a Return at `selection` on line `number`, is an item as it
+    /// stands** — empty, nothing typed after it — **that ends where it opens**, taking no line
+    /// below as its own. Asked of the parser, over the text up to the next written line, because
+    /// CommonMark has two rules the column arithmetic does not see: an empty item may not
+    /// interrupt a paragraph, and its content column is one past its marker whatever followed it.
+    private static func opensAnItem(_ opening: String, at selection: NSRange, on number: Int, in ns: NSString) -> Bool {
+        let written = ns.replacingCharacters(in: selection, with: "\n" + opening) as NSString
+        let caret = selection.location + 1 + (opening as NSString).length
+        guard let place = MarkdownSourceContext.itemAtLineEnd(at: caret, in: written) else { return false }
+        return place.itemLine == number + 1 && place.below == .nothing
+    }
 
     /// Whether `line` could be part of a list item without being an item's opening: indented, or
     /// with a list line somewhere above it before a blank line (a lazy line). Shape only — the

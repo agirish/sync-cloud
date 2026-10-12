@@ -340,6 +340,23 @@ import Foundation
         #expect(result?.sourceSelection == NSRange(location: line.location + 3, length: 0))
     }
 
+    /// **Return at the end of an item with a sub-list shares Source's rule**: TE54 offers no
+    /// opening there, because `  - ` straight under `item` would make it a heading (2026-10-09),
+    /// so Preview refuses rather than writing one. Above a task sub-list the empty box is an item
+    /// as written, and the list carries on as in Source.
+    @Test func returnAboveASubListSharesSourcesRule() {
+        let source = "- item\n  - sub"
+        let p = project(source)
+        #expect(MarkdownListEdits.returnEdit(in: source, selection: NSRange(location: 6, length: 0)) == nil)
+        #expect(refusal(edit(NSRange(location: after("item", in: p), length: 0), .returnKey, in: source))
+                == .notSupported)
+
+        let tasks = "- item\n  - [x] sub"
+        let result = applied(edit(NSRange(location: after("item", in: project(tasks)), length: 0), .returnKey, in: tasks))
+        #expect(result?.source == "- item\n  - [ ] \n  - [x] sub")
+        #expect(result?.projection.blocks.contains { if case .heading = $0.kind { return true } else { return false } } == false)
+    }
+
     @Test func returnInCodeAddsALineWithTheBlocksIndent() {
         let source = "1. one\n   ```\n   let x\n   ```"
         let p = project(source)

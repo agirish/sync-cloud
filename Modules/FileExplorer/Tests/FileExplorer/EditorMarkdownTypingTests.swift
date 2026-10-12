@@ -198,6 +198,35 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "1. Preheat\n2. \n3. Bake")
     }
 
+    /// **Return at the end of an item with a sub-list never turns the item into a heading** (found
+    /// 2026-10-09). The sub-list's own opening, empty, straight under the item's words: an empty
+    /// item cannot interrupt a paragraph, so `  - ` there was a setext underline and `- item` read
+    /// as a heading until something was typed — and stayed one if nothing was. It is a Return.
+    @Test func returnAboveASubListLeavesTheItemItsWords() {
+        let rig = rig("- item\n  - sub")
+        rig.view.setSelectedRange(NSRange(location: 6, length: 0))
+        spin()
+        press(returnKey, in: rig)
+        #expect(rig.view.string == "- item\n\n  - sub")
+        let kinds = MarkdownBlocks.blocks(from: rig.view.string).map(\.kind)
+        #expect(!kinds.contains { if case .heading = $0 { return true } else { return false } },
+                "\(rig.view.string.debugDescription) reads \(kinds)")
+        #expect(kinds.contains { if case .listItem(_, let text) = $0 { return text.plain == "item" } else { return false } },
+                "\(rig.view.string.debugDescription) reads \(kinds)")
+    }
+
+    /// …and above a TASK sub-list it still carries on as the first sub-item: an empty box is an
+    /// item as written, so nothing above it changes.
+    @Test func returnAboveATaskSubListCarriesItOn() {
+        let rig = rig("- item\n  - [x] sub")
+        rig.view.setSelectedRange(NSRange(location: 6, length: 0))
+        spin()
+        press(returnKey, in: rig)
+        #expect(rig.view.string == "- item\n  - [ ] \n  - [x] sub")
+        #expect(rig.view.selectedRange() == NSRange(location: 15, length: 0))
+        #expect(rig.box.text == rig.view.string)
+    }
+
     /// **Return in the middle of an item is a Return** — at the end of a line its words carry on from.
     @Test func returnMidItemIsAReturn() {
         let rig = rig("- Preheat the oven to\n  200 degrees")

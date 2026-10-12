@@ -242,6 +242,10 @@ struct MarkdownListEditsTests {
 
     /// **The item Tab just made, before anything is typed in it**, moves back out with ⇧Tab and
     /// ends with Return — though CommonMark calls that line paragraph text until it has a word.
+    ///
+    /// **Kept on purpose (decided 2026-10-12):** `- a\n  - ` reads `a` as a setext heading until
+    /// something is typed, the same thing that made Return above a sub-list a Return. Return
+    /// writes the marker unasked; Tab is asked to nest, and "Return, Tab, type" stays one flow.
     @Test func anEmptyNestedItemStillMoves() throws {
         #expect(try #require(tab("- a\n- |")).0 == "- a\n  - ")
         #expect(try #require(tab("- a\n  - |", outdent: true)).0 == "- a\n- ")
@@ -522,27 +526,60 @@ struct MarkdownListEditsTests {
     }
 
     /// **An item with children carries on as its FIRST CHILD**, in the child's indent and marker —
-    /// a sibling there would take the children as its own.
+    /// a sibling there would take the children as its own — where that child is an item already,
+    /// empty: under a task box, or under words that are a heading rather than a paragraph.
     @Test(arguments: [
-        ("- Groceries|\n  - eggs\n- Hardware", "- Groceries\n  - \n  - eggs\n- Hardware"),
-        ("1. a|\n   1. x", "1. a\n   1. \n   1. x"),
         ("- a|\n  - [x] b", "- a\n  - [ ] \n  - [x] b"),
-        ("- a|\n\n  * b", "- a\n  * \n\n  * b"),
+        ("- # Groceries|\n  - eggs\n- Hardware", "- # Groceries\n  - \n  - eggs\n- Hardware"),
         // A numbered sub-list starting past 1 gets a 1 — the only number that can open it under
         // the item's words.
-        ("1. a|\n\n   2. b", "1. a\n   1. \n\n   2. b"),
+        ("1. # a|\n\n   2. b", "1. # a\n   1. \n\n   2. b"),
+        // Front matter shifts every line the parser counts; the new line is still the one asked about.
+        ("---\nt: 1\n---\n- a|\n  - [x] b", "---\nt: 1\n---\n- a\n  - [ ] \n  - [x] b"),
     ])
     func anItemWithChildrenCarriesOnAsItsFirstChild(_ before: String, _ after: String) {
         #expect(afterReturn(before) == after)
-        // Every child is still the parent's — read with a word typed on the new line, as CommonMark
-        // reads an empty item only once it has one (it may not interrupt a paragraph before).
-        guard case .continueWith(let opening)? = returnEdit(before) else { return }
-        let typed = (after as NSString).replacingCharacters(
-            in: NSRange(location: caret(before).selection.location + 1 + (opening as NSString).length, length: 0), with: "x")
-        let leaves = MarkdownSourceContext.leaves(in: typed as NSString)
+        // Every child is the parent's as written — the new one empty, nothing typed after it.
+        let leaves = MarkdownSourceContext.leaves(in: after as NSString)
         let parent = try! #require(leaves.first { $0.kind == CMARK_NODE_ITEM.rawValue })
         #expect(leaves.filter { $0.kind == CMARK_NODE_ITEM.rawValue && $0.depth == parent.depth + 1 }.count == 2,
-                "\(typed.debugDescription) reads \(leaves)")
+                "\(after.debugDescription) reads \(leaves)")
+    }
+
+    /// **Under the item's WORDS an empty child is no item**, so Return there is a Return (found
+    /// 2026-10-09): CommonMark lets no empty item interrupt a paragraph, and the opening would be
+    /// read into the paragraph above — `  - ` as a setext underline that makes the words a heading,
+    /// whatever its indent or spacing; `  * `, `  + ` and `  1. ` as more of the words.
+    @Test(arguments: [
+        "- Groceries|\n  - eggs\n- Hardware",
+        "- item|\n    - sub",
+        "- item|\n  -\tsub",
+        "- a|\n\n  - b",
+        "- a|\n\n  * b",
+        "- a|\n  + b",
+        "1. a|\n   1. x",
+        "1. a|\n\n   2. b",
+        // On the item's last line of words, not its first.
+        "- a\n  more|\n  - b",
+        "---\nt: 1\n---\n- a|\n  - b",
+        "- a|\r\n  - b",
+    ])
+    func anEmptyChildUnderTheItemsWordsIsAReturn(_ before: String) {
+        #expect(returnEdit(before) == nil, "\(afterReturn(before)?.debugDescription ?? "")")
+    }
+
+    /// **A new sibling must not take the line below as its own** (found 2026-10-12, by the fuzz).
+    /// An empty item's content column is one past its marker, so after an item whose words start
+    /// further in, a line indented between the two — the old item's sibling, or text after a blank
+    /// line — would be the new item's. Return there is a Return; where nothing reaches that far,
+    /// the list carries on as ever.
+    @Test func aNewSiblingTakesNoLineBelowAsItsOwn() {
+        #expect(returnEdit("-\th|\n  - b") == nil, "\(afterReturn("-\th|\n  - b")?.debugDescription ?? "")")
+        #expect(returnEdit("-   wide|\n  - b") == nil)
+        #expect(returnEdit("1.  a|\n   2. b") == nil)
+        #expect(returnEdit("-   wide|\n- b") == .continueWith("-   "))
+        // An empty item ends at a blank line, so text indented after one is never its own.
+        #expect(returnEdit("-\th|\n\n  code") == .continueWith("-\t"))
     }
 
     /// A sibling below, even after a blank line, is not this item's: the list carries on.
@@ -627,12 +664,13 @@ struct MarkdownListEditsTests {
         }
         var rewrites = 0
         var windowsRewrites = 0
+        var continued = 0
         for _ in 0..<1_500 {
             let lines = (0..<(2 + next(7))).map { _ in vocabulary[next(vocabulary.count)] }
           for ending in ["\n", "\r\n"] {
             let text = lines.joined(separator: ending) as NSString
             var start = 0
-            for line in lines {
+            for (index, line) in lines.enumerated() {
                 let end = start + (line as NSString).length
                 let caret = NSRange(location: end, length: 0)
                 if let edit = MarkdownListEdits.returnEdit(in: text, selection: caret) {
@@ -642,6 +680,18 @@ struct MarkdownListEditsTests {
                                 "Return reached outside its line in \((text as String).debugDescription)")
                     case .continueWith(let opening):
                         #expect(!opening.isEmpty)
+                        // **The opening is an item as written, and nothing else changes** — the line
+                        // break as the file writes it, nothing typed after the marker. The rule that
+                        // let `  - ` under an item's words make them a heading (2026-10-09).
+                        let result = text.replacingCharacters(in: caret, with: ending + opening) as NSString
+                        let opened = index + 2
+                        let after = MarkdownSourceContext.leaves(in: result)
+                        let others = after.filter { $0.line != opened }
+                            .map { leaf in var leaf = leaf; if leaf.line > opened { leaf.line -= 1 }; return leaf }
+                        #expect(after.contains { $0.line == opened && $0.kind == CMARK_NODE_ITEM.rawValue }
+                                && others == MarkdownSourceContext.leaves(in: text),
+                                "Return wrote \(opening.debugDescription) into \((text as String).debugDescription): \(after)")
+                        if ending == "\n" { continued += 1 }
                     }
                 }
                 for outdent in [false, true] {
@@ -663,6 +713,7 @@ struct MarkdownListEditsTests {
         }
         // The positive control: the generator does produce lists Tab and ⇧Tab move.
         #expect(rewrites > 500, "only \(rewrites) rewrites — the fuzz has gone vacuous")
+        #expect(continued > 500, "only \(continued) lists carried on — the Return check has gone vacuous")
         // **A Windows file moves exactly as often** — the same lists, the same moves.
         #expect(windowsRewrites == rewrites, "\(rewrites) moves with \\n, \(windowsRewrites) with \\r\\n")
     }
