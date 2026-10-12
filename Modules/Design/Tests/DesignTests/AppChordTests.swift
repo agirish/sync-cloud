@@ -74,6 +74,9 @@ import Foundation
         #expect(AppChord.editorExpand.display == "⌃⌘E")
         #expect(AppChord.findNext.display == "⌘G")
         #expect(AppChord.useSelectionForFind.display == "⌘E")
+        // Text ▸ Go to Line… (TE61): the modes' ⌃⌘ again, on L — not ⌘L (the activity log) and not
+        // ⇧⌘L (Markup ▸ Link).
+        #expect(AppChord.goToLine.display == "⌃⌘L")
         #expect(AppChord.bold.display == "⌘B")
         #expect(AppChord.strikethrough.display == "⇧⌘X")
         #expect(AppChord.inlineCode.display == "⇧⌘K")

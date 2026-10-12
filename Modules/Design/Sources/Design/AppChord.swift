@@ -130,6 +130,14 @@ public extension AppChord {
     /// decision K made this a widening INSIDE the window, which is a different act.
     static let editorExpand = AppChord("e", [.control, .command])
 
+    /// Text ▸ Go to Line… — the status line's "Line, Col" as a menu item (TE61). The user's choice.
+    ///
+    /// **⌃⌘L was free, and checked rather than assumed.** ⌘L is the activity log and ⇧⌘L Markup's
+    /// Link; nothing else here is ⌃⌘ and a letter but ⌃⌘S and ⌃⌘E. AppKit's `StandardKeyBinding.dict`
+    /// binds no ⌃⌘ letter (the reason ``editorExpand`` gives), so the field editor never claims it and
+    /// it does not join `TextEditingChord`'s colliding set.
+    static let goToLine = AppChord("l", [.control, .command])
+
     /// Text ▸ Find Next / Use Selection for Find — the find bar's own two verbs, which AppKit
     /// binds to nothing until a menu item names them. ⌘G and ⌘E, the platform's own.
     static let findNext = AppChord("g", .command)
@@ -384,7 +392,7 @@ public extension AppChord {
         copyToLeft, copyToRight, moveToLeft, moveToRight,
         textBigger, textSmaller, textDefaultSize,
         editorSourceMode, editorPreviewMode, editorSplitMode, editorExpand,
-        findNext, useSelectionForFind,
+        findNext, useSelectionForFind, goToLine,
         // `italic` is `infoInspector`, already listed above — see its note.
         bold, strikethrough, inlineCode, link,
     ]

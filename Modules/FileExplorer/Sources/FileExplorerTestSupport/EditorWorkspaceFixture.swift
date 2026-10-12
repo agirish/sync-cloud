@@ -34,6 +34,7 @@ extension EditorWorkspaceView {
         paneShowsTabStrip: Bool = false,
         folderDisplayName: String? = nil,
         newFileFolderName: String? = nil,
+        goToLineRequest: Int = 0,
         undoManager: UndoManager = UndoManager()
     ) -> EditorWorkspaceView {
         EditorWorkspaceView(
@@ -53,6 +54,7 @@ extension EditorWorkspaceView {
             railFilterIsExpanded: .constant(false),
             railTab: .constant(.files),
             railOutlineAnchors: .constant([:]),
+            goToLineRequest: goToLineRequest,
             undoManager: undoManager,
             stopped: stopped,
             onShowWhatChanged: onShowWhatChanged,

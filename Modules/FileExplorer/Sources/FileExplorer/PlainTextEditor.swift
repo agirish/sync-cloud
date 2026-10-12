@@ -68,6 +68,10 @@ struct PlainTextEditor: NSViewRepresentable {
     /// no selection at all, which is one of the reasons this is AppKit; the status line's line and
     /// column, and the outline's idea of which heading you are in, both start here.
     var onSelectionChange: (NSRange) -> Void = { _ in }
+    /// **How many ranges are selected** — more than one after an ⌥-drag (a column) or a ⌘-drag —
+    /// reported with every selection change, just before ``onSelectionChange`` hands over the first.
+    /// The status line counts only a single selection (TE60), so it needs to know when there are more.
+    var onSelectionRangeCount: (Int) -> Void = { _ in }
 
     /// Where to put the caret next, or `nil` for "leave it alone".
     ///
@@ -189,6 +193,8 @@ struct PlainTextEditor: NSViewRepresentable {
         /// Re-assigned on every update pass, like ``text`` — a closure captured once at
         /// construction would go on writing into the view that built it after a re-render.
         var onSelectionChange: (NSRange) -> Void
+        /// Re-assigned every pass, like ``onSelectionChange``.
+        var onSelectionRangeCount: (Int) -> Void = { _ in }
         /// `nil` in every mode but `.split` — see ``PlainTextEditor/onVisibleLineChange``.
         var onVisibleLineChange: ((Int) -> Void)?
         /// The last request acted on, so the same one is not replayed on every render pass.
@@ -537,6 +543,7 @@ struct PlainTextEditor: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let view = notification.object as? NSTextView else { return }
+            onSelectionRangeCount(view.selectedRanges.count)
             onSelectionChange(view.selectedRange())
         }
     }
@@ -706,6 +713,15 @@ struct PlainTextEditor: NSViewRepresentable {
         return index.utf16Offset(ofLine: line)
     }
 
+    /// Where a scroll request puts the caret: a heading's line start, or — for Go to Line, which
+    /// carries a column (TE61) — the typed line and column, clamped to the text as it is NOW.
+    static func offset(for request: EditorScrollRequest, in text: String,
+                       using index: EditorLineIndex) -> Int? {
+        guard let column = request.column else { return utf16Offset(ofLine: request.line, in: text, using: index) }
+        return EditorGoToLine.utf16Offset(of: EditorGoToLine.Target(line: request.line, column: column),
+                                          in: text, using: index)
+    }
+
     /// **The storage forgets this view as it goes, unless a newer one already took its place** — a
     /// mode switch can build the next view before this one is taken down. Undo actions keep a
     /// dismantled view alive, so a weak reference alone would go on naming it.
@@ -726,6 +742,7 @@ struct PlainTextEditor: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator(source: source, undoManager: undoManager, documentID: documentID,
                                       onSelectionChange: onSelectionChange)
+        coordinator.onSelectionRangeCount = onSelectionRangeCount
         coordinator.lastFindRequest = findRequest
         // **The scroll request too, for the same reason** — it outlives the text view as the find
         // counter does, so a text view rebuilt by a mode switch (Source ↔ Split, Preview → Source)
@@ -919,6 +936,7 @@ struct PlainTextEditor: NSViewRepresentable {
         (view as? EditorTextView)?.readableColumnWidth = readableColumn
         context.coordinator.source = source
         context.coordinator.onSelectionChange = onSelectionChange
+        context.coordinator.onSelectionRangeCount = onSelectionRangeCount
         context.coordinator.onVisibleLineChange = onVisibleLineChange
         context.coordinator.lineIndex = lineIndex
         context.coordinator.textView = view
@@ -950,8 +968,7 @@ struct PlainTextEditor: NSViewRepresentable {
         if let scrollRequest, scrollRequest != context.coordinator.lastScrollRequest {
             context.coordinator.lastScrollRequest = scrollRequest
             let text = source.text
-            if let offset = Self.utf16Offset(ofLine: scrollRequest.line, in: text,
-                                             using: lineIndex) {
+            if let offset = Self.offset(for: scrollRequest, in: text, using: lineIndex) {
                 let range = NSRange(location: min(offset, (text as NSString).length), length: 0)
                 view.setSelectedRange(range)
                 view.scrollRangeToVisible(range)

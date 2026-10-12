@@ -153,6 +153,10 @@ public struct EditorWorkspaceView: View {
     /// A counter ⌘N bumps, so a row that is already open still takes focus. See
     /// ``EditorFileRailView/namingFocus``.
     let namingFocus: Int
+    /// **A counter Text ▸ Go to Line… (⌃⌘L) bumps (TE61)**, so the menu opens the field the status
+    /// line's "Line, Col" opens — a count rather than a flag for ``namingFocus``'s reason: the second
+    /// press is a press too. Read only where Go to Line is offered (``offersGoToLine``).
+    let goToLineRequest: Int
     /// The window's editor undo stack. See ``PlainTextEditor/undoManager``.
     let undoManager: UndoManager
     /// Why autosave has stopped, in the header's own words, or `nil` while it is working. A string
@@ -231,6 +235,9 @@ public struct EditorWorkspaceView: View {
     /// see ``EditorLineIndex``. The split's scroll sync and the outline's caret both read it
     /// instead of walking the buffer on the main actor.
     @State private var lineIndex: EditorLineIndex = .empty
+    /// The text version ``facts`` and ``lineIndex`` were taken at — `nil` before the first count. The
+    /// selection's count pairs itself only with counts of the same text (TE60 review).
+    @State private var factsVersion: Int?
     /// The caret's UTF-16 offset, as the text view last reported it.
     ///
     /// **The offset is kept and the line/column is derived**, rather than the reverse: converting
@@ -251,8 +258,16 @@ public struct EditorWorkspaceView: View {
     /// Bumped by the header's Find button. See ``PlainTextEditor/findRequest``.
     @State private var findRequest: Int = 0
     /// The selection's UTF-16 length, beside ``caretOffset`` (its location) — what the format bar's
-    /// lit state is derived from. Stored cheap, derived on a debounce, as the caret is.
-    @State private var selectionLength: Int = 0
+    /// lit state and the status line's selection count (TE60) are derived from. Stored cheap,
+    /// derived on a debounce, as the caret is — and **held, not observed**: `@State` keeps the box,
+    /// and only ``EditorSelectionDerivations`` watches what is in it, so a forward drag's tick
+    /// re-renders that and not this whole view (``EditorLiveSelection``).
+    @State private var liveSelection = EditorLiveSelection()
+    /// **The selection's counts for the status line (TE60)**, or `nil` for a bare caret. Derived from
+    /// ``caretOffset`` and the live selection on the caret's debounce, off the main actor.
+    @State private var selectionFacts: EditorSelectionFacts?
+    /// Whether Go to Line's field is up over the status line's "Line, Col" (TE61).
+    @State private var goToLineShown = false
     /// What the format bar shows lit — see ``MarkupFormatState``.
     @State private var formatState: MarkupFormatState = .none
     /// The text view, for the format bar's buttons — see ``EditorTextViewHandle``.
@@ -297,6 +312,7 @@ public struct EditorWorkspaceView: View {
                 railTab: Binding<EditorRailTab>,
                 railOutlineAnchors: Binding<[String: Int]>,
                 namingFocus: Int = 0,
+                goToLineRequest: Int = 0,
                 undoManager: UndoManager,
                 stopped: String? = nil,
                 onShowWhatChanged: (() -> Void)? = nil,
@@ -350,6 +366,7 @@ public struct EditorWorkspaceView: View {
         self._isNaming = isNaming
         self._typedName = typedName
         self.namingFocus = namingFocus
+        self.goToLineRequest = goToLineRequest
         self.undoManager = undoManager
         self.stopped = stopped
         self.onShowWhatChanged = onShowWhatChanged
@@ -589,11 +606,36 @@ public struct EditorWorkspaceView: View {
                 Divider()
                 // Formatted when the stamp moved, not here — see ``EditorDocument/sizeCaption``.
                 EditorStatusLine(facts: facts, caret: caret, fileSize: document.sizeCaption,
-                                 headings: statusHeadings, hint: statusHint)
+                                 headings: statusHeadings, hint: statusHint,
+                                 selection: selectionFacts, goToLine: statusGoToLine)
                     // Compared on what it draws, the closures left out — see `EditorStatusLine.==`.
                     .equatable()
             }
         }
+    }
+
+    /// **Go to Line, where there are source lines on screen to go to (TE61)** — Source and Split, and
+    /// never Preview, editable or not: a rendered page has no line 48 to put the caret on. One rule
+    /// for the status line's "Line, Col" and for the menu item (`EditorVerbs.goToLine`).
+    public static func offersGoToLine(_ resolvedMode: EditorMode) -> Bool { resolvedMode != .preview }
+
+    private var offersGoToLine: Bool { Self.offersGoToLine(resolvedMode) }
+
+    /// The status line's door to Go to Line, or `nil` in Preview.
+    private var statusGoToLine: EditorStatusGoToLine? {
+        guard offersGoToLine else { return nil }
+        return EditorStatusGoToLine(isPresented: $goToLineShown, lineCount: max(facts.lines, 1),
+                                    accent: accent, onGo: goToLine)
+    }
+
+    /// **Sends Source's caret to a line, and its column when one was typed** — the outline's scroll
+    /// request with a column on it, which is what tells the text view to clamp (TE61). In Split the
+    /// preview follows the text's scroll as it always does.
+    private func goToLine(_ target: EditorGoToLine.Target) {
+        goToLineShown = false
+        scrollToken &+= 1
+        editorScrollRequest = EditorScrollRequest(line: target.line, token: scrollToken,
+                                                  column: target.column ?? 1)
     }
 
     /// The status line's heading item (TE57): the rail's own outline and scroll request, reachable
@@ -1217,19 +1259,32 @@ public struct EditorWorkspaceView: View {
                     document.caretAnchors.offset(for: document.path) ?? 0, in: document.text)
                 // A new file arrives with a caret and no selection, and its own formatting: the
                 // last file's lit buttons must not stand over it for the debounce.
-                selectionLength = 0
+                liveSelection.set(length: 0)
+                liveSelection.set(rangeCount: 1)
+                selectionFacts = nil
                 formatState = .none
                 // …nor the last file's refusal hint, whose link would act on this one.
                 statusHint = nil
+                goToLineShown = false
             }
             // **The stored length follows the text view it describes.** A mode switch builds a new
             // text view whose selection is a bare caret (`PlainTextEditor.restoreCaret`), and the
             // bar coming on finds a length nobody kept while it was off. Left stale, the next
             // selection of that same length would leave the key unchanged and the bar unlit.
             .onChange(of: resolvedMode) { _, _ in
-                selectionLength = 0
+                liveSelection.set(length: 0)
+                liveSelection.set(rangeCount: 1)
+                selectionFacts = nil
                 // A hint is about the Preview it was raised in.
                 statusHint = nil
+                goToLineShown = false
+            }
+            // Text ▸ Go to Line… — the menu's press opens the status line's field (TE61). Any hint
+            // standing in the line's place goes first: the field hangs off the caret it covers.
+            .onChange(of: goToLineRequest) { _, _ in
+                guard offersGoToLine else { return }
+                statusHint = nil
+                goToLineShown = true
             }
             // **A preview a mode switch builds opens where the caret is** — not on the last heading
             // chosen, whose request was still standing and was replayed to every preview a switch
@@ -1239,9 +1294,6 @@ public struct EditorWorkspaceView: View {
             .onChange(of: mode) { _, _ in
                 scrollToken &+= 1
                 previewScrollRequest = EditorScrollRequest(line: caret.line, token: scrollToken)
-            }
-            .onChange(of: showsFormatBar) { _, isShown in
-                if isShown { selectionLength = textViewHandle.textView?.selectedRange().length ?? 0 }
             }
             // **The re-render is debounced, and the parse is off the main actor.** Keyed on the
             // document's version counter rather than on its text: `.task(id:)` compares its id
@@ -1282,6 +1334,7 @@ public struct EditorWorkspaceView: View {
                 try? await Task.sleep(for: .milliseconds(150))
                 guard !Task.isCancelled else { return }
                 let source = document.text
+                let version = document.textVersion
                 let encoding = document.encodingName
                 // **The line table is built in the same detached pass**, because it is the same
                 // walk of the same buffer and the alternative is doing it on the main actor once
@@ -1293,6 +1346,7 @@ public struct EditorWorkspaceView: View {
                 guard !Task.isCancelled else { return }
                 facts = derived.facts
                 lineIndex = derived.lines
+                factsVersion = version
             }
             // The caret is its own key, because it moves without the text changing — and the text
             // changing moves it too, which is why the version is in here as well as the offset.
@@ -1308,38 +1362,15 @@ public struct EditorWorkspaceView: View {
                 guard !Task.isCancelled else { return }
                 caret = position
             }
-            // **The format bar's lit state, on the caret's debounce and for the caret's reason** —
-            // it reads the lines the selection touches, and a body pass happens per keystroke.
-            // Nothing is derived while the bar is not drawn; the key carries whether it is, so
-            // turning the bar on derives at once rather than at the next caret move.
-            .task(id: EditorFormatKey(version: document.textVersion, path: document.path,
-                                      offset: caretOffset, length: selectionLength,
-                                      mode: resolvedMode, isShown: showsFormatBar)) {
-                guard showsFormatBar else {
-                    if formatState != .none { formatState = .none }
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(120))
-                guard !Task.isCancelled else { return }
-                let source = document.text
-                let selection = NSRange(location: caretOffset, length: selectionLength)
-                let state = await Task.detached(priority: .userInitiated) {
-                    MarkupFormatState.of(source, selection: selection)
-                }.value
-                guard !Task.isCancelled else { return }
-                if state != formatState { formatState = state }
+            // The selection's counts and the format bar's lit state — derived beside this view
+            // rather than in it, so a drag's ticks re-render only what derives them.
+            .background {
+                EditorSelectionDerivations(document: document, live: liveSelection,
+                                           version: document.textVersion, path: document.path,
+                                           caretOffset: caretOffset, facts: facts, factsVersion: factsVersion,
+                                           mode: resolvedMode, showsFormatBar: showsFormatBar,
+                                           selectionFacts: $selectionFacts, formatState: $formatState)
             }
-    }
-
-    /// What re-derives the format bar's lit state: the selection, the text under it, the mode (a
-    /// switch rebuilds the text view, with a bare caret), or the bar coming on.
-    private struct EditorFormatKey: Equatable {
-        var version: Int
-        var path: String?
-        var offset: Int
-        var length: Int
-        var mode: EditorMode
-        var isShown: Bool
     }
 
     /// Whether the format bar is drawn over this document — see ``EditorFormatBar/isShown``.
@@ -1470,9 +1501,7 @@ public struct EditorWorkspaceView: View {
                                           // for Preview's selection and pressed Source's).
                                           onSourceSelection: inSplit ? nil : { selection in
                                               caretOffset = selection.location
-                                              if showsFormatBar, selectionLength != selection.length {
-                                                  selectionLength = selection.length
-                                              }
+                                              liveSelection.set(length: selection.length)
                                               document.caretAnchors.remember(selection.location, for: document.path)
                                           },
                                           onFollowAnchor: followAnchor,
@@ -1607,12 +1636,13 @@ public struct EditorWorkspaceView: View {
                         // whole feature depend on teardown ordering, and this is always current.
                         onSelectionChange: {
                             caretOffset = $0.location
-                            // Only while the bar reads it: a forward drag keeps the location still,
-                            // and writing the length on every tick redrew this whole view for
-                            // nobody in a plain-text file or with the bar off.
-                            if showsFormatBar, selectionLength != $0.length { selectionLength = $0.length }
+                            // Always, bar or no bar: the status line counts the selection (TE60).
+                            // Into the box, not this view's state — a forward drag keeps the
+                            // location still and writes only this, so its ticks redraw nothing here.
+                            liveSelection.set(length: $0.length)
                             document.caretAnchors.remember($0.location, for: document.path)
                         },
+                        onSelectionRangeCount: { liveSelection.set(rangeCount: $0) },
                         scrollRequest: editorScrollRequest,
                         // Where the caret goes when this text view is BUILT, which is to say on
                         // arrival back from another workspace. Clamped by `restoreCaret` against the

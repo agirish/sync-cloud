@@ -351,6 +351,7 @@ extension ContentView {
             railTab: $editorRailTab,
             railOutlineAnchors: $editorOutlineAnchors,
             namingFocus: editorNamingFocus,
+            goToLineRequest: editorGoToLineRequest,
             undoManager: editorUndoManager,
             stopped: editorAutosaveStop?.caption,
             // **The stop's words become a door, and only where there is something behind them.**
@@ -873,7 +874,10 @@ extension ContentView {
                 }
                 : nil,
             canMarkUp: !editorDocument.isReadOnly && EditorVerbs.hasTextView(in: drawn, previewEditing: previewEditing),
-            canFind: EditorVerbs.hasTextView(in: drawn, previewEditing: previewEditing))
+            canFind: EditorVerbs.hasTextView(in: drawn, previewEditing: previewEditing),
+            // Source and Split only — the status line's own rule, so the item and "Line, Col" are
+            // live together (TE61). The counter opens the workspace's field.
+            goToLine: EditorWorkspaceView.offersGoToLine(drawn) ? { editorGoToLineRequest &+= 1 } : nil)
     }
 
     /// Text ▸ Expand ⌃⌘E — the header button's bit and act, offered where the header draws the

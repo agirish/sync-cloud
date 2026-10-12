@@ -153,6 +153,9 @@ import FileExplorer
                 "the header's Expand is not handed toggleJustTheText")
         #expect(try Self.call("EditorWorkspaceView(", in: workspace).passes("railIsHidden", "editorIsExpanded"),
                 "the header's Expand does not light on what the toggle decides by")
+        // Text ▸ Go to Line…'s counter reaches the workspace that opens the field (TE61).
+        #expect(try Self.call("EditorWorkspaceView(", in: workspace).passes("goToLineRequest", "editorGoToLineRequest"),
+                "Text ▸ Go to Line… bumps a counter the workspace is never handed")
         // "On" is the bit AND the pane folded — the bit alone survives the pane being reopened.
         let expanded = try Self.memberBody("var editorIsExpanded: Bool", in: source)
         #expect(expanded.contains("editorRailHidden && panesHiddenForCurrentTab"),

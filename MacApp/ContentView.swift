@@ -121,6 +121,9 @@ struct ContentView: View {
     /// Bumped by ⌘N so the naming row takes focus even when it is already open — a pure signal,
     /// never read for its value.
     @State var editorNamingFocus = 0
+    /// Bumped by Text ▸ Go to Line… (⌃⌘L) so Edit opens the status line's field (TE61) — a pure
+    /// signal like the one above, never read for its value.
+    @State var editorGoToLineRequest = 0
     /// What the file the open naming row will make does to the pane, when it goes to Notes. Set by
     /// each ⌘N from the workspace it was pressed in (`ExternalOpen.pane`): from Compare or during a
     /// guided review the left pane is half of the comparison and stays put; from Organize it

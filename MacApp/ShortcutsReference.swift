@@ -199,7 +199,11 @@ enum ShortcutsReference {
             // destinations are named on its one row in Panes; a second row for the editor's half
             // pushed the reference past its window, which `theReferenceFitsItsWindowWithoutScrolling`
             // caught. A fact that fits on an existing row belongs on it.
-            Item(keys: "⌘ G / ⌘ E", action: "Find next / use the selection for find"),
+            // **⌃⌘L joins the find pair** (TE61) for ⌃⌘E's reason above: a row of its own does not
+            // fit this window, and going to a line is the third way to a place in the text. "Use the
+            // selection for find" lost three words to it: kept, the action wrapped and the reference
+            // measured 749pt, which `theReferenceFitsItsWindowWithoutScrolling` refused.
+            Item(keys: "⌘ G / ⌘ E / ⌃⌘ L", action: "Find next / use selection / go to line"),
             Item(keys: "Right-click", action: "Headings, lists and the rest of Markup — also Wrap Lines and spelling"),
         ]),
         Group(title: "Tabs", items: [

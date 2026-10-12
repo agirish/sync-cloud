@@ -34,8 +34,18 @@ struct EditorStatusLine: View, Equatable {
     /// seconds instead of the counts — the "only minor edits work here" message, at the moment it
     /// matters rather than as a standing warning. The host clears it after ``EditorStatusHint/duration``.
     var hint: EditorStatusHint?
+    /// **The selection's counts, while text is selected (TE60)** — "12 of 78 words · 64 characters
+    /// selected" in the counts' place — or `nil` for a bare caret, when the line reads as it always did.
+    var selection: EditorSelectionFacts?
+    /// **"Line, Col" as a door to Go to Line (TE61)**, or `nil` where there is no going (Preview).
+    var goToLine: EditorStatusGoToLine?
+    /// Drops the selection's line count from a forced rung — the ladder's first concession, for the
+    /// tests that measure it. Ignored when the rung is chosen by width.
+    var forcedDropsSelectionLines = false
 
     @Environment(\.appFontScale) private var scale
+    /// The drawn caret button's bounds in the line, for Go to Line's arrow (TE61).
+    @State private var caretBounds: CGRect = .zero
 
     /// The three rungs, named so a test can ask for one.
     enum Rung: CaseIterable { case full, counts, caret }
@@ -51,7 +61,13 @@ struct EditorStatusLine: View, Equatable {
     nonisolated static func == (a: EditorStatusLine, b: EditorStatusLine) -> Bool {
         a.facts == b.facts && a.caret == b.caret && a.fileSize == b.fileSize
             && a.forcedRung == b.forcedRung && a.headings == b.headings && a.hint == b.hint
+            && a.selection == b.selection && a.goToLine == b.goToLine
+            && a.forcedDropsSelectionLines == b.forcedDropsSelectionLines
     }
+
+    /// **Whether the selection's line count is drawn at all** — only for a selection across more than
+    /// one line, where it says something the other two counts do not.
+    private var hasSelectionLines: Bool { (selection?.lines ?? 0) > 1 }
 
     /// **The heading joins the ladder by giving way FIRST.** Each rung of counts comes twice — with
     /// the heading's whole name, then with it truncated to ``headingFloor(scale:)`` — so a narrowing
@@ -63,15 +79,24 @@ struct EditorStatusLine: View, Equatable {
     /// **One caret rung, not three.** The strip is fixed at its own width, so beside the caret alone
     /// the name is drawn at whatever is left, up to its whole width, whichever fit is asked for — a
     /// whole-name and a floor rung there would draw exactly what this one draws.
+    ///
+    /// **A selection's line count goes before anything else (TE60)** — "3 lines" is the least of what
+    /// the line says, so the two rungs carrying it lead the ladder and the heading still shortens
+    /// before it goes. Without a multi-line selection those two rungs are not built at all: they
+    /// would draw exactly what the rungs after them draw.
     var body: some View {
         Group {
             if let hint {
                 hinted(hint)
             } else if let headings {
                 if let forcedRung {
-                    rung(forcedRung, headings, fit: .floor)
+                    rung(forcedRung, headings, fit: .floor, lines: !forcedDropsSelectionLines)
                 } else {
                     ViewThatFits(in: .horizontal) {
+                        if hasSelectionLines {
+                            rung(.full, headings, fit: .whole, lines: true)
+                            rung(.full, headings, fit: .floor, lines: true)
+                        }
                         rung(.full, headings, fit: .whole)
                         rung(.full, headings, fit: .floor)
                         rung(.counts, headings, fit: .whole)
@@ -80,9 +105,10 @@ struct EditorStatusLine: View, Equatable {
                     }
                 }
             } else if let forcedRung {
-                counted(forcedRung)
+                counted(forcedRung, lines: !forcedDropsSelectionLines)
             } else {
                 ViewThatFits(in: .horizontal) {
+                    if hasSelectionLines { counted(.full, lines: true) }
                     counted(.full)
                     counted(.counts)
                     counted(.caret)
@@ -96,7 +122,23 @@ struct EditorStatusLine: View, Equatable {
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .coordinateSpace(.named(Self.lineSpace))
+        // **Hung on the line once, never on a rung.** Every rung of both ladders draws its own
+        // caret button, and a change of rung — a multi-line selection's count arriving, the column
+        // narrowing, ⌘+ — is a different button: a popover hung on one went with it, and the field
+        // shut under the person typing in it. Here it outlives every rung, and its arrow is aimed
+        // at whichever caret is drawn by the bounds that caret reports (`caretBounds`).
+        .popover(isPresented: goToLine?.isPresented ?? .constant(false),
+                 attachmentAnchor: .rect(.rect(caretBounds)), arrowEdge: .top) {
+            if let goToLine {
+                EditorGoToLineField(lineCount: goToLine.lineCount, onGo: goToLine.onGo,
+                                    onCancel: { goToLine.isPresented.wrappedValue = false })
+            }
+        }
     }
+
+    /// The line's own coordinate space, which the caret reports its bounds in.
+    private static let lineSpace = "EditorStatusLine"
 
     /// **Shed as the counts are**, so a narrow column at a large text size keeps the way to Source:
     /// the sentence, then its short form, then the link alone (`theHintFitsTheNarrowestColumnAtEveryTextSize`).
@@ -122,13 +164,18 @@ struct EditorStatusLine: View, Equatable {
     }
 
     /// The counts, as one element for VoiceOver — the heading beside them is a control of its own.
-    private func counted(_ rung: Rung) -> some View {
-        strip(rung)
+    private func counted(_ rung: Rung, lines: Bool = false) -> some View {
+        strip(rung, lines: lines)
+            // Combined, the caret's button included: the one element then takes the button's
+            // action, so VoiceOver's press is Go to Line wherever the mouse's click is (TE61).
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(Self.accessibilityLabel(facts: facts, caret: caret, fileSize: fileSize))
+            .accessibilityLabel(Self.accessibilityLabel(facts: facts, caret: caret, fileSize: fileSize,
+                                                        selection: selection))
+            .accessibilityHint(goToLine == nil ? "" : "Goes to a line")
     }
 
-    private func rung(_ rung: Rung, _ headings: EditorStatusHeadings, fit: HeadingFit) -> some View {
+    private func rung(_ rung: Rung, _ headings: EditorStatusHeadings, fit: HeadingFit,
+                      lines: Bool = false) -> some View {
         HStack(spacing: Self.spacing) {
             switch fit {
             case .whole:
@@ -143,7 +190,7 @@ struct EditorStatusLine: View, Equatable {
                     .frame(minWidth: 0, idealWidth: 0, alignment: .leading)
                     .layoutPriority(-1)
             }
-            counted(rung)
+            counted(rung, lines: lines)
         }
     }
 
@@ -161,13 +208,11 @@ struct EditorStatusLine: View, Equatable {
         FontSize.scaledPointSize(10, scale: scale) * 6
     }
 
-    private func strip(_ rung: Rung) -> some View {
+    private func strip(_ rung: Rung, lines: Bool) -> some View {
         HStack(spacing: Self.spacing) {
-            if rung != .caret {
-                Text(facts.wordsCaption)
-                if rung == .full { Text(facts.charactersCaption) }
-            }
-            Text(Self.caretCaption(caret))
+            ForEach(Self.countCaptions(facts: facts, selection: selection, rung: rung, lines: lines),
+                    id: \.self) { Text($0) }
+            caretSegment
             Spacer(minLength: 8)
             // The file's own facts, right-aligned and last: they are true of the file rather than
             // of what you are doing in it, and they change only when a different file is opened.
@@ -180,6 +225,53 @@ struct EditorStatusLine: View, Equatable {
         .fixedSize(horizontal: true, vertical: false)
     }
 
+    /// **What a rung says before the caret** — the document's counts, or while text is selected the
+    /// selection's (TE60), each segment its own string so the strip spaces them as it always has.
+    ///
+    /// - `full`: `12 of 78 words` · `64 characters selected`, or with `lines` (a selection across
+    ///   lines, and room for it) `12 of 78 words` · `64 characters` · `3 lines selected`.
+    /// - `counts`: `12 of 78 words selected` — the word count says it on its own.
+    /// - `caret`: nothing, selection or not.
+    ///
+    /// "selected" ends the run rather than starting it, so the numbers line up where the document's
+    /// stood and the word that changed is the last one read.
+    static func countCaptions(facts: EditorDocumentFacts, selection: EditorSelectionFacts?,
+                              rung: Rung, lines: Bool) -> [String] {
+        guard rung != .caret else { return [] }
+        guard let selection else {
+            return rung == .full ? [facts.wordsCaption, facts.charactersCaption] : [facts.wordsCaption]
+        }
+        let words = "\(selection.words.formatted(.number)) of \(EditorDocumentFacts.count(facts.words, "word"))"
+        guard rung == .full else { return [words + " selected"] }
+        let characters = EditorDocumentFacts.count(selection.characters, "character")
+        guard lines, selection.lines > 1 else { return [words, characters + " selected"] }
+        return [words, characters, EditorDocumentFacts.count(selection.lines, "line") + " selected"]
+    }
+
+    /// **"Line 48, Col 12" — a button where Go to Line is offered (TE61)**, drawn exactly as wide as
+    /// the words: the hover wash's padding is taken back outside it, as the heading menu's is, so no
+    /// rung measures differently for being clickable. Secondary like the counts — a wash on hover, not
+    /// a colour at rest, says it can be pressed.
+    @ViewBuilder
+    private var caretSegment: some View {
+        if let goToLine {
+            Button { goToLine.isPresented.wrappedValue = true } label: {
+                Text(Self.caretCaption(caret))
+                    .padding(.horizontal, 4)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.hoverAffordance(.segment, tint: goToLine.accent))
+            // Where the field's arrow points — the field itself hangs on the whole line (`body`).
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.lineSpace)) }) {
+                caretBounds = $0
+            }
+            .padding(.horizontal, -4)
+            .help(EditorStatusGoToLine.help)
+        } else {
+            Text(Self.caretCaption(caret))
+        }
+    }
+
     /// `Line 48, Col 12` — spelled out rather than abbreviated to `Ln`, because the strip has room
     /// for the words at every rung that draws them and the abbreviation saves four points.
     static func caretCaption(_ caret: EditorCaret) -> String {
@@ -187,10 +279,12 @@ struct EditorStatusLine: View, Equatable {
     }
 
     /// One sentence for VoiceOver, because five separate labels in a row is five stops on the way
-    /// to the text — and this strip is beside the thing a person came here to read.
+    /// to the text — and this strip is beside the thing a person came here to read. A selection is
+    /// said whole, with its line count, whatever the rung on screen had room for.
     static func accessibilityLabel(facts: EditorDocumentFacts, caret: EditorCaret,
-                                   fileSize: String? = nil) -> String {
-        var parts = [facts.wordsCaption, facts.charactersCaption, caretCaption(caret)]
+                                   fileSize: String? = nil, selection: EditorSelectionFacts? = nil) -> String {
+        var parts = countCaptions(facts: facts, selection: selection, rung: .full, lines: true)
+        parts.append(caretCaption(caret))
         if let fileSize { parts.append(fileSize) }
         if let encoding = facts.encoding { parts.append(encoding) }
         if let ending = facts.lineEnding { parts.append("\(ending.rawValue) line endings") }

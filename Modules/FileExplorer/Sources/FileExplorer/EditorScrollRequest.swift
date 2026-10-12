@@ -14,4 +14,9 @@ struct EditorScrollRequest: Equatable {
     /// 1-based, matching ``MarkdownBlock/line``.
     var line: Int
     var token: Int
+    /// **Go to Line's request (TE61)**, 1-based, or `nil` for every other: a heading jump goes to the
+    /// line's start and names a line that exists. With a column the request is a person's typing, so
+    /// the text view clamps it — past the end to the last line, past a line's end to its end — see
+    /// ``EditorGoToLine/utf16Offset(of:in:using:)``.
+    var column: Int? = nil
 }

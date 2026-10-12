@@ -60,7 +60,7 @@ import Foundation
             compareTwoFiles: {},
             editorVerbs: EditorVerbs(mode: .edit, canPreview: true, setMode: { _ in },
                                      autosave: EditorVerbs.AutosaveSwitch(isOn: true, toggle: {}),
-                                     canMarkUp: true, canFind: true),
+                                     canMarkUp: true, canFind: true, goToLine: {}),
             editorExpand: EditorExpandSwitch(isOn: false, toggle: {}),
             suspended: suspended
         )

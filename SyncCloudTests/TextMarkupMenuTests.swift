@@ -46,7 +46,7 @@ import Testing
     @Test func theTextMenuIsInTheRoadmapsOrder() throws {
         let text = Self.titles(try Self.menu("Text"))
         #expect(text == ["Source", "Preview", "Split", "Expand", "Edit in Preview (Experimental)",
-                         "Find Next", "Use Selection for Find",
+                         "Find Next", "Use Selection for Find", "Go to Line…",
                          "Wrap Lines", "Readable Line Length", "Check Spelling While Typing", "Continue Lists",
                          "Autosave This File"],
                 "the Text menu reads \(text)")
@@ -120,6 +120,41 @@ import Testing
         // Edit in Preview too (TE67): ⌥ is barred and ⌃⌘ is spent.
         #expect(try Self.item("Edit in Preview (Experimental)", in: "Text").keyEquivalent.isEmpty,
                 "Edit in Preview has acquired a key")
+    }
+
+    /// **Text ▸ Go to Line… is ⌃⌘L (TE61), and nothing else in the bar claims it** — not Window ▸
+    /// Activity Log's ⌘L, not Markup ▸ Link's ⇧⌘L. Read off the built item, against
+    /// `AppChord.goToLine`, so the menu, the status line's tooltip and the ⌘/ reference agree; and it
+    /// sits in the find group, before the drawing switches' divider.
+    @Test func goToLineCarriesControlCommandLAndNothingElseDoes() throws {
+        let item = try Self.item("Go to Line…", in: "Text")
+        #expect(item.keyEquivalent == AppChord.goToLine.appKitKeyEquivalent && item.keyEquivalent == "l")
+        #expect(item.keyEquivalentModifierMask == [.control, .command], "Go to Line registers the wrong modifiers")
+        var claimants: [String] = []
+        func walk(_ menu: NSMenu) {
+            for entry in menu.items {
+                if entry.keyEquivalent.lowercased() == "l",
+                   entry.keyEquivalentModifierMask.intersection([.control, .command, .option, .shift]) == [.control, .command] {
+                    claimants.append(entry.title)
+                }
+                if let sub = entry.submenu { walk(sub) }
+            }
+        }
+        walk(try #require(NSApp.mainMenu))
+        #expect(claimants == ["Go to Line…"], "⌃⌘L is claimed by \(claimants)")
+        let items = try Self.menu("Text").items
+        let go = try #require(items.firstIndex { $0.title == "Go to Line…" })
+        let use = try #require(items.firstIndex { $0.title == "Use Selection for Find" })
+        #expect(go == use + 1, "Go to Line… is not with the find verbs")
+    }
+
+    /// **Greyed in Preview, editable or not; live in Source and Split** — the one rule the status
+    /// line's "Line, Col" is a button by (`EditorWorkspaceView.offersGoToLine`). Mutation: answer
+    /// `true` for Preview and the first line fails.
+    @Test func goToLineIsForSourceAndSplit() {
+        #expect(!EditorWorkspaceView.offersGoToLine(.preview))
+        #expect(EditorWorkspaceView.offersGoToLine(.edit))
+        #expect(EditorWorkspaceView.offersGoToLine(.split))
     }
 
     @Test func theFindBarsPairCarryTheirPlatformChords() throws {
@@ -393,6 +428,10 @@ import Testing
                 "the menus decide Preview's editability by a rule of their own, not the workspace's")
         #expect(!body.contains("selectedWorkspace == .editor"),
                 "a second spelling of the workspace test sits beside the rule")
+        // Go to Line (TE61): offered by the status line's rule, on the mode being DRAWN, and it
+        // bumps the counter the workspace opens its field on.
+        #expect(body.contains("goToLine: EditorWorkspaceView.offersGoToLine(drawn) ? { editorGoToLineRequest &+= 1 } : nil"),
+                "Text ▸ Go to Line… is not offered by the status line's rule, or does not open its field")
     }
 }
 

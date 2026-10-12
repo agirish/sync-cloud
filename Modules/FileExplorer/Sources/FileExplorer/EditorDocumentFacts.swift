@@ -198,6 +198,17 @@ struct EditorLineIndex: Equatable, Sendable {
         guard target >= 1, target <= lineStarts.count else { return nil }
         return lineStarts[target - 1]
     }
+
+    /// How many lines the caret can stand on — one more than the line breaks, so a text ending in a
+    /// line break has an empty last line after it, as ``EditorCaret`` counts.
+    var lineCount: Int { lineStarts.count }
+
+    /// Where a 1-based line's terminator begins — the end of its text — or `nil` for the last line,
+    /// which has none (and for a line that does not exist).
+    func terminatorStart(ofLine target: Int) -> Int? {
+        guard target >= 1, target <= terminatorStarts.count else { return nil }
+        return terminatorStarts[target - 1]
+    }
 }
 
 /// What the status line says about the open buffer.
@@ -243,6 +254,17 @@ struct EditorDocumentFacts: Equatable, Sendable {
     }
 
     static func of(_ text: String, encoding: String?) -> EditorDocumentFacts {
+        let counted = wordsAndCharacters(in: text)
+        return EditorDocumentFacts(words: counted.words,
+                                   characters: counted.characters,
+                                   lines: lineCount(of: text),
+                                   lineEnding: EditorLineEnding.detect(in: text),
+                                   encoding: encoding)
+    }
+
+    /// The word and character counts — one walk, and the one spelling of the rule, which the
+    /// selection's count (``EditorSelectionFacts``) shares so the two numbers on the line agree.
+    static func wordsAndCharacters(in text: String) -> (words: Int, characters: Int) {
         var words = 0
         var inWord = false
         var characters = 0
@@ -255,11 +277,7 @@ struct EditorDocumentFacts: Equatable, Sendable {
                 words += 1
             }
         }
-        return EditorDocumentFacts(words: words,
-                                   characters: characters,
-                                   lines: lineCount(of: text),
-                                   lineEnding: EditorLineEnding.detect(in: text),
-                                   encoding: encoding)
+        return (words, characters)
     }
 
     /// **A trailing newline does not open a new line.** `"a\n"` is one line, not two — which is the
@@ -291,5 +309,57 @@ struct EditorDocumentFacts: Equatable, Sendable {
         // fact makes the three comparisons below sufficient rather than a state machine.
         if let last = text.last, last == "\n" || last == "\r\n" || last == "\r" { lines -= 1 }
         return max(lines, 1)
+    }
+}
+
+/// What the status line says about the selected text (TE60): its words, characters and lines,
+/// counted by exactly ``EditorDocumentFacts``' rules over the selected range alone.
+///
+/// **The same rules, so the two numbers on one line agree.** "12 of 78 words" puts a selection's
+/// count beside the document's; a selection counted any other way could read 79 of 78 on a select-all.
+/// A word cut by the selection's edge counts as one — the part selected is a run of non-whitespace.
+///
+/// **Lines are the lines the selection TOUCHES, and a trailing line break opens none** — the
+/// document count's rule, which is what makes a triple-clicked line (its text and its newline) read as
+/// one line rather than two.
+struct EditorSelectionFacts: Equatable, Sendable {
+    var words: Int
+    var characters: Int
+    var lines: Int
+
+    /// The counts for `selection` (UTF-16, as `NSTextView` reports it) in `text`, or `nil` for a bare
+    /// caret — which is what puts the status line back to the document's own counts.
+    ///
+    /// **Clamped to the text, never trapped on.** The selection is reported per event and the text is
+    /// read later, off the main actor, so the two can disagree by whatever was typed in between.
+    ///
+    /// **A selection of the whole text takes the document's own counts** when they describe this text —
+    /// `facts` is passed with the text version it was counted at, and `version` is this text's. ⌘A on
+    /// a 4 MiB file is the commonest big selection there is, and the answer is already on screen;
+    /// counting it again is a second walk of the whole buffer for a number that cannot differ.
+    ///
+    /// **The version, not the length** (review): a character typed over a one-character selection,
+    /// a same-length Replace All or a reload leaves counts of the same length that describe another
+    /// text — `"one twoxthree"`'s 2 words offered for `"one two three"`'s 3.
+    static func of(_ text: String, selection: NSRange,
+                   facts: (facts: EditorDocumentFacts, version: Int)? = nil,
+                   version: Int? = nil) -> EditorSelectionFacts? {
+        let utf16 = text.utf16
+        let length = utf16.count
+        let start = min(max(selection.location, 0), length)
+        let end = min(max(selection.location + selection.length, start), length)
+        guard end > start else { return nil }
+        if start == 0, end == length, let facts, facts.version == version {
+            return EditorSelectionFacts(words: facts.facts.words, characters: facts.facts.characters,
+                                        lines: facts.facts.lines)
+        }
+        // **Sliced as a Swift string, never through `NSString`.** `substring(with:)` hands back an
+        // NSString, and walking Characters through one is four times the cost of the native walk —
+        // measured on a 4 MiB selection, -O: 0.59 s against 0.14 s for the document's whole count.
+        let from = utf16.index(utf16.startIndex, offsetBy: start)
+        let selected = String(text[from..<utf16.index(from, offsetBy: end - start)])
+        let counted = EditorDocumentFacts.wordsAndCharacters(in: selected)
+        return EditorSelectionFacts(words: counted.words, characters: counted.characters,
+                                    lines: EditorDocumentFacts.lineCount(of: selected))
     }
 }

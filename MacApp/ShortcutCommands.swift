@@ -200,6 +200,10 @@ struct EditorVerbs {
     /// Whether Find Next and Use Selection for Find have a text view to act on. False in Preview
     /// for the reason `canMarkUp` is: the preview is a rendering, and there is no find bar over it.
     let canFind: Bool
+    /// Text ▸ Go to Line… (TE61): opens the status line's field, or `nil` in Preview — editable or
+    /// not, since a rendered page has no source line to put the caret on
+    /// (`EditorWorkspaceView.offersGoToLine`).
+    let goToLine: (() -> Void)?
 
     struct AutosaveSwitch {
         let isOn: Bool
@@ -2408,6 +2412,21 @@ struct FindNextCommand: View {
     }
 }
 
+/// Text ▸ Go to Line… ⌃⌘L (TE61) — the status line's "Line, Col", as a menu item.
+///
+/// **Not routed on `TextEditingChord`**: ⌃⌘L is none of the field editor's bindings (see
+/// `AppChord.goToLine`), and the field it opens is Edit's, wherever the caret is. With the field
+/// already up, a second press leaves it up.
+struct GoToLineCommand: View {
+    @FocusedValue(\.editorVerbs) private var verbs
+
+    var body: some View {
+        Button("Go to Line…") { verbs?.goToLine?() }
+            .keyboardShortcut(AppChord.goToLine.key, modifiers: AppChord.goToLine.modifiers)
+            .disabled(verbs?.goToLine == nil)
+    }
+}
+
 struct UseSelectionForFindCommand: View {
     @FocusedValue(\.editorVerbs) private var verbs
 
@@ -2771,6 +2790,7 @@ struct EditorMenus: Commands {
             Divider()
             FindNextCommand()            // ⌘G
             UseSelectionForFindCommand() // ⌘E
+            GoToLineCommand()            // ⌃⌘L — the other way to a place in the text (TE61)
             Divider()
             EditorTextSettingCommands()  // Wrap Lines · Readable Line Length · Check Spelling While Typing · Continue Lists, ticked
             Divider()
