@@ -108,6 +108,10 @@ public struct DestinationPicker: View {
     /// Hands off to the system panel for a destination outside the provider.
     let onChooseOther: () -> Void
     let onCancel: () -> Void
+    /// **A folder the picker's New Folder made**, told the moment it exists — whatever happens to the
+    /// transfer after it. The transfer refreshes the panes when it runs; one that is then declined
+    /// left a folder on disk that no pane listed until something else re-read it.
+    let onFolderCreated: (String) -> Void
 
     // The whole Appearance model, read the same way every other surface reads it, so the picker
     // follows Clear / Frosted / Solid, the hue and the tint without a second opinion.
@@ -156,7 +160,9 @@ public struct DestinationPicker: View {
                 showHidden: Bool = false,
                 onCommit: @escaping (String) -> Void,
                 onChooseOther: @escaping () -> Void,
-                onCancel: @escaping () -> Void) {
+                onCancel: @escaping () -> Void,
+                onFolderCreated: @escaping (String) -> Void = { _ in }) {
+        self.onFolderCreated = onFolderCreated
         self.request = request
         self.availableSize = availableSize
         self.recents = recents
@@ -744,6 +750,7 @@ public struct DestinationPicker: View {
         }
         Logger.shared.info("Created “\(name)” from the destination picker")
         newFolderName = ""
+        onFolderCreated(created)
         onCommit(created)
     }
 

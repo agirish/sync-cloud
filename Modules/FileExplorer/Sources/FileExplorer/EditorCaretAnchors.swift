@@ -62,6 +62,13 @@ public final class EditorCaretAnchors {
         offsets.removeValue(forKey: path)
     }
 
+    /// Files a file's anchor under the path it has moved to (TE59) — the text did not change, so
+    /// the offset is still where the caret was.
+    public func move(from old: String, to new: String) {
+        guard old != new else { return }
+        offsets[new] = offsets.removeValue(forKey: old)
+    }
+
     /// A caret offset bounded to a string it must be valid in — the clamp `offset(for:)` refuses to
     /// guess at.
     ///

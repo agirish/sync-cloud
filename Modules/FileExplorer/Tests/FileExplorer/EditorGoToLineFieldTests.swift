@@ -13,6 +13,7 @@ import Design
     final class Model: ObservableObject {
         @Published var shown = false
         @Published var selection: EditorSelectionFacts?
+        @Published var notice: String?
         @Published var width: CGFloat = 900
         @Published var scale: CGFloat = 1
         var went: [EditorGoToLine.Target] = []
@@ -28,7 +29,8 @@ import Design
                              headings: headings, selection: model.selection,
                              goToLine: EditorStatusGoToLine(
                                 isPresented: Binding(get: { model.shown }, set: { model.shown = $0 }),
-                                lineCount: 412, accent: .blue, onGo: { model.went.append($0) }))
+                                lineCount: 412, accent: .blue, onGo: { model.went.append($0) }),
+                             notice: model.notice)
                 .environment(\.appFontScale, model.scale)
                 .frame(width: model.width)
         }
@@ -98,6 +100,7 @@ import Design
     func theFieldOpensFocusedUnderTheCaret(withHeadings: Bool) throws {
         let model = Model()
         let (window, host) = mount(model, headings: withHeadings ? Self.headings : nil)
+        defer { close(model, window) }
         #expect(popovers().isEmpty, "a field was up before anything asked for one")
         model.shown = true
         spin(window)
@@ -110,7 +113,6 @@ import Design
         let popover = try #require(open.first)
         #expect(abs(popover.frame.midX - caret.midX) < 6,
                 "the field is centred at \(popover.frame.midX), the caret at \(caret.midX) — the line is 200…1100")
-        close(model, window)
     }
 
     // MARK: Changing rung under it
@@ -145,6 +147,7 @@ import Design
             model.width = Self.fullRungWidth(withHeadings: withHeadings) + 4
         }
         let (window, host) = mount(model, headings: withHeadings ? Self.headings : nil)
+        defer { close(model, window) }
         model.shown = true
         spin(window)
         let popover = try #require(popovers().first, "no field opened")
@@ -172,6 +175,60 @@ import Design
             #expect(abs(popover.frame.midX - caretAfter.midX) < 6,
                     "the field is centred at \(popover.frame.midX), the caret now at \(caretAfter.midX)")
         }
-        close(model, window)
+    }
+
+    // MARK: A notice from elsewhere (TE59)
+
+    static let notice = "Reloaded — changed elsewhere"
+
+    /// **⌃⌘L while a notice holds the line opens the field at once, on the caret** — the notice gives
+    /// way. It held the slot the caret is drawn in, so the field had nothing to hang from and
+    /// opened by itself seconds later, when the notice cleared.
+    @Test func askingForTheFieldUnderANoticeOpensItOnTheCaret() throws {
+        let model = Model()
+        model.notice = Self.notice
+        let (window, host) = mount(model)
+        defer { close(model, window) }
+        #expect(caretRingOnScreen(in: host, window: window) == nil, "the notice is not holding the slot")
+        model.shown = true
+        spin(window)
+        let open = popovers()
+        #expect(open.count == 1, "\(open.count) fields opened")
+        #expect(fieldEditor(open.first) != nil, "the field did not take focus")
+        let caret = try #require(caretRingOnScreen(in: host, window: window), "the notice kept the caret off the line")
+        if let popover = open.first {
+            #expect(abs(popover.frame.midX - caret.midX) < 6,
+                    "the field is centred at \(popover.frame.midX), the caret at \(caret.midX)")
+        }
+        // The notice's time running out changes nothing under the field.
+        model.notice = nil
+        spin(window)
+        #expect(popovers().count == 1 && model.shown)
+    }
+
+    /// **A notice arriving while the field is up waits** — the field, what was typed and the caret it
+    /// hangs from all stay, and the notice is said once the field closes, if its seconds are not up.
+    @Test func aNoticeArrivingWhileTheFieldIsUpWaits() throws {
+        let model = Model()
+        let (window, host) = mount(model)
+        defer { close(model, window) }
+        model.shown = true
+        spin(window)
+        let editor = try #require(fieldEditor(popovers().first), "the field did not take focus")
+        editor.insertText("7", replacementRange: editor.selectedRange())
+        spin(window, 3)
+        model.notice = Self.notice
+        spin(window)
+        let open = popovers()
+        #expect(open.count == 1 && model.shown, "the field closed: \(open.count) up, shown \(model.shown)")
+        #expect(fieldEditor(open.first)?.string == "7", "the typing went")
+        let caret = try #require(caretRingOnScreen(in: host, window: window), "the notice took the caret's slot")
+        if let popover = open.first {
+            #expect(abs(popover.frame.midX - caret.midX) < 6)
+        }
+        // Closed, the line says the notice.
+        model.shown = false
+        spin(window)
+        #expect(caretRingOnScreen(in: host, window: window) == nil, "the notice was not said after the field closed")
     }
 }

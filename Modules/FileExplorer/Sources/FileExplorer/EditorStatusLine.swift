@@ -42,6 +42,9 @@ struct EditorStatusLine: View, Equatable {
     /// Drops the selection's line count from a forced rung — the ladder's first concession, for the
     /// tests that measure it. Ignored when the rung is chosen by width.
     var forcedDropsSelectionLines = false
+    /// **What a change from elsewhere just did (TE59)** — "Reloaded — changed elsewhere" — in the
+    /// same leading slot for a few seconds. The hint outranks it: that one has a control in it.
+    var notice: String?
 
     @Environment(\.appFontScale) private var scale
     /// The drawn caret button's bounds in the line, for Go to Line's arrow (TE61).
@@ -63,7 +66,15 @@ struct EditorStatusLine: View, Equatable {
             && a.forcedRung == b.forcedRung && a.headings == b.headings && a.hint == b.hint
             && a.selection == b.selection && a.goToLine == b.goToLine
             && a.forcedDropsSelectionLines == b.forcedDropsSelectionLines
+            && a.notice == b.notice
     }
+
+    /// **The notice gives way while Go to Line's field is up.** Both want the leading slot, and the
+    /// field is what the person has just asked for: under the notice there was no caret for it to
+    /// hang from, so ⌃⌘L showed nothing, and a notice arriving mid-typing took the slot from under
+    /// the field. A notice is news that times out on its own, so it waits — and is said again if
+    /// its seconds are not up when the field closes.
+    private var shownNotice: String? { goToLine?.isPresented.wrappedValue == true ? nil : notice }
 
     /// **Whether the selection's line count is drawn at all** — only for a selection across more than
     /// one line, where it says something the other two counts do not.
@@ -88,6 +99,10 @@ struct EditorStatusLine: View, Equatable {
         Group {
             if let hint {
                 hinted(hint)
+            } else if let notice = shownNotice {
+                Text(notice)
+                    .truncationMode(.tail)
+                    .accessibilityLabel(notice)
             } else if let headings {
                 if let forcedRung {
                     rung(forcedRung, headings, fit: .floor, lines: !forcedDropsSelectionLines)

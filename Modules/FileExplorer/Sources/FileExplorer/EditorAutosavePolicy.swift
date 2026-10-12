@@ -43,6 +43,16 @@ public final class EditorAutosavePolicy: ObservableObject {
         if on { suspended.remove(path) } else { suspended.insert(path) }
     }
 
+    /// **A file switched off stays off when it moves** (TE59): Finder, Organize or another device
+    /// renamed or moved the open document, and the editor followed it. The set is keyed by path,
+    /// so without this the switch would quietly come back on at the new name — the direction a
+    /// surprise must never point for a file somebody asked not to be written.
+    public func move(from old: String, to new: String) {
+        guard old != new, suspended.contains(old) else { return }
+        suspended.remove(old)
+        suspended.insert(new)
+    }
+
     /// Flips one file, and answers where it landed.
     @discardableResult
     public func toggle(_ path: String) -> Bool {

@@ -204,9 +204,9 @@ import Sync
     /// re-read of the pane holding the file, as the skipped comparison — naming the file — so the
     /// payment compares without walking that pane a second time.
     @Test func createAndExportFeedTheSameRecord() throws {
-        let body = try EditorNewFilePaneWiringTests.body(of: "func rereadPanesAfterEditorWrite(_ path: String) {",
+        let body = try EditorNewFilePaneWiringTests.body(of: "func rereadPanesAfterEditorWrite(_ path: String, writer: String = \"Edit wrote\", comparesInCompare: Bool = true) {",
                                                          in: "ContentView+Editor.swift")
-        let compare = try #require(body.range(of: "if selectedWorkspace == .compare {"),
+        let compare = try #require(body.range(of: "if selectedWorkspace == .compare, comparesInCompare {"),
                                    "the re-read no longer tells Compare from the rest")
         let noted = try #require(body.range(of: "noteEditorWrote(path)"),
                                  "a file made in Compare is not compared at once")

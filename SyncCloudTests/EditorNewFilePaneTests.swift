@@ -62,7 +62,7 @@ import Sync
                 "the selection is no longer owed — nothing will select the file")
         #expect(show.contains("rereadPanesAfterEditorWrite(path)"),
                 "⌘N no longer re-reads the pane — the new file is not listed")
-        let body = try Self.body(of: "func rereadPanesAfterEditorWrite(_ path: String) {",
+        let body = try Self.body(of: "func rereadPanesAfterEditorWrite(_ path: String, writer: String = \"Edit wrote\", comparesInCompare: Bool = true) {",
                                  in: "ContentView+Editor.swift")
         let prepare = try #require(body.range(of: "syncManager.prepareReread(afterWritingAt: path)"),
                                    "the cache is not dropped — the re-read is served the pre-create walk")

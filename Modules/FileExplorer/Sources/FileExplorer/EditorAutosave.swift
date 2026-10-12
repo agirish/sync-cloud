@@ -131,8 +131,15 @@ public enum EditorAutosave {
     /// same way: the result is dropped, and the document is left exactly as the newer write left
     /// it. `EditorFileStore`'s write order guarantees the older bytes were never written in that
     /// case, so there is nothing to undo.
+    ///
+    /// **Counted on the document while it is out** (``EditorDocument/backgroundWrites``), so the disk
+    /// watch does not read the file this write installed — newer than the document's stamp until
+    /// the commit below — as a change made elsewhere (TE59). Begun before the bytes leave, ended
+    /// after the commit, both on the main actor where the watch runs.
     @MainActor
     public static func write(_ snapshot: Snapshot, into document: EditorDocument) async -> Outcome {
+        document.beginBackgroundWrite()
+        defer { document.endBackgroundWrite() }
         let result = await Task.detached(priority: .utility) { () -> Result in
             if let divergence = EditorFileStore.divergence(atPath: snapshot.path,
                                                            from: snapshot.stamp) {

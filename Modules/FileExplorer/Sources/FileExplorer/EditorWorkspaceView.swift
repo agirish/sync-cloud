@@ -174,6 +174,14 @@ public struct EditorWorkspaceView: View {
     /// where it is stated and tested. `nil` here means the words stay words: a plain read-only piece
     /// of state, with no hover wash and nothing for VoiceOver to activate.
     var onShowWhatChanged: (() -> Void)?
+    /// **The question standing over the document after a change from elsewhere** (TE59) — drawn in
+    /// the document card, above the text. `nil` while there is none.
+    var diskBanner: EditorDiskBanner?
+    /// A few seconds of words in the status line about what a change from elsewhere did —
+    /// "Reloaded — changed elsewhere".
+    var diskNotice: String?
+    /// A press on the banner — the host answers it.
+    var onDiskBanner: (EditorDiskBannerAction) -> Void
     let prefilledName: () -> String
     let refusal: (String) -> String?
     let onOpen: (EditorRailEntry) -> Void
@@ -316,6 +324,9 @@ public struct EditorWorkspaceView: View {
                 undoManager: UndoManager,
                 stopped: String? = nil,
                 onShowWhatChanged: (() -> Void)? = nil,
+                diskBanner: EditorDiskBanner? = nil,
+                diskNotice: String? = nil,
+                onDiskBanner: @escaping (EditorDiskBannerAction) -> Void = { _ in },
                 prefilledName: @escaping () -> String,
                 refusal: @escaping (String) -> String?,
                 onOpen: @escaping (EditorRailEntry) -> Void,
@@ -370,6 +381,9 @@ public struct EditorWorkspaceView: View {
         self.undoManager = undoManager
         self.stopped = stopped
         self.onShowWhatChanged = onShowWhatChanged
+        self.diskBanner = diskBanner
+        self.diskNotice = diskNotice
+        self.onDiskBanner = onDiskBanner
         self.prefilledName = prefilledName
         self.refusal = refusal
         self.onOpen = onOpen
@@ -607,7 +621,7 @@ public struct EditorWorkspaceView: View {
                 // Formatted when the stamp moved, not here — see ``EditorDocument/sizeCaption``.
                 EditorStatusLine(facts: facts, caret: caret, fileSize: document.sizeCaption,
                                  headings: statusHeadings, hint: statusHint,
-                                 selection: selectionFacts, goToLine: statusGoToLine)
+                                 selection: selectionFacts, goToLine: statusGoToLine, notice: diskNotice)
                     // Compared on what it draws, the closures left out — see `EditorStatusLine.==`.
                     .equatable()
             }
@@ -1280,7 +1294,8 @@ public struct EditorWorkspaceView: View {
                 goToLineShown = false
             }
             // Text ▸ Go to Line… — the menu's press opens the status line's field (TE61). Any hint
-            // standing in the line's place goes first: the field hangs off the caret it covers.
+            // standing in the line's place goes first: the field hangs off the caret it covers. A
+            // notice from elsewhere gives way by itself while the field is up (TE59).
             .onChange(of: goToLineRequest) { _, _ in
                 guard offersGoToLine else { return }
                 statusHint = nil
@@ -1409,6 +1424,10 @@ public struct EditorWorkspaceView: View {
             caption(Self.emptyCaption(hasFolder: !folder.isEmpty, showsRail: showsRail))
         } else {
             VStack(spacing: 0) {
+                if let diskBanner {
+                    EditorDiskBannerView(banner: diskBanner, name: document.name,
+                                         canSaveAgain: !document.isReadOnly, onAction: onDiskBanner)
+                }
                 if let reason = document.readOnlyReason {
                     readOnlyBanner(reason)
                 }

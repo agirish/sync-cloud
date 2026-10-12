@@ -180,6 +180,23 @@ public final class EditorUndoStore: ObservableObject {
         }
     }
 
+    /// **The open document's file moved, and its history goes with it** (TE59) — Finder, Organize or
+    /// another device renamed or moved it while it was open. The stack and the storage are the same
+    /// objects and still fit the text exactly; only the path they are filed under changes, so the
+    /// next ``remember(text:)`` files them where the document now is and a later return to the file
+    /// finds them. A history kept under the destination path — a different file that used to be
+    /// there — describes text that is gone and is dropped.
+    public func move(from old: String, to new: String) {
+        guard old != new else { return }
+        if activePath == old { activePath = new }
+        stacks[new]?.manager.removeAllActions()
+        stacks[new] = stacks.removeValue(forKey: old)
+        order.removeAll { $0 == new }
+        if let index = order.firstIndex(of: old) {
+            if stacks[new] != nil { order[index] = new } else { order.remove(at: index) }
+        }
+    }
+
     /// Drops the history of files that are no longer where they were.
     ///
     /// **Correctness before thrift.** A stack for a path that no longer exists can never be handed

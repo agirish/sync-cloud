@@ -360,6 +360,10 @@ extension ContentView {
             // `EditorAutosaveStop.offersDiff`'s rule — `nil` here leaves the header a plain word.
             onShowWhatChanged: (editorAutosaveStop?.offersDiff ?? false)
                 ? { showEditorDivergenceDiff() } : nil,
+            // TE59: the question a change from elsewhere left standing, and what it did quietly.
+            diskBanner: editorDiskWatch.banner,
+            diskNotice: editorDiskWatch.notice?.text,
+            onDiskBanner: { answerEditorDiskBanner($0) },
             // Both closures, so neither walks the folder until the naming row is actually open.
             // Where ⌘N's file will go — the pane's folder, or Notes (`newTextFileDestination`).
             prefilledName: { EditorFileStore.availableUntitledName(in: newTextFileDestination.folder) },
@@ -489,6 +493,18 @@ extension ContentView {
             noteAutosave()
             return true
         case .blocked(let divergence):
+            // **TE59: a move is followed and a re-stamp taken before anything is asked** — then the
+            // flush is tried once more, at the path the file is really at.
+            switch editorDiskWatch.reconcile() {
+            case .followed, .restamped, .settled:
+                if case .wrote = EditorAutosave.attempt(editorDocument) {
+                    noteEditorWrote(editorDocument.path)
+                    noteAutosave()
+                    return true
+                }
+            default:
+                break
+            }
             // It diverged between the last attempt and this one. Same question, asked now.
             editorAutosaveStop = .diverged(divergence)
             return confirmLeavingAnUnwrittenDocument()
@@ -910,6 +926,13 @@ extension ContentView {
     /// - Returns: `false` when nothing was written.
     @discardableResult
     func saveEditorDocument() -> Bool {
+        // **TE59: the disk watch looks first** when the file has moved under the stamp — so a move is
+        // followed and a re-stamp over the same contents taken, rather than asked about; a real
+        // change raises its banner, and the question below is still asked, since ⌘S asked to write.
+        if let path = editorDocument.path, let stamp = editorDocument.stamp,
+           EditorFileStore.divergence(atPath: path, from: stamp) != nil {
+            editorDiskWatch.reconcile()
+        }
         guard let path = editorDocument.path, let stamp = editorDocument.stamp,
               !editorDocument.isReadOnly else { return false }
         // Re-stat before writing. A file opened an hour ago may have been filed, renamed or edited
@@ -957,6 +980,13 @@ extension ContentView {
         case .saveAnyway:
             return writeEditorDocument(explicit: explicit)
         case .reloadFromDisk:
+            // **With the TE59 banner up, the reload is "Use the Disk's"** — the same answer, as one
+            // step ⌘Z takes back, so the typing the question was about can still come back. Every
+            // door onto this answer (the alert, the diff's foot) gets the safer of the two.
+            if editorDiskWatch.banner == .changed {
+                if editorDiskWatch.useDisksVersion() == .unreadable { reportDisksVersionUnreadable() }
+                return false
+            }
             return reloadOverTheBuffer(path: path)
         case .showWhatChanged:
             // **The latch goes on BEFORE the overlay, not after it.** While two versions are on
@@ -1011,9 +1041,15 @@ extension ContentView {
     /// buffer, so the reason autosave halted has gone with it.
     @discardableResult
     private func writeEditorDocument(explicit: Bool) -> Bool {
+        // **A write that puts the file BACK** — Save Anyway or Save Again after it was deleted — is a
+        // new file in a folder the panes have walked, and is shown there as ⌘N's is. A rewrite of a
+        // file the panes already list is not (see `rereadPanesAfterEditorWrite`).
+        let recreates = editorDocument.path.map { !FileManager.default.fileExists(atPath: $0) } ?? false
         do {
             editorDocument.markSaved(stamp: try EditorFileStore.write(editorDocument))
             editorAutosaveStop = nil
+            // The disk agrees with the document now, so a TE59 banner has nothing left to ask.
+            editorDiskWatch.reconcile()
             // **⌘S is INFO and autosave is DEBUG, and that split is deliberate.** He audits this
             // log. One line per explicit save is a record; one line every two seconds of typing is
             // a flood that buries everything around it — including the failures below, which is the
@@ -1026,6 +1062,7 @@ extension ContentView {
                 Logger.shared.debug("Editor autosaved \(path)")
             }
             Task { await refreshEditorRail() }
+            if recreates { showCreatedFileInPane(path) }
             return true
         } catch {
             // **Banner, never log-only.** A save that silently failed is the one failure in this
@@ -1095,6 +1132,22 @@ extension ContentView {
         case .wrote:
             _ = writeEditorDocumentDidWrite()
         case .blocked(let divergence):
+            // **TE59: the disk watch answers this first**, with its banner rather than a modal — the
+            // write found what the watch would have found a moment later. A move it follows is not
+            // a divergence at all, and the write is simply made again at the new path.
+            switch editorDiskWatch.reconcile() {
+            case .asked:
+                // **The stop is re-latched from the banner**, which may have stood since before: a
+                // settle that cleared the stop without changing the document left the two
+                // disagreeing — the banner up, autosave free, and Compare (which reads the stop)
+                // doing nothing.
+                editorDiskBannerDidChange(editorDiskWatch.banner)
+                return
+            // Followed to its new path, or only re-stamped over the same contents: nothing to ask,
+            // and the write is made again.
+            case .followed, .restamped, .settled: runAutosave(); return
+            default: break
+            }
             editorAutosaveStop = .diverged(divergence)
             // Interrupt now rather than wait to be noticed. The latch above is already set, so
             // declining leaves the document visibly stopped instead of asking again — and so does
@@ -1115,6 +1168,7 @@ extension ContentView {
     /// half — the log line, the rail, and clearing any stop.
     private func writeEditorDocumentDidWrite() -> Bool {
         editorAutosaveStop = nil
+        editorDiskWatch.reconcile()
         noteEditorWrote(editorDocument.path)
         Logger.shared.debug("Editor autosaved \(editorDocument.path ?? "")")
         Task { await refreshEditorRail() }
@@ -1168,6 +1222,126 @@ extension ContentView {
         editorDocument.caretAnchors.forget(path)
         loadIntoEditor(path: path)
         return false
+    }
+
+    // MARK: - Changes from elsewhere (TE59)
+
+    /// Points the disk watch at the document and tells it what the window does about what it finds.
+    /// Every appearance of the window — the closures are this view's, and a reopened window is
+    /// this view again; the attach itself happens once.
+    func attachEditorDiskWatch() {
+        editorDiskWatch.attach(document: editorDocument, undoStore: editorUndoStore)
+        editorDiskWatch.onMoved = { old, new, byThisApp in editorDocumentDidMove(from: old, to: new, byThisApp: byThisApp) }
+        editorDiskWatch.onBannerChange = { banner in editorDiskBannerDidChange(banner) }
+    }
+
+    /// **The open file moved, and the document followed it** — the path-keyed state the window
+    /// holds goes with it: the autosave switch, the outline's place, a diff question about it.
+    /// Then the lists: the rail re-reads its folder, and the panes re-read where the file went and
+    /// select it there if they had it selected where it was.
+    ///
+    /// **Not the lists after the app's own file operation** (`byThisApp`): its epilogue has just
+    /// refreshed both panes in full and the rail where it is drawn (`refreshEditorAfterFileOperation`),
+    /// and a second re-read here dropped the walks that refresh was reading — defeating its duplicate
+    /// suppression — and logged a write Edit never made.
+    func editorDocumentDidMove(from old: String, to new: String, byThisApp: Bool) {
+        editorAutosavePolicy.move(from: old, to: new)
+        if let anchor = editorOutlineAnchors.removeValue(forKey: old) { editorOutlineAnchors[new] = anchor }
+        if var review = editorDivergenceReview, review.path == old {
+            review.path = new
+            editorDivergenceReview = review
+        }
+        let wasSelected = syncManager.selectedLeftPaths == [old]
+        if wasSelected { owePaneSelection(new) }
+        guard !byThisApp else { return }
+        Task { await refreshEditorRail() }
+        syncManager.prepareReread(afterWritingAt: old)
+        rereadPanesAfterEditorWrite(new, writer: "The open document was moved elsewhere to")
+    }
+
+    /// **A banner stops autosave, and its going lets it resume** — the latch the header already
+    /// reads, set from the banner so the two can never disagree: while a change from elsewhere is
+    /// waiting for an answer, nothing is written over either version.
+    ///
+    /// Cleared only when the disk agrees with the document again — a reload, Use the Disk's, Keep
+    /// Mine, Save Again — and not merely because the banner went with a file being closed, which
+    /// settles the stop its own way.
+    func editorDiskBannerDidChange(_ banner: EditorDiskBanner?) {
+        let diskAgrees = editorDocument.path.flatMap { path in
+            editorDocument.diskStamp.map { EditorFileStore.divergence(atPath: path, from: $0) == nil }
+        } ?? false
+        editorAutosaveStop = Self.autosaveStop(after: banner, current: editorAutosaveStop, diskAgrees: diskAgrees)
+    }
+
+    /// The stop a banner leaves — see ``editorDiskBannerDidChange(_:)``. A failed write's stop is
+    /// not the banner's to clear: only a divergence is.
+    static func autosaveStop(after banner: EditorDiskBanner?, current: EditorAutosaveStop?,
+                             diskAgrees: Bool) -> EditorAutosaveStop? {
+        switch banner {
+        case .changed: return .diverged(.changed)
+        case .deleted: return .diverged(.missing)
+        case nil:
+            guard case .diverged = current, diskAgrees else { return current }
+            return nil
+        }
+    }
+
+    /// A press on the banner.
+    func answerEditorDiskBanner(_ action: EditorDiskBannerAction) {
+        switch action {
+        case .compare:
+            // The diff reads the stop; latched from the banner first, so a stop cleared under a
+            // standing banner cannot leave this button doing nothing.
+            editorDiskBannerDidChange(editorDiskWatch.banner)
+            showEditorDivergenceDiff()
+        case .keepMine:
+            // **The same consent the save-over-divergence alert asks for**: the other changes are
+            // lost, said in words, with the destructive button off Return.
+            guard EditorAlerts.confirmKeepMine(name: editorDocument.name) else { return }
+            writeEditorDocument(explicit: true)
+        case .useDisks:
+            if editorDiskWatch.useDisksVersion() == .unreadable { reportDisksVersionUnreadable() }
+        case .close:
+            closeEditorDocument()
+        case .saveAgain:
+            // Only while the path is still empty — a file back there is looked at, not written over —
+            // and with its folder made again if that went too.
+            switch editorDiskWatch.prepareSaveAgain() {
+            case .write:
+                writeEditorDocument(explicit: true)
+            case .notMissing:
+                break
+            case .failed(let why):
+                syncManager.banner = .error("Couldn't save “\(editorDocument.name)” — \(why)")
+            }
+        }
+    }
+
+    /// "Use the Disk's" found nothing it could put in the buffer — the file is now unreadable, too
+    /// large or not text. Nothing changed; the banner stays, and says so.
+    private func reportDisksVersionUnreadable() {
+        Logger.shared.info("[edit] Could not take the version of \(editorDocument.path ?? "") on disk — it cannot be read as text now")
+        syncManager.banner = .error("Couldn't read the version of “\(editorDocument.name)” on disk — your text is unchanged.")
+    }
+
+    /// **After one of the app's own file operations** (`refreshSubject`'s epilogue): Edit's rail
+    /// re-reads its folder, and the disk watch looks at the open document now — a rename, a move to
+    /// another folder, a delete or Organize filing it. The watch hears those as file-system events
+    /// too; this is the look without waiting for them to settle.
+    ///
+    /// The rail only while Edit is on screen: anywhere else it is not drawn, and arriving in Edit
+    /// re-reads it (`editorWorkspace`'s `.task(id:)`). The subject also fires when a pane moves,
+    /// where both are a directory read and a `stat` that find nothing new.
+    func refreshEditorAfterFileOperation() {
+        if Self.railRefreshesAfterFileOperation(workspace: selectedWorkspace) {
+            Task { await refreshEditorRail() }
+        }
+        editorDiskWatch.reconcile(afterOwnFileOperation: true)
+    }
+
+    /// Whether a file operation's epilogue re-reads Edit's rail — only where the rail can be seen.
+    static func railRefreshesAfterFileOperation(workspace: Workspace) -> Bool {
+        workspace == .editor
     }
 
     // MARK: - Creating
@@ -1331,6 +1505,9 @@ extension ContentView {
                 syncManager.banner = .warning(warning)
             }
             if let reread = madeFolder ?? files.first { rereadPanesAfterEditorWrite(reread) }
+            // The rail lists the note's folder — and an image, or the folder it went in, is a new
+            // entry there.
+            if !files.isEmpty || madeFolder != nil { Task { await refreshEditorRail() } }
         }
     }
 
@@ -1376,15 +1553,23 @@ extension ContentView {
     /// rewrites a file the pane already lists, and a re-read twice a sentence would be the cost
     /// the rail's own "only when the listing changed" guard exists to avoid — a rewrite is owed to
     /// Compare instead (`noteEditorWrote`).
-    func rereadPanesAfterEditorWrite(_ path: String) {
+    ///
+    /// - Parameters:
+    ///   - writer: who put it there and how, for the log — the destination picker's New Folder and a
+    ///     move followed from elsewhere come through here too.
+    ///   - comparesInCompare: `false` where something else is about to compare — the picker's New
+    ///     Folder, whose transfer refreshes and compares both panes itself when it runs. The pane is
+    ///     re-read and the comparison owed, as outside Compare, so a declined transfer still lists
+    ///     the folder without a rescan the transfer's own would supersede a moment later.
+    func rereadPanesAfterEditorWrite(_ path: String, writer: String = "Edit wrote", comparesInCompare: Bool = true) {
         syncManager.prepareReread(afterWritingAt: path)
         guard let scope = Self.panesHolding(path, leftFolder: currentLeftPath, rightFolder: currentRightPath,
                                             leftLinkTargets: syncManager.leftTreeLinkTargets,
                                             rightLinkTargets: syncManager.rightTreeLinkTargets) else {
-            Logger.shared.info("Edit wrote \(path), which neither pane is showing; re-reading neither")
+            Logger.shared.info("\(writer) \(path), which neither pane is showing; re-reading neither")
             return
         }
-        if selectedWorkspace == .compare {
+        if selectedWorkspace == .compare, comparesInCompare {
             // Paid at once, as every write in Compare is: the pane(s) holding it re-read, compared.
             noteEditorWrote(path)
         } else {

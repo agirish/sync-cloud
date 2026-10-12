@@ -68,8 +68,11 @@ public enum EditorFileStore {
         /// Text the editor may write back, the stamp to check it against at save time, and the
         /// encoding it must be written back IN.
         case editable(text: String, stamp: Stamp, encoding: BoundedTextRead.TextEncoding)
-        /// Text the editor will show and refuse to save, with the reason to put on screen.
-        case readOnly(text: String, reason: String)
+        /// Text the editor will show and refuse to save, with the reason to put on screen — and the
+        /// stamp taken before the read, so a change arriving later is still noticed (TE59). Taken
+        /// BEFORE rather than after: a write landing mid-read then reads as a change, and a read-only
+        /// document reloads, which is the safe direction for a file that cannot be written anyway.
+        case readOnly(text: String, reason: String, stamp: Stamp? = nil)
         /// Nothing to show; `reason` is already reader-facing prose.
         case refused(reason: String)
     }
@@ -108,13 +111,13 @@ public enum EditorFileStore {
             let outcome = BoundedTextRead.read(path: path, isCloudOnly: isCloudOnly)
             switch outcome {
             case .text(let text, let lossy, let encoding):
-                guard !lossy else { return .readOnly(text: text, reason: lossyReason) }
+                guard !lossy else { return .readOnly(text: text, reason: lossyReason, stamp: before) }
                 // No stamp means no way to notice the file changing under the buffer, and a save
                 // path that cannot check is worse than one that will not open.
                 guard let stamp = stamp(ofPath: path, fileManager: fileManager),
                       let before, before == stamp else {
                     if attempt == 0 { continue }
-                    return .refused(reason: "Kept changing while it was being read.")
+                    return .refused(reason: keptChangingReason)
                 }
                 return .editable(text: text, stamp: stamp, encoding: encoding)
             case .tooLarge, .cloudOnly, .binary, .unreadable:
@@ -124,8 +127,12 @@ public enum EditorFileStore {
                 return .refused(reason: outcome.caption ?? "Couldn't be read.")
             }
         }
-        return .refused(reason: "Kept changing while it was being read.")
+        return .refused(reason: keptChangingReason)
     }
+
+    /// Why a file that would not hold still while it was read was refused — and the one refusal
+    /// the disk watch answers by looking again rather than by showing it (TE59).
+    static let keptChangingReason = "Kept changing while it was being read."
 
     /// How the file on disk differs from the buffer's idea of it.
     public enum Divergence: Equatable, Sendable {
@@ -554,7 +561,7 @@ public enum EditorFileStore {
         document.open(outcome, at: path)
         switch outcome {
         case .editable: return .opened
-        case .readOnly(_, let reason): return .readOnly(reason)
+        case .readOnly(_, let reason, _): return .readOnly(reason)
         case .refused(let reason): return .refused(reason)
         }
     }

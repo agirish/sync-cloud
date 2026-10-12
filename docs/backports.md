@@ -6872,3 +6872,36 @@ done
 
 **`v4.x`, `v3.x`, `v2.x`: checked — not owed.** None of them has the Edit workspace, its shared
 source storage or the Markup verbs, so there is no Preview to type into.
+
+## Edit notices a change to the open file from elsewhere when it happens (TE59) — main only
+
+`EditorDiskWatch` watches the open document (a `kqueue` vnode source on the file and its folder,
+`EditorFileWatcher`) and answers each change: nothing unsaved — reload quietly, history emptied;
+unsaved typing — a banner (Compare, Keep Mine, Use the Disk's) and autosave stopped; moved or
+renamed — followed; deleted — a banner (Close, Save Again). The editor's own writes compare against
+the stamp they read back (`EditorDocument.diskStamp`, `backgroundWrites`). With it, three refresh
+gaps the app's own operations left: a write that recreates a deleted file is shown in the panes
+(`writeEditorDocument` → `showCreatedFileInPane`), Edit's rail and the watch both follow
+`refreshSubject`'s epilogue (`refreshEditorAfterFileOperation`), and an image import re-reads the
+rail. And one outside Edit: the destination picker's New Folder tells the host the moment it makes a
+folder (`DestinationPicker.onFolderCreated`), so a transfer declined after it leaves the folder
+listed.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s divergence=%s pickerNewFolder=%s onFolderCreated=%s\n' "$l" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorFileStore.swift 2>/dev/null | grep -c 'func divergence')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DestinationPicker.swift | grep -c 'createFolderAndCommit')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DestinationPicker.swift | grep -c 'onFolderCreated')"
+done
+# measured 2026-10-09, against origin, before this landed:
+# main  divergence=1 pickerNewFolder=2 onFolderCreated=0
+# v4.x, v3.x, v2.x — every line: divergence=0 pickerNewFolder=2 onFolderCreated=0
+```
+
+**`v4.x`, `v3.x`, `v2.x`: the watch and the editor's three gaps — checked, not owed.** None of them
+has the Edit workspace's file store, so there is no open document to watch and no rail.
+
+| Change | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **The picker's New Folder, listed when the transfer after it is declined** (`DestinationPicker.onFolderCreated`, answered by `rereadPanesAfterEditorWrite(_:writer:)`) | The picker and its `createFolderAndCommit` are there; a declined transfer leaves the new folder unlisted until something re-reads its parent. The host half needs a targeted re-read — `main`'s `rereadPanesAfterEditorWrite` does not exist there; `refreshAction(reloading:)` of the pane holding the parent is the shape to use | Same | RECORDED — not owed |

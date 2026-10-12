@@ -134,6 +134,10 @@ struct SyncCloudApp: App {
     /// died with the window would switch autosave back on for a document still open in it. It is
     /// deliberately not persisted — see `EditorAutosavePolicy`.
     @StateObject private var editorAutosavePolicy = EditorAutosavePolicy()
+    /// Watches the open document's file for changes made elsewhere (TE59). **Here for the
+    /// document's reason**: it must outlive the window, and it watches whatever the document has
+    /// open — attached to it from `ContentView.onAppear`.
+    @StateObject private var editorDiskWatch = EditorDiskWatch()
 
     /// Watches for ⌥ held alone, and publishes it to every `.shortcutKeycap(_:)` in the window.
     /// One per app: it installs local `NSEvent` monitors, and a second would double them.
@@ -649,6 +653,7 @@ struct SyncCloudApp: App {
                     editorUndoManager: editorUndoStore.current,
                     editorUndoStore: editorUndoStore,
                     editorAutosavePolicy: editorAutosavePolicy,
+                    editorDiskWatch: editorDiskWatch,
                     setupDismissedThisSession: $setupDismissedThisSession,
                     showSetup: $showSetup,
                     duplicateReview: $duplicateReview,

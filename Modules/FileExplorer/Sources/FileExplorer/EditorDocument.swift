@@ -157,6 +157,38 @@ public final class EditorDocument: ObservableObject {
         didSet { sizeCaption = stamp.map { FileSyncManager.formatBytes($0.size) } }
     }
 
+    /// **What the file at ``path`` looked like the last time this app read or wrote it** — the stamp
+    /// the disk watch (TE59, ``EditorDiskWatch``) compares the file against to tell a change from
+    /// elsewhere from nothing at all.
+    ///
+    /// ``stamp`` for a document that can be saved, and moved by every write that moves it — so the
+    /// editor's own saves, autosave included, read back as "nothing happened". **Kept for a
+    /// read-only document as well**, where ``stamp`` is `nil` on purpose (it is one of the gates
+    /// that keeps such a file from being written), because a read-only file still reloads when it
+    /// changes. `nil` with nothing open, and for a refusal.
+    ///
+    /// Not published: nothing on screen is drawn from it.
+    public private(set) var diskStamp: EditorFileStore.Stamp?
+
+    /// How many autosave writes are out on a background thread for this document right now.
+    ///
+    /// **The one window in which the editor's own write can look like somebody else's.** Autosave
+    /// swaps the file off the main actor and marks the document saved back on it, so between the
+    /// two the file on disk is newer than ``diskStamp`` says — and it is the editor's. The disk
+    /// watch waits while this is above zero, then compares against the stamp the write left.
+    /// A synchronous write (⌘S, a flush) needs no count: it stamps the document before the main
+    /// actor can run anything else.
+    public private(set) var backgroundWrites = 0 {
+        didSet { onBackgroundWrites?(backgroundWrites) }
+    }
+
+    /// Told each count as it changes — for the tests, which cannot reliably catch a write while it
+    /// is out by looking: on a loaded machine it can come and go between two looks.
+    var onBackgroundWrites: ((Int) -> Void)?
+
+    func beginBackgroundWrite() { backgroundWrites += 1 }
+    func endBackgroundWrite() { backgroundWrites = max(0, backgroundWrites - 1) }
+
     /// The open file's size in the words the status line shows, or `nil` when there is no stamp.
     ///
     /// **Formatted when the stamp moves, not when the line is drawn.** `formatBytes` builds a fresh
@@ -230,6 +262,7 @@ public final class EditorDocument: ObservableObject {
         text = ""
         savedText = ""
         stamp = nil
+        diskStamp = nil
         encoding = nil
         readOnlyReason = nil
         refusal = nil
@@ -238,20 +271,44 @@ public final class EditorDocument: ObservableObject {
 
     /// Opens a file, replacing whatever was open.
     func open(_ opened: EditorFileStore.Opened, at path: String) {
+        self.path = path
+        take(opened, assigningTextAlways: true)
+    }
+
+    /// **The file's newer contents, at the path already open** (TE59) — a reload, which keeps the
+    /// document's identity: ``path`` is not written, so nothing that follows the path treats this
+    /// as another file being opened.
+    ///
+    /// The caller has normally put the text in the storage already, as the smallest edit that gets
+    /// there (``EditorSourceStorage/takeDiskText(_:)``), so the caret and the scroll stay near
+    /// where they were; the text is written here only when it still differs.
+    func reload(_ opened: EditorFileStore.Opened) {
+        take(opened, assigningTextAlways: false)
+    }
+
+    /// Everything ``open(_:at:)`` sets but the path.
+    ///
+    /// - Parameter assigningTextAlways: `true` for an open, which has always written the buffer
+    ///   whatever it held; `false` for a reload, which leaves an identical buffer alone rather than
+    ///   bumping its version for nothing.
+    private func take(_ opened: EditorFileStore.Opened, assigningTextAlways: Bool) {
+        func assign(_ text: String) {
+            if assigningTextAlways || !EditorSourceStorage.sameBytes(buffer.text, text) { self.text = text }
+        }
         switch opened {
         case .editable(let text, let stamp, let encoding):
-            self.path = path
-            self.text = text
+            assign(text)
             self.savedText = text
             self.stamp = stamp
+            self.diskStamp = stamp
             self.encoding = encoding
             self.readOnlyReason = nil
             self.refusal = nil
-        case .readOnly(let text, let reason):
-            self.path = path
-            self.text = text
+        case .readOnly(let text, let reason, let stamp):
+            assign(text)
             self.savedText = text
             self.stamp = nil
+            self.diskStamp = stamp
             self.encoding = nil
             self.readOnlyReason = reason
             self.refusal = nil
@@ -261,14 +318,62 @@ public final class EditorDocument: ObservableObject {
             // the same thing. `readOnlyReason` is set as well because `isReadOnly` is derived from
             // it and gates the save path: a refused document must not be saveable by any route,
             // and one flag standing on its own is one edit away from not being checked.
-            self.path = path
-            self.text = ""
+            assign("")
             self.savedText = ""
             self.stamp = nil
+            self.diskStamp = nil
             self.encoding = nil
             self.readOnlyReason = reason
             self.refusal = reason
         }
+        savedVersion &+= 1
+    }
+
+    /// **The file moved, and the document goes with it** (TE59): Finder, Organize or another device
+    /// renamed or moved it while it was open. Only the path changes — the buffer, the saved text,
+    /// the stamps and the encoding all describe the same file, which a move does not touch.
+    func retarget(to newPath: String) {
+        path = newPath
+        savedVersion &+= 1
+    }
+
+    /// **The file has a new stamp over the same contents** (TE59) — a `touch`, or a sync client
+    /// re-stamping it after an upload. Only the stamps move: nothing was changed, so nothing is
+    /// reloaded and nothing is asked. A read-only document keeps its `nil` ``stamp``.
+    func restamp(_ stamp: EditorFileStore.Stamp) {
+        if self.stamp != nil { self.stamp = stamp }
+        diskStamp = stamp
+    }
+
+    /// **"Use the Disk's"** (TE59): the buffer already holds the file's newer text — put there as a
+    /// step ⌘Z can take back — and this records that it is what is on disk.
+    func adoptDisk(text: String, stamp: EditorFileStore.Stamp, encoding: BoundedTextRead.TextEncoding) {
+        savedText = text
+        self.stamp = stamp
+        diskStamp = stamp
+        self.encoding = encoding
+        savedVersion &+= 1
+    }
+
+    /// **What the document records about the file on disk** — everything ``adoptDisk(text:stamp:encoding:)``
+    /// moves, as one value, so "Use the Disk's" can be taken back whole by ⌘Z (TE59).
+    struct DiskRecord {
+        var savedText: String
+        var stamp: EditorFileStore.Stamp?
+        var diskStamp: EditorFileStore.Stamp?
+        var encoding: BoundedTextRead.TextEncoding?
+    }
+
+    var diskRecord: DiskRecord {
+        DiskRecord(savedText: savedText, stamp: stamp, diskStamp: diskStamp, encoding: encoding)
+    }
+
+    /// Puts back a record taken earlier — the undo and redo of "Use the Disk's".
+    func restore(_ record: DiskRecord) {
+        savedText = record.savedText
+        stamp = record.stamp
+        diskStamp = record.diskStamp
+        encoding = record.encoding
         savedVersion &+= 1
     }
 
@@ -288,6 +393,7 @@ public final class EditorDocument: ObservableObject {
     public func markSaved(text: String, stamp: EditorFileStore.Stamp) {
         savedText = text
         self.stamp = stamp
+        diskStamp = stamp
         savedVersion &+= 1
     }
 }

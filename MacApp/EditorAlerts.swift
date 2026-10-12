@@ -51,6 +51,33 @@ enum EditorAlerts {
         return answer(for: alert.runModal())
     }
 
+    // MARK: - Keep Mine (TE59)
+
+    /// The banner's Keep Mine writes the buffer over a version that arrived from elsewhere — the
+    /// save-over-divergence case — so it asks the same way: what is lost, in words, and the
+    /// destructive answer off Return.
+    nonisolated static func keepMineMessage(name: String) -> String {
+        "Replace the version of “\(name)” on disk with yours?"
+    }
+
+    nonisolated static let keepMineInformativeText =
+        "It was changed somewhere else while you were typing. Keeping yours writes it over that "
+        + "version, and the other changes are lost."
+
+    /// Keep Mine first, Cancel second — Cancel holds Return and Escape.
+    nonisolated static let keepMineButtonTitles = ["Keep Mine", "Cancel"]
+
+    static func confirmKeepMine(name: String) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = keepMineMessage(name: name)
+        alert.informativeText = keepMineInformativeText
+        for title in keepMineButtonTitles { alert.addButton(withTitle: title) }
+        alert.buttons[0].keyEquivalent = ""
+        alert.buttons[0].hasDestructiveAction = true
+        return isConfirmed(alert.runModal())
+    }
+
     // MARK: - The file changed under the buffer
 
     /// The message for a file that changed or vanished since it was opened.

@@ -73,7 +73,7 @@ import Foundation
         bytes.append(contentsOf: Array("\n".utf8))
         let path = try write(bytes, named: "lossy.txt", in: folder)
 
-        guard case .readOnly(let text, let reason) = EditorFileStore.open(path: path) else {
+        guard case .readOnly(let text, let reason, _) = EditorFileStore.open(path: path) else {
             Issue.record("a lossy decode did not open read-only")
             return
         }

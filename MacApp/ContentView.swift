@@ -198,6 +198,9 @@ struct ContentView: View {
     @ObservedObject var editorUndoStore: EditorUndoStore
     /// Which files autosave may write. Owned by the app — see `SyncCloudApp`.
     @ObservedObject var editorAutosavePolicy: EditorAutosavePolicy
+    /// What happened to the open document's file elsewhere (TE59) — a reload, a banner, a move
+    /// followed. Owned by the app beside the document it watches; see `EditorDiskWatch`.
+    @ObservedObject var editorDiskWatch: EditorDiskWatch
     /// Source / Preview / Split for the open document.
     ///
     /// **Window state, not a persisted preference.** Which of the three you want is a fact about
@@ -1376,6 +1379,11 @@ struct ContentView: View {
             // the one that did not — `presentLensRail`'s re-home to the provider root on entering a
             // lens — no longer moves the pane at all.
             refreshAction(reloading: scope)
+            // The app's own file operations end here — a rename, a move, a delete, Organize filing
+            // the open note. Edit's rail lists the folder those touched, and the open document may
+            // be one of the files they moved (TE59: the disk watch hears it anyway; this looks at
+            // once rather than after the events settle).
+            refreshEditorAfterFileOperation()
         }
         .onAppear {
             // Closing and Dock-reopening the single window recreates ContentView, so this
@@ -1389,6 +1397,7 @@ struct ContentView: View {
             // editor prompts.
             SyncCloudAppDelegate.shared?.adoptEditorDocument(editorDocument)
             SyncCloudAppDelegate.shared?.adoptAutosavePolicy(editorAutosavePolicy)
+            attachEditorDiskWatch()
             let isFirstAppearance = !hasBootstrappedSession
             hasBootstrappedSession = true
             for step in PaneLogic.bootstrapSteps(isFirstAppearance: isFirstAppearance) {
@@ -2771,7 +2780,12 @@ struct ContentView: View {
                     pending.onCommit(chosen)
                 }
             },
-            onCancel: { pendingDestination = nil }
+            onCancel: { pendingDestination = nil },
+            // A new folder is on disk whether or not the transfer after it goes ahead — the pane
+            // showing its parent lists it now, as one ⌘N's Notes folder is listed.
+            // Not compared at once in Compare: the transfer, when it runs, refreshes and compares both
+            // panes itself, and a rescan now would only be superseded by it.
+            onFolderCreated: { rereadPanesAfterEditorWrite($0, writer: "The destination picker made", comparesInCompare: false) }
         )
         .contentSurface(hue: glassHue, tint: surfaceTint)
         // The level at face value, with a ground under the content — see `groundedGlassCard`.

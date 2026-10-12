@@ -86,8 +86,8 @@ import Foundation
         // The one other opt-out, in Edit (TE47 review): its re-read after a file it made itself
         // compares only in Compare, and owes the comparison anywhere else.
         let editor = try Self.source("ContentView+Editor.swift")
-        let reread = try Self.body(of: "func rereadPanesAfterEditorWrite(_ path: String) {", in: editor)
-        #expect(reread.contains("if selectedWorkspace == .compare {")
+        let reread = try Self.body(of: "func rereadPanesAfterEditorWrite(_ path: String, writer: String = \"Edit wrote\", comparesInCompare: Bool = true) {", in: editor)
+        #expect(reread.contains("if selectedWorkspace == .compare, comparesInCompare {")
                 && reread.contains("refreshAction(reloading: scope, comparing: false)"),
                 "Edit's re-read no longer compares only in Compare")
         #expect(editor.components(separatedBy: "comparing: false").count - 1 == 1

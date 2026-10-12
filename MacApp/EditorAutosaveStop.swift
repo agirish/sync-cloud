@@ -19,7 +19,9 @@ enum EditorAutosaveStop: Equatable {
     var caption: String {
         switch self {
         case .diverged(.changed): return "not saving — changed on disk"
-        case .diverged(.missing): return "not saving — moved or renamed"
+        // Not "moved or renamed" any more: a move is followed (TE59), so what is left is a file
+        // that is gone — deleted, or put somewhere the editor could not follow.
+        case .diverged(.missing): return "not saving — no longer on disk"
         case .failed: return "not saving — couldn't write"
         }
     }

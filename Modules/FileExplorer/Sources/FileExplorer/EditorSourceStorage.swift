@@ -140,13 +140,18 @@ public final class EditorSourceStorage: NSObject {
     /// and braces: this edit ends the composition, and the commit converts the file through the view
     /// either way (mutation-tested 2026-10-04 — removing it changes nothing a test or a probe can see).
     ///
-    /// - Parameter range: UTF-16, in the storage as it stands.
+    /// - Parameters:
+    ///   - range: UTF-16, in the storage as it stands.
+    ///   - verbatim: **`true` writes `string` exactly, carriage returns and all, and converts
+    ///     nothing** — for "Use the Disk's" (TE59), whose whole point is that the buffer becomes the
+    ///     file's bytes, so a CRLF file taken from disk must not be turned into an LF edit on the way
+    ///     in. Its undo is verbatim too, so ⌘Z puts the typing back as it was.
     public func replace(_ range: NSRange, with string: String, undoManager: UndoManager?,
-                        actionName: String? = nil) {
+                        actionName: String? = nil, verbatim: Bool = false) {
         let composing = textView.map { $0.textStorage === textStorage && $0.hasMarkedText() } ?? false
-        let endings = composing ? [] : carriageReturns()
+        let endings = composing || verbatim ? [] : carriageReturns()
         let range = EditorLineEndings.mapped(range, through: endings)
-        let string = EditorLineEndings.normalized(string)
+        let string = verbatim ? string : EditorLineEndings.normalized(string)
         textView?.breakUndoCoalescing()
         isReplacing = true
         textStorage.beginEditing()
@@ -160,7 +165,8 @@ public final class EditorSourceStorage: NSObject {
         // Weak: the manager holds this closure, and a strong capture would keep a dropped manager —
         // one the store refused, say — alive through its own registrations.
         undoManager?.registerUndo(withTarget: self) { [weak undoManager] source in
-            source.replace(inserted, with: removed, undoManager: undoManager, actionName: actionName)
+            source.replace(inserted, with: removed, undoManager: undoManager, actionName: actionName,
+                           verbatim: verbatim)
         }
         if let actionName { undoManager?.setActionName(actionName) }
     }
@@ -201,6 +207,71 @@ public final class EditorSourceStorage: NSObject {
         undoManager?.registerUndo(withTarget: self) { [weak undoManager] source in
             source.apply(inverse, undoManager: undoManager)
         }
+    }
+
+    // MARK: The file's own newer text (TE59)
+
+    /// **The file's newer text, taken in as the smallest edit that gets there, with no undo** — the
+    /// quiet reload when the file changed elsewhere and nothing was typed since it was last saved.
+    ///
+    /// The smallest edit, not the whole string, because the text views keep their caret and their
+    /// scroll across an edit that does not touch them: a file that changed three paragraphs below
+    /// the caret leaves the reader exactly where they were. Every view of the document follows the
+    /// storage (Source directly; Edit in Preview through its `didProcessEditing` observer; the
+    /// rendered Preview through the buffer), so one edit here reaches Source, Split and Preview.
+    ///
+    /// **No undo step**: nothing typed is being replaced, and the caller empties the stack straight
+    /// after — the reload is a new start, not something to take back (asked 2026-10-09: "one
+    /// overall history … Command Z is likely reset so nothing happens"). The text is taken
+    /// verbatim — the LF-only rule converts on the first EDIT, and a reload is not one.
+    func takeDiskText(_ string: String) {
+        let edit = Self.smallestEdit(from: textStorage.string, to: string)
+        guard edit.range.length > 0 || !edit.text.isEmpty else { return }
+        textView?.breakUndoCoalescing()
+        isReplacing = true
+        textStorage.beginEditing()
+        insert(edit.text, over: edit.range)
+        textStorage.endEditing()
+        isReplacing = false
+        textView?.breakUndoCoalescing()
+    }
+
+    /// Replaces the whole text with `string` as ONE step ⌘Z can take back, written verbatim —
+    /// "Use the Disk's" (TE59). The smallest edit, for the reason ``takeDiskText(_:)`` gives.
+    func replaceAll(with string: String, undoManager: UndoManager?, actionName: String) {
+        let edit = Self.smallestEdit(from: textStorage.string, to: string)
+        guard edit.range.length > 0 || !edit.text.isEmpty else { return }
+        replace(edit.range, with: edit.text, undoManager: undoManager, actionName: actionName, verbatim: true)
+    }
+
+    /// The range of `old` to replace, and with what, to get `new` — the common prefix and suffix
+    /// left alone, in UTF-16 units.
+    ///
+    /// **Never splitting a surrogate pair or a CRLF**: two emoji sharing a high surrogate, or a
+    /// line ending going from `\r\n` to `\n`, would otherwise put the edge of the edit between the
+    /// two halves of one character. The edges are widened outwards until they sit on a boundary.
+    static func smallestEdit(from old: String, to new: String) -> (range: NSRange, text: String) {
+        let a = old as NSString
+        let b = new as NSString
+        let shortest = min(a.length, b.length)
+        var prefix = 0
+        while prefix < shortest, a.character(at: prefix) == b.character(at: prefix) { prefix += 1 }
+        var suffix = 0
+        while suffix < shortest - prefix,
+              a.character(at: a.length - 1 - suffix) == b.character(at: b.length - 1 - suffix) {
+            suffix += 1
+        }
+        // A boundary sits between two units unless the first opens a pair the second closes.
+        func splits(_ s: NSString, at index: Int) -> Bool {
+            guard index > 0, index < s.length else { return false }
+            let before = s.character(at: index - 1), after = s.character(at: index)
+            return (UTF16.isLeadSurrogate(before) && UTF16.isTrailSurrogate(after))
+                || (before == 0x0D && after == 0x0A)
+        }
+        while prefix > 0, splits(a, at: prefix) || splits(b, at: prefix) { prefix -= 1 }
+        while suffix > 0, splits(a, at: a.length - suffix) || splits(b, at: b.length - suffix) { suffix -= 1 }
+        let range = NSRange(location: prefix, length: a.length - prefix - suffix)
+        return (range, b.substring(with: NSRange(location: prefix, length: b.length - prefix - suffix)))
     }
 
     /// Puts the storage in step with a buffer written from outside it — **with no undo**, which is
