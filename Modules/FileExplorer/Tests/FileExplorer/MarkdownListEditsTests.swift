@@ -118,6 +118,19 @@ struct MarkdownListEditsTests {
         }
     }
 
+    /// The positive control for a line that opens two items: an item whose marker is indented —
+    /// by spaces, by a tab, or on its second line — is still the line's only item, and carries on.
+    @Test(arguments: [
+        ("- a\n\t- b|", "\t- "),
+        ("- a\n  - b|", "  - "),
+        ("  - a|", "  - "),
+        ("- a\n  b|", "- "),
+        ("1. a\n   1. b|", "   2. "),
+    ])
+    func anIndentedItemIsStillTheLinesOwn(_ marked: String, _ opening: String) {
+        #expect(returnEdit(marked) == .continueWith(opening), "\(marked.debugDescription)")
+    }
+
     // MARK: - Return does what it always did
 
     @Test(arguments: [
@@ -145,6 +158,13 @@ struct MarkdownListEditsTests {
         "> - a|",
         // A tenth digit is not a list marker.
         "999999999. a|",
+        // A line that opens two items, the second inside the first: the line's own marker is the
+        // outer item's, but the caret ends the inner one, so the outer one's opening carried on
+        // ended neither (2026-10-12, the 50,000-run property test: `\t- 2.` wrote `\t- ` after
+        // the empty `2.` — a sibling of the outer item, below the item that had the caret).
+        "- - a|",
+        "1. - a|",
+        "- Café\n\t- 2.|",
     ])
     func returnIsLeftAlone(_ marked: String) {
         #expect(returnEdit(marked) == nil, "\(marked.debugDescription)")

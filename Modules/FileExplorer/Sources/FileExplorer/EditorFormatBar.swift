@@ -52,6 +52,29 @@ struct MarkupFormatState: Equatable, Sendable {
 @MainActor
 final class EditorTextViewHandle {
     weak var textView: NSTextView?
+    /// **Split with Preview editable: Preview's half** (review V7, 2026-10-09). The bar and the
+    /// header's Find act on the half the caret is in — or was last in, since a click on a button
+    /// can take the caret out of both — as the Markup menu does. They always acted on Source, and
+    /// pressed Bold over Source's old selection with the caret in Preview.
+    weak var splitPreview: NSTextView?
+    /// Whether the caret was last in ``splitPreview`` rather than Source's half. Written as each
+    /// half reports its selection; a plain property, so the write re-renders nothing.
+    var caretInSplitPreview = false
+
+    /// The text view the bar acts on: Split's Preview half while the caret was last there.
+    var target: NSTextView? {
+        if caretInSplitPreview, let splitPreview, splitPreview.window != nil { return splitPreview }
+        return textView
+    }
+
+    /// Whether the bar acts on Split's Preview half now — where the header's Find goes too.
+    var targetsSplitPreview: Bool { splitPreview != nil && target === splitPreview }
+
+    /// Out of Split: no Preview half to act on.
+    func leaveSplit() {
+        splitPreview = nil
+        caretInSplitPreview = false
+    }
 
     /// **The Markup menu's verb, run exactly as the menu runs it** — through
     /// ``EditorDocumentSurface/applyMarkup(_:in:)``, and so through `PlainTextEditor.apply`, the one
@@ -66,7 +89,7 @@ final class EditorTextViewHandle {
     /// click from leaving the caret anywhere but the text.
     @discardableResult
     func applyMarkup(_ verb: MarkupVerb) -> Bool {
-        guard let view = textView, let window = view.window, view.isEditable else {
+        guard let view = target, let window = view.window, view.isEditable else {
             Logger.shared.info("Format bar ▸ \(verb.title) ignored: no writable text view on screen")
             return false
         }

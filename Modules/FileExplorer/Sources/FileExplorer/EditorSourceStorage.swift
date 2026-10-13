@@ -46,6 +46,9 @@ public final class EditorSourceStorage: NSObject {
     /// before an edit from outside it.
     weak var textView: NSTextView?
 
+    /// The file's name, for the log — set by ``EditorUndoStore`` whenever it hands this storage out.
+    var fileName: String?
+
     /// Bumped on every character edit; equal to ``publishedGeneration`` when ``text`` is current.
     private var generation = 0
     private var publishedGeneration = 0
@@ -152,23 +155,43 @@ public final class EditorSourceStorage: NSObject {
         let endings = composing || verbatim ? [] : carriageReturns()
         let range = EditorLineEndings.mapped(range, through: endings)
         let string = verbatim ? string : EditorLineEndings.normalized(string)
-        textView?.breakUndoCoalescing()
-        isReplacing = true
-        textStorage.beginEditing()
-        apply(endings, undoManager: undoManager)
+        asOneEdit {
+            apply(endings, undoManager: undoManager)
+            EditorLineEndings.logConversion(endings, of: fileName, on: actionName ?? "an edit from outside the text")
+            exactly(range, with: string, undoManager: undoManager, actionName: actionName)
+        }
+    }
+
+    /// `string` over `range` **byte for byte**, registering its exact inverse — which is this again,
+    /// so ⌘Z and ⌘⇧Z each put back precisely what the other took.
+    ///
+    /// **Not `replace` itself** (2026-10-09): its conversion and normalising belong to what comes IN.
+    /// An inverse sent back through them put an LF where it had taken a CRLF and converted the rest
+    /// of the file, and the next ⌘Z ran off the end of the text — `replacesUndoPutsBackExactlyWhatItTook`.
+    private func exactly(_ range: NSRange, with string: String, undoManager: UndoManager?, actionName: String?) {
         let removed = textStorage.mutableString.substring(with: range)
         insert(string, over: range)
-        textStorage.endEditing()
-        isReplacing = false
-        textView?.breakUndoCoalescing()
         let inserted = NSRange(location: range.location, length: (string as NSString).length)
         // Weak: the manager holds this closure, and a strong capture would keep a dropped manager —
         // one the store refused, say — alive through its own registrations.
         undoManager?.registerUndo(withTarget: self) { [weak undoManager] source in
-            source.replace(inserted, with: removed, undoManager: undoManager, actionName: actionName,
-                           verbatim: verbatim)
+            source.asOneEdit {
+                source.exactly(inserted, with: removed, undoManager: undoManager, actionName: actionName)
+            }
         }
         if let actionName { undoManager?.setActionName(actionName) }
+    }
+
+    /// One edit from outside the text view: the view's typing run ended either side of it, and the
+    /// storage's change published as settled.
+    private func asOneEdit(_ body: () -> Void) {
+        textView?.breakUndoCoalescing()
+        isReplacing = true
+        textStorage.beginEditing()
+        body()
+        textStorage.endEditing()
+        isReplacing = false
+        textView?.breakUndoCoalescing()
     }
 
     /// Turns every CRLF and lone CR into LF, as one step ⌘Z can take back — for an editor that must
@@ -176,7 +199,7 @@ public final class EditorSourceStorage: NSObject {
     /// Call it in the same event as the edit, so the two share an undo group. `false` when there was
     /// nothing to convert, or a word is being composed.
     @discardableResult
-    public func convertLineEndingsToLF(undoManager: UndoManager?) -> Bool {
+    public func convertLineEndingsToLF(undoManager: UndoManager?, on trigger: String = "an edit in Preview") -> Bool {
         guard textView.map({ !($0.textStorage === textStorage && $0.hasMarkedText()) }) ?? true else { return false }
         let changes = carriageReturns()
         guard !changes.isEmpty else { return false }
@@ -184,6 +207,7 @@ public final class EditorSourceStorage: NSObject {
         isReplacing = true
         apply(changes, undoManager: undoManager)
         isReplacing = false
+        EditorLineEndings.logConversion(changes, of: fileName, on: trigger)
         return true
     }
 

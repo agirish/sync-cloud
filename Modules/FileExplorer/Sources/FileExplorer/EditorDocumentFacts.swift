@@ -1,19 +1,19 @@
 import Foundation
 
-/// How a file's lines are terminated.
+/// How a file's lines are terminated — what the status line names.
 ///
 /// **A real question for a real folder.** These are cloud folders shared with other machines, and a
-/// file that arrived from Windows is CRLF; saving it back from an editor that silently normalised
-/// would rewrite every line of a file the user changed one word in, and every sync client would
-/// report the whole file as modified. Nothing here converts anything — this only *names* what is
-/// already in the buffer, which is the half that was missing.
+/// file that arrived from Windows is CRLF. Edit writes LF only, converting such a file on its first
+/// edit and never on opening or reading it — the user's choice, 2026-10-05; see
+/// ``EditorLineEndings`` for the rule and why. This only *names* what is in the buffer: CRLF for a
+/// file opened and not yet edited, LF once it has been.
 enum EditorLineEnding: String, Equatable, Sendable, CaseIterable {
     case lf = "LF"
     case crlf = "CRLF"
     case cr = "CR"
     /// More than one kind in the same file. Worth its own case rather than reporting the first or
-    /// the commonest: a mixed file is the one a careless normalise would damage most, so it is
-    /// exactly the state the status line should not smooth over.
+    /// the commonest: a file arrives mixed from elsewhere, and the status line should not smooth
+    /// over it — nor over one Edit made, which would be a bug in the LF-only rule.
     case mixed = "Mixed"
 
     /// What terminates the lines in `text`, or `nil` when it has no line break at all.

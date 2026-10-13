@@ -1,4 +1,5 @@
 import Foundation
+import Events
 
 /// Edit writes Mac (LF) line endings, and only those — the user's direction, 2026-10-05.
 ///
@@ -48,6 +49,20 @@ enum EditorLineEndings {
             .replacingOccurrences(of: "\r", with: "\n")
     }
 
+    /// **Text coming in — a paste, a drop — with every line break it carries as LF**: CRLF and CR as
+    /// ``normalized(_:)``, and Unicode's LINE SEPARATOR (U+2028), PARAGRAPH SEPARATOR (U+2029) and
+    /// NEXT LINE (U+0085) too. Pages and Word put U+2028 on the clipboard for a soft return, which
+    /// the text view draws as a line break and cmark — and every other tool — reads as none: a line
+    /// that is two on screen and one in the note. **Never a file's own text** (the user's direction,
+    /// 2026-10-09): a separator already in it is left alone, and the status line does not name them.
+    static func normalizedIncoming(_ text: String) -> String {
+        let lf = normalized(text)
+        guard lf.utf16.contains(where: { $0 == 0x2028 || $0 == 0x2029 || $0 == 0x85 }) else { return lf }
+        return lf.replacingOccurrences(of: "\u{2028}", with: "\n")
+            .replacingOccurrences(of: "\u{2029}", with: "\n")
+            .replacingOccurrences(of: "\u{0085}", with: "\n")
+    }
+
     /// Where `offset` lands once `changes` are made: one unit earlier for every CRLF's CR before it.
     /// An offset between a CR and its LF lands on the LF, which is now where that break starts.
     static func mapped(_ offset: Int, through changes: [Change]) -> Int {
@@ -56,6 +71,16 @@ enum EditorLineEndings {
             shift += 1
         }
         return offset - shift
+    }
+
+    /// **The one line every conversion writes** (2026-10-09) — a conversion changes a file the
+    /// person did not type into, every line of it, so a report of "my file changed" has to be
+    /// answerable from the log. Kinds and counts only, never the text. Nothing for no changes.
+    static func logConversion(_ changes: [Change], of fileName: String?, on trigger: String) {
+        guard !changes.isEmpty else { return }
+        let crlf = changes.filter { $0.replacement.isEmpty }.count
+        Logger.shared.info("[edit] converted \(fileName ?? "the open file") to LF — \(crlf) CRLF, "
+                           + "\(changes.count - crlf) CR, on \(trigger)")
     }
 
     static func mapped(_ range: NSRange, through changes: [Change]) -> NSRange {

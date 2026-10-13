@@ -23,6 +23,8 @@ struct PreviewEditorView: NSViewRepresentable {
     var onFollowAnchor: ((String) -> Void)?
     /// Where the format bar finds the text it formats — this view, while it is on screen.
     var textViewHandle: EditorTextViewHandle?
+    /// Split: this view is the handle's ``EditorTextViewHandle/splitPreview``, beside Source's view.
+    var isSplitHalf = false
     /// The open document's folder, which an image's relative path is relative to.
     var documentFolder: String?
     /// Split: bring this source line's block to the top — the view only, never the caret (TE67.4).
@@ -37,6 +39,9 @@ struct PreviewEditorView: NSViewRepresentable {
     var initialSourceOffset: Int?
     /// Bumped to open the find bar — the header's magnifying glass, as over Source.
     var findRequest: Int = 0
+    /// Text ▸ Check Spelling While Typing, followed here as Source follows it (review V10).
+    @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling: Bool
+        = EditorTextSettings.checksSpellingDefault
 
     func makeCoordinator() -> Coordinator {
         Coordinator(session: PreviewEditSession(source: source, undoManager: undoManager,
@@ -49,7 +54,7 @@ struct PreviewEditorView: NSViewRepresentable {
         context.coordinator.attach(view)
         context.coordinator.watchScrolling(of: scroll)
         update(context.coordinator)
-        textViewHandle?.textView = view
+        register(view)
         // Requests already standing are not news to a view built after them: replaying one would
         // jump somewhere asked for long ago (review).
         context.coordinator.lastFollowRequest = followRequest
@@ -64,25 +69,30 @@ struct PreviewEditorView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         update(context.coordinator)
-        if let followRequest, followRequest != context.coordinator.lastFollowRequest {
-            context.coordinator.lastFollowRequest = followRequest
-            context.coordinator.follow(line: followRequest.line)
-        }
+        context.coordinator.take(follow: followRequest, scroll: scrollRequest)
         if findRequest != context.coordinator.lastFindRequest, let view = context.coordinator.textView {
             context.coordinator.lastFindRequest = findRequest
             view.window?.makeFirstResponder(view)
             PlainTextEditor.showFindBar(in: view)
         }
-        if let scrollRequest, scrollRequest != context.coordinator.lastScrollRequest {
-            context.coordinator.lastScrollRequest = scrollRequest
-            context.coordinator.navigate(toLine: scrollRequest.line)
-        }
-        if let view = scroll.documentView as? PreviewTextView, textViewHandle?.textView !== view {
-            textViewHandle?.textView = view
+        if let view = scroll.documentView as? PreviewTextView { register(view) }
+    }
+
+    /// Tells the handle where this view is — its text view, or in Split its Preview half.
+    private func register(_ view: PreviewTextView) {
+        guard let handle = textViewHandle else { return }
+        view.coordinator?.handle = handle
+        if isSplitHalf {
+            if handle.splitPreview !== view { handle.splitPreview = view }
+        } else if handle.textView !== view {
+            handle.textView = view
         }
     }
 
     private func update(_ coordinator: Coordinator) {
+        if let view = coordinator.textView, view.isContinuousSpellCheckingEnabled != checksSpelling {
+            view.isContinuousSpellCheckingEnabled = checksSpelling
+        }
         coordinator.session.undoManager = undoManager
         coordinator.session.documentFolder = documentFolder
         if coordinator.session.style.scale != fontScale {
@@ -115,6 +125,24 @@ struct PreviewEditorView: NSViewRepresentable {
         var lastFollowRequest: EditorScrollRequest?
         var lastScrollRequest: EditorScrollRequest?
         var lastFindRequest = 0
+        /// The handle this view registered with — the bar's, so a test can ask it what it targets.
+        weak var handle: EditorTextViewHandle?
+
+        /// **The workspace's follow and go-to requests, acted on a turn later** (review V6,
+        /// 2026-10-09). Handed over in `updateNSView`, and each reports back into the workspace's
+        /// state — `navigate` the caret it placed, a follow's scroll the line now on top — and a
+        /// write to SwiftUI state from inside a view update is the one SwiftUI warns is undefined.
+        /// Marked taken now, so the next pass does not hand the same request over again.
+        func take(follow: EditorScrollRequest?, scroll: EditorScrollRequest?) {
+            if let follow, follow != lastFollowRequest {
+                lastFollowRequest = follow
+                DispatchQueue.main.async { [weak self] in self?.follow(line: follow.line) }
+            }
+            if let scroll, scroll != lastScrollRequest {
+                lastScrollRequest = scroll
+                DispatchQueue.main.async { [weak self] in self?.navigate(toLine: scroll.line) }
+            }
+        }
 
         /// The caret at source `offset`'s place, scrolled to — the view only just built.
         func place(atSource offset: Int) {
@@ -191,7 +219,7 @@ struct PreviewEditorView: NSViewRepresentable {
         init(session: PreviewEditSession) {
             self.session = session
             super.init()
-            session.onRefusal = { [weak self] in self?.onRefusal?($0, $1) }
+            session.onRefusal = { [weak self] reason, offset in self?.onRefusal?(reason, offset) }
             session.onSourceChange = { [weak self] offset in
                 // An undo or redo made here puts the caret where it landed. A change made in Source
                 // (Split) leaves this pane alone: moving its caret and scrolling to it there would
@@ -210,6 +238,22 @@ struct PreviewEditorView: NSViewRepresentable {
             if let content = view.textContentStorage, content.textStorage !== session.display {
                 content.textStorage = session.display
             }
+        }
+
+        /// A picture or a file, pasted or dropped: not something Preview can write (V5). Said — the
+        /// hint, and a line in the log naming the door, never the files.
+        func refuseImport(_ door: String) {
+            Logger.shared.info("[preview-edit] Refused \(door): images and files go in through Source")
+            let caret = textView?.selectedRange().location ?? 0
+            onRefusal?(.notSupported, session.sourceOffset(near: min(caret, session.display.length)))
+        }
+
+        /// **A Markup verb over the selection** — the menu, a chord and the bar all land here. A
+        /// refusal is logged once, at INFO, by the session, naming the verb as the menu does (review
+        /// V9, 2026-10-09; round 2: this wrote a second line for the same refusal).
+        func performMarkup(_ verb: MarkupVerb) {
+            guard let view = textView else { return }
+            perform(RenderedEdit(range: view.selectedRange(), action: .format(verb)))
         }
 
         /// Sends `edit` through the session and puts the selection where it says.
@@ -252,14 +296,30 @@ struct PreviewEditorView: NSViewRepresentable {
             guard let view = textView as? PreviewTextView else { return false }
             // An input method's composition lives in the display until it is committed (A12).
             if view.isComposing { return true }
-            let texts = strings ?? Array(repeating: "", count: ranges.count)
-            let edits = zip(ranges, texts).map { range, text in
+            // **`nil` strings are a style change, not a deletion** — Underline, an alignment, the
+            // writing direction, the Font and Colors panels, a colour swatch dropped on the text:
+            // "keep these characters, change how they look". Read as empty strings it deleted the
+            // whole selection, which in a one-paragraph note was the note (review V1, 2026-10-09).
+            // The display is a rendering of the Markdown, which has no fonts or colours to change.
+            guard let strings else {
+                // Once per run at INFO — the Colors panel dragged across the text sends one per
+                // step — and again after something is typed (round 2, 2026-10-10).
+                let message = "[preview-edit] A style change from AppKit was ignored over \(ranges.count) range(s): Preview's text is the Markdown's rendering"
+                if loggedStyleChange { Logger.shared.debug(message) } else { Logger.shared.info(message) }
+                loggedStyleChange = true
+                return false
+            }
+            loggedStyleChange = false
+            let edits = zip(ranges, strings).map { range, text in
                 RenderedEdit(range: range.rangeValue, text: text,
                              action: text.isEmpty ? .delete : (view.isPasting ? .paste : .typing))
             }
             apply(edits.count == 1 ? session.perform(edits[0]) : session.performAll(edits))
             return false
         }
+
+        /// Whether a style change has been logged at INFO since the last edit.
+        private var loggedStyleChange = false
 
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             command(selector, in: textView, shift: NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
@@ -308,10 +368,19 @@ struct PreviewEditorView: NSViewRepresentable {
                                  action: #selector(toggleFormatBar(_:)), keyEquivalent: "")
             bar.target = self
             bar.state = shows ? .on : .off
+            // Check Spelling, as Source's menu has it (review V10) — and no Wrap Lines: Preview's
+            // column always wraps, so the item would do nothing here.
+            let checks = UserDefaults.standard.object(forKey: EditorTextSettings.checksSpellingKey) as? Bool
+                ?? EditorTextSettings.checksSpellingDefault
+            let spelling = NSMenuItem(title: Self.checkSpellingTitle,
+                                      action: #selector(toggleSpellChecking(_:)), keyEquivalent: "")
+            spelling.target = self
+            spelling.state = checks ? .on : .off
             menu.insertItem(host, at: 0)
             menu.insertItem(.separator(), at: 1)
-            menu.insertItem(bar, at: 2)
-            menu.insertItem(.separator(), at: 3)
+            menu.insertItem(spelling, at: 2)
+            menu.insertItem(bar, at: 3)
+            menu.insertItem(.separator(), at: 4)
             return menu
         }
 
@@ -319,6 +388,17 @@ struct PreviewEditorView: NSViewRepresentable {
             guard MarkupVerb.menuOrder.indices.contains(sender.tag),
                   let verb = MarkupVerb.menuOrder[sender.tag] else { return }
             textView?.performMarkup(verb)
+        }
+
+        /// Source's item's title, so the two read as one switch.
+        static let checkSpellingTitle = "Check Spelling While Typing"
+
+        /// Written to the defaults, which every editor follows — Source's halves and this one.
+        @objc func toggleSpellChecking(_ sender: NSMenuItem) {
+            let defaults = UserDefaults.standard
+            let checks = !(defaults.object(forKey: EditorTextSettings.checksSpellingKey) as? Bool
+                ?? EditorTextSettings.checksSpellingDefault)
+            defaults.set(checks, forKey: EditorTextSettings.checksSpellingKey)
         }
 
         @objc func toggleFormatBar(_ sender: NSMenuItem) {
@@ -408,6 +488,9 @@ final class PreviewTextView: NSTextView {
         let view = PreviewTextView(usingTextLayoutManager: true)
         view.isRichText = false
         view.importsGraphics = false
+        // No Font panel, as Source has none: its changes are styles Markdown cannot write (V1).
+        view.usesFontPanel = false
+        view.isGrammarCheckingEnabled = false
         view.allowsUndo = false
         view.isEditable = true
         view.isSelectable = true
@@ -497,9 +580,23 @@ final class PreviewTextView: NSTextView {
     // MARK: Paste — plain text only (A9, A10)
 
     override func paste(_ sender: Any?) {
+        paste(from: .general, sender: sender)
+    }
+
+    /// The paste, from `pasteboard` — its own method so a test can hand it a private one rather than
+    /// the person's clipboard. Plain text only, from the general pasteboard as AppKit reads it.
+    func paste(from pasteboard: NSPasteboard, sender: Any? = nil) {
+        if Self.carriesFilesOrPicture(pasteboard, text: pasteboard.string(forType: .string)) {
+            coordinator?.refuseImport("a paste of a picture or a file")
+            return
+        }
         isPasting = true
         defer { isPasting = false }
-        pasteAsPlainText(sender)
+        if pasteboard === NSPasteboard.general {
+            pasteAsPlainText(sender)
+        } else if pasteboard.availableType(from: [.string]) != nil {
+            _ = readSelection(from: pasteboard, type: .string)
+        }
     }
 
     override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
@@ -508,13 +605,37 @@ final class PreviewTextView: NSTextView {
         return super.readSelection(from: pboard, type: type)
     }
 
+    // MARK: Pictures and files (review V5)
+
+    /// **Files, or a picture with no text — which Preview cannot take** (review V5, 2026-10-09).
+    /// Source imports a picture into the note's Images folder and links it (TE56); Preview has no
+    /// such import, and AppKit's own handling typed a dropped file's PATH into the paragraph, and a
+    /// copied file's NAME, as text that reached the Markdown. A screenshot found nothing to paste,
+    /// and said nothing. Each is refused with the hint now. The full fix is Source's import, its
+    /// link written as a block after the caret's — a translation Preview does not have yet.
+    static func carriesFilesOrPicture(_ pasteboard: NSPasteboard, text: String?) -> Bool {
+        if pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) { return true }
+        return text == nil && pasteboard.canReadObject(forClasses: [NSImage.self], options: nil)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        // A drag that started in this view is its own text being moved; any other with files on it
+        // is refused rather than typed in as their paths.
+        if (sender.draggingSource as AnyObject?) !== self,
+           Self.carriesFilesOrPicture(sender.draggingPasteboard, text: sender.draggingPasteboard.string(forType: .string)) {
+            coordinator?.refuseImport("a drop of a picture or a file")
+            return false
+        }
+        return super.performDragOperation(sender)
+    }
+
     // MARK: Markup (A3, A4)
 
     /// A Markup verb — from the menu, a chord or the format bar — over this view's selection, made
     /// in the source like every other edit here. Never `PlainTextEditor.apply`, which would write
     /// into the display.
     func performMarkup(_ verb: MarkupVerb) {
-        coordinator?.perform(RenderedEdit(range: selectedRange(), action: .format(verb)))
+        coordinator?.performMarkup(verb)
     }
 
     // MARK: Read-only text (§1.2)
@@ -532,7 +653,11 @@ final class PreviewTextView: NSTextView {
 
     override func mouseDown(with event: NSEvent) {
         if let box = taskBox(at: convert(event.locationInWindow, from: nil)) {
-            coordinator?.perform(RenderedEdit(range: NSRange(location: box, length: 1), action: .tickTask))
+            // The first click only: a double-click's second arrives as a mouse-down of its own, and
+            // ticked the box back (review V11, 2026-10-09). Swallowed, so it selects no word either.
+            if event.clickCount == 1 {
+                coordinator?.perform(RenderedEdit(range: NSRange(location: box, length: 1), action: .tickTask))
+            }
             return
         }
         super.mouseDown(with: event)

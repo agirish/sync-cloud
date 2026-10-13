@@ -396,7 +396,8 @@ extension ContentView {
             paneShowsTabStrip: editorPaneShowsTabStrip,
             folderDisplayName: editorFolderDisplayName,
             newFileFolderName: editorNewFileFolderName,
-            onImagesImported: { noteEditorImages($0) })
+            onImagesImported: { noteEditorImages($0) },
+            onPreviewLengthHold: { hold in if editorPreviewLengthHold != hold { editorPreviewLengthHold = hold } })
         // The rail is re-listed on arrival and whenever the folder or the hidden-files preference
         // moves — `.task(id:)` restarts on either.
         .task(id: EditorRailKey(folder: editorFolder, showsHidden: syncManager.showHiddenFiles)) {
@@ -865,11 +866,16 @@ extension ContentView {
         // The mode being drawn, so the tick agrees with the capsule on a plain-text file — and so
         // the verbs that need a text view are withheld in Preview, where none is on screen.
         let drawn = EditorMode.resolved(editorMode, isMarkdown: isMarkdown)
-        // Preview editable (TE67): the same rule the workspace mounts it by.
+        // Preview editable (TE67): the same rule the workspace mounts it by, on the 256 KB decision
+        // it holds (`PreviewLengthHold`). The length is read only when no decision is held for this
+        // note, mode and setting — a read, never an observation, so a keystroke re-renders nothing here.
         let previewEditing = EditorWorkspaceView.editsInPreview(
             preference: editsInPreviewSetting, hasDocument: true, isRefused: false, isMarkdown: isMarkdown,
             isReadOnly: editorDocument.isReadOnly, mode: drawn,
-            length: editorDocument.buffer.source.textStorage.length)
+            isTooLong: PreviewLengthHold.isTooLong(
+                editorPreviewLengthHold,
+                key: PreviewLengthHold.Key(path: path, mode: drawn, editing: editsInPreviewSetting),
+                length: { editorDocument.buffer.source.textStorage.length }))
         let showsSwitch = EditorWorkspaceView.showsAutosaveSwitch(
             hasPath: true, wasRefused: false, isReadOnly: editorDocument.isReadOnly)
         return EditorVerbs(

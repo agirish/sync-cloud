@@ -2,6 +2,7 @@ import Testing
 import AppKit
 @testable import FileExplorer
 import FileExplorerTestSupport
+import EventsTestSupport
 
 /// Every way Source writes a line break, in an LF, a CRLF and a lone-CR file — and the rule they all
 /// now follow: Edit writes LF only, converting a file on its first edit (``EditorLineEndings``).
@@ -149,9 +150,8 @@ import FileExplorerTestSupport
                 let image = try! TestTextFiles.write("", named: "Photo.png")
                 try! Self.pngData().write(to: URL(fileURLWithPath: image))
                 let r = self.rig(self.paragraph(e), caret: 0, importer: note)
-                // What `performDragOperation` does: convert, then measure the drop point.
-                r.view.convertLineEndingsToLF()
-                _ = r.coordinator.handleDrop(imageFiles: [image], at: self.at(3, .lf), in: r.view); self.spin()
+                // The drop point as `performDragOperation` measures it: in the file as it stands.
+                _ = r.coordinator.handleDrop(imageFiles: [image], at: self.at(3, e), in: r.view); self.spin()
                 return r.view.string
             }),
             ("Checkbox tick", { e in
@@ -270,6 +270,61 @@ import FileExplorerTestSupport
         #expect(r.view.string.contains("\r\n"))
         r.view.insertText("か", replacementRange: NSRange(location: NSNotFound, length: 0)); spin()
         #expect(!r.view.hasMarkedText())
+        // **And the commit is the first edit, so it converts** (2026-10-09). AppKit asks
+        // `shouldChangeText` for a commit while the word is still marked, so the net let it through
+        // as it stood: the file was saved CRLF, and the conversion rode in later, inside the undo
+        // step of whatever was typed next.
+        #expect(r.view.string == "oneか\ntwo", "the commit left \(String(reflecting: r.view.string))")
+        #expect(r.box.text == r.view.string)
+        #expect(r.view.selectedRange() == NSRange(location: 4, length: 0))
+        // **Two steps, not one, and that is the price of never converting a file nobody edits.** The
+        // word's typing step was opened by the event that STARTED the composition, so the commit's
+        // conversion cannot join it; converting at the start instead would rewrite the file for a
+        // composition then cancelled with Esc. So ⌘Z puts the carriage returns back, and the next
+        // takes the word — every state between a file Edit could have written.
+        r.undo.undo(); spin()
+        #expect(r.view.string == "oneか\r\ntwo", "the first ⌘Z left \(String(reflecting: r.view.string))")
+        r.undo.undo(); spin()
+        #expect(r.view.string == text, "the second ⌘Z left \(String(reflecting: r.view.string))")
+    }
+
+    /// **A composition cancelled with Esc writes nothing**, so it converts nothing: the marked text
+    /// goes as it came, and the file keeps its bytes.
+    @Test func aCancelledCompositionLeavesTheFileAsItWas() {
+        let text = "one\r\ntwo"
+        let r = rig(text, caret: 3)
+        r.view.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
+                             replacementRange: NSRange(location: NSNotFound, length: 0)); spin()
+        r.view.setMarkedText("", selectedRange: NSRange(location: 0, length: 0),
+                             replacementRange: NSRange(location: NSNotFound, length: 0))
+        r.view.unmarkText(); spin()
+        #expect(!r.view.hasMarkedText())
+        #expect(r.view.string == text, "the cancel left \(String(reflecting: r.view.string))")
+        #expect(r.box.text == text)
+    }
+
+    /// The other ways a composition ends: a dead key (⌥E, then E) commits through the same door,
+    /// and a click elsewhere keeps the word as typed (`unmarkText`). Each is the first edit and
+    /// converts; in an LF file each does what it always did.
+    @Test func everyWayACompositionEndsConvertsTheFile() {
+        typealias End = (EditorTextView) -> Void
+        let ends: [(String, String, End)] = [
+            ("dead key", "´", { $0.insertText("é", replacementRange: NSRange(location: NSNotFound, length: 0)) }),
+            ("unmark", "か", { $0.unmarkText() }),
+        ]
+        for (name, marked, end) in ends {
+            var results: [String] = []
+            for text in ["one\ntwo", "one\r\ntwo"] {
+                let r = rig(text, caret: 3)
+                r.view.setMarkedText(marked, selectedRange: NSRange(location: 1, length: 0),
+                                     replacementRange: NSRange(location: NSNotFound, length: 0)); spin()
+                end(r.view); spin()
+                #expect(!r.view.hasMarkedText(), "\(name): still composing")
+                results.append(r.view.string)
+                #expect(r.box.text == r.view.string, "\(name): the document did not hear of it")
+            }
+            #expect(results[1] == results[0], "\(name): \(String(reflecting: results[1])) against \(String(reflecting: results[0]))")
+        }
     }
 
     /// A verb reads the buffer and hands back a selection measured on it: the conversion happens
@@ -500,5 +555,342 @@ import FileExplorerTestSupport
         #expect(source.mayHoldCarriageReturn)
         #expect(source.carriageReturns().count == 1)
         #expect(EditorSourceStorage(text: "a\r\nb").mayHoldCarriageReturn)
+    }
+
+    // MARK: Review, 2026-10-09
+
+    private func board(_ fill: (NSPasteboard) -> Void) -> NSPasteboard {
+        let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
+        board.clearContents()
+        fill(board)
+        return board
+    }
+
+    /// **A screenshot pasted into a CRLF note leaves the caret where it does in an LF one** — after
+    /// the link. A plain-text view reads no image type, so the paste's early conversion used to skip
+    /// a PNG-only clipboard; the image block was then measured on CRLF text and its caret, in CRLF
+    /// units, applied to the LF text the net had written: two units late for every break before it.
+    @Test func aPastedScreenshotLeavesTheCaretWhereAnLFNoteDoes() throws {
+        func run(_ e: Ending) throws -> (String, NSRange) {
+            let note = try TestTextFiles.write(paragraph(e), named: "Note.md")
+            let r = rig(paragraph(e), caret: at(3, e), importer: note)
+            let board = board { $0.setData(Self.pngData(), forType: .png) }
+            defer { board.releaseGlobally() }
+            #expect(r.view.handledPaste(from: board))
+            spin()
+            return (r.view.string, r.view.selectedRange())
+        }
+        let lf = try run(.lf)
+        #expect(lf.0 == Self.lfBaseline["Image paste"])
+        for ending in [Ending.crlf, .cr] {
+            let after = try run(ending)
+            #expect(after.0 == lf.0, "\(ending): \(String(reflecting: after.0))")
+            #expect(after.1 == lf.1, "\(ending): caret \(after.1), an LF note's \(lf.1)")
+        }
+    }
+
+    /// **A refused image drop changes nothing** — through `performDragOperation`, the door AppKit
+    /// uses. Dropped onto a fenced code block in a CRLF note, the host says why, and the note keeps
+    /// its bytes: it used to be converted before the refusal, marked changed, and autosaved as LF
+    /// with nothing added.
+    @Test func aRefusedImageDropLeavesTheFileAsItWas() throws {
+        let text = "```\r\ncode\r\nmore code\r\n```\r\n"
+        let note = try TestTextFiles.write(text, named: "Note.md")
+        let image = try TestTextFiles.write("", named: "Photo.png")
+        try Self.pngData().write(to: URL(fileURLWithPath: image))
+        var reports: [EditorImageImport.Report] = []
+        let r = rig(text, caret: 0, importer: note)
+        r.coordinator.imageImport = EditorImageImporter(notePath: note, report: { reports.append($0) })
+        let board = board { $0.writeObjects([URL(fileURLWithPath: image) as NSURL]) }
+        defer { board.releaseGlobally() }
+        let point = r.view.convert(NSPoint(x: 30, y: 20), to: nil)   // on the code's first line
+        #expect(!r.view.performDragOperation(EditorMarkdownTypingTests.Drag(board, at: point)))
+        spin()
+        #expect(reports.count == 1, "the drop was never refused, so this proves nothing")
+        #expect(r.view.string == text)
+        #expect(r.box.text == text)
+        #expect(!r.undo.canUndo)
+    }
+
+    /// **An image that cannot be imported changes nothing either** — here a Finder copy of a photo
+    /// that has since gone, which pastes as a refusal: the note keeps its CRLF bytes.
+    @Test func aFailedImageImportLeavesTheFileAsItWas() throws {
+        let text = "one\r\n\r\ntwo\r\n"
+        let note = try TestTextFiles.write(text, named: "Note.md")
+        let gone = (NSTemporaryDirectory() as NSString).appendingPathComponent("Gone-\(UUID()).png")
+        var reports: [EditorImageImport.Report] = []
+        let r = rig(text, caret: 5, importer: note)
+        r.coordinator.imageImport = EditorImageImporter(notePath: note, report: { reports.append($0) })
+        let board = board {
+            $0.writeObjects([URL(fileURLWithPath: gone) as NSURL])
+            $0.setString((gone as NSString).lastPathComponent, forType: .string)
+        }
+        defer { board.releaseGlobally() }
+        #expect(r.view.handledPaste(from: board))
+        spin()
+        guard case .refused? = reports.first else {
+            Issue.record("the import was not refused: \(reports)")
+            return
+        }
+        #expect(r.view.string == text)
+        #expect(r.box.text == text)
+        #expect(!r.undo.canUndo)
+    }
+
+    /// The same drop, through the same door, onto ordinary text: converted and linked, in one step.
+    @Test func anImageDropThroughTheViewConvertsAndLinks() throws {
+        let text = "one\r\n\r\ntwo\r\n"
+        let note = try TestTextFiles.write(text, named: "Note.md")
+        let image = try TestTextFiles.write("", named: "Photo.png")
+        try Self.pngData().write(to: URL(fileURLWithPath: image))
+        let r = rig(text, caret: 0, importer: note)
+        let board = board { $0.writeObjects([URL(fileURLWithPath: image) as NSURL]) }
+        defer { board.releaseGlobally() }
+        let point = r.view.convert(NSPoint(x: 20, y: 20), to: nil)
+        #expect(r.view.performDragOperation(EditorMarkdownTypingTests.Drag(board, at: point)))
+        spin()
+        #expect(r.view.string.contains("![](Images/Note-1.png)"))
+        #expect(!r.view.string.contains("\r"))
+        r.undo.undo(); spin()
+        #expect(r.view.string == text)
+    }
+
+    /// **A verb while a word is being composed writes nothing into a file that is not LF yet** — the
+    /// conversion waits for the marked text, and the verb written anyway left a CRLF file mixed
+    /// (measured 2026-10-09: `a\r\nb\r\nplentyか\n\n---\n`). In an LF file the verb commits the word
+    /// and applies, as it always did.
+    @Test func aVerbWhileAWordIsComposedNeverMixesAFile() async {
+        let log = LogCapture()
+        let lf = rig("a\nb\nplenty", caret: 10)
+        lf.view.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
+                              replacementRange: NSRange(location: NSNotFound, length: 0)); spin()
+        #expect(PlainTextEditor.apply(.horizontalRule, to: lf.view))
+        spin()
+        #expect(lf.view.string == "a\nb\nplentyか\n\n---\n", "the LF control changed behaviour")
+
+        let text = "a\r\nb\r\nplenty"
+        let r = rig(text, caret: (text as NSString).length)
+        r.view.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
+                             replacementRange: NSRange(location: NSNotFound, length: 0)); spin()
+        #expect(!PlainTextEditor.apply(.horizontalRule, to: r.view))
+        spin()
+        #expect(r.view.string == text + "か")
+        #expect(r.view.hasMarkedText(), "the word is still being composed")
+        #expect(await log.holds(containing: "Markup ▸ \(MarkupVerb.horizontalRule.title) did nothing: a word is being composed"),
+                "the refusal said nothing")
+    }
+
+    /// **Every conversion says so, once, at INFO** — kinds and counts, the file's name, and what did
+    /// it; never the text. Each case is its own uniquely named file, because a capture also sees
+    /// its sibling cases' lines.
+    @Test func everyConversionLogsOneLine() async throws {
+        let log = LogCapture()
+        func named(_ r: Rig, _ kind: String) -> String {
+            let name = "Converted-\(kind)-\(UUID().uuidString.prefix(8)).md"
+            r.source.fileName = name
+            return name
+        }
+        var expected: [String] = []
+
+        let typed = rig("one\r\ntwo\rthree\r\n", caret: 3)
+        expected.append("[edit] converted \(named(typed, "typing")) to LF — 2 CRLF, 1 CR, on typing, a paste, a drop or Replace")
+        typed.view.insertText("!", replacementRange: typed.view.selectedRange()); spin()
+
+        let list = rig("x\r\n- one\r\n", caret: 8)
+        expected.append("[edit] converted \(named(list, "list")) to LF — 2 CRLF, 0 CR, on Return in a list")
+        list.view.doCommand(by: #selector(NSResponder.insertNewline(_:))); spin()
+
+        let verb = rig("a\r\nplenty", caret: 3)
+        verb.view.setSelectedRange(NSRange(location: 3, length: 6))
+        expected.append("[edit] converted \(named(verb, "verb")) to LF — 1 CRLF, 0 CR, on Markup ▸ Bold")
+        #expect(PlainTextEditor.apply(.bold, to: verb.view))
+
+        let tick = rig("- [ ] one\r\n", caret: 0)
+        expected.append("[edit] converted \(named(tick, "tick")) to LF — 1 CRLF, 0 CR, on \(EditorWorkspaceView.taskActionName)")
+        EditorWorkspaceView.toggleTask(onLine: 1, in: tick.source, undoManager: tick.undo); spin()
+
+        let preview = rig("one\rtwo", caret: 0)
+        expected.append("[edit] converted \(named(preview, "preview")) to LF — 0 CRLF, 1 CR, on an edit in Preview")
+        #expect(preview.source.convertLineEndingsToLF(undoManager: preview.undo))
+
+        for line in expected {
+            #expect(await log.holds(containing: line), "never logged: \(line)")
+        }
+        // The undo store names the storage it hands out.
+        let store = EditorUndoStore()
+        store.activate(path: "/scratch/Folder/Named.md", text: "x")
+        #expect(store.source.fileName == "Named.md")
+    }
+
+    // MARK: The find bar, for real
+
+    /// The find bar's two fields — Find, then Replace — set as a person types into them.
+    private func findAndReplace(_ find: String, with replacement: String, in r: Rig) {
+        r.view.usesFindBar = true
+        PlainTextEditor.showFindBar(in: r.view); spin()
+        var fields: [NSTextField] = []
+        func walk(_ v: NSView) {
+            if let field = v as? NSTextField { fields.append(field) }
+            v.subviews.forEach(walk)
+        }
+        r.view.enclosingScrollView?.findBarView.map(walk)
+        guard let search = fields.first(where: { $0 is NSSearchField }),
+              let replace = fields.first(where: { !($0 is NSSearchField) }) else {
+            Issue.record("the find bar has no Find and Replace fields: \(fields)")
+            return
+        }
+        for (field, value) in [(search, find), (replace, replacement)] {
+            field.stringValue = value
+            NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
+            _ = field.sendAction(field.action, to: field.target)
+        }
+        spin()
+    }
+
+    private func finderAction(_ action: NSTextFinder.Action, in r: Rig) {
+        let sender = NSMenuItem()
+        sender.tag = action.rawValue
+        r.view.performTextFinderAction(sender); spin()
+    }
+
+    /// **Replace and Replace All through the find bar itself** — not the ask-replace-announce the
+    /// paths above emulate. A CRLF file and a replacement holding a CRLF: written LF, the file
+    /// converted in the same step, and one ⌘Z gives back the file's bytes.
+    @Test func replaceAndReplaceAllFromTheFindBarWriteLFAndUndoAsOneStep() {
+        let text = "one\r\ntwo\r\none\r\n"
+        for (action, expected) in [(NSTextFinder.Action.replace, "X\nYe\ntwo\none\n"),
+                                   (.replaceAll, "X\nYe\ntwo\nX\nYe\n")] {
+            let r = rig(text, caret: 0)
+            findAndReplace("on", with: "X\r\nY", in: r)
+            r.view.setSelectedRange(NSRange(location: 0, length: 2)); spin()   // the first match, found
+            finderAction(action, in: r)
+            #expect(r.view.string == expected, "\(action.rawValue): \(String(reflecting: r.view.string))")
+            #expect(r.box.text == expected)
+            r.undo.undo(); spin()
+            #expect(r.view.string == text, "\(action.rawValue): one ⌘Z left \(String(reflecting: r.view.string))")
+            #expect(r.box.text == text)
+            r.undo.redo(); spin()
+            #expect(r.view.string == expected)
+        }
+    }
+
+    // MARK: What AppKit does after an edit the net made (2026-10-09)
+
+    /// **A long paste the net writes scrolls to the caret, as AppKit's own paste does.** When the
+    /// net makes the edit itself it tells AppKit no, and AppKit's own follow-up — scrolling the
+    /// caret into view — never ran: paste two hundred lines carrying CRLFs and the caret was left
+    /// off the bottom of the screen. Every paste holding a CR takes this route, LF files included.
+    ///
+    /// No AppKit paste as the control: in a window that is not key — every test window — AppKit's own
+    /// paste does not scroll either (measured), so the control is the mutation instead.
+    @Test func aLongPasteTheNetWritesScrollsToTheCaret() throws {
+        let r = rig("top\n", caret: 4)
+        let board = board { $0.setString(String(repeating: "line\r\n", count: 200), forType: .string) }
+        defer { board.releaseGlobally() }
+        r.view.readSelection(from: board, type: .string); spin()
+        #expect(r.view.string == "top\n" + String(repeating: "line\n", count: 200))
+        let clip = try #require(r.view.enclosingScrollView?.contentView)
+        #expect(r.view.frame.height > clip.bounds.height * 2, "the paste is not long enough to need a scroll")
+        #expect(clip.bounds.maxY > r.view.frame.height - 40,
+                "the caret is at the end, and the view was left at \(clip.bounds) of \(r.view.frame.height)")
+    }
+
+    /// **A paste over two selections leaves the caret where AppKit's does** — after what was pasted
+    /// into the first. The net sets no selection for more than one range, and needs none: measured
+    /// 2026-10-09, AppKit's own paste lands it there either way.
+    @Test func aPasteOverTwoSelectionsLeavesTheCaretWhereAppKitsDoes() {
+        var results: [(String, [NSRange])] = []
+        for e in [Ending.lf, .crlf] {
+            let text = "aa bb" + e.rawValue + "cc dd" + e.rawValue
+            let r = rig(text, caret: 0)
+            let ns = text as NSString
+            r.view.selectedRanges = [NSValue(range: ns.range(of: "bb")), NSValue(range: ns.range(of: "dd"))]
+            let board = board { $0.setString("QQQ", forType: .string) }
+            defer { board.releaseGlobally() }
+            r.view.readSelection(from: board, type: .string); spin()
+            results.append((r.view.string, r.view.selectedRanges.map(\.rangeValue)))
+        }
+        #expect(results[0].0 != "aa bb\ncc dd\n", "the control: the paste did nothing")
+        #expect(results[1].0 == results[0].0, "\(String(reflecting: results[1].0))")
+        #expect(results[1].1 == results[0].1, "CRLF \(results[1].1), LF \(results[0].1)")
+    }
+
+    /// **`replace`'s undo puts back exactly what it took** (2026-10-09). The inverse went back
+    /// through `replace` itself, which converts and normalises: undoing an edit that took a CRLF
+    /// out put back an LF — and converted the file's other breaks — and the next ⌘Z then ran off the
+    /// end of the text and took the app down. Reached here by an edit while a word is composed,
+    /// which `replace` leaves unconverted; no door in the app hands it a CR today, so this pins the
+    /// inverse rather than a path.
+    @Test func replacesUndoPutsBackExactlyWhatItTook() {
+        let text = "a\r\nb\r\nc"
+        let r = rig(text, caret: (text as NSString).length)
+        r.view.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
+                             replacementRange: NSRange(location: NSNotFound, length: 0)); spin()
+        r.source.replace(NSRange(location: 1, length: 2), with: "-", undoManager: r.undo); spin()
+        let after = r.view.string
+        #expect(after == "a-b\ncか")
+        var steps = 0
+        while r.undo.canUndo, steps < 10 { r.undo.undo(); spin(); steps += 1 }
+        #expect(r.view.string == text, "undone: \(String(reflecting: r.view.string))")
+        #expect(r.box.text == text)
+        while r.undo.canRedo, steps > 0 { r.undo.redo(); spin(); steps -= 1 }
+        #expect(r.view.string == after, "redone: \(String(reflecting: r.view.string))")
+    }
+
+    // MARK: Unicode's other line breaks (decision, 2026-10-09)
+
+    /// **Text pasted or dropped in with a line or paragraph separator comes in as LF.** Pages and Word
+    /// put U+2028 on the clipboard for a soft return; the text view DRAWS it as a line break while
+    /// cmark, and every other tool, reads none — a line that is two on screen and one in the note.
+    /// U+2029 and U+0085 likewise. Text coming in only: the file's own are never touched.
+    @Test func separatorsPastedOrDroppedInComeInAsLF() throws {
+        let incoming = "x\u{2028}y\u{2029}z\u{0085}w"
+        let pasted = rig("one\n", caret: 3)
+        let board = board { $0.setString(incoming, forType: .string) }
+        defer { board.releaseGlobally() }
+        pasted.view.readSelection(from: board, type: .string); spin()
+        #expect(pasted.view.string == "onex\ny\nz\nw\n", "pasted: \(String(reflecting: pasted.view.string))")
+        #expect(pasted.view.selectedRange() == NSRange(location: 10, length: 0))
+
+        let dropped = rig("one\n", caret: 3)
+        let point = dropped.view.convert(NSPoint(x: 18, y: 18), to: nil)
+        _ = dropped.view.performDragOperation(EditorMarkdownTypingTests.Drag(board, at: point)); spin()
+        #expect(!dropped.view.string.contains("\u{2028}") && dropped.view.string.contains("x\ny\nz\nw"),
+                "dropped: \(String(reflecting: dropped.view.string))")
+    }
+
+    /// **Text dragged within the note is the file's own, and keeps its separators** (round 2,
+    /// R10, 2026-10-10): every drop was read as text coming in, so moving a line that held a U+2028
+    /// turned it into a line break — a change to the note nobody typed. The same drop from
+    /// anywhere else still comes in as LF (above).
+    ///
+    /// Mutation: read every drop as incoming again — the moved text loses its U+2028.
+    @Test func aDragOfTheFilesOwnTextKeepsItsSeparators() throws {
+        let r = rig("one\n", caret: 3)
+        let board = board { $0.setString("x\u{2028}y", forType: .string) }
+        defer { board.releaseGlobally() }
+        let point = r.view.convert(NSPoint(x: 18, y: 18), to: nil)
+        _ = r.view.performDragOperation(EditorMarkdownTypingTests.Drag(board, at: point, from: r.view)); spin()
+        #expect(r.view.string.contains("x\u{2028}y"), "\(String(reflecting: r.view.string))")
+        let control = rig("one\n", caret: 3)
+        _ = control.view.performDragOperation(EditorMarkdownTypingTests.Drag(board, at: point)); spin()
+        #expect(control.view.string.contains("x\ny"), "the control: \(String(reflecting: control.view.string))")
+    }
+
+    /// **The file's own separators stay** — typing beside one, a verb over one, ⌘Z that brings one
+    /// back: none of them is text coming in.
+    @Test func aFilesOwnSeparatorsAreNeverTouched() {
+        let text = "a\u{2028}b plenty\u{2029}here"
+        let r = rig(text, caret: 1)
+        r.view.insertText("!", replacementRange: r.view.selectedRange()); spin()
+        #expect(r.view.string == "a!\u{2028}b plenty\u{2029}here")
+        r.view.setSelectedRange(((r.view.string as NSString)).range(of: "plenty\u{2029}here")); spin()
+        #expect(PlainTextEditor.apply(.bold, to: r.view)); spin()
+        #expect(r.view.string == "a!\u{2028}b **plenty\u{2029}here**", "\(String(reflecting: r.view.string))")
+        r.view.setSelectedRange(NSRange(location: 2, length: 1)); spin()
+        r.view.deleteBackward(nil); spin()
+        r.view.breakUndoCoalescing()
+        r.undo.undo(); spin()
+        #expect(r.view.string.contains("a!\u{2028}b"), "⌘Z brought back \(String(reflecting: r.view.string))")
     }
 }

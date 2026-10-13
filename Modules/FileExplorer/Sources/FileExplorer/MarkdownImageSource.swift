@@ -38,6 +38,28 @@ enum MarkdownImageSource: Equatable, Sendable {
                         isCloudOnly: (String) -> Bool = {
                             MaterializationStatus.isCloudOnly(atPath: $0)
                         }) -> MarkdownImageSource {
+        let located = location(of: source, relativeTo: folder)
+        guard case .local(let path) = located else { return located }
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            return .refused("Not found.")
+        }
+        guard !isCloudOnly(path) else {
+            return .refused("Not downloaded — the preview won’t fetch it.")
+        }
+        let target = (path as NSString).resolvingSymlinksInPath
+        let size = (try? fileManager.attributesOfItem(atPath: target))?[.size] as? NSNumber
+        if let bytes = size?.intValue, bytes > maxBytes {
+            return .refused("Too large to draw (\(FileSyncManager.formatBytes(bytes))).")
+        }
+        return .local(path)
+    }
+
+    /// Where `source` would be on disk, before the disk is asked: `.local` with the path, or the
+    /// refusal nothing on disk can change — no path, a remote URL, a relative path with no folder.
+    /// The editable Preview looks again for a picture the disk refused, and never for one of these.
+    static func location(of source: String, relativeTo folder: String?) -> MarkdownImageSource {
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .refused("No image path.") }
 
@@ -63,21 +85,6 @@ enum MarkdownImageSource: Equatable, Sendable {
             }
             path = (folder as NSString).appendingPathComponent(path)
         }
-        path = (path as NSString).standardizingPath
-
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
-              !isDirectory.boolValue else {
-            return .refused("Not found.")
-        }
-        guard !isCloudOnly(path) else {
-            return .refused("Not downloaded — the preview won’t fetch it.")
-        }
-        let target = (path as NSString).resolvingSymlinksInPath
-        let size = (try? fileManager.attributesOfItem(atPath: target))?[.size] as? NSNumber
-        if let bytes = size?.intValue, bytes > maxBytes {
-            return .refused("Too large to draw (\(FileSyncManager.formatBytes(bytes))).")
-        }
-        return .local(path)
+        return .local((path as NSString).standardizingPath)
     }
 }

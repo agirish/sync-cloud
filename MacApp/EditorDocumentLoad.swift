@@ -14,6 +14,8 @@ import FileExplorer
 /// RANGE in the buffer the edit was made against, and `PlainTextEditor.updateNSView` hands the view
 /// its text and its undo manager read from one render pass. So:
 ///
+/// 0. ``EditorUndoStore/adopt(_:)`` — on the very first load only — makes the buffer's storage
+///    the store's, so step 1 lets go of the storage the buffer is actually listening to.
 /// 1. ``EditorUndoStore/remember(text:)`` files the outgoing stack against the text it is being
 ///    parted FROM — the last moment its registrations and that text are known to agree.
 /// 2. The buffer is replaced.
@@ -46,6 +48,8 @@ enum EditorDocumentLoad {
     @discardableResult
     static func run(path: String, document: EditorDocument, undoStore: EditorUndoStore,
                     log: (String) -> Void) -> EditorFileStore.OpenResult {
+        // The first load: the buffer and the store each started with a storage — one, from here on.
+        undoStore.adopt(document.buffer.source)
         undoStore.remember(text: document.text)
         undoStore.forgetMissingFiles()
         // One call, not open-then-hand-over: the encoding a file was read in travels with the text

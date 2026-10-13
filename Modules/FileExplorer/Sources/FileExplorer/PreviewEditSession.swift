@@ -37,9 +37,7 @@ final class PreviewEditSession {
     var style: MarkdownProjection.Style {
         didSet {
             guard style != oldValue else { return }
-            lastDecoration = nil
-            followSource()
-            redressAttachments()
+            restyle(columnOnly: style.scale == oldValue.scale)
         }
     }
 
@@ -60,11 +58,21 @@ final class PreviewEditSession {
     var onSourceChange: ((Int) -> Void)?
 
     /// Where the phantom paragraph's line break sits in ``display``, while one is open.
-    private var phantomOffset: Int?
+    private(set) var phantomOffset: Int?
     /// Spaces typed where Markdown draws none — at the end of a line — shown in ``display`` and not
     /// yet written: they reach the source with the next character typed after them, and are dropped
     /// when the caret leaves, which loses nothing, since a trailing space renders as nothing.
-    private var held: (text: String, at: Int)?
+    private(set) var held: Held?
+
+    /// Text in the display that the source does not have yet, and where.
+    struct Held: Equatable {
+        var text: String
+        var at: Int
+        /// Whether it is a held ⇧Return — with the spaces typed after it, if any. Only ever this
+        /// session's own text, which starts with U+2028 only when it held a line break: a typed or
+        /// pasted U+2028 is never held.
+        var isLineBreak: Bool { text.first == "\u{2028}" }
+    }
     /// Set across the edits this session writes, so its own change is not taken for an outside one.
     private var isWriting = false
     /// Set while this session changes ``display`` — AppKit moves the selection to follow, and that
@@ -75,6 +83,7 @@ final class PreviewEditSession {
         let was = isChangingDisplay
         isChangingDisplay = true
         defer { isChangingDisplay = was }
+        displayIsDecoration = false
         body()
     }
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
@@ -95,6 +104,7 @@ final class PreviewEditSession {
         // here it costs 25 ms, at open, beside the projection's 130 (measured 2026-10-08).
         display.ensureAttributesAreFixed(in: NSRange(location: 0, length: display.length))
         source.textStorage.ensureAttributesAreFixed(in: NSRange(location: 0, length: source.textStorage.length))
+        displayIsDecoration = true
         observers.append(NotificationCenter.default.addObserver(
             forName: NSTextStorage.didProcessEditingNotification, object: source.textStorage,
             queue: nil) { [weak self] note in
@@ -102,6 +112,15 @@ final class PreviewEditSession {
                 let mask = storage?.editedMask ?? []
                 let end = storage.map { NSMaxRange($0.editedRange) } ?? 0
                 MainActor.assumeIsolated { self?.sourceDidChange(mask: mask, endingAt: end) }
+            })
+        // An edit to the display this session did not make — an input method's marked text — and
+        // the display is no longer the last decoration (``redraw()``).
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSTextStorage.didProcessEditingNotification, object: display, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, !self.isChangingDisplay else { return }
+                    self.displayIsDecoration = false
+                }
             })
         observeUndoManager()
     }
@@ -137,58 +156,86 @@ final class PreviewEditSession {
         let started = DispatchTime.now().uptimeNanoseconds
         defer {
             let ms = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
-            Logger.shared.debug("[edit] preview edit \(String(format: "%.2f", ms)) ms, \(source.textStorage.length) characters")
+            Logger.shared.debug("[edit] preview edit \(String(format: "%.2f", ms)) ms, \(source.textStorage.length) characters, \(redrawNote)")
         }
+        // What this keystroke redrew, and nothing a text-size change before it did (round 2).
+        replaced = nil
         var edit = edit
-        // **Held spaces and an opened paragraph are in the display only**, so an edit's range is
-        // measured on text the projection does not have. Each is handled here, and every other
-        // range is mapped past them — never left pointing at whatever now stands there (review,
-        // 2026-10-05: ⌫ after two held spaces deleted the next paragraph's first letter).
-        if let held {
-            let heldRange = NSRange(location: held.at, length: (held.text as NSString).length)
-            if [.typing, .paste].contains(edit.action), edit.range == NSRange(location: NSMaxRange(heldRange), length: 0) {
-                dropHeld()
-                edit.range = NSRange(location: held.at, length: 0)
-                edit.text = held.text + edit.text
-            } else if edit.action == .delete, edit.range.length > 0,
-                      NSIntersectionRange(edit.range, heldRange) == edit.range {
-                return deleteHeld(edit.range)
-            } else {
-                guard let mapped = Self.mapped(edit.range, past: heldRange) else { dropHeld(); return refuse(.notSupported) }
-                dropHeld()
-                edit.range = mapped
-            }
-        }
-        // An edit anywhere but into the phantom closes it first; one into it is the translator's.
-        if let phantom = phantomOffset {
-            // Typing, or a list, heading or quote verb, aimed at the opened paragraph itself.
-            let typesIntoIt = ([.typing, .paste].contains(edit.action) || Self.isLineVerb(edit.action))
-                && edit.range.location == phantom + 1 && edit.range.length == 0
-            if typesIntoIt {
-                edit.range = NSRange(location: phantom, length: 0)
-            } else if edit.action == .delete, edit.range == NSRange(location: phantom, length: 1) {
-                // ⌫ in the empty paragraph Return opened: it closes, as it never was.
-                closePhantom()
-                return .select(NSRange(location: phantom, length: 0))
-            } else {
-                guard let mapped = Self.mapped(edit.range, past: NSRange(location: phantom, length: 1)) else {
-                    closePhantom(); return refuse(.notSupported)
+        attempted = Self.logName(edit.action)
+        // **Held text and an opened paragraph are in the display only**, so an edit's range is
+        // measured on text the projection does not have. What is aimed at them is handled here,
+        // and every other range is mapped past them — never left pointing at whatever now stands
+        // there (review, 2026-10-05: ⌫ after two held spaces deleted the next paragraph's first
+        // letter). There is never more than one (``overlay``).
+        let caret = edit.range.length == 0 ? edit.range.location : nil
+        if let held, let caret, caret == held.at + (held.text as NSString).length,
+           [.typing, .paste].contains(edit.action) || Self.isInlineVerb(edit.action) {
+            if Self.isInlineVerb(edit.action) {
+                // ⌘B after held text: a style for what is typed next, which the held text waits
+                // for with it — it dropped them, and wrote `one**x**` (round 2, 2026-10-10).
+                return resolve(edit.action) {
+                    PreviewEditTranslator.translate(RenderedEdit(range: NSRange(location: held.at, length: 0),
+                                                                 action: edit.action), in: $0, context: self.context)
                 }
-                closePhantom()
-                edit.range = mapped
             }
+            dropHeld()
+            // **A held line break is SAID to be one** — its text handed on as what follows it, never
+            // sniffed from the text: a paste starting with U+2028 was taken for it (round 2).
+            edit = held.isLineBreak
+                ? RenderedEdit(range: NSRange(location: held.at, length: 0),
+                               text: String(held.text.dropFirst()) + edit.text, action: .lineBreak)
+                : RenderedEdit(range: NSRange(location: held.at, length: 0), text: held.text + edit.text,
+                               action: edit.action)
+        } else if let held, edit.action == .delete, edit.range.length > 0,
+                  NSIntersectionRange(edit.range, NSRange(location: held.at, length: (held.text as NSString).length)) == edit.range {
+            return deleteHeld(edit.range)
+        } else if let phantom = phantomOffset, let caret, caret == phantom + 1,
+                  [.typing, .paste, .lineBreak].contains(edit.action) || Self.isLineVerb(edit.action)
+                    || Self.isInlineVerb(edit.action) {
+            // Typing, a list, heading or quote verb, or a style for what is typed next, aimed at the
+            // opened paragraph itself. A style closed it, and the bold text went on the end of the
+            // paragraph above (review, 2026-10-09).
+            //
+            // **And nothing that would draw nothing there**: a space starting the paragraph, which
+            // renders as nothing and has nothing to be held before (held, it went in BEFORE the
+            // paragraph's line break, and the next character joined the paragraph above — review,
+            // 2026-10-09); and ⇧Return, a line break with no line before it — which closed the
+            // paragraph and held the break at the end of the one above, so the next letter went
+            // there (round 2, 2026-10-10). The paragraph stays open, the caret in it.
+            if edit.action == .lineBreak || Self.isBlank(edit) { return .unchanged }
+            edit.range = NSRange(location: phantom, length: 0)
+        } else if let phantom = phantomOffset, edit.action == .delete, edit.range == NSRange(location: phantom, length: 1) {
+            // ⌫ in the empty paragraph Return opened: it closes, as it never was.
+            closePhantom()
+            return .select(NSRange(location: phantom, length: 0))
+        } else if let overlay {
+            guard let mapped = Self.mapped(edit.range, past: overlay) else { dropOverlay(); return refuse(.notSupported) }
+            dropOverlay()
+            edit.range = mapped
         }
         // A deletion is aimed where the caret was — ⌫ at a paragraph's start is about that paragraph,
         // not the line break before it.
         attemptedAt = edit.action == .delete ? NSMaxRange(edit.range) : edit.range.location
         let context = self.context
-        let result = resolve(edit.action, quiet: Self.isTrailingSpace(edit)) {
+        // **What Markdown draws as nothing until something follows it on the line** — spaces at a
+        // line's end, or before a span's closing marker or punctuation (`**world **` is no bold,
+        // round 2), and ⇧Return at a paragraph's end: a hard break with nothing after it is no
+        // break. Held in the display and written with the next character (`hold`). A space at a
+        // line's START renders as nothing whatever follows, so it is not held there, nor written:
+        // the next character went in after it and was refused (review, 2026-10-09).
+        let blank = Self.isBlank(edit)
+        // Asked only of ⇧Return: a walk of the segments for every keystroke was not free (round 2).
+        let breaksAtEnd = edit.action == .lineBreak && edit.range.length == 0
+            && PreviewEditRules.endsLine(at: edit.range.location, in: projection)
+        let result = resolve(edit.action, quiet: blank || breaksAtEnd) {
             PreviewEditTranslator.translate(edit, in: $0, context: context)
         }
-        if result == .unchanged, Self.isTrailingSpace(edit), lastRefusal == .unverified {
+        guard result == .unchanged, lastRefusal == .unverified, blank || breaksAtEnd else { return result }
+        if breaksAtEnd { return hold("\u{2028}" + edit.text, at: edit.range.location) }
+        if !PreviewEditRules.startsLine(at: edit.range.location, in: projection) {
             return hold(edit.text, at: edit.range.location)
         }
-        return result
+        return .unchanged
     }
 
     /// `range`, measured on the display, in the projection's terms once `overlay` — display-only
@@ -201,10 +248,66 @@ final class PreviewEditSession {
         return nil
     }
 
-    private func refuse(_ reason: PreviewRefusal) -> Result {
-        Logger.shared.debug("[edit] preview refused \(reason)")
-        onRefusal?(reason, sourceOffset(near: min(attemptedAt, (projection.renderedString as NSString).length)))
+    /// The hint, and a line in the log that lets a report be diagnosed (review, 2026-10-09: there
+    /// was one `.debug` line with the reason alone, and a dozen places give each reason): what was
+    /// done, in what kind of block, where in the source, which line of which file refused it, and
+    /// how far a rendering that did not verify was off. **Never the text** — offsets and kinds only.
+    private func refuse(_ reason: PreviewRefusal, by file: String = "session", line: Int = #line,
+                        unverified: PreviewEditTranslator.Unverified? = nil) -> Result {
+        let at = min(attemptedAt, (projection.renderedString as NSString).length)
+        let offset = sourceOffset(near: at)
+        let block = PreviewEditRules.block(at: at, in: projection).map { Self.logName(projection.blocks[$0].kind) }
+        let why = unverified.map { ", " + $0.detail } ?? ""
+        let message = "[edit] preview refused \(attempted) in \(block ?? "no block") at source \(offset): \(reason) (\(file) line \(line)\(why))"
+        // **The first of a run at INFO, its repeats at debug** (round 2, 2026-10-10): a key held
+        // down in front matter wrote an INFO line per auto-repeat. A repeat is the same thing
+        // refused at the same site with no edit made between; the hint is raised for each.
+        let site = "\(attempted) \(reason) \(file) \(line)"
+        if site == lastRefusedSite {
+            Logger.shared.debug(message)
+        } else {
+            Logger.shared.info(message)
+        }
+        lastRefusedSite = site
+        onRefusal?(reason, offset)
         return .unchanged
+    }
+
+    /// The last refusal logged at INFO, until an edit is made — see ``refuse(_:by:line:unverified:)``.
+    private var lastRefusedSite: String?
+
+    /// What was being done, for the log.
+    private var attempted = "typing"
+
+    private static func logName(_ action: RenderedEdit.Action) -> String {
+        switch action {
+        case .typing: "typing"
+        case .paste: "paste"
+        case .delete: "delete"
+        case .returnKey: "Return"
+        case .lineBreak: "⇧Return"
+        case .tab: "Tab"
+        case .backtab: "⇧Tab"
+        // As the menu names it — a refused verb's one line, where the view once wrote a second.
+        case .format(let verb): "Markup ▸ \(verb.title)"
+        case .tickTask: "tick"
+        }
+    }
+
+    /// A block's kind, by name only — an image's path, a code block's language, are the note's.
+    private static func logName(_ kind: PreviewBlock.Kind) -> String {
+        switch kind {
+        case .heading: "heading"
+        case .paragraph: "paragraph"
+        case .listItem: "list item"
+        case .codeBlock: "code block"
+        case .table: "table"
+        case .thematicBreak: "rule"
+        case .frontMatter: "front matter"
+        case .image: "image"
+        case .html: "HTML"
+        case .other: "other block"
+        }
     }
 
     /// ⌫ within held spaces takes them away — from the display, where they are; the file never
@@ -214,8 +317,13 @@ final class PreviewEditSession {
         let text = (held.text as NSString).replacingCharacters(
             in: NSRange(location: range.location - held.at, length: range.length), with: "")
         changeDisplay { display.replaceCharacters(in: range, with: "") }
-        self.held = text.isEmpty ? nil : (text, held.at)
+        self.held = text.isEmpty ? nil : Held(text: text, at: held.at)
         return .select(NSRange(location: range.location, length: 0))
+    }
+
+    private static func isInlineVerb(_ action: RenderedEdit.Action) -> Bool {
+        guard case .format(let verb) = action else { return false }
+        return [.bold, .italic, .strikethrough, .inlineCode].contains(verb)
     }
 
     private static func isLineVerb(_ action: RenderedEdit.Action) -> Bool {
@@ -226,28 +334,33 @@ final class PreviewEditSession {
         }
     }
 
-    /// Spaces alone, typed with nothing selected: the one edit that can render as nothing.
-    private static func isTrailingSpace(_ edit: RenderedEdit) -> Bool {
-        edit.action == .typing && edit.range.length == 0 && !edit.text.isEmpty
-            && edit.text.allSatisfy { $0 == " " }
+    /// Spaces alone, typed with nothing selected: the edits that can render as nothing. (After a
+    /// held line break they come as a ``RenderedEdit/Action/lineBreak``, which is held in its own
+    /// right.)
+    private static func isBlank(_ edit: RenderedEdit) -> Bool {
+        edit.action == .typing && edit.range.length == 0 && !edit.text.isEmpty && edit.text.allSatisfy { $0 == " " }
     }
 
     private func hold(_ text: String, at offset: Int) -> Result {
-        // At a paragraph's start, the paragraph's own first character: the storage gives a whole
-        // paragraph its first character's style, and the break before belongs to the paragraph
-        // above — a held space there took the paragraph's spacing away (found 2026-10-08, by the
-        // session chains, once the splice stopped replacing the whole page on the next keystroke).
+        // Never beside an opened paragraph (``overlay``) — and none is open here: every edit but
+        // one into it closes it first, and none into it is held.
+        closePhantom()
+        // At a paragraph's start — a line break held in an empty list item — the paragraph's own
+        // first character: the storage gives a whole paragraph its first character's style, and
+        // the break before belongs to the paragraph above — a held space there took the paragraph's
+        // spacing away (found 2026-10-08, by the session chains, once the splice stopped replacing
+        // the whole page on the next keystroke).
         let units = display.string as NSString
         let startsParagraph = offset == 0 || Self.endsParagraph(units.character(at: offset - 1))
         let from: Int? = startsParagraph && offset < display.length ? offset : offset > 0 ? offset - 1 : nil
         var attributes = from.map { display.attributes(at: $0, effectiveRange: nil) } ?? [:]
         // The text's look, never what the character beside it IS: a box and the gap after it, an
         // image, a link's target.
-        for key in [NSAttributedString.Key.attachment, .previewAttachment, .previewImageSource, .link, .toolTip,
-                    .kern] {
+        for key in [NSAttributedString.Key.attachment, .previewAttachment, .previewImageSource, .previewImageAlt,
+                    .link, .toolTip, .kern] {
             attributes.removeValue(forKey: key)
         }
-        held = (text, offset)
+        held = Held(text: text, at: offset)
         changeDisplay {
             display.replaceCharacters(in: NSRange(location: offset, length: 0),
                                       with: NSAttributedString(string: text, attributes: attributes))
@@ -267,19 +380,17 @@ final class PreviewEditSession {
     /// ⌘Z. Ranges are in ``display`` and must not reach into an open phantom paragraph.
     @discardableResult
     func performAll(_ edits: [RenderedEdit]) -> Result {
+        replaced = nil
         var edits = edits
-        for overlay in [held.map { NSRange(location: $0.at, length: ($0.text as NSString).length) },
-                        phantomOffset.map { NSRange(location: $0, length: 1) }].compactMap({ $0 }) {
+        attempted = "Replace All"
+        if let overlay {
             let mapped = edits.map { edit -> RenderedEdit? in
                 Self.mapped(edit.range, past: overlay).map { var e = edit; e.range = $0; return e }
             }
-            guard mapped.allSatisfy({ $0 != nil }) else {
-                dropHeld(); closePhantom(); return refuse(.notSupported)
-            }
+            dropOverlay()
+            guard mapped.allSatisfy({ $0 != nil }) else { return refuse(.notSupported) }
             edits = mapped.compactMap { $0 }
         }
-        dropHeld()
-        closePhantom()
         attemptedAt = edits.first?.range.location ?? 0
         return resolve(.typing, all: true) { PreviewEditTranslator.translateAll(edits, in: $0) }
     }
@@ -290,7 +401,7 @@ final class PreviewEditSession {
         held = nil
         phantomOffset = nil
         context.phantomAfterBlock = nil
-        changeDisplay { Self.splice(decoratedProjection(), into: display) }
+        redraw()
     }
 
     /// The last refusal ``resolve`` met, for the held-space rule.
@@ -314,6 +425,11 @@ final class PreviewEditSession {
                 return .unchanged
             }
             write(application, for: action, own: all)
+            if let block = application.opensParagraphAfter {
+                // An emptied paragraph's line, shown open for what is typed next. The typing run goes
+                // on: the character that writes it joins the deletion's ⌘Z.
+                return .select(NSRange(location: openPhantom(after: block) + 1, length: 0))
+            }
             return .select(application.renderedSelection)
         case .moveCaret(let offset):
             breakTypingRun()
@@ -326,11 +442,11 @@ final class PreviewEditSession {
             breakTypingRun()
             context.pending = pending
             return .unchanged
-        case .refuse(let reason):
+        case .refuse(let reason, let line, let unverified):
             lastRefusal = reason
             // A space at a line's end is held, not refused: no hint for it.
             if quiet, reason == .unverified { return .unchanged }
-            return refuse(reason)
+            return refuse(reason, by: "translator", line: line, unverified: unverified)
         case .ignore:
             return .unchanged
         }
@@ -351,10 +467,24 @@ final class PreviewEditSession {
     }
 
     /// The selection in the source, for the status line's Line and Column and for Show in Source.
+    ///
+    /// Measured past what is in the display only: a caret after held spaces is where they will be
+    /// written — the end of their line, not the next block, whose Line and Column the status line
+    /// showed (review, 2026-10-09) — and one in an opened paragraph is at the end of the block above.
     func sourceSelection(for rendered: NSRange) -> NSRange? {
         var range = rendered
-        if let phantom = phantomOffset, range.location > phantom { range.location -= 1 }
+        if let overlay {
+            let start = Self.collapsed(range.location, past: overlay)
+            let end = Self.collapsed(NSMaxRange(range), past: overlay)
+            range = NSRange(location: start, length: end - start)
+        }
         return PreviewEditTranslator.sourceSelection(for: range, in: projection)
+    }
+
+    /// Display offset `offset` with `overlay` taken out: inside it or after it moves back by as
+    /// much of it as lies before.
+    private static func collapsed(_ offset: Int, past overlay: NSRange) -> Int {
+        offset <= overlay.location ? offset : offset - min(overlay.length, offset - overlay.location)
     }
 
     /// The conversion, as this session's own write — not an outside change to follow.
@@ -380,17 +510,18 @@ final class PreviewEditSession {
         }
         context = PreviewEditContext()
         phantomOffset = nil
+        lastRefusedSite = nil
         // Unit for unit: `!=` on two long Strings compares them as Unicode, and their `utf8`
         // walks a storage's String a character at a time — each a sixth of a keystroke, measured.
         if !(source.textStorage.string as NSString).isEqual(to: application.source) {
             // The translator's copy and the storage disagree — a bug, and one the display must not
             // hide: show what the file holds.
             Logger.shared.info("[edit] preview wrote a source that differs from the one it verified")
-            projection = MarkdownProjection.project(source.textStorage.string, style: style, after: projection)
+            projection = kept(MarkdownProjection.project(source.textStorage.string, style: style, after: projection))
         } else {
-            projection = application.projection
+            projection = kept(application.projection)
         }
-        changeDisplay { Self.splice(decoratedProjection(), into: display) }
+        redraw()
     }
 
     static func actionName(for action: RenderedEdit.Action) -> String {
@@ -476,14 +607,23 @@ final class PreviewEditSession {
         held = nil
         context = PreviewEditContext()
         phantomOffset = nil
-        projection = MarkdownProjection.project(source.textStorage.string, style: style, after: projection)
-        changeDisplay { Self.splice(decoratedProjection(), into: display) }
+        projection = kept(MarkdownProjection.project(source.textStorage.string, style: style, after: projection))
+        redraw()
+    }
+
+    /// `next`, about to be what is on screen: where it was re-read whole, with the lists of the
+    /// projection on screen kept in it (``MarkdownProjection/keepingLists(of:)``) — here, once, for
+    /// the projection that is kept, never for each one the translator only checks (round 2).
+    private func kept(_ next: MarkdownProjection) -> MarkdownProjection {
+        guard case .whole = next.reuse, next.style == projection.style else { return next }
+        return next.keepingLists(of: projection)
     }
 
     // MARK: The phantom paragraph
 
     private func openPhantom(after block: Int) -> Int {
-        if phantomOffset != nil { closePhantom() }
+        // One overlay at a time (``overlay``). Both are gone already wherever this is reached from.
+        dropOverlay()
         let offset = NSMaxRange(projection.blocks[block].rendered)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 3 * style.scale
@@ -517,37 +657,106 @@ final class PreviewEditSession {
     }
     static let defaultColumn: CGFloat = 676
 
-    /// Every attachment sized again — after the column or the text size changed, which the splice
-    /// cannot see: attachments are compared by what they stand for, not by their size.
-    private func redressAttachments() {
+    /// The projection and the display brought to a new ``style``.
+    ///
+    /// **A new column width re-reads nothing unless a table now fits it differently** (review,
+    /// 2026-10-09). Every frame of a live resize set one, and each was a whole re-read, a whole
+    /// decoration and a whole comparison — and dropped a held space or an opened paragraph. Now
+    /// only the rules and pictures, which span the column, are sized again. Where a table does
+    /// flip, or the text size changed, the source is re-read; the text is the same either way, so
+    /// what the display holds of its own — held spaces, an opened paragraph — stays where it is.
+    private func restyle(columnOnly: Bool) {
+        if columnOnly, let same = projection.restyled(style) {
+            projection = same
+        } else {
+            // A new text size changes every run: decorated afresh, as at open.
+            if !columnOnly { lastDecoration = nil }
+            projection = MarkdownProjection.project(source.textStorage.string, style: style, after: projection)
+            changeDisplay { replaced = Self.splice(overlaid(decoratedProjection()), into: display) }
+        }
+        redressAttachments(columnOnly: columnOnly)
+    }
+
+    /// What ``display`` holds that the projection does not — held text, or the opened paragraph — as
+    /// a range of the display.
+    ///
+    /// **Never both** (round 2, 2026-10-10): holding text closes an opened paragraph and opening one
+    /// drops held text, so there is one range, and every mapping past it — an edit's, Replace All's,
+    /// the status line's — is the same one. Both were mapped in three places, each in its own order.
+    var overlay: NSRange? {
+        if let held { return NSRange(location: held.at, length: (held.text as NSString).length) }
+        return phantomOffset.map { NSRange(location: $0, length: 1) }
+    }
+
+    /// The display back to the projection: held text dropped, an opened paragraph closed.
+    private func dropOverlay() {
+        dropHeld()
+        closePhantom()
+    }
+
+    /// `fresh`, with what ``display`` holds of its own put back where the display has it.
+    private func overlaid(_ fresh: NSAttributedString) -> NSAttributedString {
+        guard let overlay, NSMaxRange(overlay) <= display.length, overlay.location <= fresh.length else { return fresh }
+        let text = NSMutableAttributedString(attributedString: fresh)
+        text.insert(display.attributedSubstring(from: overlay), at: overlay.location)
+        return text
+    }
+
+    /// Attachments sized again — after the column or the text size changed, which the splice
+    /// cannot see: attachments are compared by what they stand for, not by their size. A new
+    /// column sizes only what spans it, a rule or a picture; a task's box keeps its size.
+    ///
+    /// **In the last decoration too**, whose kept parts are what later keystrokes copy into the
+    /// display: an attachment there that the display does not share would come back at the old size.
+    private func redressAttachments(columnOnly: Bool) {
+        var dressed = Set<ObjectIdentifier>()
+        func redress(_ text: NSAttributedString, laidOutIn storage: NSTextStorage?) {
+            text.enumerateAttribute(.previewAttachment, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+                guard let raw = value as? String, let kind = PreviewAttachments.Kind(rawValue: raw),
+                      !columnOnly || kind == .rule || kind == .image,
+                      let attachment = text.attribute(.attachment, at: range.location, effectiveRange: nil)
+                        as? NSTextAttachment else { return }
+                if dressed.insert(ObjectIdentifier(attachment)).inserted {
+                    if let image = text.attribute(.previewImageSource, at: range.location, effectiveRange: nil) as? String {
+                        dressImage(attachment, source: image)
+                    } else {
+                        PreviewAttachments.dress(attachment, as: kind, scale: style.scale,
+                                                 columnWidth: PreviewAttachments.column(columnWidth, at: range.location, in: text))
+                    }
+                }
+                storage?.edited(.editedAttributes, range: range, changeInLength: 0)
+            }
+        }
         changeDisplay {
             display.beginEditing()
-            display.enumerateAttribute(.previewAttachment, in: NSRange(location: 0, length: display.length)) { value, range, _ in
-                guard let raw = value as? String, let kind = PreviewAttachments.Kind(rawValue: raw),
-                      let attachment = display.attribute(.attachment, at: range.location, effectiveRange: nil)
-                        as? NSTextAttachment else { return }
-                if let image = display.attribute(.previewImageSource, at: range.location, effectiveRange: nil) as? String {
-                    dressImage(attachment, source: image)
-                } else {
-                    PreviewAttachments.dress(attachment, as: kind, scale: style.scale, columnWidth: columnWidth)
-                }
-                display.edited(.editedAttributes, range: range, changeInLength: 0)
-            }
+            redress(display, laidOutIn: display)
             display.endEditing()
         }
+        if let decorated = lastDecoration?.decorated { redress(decorated, laidOutIn: nil) }
     }
 
     // MARK: Images
 
     /// The open document's folder, which an image's relative path is relative to.
-    var documentFolder: String?
+    var documentFolder: String? {
+        didSet {
+            guard documentFolder != oldValue else { return }
+            // A new folder can find what the old one could not — even a picture with no folder to
+            // be found in, which is otherwise never looked for again: each is looked for afresh.
+            for (raw, result) in images {
+                if case .failure = result { failedAt[raw] = .distantPast }
+            }
+        }
+    }
     /// Every image this session has decoded, by its source as written — or why it could not be.
     private var images: [String: Swift.Result<NSImage, ImageRefusal>] = [:]
     private var loadingImages: Set<String> = []
+    /// When each picture the disk refused was looked for. Only those: a remote URL, or a path with
+    /// nothing to resolve against, is refused whatever the disk holds (review, 2026-10-09).
     private var failedAt: [String: Date] = [:]
     /// How long a picture that could not be shown waits before it is looked for again.
     var imageRetry: TimeInterval = 5
-    struct ImageRefusal: Error { var reason: String }
+    struct ImageRefusal: Error, Equatable { var reason: String }
     /// The tallest an image is drawn, as the read-only preview caps it.
     static let maxImageHeight: CGFloat = 420
 
@@ -563,7 +772,7 @@ final class PreviewEditSession {
                                                                        scale: style.scale))
         case .failure(let refusal)?:
             PreviewAttachments.dress(attachment, as: .image, scale: style.scale, columnWidth: columnWidth,
-                                     label: "Image — \(refusal.reason)")
+                                     reason: refusal.reason)
         case nil:
             loadImage(raw)
         }
@@ -581,6 +790,8 @@ final class PreviewEditSession {
         guard !loadingImages.contains(raw) else { return }
         loadingImages.insert(raw)
         let folder = documentFolder
+        let onDisk: Bool
+        if case .local = MarkdownImageSource.location(of: raw, relativeTo: folder) { onDisk = true } else { onDisk = false }
         Task { @MainActor [weak self] in
             let resolved = await Task.detached(priority: .userInitiated) {
                 MarkdownImageSource.resolve(raw, relativeTo: folder)
@@ -595,9 +806,13 @@ final class PreviewEditSession {
             }
             guard let self else { return }
             self.loadingImages.remove(raw)
+            let before = self.images[raw]
             self.images[raw] = result
-            if case .failure = result { self.failedAt[raw] = Date() } else { self.failedAt[raw] = nil }
-            self.redrawImages(raw)
+            if case .failure = result, onDisk { self.failedAt[raw] = Date() } else { self.failedAt[raw] = nil }
+            // Looked for again and refused for the same reason: what is drawn is already right.
+            var same = false
+            if case .failure(let now) = result, case .failure(let was)? = before { same = now == was }
+            if !same { self.redrawImages(raw) }
             self.onImageLoaded?(raw)
         }
     }
@@ -622,23 +837,30 @@ final class PreviewEditSession {
                 images[raw] = nil
                 continue
             }
-            images[raw] = nil
+            // The refusal stays drawn until the new look says otherwise: forgotten first, every
+            // paragraph decorated meanwhile drew the bare "Image" label (review, 2026-10-09).
             loadImage(raw)
         }
     }
 
+    /// Every attachment showing `raw` given what is now known of it — in the display, and in the
+    /// last decoration, whose copies later keystrokes splice in.
     private func redrawImages(_ raw: String) {
-        changeDisplay {
-            display.beginEditing()
-            display.enumerateAttribute(.previewImageSource, in: NSRange(location: 0, length: display.length)) { value, range, _ in
+        func redraw(_ text: NSAttributedString, laidOutIn storage: NSTextStorage?) {
+            text.enumerateAttribute(.previewImageSource, in: NSRange(location: 0, length: text.length)) { value, range, _ in
                 guard value as? String == raw,
-                      let attachment = display.attribute(.attachment, at: range.location, effectiveRange: nil)
+                      let attachment = text.attribute(.attachment, at: range.location, effectiveRange: nil)
                         as? NSTextAttachment else { return }
                 dressImage(attachment, source: raw)
-                display.edited(.editedAttributes, range: range, changeInLength: 0)
+                storage?.edited(.editedAttributes, range: range, changeInLength: 0)
             }
+        }
+        changeDisplay {
+            display.beginEditing()
+            redraw(display, laidOutIn: display)
             display.endEditing()
         }
+        if let decorated = lastDecoration?.decorated { redraw(decorated, laidOutIn: nil) }
     }
 
     /// The last decoration, and the rendering it was made from.
@@ -653,14 +875,32 @@ final class PreviewEditSession {
     private func decoratedProjection() -> NSAttributedString {
         retryFailedImages()
         let rendered = projection.rendered
+        decorationChange = nil
         guard let last = lastDecoration, last.rendered.length > 0, rendered.length > 0 else {
             let whole = decorated(rendered)
             lastDecoration = (rendered, whole)
             return whole
         }
-        if last.rendered === rendered { return last.decorated }
-        guard let difference = PreviewAttributeShape.difference(from: last.rendered, to: rendered) else {
+        let unchanged = (old: NSRange(location: 0, length: 0), new: NSRange(location: 0, length: 0))
+        if last.rendered === rendered {
+            decorationChange = unchanged
+            return last.decorated
+        }
+        // Where the projection differs from the one decorated last: known to it where it was made
+        // from that one, compared afresh where not.
+        let difference: NSRange
+        if let changed = projection.lineage.changed, projection.lineage.base === last.rendered {
+            difference = changed.new
+            if changed.old.length == 0, changed.new.length == 0 {
+                lastDecoration = (rendered, last.decorated)
+                decorationChange = unchanged
+                return last.decorated
+            }
+        } else if let compared = PreviewAttributeShape.difference(from: last.rendered, to: rendered) {
+            difference = compared.new
+        } else {
             lastDecoration = (rendered, last.decorated)
+            decorationChange = unchanged
             return last.decorated
         }
         // Whole paragraphs, and the one after them; then whole lists where a list's identity
@@ -669,20 +909,21 @@ final class PreviewEditSession {
         // DECORATION, whose lists are what the kept part holds: an earlier one's, where a list was
         // kept through a re-read that did not change how it looks.
         let units = PreviewAttributeShape.units(rendered)
-        var fresh = Self.followingParagraph(after: Self.paragraphs(around: difference.new, in: units), in: units)
-        while true {
-            let lists = PreviewListIdentity.wholeLists(around: fresh, in: rendered, against: last.decorated)
-            let widened = Self.paragraphs(around: lists, in: units)
-            if widened == fresh { break }
-            fresh = widened
-        }
+        let fresh = PreviewListIdentity.wholeLists(
+            around: Self.followingParagraph(after: Self.paragraphs(around: difference, in: units), in: units),
+            in: rendered, against: last.decorated, widening: { Self.paragraphs(around: $0, in: units) })
         let stale = NSRange(location: fresh.location,
                             length: last.rendered.length - (rendered.length - NSMaxRange(fresh)) - fresh.location)
         let whole = NSMutableAttributedString(attributedString: last.decorated)
         whole.replaceCharacters(in: stale, with: decorated(rendered, in: fresh))
         lastDecoration = (rendered, whole)
+        decorationChange = (stale, fresh)
         return whole
     }
+
+    /// What the last ``decoratedProjection()`` replaced of the decoration before it, and with what
+    /// range of its own — `nil` where it decorated the whole projection.
+    private var decorationChange: (old: NSRange, new: NSRange)?
 
     /// `range` widened to whole paragraphs — from just after a paragraph's end to just after one.
     static func paragraphs(around range: NSRange, in units: [unichar]) -> NSRange {
@@ -746,8 +987,39 @@ final class PreviewEditSession {
         return text
     }
 
+    /// The display brought to the projection, as little of it replaced as differs.
+    private func redraw() {
+        // **The display IS the last decoration** — spliced from it, and changed by nothing since —
+        // then it differs from the new one only where the decoration changed, and only there is
+        // compared: two whole comparisons were three fifths of a keystroke at 256 KB (measured
+        // 2026-10-09). Anything else the display took — a held space, an opened paragraph, marked
+        // text, a picture's new size — and the whole is compared, as before; and `splice` checks
+        // the lengths agree with the window whatever it is told.
+        let wasDecoration = displayIsDecoration
+        changeDisplay {
+            let fresh = decoratedProjection()
+            replaced = Self.splice(fresh, into: display, changed: wasDecoration ? decorationChange : nil)
+        }
+        displayIsDecoration = true
+    }
+
+    /// Whether ``display`` holds the last decoration, by what it draws — see ``redraw()``.
+    private var displayIsDecoration = false
+
+    /// How many characters the last redraw put in the display, until the `[edit]` line says so.
+    private var replaced: Int?
+
+    /// For the `[edit]` line: how the projection was made and how much of the display was laid out
+    /// anew — which is what says why a keystroke was slow (review, 2026-10-09). Once per keystroke.
+    private var redrawNote: String {
+        defer { replaced = nil }
+        guard let replaced else { return "nothing redrawn" }
+        return "reuse=\(projection.reuse), redrew \(replaced) of \(display.length)"
+    }
+
     /// Replaces only what differs between `display` and `fresh` — characters or attributes — so the
-    /// view keeps its layout and scroll position (§3.7: never replace the whole storage).
+    /// view keeps its layout and scroll position (§3.7: never replace the whole storage). Says how
+    /// many characters it put in their place.
     ///
     /// **Lists compare by shape, and one that changed identity is replaced whole.** A projection
     /// can make new `NSTextList`s, which are equal only to themselves, so comparing them as they are
@@ -755,14 +1027,62 @@ final class PreviewEditSession {
     /// 2026-10-07: a third of a keystroke on a 40 KB note). But TextKit numbers a list's items by
     /// that same identity, so a list whose identity did change is swapped as a whole, never half
     /// old, half new (`PreviewListIdentity`).
-    static func splice(_ fresh: NSAttributedString, into display: NSTextStorage) {
-        guard let difference = PreviewAttributeShape.difference(from: display, to: fresh) else { return }
+    ///
+    /// `changed`, where given, is where `fresh` differs from what `display` holds — `old` of the
+    /// display, `new` of `fresh` — and only there are the two compared.
+    @discardableResult
+    static func splice(_ fresh: NSAttributedString, into display: NSTextStorage,
+                       changed: (old: NSRange, new: NSRange)? = nil) -> Int {
+        var difference: PreviewAttributeShape.Difference?
+        var compared = false
+        if let changed, NSMaxRange(changed.old) <= display.length, NSMaxRange(changed.new) <= fresh.length,
+           display.length - changed.old.length == fresh.length - changed.new.length {
+            let piece = fresh.attributedSubstring(from: changed.new)
+            var found = PreviewAttributeShape.difference(from: display, in: changed.old, to: piece)
+            // **The window sees only how its own items pair.** A list in it that is not the display's
+            // very own there may pair otherwise with the rest of itself outside — and a join or a
+            // split shows only so (`1)` made `1.`; Return making an empty item that ends a list):
+            // then the whole is compared (found by the session chains, 2026-10-09).
+            if Self.holdsTheSameLists(display, in: changed.old, as: piece,
+                                      outside: found?.new ?? NSRange(location: piece.length, length: 0)) {
+                found?.new.location += changed.new.location
+                difference = found
+                compared = true
+            }
+        }
+        if !compared { difference = PreviewAttributeShape.difference(from: display, to: fresh) }
+        guard let difference else { return 0 }
         let whole = PreviewListIdentity.wholeLists(around: difference.new, in: fresh, against: display)
         let replaced = NSRange(location: whole.location,
                                length: display.length - (fresh.length - NSMaxRange(whole)) - whole.location)
         display.beginEditing()
         display.replaceCharacters(in: replaced, with: fresh.attributedSubstring(from: whole))
         display.endEditing()
+        return whole.length
+    }
+
+    /// Whether every list in `piece`, outside `differing` of it, is the very `NSTextList` `display`
+    /// has at the same place in `window` — `piece` standing for `window`, `differing` for what in it
+    /// changed.
+    private static func holdsTheSameLists(_ display: NSAttributedString, in window: NSRange,
+                                          as piece: NSAttributedString, outside differing: NSRange) -> Bool {
+        let shift = window.length - piece.length
+        var same = true
+        for (part, offset) in [(NSRange(location: 0, length: differing.location), 0),
+                               (NSRange(location: NSMaxRange(differing), length: piece.length - NSMaxRange(differing)), shift)]
+            where part.length > 0 && same {
+            piece.enumerateAttribute(.paragraphStyle, in: part) { value, run, stop in
+                let mine = (value as? NSParagraphStyle)?.textLists ?? []
+                guard !mine.isEmpty else { return }
+                let theirs = (display.attribute(.paragraphStyle, at: window.location + run.location + offset,
+                                                effectiveRange: nil) as? NSParagraphStyle)?.textLists ?? []
+                if mine.count != theirs.count || zip(mine, theirs).contains(where: { $0 !== $1 }) {
+                    same = false
+                    stop.pointee = true
+                }
+            }
+        }
+        return same
     }
 
 }

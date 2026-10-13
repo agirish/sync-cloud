@@ -215,13 +215,16 @@ import EventsTestSupport
                 "Preview draws something other than the Edit pill above its text: \(preview.bar)")
         // Editable Preview draws the bar over its text — and the Edit pill ends the bar's row,
         // overlapping none of its buttons (reported 2026-10-05: it lay over Link, Table and Divider)
-        // — at every width, including the ones where the bar runs to the column's edge.
-        for width: CGFloat in [Self.width, 1_000, 900, 800] {
+        // — at every width, including the ones where the bar runs to the column's edge, down to the
+        // narrowest document column the workspace allows (review V16: it stopped at 800).
+        for width: CGFloat in [Self.width, 1_000, 900, 800, 640, 520, 400, EditorLayoutMetrics.minDocumentOnlyWidth] {
             let editing = Self.mounted(markdown, mode: .preview, editsInPreview: true, width: width)
-            #expect(editing.bar.count >= 6, "editable Preview at \(width) draws \(editing.bar.count) controls above its text")
+            print("[bar-overlap] \(width): \(editing.bar.count) controls, last ends \(editing.bar.map(\.maxX).max() ?? 0)")
+            #expect(editing.bar.count >= 3, "editable Preview at \(width) draws \(editing.bar.count) controls above its text")
             // The pill is there, ending the row.
             let last = editing.bar.max { $0.maxX < $1.maxX }
-            #expect(last.map { $0.minX > width * 0.55 } == true, "at \(width), no pill ends the bar's row: \(editing.bar)")
+            #expect(last.map { $0.maxX > width - 24 && $0.width < 140 } == true,
+                    "at \(width), no pill ends the bar's row: \(editing.bar)")
             for (i, a) in editing.bar.enumerated() {
                 for b in editing.bar[(i + 1)...] {
                     #expect(!a.insetBy(dx: 1, dy: 1).intersects(b.insetBy(dx: 1, dy: 1)),

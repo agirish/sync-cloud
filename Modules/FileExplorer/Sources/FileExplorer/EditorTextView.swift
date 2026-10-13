@@ -12,7 +12,7 @@ import Events
 /// every paste and drop the handler does not claim is AppKit's, unchanged.
 ///
 /// **And where a typed line ending is decided:** Edit writes LF only, converting a CRLF or CR file
-/// on its first edit (``EditorLineEndings``, ``convertLineEndingsToLF()``). An edit from outside the
+/// on its first edit (``EditorLineEndings``, ``convertLineEndingsToLF(on:)``). An edit from outside the
 /// view goes through ``EditorSourceStorage/replace(_:with:undoManager:actionName:)``, which does the same.
 ///
 /// **Built by `EditorTextView.scrollableTextView()`**, the same factory as before: measured
@@ -29,13 +29,15 @@ final class EditorTextView: NSTextView {
         super.paste(sender)
     }
 
-    /// Whether the handler took the paste — after the buffer is converted, because the handler
-    /// measures where its link or image goes (see ``convertLineEndingsToLF()``). Its own method so a
-    /// test can hand it a private pasteboard.
+    /// Whether the handler took the paste. Its own method so a test can hand it a private pasteboard.
+    ///
+    /// **Nothing is converted here** (fixed 2026-10-09): the handler converts once it knows it will
+    /// write, as the list rules do, and a paste it leaves to AppKit is converted by the net. Converting
+    /// up front got both ends wrong — a screenshot is no type a plain-text view reads, so its paste
+    /// skipped the conversion and measured its caret on CRLF text; and a paste the importer then
+    /// refused had already rewritten the file.
     func handledPaste(from pasteboard: NSPasteboard) -> Bool {
-        // Converted only when something can be pasted: an empty clipboard is no edit.
-        if pasteboard.availableType(from: readablePasteboardTypes) != nil { convertLineEndingsToLF() }
-        return handler?.handlePaste(from: pasteboard, in: self) == true
+        handler?.handlePaste(from: pasteboard, in: self) == true
     }
 
     // **No conversion on a key command as such** (fixed 2026-10-05). Every key command passes
@@ -48,7 +50,8 @@ final class EditorTextView: NSTextView {
 
     /// The storage's carriage returns, asked of its ``EditorSourceStorage`` where it has one — which
     /// knows when there can be none, so an LF file is not scanned per keystroke.
-    private func pendingCarriageReturns(in storage: NSTextStorage) -> [EditorLineEndings.Change] {
+    func pendingCarriageReturns() -> [EditorLineEndings.Change] {
+        guard let storage = textStorage else { return [] }
         if let source = storage.delegate as? EditorSourceStorage { return source.carriageReturns() }
         return EditorLineEndings.carriageReturns(in: storage.mutableString)
     }
@@ -56,6 +59,21 @@ final class EditorTextView: NSTextView {
     // MARK: LF only — see `EditorLineEndings`
 
     private var isConvertingLineEndings = false
+    /// Set while AppKit reads a paste or a drop into the text — text coming in, whose Unicode line
+    /// separators come in as LF (``EditorLineEndings/normalizedIncoming(_:)``). Everything else the
+    /// net sees can carry the file's own, which stay.
+    private var isReadingIncomingText = false
+
+    /// Set while a drag that started in this view is dropped back into it — the file's own text,
+    /// moved, which keeps its separators (round 2, R10, 2026-10-10: it lost them, as text coming in).
+    private var isDroppingOwnText = false
+
+    /// Paste and a text drop both arrive here, under AppKit's own handling.
+    override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        isReadingIncomingText = !isDroppingOwnText
+        defer { isReadingIncomingText = false }
+        return super.readSelection(from: pboard, type: type)
+    }
 
     /// Turns every CRLF and lone CR in the buffer into LF — on the first edit to a file that is not
     /// LF, and in that edit's undo step: AppKit groups undo by event, so the ⌘Z that takes back the
@@ -63,22 +81,28 @@ final class EditorTextView: NSTextView {
     /// (measured 2026-10-05, `undoTakesBackTheFirstEditAndTheConversionTogether`). Does nothing to an LF buffer, a read-only view, or while an input
     /// method is composing (the marked text sits in the buffer and must not move under it).
     ///
-    /// **Called before an edit is MEASURED wherever this view can see that moment** — a list
-    /// rule once it knows it will write, a paste, a drop — and by ``PlainTextEditor/apply(_:to:)`` before a verb reads the
-    /// buffer, because an edit measured on the CRLF text carries offsets that are wrong after it.
+    /// **Called before an edit is MEASURED wherever this view can see that moment, and only once
+    /// the edit is certain** — a list rule, a link or an image paste, a drop, each once it knows it
+    /// will write — and by ``PlainTextEditor/apply(_:to:)`` before a verb reads the buffer, because
+    /// an edit measured on the CRLF text carries offsets that are wrong after it.
     /// ``shouldChangeText(inRanges:replacementStrings:)`` is the net under the rest: plain typing and
     /// Replace measure their range before any of this can run, and it maps the range across.
+    ///
+    /// - Returns: the carriage returns taken out — empty when nothing was converted — so a caller
+    ///   holding an offset measured before can map it with ``EditorLineEndings/mapped(_:through:)-(NSRange,_)``.
+    ///   The view's own selection is mapped here.
     ///
     /// The `isEditable` check is belt and braces, not the guard: a non-editable view's own
     /// `shouldChangeText` refuses too (mutation-tested 2026-10-05 — removing the check changes
     /// nothing). It stays so a read-only file is not even scanned.
+    /// - Parameter trigger: what is converting it, for the log line — `Return in a list`, say.
     @discardableResult
-    func convertLineEndingsToLF() -> Bool {
+    func convertLineEndingsToLF(on trigger: String) -> [EditorLineEndings.Change] {
         guard isEditable, !hasMarkedText(), !isConvertingLineEndings, let storage = textStorage else {
-            return false
+            return []
         }
-        let changes = pendingCarriageReturns(in: storage)
-        guard !changes.isEmpty else { return false }
+        let changes = pendingCarriageReturns()
+        guard !changes.isEmpty else { return [] }
         let selection = selectedRanges.map(\.rangeValue)
         isConvertingLineEndings = true
         defer { isConvertingLineEndings = false }
@@ -86,7 +110,7 @@ final class EditorTextView: NSTextView {
         // One multi-range change rather than one replacement of the whole text: the undo restores
         // exactly the carriage returns, and the view keeps its scroll and layout.
         guard super.shouldChangeText(inRanges: changes.map { NSValue(range: $0.range) },
-                                     replacementStrings: changes.map(\.replacement)) else { return false }
+                                     replacementStrings: changes.map(\.replacement)) else { return [] }
         storage.beginEditing()
         for change in changes.reversed() {
             storage.replaceCharacters(in: change.range, with: change.replacement)
@@ -95,12 +119,13 @@ final class EditorTextView: NSTextView {
         didChangeText()
         breakUndoCoalescing()
         selectedRanges = selection.map { NSValue(range: EditorLineEndings.mapped($0, through: changes)) }
-        return true
+        EditorLineEndings.logConversion(changes, of: (storage.delegate as? EditorSourceStorage)?.fileName, on: trigger)
+        return changes
     }
 
     /// The net under every edit: a buffer that still holds a carriage return is converted first,
-    /// and a line break in what is being inserted — a pasted CRLF, a Replace string — is written as
-    /// LF. Either way the edit is made HERE, with its ranges mapped across the conversion, and
+    /// and a line break in what is being inserted — a pasted CRLF, a Replace string, a pasted
+    /// U+2028 — is written as LF. Either way the edit is made HERE, with its ranges mapped across the conversion, and
     /// `false` tells the caller its own (now stale) edit is not wanted.
     override func shouldChangeText(inRanges affectedRanges: [NSValue],
                                    replacementStrings: [String]?) -> Bool {
@@ -108,14 +133,15 @@ final class EditorTextView: NSTextView {
               let storage = textStorage else {
             return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
         }
-        let changes = pendingCarriageReturns(in: storage)
-        let normalized = strings.map(EditorLineEndings.normalized)
+        let changes = pendingCarriageReturns()
+        let normalized = strings.map(isReadingIncomingText ? EditorLineEndings.normalizedIncoming
+                                                           : EditorLineEndings.normalized)
         guard !changes.isEmpty || normalized != strings else {
             return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
         }
         var ranges = affectedRanges.map(\.rangeValue)
         if !changes.isEmpty {
-            guard convertLineEndingsToLF() else {
+            guard !convertLineEndingsToLF(on: "typing, a paste, a drop or Replace").isEmpty else {
                 return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
             }
             ranges = ranges.map { EditorLineEndings.mapped($0, through: changes) }
@@ -132,19 +158,35 @@ final class EditorTextView: NSTextView {
         }
         storage.endEditing()
         didChangeText()
-        // Where the caller's own edit would have left the caret: after what it inserted.
+        // Where the caller's own edit would have left the caret: after what it inserted. With more
+        // than one range AppKit lands it there itself (measured 2026-10-09, a paste over two).
         if ranges.count == 1 {
             setSelectedRange(NSRange(location: ranges[0].location + normalized[0].utf16.count, length: 0))
         }
+        // **And in view**, which the caller's own edit would also have seen to — told no, it never
+        // gets there: a long paste left the caret off the bottom of the screen (2026-10-09).
+        scrollRangeToVisible(selectedRange())
         return false
+    }
+
+    /// **A word an input method commits is an edit too, and converts the file** (2026-10-09). AppKit
+    /// asks ``shouldChangeText(inRanges:replacementStrings:)`` for the commit while the word is
+    /// still marked, where the net must let it through as it stands — so a CRLF file whose first
+    /// edit was a kana word or a dead-key accent was saved CRLF, and the conversion rode in later,
+    /// inside the undo step of whatever was typed next. Converted the moment the composition is
+    /// over, in the same event: one ⌘Z takes back the word and the conversion together.
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        let committing = hasMarkedText()
+        super.insertText(string, replacementRange: replacementRange)
+        if committing, !hasMarkedText() { convertLineEndingsToLF(on: "a word an input method committed") }
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         // A drag that started in this view is text being moved, never a file.
         if let handler, (sender.draggingSource as AnyObject?) !== self,
            let files = Self.imageFiles(on: sender.draggingPasteboard) {
-            // Before the drop point becomes an offset: the offset is into the converted buffer.
-            convertLineEndingsToLF()
+            // The offset is into the buffer as it stands: the handler converts it, and maps the
+            // offset across, once it knows the drop writes — a refused drop changes nothing.
             let point = convert(sender.draggingLocation, from: nil)
             let index = characterIndexForInsertion(at: point)
             switch handler.handleDrop(imageFiles: files, at: index, in: self) {
@@ -158,6 +200,8 @@ final class EditorTextView: NSTextView {
             case .notMine: break
             }
         }
+        isDroppingOwnText = (sender.draggingSource as AnyObject?) === self
+        defer { isDroppingOwnText = false }
         return super.performDragOperation(sender)
     }
 

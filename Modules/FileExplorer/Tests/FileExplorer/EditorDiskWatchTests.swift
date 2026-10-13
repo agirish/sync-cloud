@@ -934,9 +934,11 @@ import EventsTestSupport
         let store = EditorUndoStore()
         store.activate(path: "/f/a.md", text: "a")
         let manager = store.current
+        // Something to undo: a history with nothing in it is not kept, at any path (2026-10-09).
+        store.source.replace(NSRange(location: 1, length: 0), with: "b", undoManager: manager)
         store.move(from: "/f/a.md", to: "/f/b.md")
-        store.remember(text: "a")
-        store.activate(path: "/f/b.md", text: "a")
+        store.remember(text: "ab")
+        store.activate(path: "/f/b.md", text: "ab")
         #expect(store.current === manager, "the history was not handed back at the new path")
     }
 

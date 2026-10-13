@@ -94,7 +94,7 @@ struct MarkdownSourceIndex: Sendable {
             let width = Self.utf8Width(at: offset, in: units)
             guard width <= remaining else { return nil }
             remaining -= width
-            offset += Self.isHighSurrogate(units[offset]) && offset + 1 < units.count ? 2 : 1
+            offset += width == 4 ? 2 : 1
         }
         return offset
     }
@@ -104,8 +104,9 @@ struct MarkdownSourceIndex: Sendable {
         var count = 0
         var offset = start
         while offset < end {
-            count += Self.utf8Width(at: offset, in: units)
-            offset += Self.isHighSurrogate(units[offset]) && offset + 1 < units.count ? 2 : 1
+            let width = Self.utf8Width(at: offset, in: units)
+            count += width
+            offset += width == 4 ? 2 : 1
         }
         return count
     }
@@ -123,7 +124,10 @@ struct MarkdownSourceIndex: Sendable {
 
     private static func isHighSurrogate(_ unit: UInt16) -> Bool { (0xD800...0xDBFF).contains(unit) }
 
-    /// Bytes for the character starting at `offset`: a surrogate pair is one four-byte scalar.
+    /// Bytes for the character starting at `offset`: a surrogate pair is one four-byte scalar, and
+    /// the only thing two units wide. A surrogate without its other half is one unit of three bytes
+    /// — the U+FFFD it becomes on its way to the parser — where it counted three bytes and stepped
+    /// two units, over the character after it (review, 2026-10-09).
     private static func utf8Width(at offset: Int, in units: [UInt16]) -> Int {
         let unit = units[offset]
         if unit < 0x80 { return 1 }

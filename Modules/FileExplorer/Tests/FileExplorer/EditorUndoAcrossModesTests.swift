@@ -276,4 +276,52 @@ import FileExplorerTestSupport
         #expect(rig.textView?.string == "Hello world\n", "⌘Z after a file round trip left the typing on screen")
         #expect(rig.document.text == "Hello world\n")
     }
+
+    // MARK: A CRLF file (LF only, 2026-10-05)
+
+    /// **A CRLF file's first edit, a mode switch, ⌘Z: the file's bytes come back** — the conversion
+    /// was registered by the Source view the switch dismantled, and is replayed against the storage
+    /// every view shares. Through Split and through a Preview round trip.
+    @Test func undoAfterASwitchGivesBackACRLFFilesBytes() async throws {
+        let text = "Hello\r\nworld\r\n"
+        for path in [[EditorMode.split], [.preview, .edit]] {
+            let rig = try Rig(text, mode: .edit)
+            defer { withExtendedLifetime(rig) {} }
+            try await rig.type("!", at: 5)
+            #expect(rig.document.text == "Hello!\nworld\n", "the first edit did not convert the file")
+            for mode in path { try await rig.switchTo(mode) }
+            await rig.undoAndSettle(expecting: text)
+            #expect(rig.textView?.string == text, "\(path): ⌘Z after the switch left \(String(reflecting: rig.textView?.string))")
+            #expect(rig.document.text == text, "\(path): the document kept \(String(reflecting: rig.document.text))")
+        }
+    }
+
+    // MARK: Typing straight after a file switch (2026-10-09)
+
+    /// **Typing in b.md the moment it opens is b's own step, never the tail of a.md's.** The text
+    /// view is re-pointed at b's storage rather than rebuilt, with the caret at the same offset, and
+    /// a run of typing coalesces while the caret stays where the last keystroke left it — so the
+    /// question was whether the first keystroke in b extended a's typing action, in a's stack. Typed
+    /// at the caret as a key would be, with no selection set in between.
+    @Test func typingStraightAfterAFileSwitchIsTheNewFilesOwnStep() async throws {
+        let rig = try Rig("Hello world\n", mode: .edit, store: EditorUndoStore())
+        defer { withExtendedLifetime(rig) {} }
+        let a = try #require(rig.document.path)
+        try await rig.type("X", at: 5)
+        let b = try TestTextFiles.write("other text\n", named: "Other.md")
+        let before = rig.textView
+        try await rig.open(b)
+        let view = try #require(rig.textView)
+        #expect(view === before, "fixture: the view was rebuilt, not re-pointed — the case is not reached")
+        #expect(view.selectedRange() == NSRange(location: 6, length: 0), "fixture: the caret is not where a's typing left it")
+        view.insertText("Y", replacementRange: view.selectedRange())
+        await rig.endOfEvent()
+        #expect(rig.document.text == "other Ytext\n")
+        #expect(rig.undo.canUndo, "b's first keystroke registered nothing in b's stack")
+        await rig.undoAndSettle(expecting: "other text\n")
+        #expect(rig.document.text == "other text\n", "⌘Z in b left \(String(reflecting: rig.document.text))")
+        try await rig.open(a)
+        await rig.undoAndSettle(expecting: "Hello world\n")
+        #expect(rig.document.text == "Hello world\n", "a's ⌘Z left \(String(reflecting: rig.document.text))")
+    }
 }

@@ -249,6 +249,9 @@ struct ContentView: View {
     /// Text ▸ Edit in Preview (Experimental): whether Preview has a text view for the Markup and
     /// find items to act on (TE67) — read here so the menus follow the switch at once.
     @AppStorage(EditorTextSettings.editsInPreviewKey) var editsInPreviewSetting = EditorTextSettings.editsInPreviewDefault
+    /// The workspace's 256 KB decision for the open note, handed up when it is taken (V4) — so the
+    /// menus agree with the Preview they act on without this view observing the buffer.
+    @State var editorPreviewLengthHold: PreviewLengthHold?
     @AppStorage("selectedRightProviderId") var rightProviderId: String = "iCloud"
     @State var isScanning = false
 

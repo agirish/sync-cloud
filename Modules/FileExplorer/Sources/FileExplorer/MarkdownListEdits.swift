@@ -204,7 +204,12 @@ enum MarkdownListEdits {
             ? own
             : MarkdownSourceLines.line(place.itemLine, from: line, number: place.line, in: ns)
                 .flatMap { MarkdownListLine.parse(ns.substring(with: $0.content)) }
-        guard let opening else { return nil }
+        // **The opening read off the line must be the item's own.** A line can open an item inside
+        // another — `- 2.`, `- - a` — and its first marker is then the OUTER item's, while the
+        // caret ends the inner one: carried on, it wrote a new outer item below the inner, which
+        // is neither (2026-10-12, the 50,000-run property test). The inner item's own opening is
+        // not a line's to rewrite, so Return does what it always did.
+        guard let opening, place.markerOffset == opening.indent.utf8.count else { return nil }
 
         if place.itemLine == place.line, opening.isEmpty {
             // The word the empty item was read with can make the line under it a lazy line of that

@@ -1,37 +1,47 @@
 import AppKit
 
 /// **What the editable Preview draws behind its text** (TE67 §3.8): a bar for every level of quote,
-/// and a shaded band behind a code block. Text attributes cannot draw either — a quote bar sits in
-/// the indent, outside any glyph, and a code band spans the column, not the line's characters.
+/// and a shaded band behind a code or HTML block, with a code block's language over it. Text
+/// attributes cannot draw these — a quote bar sits in the indent, outside any glyph, a code band
+/// spans the column, not the line's characters, and the language is not text. Each is drawn from
+/// its block's own indent, so none reaches out under a list's markers.
 ///
 /// **TextKit 2's own hook, so the view stays on TextKit 2**: a layout-fragment subclass, chosen per
 /// paragraph by ``PreviewFragmentDelegate`` from the attributes the projection put on it
-/// (``NSAttributedString/Key/previewBlock``, ``NSAttributedString/Key/previewQuoteDepth``). Never
+/// (``NSAttributedString/Key/previewBlock``, ``NSAttributedString/Key/previewQuoteBars``). Never
 /// `layoutManager` — reading it drops the view to TextKit 1 for good.
 ///
 /// And a table's grid (TE67.5): the header row tinted, a rule under every row, and a line at each
 /// column's edge — where the projection's tab stops put them (``NSAttributedString/Key/previewTableColumns``).
 final class PreviewBlockFragment: NSTextLayoutFragment {
 
+    /// A code block's paragraph, or an HTML block's — both drawn on a band, as the read-only Preview
+    /// draws them.
     var isCode = false
-    var quoteDepth = 0
+    /// A fenced block's language, on its first line: drawn in the room the projection left above it.
+    var language: String?
+    /// Where each quote bar is drawn, from the text's left edge — the projection's, which knows the
+    /// list indent each quote opened at, and how deep it draws.
+    var quoteBars: [CGFloat] = []
+    var quoteDepth: Int { quoteBars.count }
     var scale: CGFloat = 1
     /// A table row's column edges from the text's left edge, the last being the table's right edge.
     var tableColumns: [CGFloat]?
     var isTableHeader = false
-    /// Where the text starts, inside the fragment: a table's grid is measured from here.
+    /// Where the text starts, inside the fragment: a table's grid and a code band are measured from
+    /// here, so neither reaches out under a list's markers.
     var lead: CGFloat = 0
 
     /// The quote bars sit left of the text, in the indent the projection left for them; a code band
-    /// runs the column's width. Both are outside the text's own bounds.
+    /// runs from the text to the column's edge. Both are outside the text's own bounds.
     override var renderingSurfaceBounds: CGRect {
         var bounds = super.renderingSurfaceBounds
         let left = -layoutFragmentFrame.minX
-        if quoteDepth > 0 || isCode {
-            bounds = bounds.union(CGRect(x: left, y: 0, width: 1, height: layoutFragmentFrame.height))
+        if let last = quoteBars.last {
+            bounds = bounds.union(CGRect(x: left, y: 0, width: last + 3 * scale, height: layoutFragmentFrame.height))
         }
         if isCode, let width = textLayoutManager?.textContainer?.size.width {
-            bounds = bounds.union(CGRect(x: left, y: 0, width: width, height: layoutFragmentFrame.height))
+            bounds = bounds.union(CGRect(x: left + lead, y: 0, width: max(1, width - lead), height: layoutFragmentFrame.height))
         }
         if let edges = tableColumns, let last = edges.last {
             bounds = bounds.union(CGRect(x: left + lead - 1, y: 0, width: last + 2, height: layoutFragmentFrame.height))
@@ -45,7 +55,19 @@ final class PreviewBlockFragment: NSTextLayoutFragment {
         context.saveGState()
         if isCode, let width = textLayoutManager?.textContainer?.size.width {
             context.setFillColor(NSColor.quaternaryLabelColor.withAlphaComponent(0.12).cgColor)
-            context.fill(CGRect(x: column, y: point.y, width: width, height: height))
+            context.fill(CGRect(x: column + lead, y: point.y, width: max(0, width - lead), height: height))
+        }
+        // TextKit drops a document's first paragraph's spacing before, and with it the room: a
+        // label drawn there anyway would sit on the code.
+        if let language, (textLineFragments.first?.typographicBounds.minY ?? 0) >= 10 * scale {
+            // Drawn, not laid out: the read-only Preview's label — small, tertiary, above the code.
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+            (language as NSString).draw(at: CGPoint(x: column + lead + 2 * scale, y: point.y + 2 * scale), withAttributes: [
+                .font: NSFont.systemFont(ofSize: 9 * scale, weight: .semibold),
+                .foregroundColor: NSColor.tertiaryLabelColor,
+            ])
+            NSGraphicsContext.restoreGraphicsState()
         }
         if let edges = tableColumns, let right = edges.last {
             let x = column + lead
@@ -59,11 +81,10 @@ final class PreviewBlockFragment: NSTextLayoutFragment {
             if isTableHeader { context.fill(CGRect(x: x, y: point.y, width: right, height: 1)) }
             for edge in edges { context.fill(CGRect(x: x + edge - 0.5, y: point.y, width: 1, height: height)) }
         }
-        if quoteDepth > 0 {
+        if !quoteBars.isEmpty {
             context.setFillColor(NSColor.tertiaryLabelColor.cgColor)
-            for level in 0..<quoteDepth {
-                context.fill(CGRect(x: column + (CGFloat(level) * 14 + 2) * scale, y: point.y,
-                                    width: 3 * scale, height: height))
+            for bar in quoteBars {
+                context.fill(CGRect(x: column + bar, y: point.y, width: 3 * scale, height: height))
             }
         }
         context.restoreGState()
@@ -82,8 +103,10 @@ final class PreviewFragmentDelegate: NSObject, NSTextLayoutManagerDelegate {
         fragment.scale = scale
         if let paragraph = element as? NSTextParagraph, paragraph.attributedString.length > 0 {
             let text = paragraph.attributedString
-            fragment.isCode = text.attribute(.previewBlock, at: 0, effectiveRange: nil) as? String == "code"
-            fragment.quoteDepth = text.attribute(.previewQuoteDepth, at: 0, effectiveRange: nil) as? Int ?? 0
+            let block = text.attribute(.previewBlock, at: 0, effectiveRange: nil) as? String
+            fragment.isCode = block == "code" || block == "html"
+            fragment.language = text.attribute(.previewCodeLanguage, at: 0, effectiveRange: nil) as? String
+            fragment.quoteBars = text.attribute(.previewQuoteBars, at: 0, effectiveRange: nil) as? [CGFloat] ?? []
             fragment.tableColumns = text.attribute(.previewTableColumns, at: 0, effectiveRange: nil) as? [CGFloat]
             fragment.isTableHeader = text.attribute(.previewTableHeader, at: 0, effectiveRange: nil) as? Bool ?? false
             fragment.lead = (text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?

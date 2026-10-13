@@ -195,6 +195,9 @@ import Design
         let store = EditorUndoStore()
         store.activate(path: "/n/a.md", text: "identical")
         let first = store.current
+        // An edit, so a's stack is kept at all — an empty one is not (2026-10-09), and the check
+        // below would then pass with nothing to hand out.
+        first.registerUndo(withTarget: store) { _ in }
         store.remember(text: "identical")
 
         store.activate(path: "/n/b.md", text: "identical")

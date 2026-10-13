@@ -170,7 +170,7 @@ struct EditorStatusLine: View, Equatable {
 
     private func hintRow(_ rung: EditorStatusHint.Rung, _ hint: EditorStatusHint) -> some View {
         HStack(spacing: 6) {
-            if let sentence = rung.sentence { Text(sentence) }
+            if let sentence = hint.sentence(rung) { Text(sentence) }
             Button { hint.onShowInSource() } label: { Text(EditorStatusHint.showInSource) }
                 .buttonStyle(.link)
                 .accessibilityHint(EditorStatusHint.needsSource)
@@ -307,10 +307,6 @@ struct EditorStatusLine: View, Equatable {
     }
 }
 
-/// What the status line's heading item knows: the outline, which heading holds the caret, and what
-/// choosing does (TE57). **The rail's Outline tab, one click from anywhere** — same outline
-/// (``MarkdownOutline``), same "which heading am I in" rule, same scroll request — for the two
-/// layouts that hide the rail: the file pane open, and Expand.
 /// What the status line says when Preview refuses an edit: one sentence and the way to Source.
 struct EditorStatusHint: Equatable {
     static let needsSource = "That change needs Source."
@@ -322,12 +318,20 @@ struct EditorStatusHint: Equatable {
     /// The hint's rungs, widest first.
     enum Rung: CaseIterable {
         case sentence, short, link
-        var sentence: String? {
-            switch self {
-            case .sentence: return EditorStatusHint.needsSource
-            case .short: return EditorStatusHint.needsSourceShort
-            case .link: return nil
-            }
+    }
+
+    /// What the rung says before the link — `nil` for the link alone. **A Replace All that could
+    /// not make every match says how many** (review V9, 2026-10-09): it changes none of them, and
+    /// "That change needs Source." over a whole document's worth of matches does not say which
+    /// change, or that the rest were not made either.
+    func sentence(_ rung: Rung) -> String? {
+        switch (rung, reason) {
+        case (.link, _): return nil
+        case (.sentence, .replaceAll(let failed, let of)?):
+            return "\(failed) of \(of) matches need Source — none were replaced."
+        case (.short, .replaceAll(let failed, let of)?): return "\(failed) of \(of) need Source."
+        case (.sentence, _): return EditorStatusHint.needsSource
+        case (.short, _): return EditorStatusHint.needsSourceShort
         }
     }
 
@@ -337,10 +341,16 @@ struct EditorStatusHint: Equatable {
     var onShowInSource: () -> Void
     /// Forces a rung, for the tests that measure each one. `nil` picks by width.
     var forcedRung: Rung? = nil
+    /// Why the edit was refused, for the words — ``sentence(_:)``.
+    var reason: PreviewRefusal? = nil
 
     nonisolated static func == (a: EditorStatusHint, b: EditorStatusHint) -> Bool { a.token == b.token }
 }
 
+/// What the status line's heading item knows: the outline, which heading holds the caret, and what
+/// choosing does (TE57). **The rail's Outline tab, one click from anywhere** — same outline
+/// (``MarkdownOutline``), same "which heading am I in" rule, same scroll request — for the two
+/// layouts that hide the rail: the file pane open, and Expand.
 struct EditorStatusHeadings: Equatable {
     var outline: [MarkdownOutlineEntry]
     /// The index in ``outline`` of the heading holding the caret — `nil` above the first one,

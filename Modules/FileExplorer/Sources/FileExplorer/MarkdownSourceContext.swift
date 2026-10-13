@@ -85,6 +85,9 @@ enum MarkdownSourceContext {
         var below: Below
         /// Whether the item is in a list inside another item — a sub-list's.
         var nested = false
+        /// Where the item's marker is on the line it opens on, in UTF-8 bytes from the line's start
+        /// — past the line's first marker when the line opens an item inside another (`- 2.`).
+        var markerOffset = 0
 
         enum Below: Equatable {
             /// Nothing: the line ends the item.
@@ -150,7 +153,8 @@ enum MarkdownSourceContext {
             let nested = cmark_node_parent(item).flatMap(cmark_node_parent).map {
                 cmark_node_get_type($0) == CMARK_NODE_ITEM } ?? false
             return ItemAtLineEnd(line: fileLine(lineNumber),
-                                 itemLine: fileLine(Int(cmark_node_get_start_line(item))), below: below, nested: nested)
+                                 itemLine: fileLine(Int(cmark_node_get_start_line(item))), below: below, nested: nested,
+                                 markerOffset: Int(cmark_node_get_start_column(item)) - 1)
         }
     }
 

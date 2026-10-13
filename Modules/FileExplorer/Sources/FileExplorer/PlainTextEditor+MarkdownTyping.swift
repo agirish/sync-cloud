@@ -53,7 +53,7 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         guard MarkdownListEdits.returnEdit(in: buffer(of: view), selection: view.selectedRange()) != nil
         else { return false }
         // This Return writes: the file to LF first, then measured again on it (`EditorLineEndings`).
-        (view as? EditorTextView)?.convertLineEndingsToLF()
+        (view as? EditorTextView)?.convertLineEndingsToLF(on: "Return in a list")
         guard let edit = MarkdownListEdits.returnEdit(in: buffer(of: view), selection: view.selectedRange())
         else { return false }
         view.breakUndoCoalescing()
@@ -82,13 +82,21 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
                                                     outdent: outdent) else { return false }
         // Taken but changing nothing — an item that cannot move: no edit, so no conversion either.
         guard case .rewrite = first else { return true }
-        (view as? EditorTextView)?.convertLineEndingsToLF()
+        (view as? EditorTextView)?.convertLineEndingsToLF(on: outdent ? "⇧Tab in a list" : "Tab in a list")
         guard case .rewrite(let range, let text, let selection)? =
                 MarkdownListEdits.tabEdit(in: buffer(of: view), selection: view.selectedRange(), outdent: outdent)
         else { return true }
         replace(range, with: text, in: view)
         view.setSelectedRange(selection)
         return true
+    }
+
+    /// **This edit writes**: the file to LF first (``EditorLineEndings``), and `range` — measured on
+    /// the buffer before — mapped across, so whatever is measured next is measured on the LF text.
+    /// Called only once the edit is certain: a paste or drop that ends in a refusal converts nothing.
+    private func convertedForWriting(_ range: NSRange, in view: NSTextView, on trigger: String) -> NSRange {
+        guard let editor = view as? EditorTextView else { return range }
+        return EditorLineEndings.mapped(range, through: editor.convertLineEndingsToLF(on: trigger))
     }
 
     /// One edit, one undo step: see the extension's note.
@@ -122,7 +130,10 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         let address = string ?? Self.webURL(on: pasteboard)
         if let address, selection.length > 0, !pasteboard.canReadObject(forClasses: [NSURL.self],
                                                                         options: [.urlReadingFileURLsOnly: true]),
-           let splice = MarkdownPasteEdits.linkPaste(address, over: selection, in: buffer(of: view)) {
+           MarkdownPasteEdits.linkPaste(address, over: selection, in: buffer(of: view)) != nil {
+            // Measured again on the converted text, whose selection it hands back.
+            guard let splice = MarkdownPasteEdits.linkPaste(address, over: convertedForWriting(selection, in: view, on: "a link paste"),
+                                                            in: buffer(of: view)) else { return false }
             replace(splice.range, with: splice.text, in: view)
             view.setSelectedRange(splice.selection)
             Logger.shared.info("[edit] Pasted a web address onto \(selection.length) selected characters as a link")
@@ -193,8 +204,11 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
             return false
         }
         let report = EditorImageImport.importImages(sources, forNote: importer.notePath, linkedIn: ns as String)
+        // Only once the images are written is the link certain — the file to LF then, and the block
+        // measured on it: its caret is in the units of the text it is written into (2026-10-09).
         guard case .wrote(_, _, let links, _) = report, !links.isEmpty,
-              let splice = MarkdownPasteEdits.imageBlock(links, replacing: range, in: ns) else {
+              let splice = MarkdownPasteEdits.imageBlock(links, replacing: convertedForWriting(range, in: view, on: "an image paste or drop"),
+                                                         in: buffer(of: view)) else {
             importer.report(report)
             return false
         }

@@ -137,17 +137,40 @@ public final class EditorUndoStore: ObservableObject {
     /// replaced: a load or a close writes the buffer next, and a storage still attached would take
     /// that text in — the incoming file's text, into the storage kept for the outgoing one, against
     /// a fingerprint of what it held before.
+    ///
+    /// **A document with nothing to undo or redo is not kept** (2026-10-09): its entry would hold
+    /// the whole text storage for an empty history — up to 4 MiB of text, per file only read — and
+    /// take an LRU slot from a file that was edited. ``activate(path:text:)`` builds a fresh pair
+    /// for it from what loads, which is what it would have been handed anyway.
     public func remember(text: String) {
         source.buffer = nil
         guard let path = activePath else { return }
+        guard current.canUndo || current.canRedo else {
+            stacks[path] = nil
+            order.removeAll { $0 == path }
+            return
+        }
         stacks[path] = Entry(manager: current, source: source, fingerprint: Fingerprint(text))
         promote(path)
         evictIfNeeded()
     }
 
+    /// **Takes the buffer's own storage as the open one, before the first load** — so the two start
+    /// as one, as every load and close leaves them (2026-10-09). They began with a storage each:
+    /// ``remember(text:)`` let go of the store's, the load wrote the whole file into the buffer's,
+    /// still listening — a storage then thrown away — and a view mounted on it logged a resync.
+    ///
+    /// Only while nothing is open and nothing can be undone, so ``current``'s actions can never be
+    /// paired with a storage they were not made against; a no-op once the two are one.
+    public func adopt(_ initial: EditorSourceStorage) {
+        guard activePath == nil, !current.canUndo, !current.canRedo else { return }
+        source = initial
+    }
+
     /// Hands back the stack for `path` if it still fits `text`, or a fresh one if it does not.
     public func activate(path: String?, text: String) {
         activePath = path
+        defer { source.fileName = path.map { ($0 as NSString).lastPathComponent } }
         guard let path else {
             current = fresh()
             source = EditorSourceStorage(text: text)

@@ -11,13 +11,15 @@ import Design
 struct PreviewEditToggle: View {
 
     @Binding var isOn: Bool
-    @Binding var introSeen: Bool
+    /// The one-time intro. **Held by the workspace, not here** (review V2, 2026-10-09): turning
+    /// editing on rebuilt the column, and a pill holding its own `@State` was a new pill with the
+    /// intro unshown — already marked seen, so it never showed. The workspace raises it whichever
+    /// door turned editing on, the pill or Text ▸ Edit in Preview.
+    @Binding var showsIntro: Bool
     var accent: Color
     var scale: CGFloat = 1
     /// The document is over ``maximumLength``: the pill stays, dimmed, and says why.
     var isTooLong = false
-
-    @State private var showsIntro = false
 
     static let tooltip = "Edit in Preview — experimental. Best for small changes to text."
     static let introTitle = "Editing in Preview is experimental"
@@ -36,6 +38,11 @@ struct PreviewEditToggle: View {
 
     static func isTooLong(length: Int) -> Bool { length > maximumLength }
 
+    /// The log line for a note held read-only in Preview — kinds and numbers, never its text.
+    static func tooLongLog(length: Int) -> String {
+        "[preview-edit] Preview is read-only for this note: \(length) UTF-16 units is over the \(maximumLength) Edit in Preview takes — held until the note is next opened in Preview"
+    }
+
     /// Where the pill is offered: Preview, or Split's Preview half (TE67.4), of a writable Markdown
     /// document.
     static func isOffered(hasDocument: Bool, isRefused: Bool, isMarkdown: Bool, isReadOnly: Bool,
@@ -51,13 +58,7 @@ struct PreviewEditToggle: View {
         // Over the limit the setting is kept but has nothing to edit: the pill reads off.
         let isOn = self.isOn && !isTooLong
         Button {
-            let turningOn = !self.isOn
-            self.isOn = turningOn
-            // Once: seen when shown, whether or not "Got it" is what closes it.
-            if Self.showsIntro(turningOn: turningOn, introSeen: introSeen) {
-                showsIntro = true
-                introSeen = true
-            }
+            self.isOn.toggle()
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "pencil")
@@ -70,7 +71,10 @@ struct PreviewEditToggle: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .foregroundStyle(isOn ? accent : .secondary)
+            // Over the limit, the tertiary style the header's greyed ＋ wears (review V14) — what
+            // the secondary colour at half opacity came to as well (measured: 194 against 192), but
+            // by the same rule as the others now, and without dimming the glass track under it.
+            .foregroundStyle(isTooLong ? AnyShapeStyle(.tertiary) : isOn ? AnyShapeStyle(accent) : AnyShapeStyle(.secondary))
             .lineLimit(1)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
@@ -78,7 +82,6 @@ struct PreviewEditToggle: View {
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
         .disabled(isTooLong)
-        .opacity(isTooLong ? 0.5 : 1)
         .chromeGlassTrack()
         .help(isTooLong ? Self.tooLongTooltip : Self.tooltip)
         .accessibilityLabel("Edit in Preview")
@@ -98,5 +101,49 @@ struct PreviewEditToggle: View {
             .padding(14)
             .frame(width: 300)
         }
+    }
+}
+
+/// **Whether a note is too long to edit in Preview, decided when Preview is OPENED for it and held
+/// while it stays open** (review V4, the lead's decision, 2026-10-09).
+///
+/// Re-read on every render, the limit swapped the read-only preview in mid-keystroke the moment
+/// typing or a paste crossed 256 KB — the caret gone, the bar gone, the pill dimmed, and nothing
+/// said; and in Split, typing in Source back and forth across it rebuilt Preview's half each time.
+/// Now a note that grows past the limit while it is being edited stays editable until it is next
+/// opened; one that is over it when opened is read-only, with the pill dimmed.
+///
+/// **The moments are the key**: the note (its path), the mode, and the setting. Opening a note,
+/// switching to Preview or Split, and turning Edit on each change the key, and a hold for another
+/// key is no hold — the length is read afresh, so the first render after a moment is already
+/// right, before anything has had a chance to be told. The workspace takes the hold at those
+/// moments and hands it up, so the Text and Markup menus agree with it without re-rendering the
+/// window per keystroke.
+public struct PreviewLengthHold: Equatable, Sendable {
+
+    /// What the decision was made for.
+    public struct Key: Equatable, Sendable {
+        public var path: String?
+        public var mode: EditorMode
+        public var editing: Bool
+        public init(path: String?, mode: EditorMode, editing: Bool) {
+            self.path = path
+            self.mode = mode
+            self.editing = editing
+        }
+    }
+
+    public var key: Key
+    public var isTooLong: Bool
+
+    public init(key: Key, isTooLong: Bool) {
+        self.key = key
+        self.isTooLong = isTooLong
+    }
+
+    /// The held answer for `key`, or — with none held for it — the length read now.
+    public static func isTooLong(_ hold: PreviewLengthHold?, key: Key, length: () -> Int) -> Bool {
+        if let hold, hold.key == key { return hold.isTooLong }
+        return PreviewEditToggle.isTooLong(length: length())
     }
 }

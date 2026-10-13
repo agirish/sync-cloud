@@ -50,7 +50,7 @@ public enum EditorTextSettings {
     /// the keys and wants the row back. View ▸ Format Bar flips it, and so does Format Bar on the
     /// text's right-click menu — the way back once the bar's own Hide Format Bar has taken the bar,
     /// and its menu, off the screen. Where the bar is drawn at all is
-    /// ``EditorFormatBar/isShown(preference:hasDocument:isRefused:isMarkdown:isReadOnly:mode:)``.
+    /// ``EditorFormatBar/isShown(preference:hasDocument:isRefused:isMarkdown:isReadOnly:mode:previewEditing:)``.
     public static let showsFormatBarKey = "editorShowsFormatBar"
     public static let showsFormatBarDefault = true
 

@@ -147,8 +147,12 @@ import FileExplorer
         let document = EditorDocument()
         let store = EditorUndoStore()
 
+        // Each edited, so each has a history to keep: an empty one is not kept (2026-10-09).
         load(a, document, store)
+        store.current.registerUndo(withTarget: document) { _ in }
         load(b, document, store)
+        let stackForB = store.current
+        stackForB.registerUndo(withTarget: document) { _ in }
         try #require(store.keptCount == 1, "fixture: a's stack should be the one kept")
 
         // a is filed away and then deleted out from under the store.
@@ -157,7 +161,7 @@ import FileExplorer
         // b's stack is now kept and a's is not: the sweep ran during this load.
         #expect(store.keptCount == 1, "the sweep did not run, or took too much: \(store.keptCount)")
         load(b, document, store)
-        #expect(store.current.canUndo == false, "b came back with registrations it never had")
+        #expect(store.current === stackForB, "b came back without its own history")
         // And the proof that it was A that went: reopening a gets a stack, but never the old one,
         // because the file it described is gone.
         try "alpha".write(toFile: a, atomically: true, encoding: .utf8)
@@ -210,6 +214,20 @@ import FileExplorer
 
     // MARK: The text storage (TE67.0)
 
+    /// **The first load writes the file into no storage but the one it keeps** (2026-10-09). The
+    /// buffer and the store started with a storage each, and the first load wrote the whole file
+    /// into the buffer's — then threw it away, after logging a resync when a view was mounted on it.
+    @Test func theFirstLoadWritesIntoNoThrowawayStorage() throws {
+        let a = try file("a.md", "alpha")
+        let document = EditorDocument()
+        let initial = document.buffer.source
+        let store = EditorUndoStore()
+        load(a, document, store)
+        #expect(initial.textStorage.length == 0, "the first load wrote into the buffer's first storage")
+        #expect(document.buffer.source === store.source)
+        #expect(document.buffer.source.textStorage.string == "alpha")
+    }
+
     /// **Step 4: the buffer follows the storage kept beside the stack** — on the way in, and back to
     /// the same storage object on a round trip. Without it the text view goes on showing the
     /// outgoing document's storage beside the incoming document's stack. Mutation: drop
@@ -224,6 +242,8 @@ import FileExplorer
         #expect(document.buffer.source === store.source, "the buffer does not follow a's storage")
         #expect(document.buffer.source.textStorage.string == "alpha")
         let storageForA = store.source
+        // An edit, so a's history — and with it a's storage — is kept: an empty one is not.
+        store.current.registerUndo(withTarget: document) { _ in }
 
         load(b, document, store)
         #expect(document.buffer.source === store.source, "the buffer does not follow b's storage")

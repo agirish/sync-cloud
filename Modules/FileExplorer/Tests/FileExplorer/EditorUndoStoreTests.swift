@@ -16,6 +16,12 @@ import Foundation
 
     private func store(limit: Int = 8) -> EditorUndoStore { EditorUndoStore(limit: limit) }
 
+    /// Gives the open document something to undo — **a history worth keeping**: a document with
+    /// nothing to undo or redo is not kept at all (2026-10-09), so every round trip below edits.
+    private func edit(_ subject: EditorUndoStore) {
+        subject.current.registerUndo(withTarget: subject) { _ in }
+    }
+
     /// A file inside this test's own folder.
     private func file(_ name: String, _ body: String = "x") throws -> String {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -29,11 +35,11 @@ import Foundation
         subject.activate(path: "/n/a.md", text: "one")
         let first = subject.current
 
-        subject.remember(text: "one")
+        edit(subject); subject.remember(text: "one")
         subject.activate(path: "/n/b.md", text: "two")
         #expect(subject.current !== first, "two documents shared one stack")
 
-        subject.remember(text: "two")
+        edit(subject); subject.remember(text: "two")
         subject.activate(path: "/n/a.md", text: "one")
         #expect(subject.current === first, "the first document's history was not handed back")
     }
@@ -46,10 +52,10 @@ import Foundation
         let subject = store()
         subject.activate(path: "/n/a.md", text: "the edited text")
         let edited = subject.current
-        subject.remember(text: "the edited text")
+        edit(subject); subject.remember(text: "the edited text")
 
         subject.activate(path: "/n/b.md", text: "elsewhere")
-        subject.remember(text: "elsewhere")
+        edit(subject); subject.remember(text: "elsewhere")
 
         // Back to a.md, but the file on disk is what it was before the edits.
         subject.activate(path: "/n/a.md", text: "the ORIGINAL text")
@@ -80,10 +86,10 @@ import Foundation
         let subject = store()
         subject.activate(path: "/n/a.md", text: first)
         let stack = subject.current
-        subject.remember(text: first)
+        edit(subject); subject.remember(text: first)
 
         subject.activate(path: "/n/b.md", text: "elsewhere")
-        subject.remember(text: "elsewhere")
+        edit(subject); subject.remember(text: "elsewhere")
 
         subject.activate(path: "/n/a.md", text: second)
         #expect(subject.current !== stack,
@@ -95,7 +101,7 @@ import Foundation
         let subject = store()
         subject.activate(path: "/n/a.md", text: "same")
         let manager = subject.current
-        subject.remember(text: "same")
+        edit(subject); subject.remember(text: "same")
         subject.activate(path: "/n/a.md", text: "same")
         #expect(subject.current === manager)
     }
@@ -104,7 +110,7 @@ import Foundation
         let subject = store()
         subject.activate(path: "/n/a.md", text: "one")
         let manager = subject.current
-        subject.remember(text: "one")
+        edit(subject); subject.remember(text: "one")
         subject.activate(path: nil, text: "")
         #expect(subject.current !== manager)
     }
@@ -117,22 +123,22 @@ import Foundation
         let subject = store(limit: 3)
         for name in ["a", "b", "c"] {
             subject.activate(path: "/n/\(name).md", text: name)
-            subject.remember(text: name)
+            edit(subject); subject.remember(text: name)
         }
         #expect(subject.keptCount == 3)
         #expect(subject.evictedCount == 0)
 
         subject.activate(path: "/n/d.md", text: "d")
-        subject.remember(text: "d")
+        edit(subject); subject.remember(text: "d")
         #expect(subject.keptCount == 3, "the store grew past its limit")
         #expect(subject.evictedCount == 1, "nothing was evicted")
 
         // `a` was the oldest, so it is the one that lost its history.
         subject.activate(path: "/n/a.md", text: "a")
         let afterEviction = subject.current
-        subject.remember(text: "a")
+        edit(subject); subject.remember(text: "a")
         subject.activate(path: "/n/c.md", text: "c")
-        subject.remember(text: "c")
+        edit(subject); subject.remember(text: "c")
         subject.activate(path: "/n/a.md", text: "a")
         #expect(subject.current === afterEviction, "the rebuilt stack was dropped too")
     }
@@ -141,13 +147,13 @@ import Foundation
     /// front, so a file you keep returning to is not evicted by files you opened once.
     @Test func revisitingADocumentProtectsIt() {
         let subject = store(limit: 2)
-        subject.activate(path: "/n/a.md", text: "a"); subject.remember(text: "a")
-        subject.activate(path: "/n/b.md", text: "b"); subject.remember(text: "b")
+        subject.activate(path: "/n/a.md", text: "a"); edit(subject); subject.remember(text: "a")
+        subject.activate(path: "/n/b.md", text: "b"); edit(subject); subject.remember(text: "b")
         // Touch a again, making b the oldest.
         subject.activate(path: "/n/a.md", text: "a")
         let managerA = subject.current
-        subject.remember(text: "a")
-        subject.activate(path: "/n/c.md", text: "c"); subject.remember(text: "c")
+        edit(subject); subject.remember(text: "a")
+        subject.activate(path: "/n/c.md", text: "c"); edit(subject); subject.remember(text: "c")
 
         subject.activate(path: "/n/a.md", text: "a")
         #expect(subject.current === managerA, "the revisited document was evicted anyway")
@@ -166,7 +172,7 @@ import Foundation
         let subject = store()
         subject.activate(path: "/n/a.md", text: "a")
         let manager = subject.current
-        subject.remember(text: "a")
+        edit(subject); subject.remember(text: "a")
         subject.forget("/n/a.md")
         #expect(subject.keptCount == 0)
 
@@ -181,7 +187,7 @@ import Foundation
 
         let subject = store()
         subject.activate(path: path, text: "x")
-        subject.remember(text: "x")
+        edit(subject); subject.remember(text: "x")
         #expect(subject.keptCount == 1)
 
         try FileManager.default.removeItem(atPath: path)
@@ -195,7 +201,7 @@ import Foundation
 
         let subject = store()
         subject.activate(path: path, text: "x")
-        subject.remember(text: "x")
+        edit(subject); subject.remember(text: "x")
         subject.forgetMissingFiles()
         #expect(subject.keptCount == 1, "the sweep took a file that is still there")
     }
@@ -209,11 +215,11 @@ import Foundation
         let subject = store()
         subject.activate(path: "/n/a.md", text: "one")
         let storageA = subject.source
-        subject.remember(text: "one")
+        edit(subject); subject.remember(text: "one")
         subject.activate(path: "/n/b.md", text: "two")
         #expect(subject.source !== storageA, "two documents shared one storage")
         #expect(subject.source.text == "two")
-        subject.remember(text: "two")
+        edit(subject); subject.remember(text: "two")
 
         subject.activate(path: "/n/a.md", text: "one")
         #expect(subject.source === storageA, "the stack came back without the storage its actions edit")
@@ -226,9 +232,9 @@ import Foundation
         let subject = store()
         subject.activate(path: "/n/a.md", text: "the edited text")
         let edited = subject.source
-        subject.remember(text: "the edited text")
+        edit(subject); subject.remember(text: "the edited text")
         subject.activate(path: "/n/b.md", text: "elsewhere")
-        subject.remember(text: "elsewhere")
+        edit(subject); subject.remember(text: "elsewhere")
 
         subject.activate(path: "/n/a.md", text: "the ORIGINAL text")
         #expect(subject.source !== edited, "a stale storage was handed back with a refused stack")
@@ -248,7 +254,7 @@ import Foundation
         buffer.follow(subject.source)
         let storageA = subject.source
 
-        subject.remember(text: buffer.text)
+        edit(subject); subject.remember(text: buffer.text)
         buffer.text = "the next file"        // what `EditorDocument.open` does next
         #expect(storageA.textStorage.string == "one", "the load wrote the next file into a kept storage")
 
@@ -263,7 +269,7 @@ import Foundation
         let subject = store()
         subject.activate(path: "/n/a.md", text: "one")
         let storageA = subject.source
-        subject.remember(text: "one")
+        edit(subject); subject.remember(text: "one")
         subject.activate(path: nil, text: "")
         #expect(subject.source !== storageA)
         #expect(subject.source.text.isEmpty)
@@ -277,12 +283,81 @@ import Foundation
         autoreleasepool {
             subject.activate(path: "/n/a.md", text: "a")
             storageA = subject.source
-            subject.remember(text: "a")
-            subject.activate(path: "/n/b.md", text: "b"); subject.remember(text: "b")
-            subject.activate(path: "/n/c.md", text: "c"); subject.remember(text: "c")
+            edit(subject); subject.remember(text: "a")
+            subject.activate(path: "/n/b.md", text: "b"); edit(subject); subject.remember(text: "b")
+            subject.activate(path: "/n/c.md", text: "c"); edit(subject); subject.remember(text: "c")
         }
         #expect(subject.evictedCount >= 1)
         #expect(storageA == nil, "an evicted document's storage was kept alive")
     }
-}
 
+    // MARK: Nothing to undo, nothing kept (2026-10-09)
+
+    /// **A document opened only to be read keeps nothing.** Its stack is empty, and since TE67.0 the
+    /// entry would also hold its whole text storage — up to 4 MiB of text as UTF-16, per file
+    /// visited, for a history with nothing in it. Coming back builds a fresh one from what loads.
+    @Test func aDocumentWithNothingToUndoKeepsNothing() {
+        let subject = store()
+        let text = String(repeating: "read only ", count: 1_000)
+        weak var storage: EditorSourceStorage?
+        autoreleasepool {
+            subject.activate(path: "/n/read.md", text: text)
+            storage = subject.source
+            subject.remember(text: text)
+            subject.activate(path: "/n/b.md", text: "b")
+        }
+        #expect(subject.keptCount == 0, "an empty history was kept")
+        #expect(storage == nil, "an unedited document's storage was kept alive")
+        subject.remember(text: "b")
+        subject.activate(path: "/n/read.md", text: text)
+        #expect(subject.source.text == text, "coming back did not show what loaded")
+        #expect(!subject.current.canUndo)
+    }
+
+    /// **And files only read never push an edited file's history out.** With the limit at two,
+    /// reading three files used to evict the one history that had anything in it.
+    @Test func filesOnlyReadDoNotEvictAnEditedFilesHistory() {
+        let subject = store(limit: 2)
+        subject.activate(path: "/n/edited.md", text: "e")
+        edit(subject)
+        let manager = subject.current
+        subject.remember(text: "e")
+        for name in ["a", "b", "c"] {
+            subject.activate(path: "/n/\(name).md", text: name)
+            subject.remember(text: name)
+        }
+        #expect(subject.evictedCount == 0, "a read file took a slot")
+        subject.activate(path: "/n/edited.md", text: "e")
+        #expect(subject.current === manager, "the edited file's history was evicted by files only read")
+    }
+
+    // MARK: One storage from the start (2026-10-09)
+
+    /// **The store starts on the buffer's own storage**, so the first load writes into neither.
+    /// They used to start with one each: `remember` let go of the store's, the load then wrote the
+    /// whole file into the buffer's — a storage about to be thrown away — and a view mounted on it
+    /// logged "storage resync … with no undo" for a write nothing was wrong with.
+    @Test func theFirstLoadWritesIntoNoStorage() {
+        let buffer = EditorBuffer()
+        let initial = buffer.source
+        let subject = store()
+        subject.adopt(buffer.source)
+        #expect(subject.source === initial)
+        subject.remember(text: buffer.text)          // `EditorDocumentLoad.run`'s order
+        buffer.text = "the first file"
+        subject.activate(path: "/n/a.md", text: buffer.text)
+        buffer.follow(subject.source)
+        #expect(initial.textStorage.length == 0, "the load wrote into a storage it then threw away")
+        #expect(buffer.source.textStorage.string == "the first file")
+    }
+
+    /// **Never once a document is open**: its stack's actions edit the storage beside it, and a
+    /// different one adopted under them would be the mode-switch defect again.
+    @Test func adoptingIsRefusedOnceADocumentIsOpen() {
+        let subject = store()
+        subject.activate(path: "/n/a.md", text: "a")
+        let mine = subject.source
+        subject.adopt(EditorSourceStorage(text: "a"))
+        #expect(subject.source === mine)
+    }
+}

@@ -597,17 +597,27 @@ struct PlainTextEditor: NSViewRepresentable {
     static func apply(_ verb: MarkupVerb, to view: NSTextView) -> Bool {
         // A CRLF file becomes LF before the verb reads it: the selection it hands back is measured
         // on the text it read (see `EditorLineEndings`). Asked first on the converted text, so a
-        // verb with nothing to do converts nothing.
-        if let editor = view as? EditorTextView, view.string.utf16.contains(0x0D) {
-            let changes = EditorLineEndings.carriageReturns(in: view.string as NSString)
+        // verb with nothing to do converts nothing. **The storage is asked whether there is a CR**,
+        // not `view.string`: an LF file — nearly every file — pays no copy and no scan for it.
+        if let editor = view as? EditorTextView, case let changes = editor.pendingCarriageReturns(),
+           !changes.isEmpty {
             guard MarkdownEdits.apply(verb, to: EditorLineEndings.normalized(view.string),
                                       selection: EditorLineEndings.mapped(view.selectedRange(), through: changes)) != nil
             else { return false }
-            editor.convertLineEndingsToLF()
+            // **Not while a word is being composed** (2026-10-09): the conversion waits for the
+            // marked text, and the verb, written anyway, put LF breaks into a CRLF file — mixed. An
+            // LF file needs no conversion, and there the verb commits the word and applies as before.
+            guard !editor.convertLineEndingsToLF(on: "Markup ▸ \(verb.title)").isEmpty else {
+                Logger.shared.info("Markup ▸ \(verb.title) did nothing: "
+                                   + (view.hasMarkedText()
+                                      ? "a word is being composed in a file that is not LF yet — finish the word, then try again"
+                                      : "the file could not be converted to LF"))
+                return false
+            }
         }
-        guard let edit = MarkdownEdits.apply(verb, to: view.string,
-                                             selection: view.selectedRange()) else { return false }
-        let change = MarkdownEdits.minimalReplacement(from: view.string, to: edit.text)
+        let text = view.string
+        guard let edit = MarkdownEdits.apply(verb, to: text, selection: view.selectedRange()) else { return false }
+        let change = MarkdownEdits.minimalReplacement(from: text, to: edit.text)
         // **`insertText(_:replacementRange:)`, which is the path typing takes.** It registers
         // the undo, applies the view's own typing attributes to what it inserts, and posts the
         // change notification that pushes the new buffer back into the document — three things

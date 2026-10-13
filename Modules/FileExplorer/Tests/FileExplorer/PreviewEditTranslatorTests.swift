@@ -40,7 +40,7 @@ import Foundation
     }
 
     private func refusal(_ outcome: PreviewEditOutcome) -> PreviewRefusal? {
-        if case .refuse(let reason) = outcome { return reason }
+        if case .refuse(let reason, _, _) = outcome { return reason }
         return nil
     }
 
@@ -381,7 +381,9 @@ import Foundation
         let broken = applied(PreviewEditTranslator.translate(
             RenderedEdit(range: NSRange(location: after("one", in: p), length: 0), action: .lineBreak),
             in: p))
-        #expect(broken?.source == "> one  \n>  two")
+        // The space that stood before `two` would start the new line, where it renders as nothing:
+        // it goes, rather than being left in the file (2026-10-09).
+        #expect(broken?.source == "> one  \n> two")
         guard let broken else { return }
         #expect(broken.projection.renderedString == "one\u{2028}two")
         // Typing straight after the break lands on the new line, not in the old one's spaces.
@@ -443,12 +445,25 @@ import Foundation
         #expect(previous == after("b", in: p))
     }
 
-    @Test func returnInTheLastRowIsRefused() {
+    /// Return in a table's last row has no row to move down to: it opens a paragraph after the
+    /// table — a note ending in a table could not grow (review, 2026-10-09: refused).
+    @Test func returnInTheLastRowOpensAParagraphAfterTheTable() {
         let source = "| a |\n|---|\n| c |"
         let p = project(source)
         let outcome = PreviewEditTranslator.translate(
             RenderedEdit(range: NSRange(location: after("c", in: p), length: 0), action: .returnKey), in: p)
-        #expect(refusal(outcome) == .notSupported)
+        guard case .openPhantom(let block) = outcome else {
+            Issue.record("expected a paragraph opened after the table, got \(outcome)")
+            return
+        }
+        #expect(block == 0)
+        // A row above the last still moves down a row.
+        let first = PreviewEditTranslator.translate(
+            RenderedEdit(range: NSRange(location: after("a", in: p), length: 0), action: .returnKey), in: p)
+        guard case .moveCaret = first else {
+            Issue.record("expected the caret to move down a row, got \(first)")
+            return
+        }
     }
 
     // MARK: Lists (A7, A8)
@@ -654,6 +669,19 @@ import Foundation
         let p = project(source)
         let result = applied(edit(NSRange(location: after("one", in: p), length: 0), .paste, " more\n", in: source))
         #expect(result?.source == "one more two")
+    }
+
+    /// Return at the end of an item with a sub-list under it is refused, not written: TE54's
+    /// opening there is the sub-list's, straight under the item's words, where `  - ` is a setext
+    /// underline — the words became a heading (found 2026-10-09, by the property test). Since
+    /// `0cfe5460` the list rule itself declines it, so nothing is offered to verify.
+    @Test func returnThatWouldMakeAnItemAHeadingIsRefused() {
+        let source = "- item\n  - sub"
+        let p = project(source)
+        #expect(refusal(edit(NSRange(location: after("item", in: p), length: 0), .returnKey, in: source)) == .notSupported)
+        // …and at the end of an item with no sub-list, the list carries on as ever.
+        #expect(applied(edit(NSRange(location: after("sub", in: p), length: 0), .returnKey, in: source))?.source
+                == "- item\n  - sub\n  - ")
     }
 
     /// Return right after bold mid-paragraph splits after the `**`, not between the asterisks.

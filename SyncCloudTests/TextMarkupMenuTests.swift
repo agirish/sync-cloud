@@ -426,6 +426,25 @@ import Testing
                 "Preview no longer withholds the text-view verbs, or no longer offers them while editable")
         #expect(body.contains("EditorWorkspaceView.editsInPreview("),
                 "the menus decide Preview's editability by a rule of their own, not the workspace's")
+        // V4: on the 256 KB decision the workspace holds, never the length read per render — and
+        // asked with the key the workspace holds it under: the same note, the mode as drawn, the
+        // same setting. A key built otherwise matches no hold, and reads the live length after all
+        // (round 2, R11: this was a grep for the call alone).
+        let flat = body.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        #expect(flat.contains("PreviewLengthHold.isTooLong( editorPreviewLengthHold, key: PreviewLengthHold.Key(path: path, mode: drawn, editing: editsInPreviewSetting), length: { editorDocument.buffer.source.textStorage.length })"),
+                "the menus gate on the live length, or ask for the decision under a key the workspace never holds it by")
+        #expect(flat.contains("guard let path = editorDocument.path,"), "the key's path is not the open document's")
+        #expect(flat.contains("let drawn = EditorMode.resolved(editorMode, isMarkdown: isMarkdown)"), "the key's mode is not the one drawn")
+        let workspace = sourceCodeOnly(try String(contentsOf: url.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift"), encoding: .utf8))
+        #expect(workspace.contains("PreviewLengthHold.Key(path: document.path, mode: resolvedMode, editing: editsInPreviewPreference)"),
+                "the workspace holds the decision under another key")
+        #expect(workspace.contains("EditorMode.resolved(mode, isMarkdown: document.isMarkdown)"), "the workspace's mode is not the one drawn")
+        #expect(workspace.contains("@AppStorage(EditorTextSettings.editsInPreviewKey) private var editsInPreviewPreference"))
+        let content = sourceCodeOnly(try String(contentsOf: url.deletingLastPathComponent()
+            .appendingPathComponent("ContentView.swift"), encoding: .utf8))
+        #expect(content.contains("@AppStorage(EditorTextSettings.editsInPreviewKey) var editsInPreviewSetting"),
+                "the menus' setting is not the workspace's")
         #expect(!body.contains("selectedWorkspace == .editor"),
                 "a second spelling of the workspace test sits beside the rule")
         // Go to Line (TE61): offered by the status line's rule, on the mode being DRAWN, and it
