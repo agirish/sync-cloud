@@ -6905,3 +6905,29 @@ has the Edit workspace's file store, so there is no open document to watch and n
 | Change | `v4.x` | `v3.x` / `v2.x` | Status |
 |---|---|---|---|
 | **The picker's New Folder, listed when the transfer after it is declined** (`DestinationPicker.onFolderCreated`, answered by `rereadPanesAfterEditorWrite(_:writer:)`) | The picker and its `createFolderAndCommit` are there; a declined transfer leaves the new folder unlisted until something re-reads its parent. The host half needs a targeted re-read — `main`'s `rereadPanesAfterEditorWrite` does not exist there; `refreshAction(reloading:)` of the pane holding the parent is the shape to use | Same | RECORDED — not owed |
+
+## The re-survey fixture removes its temp root — `v4.x` carries the leak
+
+Test hygiene only. `FilingResurveyTests.makeTree()` made a `Resurvey-<UUID>` root with
+`makeCanonicalTempRoot` and returned only `root/Documents`, so no caller could remove it: every Sync
+run left ~37 in `$TMPDIR` (395 there by 2026-10-15). It now returns the root as a fifth element,
+and each of its callers — its own suite, `DocumentSurveyFolderTests`, `LargeWalkGuardTests` — follows
+it with `defer { try? FileManager.default.removeItem(at: root) }`, the idiom
+`makeCanonicalTempRoot`'s doc names.
+
+```sh
+for l in main v4.x v3.x v2.x; do printf '%-5s ' "$l"
+  for f in FilingResurveyTests DocumentSurveyFolderTests LargeWalkGuardTests; do
+    p=Modules/Sync/Tests/Sync/$f.swift
+    git cat-file -e origin/$l:$p 2>/dev/null && printf '%s=%s ' $f "$(git show origin/$l:$p | grep -c 'makeTree()')" || printf '%s=absent ' $f
+  done; echo; done
+# measured 2026-10-15, against origin, before this landed (counts include the definition and doc mentions):
+# main  FilingResurveyTests=32 DocumentSurveyFolderTests=4 LargeWalkGuardTests=1
+# v4.x  FilingResurveyTests=25 DocumentSurveyFolderTests=absent LargeWalkGuardTests=1
+# v3.x, v2.x — every file absent
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v4.x` | `makeTree()` returns no root; its own callers and `LargeWalkGuardTests`' one leak a `Resurvey-*` folder per test case | RECORDED — not owed (test hygiene) |
+| `v3.x` / `v2.x` | No re-survey suite | CLOSED — does not apply |

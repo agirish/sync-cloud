@@ -33,7 +33,7 @@ import EventsTestSupport
     }
 
     /// A tree with two established folders, each holding two documents.
-    static func makeTree() throws -> (FileSyncManager, URL, URL, Reads) {
+    static func makeTree() throws -> (FileSyncManager, URL, URL, Reads, URL) {
         let root = try makeCanonicalTempRoot(prefix: "Resurvey")
         let docs = root.appendingPathComponent("Documents")
         try write(docs.appendingPathComponent("Home/PG&E/2024/jan.pdf"), page("Pacific Gas and Electric"))
@@ -53,7 +53,7 @@ import EventsTestSupport
             reads.note(path)
             return try? String(contentsOfFile: path, encoding: .utf8)
         }
-        return (manager, docs, profiles, reads)
+        return (manager, docs, profiles, reads, root)
     }
 
     // MARK: - A walk that read nothing must never be mistaken for an empty tree
@@ -67,7 +67,8 @@ import EventsTestSupport
     /// Asserted on the BYTES on disk rather than on the report, because the report is exactly what
     /// could not tell the two apart.
     @Test func aRootThatCannotBeListedLeavesTheArtifactsExactlyAsTheyWere() async throws {
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
 
         let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
@@ -104,7 +105,8 @@ import EventsTestSupport
     /// Absent still surveys from scratch, which is correct. Unreadable refuses, because nothing
     /// about the tree can be inferred from a file that could not be read.
     @Test func anUnreadableCorpusLeavesBothArtifactsExactlyAsTheyWere() async throws {
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
 
         let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
@@ -148,7 +150,8 @@ import EventsTestSupport
                 """)
             return
         }
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
 
         let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
@@ -193,7 +196,8 @@ import EventsTestSupport
             Issue.record("Skipped: running as root (euid 0), where chmod 000 restricts nothing.")
             return
         }
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
 
         let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
@@ -223,7 +227,8 @@ import EventsTestSupport
     /// The other direction, so the refusals above cannot be "the survey stopped working": with a
     /// genuinely ABSENT memory the survey runs and writes one, which is what a first survey is.
     @Test func anAbsentMemoryStillSurveys() async throws {
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
         let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
         try FileManager.default.removeItem(at: memoryURL)
@@ -237,7 +242,8 @@ import EventsTestSupport
     /// The other direction, so the refusal above cannot be "the survey stopped working": with NO
     /// corpus at all the survey runs and writes one, which is what a first survey is.
     @Test func anAbsentCorpusStillSurveysFromScratch() async throws {
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
         let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
         try FileManager.default.removeItem(at: corpusURL)
@@ -254,7 +260,8 @@ import EventsTestSupport
     /// A folder created after the last survey, holding one filed document, becomes a destination the
     /// router ranks first — the whole feature, stated once.
     @Test func aFolderAddedAfterTheLastSurveyBecomesRoutable() async throws {
-        let (manager, docs, _, _) = try Self.makeTree()
+        let (manager, docs, _, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
 
         // The user creates a folder in Finder and drops a bill into it.
@@ -281,7 +288,8 @@ import EventsTestSupport
     /// Before the survey the same file has nowhere to go — without this, the test above could pass
     /// on a router that was already ranking the folder by its name.
     @Test func theSameFileHasNoLearnedHomeBeforeTheSurvey() async throws {
-        let (manager, docs, _, _) = try Self.makeTree()
+        let (manager, docs, _, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
         try Self.write(docs.appendingPathComponent("Home/Xfinity/2026/march.pdf"),
                        Self.page("Xfinity Comcast internet service"))
@@ -301,7 +309,8 @@ import EventsTestSupport
     /// on the literal house form, which is wrong in both cases or right in both.
     @Test func theResurveyLineCountsFoldersInTheHouseForm() async throws {
         let log = LogCapture()
-        let (manager, docs, _, _) = try Self.makeTree()
+        let (manager, docs, _, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         let report = await manager.resurveyFilingMemory(root: docs)
         #expect(report.foldersLearned > 0, "fixture: the survey must have learned something to count")
 
@@ -321,7 +330,8 @@ import EventsTestSupport
 
     /// The claim the feature is sold on: a tree that has not changed costs no document reads.
     @Test func aSecondSurveyOfAnUnchangedTreeReadsNothing() async throws {
-        let (manager, docs, _, reads) = try Self.makeTree()
+        let (manager, docs, _, reads, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         let first = await manager.resurveyFilingMemory(root: docs)
         #expect(first.documentsRead == 4)
         #expect(reads.paths.count == 4)
@@ -334,7 +344,8 @@ import EventsTestSupport
 
     /// One new document in a four-document tree costs one read, not four.
     @Test func onlyTheNewDocumentIsRead() async throws {
-        let (manager, docs, _, reads) = try Self.makeTree()
+        let (manager, docs, _, reads, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
         reads.reset()
 
@@ -348,7 +359,8 @@ import EventsTestSupport
     /// Filing a document is a move, and a move must not cost a read — it is the single most common
     /// change this tree ever sees.
     @Test func aFiledDocumentFollowsItsMoveWithoutBeingReopened() async throws {
-        let (manager, docs, _, reads) = try Self.makeTree()
+        let (manager, docs, _, reads, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
         reads.reset()
 
@@ -371,7 +383,8 @@ import EventsTestSupport
     /// cached classification's key, so a fresh timestamp over identical content would throw away the
     /// verdict cache to record that nothing happened.
     @Test func anUnchangedSurveyLeavesTheArtifactByteIdentical() async throws {
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
         let url = FilingSurveyStore.memoryURL(id: "t", in: profiles)
         let before = try Data(contentsOf: url)
@@ -387,7 +400,8 @@ import EventsTestSupport
     /// surveyed" answers when the survey LOOKED — and it lands both in memory and on disk, where
     /// the next launch's attach reads it.
     @Test func anUnchangedSurveyStillPublishesWhenItLooked() async throws {
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
 
         let later = Date(timeIntervalSince1970: 1_756_400_000)
@@ -400,7 +414,8 @@ import EventsTestSupport
     /// A real change does move the fingerprint — the other half, without which the test above passes
     /// on a survey that never writes anything.
     @Test func arealChangeMovesTheFingerprint() async throws {
-        let (manager, docs, _, _) = try Self.makeTree()
+        let (manager, docs, _, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
         let fingerprint = manager.filingArtifactFingerprint
 
@@ -414,7 +429,8 @@ import EventsTestSupport
     /// The folder profile records what a folder *is*, mined from names. A survey has no business
     /// revising it, and the store that writes the memory must not touch it.
     @Test func theFolderProfileIsNeverWritten() async throws {
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
         let profile = profiles.appendingPathComponent("t/folder-profile.json")
         #expect(!FileManager.default.fileExists(atPath: profile.path))
@@ -424,7 +440,8 @@ import EventsTestSupport
     /// pathological case being a folder of scans, which is both the most expensive to read and the
     /// least rewarding.
     @Test func anUnreadableDocumentIsNotReopenedOnEverySurvey() async throws {
-        let (manager, docs, _, reads) = try Self.makeTree()
+        let (manager, docs, _, reads, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         try Self.write(docs.appendingPathComponent("Health/Kaiser/scan.pdf"), "') ! ) ) ! A A @ A")
         _ = await manager.resurveyFilingMemory(root: docs)
         #expect(reads.paths.contains { $0.hasSuffix("scan.pdf") })
@@ -442,7 +459,8 @@ import EventsTestSupport
     /// survey that only records what it managed to read leaves this file unstamped and reopens it
     /// forever, which the glyph-soup fixture cannot show because that one *does* return text.
     @Test func aDocumentThatYieldsNothingIsStillStamped() async throws {
-        let (manager, docs, _, reads) = try Self.makeTree()
+        let (manager, docs, _, reads, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         try Self.write(docs.appendingPathComponent("Health/Kaiser/imageonly.pdf"), "")
         manager.filingSnippetExtractor = { path in
             reads.note(path)
@@ -461,7 +479,8 @@ import EventsTestSupport
     /// stamping this one would write off a whole offloaded folder in a single pass — on a tree that
     /// lives in iCloud Documents, permanently.
     @Test func anUndownloadedDocumentIsSkippedRatherThanStampedBlank() async throws {
-        let (manager, docs, _, reads) = try Self.makeTree()
+        let (manager, docs, _, reads, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         try Self.write(docs.appendingPathComponent("Health/Kaiser/offloaded.pdf"),
                        Self.page("Kaiser Permanente dermatology"))
         manager.filingDocumentIsAvailable = { !$0.hasSuffix("offloaded.pdf") }
@@ -489,7 +508,8 @@ import EventsTestSupport
     /// The blank is what makes it reachable: a document that produced text plainly had its bytes on
     /// disk, so only the empty results are re-asked.
     @Test func aDocumentEvictedWhileTheSurveyReadsIsNotStampedBlank() async throws {
-        let (manager, docs, profiles, reads) = try Self.makeTree()
+        let (manager, docs, profiles, reads, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         try Self.write(docs.appendingPathComponent("Health/Kaiser/offloaded.pdf"),
                        Self.page("Kaiser Permanente dermatology"))
 
@@ -545,7 +565,8 @@ import EventsTestSupport
     /// reopens every image-only scan forever. Same fixture as
     /// ``aDocumentThatYieldsNothingIsStillStamped``, stated against the availability seam.
     @Test func aBlankFromAFileThatIsStillThereIsStillStamped() async throws {
-        let (manager, docs, profiles, reads) = try Self.makeTree()
+        let (manager, docs, profiles, reads, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         try Self.write(docs.appendingPathComponent("Health/Kaiser/imageonly.pdf"), "")
         manager.filingDocumentIsAvailable = { _ in true }
         manager.filingSnippetExtractor = { path in
@@ -582,7 +603,8 @@ import EventsTestSupport
     /// folder named by the field does not exist at all. Checking only the first would pass on a
     /// pass that wrote to both.
     @Test func theResurveyWritesBackToTheFolderItReadFromNotTheFieldInsideTheProfile() async throws {
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         // The disagreement, exactly as a profile that omits `profileId` produces it.
         manager.filingFolderProfile = FolderProfile(profileId: "default", root: docs.path,
                                                     folders: [:], personTokens: [])
@@ -609,7 +631,8 @@ import EventsTestSupport
     /// artifacts in it — a digest that disagrees with every verdict already cached, and one that
     /// stays wrong until the next launch reloads the artifacts.
     @Test func theRepublishedFingerprintIsTakenFromTheFolderNotTheField() async throws {
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         manager.filingFolderProfile = FolderProfile(profileId: "default", root: docs.path,
                                                     folders: [:], personTokens: [])
         manager.filingProfileDirectoryId = "work"
@@ -627,7 +650,8 @@ import EventsTestSupport
     /// **The fallback has to stay**, or every caller that never sets the directory id — which is
     /// every test predating this and any non-app host — silently stops re-surveying.
     @Test func withNoDirectoryIdTheFieldInsideTheProfileIsStillUsed() async throws {
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         #expect(manager.filingProfileDirectoryId == nil, "fixture: the fallback is what is under test")
 
         _ = await manager.resurveyFilingMemory(root: docs)
@@ -640,7 +664,8 @@ import EventsTestSupport
     /// With no artifacts and no extractor there is nothing to do, and saying so beats writing an
     /// empty memory over a tree nobody surveyed.
     @Test func aMachineWithNoProfileIsLeftAlone() async throws {
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         manager.filingFolderProfile = nil
         manager.filingMemory = nil
         let report = await manager.resurveyFilingMemory(root: docs)
@@ -655,7 +680,8 @@ import EventsTestSupport
     /// writes. Discriminating fixture: a new document appears first, so an UNGUARDED pass has
     /// something to read and every reason to write — delete the flag guard and this goes red.
     @Test func aFolderMemoryUpdateRefusesWhileALandingIsInFlight() async throws {
-        let (manager, docs, profiles, _) = try Self.makeTree()
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
         let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
         let corpusBefore = try Data(contentsOf: corpusURL)
@@ -689,7 +715,8 @@ import EventsTestSupport
     /// describes a different tree and must not stand in for the survey's own walk.
     @Test(arguments: [false, true])
     func aRefreshAskedAboutAnotherFolderSurveysTheProfilesOwn(handingOverItsWalk: Bool) async throws {
-        let (manager, docs, profiles, reads) = try Self.makeTree()
+        let (manager, docs, profiles, reads, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
         let learned = Set(try #require(FilingSurveyStore.corpus(id: "t", in: profiles)).documents.keys)
         #expect(learned.count == 4, "fixture: the profile's own folder has been surveyed")
@@ -722,7 +749,8 @@ import EventsTestSupport
     /// refuse every real Refresh with all of them green. Spelled here through `~` and back down to
     /// the temp folder, so the expansion is what makes the path absolute.
     @Test func aRootRecordedThroughTheTildeIsExpandedAndSurveyed() async throws {
-        let (manager, docs, profiles, reads) = try Self.makeTree()
+        let (manager, docs, profiles, reads, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         let depth = NSHomeDirectory().split(separator: "/").count
         let spelled = "~/" + String(repeating: "../", count: depth) + docs.path.dropFirst()
         #expect((spelled as NSString).expandingTildeInPath != spelled, "premise: the tilde is what expands")
@@ -745,7 +773,8 @@ import EventsTestSupport
     /// pass walks nothing itself — the probe is tiny and the confirmer declines, so a pass that
     /// walked anyway would ask, and stop.
     @Test func aWalkOfTheProfilesOwnFolderIsUsedAsHandedOver() async throws {
-        let (manager, docs, _, reads) = try Self.makeTree()
+        let (manager, docs, _, reads, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
         try Self.write(docs.appendingPathComponent("Home/PG&E/2024/mar.pdf"),
                        Self.page("Pacific Gas and Electric"))
@@ -769,7 +798,8 @@ import EventsTestSupport
     /// stays in iCloud Drive and macOS makes a new, empty `~/Documents`. A tree whose every document
     /// was really deleted is the one case refused wrongly, and refusing it costs a click.
     @Test func aProfileFolderThatHoldsNoDocumentsLeavesTheArtifactsAsTheyWere() async throws {
-        let (manager, docs, profiles, reads) = try Self.makeTree()
+        let (manager, docs, profiles, reads, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
         let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
         let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
@@ -809,7 +839,8 @@ import EventsTestSupport
                        "names “Documents” as its folder")])
     func aProfileThatRecordsNoFolderIsNotRefreshed(profileJSON: String, readsAs: String,
                                                     refusal: String) async throws {
-        let (manager, docs, profiles, reads) = try Self.makeTree()
+        let (manager, docs, profiles, reads, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
         let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
         let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")

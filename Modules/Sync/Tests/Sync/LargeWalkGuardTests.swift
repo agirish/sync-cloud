@@ -209,7 +209,8 @@ import Testing
     /// nothing.
     @MainActor
     @Test func decliningTheResurveyWalkWritesNothingAndReadsNothing() async throws {
-        let (manager, docs, profiles, reads) = try FilingResurveyTests.makeTree()
+        let (manager, docs, profiles, reads, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         defer { try? FileManager.default.removeItem(at: profiles.deletingLastPathComponent()) }
         manager.wholeTreeProbeBudget = 2
         var seen: LargeWalkPreflight?

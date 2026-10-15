@@ -37,7 +37,8 @@ import EventsTestSupport
     /// run opened them, the corpus was keyed by them, and the memory and the receipt both named
     /// that folder.
     @Test func aSurveyAskedAboutAnotherFolderReadsTheProfilesOwn() async throws {
-        let (manager, docs, profiles, reads) = try FilingResurveyTests.makeTree()
+        let (manager, docs, profiles, reads, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         let elsewhere = try Self.elsewhere(beside: docs)
 
         let plan = try await manager.planDocumentSurvey(root: elsewhere).get()
@@ -65,7 +66,8 @@ import EventsTestSupport
     /// of the above green. Spelled through `~` and back down to the temp folder, and asked about
     /// another folder, so only the expansion makes the plan come out right.
     @Test func aRootRecordedThroughTheTildeIsExpandedAndSurveyed() async throws {
-        let (manager, docs, _, reads) = try FilingResurveyTests.makeTree()
+        let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         let elsewhere = try Self.elsewhere(beside: docs)
         let depth = NSHomeDirectory().split(separator: "/").count
         let spelled = "~/" + String(repeating: "../", count: depth) + docs.path.dropFirst()
@@ -96,7 +98,8 @@ import EventsTestSupport
                       (#"{"profileId": "t", "root": "Documents", "folders": []}"#,
                        "names “Documents” as its folder")])
     func aProfileThatRecordsNoFolderIsNotSurveyed(profileJSON: String, refusal: String) async throws {
-        let (manager, docs, profiles, reads) = try FilingResurveyTests.makeTree()
+        let (manager, docs, profiles, reads, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
         manager.filingFolderProfile = try JSONDecoder().decode(FolderProfile.self,
                                                                from: Data(profileJSON.utf8))
         manager.wholeTreeProbeBudget = 1
