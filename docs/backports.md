@@ -6851,7 +6851,7 @@ verbs (see the TE48/TE52 and TE65/TE66 entries above), so there is nothing to re
 ## Edit in Preview — typing in a Markdown file's Preview and Split, experimental (TE67.1–.5) — main only
 
 Preview can be typed in, behind Text ▸ Edit in Preview (Experimental) and a pill in the Preview
-column, off by default and for Markdown only. Each keystroke is translated into the smallest source
+column, for Markdown only — on by default since 2026-10-14 (it landed off). Each keystroke is translated into the smallest source
 edit that renders as what was typed, verified by re-parsing, and refused otherwise
 (`PreviewEditTranslator`, over the position model in `MarkdownProjection`); `PreviewEditSession`
 writes it through `EditorSourceStorage.replace`, so it is on the document's undo stack and in Source

@@ -414,6 +414,9 @@ import EventsTestSupport
         let defaults = ScratchDefaults("EditorFormatBarTests.lit")
         defaults.set(true, forKey: EditorTextSettings.showsFormatBarKey)
         defaults.set(SurfaceStyle.unified.rawValue, forKey: LiquidGlass.surfaceStyleKey)
+        // Split's Preview half read-only: Edit in Preview is on by default (v5.5), and its pill
+        // draws "Editing" in the accent inside the band this counts.
+        defaults.set(false, forKey: EditorTextSettings.editsInPreviewKey)
         let size = CGSize(width: 900, height: 300)
         // One wrapper for both modes, so swapping the root keeps the workspace's identity — and with
         // it the `@State` the stale-lit check is about. A different wrapper would reset that state

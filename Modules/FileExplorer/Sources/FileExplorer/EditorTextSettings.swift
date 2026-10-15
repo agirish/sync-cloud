@@ -79,10 +79,13 @@ public enum EditorTextSettings {
     /// Whether Preview can be typed in — Text ▸ Edit in Preview (Experimental), and the pill in the
     /// Preview column's corner (TE67).
     ///
-    /// **Off by default**: it is experimental, and the read-only preview is what Preview has always
-    /// been. App-wide rather than per file, because it is about how somebody likes to work.
+    /// **On by default** (the user's decision, 2026-10-14, for v5.5) — still labelled experimental,
+    /// on the pill and in the menu, and the one-time intro still says what that means: it is raised
+    /// the first time Preview BECOMES editable, which a switch to Preview or Split with the setting
+    /// already on does too. Anyone who has turned it off keeps it off; only a never-set setting
+    /// follows this. App-wide rather than per file, because it is about how somebody likes to work.
     public static let editsInPreviewKey = "editorEditsInPreview"
-    public static let editsInPreviewDefault = false
+    public static let editsInPreviewDefault = true
 
     /// Whether the one-time "Editing in Preview is experimental" popover has been dismissed.
     public static let editsInPreviewIntroSeenKey = "editorEditsInPreviewIntroSeen"

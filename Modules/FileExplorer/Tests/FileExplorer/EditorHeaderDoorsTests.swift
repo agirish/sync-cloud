@@ -24,6 +24,20 @@ import FileExplorerTestSupport
         try TestTextFiles.document(named: name)
     }
 
+    /// Runs `body` with Edit in Preview set to `editing`. `headerContent` is rendered off a workspace
+    /// in no view hierarchy, so its `@AppStorage` reads the standard defaults, not an injected store —
+    /// and the setting is on by default (v5.5), which keeps Find in Preview. Put back as found.
+    private func withEditInPreview<T>(_ editing: Bool, _ body: () throws -> T) rethrows -> T {
+        let key = EditorTextSettings.editsInPreviewKey
+        let found = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(editing, forKey: key)
+        defer {
+            if let found { UserDefaults.standard.set(found, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+        return try body()
+    }
+
     private func workspace(_ document: EditorDocument, mode: EditorMode = .edit,
                            railIsHidden: Bool = false,
                            newTextFile: (() -> Void)? = {}) -> EditorWorkspaceView {
@@ -111,7 +125,8 @@ import FileExplorerTestSupport
         let edit = try #require(Rendered(workspace(doc, newTextFile: {}).headerContent))
         let again = try #require(Rendered(workspace(doc, newTextFile: {}).headerContent))
         let lit = try #require(Rendered(workspace(doc, railIsHidden: true, newTextFile: {}).headerContent))
-        let preview = try #require(Rendered(workspace(doc, mode: .preview, newTextFile: {}).headerContent))
+        let preview = try #require(withEditInPreview(false) { Rendered(workspace(doc, mode: .preview, newTextFile: {}).headerContent) })
+        let editable = try #require(withEditInPreview(true) { Rendered(workspace(doc, mode: .preview, newTextFile: {}).headerContent) })
 
         #expect(edit.differingBox(from: again) == nil, "two renders of the same header differ — the detector is noise")
         let row = edit.nameRowRings
@@ -128,6 +143,8 @@ import FileExplorerTestSupport
         let pRow = preview.nameRowRings
         try #require(pRow.count == row.count - 1,
                      "Preview draws \(pRow.count) buttons against Source's \(row.count) — Find alone should go")
+        #expect(editable.nameRowRings.count == row.count,
+                "Preview you can type in draws \(editable.nameRowRings.count) buttons against Source's \(row.count) — it keeps Find")
         #expect(edit.samePixels(row[0], as: preview, pRow[0]),
                 "the first button in Source is not the first in Preview — Find is first, or the ＋ is withheld in Preview")
         #expect(edit.samePixels(row[row.count - 2], as: preview, pRow[pRow.count - 2]),
@@ -165,7 +182,7 @@ import FileExplorerTestSupport
     @Test func theCloseButtonIsLastAfterTheCapsuleAndStaysInPreview() throws {
         let doc = try document(named: "note.md")
         let edit = try #require(Rendered(workspace(doc).headerContent))
-        let preview = try #require(Rendered(workspace(doc, mode: .preview).headerContent))
+        let preview = try #require(withEditInPreview(false) { Rendered(workspace(doc, mode: .preview).headerContent) })
         let row = edit.nameRowRings
         try #require(row.count >= 7, "the name row draws \(row.count) buttons — ＋, Find, three segments, Expand and × expected")
         let glyph = row[0].width

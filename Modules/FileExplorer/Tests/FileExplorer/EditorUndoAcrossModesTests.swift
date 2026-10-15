@@ -28,6 +28,13 @@ import FileExplorerTestSupport
         private let ownUndo = UndoManager()
         private(set) var mode: EditorMode
         let probe: ProbeRig<AnyView>
+        /// Edit in Preview off: these cases are about the READ-ONLY Preview, which mounts no text
+        /// view, and the setting is on by default (v5.5).
+        let defaults: ScratchDefaults = {
+            let defaults = ScratchDefaults("EditorUndoAcrossModesTests")
+            defaults.set(false, forKey: EditorTextSettings.editsInPreviewKey)
+            return defaults
+        }()
 
         /// The stack the text view is handed: the store's current one, or the rig's own.
         var undo: UndoManager { store?.current ?? ownUndo }
@@ -40,7 +47,7 @@ import FileExplorerTestSupport
                 store.activate(path: document.path, text: document.text)
                 document.buffer.follow(store.source)
             }
-            probe = ProbeRig(Self.root(document, store?.current ?? ownUndo, mode),
+            probe = ProbeRig(Self.root(document, store?.current ?? ownUndo, mode, defaults),
                              size: CGSize(width: 900, height: 400))
         }
 
@@ -54,14 +61,16 @@ import FileExplorerTestSupport
             EditorFileStore.load(path: path, into: document)
             store.activate(path: document.path, text: document.text)
             document.buffer.follow(store.source)
-            probe.host.rootView = Self.root(document, undo, mode)
+            probe.host.rootView = Self.root(document, undo, mode, defaults)
             _ = await LayoutPumpWait.pump(probe.window, upTo: 5) {
                 mode == .preview || textView?.textStorage === document.buffer.source.textStorage
             }
         }
 
-        static func root(_ document: EditorDocument, _ undo: UndoManager, _ mode: EditorMode) -> AnyView {
+        static func root(_ document: EditorDocument, _ undo: UndoManager, _ mode: EditorMode,
+                         _ defaults: UserDefaults) -> AnyView {
             AnyView(EditorWorkspaceView.fixture(document: document, mode: mode, undoManager: undo)
+                .defaultAppStorage(defaults)
                 .frame(width: 900, height: 400, alignment: .topLeading))
         }
 
@@ -82,7 +91,7 @@ import FileExplorerTestSupport
         func switchTo(_ mode: EditorMode) async throws {
             let before = textView
             self.mode = mode
-            probe.host.rootView = Self.root(document, undo, mode)
+            probe.host.rootView = Self.root(document, undo, mode, defaults)
             let settled = await LayoutPumpWait.pump(probe.window, upTo: 5) {
                 let now = textView
                 return mode == .preview ? now == nil : (now != nil && now !== before)

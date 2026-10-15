@@ -539,12 +539,12 @@ import EventsTestSupport
         #expect(abs(dimmed - greyed) <= 25, "the dimmed pill is not the tertiary style the other greyed controls wear")
     }
 
-    /// The intro shows the first time editing is turned on, and only then; off by default.
-    @Test func theIntroShowsOnceAndEditingStartsOff() {
+    /// The intro shows the first time editing is turned on, and only then; on by default (v5.5).
+    @Test func theIntroShowsOnceAndEditingStartsOn() {
         #expect(PreviewEditToggle.showsIntro(turningOn: true, introSeen: false))
         #expect(!PreviewEditToggle.showsIntro(turningOn: true, introSeen: true))
         #expect(!PreviewEditToggle.showsIntro(turningOn: false, introSeen: false))
-        #expect(EditorTextSettings.editsInPreviewDefault == false)
+        #expect(EditorTextSettings.editsInPreviewDefault == true)
     }
 
     // MARK: The hint
@@ -924,11 +924,13 @@ import EventsTestSupport
         let probe: ProbeRig<AnyView>
         private(set) var mode: EditorMode
 
-        init(_ text: String, mode: EditorMode, editing: Bool = true, bar: Bool = true,
+        /// `editing: nil` leaves the setting unset, so the workspace reads its default.
+        init(_ text: String, mode: EditorMode, editing: Bool? = true, bar: Bool = true,
              introSeen: Bool = true, size: CGSize = CGSize(width: 900, height: 500)) throws {
             document = try TestTextFiles.document(named: "Mounted.md", text: text)
             self.mode = mode
-            defaults.set(editing, forKey: EditorTextSettings.editsInPreviewKey)
+            if let editing { defaults.set(editing, forKey: EditorTextSettings.editsInPreviewKey) }
+            else { defaults.removeObject(forKey: EditorTextSettings.editsInPreviewKey) }
             defaults.set(bar, forKey: EditorTextSettings.showsFormatBarKey)
             defaults.set(introSeen, forKey: EditorTextSettings.editsInPreviewIntroSeenKey)
             defaults.set(SurfaceStyle.unified.rawValue, forKey: LiquidGlass.surfaceStyleKey)
@@ -981,6 +983,17 @@ import EventsTestSupport
         }
         var preview: PreviewTextView? { views(PreviewTextView.self).first }
         var source: NSTextView? { views(EditorTextView.self).first }
+    }
+
+    /// **A Markdown file's Preview is editable for somebody who has never touched the setting** — the
+    /// default reaches the workspace through its `@AppStorage`, not only the constant (v5.5).
+    ///
+    /// Mutation: `editsInPreviewDefault = false`, and Preview is the read-only one.
+    @Test func previewIsEditableWhenTheSettingWasNeverChosen() async throws {
+        let m = try Mounted("Salt the pasta.", mode: .preview, editing: nil)
+        await m.settle { m.preview != nil }
+        #expect(m.defaults.object(forKey: EditorTextSettings.editsInPreviewKey) == nil, "the setting was written")
+        #expect(m.preview != nil, "Preview is read-only with the setting unset")
     }
 
     /// **The intro shows the first time Preview becomes editable, in the default setup** (review V2):
