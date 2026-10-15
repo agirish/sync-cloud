@@ -189,8 +189,8 @@ import Combine
     }
 
     /// Attaching a store to a manager that has already scanned applies it at once, rather than
-    /// waiting for the next change to the set. A window reopen recreates `ContentView` and
-    /// re-attaches, which is exactly this order.
+    /// waiting for the next change to the set. The app attaches it once per session, before the
+    /// first scan; this pins the other order, which a late attach would take.
     @MainActor
     @Test func attachingAStoreFiltersWhatIsAlreadyPublished() {
         let defaults = ScratchDefaults("KeptAttach")

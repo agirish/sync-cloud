@@ -993,11 +993,19 @@ enum PaneLogic {
 
     // MARK: - Window bootstrap
 
-    /// One step of ContentView's `onAppear` bootstrap. The app is single-window, but closing
-    /// the window and reopening it from the Dock recreates the ContentView, so `onAppear` runs
-    /// again mid-session. Each step is therefore classified once-per-session vs per-window;
-    /// `bootstrapSteps(isFirstAppearance:)` is the single source of that classification (pinned
-    /// by tests), and the view executes whatever list it returns so the two can't drift.
+    /// One step of ContentView's `onAppear` bootstrap. The app is single-window, but `onAppear`
+    /// runs again mid-session — a close and Dock reopen, an open from Finder and a launch with a
+    /// file all re-present the window — so each step is classified once-per-session vs
+    /// per-window; `bootstrapSteps(isFirstAppearance:)` is the single source of that
+    /// classification (pinned by tests), and the view executes whatever list it returns so the
+    /// two can't drift.
+    ///
+    /// **A re-appearance is the same view, not a rebuilt one.** Measured 2026-10-03 on macOS 27
+    /// with a per-view `@State` token logged from `onAppear`/`onDisappear`: a close and Dock
+    /// reopen printed `disappear` then `appear` with the same token, the same NSWindow and the
+    /// same content view. A rebuilt view is still provided for, as a defensive assumption rather
+    /// than a measured path: nothing in SwiftUI promises the view survives, and the Dock-reopen
+    /// hook's fall-through (no stored main window) would build a new one.
     enum BootstrapStep: Equatable {
         /// Session: seed `showHiddenFiles` from the General default. Re-running on a window
         /// reopen would discard a mid-session toggle.
@@ -1010,8 +1018,9 @@ enum PaneLogic {
         /// a script — `System Events` keystroke needs assistive access, which this machine refuses
         /// — so a launch hook is the only way anything but a human can get it on screen to look at.
         case honorLaunchOverlayDiagnostics
-        /// Window: `FileActionHandler` lives in view `@State`, so every fresh ContentView
-        /// starts with nil and needs its own.
+        /// Window: `FileActionHandler` lives in view `@State`, so a view appearing for the first
+        /// time — or a rebuilt one — starts with nil and needs its own. A re-appearance of the
+        /// same view just replaces it.
         case createActionHandler
         /// Window: each window brings a fresh `UndoManager`; the shared sync manager must
         /// register undos with the one actually on screen.
@@ -1024,12 +1033,14 @@ enum PaneLogic {
         /// provider and redo discovery + rescan over live state. Clears the view's
         /// provider-bootstrap guard when the discovery task finishes.
         case discoverProvidersAndApplyInitialSelection
-        /// Window, re-appearance only: a recreated view's `isBootstrappingProviders` `@State`
-        /// starts true — clear it once no discovery is pending, or provider switches and pane
-        /// swaps stay refused for the rest of the session. **Not before:** a re-appearance can come
-        /// while the launch's discovery is still running (SwiftUI re-presents the window for a
-        /// file opened from Finder), so the guard is lowered only when `LaunchBootstrap` says the
-        /// launch has finished.
+        /// Window, re-appearance only: sets `isBootstrappingProviders` from whether the launch has
+        /// finished. Every measured re-appearance is the same view, whose guard is already where
+        /// the launch left it, so there this changes nothing. It is for a rebuilt view — the
+        /// defensive case above — whose `@State` would start true and, never cleared, leave
+        /// provider switches and pane swaps refused for the rest of the session. **Never lowered
+        /// early:** a re-appearance can come while the launch's discovery is still running
+        /// (SwiftUI re-presents the window for a file opened from Finder), so the guard is lowered
+        /// only when `LaunchBootstrap` says the launch has finished.
         case endProviderBootstrapGuard
     }
 

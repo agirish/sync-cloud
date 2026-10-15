@@ -456,10 +456,10 @@ import Sync
     }
 
     @Test func testReappearanceRunsOnlyPerWindowWiring() {
-        // A Dock-click reopen recreates ContentView mid-session. It must NOT re-run the
-        // session steps: resetting showHiddenFiles would discard a mid-session toggle, and
-        // re-applying the distinct-pair selection would silently flip a right pane the user
-        // deliberately set to the same provider as the left.
+        // A Dock-click reopen runs `onAppear` again mid-session, on the same view. It must NOT
+        // re-run the session steps: resetting showHiddenFiles would discard a mid-session
+        // toggle, and re-applying the distinct-pair selection would silently flip a right pane
+        // the user deliberately set to the same provider as the left.
         let steps = PaneLogic.bootstrapSteps(isFirstAppearance: false)
         #expect(steps == [
             .createActionHandler,

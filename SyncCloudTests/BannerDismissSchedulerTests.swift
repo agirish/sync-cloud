@@ -270,10 +270,10 @@ private final class ManualSleeper: @unchecked Sendable {
 
     @MainActor
     @Test func testAdoptingASurvivingBannerAfterReopenStartsItsWindow() async {
-        // The scheduler is view-@State but the banner is manager-owned, so closing the window during
-        // a banner's window and reopening from the Dock builds a FRESH scheduler that was never told
-        // about the banner still on screen — and `onChange` never fires for an unchanged value, so
-        // the banner became sticky forever.
+        // The scheduler is view-@State but the banner is manager-owned, so a rebuilt view's FRESH
+        // scheduler is never told about the banner still on screen — and `onChange` never fires
+        // for an unchanged value, so the banner became sticky forever. (On macOS 27 a close + Dock
+        // reopen keeps the same view and scheduler; nothing promises it.)
         let clock = ManualSleeper()
         let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
         var dismissCount = 0

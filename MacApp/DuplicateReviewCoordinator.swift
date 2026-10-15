@@ -12,9 +12,9 @@ import Design
 /// to inline around them.
 ///
 /// Deliberately stateless: the review state itself stays App-owned (`duplicateReview` is the App
-/// scene's binding, `reviewStore` its store) — a window close + Dock reopen recreates ContentView
-/// and any value it holds, and the review context must survive that cycle (see the
-/// `duplicateReview` note in `ContentView`). The coordinator only receives bindings, references,
+/// scene's binding, `reviewStore` its store) so it outlives `ContentView` and any value it holds;
+/// the review context must survive whatever happens to the window (see the `duplicateReview` note
+/// in `ContentView`). The coordinator only receives bindings, references,
 /// and closures over that state, so constructing a fresh one per use changes nothing.
 ///
 /// The closures read LIVE state on every call (they capture the host view, whose property

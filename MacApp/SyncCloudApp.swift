@@ -92,10 +92,13 @@ struct SyncCloudApp: App {
     /// Drives the in-window Help overlay. Hoisted to App scope so the Help ▸ SyncCloud Help (⌘?)
     /// menu command can open it; ContentView renders the overlay and owns dismissal.
     @State private var showHelp = false
-    /// Whether ContentView's once-per-session bootstrap has run. App-owned because a window
-    /// close + Dock reopen recreates ContentView (and its @State) while the session — the
-    /// shared FileSyncManager, its trees, and mid-session toggles — lives on. Deliberately
-    /// @State, not @AppStorage: it must reset on every app launch.
+    /// Whether ContentView's once-per-session bootstrap has run. App-owned so it outlives the
+    /// view, as the session does — the shared FileSyncManager, its trees, and mid-session toggles.
+    /// Measured 2026-10-03 on macOS 27, a close + Dock reopen brings back the same ContentView
+    /// with its `@State` intact, so a view-owned flag would survive that; it lives here anyway,
+    /// because nothing in SwiftUI promises the view survives and `applicationShouldHandleReopen`'s
+    /// fall-through (no stored main window) would build a new one. Deliberately @State, not
+    /// @AppStorage: it must reset on every app launch.
     @State private var hasBootstrappedSession = false
     /// The active duplicate-copy review (the Duplicates lens's "Compare copies" hand-off). App-owned for the
     /// same reason as `hasBootstrappedSession`: its provider pins live in @AppStorage and the
@@ -112,13 +115,12 @@ struct SyncCloudApp: App {
     /// The one open document.
     ///
     /// **Owned by the APP, for the reason `syncManager` is.** It began as a `@StateObject` on
-    /// `ContentView`, which already survives a workspace switch — but not the one gesture that
-    /// matters most: closing the window rebuilds `ContentView` and everything it owns, which this
-    /// codebase knows and relies on elsewhere (`hasBootstrappedSession` exists because "a close +
-    /// Dock reopen rebuilds this view and its `@State`"). So the red traffic light dropped an
-    /// unsaved buffer with no prompt, two pixels from a ⌘W that asks. Owning it here is what makes
-    /// the document outlive the window rather than adding a third modal question about it: close
-    /// the window, reopen from the Dock, and the typing is still there.
+    /// `ContentView`, which survives a workspace switch, and while it lived there the red traffic
+    /// light dropped an unsaved buffer with no prompt, two pixels from a ⌘W that asks — put down
+    /// at the time to the close rebuilding `ContentView`. On macOS 27 a close + Dock reopen keeps
+    /// the same view (see `hasBootstrappedSession`), but nothing promises that. Owning it here is
+    /// what makes the document outlive the window rather than adding a third modal question about
+    /// it: close the window, reopen from the Dock, and the typing is still there.
     @StateObject private var editorDocument = EditorDocument()
 
     /// One undo stack per document, so ⌘Z survives switching files — beside the document they
@@ -130,9 +132,9 @@ struct SyncCloudApp: App {
     /// Which files autosave may write, for this run of the app.
     ///
     /// **Here rather than in `ContentView`, for the reason the document and the undo stack are
-    /// here**: closing the window rebuilds `ContentView` and everything it owns, and a set that
-    /// died with the window would switch autosave back on for a document still open in it. It is
-    /// deliberately not persisted — see `EditorAutosavePolicy`.
+    /// here**: it has to outlive the view, and a set that died with a rebuilt `ContentView` would
+    /// switch autosave back on for a document still open in it. It is deliberately not
+    /// persisted — see `EditorAutosavePolicy`.
     @StateObject private var editorAutosavePolicy = EditorAutosavePolicy()
     /// Watches the open document's file for changes made elsewhere (TE59). **Here for the
     /// document's reason**: it must outlive the window, and it watches whatever the document has

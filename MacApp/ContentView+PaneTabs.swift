@@ -660,14 +660,14 @@ extension ContentView {
         let closing = tabLogDescription(id: id, isLeft: isLeft)
         guard syncManager.paneTabs(isLeft: isLeft).count > 1 else {
             // **Asked because this closes the window, not because the buffer would be lost.**
-            // It would have been: the document was a `@StateObject` on `ContentView`, and a close +
-            // Dock reopen rebuilds this view and everything it owns — which is why
-            // `hasBootstrappedSession` exists. The document now belongs to the app
-            // (``SyncCloudApp/editorDocument``) and outlives the window, so reopening brings the
-            // typing back. The question stays anyway, because this is the last moment the user is
-            // looking at the document they have not saved, and a prompt here is what the platform
-            // does when a window with unsaved work is closed. Cancelling leaves both the tab and
-            // the window where they are.
+            // It once could have been: the document was a `@StateObject` on `ContentView`, and a
+            // rebuilt view would have taken it along — the case `hasBootstrappedSession` is held
+            // against, though on macOS 27 a close + Dock reopen keeps the same view. The document
+            // now belongs to the app (``SyncCloudApp/editorDocument``) and outlives the window, so
+            // reopening brings the typing back. The question stays anyway, because this is the
+            // last moment the user is looking at the document they have not saved, and a prompt
+            // here is what the platform does when a window with unsaved work is closed. Cancelling
+            // leaves both the tab and the window where they are.
             guard settleEditorDocument() else {
                 Logger.shared.info(
                     "User cancelled Close Tab on the \(PaneSideChoice.name(isLeft)) pane's last "

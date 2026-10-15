@@ -84,10 +84,13 @@ final class BannerDismissScheduler {
     /// the view's `onAppear`.
     ///
     /// The scheduler is view `@State` but the banner is owned by the sync manager, which outlives
-    /// the window. Closing the single window and reopening it from the Dock recreates ContentView,
-    /// so a banner still showing at close survives into a scheduler that was never told about it —
-    /// and `onChange(of:)` never fires for an unchanged value, so nothing else was ever going to
-    /// tell it. The success banner then sat there forever, and its ✕ was the only way out.
+    /// the window. A scheduler that comes into being with a banner already showing — a rebuilt
+    /// ContentView, which is how a close + Dock reopen was understood when this was written — is
+    /// never told about it, and `onChange(of:)` never fires for an unchanged value, so nothing else
+    /// was ever going to tell it. The success banner then sat there forever, and its ✕ was the
+    /// only way out. On macOS 27 a close + Dock reopen keeps the same view and scheduler (see
+    /// `SyncCloudApp.hasBootstrappedSession`), but nothing in SwiftUI promises that, so the
+    /// adoption stays.
     ///
     /// Deliberately a no-op unless this scheduler has never tracked anything (`dismissTask` and
     /// `currentDelay` both still nil), so an `onAppear` that fires a second time for the same

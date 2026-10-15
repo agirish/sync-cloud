@@ -95,9 +95,11 @@ public final class EditorBuffer: ObservableObject {
 /// **One document per app, held above the workspace rather than inside it.** The editor's view is
 /// torn down every time the user switches to another workspace, and a buffer that lived in the view
 /// would take an unsaved edit with it. It began owned by `ContentView` for that reason and moved
-/// one level further up, to `SyncCloudApp.editorDocument`, for a second: closing the window rebuilds
-/// `ContentView` and everything it owns, so the red traffic light dropped an unsaved buffer with no
-/// prompt. This is a reference type owned by the app, and every view is a rendering of it.
+/// one level further up, to `SyncCloudApp.editorDocument`, for a second: the red traffic light
+/// dropped an unsaved buffer with no prompt, put down at the time to the close rebuilding
+/// `ContentView`. On macOS 27 a close keeps the same view (measured 2026-10-03), but nothing in
+/// SwiftUI promises that. This is a reference type owned by the app, and every view is a rendering
+/// of it.
 ///
 /// **The text itself lives one level down, on ``buffer``** — see ``EditorBuffer`` for why. Reading
 /// and writing ``text`` here still works and means exactly what it did; what changed is *who is

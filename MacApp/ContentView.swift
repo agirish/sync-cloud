@@ -39,8 +39,9 @@ struct ContentView: View {
     /// verbs are built in `ShortcutCommands`' extension of this view.
     @State var restructureVerbRequest: RestructureVerbRequest?
     /// Whether the once-per-session part of the `onAppear` bootstrap has already run. Owned by
-    /// the App (session-scoped, never persisted) because closing and Dock-reopening the single
-    /// window recreates ContentView and all its `@State` — a view-owned flag would forget.
+    /// the App (session-scoped, never persisted) so it outlives this view. A close + Dock reopen
+    /// re-runs `onAppear` on the same view, but a view-owned flag would forget if SwiftUI ever
+    /// rebuilt it — see `SyncCloudApp.hasBootstrappedSession`.
     @Binding var hasBootstrappedSession: Bool
     /// Which settings tab the overlay shows. Owned here so it persists across open/close and can
     /// be preset (e.g. the invalid-pane fix-it action jumps straight to Providers).
@@ -265,9 +266,8 @@ struct ContentView: View {
     /// Set when the user reaches the end of the setup form. Persisted, so it never auto-opens twice.
     @AppStorage(SetupFlow.hasCompletedDefaultsKey) private var hasCompletedSetup: Bool = false
     /// Whether setup has been dismissed for the rest of this session. App-owned (a binding) for the
-    /// same reason as `hasBootstrappedSession`: a window close + Dock reopen recreates ContentView
-    /// and its @State, and a form the user answered *Not now* to must not come back when they
-    /// reopen the window.
+    /// same reason as `hasBootstrappedSession`: it has to outlive this view, because a form the
+    /// user answered *Not now* to must not come back when they reopen the window.
     ///
     /// Separate from `hasCompletedSetup`, and the difference is the whole point: *Not now* hides it
     /// for this session and leaves the persisted flag alone, so the form offers itself again on the
@@ -386,9 +386,10 @@ struct ContentView: View {
     /// is not a question this code should have hanging over it. A reference the view holds has no
     /// such question: the write is a property write and the read after it sees it.
     ///
-    /// `@State` is still the right holder, of a reference: it gives the box the window's lifetime,
-    /// so a close-and-Dock-reopen that rebuilds `ContentView` gets a fresh one — correct, since the
-    /// ticket describes nothing that outlives the window.
+    /// `@State` is still the right holder, of a reference: it gives the box this view's lifetime.
+    /// A close and Dock reopen keeps the same view, and so the same box; a rebuilt view would get
+    /// a fresh one, which is also correct, since the ticket describes nothing that outlives the
+    /// view.
     @State var sidebarRefresh = SidebarRefreshState()
 
     /// The box behind ``ContentView/sidebarRefresh``.
@@ -413,10 +414,10 @@ struct ContentView: View {
     /// Active "compare two duplicate copies" handoff from the Duplicates lens: the keeper (left pane) and the
     /// redundant copy (right pane) opened in Compare, plus the duplicate scan root to re-scan once
     /// the right copy is trashed. Drives the keep-left / trash-right banner over Compare; nil when
-    /// no such review is in progress. App-owned (a binding, like `hasBootstrappedSession`): a
-    /// window close + Dock reopen recreates ContentView and its `@State`, and losing the review
-    /// context here while its provider pins persist in @AppStorage would strand the panes pinned
-    /// to the duplicate's provider with no banner, no Done button, and no restore snapshot.
+    /// no such review is in progress. App-owned (a binding, like `hasBootstrappedSession`) so it
+    /// outlives this view: were ContentView ever rebuilt, losing the review context with it while
+    /// its provider pins persist in @AppStorage would strand the panes pinned to the duplicate's
+    /// provider with no banner, no Done button, and no restore snapshot.
     @Binding var duplicateReview: DuplicateCompareContext?
 
     /// The app's text scale. Read here rather than off `UserDefaults` inside the toolbar because
@@ -450,7 +451,8 @@ struct ContentView: View {
     /// Guided-review state, owned by the App (like `duplicateReview`) so it outlives BOTH
     /// DifferencesView — that view unmounts on a Details-tab peek and whenever the live
     /// differences list goes empty, and the session (plus any in-flight copy's outcome) must
-    /// survive both — and this ContentView itself, which a window close + Dock reopen recreates.
+    /// survive both — and this ContentView itself, should it ever be rebuilt (see
+    /// `hasBootstrappedSession`).
     @ObservedObject var reviewStore: ReviewSessionStore
     /// Files handed over from Finder, the Dock or `open -a`, waiting for this window to open them in
     /// Edit. The app delegate's, because it outlives the window — see ``ExternalOpenQueue``.
@@ -1389,11 +1391,13 @@ struct ContentView: View {
             refreshEditorAfterFileOperation()
         }
         .onAppear {
-            // Closing and Dock-reopening the single window recreates ContentView, so this
-            // block runs again mid-session. PaneLogic.bootstrapSteps owns the once-per-session
-            // vs per-window split: re-running the session steps would discard a mid-session
-            // hidden-files toggle and re-apply the distinct-pair provider selection over panes
-            // the user may have deliberately set to the same provider.
+            // This block runs again mid-session, on the same view: a close + Dock reopen, an open
+            // from Finder and a launch with a file all re-present the window (see
+            // `PaneLogic.BootstrapStep`, which also says why a rebuilt view is still provided for).
+            // PaneLogic.bootstrapSteps owns the once-per-session vs per-window split: re-running
+            // the session steps would discard a mid-session hidden-files toggle and re-apply the
+            // distinct-pair provider selection over panes the user may have deliberately set to
+            // the same provider.
             // The quit guard needs the document, and this is the one place that runs once per
             // window with the `@StateObject` already built. Without it ⌘Q is the only way out of
             // the app that never asks about an unsaved buffer — every other route through the
@@ -1461,8 +1465,8 @@ struct ContentView: View {
                     syncManager.autoVerifySameSizeDuringScan = settings.autoVerifySameSizeDuringScan
                     syncManager.rememberIgnoredItems = settings.rememberIgnoredItems
                     syncManager.ignorePatterns = settings.ignorePatterns
-                    // The durable ignore store outlives this view on the manager (window
-                    // reopen recreates ContentView); create once, re-key on provider changes.
+                    // The durable ignore store lives on the manager, so it outlives this view
+                    // whatever the window does; create once, re-key on provider changes.
                     if syncManager.ignoredItemsStore == nil {
                         syncManager.ignoredItemsStore = IgnoredItemsStore()
                     }
@@ -4363,10 +4367,11 @@ struct ContentView: View {
             }
         }
         .designAnimation(.spring(response: 0.4, dampingFraction: 0.9), value: syncManager.banner)
-        // A banner that outlived the previous window (the manager owns it; the scheduler below is
-        // view `@State`) gets its auto-dismiss armed here, since the `onChange` never fires for a
-        // value that didn't change. `adoptExistingBanner` no-ops when there's no banner or this
-        // scheduler is already tracking one, so a re-appearance can't restart the countdown.
+        // A banner already showing when this view appears (the manager owns it; the scheduler
+        // below is view `@State`) gets its auto-dismiss armed here, since the `onChange` never
+        // fires for a value that didn't change. `adoptExistingBanner` no-ops when there's no
+        // banner or this scheduler is already tracking one, so a re-appearance can't restart the
+        // countdown.
         .onAppear {
             bannerDismissScheduler.adoptExistingBanner(syncManager.banner) {
                 syncManager.banner = nil

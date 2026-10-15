@@ -17,9 +17,9 @@ import Events
 /// and would be invisible until it cost something. A file closed and reopened *within* the session
 /// keeps its setting, because the set is keyed by path and nothing clears it.
 ///
-/// **A reference type held by the app**, like ``EditorDocument`` and for the same reason: closing
-/// the window rebuilds `ContentView` and everything it owns, and a set that died with the window
-/// would switch autosave back on for a document still open in it.
+/// **A reference type held by the app**, like ``EditorDocument`` and for the same reason: it has to
+/// outlive `ContentView`, and a set that died with a rebuilt view would switch autosave back on for
+/// a document still open in it.
 @MainActor
 public final class EditorAutosavePolicy: ObservableObject {
 

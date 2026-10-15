@@ -181,8 +181,8 @@ import Foundation
     /// Two background writes in flight at once: the newer one wins whichever order they land in.
     ///
     /// The host only ever dispatches one at a time, so this is the store's guarantee rather than
-    /// the host's — asserted here because the host's guard is a `@State` flag on a view that a
-    /// window close rebuilds, and the store is what has to hold when it does not.
+    /// the host's — asserted here because the host's guard is a `@State` flag on a view, which a
+    /// rebuilt view would start over; the store is what has to hold if that ever happens.
     @Test func theNewerOfTwoBackgroundWritesWins() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
