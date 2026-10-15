@@ -3111,3 +3111,79 @@ write lands, which puts the line after it on top of the second half.
 
 **See.** `MockFileManager` and `MockFileManagerLockTests` in `Modules/Sync/Tests/Sync/`;
 `FileSyncManagerTests.testUndoRegisterTrashItems`.
+
+---
+
+### 28. A privacy prompt nobody answered wedges `sandboxd`, so a move into the real Trash outlasts the wait
+
+**Symptom.** One app-target test red on every run, on a commit that passed an hour earlier:
+`DuplicateReviewCoordinatorTests.confirmingTrashesTheRightCopyAndReturnsToDuplicates()`, red in all
+5 result bundles from 13:21 to 13:27 on 2026-10-03, green at 12:26 and again from 15:13 with nothing
+changed. Six expectations fail, and only the first one matters:
+
+```
+the right copy leaves the disk — still false after 417 polls
+the review is torn down — still false after 423 polls
+harness.workspace → .compare   ·   harness.organizeLens → .toFile   ·   duplicateGroups not empty
+```
+
+Hundreds of polls means the main actor was free — not "Fixed pumps and fixed sleeps". And nothing
+refused: the test-host log (`$TMPDIR/sync-cloud-tests-<pid>.log`) names the test's
+`dup-review-<UUID>` path in **no** line at all — no drift refusal, no "review changed", no
+`Delete:` gate line, no "Moved 1 item(s) to Trash". A refusal at any step logs; a step that is
+still running does not.
+
+**Mechanism.** `FileManager.trashItem` into `~/.Trash` is gated by the kernel sandbox, which asks
+`sandboxd`, which asks `tccd` (`kTCCServiceSystemPolicyAllFiles`) before the rename lands. Healthy,
+that round trip is milliseconds — the check, then the rename 4–26 ms later, three times over:
+13:19:18.737 → `Docs 13-19-18-756`, and 15:11:44.970 and 15:13:54.956 the same way.
+
+At 13:20:31 an **ad-hoc** Debug build of SyncCloud (pid 85649, the `SyncCloud-open-text` worktree's
+`.dd`) touched `~/Documents`. Its signature matched no existing grant (`tccd`: "Failed to match
+existing code requirement … kTCCServiceSystemPolicyDocumentsFolder", `authValue=1`, undecided), and
+at 13:20:31.891 `sandboxd` sent one more authorization request — after which **its request path
+stopped**. Its `tccd` message ids run 408.5629 at 13:20:31.785, then 408.5630 at **15:10:42.001**:
+nothing in between, for 1 h 50 min, on behalf of any process. It logged one more `request approval`
+at 13:20:38.635 and then nothing at all until 15:10:42.001 — 19 ms after a button click in
+`UserNotificationCenter`, which draws the Files & Folders consent dialogs (the display had woken at
+15:10:39). Then it flushed the backlog, about 1,545 requests in 3 s, for
+`com.apple.AddressBook.abd`, `IMTransferAgent`, `spotlightknowledged`, `swiftpm-testing-helper`, the
+installed SyncCloud and more. The wedge is machine-wide.
+
+Inside the wedge the trash still lands, late. **The Trash itself records when:** a collision is
+renamed `Docs HH-MM-SS-mmm`, and the failing runs' copies sit there at **+5.04 s, +5.04 s and
++5.25 s** after their suites started (`Docs 13-22-15-676`, `13-22-40-407`, `13-23-04-436`) — just
+after the test's 5 s wait had given up. `trashItem` then still did not return: no run logged "Moved
+1 item(s) to Trash" in the 5 s it had left. That the kernel abandons each unanswered check after
+about 5 s is inferred from those offsets, not documented anywhere. Another session measured a whole
+`trashItem` at 62.8 s during the same window — relayed, not re-measured here.
+
+Measured healthy for comparison (temporary per-step logging, 15:27): confirm → drift gate →
+identity guard → removal gate takes **3 ms**; `trashItem` takes **95 ms**, and it is the only step
+that touches a TCC-protected location — the fixture lives under `$TMPDIR`.
+
+**Tell:** the test's own copy is in `~/.Trash` with a timestamp **about 5 s after** the suite's first
+log line, and `log show --predicate 'process == "tccd" AND eventMessage CONTAINS "sender_pid=408"'`
+has a gap of minutes or more in its `msgID=408.N` sequence that covers the red. Cheaper and live:
+time one `trashItem` from a plain Swift script — tens of milliseconds healthy, seconds wedged.
+"It worked from a script" does not clear the machine; under this wedge it *works*, slowly.
+
+**What it is not.** Not a regression, not load, and not the Trash's size: the test passed at 13:19,
+70 s before the prompt, with its rename 19 ms after the check. Launch Services re-registrations and
+an `/Applications` swap fell in the same window, but nothing else lines up: `sandboxd` went quiet
+on the prompt's request and resumed 19 ms after the dialog's click.
+
+**Fix — none on `main` yet.** Answer the prompt and the machine recovers at once (rerunning while
+it is up only adds to the backlog). The test-side fix is to stop moving fixtures into the user's
+real Trash: a `FileManaging` that forwards to `FileManager.default` and implements `trashItem` as a
+rename into a per-test directory keeps the real-disk drift gate this test exists for, and takes
+`sandboxd`, `tccd` and `~/.Trash` out of its verdict. It would also stop the pollution: every pass
+leaves another `Docs <time>` in his Trash, which held 199 of them on 2026-10-03. Fixtures named
+like the Restructure suites' — `Payment`, `Statements`, `State Tax`, 1,414 of those — land there
+too, so those suites are exposed the same way. The source of the prompt is the other half: an ad-hoc
+build that reads `~/Documents` while nobody is at the machine raises a dialog no one will answer
+for hours.
+
+**See.** `trashRightCopy(_:)` in `MacApp/DuplicateReviewCoordinator.swift`; `deleteItems` in
+`Modules/Sync/Sources/Sync/FileOperations.swift`; CLAUDE.md, **Trying an app change**, on why every
+ad-hoc install is a new app to TCC.
