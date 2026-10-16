@@ -3187,3 +3187,85 @@ for hours.
 **See.** `trashRightCopy(_:)` in `MacApp/DuplicateReviewCoordinator.swift`; `deleteItems` in
 `Modules/Sync/Sources/Sync/FileOperations.swift`; CLAUDE.md, **Trying an app change**, on why every
 ad-hoc install is a new app to TCC.
+
+### 29. A find indicator's redraw outlives the text view it was asked for — FIXED
+
+**Symptom.** `swift test` in `Modules/FileExplorer` dies with `exited with unexpected signal code 6`
+(or 11) and no `✘` for any test. The crash report,
+`~/Library/Logs/DiagnosticReports/swiftpm-testing-helper-*.ips`, has the main thread in a run-loop
+timer:
+
+```
+objc_exception_throw
+-[NSObject(NSObject) doesNotRecognizeSelector:]    ← SIGABRT; for SIGSEGV, objc_msgSend here instead
+___forwarding___
+-[NSTextFinderIndicatorManager _delayedUpdate]
+__NSFireDelayedPerform
+__CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
+```
+
+The selector is `__retain_OA` (`lastExceptionBacktrace`). Below the timer is whichever test happened
+to be turning the run loop — `LineEndingPathsTests.spin()` inside `aPastedCRLFIsWrittenAsLF` in one
+report, the main executor's own `CFRunLoopRun` in the rest — which names the wrong test. Six reports
+2026-10-09 to 10-12, local runs under load.
+
+**Mechanism.** AppKit's find indicator asks to redraw itself a little later —
+`-[NSTextFinderIndicatorManager _scheduleDelayedUpdate]`, a `performSelector:afterDelay:` that fires
+14–30 ms on, later under load. The perform retains the indicator manager but not the finder it
+reports to (`_NSBarTextFinder`), and the text view frees that finder in its own `dealloc`
+(`-[NSTextFinder _clearClientIfMatchingClient:]`) without cancelling the request. A text view freed
+inside that window leaves the timer to message a freed finder. Two things ask for the redraw:
+
+- **Find Next** — `pulse`, synchronously. `EditorMenuChordTests.findNextReachesTheDocumentFromTheFindBarsField`
+  returns straight after it.
+- **An incremental search's first match** — `_updateIncrementalMatches`, from an `NSOperationQueue`
+  search that the bar starts when it opens, for whatever the **Find pasteboard** holds. Its timing
+  belongs to the queue, not the test: under load, measured landing 1.0 s and 1.6 s after
+  `EditorFindBarTests.theFindOnlyActionIsWhatHidesTheReplaceRow` started it — a test that returns
+  straight after opening the bar. In 24 instrumented runs it was the only test whose bar searched.
+
+The Find pasteboard is machine-wide — the ring of "A named NSPasteboard is machine-global, so two
+test PROCESSES share it" — and `LineEndingPathsTests`'
+`findingInAFileChangesNothing` writes `"one"` to it through Use Selection for Find — a word every
+find-bar fixture's text contains. So that test is the reason the others' bars find something; it
+never asked for a redraw itself in any run measured. What usually saves the process is another
+suite's `spin()` servicing the timer before the view goes: a dropped text view here is freed by a
+deferred run-loop block half a second or more later, not when the test returns.
+
+Measured, with an injected logger on the manager's methods and `NSZombieEnabled=YES`: 2 of 22 runs of
+`--filter 'Editor|LineEndingPaths'`, two processes at once, died on
+`-[_NSBarTextFinder retain]: message sent to deallocated instance`; in both, the finder was freed
+21 ms and 88 ms after an incremental search's match had asked for a redraw, the search having been
+started by `theFindOnlyActionIsWhatHidesTheReplaceRow`.
+
+**Tell:** `-[NSTextFinderIndicatorManager _delayedUpdate]` under `__NSFireDelayedPerform` in the
+crashing thread. A load flake: a same-SHA rerun passes, and so does `--filter` on any one suite.
+
+**Fix — retire the bar before the view goes.** `PlainTextEditor.retireFindBar(of:)` does two things,
+measured separately because neither covers the other:
+
+1. **Hide the bar** (`NSTextFinder.Action.hideFindInterface`). That retires a search still in flight,
+   so no match lands afterwards. It does **not** cancel a redraw already asked for: hidden straight
+   after Find Next, the redraw still fires on time.
+2. **Hold the view on a one-second run-loop `Timer`.** Nothing public cancels the redraw, so the
+   view outlives it instead. Timers in one run-loop mode fire in date order, so the hold ends after
+   the redraw even when the main thread was too busy for either to be on time.
+
+Every test that opens a find bar calls it in a `defer` — `EditorFindBarTests`,
+`EditorMenuChordTests`, `LineEndingPathsTests`. Measured against unfixed `main`, the two run side by side
+under the same load, `NSZombieEnabled=YES`, `--filter 'Editor|LineEndingPaths'`: **3 crashes in 34
+runs unfixed, 0 in 34 fixed**. In 15 of those rounds the logger ran in both: unfixed, all 15
+searches landed and asked for a redraw, and a finder was freed with one pending twice (both
+crashed); fixed, none of the 15 searches landed, and no finder was freed with a redraw pending.
+
+**The app had the same exposure, and is fixed with the same call.** Both editors' `dismantleNSView`
+— `PlainTextEditor` and `PreviewEditorView` — retire their bar. Measured on the real `PlainTextEditor`
+in a window that stays, as the app's does: a Find Next redraw pending at close is not cancelled when
+the editor leaves the window, and an incremental search started before close lands after it (6 of
+6), asking for a redraw on a text view no longer on screen. With the retire, 0 of 6 land. No
+SyncCloud crash report on this Mac carries the frame; the window in the app is the time between
+close and the text view's release, which undo actions can stretch. `closingTheDocumentRetiresItsFindBar`
+pins the call in both editors by the bar it takes down; removing either call fails its own case.
+
+**See.** `PlainTextEditor.retireFindBar(of:)` and both `dismantleNSView`s;
+`EditorFindBarTests.closingTheDocumentRetiresItsFindBar`.

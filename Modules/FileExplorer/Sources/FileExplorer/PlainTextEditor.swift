@@ -657,6 +657,29 @@ struct PlainTextEditor: NSViewRepresentable {
         view.performTextFinderAction(sender)
     }
 
+    /// Ends the find bar's work over `view`, for a text view that is about to be let go.
+    ///
+    /// **AppKit's find indicator can outlive the finder it reports to.** Find Next, and an
+    /// incremental search's first match, ask the indicator to redraw a few milliseconds later. The
+    /// request keeps the indicator alive but not the finder, which the text view frees as it goes,
+    /// so a text view freed inside that window left the redraw to message freed memory and the
+    /// process died — `-[NSTextFinderIndicatorManager _delayedUpdate]` in the crash report. See
+    /// "A find indicator's redraw outlives the text view it was asked for" in `docs/flaky-tests.md`.
+    ///
+    /// Two steps, each measured, because neither covers the other:
+    /// - **Hiding the bar retires a search still in flight.** Its first match can land a second or
+    ///   more after the search started, after the document has closed; retired, it never lands.
+    /// - **Nothing public cancels a redraw already asked for**, and hiding does not. So the view is
+    ///   held by a run-loop timer due well after it: timers in one mode fire in date order, so the
+    ///   hold ends after the redraw even when the main thread was too busy for either to be on time.
+    static func retireFindBar(of view: NSTextView) {
+        let sender = NSMenuItem()
+        sender.tag = NSTextFinder.Action.hideFindInterface.rawValue
+        view.performTextFinderAction(sender)
+        nonisolated(unsafe) let held = view
+        Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { _ in withExtendedLifetime(held) {} }
+    }
+
     /// Points `view` at `source`'s text storage — at construction, and whenever the document changes.
     ///
     /// **The view is still built by the factory and then re-pointed**, rather than assembled by hand
@@ -735,11 +758,15 @@ struct PlainTextEditor: NSViewRepresentable {
     /// **The storage forgets this view as it goes, unless a newer one already took its place** — a
     /// mode switch can build the next view before this one is taken down. Undo actions keep a
     /// dismantled view alive, so a weak reference alone would go on naming it.
+    ///
+    /// **The find bar is retired too**, so closing the document just as a search lands cannot leave
+    /// AppKit's find indicator a redraw to send to a freed finder — see ``retireFindBar(of:)``.
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
         MainActor.assumeIsolated {
             coordinator.stopWatchingScrolling()
-            if let view = scroll.documentView as? NSTextView, coordinator.source.textView === view {
-                coordinator.source.textView = nil
+            if let view = scroll.documentView as? NSTextView {
+                retireFindBar(of: view)
+                if coordinator.source.textView === view { coordinator.source.textView = nil }
             }
         }
     }

@@ -17,7 +17,7 @@ import Design
 
     /// A text view in a window, marked the way `PlainTextEditor.makeNSView` marks its own. Same
     /// fixture as `EditorFindBarTests`, for the same reason: a detached view has no first responder
-    /// to ask about.
+    /// to ask about. A test that opens the find bar retires it as it ends, as that file's do.
     private func hosted(text: String = "one two three\n") -> (scroll: NSScrollView, view: NSTextView, window: NSWindow) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -141,6 +141,7 @@ import Design
     /// field and the verb would wrap whatever the document happened to have selected instead.
     @Test func aVerbRefusesInTheFindBarsOwnField() {
         let (scroll, view, window) = hosted()
+        defer { PlainTextEditor.retireFindBar(of: view) }
         view.setSelectedRange(NSRange(location: 4, length: 3))
         PlainTextEditor.showFindBar(in: view)
         guard let bar = scroll.findBarView,
@@ -164,6 +165,7 @@ import Design
     /// document, because stepping through matches from the Find field is what the field is for.
     @Test func findNextReachesTheDocumentFromTheFindBarsField() {
         let (scroll, view, window) = hosted(text: "one two one two\n")
+        defer { PlainTextEditor.retireFindBar(of: view) }
         PlainTextEditor.showFindBar(in: view)
         guard let bar = scroll.findBarView,
               let field = firstTextField(in: bar) else {

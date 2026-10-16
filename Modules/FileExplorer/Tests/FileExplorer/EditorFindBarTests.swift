@@ -17,6 +17,11 @@ import SwiftUI
     /// A text view in a window, set up the way ``PlainTextEditor`` sets its own up. A window is
     /// required: `performTextFinderAction` on a detached view does nothing at all, which would make
     /// every assertion below vacuous.
+    ///
+    /// **A test that opens the bar retires it as it ends** (`PlainTextEditor.retireFindBar`). Opening
+    /// it starts a search for whatever the machine-wide Find pasteboard holds, and a match landing
+    /// as the rig is freed left AppKit's find indicator a redraw for a freed finder — signal 6 or 11
+    /// in some later test (`docs/flaky-tests.md`).
     private func hosted() -> (scroll: NSScrollView, view: NSTextView, window: NSWindow) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -62,6 +67,7 @@ import SwiftUI
     /// hidden inside it.
     @Test func theFindBarOpensWithItsReplaceRowShowing() {
         let (scroll, view, _) = hosted()
+        defer { PlainTextEditor.retireFindBar(of: view) }
         PlainTextEditor.showFindBar(in: view)
 
         #expect(scroll.isFindBarVisible, "the find bar did not open at all")
@@ -80,6 +86,7 @@ import SwiftUI
     /// because both actions happen to behave the same.
     @Test func theFindOnlyActionIsWhatHidesTheReplaceRow() {
         let (scroll, view, _) = hosted()
+        defer { PlainTextEditor.retireFindBar(of: view) }
         let sender = NSMenuItem()
         sender.tag = NSTextFinder.Action.showFindInterface.rawValue
         view.performTextFinderAction(sender)
@@ -129,6 +136,7 @@ import SwiftUI
             Issue.record("the editor mounted no marked scroll view")
             return
         }
+        defer { if let view = scroll.documentView as? NSTextView { PlainTextEditor.retireFindBar(of: view) } }
         #expect(!scroll.isFindBarVisible,
                 "a text view mounted under a standing find request opened the find bar by itself")
 
@@ -170,6 +178,7 @@ import SwiftUI
     /// while the caret sits in the Find field, falling through to the pane search.
     @Test func theFindBarsOwnFieldsCountAsTheDocument() {
         let (scroll, view, window) = hosted()
+        defer { PlainTextEditor.retireFindBar(of: view) }
         PlainTextEditor.showFindBar(in: view)
         guard let bar = scroll.findBarView,
               let field = fields(in: bar).first?.field else {
@@ -220,5 +229,42 @@ import SwiftUI
         #expect(marked != nil, "the editor mounted no scroll view carrying the mark")
         #expect(marked?.documentView is NSTextView,
                 "the marked view holds no text view for a chord to reach")
+    }
+
+    // MARK: Closing retires the bar
+
+    /// **Closing the document takes its find bar down with it, in both editors** — the visible half
+    /// of `PlainTextEditor.retireFindBar`, which each editor's `dismantleNSView` calls. Without it a
+    /// search still in flight lands after the document has closed and leaves AppKit's find
+    /// indicator a redraw for a finder about to be freed (`docs/flaky-tests.md`). The crash is too
+    /// rare to catch a dropped call, so the call is pinned here by what it does.
+    @Test(arguments: ["Source", "Preview"]) func closingTheDocumentRetiresItsFindBar(_ editor: String) {
+        let source = EditorSourceStorage(text: "one two three\n")
+        let undo = UndoManager()
+        func mounted(findRequest: Int) -> AnyView {
+            editor == "Source"
+                ? AnyView(PlainTextEditor(source: source, isEditable: true, fontScale: 1, documentID: "/a/b.md",
+                                          undoManager: undo, findRequest: findRequest))
+                : AnyView(PreviewEditorView(source: source, undoManager: undo, findRequest: findRequest))
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let host = NSHostingView(rootView: mounted(findRequest: 0))
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        guard let scroll = markedScroll(in: host) else {
+            Issue.record("the \(editor) editor mounted no marked scroll view")
+            return
+        }
+        host.rootView = mounted(findRequest: 1)
+        host.layoutSubtreeIfNeeded()
+        // The positive control: the bar really opened, so the absence below is the close's doing.
+        #expect(scroll.isFindBarVisible, "the find press did not open the \(editor) bar")
+
+        host.rootView = AnyView(Color.clear)
+        host.layoutSubtreeIfNeeded()
+        #expect(scroll.window == nil, "the \(editor) editor was not taken down, so this proves nothing")
+        #expect(!scroll.isFindBarVisible, "the \(editor) editor closed with its find bar still up")
     }
 }

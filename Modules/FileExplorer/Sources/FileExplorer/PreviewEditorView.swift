@@ -67,6 +67,13 @@ struct PreviewEditorView: NSViewRepresentable {
         return scroll
     }
 
+    /// Its find bar is retired as it goes, as Source's is — see ``PlainTextEditor/retireFindBar(of:)``.
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+        MainActor.assumeIsolated {
+            if let view = scroll.documentView as? NSTextView { PlainTextEditor.retireFindBar(of: view) }
+        }
+    }
+
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         update(context.coordinator)
         context.coordinator.take(follow: followRequest, scroll: scrollRequest)

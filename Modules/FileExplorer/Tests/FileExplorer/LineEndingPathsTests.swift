@@ -478,9 +478,13 @@ import EventsTestSupport
     }
 
     /// Find — opening the bar, finding next — reads; it does not convert.
+    ///
+    /// The bar is retired as the test ends: Find Next leaves AppKit's find indicator a redraw to
+    /// make, which must not outlive the rig (`PlainTextEditor.retireFindBar`).
     @Test func findingInAFileChangesNothing() {
         let text = "one\r\ntwo\r\none\r\n"
         let r = rig(text, caret: 0)
+        defer { PlainTextEditor.retireFindBar(of: r.view) }
         PlainTextEditor.showFindBar(in: r.view); spin()
         r.view.setSelectedRange(NSRange(location: 0, length: 3)); spin()
         for action in [NSTextFinder.Action.setSearchString, .nextMatch, .previousMatch] {
