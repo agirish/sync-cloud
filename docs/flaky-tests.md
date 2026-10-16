@@ -3348,7 +3348,7 @@ pins the call in both editors by the bar it takes down; removing either call fai
 **See.** `PlainTextEditor.retireFindBar(of:)` and both `dismantleNSView`s;
 `EditorFindBarTests.closingTheDocumentRetiresItsFindBar`.
 
-### 30. A spell check and a defaults change from another process deadlock a SwiftUI focus move
+### 30. A spell check and a defaults change from another process deadlock a SwiftUI focus move — FIXED
 
 **Symptom.** No verdict, and no core pegged: the run stops making progress at **0% CPU** with
 dozens of tests in flight. That is the difference from "The wait that hangs instead of failing",
@@ -3390,20 +3390,29 @@ needed:
    the **standard** domain (the app's search list, which is the one the checker reads);
 3. a **SwiftUI-driven focus move** off that text view.
 
-**Condition 1 is not "spelling on", and that changes what can be fixed.** `scoreParagraph` is
-language identification, not spelling. An lldb breakpoint on `-[NSTextView
-checkTextInRange:types:options:]` read the checking types:
+**Condition 1 is any check that reaches the spell checker, and no setting stops one.**
+`scoreParagraph` is the checker's language guess, not spelling, and `NSSpellCheckerCheckString`
+runs it whatever it was asked to check: in a probe, `checkString:` with types `0`, `0x1`, `0x2`,
+`0x100`, `0x200`, `0x2000` and `0x2001` ran it once each. An lldb breakpoint on `-[NSTextView
+checkTextInRange:types:options:]` read what text views ask for:
 
-| Text view | Checks | Reached `scoreParagraph` |
+| Text view | Asks for | Reached the checker |
 |---|---|---|
-| a SwiftUI `TextField`'s field editor | `0x2301`: orthography, replacement, **correction**, private bit 13 | yes: its resign ran one on main in `EditorGoToLineWiringTests`, which types into the Go to Line field, and 9 background checks in that run reached it too (they carry no view) |
-| an editor's text view, Check Spelling **off** | `0x2001`: orthography, private bit 13 | **no**: 0 hits across 123 tests in five suites that mount editors and type into them |
-| an editor's text view, Check Spelling **on** | adds spelling | not measured: spelling is checked through the same `checkString` call |
+| a SwiftUI `TextField`'s field editor | `0x2301`: spelling, replacement, **correction**, private bit 13. Correction because the system's "Correct spelling automatically" is on | yes: on main when it resigns (`EditorGoToLineWiringTests`' Go to Line field, `PaneHeaderSearchTests`' search field), and in background checks, which carry no view |
+| the same, correction and replacement off | `0x2001` | **still yes**: `PaneHeaderSearchTests` resigned one on main, 2026-10-16 |
+| an editor's text view, Check Spelling **off** | `0x2001` | not on 2026-10-15: 0 hits across 123 tests in five suites that mount editors and type into them. The types are the field editor's, so that is not what kept it out |
 
-A field editor corrects automatically because the system's "Correct spelling automatically" is on,
-so every SwiftUI text field a test types into meets condition 1 on its own. The 09:15 sample does
-not say which text view resigned. `FocusBridge.moveFocus` is SwiftUI moving focus, which fits a
-field as well as an editor, and `EditorFindBarTests`' bar fields were in flight.
+So every SwiftUI text field a test types into meets condition 1 on its own. **No defaults key
+stops it** — tried 2026-10-16, each in the process's argument domain (which outranks every other),
+against a `PaneHeaderSearch|PaneSearch` rig that checks twice.
+`NSAutomaticSpellingCorrectionEnabled` and `NSUserDictionaryReplacementItemsEnabled` (text
+replacement's key, read off `+[NSSpellChecker isAutomaticTextReplacementEnabled]`) took the field
+editor from `0x2301` to `0x2001` and left both checks, and across all of Dashboard the count did not fall: 62 before, 110 with them.
+`NSAutomaticSpellCheckingDisabled`, `NSAllowContinuousSpellChecking` and `NSTextCheckingTypes = 0`
+changed nothing, and with `NSSpellCheckerAutomaticallyIdentifiesLanguages = NO` the checker still
+guessed. The 09:15 sample does not say which text view resigned. `FocusBridge.moveFocus` is SwiftUI
+moving focus, which fits a field as well as an editor, and `EditorFindBarTests`' bar fields were in
+flight.
 
 **Why editors met condition 1 at all.** Check Spelling While Typing defaults to off. But
 `PlainTextEditor` and `PreviewEditorView` read it through `@AppStorage`, and nine FileExplorer
@@ -3419,11 +3428,13 @@ who removed it is not known.
 Condition 2 comes from the same domain, and "A named NSPasteboard is machine-global, so two test
 PROCESSES share it" has the measurements: until 2026-10-15 several package suites wrote it
 directly, and in every **other** test process alive at the time each write was a change from
-outside. They all write scratch suites now. What still reaches the domain is code a test drives
-(a hosted view's `@AppStorage`, `SettingsManager`) and anything run by hand: a `defaults write
-swiftpm-testing-helper …` loop ran on 2026-10-15 from about 09:09 to past 15:48 PDT, writing
+outside. They all write scratch suites now, and since 2026-10-16 no test on `main` writes it
+through the code it drives either (the same section, "The last writes went 2026-10-16"). What can
+still reach it is a run from a worktree on an older base, and anything run by hand: a `defaults
+write swiftpm-testing-helper …` loop ran on 2026-10-15 from about 09:09 to past 15:48 PDT, writing
 `editorWrapsLines` and `editorShowsFormatBar`, for every FileExplorer process on the machine, CI
-included.
+included. That is why condition 1 is the one this fix removes: condition 2 is other processes'
+behaviour, which no test can rule out.
 
 **Measured, and not.**
 
@@ -3442,9 +3453,10 @@ included.
   committing to the window server at a load average of 20–80. A `defaults write` loop against an
   observed key costs every mounted process that much even without a deadlock.
 
-**Fix — the editor half only.** Every FileExplorer fixture that mounts `PlainTextEditor` or
-`PreviewEditorView` does so on a `ScratchDefaults` of its own, through `editorTestDefaults` in
-`Modules/FileExplorer/Tests/FileExplorer/EditorMountDefaults.swift`. That gives spelling its coded
+**Fix, first half — editors off the shared domain, 2026-10-15.** Every FileExplorer fixture that
+mounts `PlainTextEditor` or `PreviewEditorView` does so on a `ScratchDefaults` of its own, through
+`editorTestDefaults` in `Modules/FileExplorer/Tests/FileExplorer/EditorMountDefaults.swift`. That
+gives spelling its coded
 default (off), gives Wrap Lines and Readable Line Length what a clean machine has, and puts the
 editors' `@AppStorage` on a domain no other process writes. A test about a setting writes it to
 that suite, as `EditorReadableColumnTests` and `EditorHeaderDoorsTests` already did once they
@@ -3453,27 +3465,67 @@ editor whose `@AppStorage` saw a marker key set only in `swiftpm-testing-helper`
 package that was 29 mounts in 9 suites before either change, and 0 after both. Dashboard's one
 editor-mounting suite already mounted on scratch.
 
-**Not fixed — text fields, in tests and in the app.** After the fix, `--filter
-'Editor|LineEndingPaths'` still reached `NSSpellCheckerCheckString` at least 25 times. Every hit on
-the main thread was a SwiftUI field editor resigning; the background ones carry no view. Fields go
-on checking, and views across the package still observe the shared domain through `@AppStorage`
-while other processes write it, so conditions 1 and 2 can still meet. Closing that needs one of: every
-SwiftUI mount in the tests on scratch storage; nothing at all writing the shared domain (package
-tests no longer do directly, but hosted views and a hand-run `defaults write` still can); or
-automatic correction off for field editors in test processes. The app has the same exposure without anyone
-turning spelling on. Its Go to Line, rename and filter fields correct automatically, and another
-process writing `com.abhishekgirish.SyncCloud` (a `defaults write`, or an **app-target test run**,
-whose test host shares that domain with the installed app) supplies condition 2. There is no cheap
-break on this side of AppKit and SwiftUI, and each window is milliseconds wide.
+That left text fields: `--filter 'Editor|LineEndingPaths'` still reached `NSSpellCheckerCheckString`
+at least 25 times, and every main-thread hit was a field editor resigning.
+
+**Fix, second half — no test process reaches the spell checker, 2026-10-16.** Condition 1 is the
+one a test process can remove outright, because the checker has two doors and both are public. The
+four test targets that mount UI (Design, Settings, FileExplorer, Dashboard) link
+`TestProcessTextChecking`, a test-only Objective-C target in the Design package. A constructor in
+it runs when the bundle loads, before any test, and replaces `NSSpellChecker`'s
+`checkString:range:types:options:inSpellDocumentWithTag:orthography:wordCount:` (the synchronous
+check a resigning text view runs on main) and
+`requestCheckingOfString:range:types:options:inSpellDocumentWithTag:completionHandler:` (which
+queues each `NSTextCheckingOperation`) with versions that find nothing and take no lock. Those two
+were every way in: in a full Dashboard run, all 34 `NSSpellCheckerCheckString` calls came through
+them, 33 requests (one per operation) and 1 check. Text views still ask, as often as before
+(`-[NSTextView checkTextInRange:types:options:]`, FileExplorer 185 → 182, Dashboard 22 → 38); the
+answer is just empty. No test reads it. The editors and
+the three typing fixtures turn every substitution off, and the spelling tests read the setting, not
+underlines. `TestProcessTextCheckingTests`, in each of the four targets, asks the checker about a
+misspelt sentence both ways and fails if it finds anything. With the replacement skipped, it failed
+both.
+
+Measured with breakpoints on `scoreParagraph` and `NSSpellCheckerCheckString`, each package's whole
+suite launched under lldb from its first test (`swiftpm-testing-helper` run directly, with
+`swift test`'s two `DYLD_` paths):
+
+| Test target | Tests | `scoreParagraph` before → after | `NSSpellCheckerCheckString` before → after |
+|---|---|---|---|
+| FileExplorer | 3424 | 718 → 0 | 181 → 0 |
+| Dashboard | 765 | 62 → 0 | 22 → 0 |
+| Design | 573 | 0 → 0 | 0 → 0 |
+| Settings | 372 | 0 → 0 | 0 → 0 |
+| Sync, Events | 3592, 79 | 0, not linked | 0, not linked |
+| app target (`SyncCloudTests`) | 1560 | 0, not linked | 0, not linked |
+
+Sync links no UI framework and Events mounts nothing, so neither links the target. The app target
+is not linked either, and its 0 is not vacuous: the attached run saw 18 first-responder changes but
+0 `insertText` and 0 `checkTextInRange`. Its tests focus fields and type into none. **If one ever
+does, link it:** a `- package: Design` / `product: TestProcessTextChecking` dependency on
+`SyncCloudTests` in `project.yml` (and `Design` under `packages:`), and a copy of the guard test.
+That host is the likeliest place for condition 2, because it shares
+`com.abhishekgirish.SyncCloud` with the installed app, which writes that domain as it is used.
+
+**Still exposed: the shipped app.** Its Go to Line, rename and filter fields check like any
+field editor; turning correction off would not change that, since a field editor with correction
+off still checks (above); and the replacement here is not an option for an app whose editor offers
+Check Spelling. Condition 2
+needs another process writing `com.abhishekgirish.SyncCloud`: a `defaults write`, or an app-target
+test run. Each window is milliseconds wide and it has not been seen in the app. The tell below
+applies there unchanged.
 
 **Tell.** 0% CPU and many tests in flight. `sample <pid>` shows `_pthread_mutex_firstfit_lock_wait`
 under `NSSpellCheckerCheckString` on the main thread, and `UpdateGroup.enqueueAction` under
-`UserDefaultObserver` on an `NSTextCheckingOperation` thread. Then look for the outside writer,
-the half you can see: another test process alive at the time, or `pgrep -fl 'defaults write'`.
-`defaults read swiftpm-testing-helper` shows what the shared domain is feeding mounts that still
-read it.
+`UserDefaultObserver` on an `NSTextCheckingOperation` thread. **In a package test process that stack
+means the target does not link `TestProcessTextChecking`**, and its `TestProcessTextCheckingTests`
+will be red or missing. In the app, or to find who supplied condition 2, look for the outside
+writer, the half you can see: another test process alive at the time, or
+`pgrep -fl 'defaults write'`. `defaults read swiftpm-testing-helper` shows what the shared domain
+is feeding mounts that still read it.
 
-**See.** `editorTestDefaults` in `Modules/FileExplorer/Tests/FileExplorer/EditorMountDefaults.swift`;
+**See.** `Modules/Design/Sources/TestProcessTextChecking`, whose header says what it replaces and
+why; `editorTestDefaults` in `Modules/FileExplorer/Tests/FileExplorer/EditorMountDefaults.swift`;
 `PlainTextEditor.makeNSView` and `PreviewEditorView.update` for where the setting reaches the text
 view; "Process-wide state, and suites running in parallel" for the in-process half of the same
 sharing; "A named NSPasteboard is machine-global, so two test PROCESSES share it" for the same

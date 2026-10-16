@@ -40,6 +40,7 @@ let package = Package(
                 "Dashboard", "Sync", "Events", "Design", "FileExplorer",
                 .product(name: "FileExplorerTestSupport", package: "FileExplorer"),
                 .product(name: "EventsTestSupport", package: "Events"),
+                .product(name: "TestProcessTextChecking", package: "Design"),
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
             ],
             path: "Tests/Dashboard")

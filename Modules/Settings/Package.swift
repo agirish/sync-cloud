@@ -34,6 +34,7 @@ let package = Package(
             name: "SettingsTests",
             dependencies: [
                 "Settings", "Design", "Sync",
+                .product(name: "TestProcessTextChecking", package: "Design"),
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
             ],
             path: "Tests/Settings")

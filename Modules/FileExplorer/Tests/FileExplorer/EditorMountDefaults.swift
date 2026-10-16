@@ -13,8 +13,9 @@ extension View {
     /// change and a SwiftUI focus move together can deadlock a run: the spell checker's thread
     /// delivers the change to SwiftUI while holding its own lock, and the main thread, inside
     /// SwiftUI's update, waits on that lock. `docs/flaky-tests.md` ▸ *A spell check and a defaults
-    /// change from another process deadlock a SwiftUI focus move* has the stacks, and the half
-    /// this does not close: text fields check on their own.
+    /// change from another process deadlock a SwiftUI focus move* has the stacks. The spell check
+    /// itself is closed off for the whole test process by `TestProcessTextChecking`; this is still
+    /// what keeps a leaked value or another run's write out of the editors' settings.
     ///
     /// A suite does not search the app's domain — measured: a key written to the process's own
     /// domain from outside reads `nil` through `UserDefaults(suiteName:)` — so a value left in

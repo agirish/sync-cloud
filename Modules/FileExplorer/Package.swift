@@ -74,6 +74,7 @@ let package = Package(
             dependencies: [
                 "FileExplorer", "FileExplorerTestSupport", "Sync", "Design",
                 .product(name: "EventsTestSupport", package: "Events"),
+                .product(name: "TestProcessTextChecking", package: "Design"),
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
             ],
             path: "Tests/FileExplorer")

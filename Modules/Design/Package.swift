@@ -6,6 +6,9 @@ let package = Package(
     platforms: [.macOS("26.0")],
     products: [
         .library(name: "Design", targets: ["Design"]),
+        // Test-only: every UI package's test target links it, and the app never does. Linking it
+        // quiets the spell checker for the whole test process — see its header.
+        .library(name: "TestProcessTextChecking", targets: ["TestProcessTextChecking"]),
     ],
     dependencies: [
         // Test-only: visual snapshot regression net. The library product below does NOT
@@ -25,10 +28,11 @@ let package = Package(
     ],
     targets: [
         .target(name: "Design"),
+        .target(name: "TestProcessTextChecking", linkerSettings: [.linkedFramework("AppKit")]),
         .testTarget(
             name: "DesignTests",
             dependencies: [
-                "Design",
+                "Design", "TestProcessTextChecking",
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
             ])
     ]
