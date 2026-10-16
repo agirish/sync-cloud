@@ -1773,7 +1773,9 @@ log(level:message:)` and before the flush task is returned, so the file preserve
 1000-line trim lives in `flushPendingEntries()` and touches `entries` alone, so nothing an
 assertion's own window can outlive rolls it away at the sizes a test run reaches. Under a test runner
 it is a per-process temp file (`sync-cloud-tests-<pid>.log`, see `defaultLogFileURL()`), so it is
-scoped to the run and does not touch `~/sync-cloud.log`.
+scoped to the run and does not touch `~/sync-cloud.log`. A later test process sweeps it once its pid
+is dead and it has gone an hour unwritten (`PerProcessTestFile`), so read a red run's log within
+the hour.
 
 **But you must DRAIN the writer before reading it, and this section used to say the opposite.**
 It said the append happens "synchronously ... so the file ... needs no flush marker to become

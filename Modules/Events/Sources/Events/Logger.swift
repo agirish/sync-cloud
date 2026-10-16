@@ -419,15 +419,15 @@ public class Logger: ObservableObject {
     /// viewer that displays it:
     /// - `SYNCCLOUD_LOG_FILE` in the environment overrides the path outright.
     /// - Under a test runner (every package suite logs through `Logger.shared`, so `swift test`
-    ///   would otherwise fill the real log with test entries), a per-process temp file is used.
+    ///   would otherwise fill the real log with test entries), a per-process temp file is used —
+    ///   and dead runs' copies are swept first, see `PerProcessTestFile`.
     nonisolated static func defaultLogFileURL() -> URL {
         let environment = ProcessInfo.processInfo.environment
         if let override = environment["SYNCCLOUD_LOG_FILE"], !override.isEmpty {
             return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
         }
         if isRunningTests {
-            return FileManager.default.temporaryDirectory
-                .appendingPathComponent("sync-cloud-tests-\(ProcessInfo.processInfo.processIdentifier).log")
+            return PerProcessTestFile.url(stem: PerProcessTestFile.logStem, extension: "log")
         }
         let homeDir = (NSString(string: "~")).expandingTildeInPath
         return URL(fileURLWithPath: homeDir).appendingPathComponent("sync-cloud.log")

@@ -69,9 +69,10 @@ import Foundation
     @Test func testLoggerWritesToInjectedURL() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("LoggerInjectionTest-\(UUID().uuidString).log")
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let logger = Logger(logFileURL: url)
+        defer { logger.flushToDisk() }
         await logger.info("Injected destination message").value
         logger.logWriter.flush()
 
@@ -86,9 +87,10 @@ import Foundation
     @Test func testBurstLoggingPreservesCallOrderInMemoryAndOnDisk() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("LoggerOrderTest-\(UUID().uuidString).log")
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let logger = Logger(logFileURL: url)
+        defer { logger.flushToDisk() }
         let expected = (0..<200).map { "ORDER \($0)" }
         var lastTask: Task<Void, Never>?
         for message in expected {
@@ -114,9 +116,10 @@ import Foundation
     @Test func testClearLogsDropsPendingEntriesFromPriorBurst() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("LoggerClearPendingTest-\(UUID().uuidString).log")
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let logger = Logger(logFileURL: url)
+        defer { logger.flushToDisk() }
         // Enqueue a burst but do NOT await: the entries are pending, their flush tasks have not
         // run yet when clearLogs() executes (no suspension point between the loop and the clear).
         for i in 0..<50 {
@@ -150,9 +153,10 @@ import Foundation
     @Test func testWarningAndErrorAppendCallSiteLocation() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("LoggerLocationTest-\(UUID().uuidString).log")
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let logger = Logger(logFileURL: url)
+        defer { logger.flushToDisk() }
         await logger.warning("careful").value
         await logger.error("broken").value
         await logger.debug("just details").value
@@ -187,9 +191,10 @@ import Foundation
     @Test func testFlushToDiskMakesJustLoggedLineVisibleOnDisk() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("LoggerFlushToDiskTest-\(UUID().uuidString).log")
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let logger = Logger(logFileURL: url)
+        defer { logger.flushToDisk() }
         // Do NOT await the returned task: flushToDisk() must drain the writer's background queue
         // on its own, exactly as it does at termination when no await is possible.
         logger.warning("User chose Quit Anyway with 3 active file operation(s)")

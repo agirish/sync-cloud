@@ -19,10 +19,11 @@ import Foundation
 
     @Test func testAppendPersistsAndReloadsFromDisk() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let runId = UUID()
         let store = SyncHistoryStore(fileURL: url)
+        defer { store.flushToDisk() }
         store.append(record(runId: runId, source: "/src/one.txt"))
         store.appendBatch([
             record(runId: runId, action: .move, source: "/src/two.txt"),
@@ -33,6 +34,7 @@ import Foundation
 
         // A fresh store over the same file reloads every record, in order.
         let reloaded = SyncHistoryStore(fileURL: url)
+        defer { reloaded.flushToDisk() }
         #expect(reloaded.records.count == 3)
         #expect(reloaded.records.map(\.sourcePath) == ["/src/one.txt", "/src/two.txt", "/src/three.txt"])
         #expect(reloaded.records.map(\.action) == [.copy, .move, .delete])
@@ -41,11 +43,12 @@ import Foundation
 
     @Test func testRecordsForRunFiltersByRunId() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let runA = UUID()
         let runB = UUID()
         let store = SyncHistoryStore(fileURL: url)
+        defer { store.flushToDisk() }
         store.appendBatch([record(runId: runA, source: "/a1"), record(runId: runA, source: "/a2")])
         store.appendBatch([record(runId: runB, source: "/b1")])
 
@@ -56,9 +59,10 @@ import Foundation
 
     @Test func testLastRunIdTracksMostRecentRecord() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let store = SyncHistoryStore(fileURL: url)
+        defer { store.flushToDisk() }
         #expect(store.lastRunId == nil)
 
         let runA = UUID()
@@ -72,9 +76,10 @@ import Foundation
 
     @Test func testInMemoryCapTrimsOldestRecords() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let store = SyncHistoryStore(fileURL: url)
+        defer { store.flushToDisk() }
         // One batch past the 5000 cap: the single oldest record must be dropped, newest kept.
         let batch = (0..<5001).map { i in
             record(runId: UUID(), source: "/src/item-\(i).txt")
@@ -89,9 +94,10 @@ import Foundation
 
     @Test func testClearEmptiesMemoryAndDisk() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let store = SyncHistoryStore(fileURL: url)
+        defer { store.flushToDisk() }
         store.appendBatch([record(runId: UUID()), record(runId: UUID())])
         store.flushToDisk()
         #expect(!store.records.isEmpty)
@@ -102,6 +108,7 @@ import Foundation
 
         // Disk is empty too: a fresh store reloads nothing.
         let reloaded = SyncHistoryStore(fileURL: url)
+        defer { reloaded.flushToDisk() }
         #expect(reloaded.records.isEmpty)
     }
 
@@ -123,7 +130,7 @@ import Foundation
 
     @Test func testMalformedLinesAreSkippedOnLoad() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         // One valid JSON-line record, one garbage line, one blank line.
         let valid = SyncHistoryRecord(runId: UUID(), action: .copy, sourcePath: "/src/ok.txt")
@@ -132,6 +139,7 @@ import Foundation
         try contents.write(to: url, atomically: true, encoding: .utf8)
 
         let store = SyncHistoryStore(fileURL: url)
+        defer { store.flushToDisk() }
         #expect(store.records.count == 1)
         #expect(store.records.first?.sourcePath == "/src/ok.txt")
     }
@@ -160,11 +168,12 @@ import Foundation
     /// real mutation, so a missing line has to be announced somewhere.
     @Test func testADroppedRecordIsReportedOncePerBatchWithItsIdentity() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let reports = ReportSpy()
         let runId = UUID()
         let store = SyncHistoryStore(fileURL: url, reportDroppedRecords: { reports.messages.append($0) })
+        defer { store.flushToDisk() }
 
         store.appendBatch([
             record(runId: runId, source: "/src/good.txt"),
@@ -184,6 +193,7 @@ import Foundation
         // caller's operation was never failed.
         store.flushToDisk()
         let reloaded = SyncHistoryStore(fileURL: url)
+        defer { reloaded.flushToDisk() }
         #expect(reloaded.records.map(\.sourcePath) == ["/src/good.txt"])
     }
 
@@ -198,30 +208,33 @@ import Foundation
     /// operation that produced it. The rule is therefore stated on `append(_:)` instead.
     @Test func testTheDropReportIsPerCallSoPerRecordCallersGetAReportPerRecord() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let runId = UUID()
         let perRecordReports = ReportSpy()
         let perRecord = SyncHistoryStore(fileURL: url, reportDroppedRecords: { perRecordReports.messages.append($0) })
+        defer { perRecord.flushToDisk() }
         for i in 0..<3 {
             perRecord.append(unencodableRecord(runId: runId, source: "/src/lost\(i).txt"))
         }
         #expect(perRecordReports.messages.count == 3)
 
         let batchUrl = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: batchUrl) }
+        defer { removeLogFiles(at: batchUrl) }
         let batchReports = ReportSpy()
         let batched = SyncHistoryStore(fileURL: batchUrl, reportDroppedRecords: { batchReports.messages.append($0) })
+        defer { batched.flushToDisk() }
         batched.appendBatch((0..<3).map { unencodableRecord(runId: runId, source: "/src/lost\($0).txt") })
         #expect(batchReports.messages.count == 1)
     }
 
     @Test func testNothingIsReportedWhenEveryRecordEncodes() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let reports = ReportSpy()
         let store = SyncHistoryStore(fileURL: url, reportDroppedRecords: { reports.messages.append($0) })
+        defer { store.flushToDisk() }
         store.appendBatch([record(runId: UUID()), record(runId: UUID())])
 
         #expect(reports.messages.isEmpty)

@@ -64,10 +64,11 @@ import Foundation
     @Test func testAHealthyWriterNeverReportsAFailure() throws {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("LogWriteOK-\(UUID().uuidString).log")
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let collector = FailureCollector()
         let writer = LogFileWriter(url: url, onWriteFailure: { collector.record($0) })
+        defer { writer.flush() }
         writer.append("a line\n")
         writer.flush()
 
@@ -95,6 +96,7 @@ import Foundation
 
         let collector = FailureCollector()
         let writer = LogFileWriter(url: url, maxFileSize: 1024, onWriteFailure: { collector.record($0) })
+        defer { writer.flush() }
         writer.flush()
 
         // The file is untouched (still oversized) — proof the trim really failed — and the failure
@@ -124,6 +126,7 @@ import Foundation
         let writer = LogFileWriter(url: url,
                                    onWriteFailure: { failures.record($0) },
                                    onWriteRecovered: { recoveries.record("recovered") })
+        defer { writer.flush() }
 
         // Broken: no directory, so neither the handle nor the fallback can write.
         writer.append("lost\n")
@@ -164,6 +167,7 @@ import Foundation
         let writer = LogFileWriter(url: url,
                                    onWriteFailure: { failures.record($0) },
                                    onWriteRecovered: { recoveries.record("recovered") })
+        defer { writer.flush() }
         writer.append("healthy\n")
         writer.flush()
 
@@ -250,6 +254,7 @@ import Foundation
         let (directory, url) = makeSwitchableLogURL()
         defer { try? FileManager.default.removeItem(at: directory) }
         let logger = Logger(logFileURL: url)
+        defer { logger.flushToDisk() }
 
         func notices() -> [LogEntry] {
             logger.entries.filter { $0.level == .warning && $0.message.contains("could not be written") }

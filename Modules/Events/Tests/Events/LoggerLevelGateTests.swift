@@ -16,7 +16,8 @@ import Foundation
     @MainActor
     @Test func testDefaultGateLogsEverything() async {
         let (logger, url) = makeIsolatedLogger()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
+        defer { logger.flushToDisk() }
 
         await logger.debug("d").value
         await logger.info("i").value
@@ -26,7 +27,8 @@ import Foundation
     @MainActor
     @Test func testGateDropsBelowThresholdFromMemoryAndDisk() async throws {
         let (logger, url) = makeIsolatedLogger()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
+        defer { logger.flushToDisk() }
 
         logger.minimumLevel = .warning
         await logger.debug("dropped-debug").value
@@ -47,7 +49,8 @@ import Foundation
     @MainActor
     @Test func testLoweringTheGateResumesLogging() async {
         let (logger, url) = makeIsolatedLogger()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
+        defer { logger.flushToDisk() }
 
         logger.minimumLevel = .error
         await logger.info("dropped").value

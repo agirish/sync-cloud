@@ -14,17 +14,12 @@ import Foundation
             .appendingPathComponent("LogFileWriterTest-\(UUID().uuidString).log")
     }
 
-    /// Removes the log and its trim-lock sidecar.
-    private func cleanup(_ url: URL) {
-        try? FileManager.default.removeItem(at: url)
-        try? FileManager.default.removeItem(atPath: url.path + ".lock")
-    }
-
     @Test func testLogFileRecreatedAfterExternalDeletion() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let writer = LogFileWriter(url: url)
+        defer { writer.flush() }
 
         writer.append("first line\n")
         writer.flush()
@@ -48,9 +43,10 @@ import Foundation
 
     @Test func testAppendsLandInCurrentFileAfterExternalAtomicReplacement() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let writer = LogFileWriter(url: url)
+        defer { writer.flush() }
         writer.append("first line\n")
         writer.flush()
 
@@ -72,7 +68,7 @@ import Foundation
         let url = makeTempURL()
         defer {
             try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
-            try? FileManager.default.removeItem(at: url)
+            removeLogFiles(at: url)
         }
 
         try "history line\n".write(to: url, atomically: true, encoding: .utf8)
@@ -81,6 +77,7 @@ import Foundation
         try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
 
         let writer = LogFileWriter(url: url)
+        defer { writer.flush() }
         writer.append("new line\n")
         writer.flush()
 
@@ -95,12 +92,13 @@ import Foundation
     /// starts at a line boundary, and the writer keeps appending normally afterwards.
     @Test func testInitTailTrimsOversizedLogKeepingNewestLines() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let history = (0..<500).map { "line \($0)" }.joined(separator: "\n") + "\n"
         try history.write(to: url, atomically: true, encoding: .utf8)
 
         let writer = LogFileWriter(url: url, maxFileSize: 1024)
+        defer { writer.flush() }
         writer.flush()
 
         let contents = try String(contentsOf: url, encoding: .utf8)
@@ -117,12 +115,13 @@ import Foundation
     /// A file under the cap is left byte-for-byte untouched at init.
     @Test func testInitLeavesLogUnderCapUntouched() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let history = "keep me\nand me\n"
         try history.write(to: url, atomically: true, encoding: .utf8)
 
         let writer = LogFileWriter(url: url, maxFileSize: 1024)
+        defer { writer.flush() }
         writer.flush()
 
         #expect(try String(contentsOf: url, encoding: .utf8) == history)
@@ -133,10 +132,11 @@ import Foundation
     /// instead of growing without limit until restart.
     @Test func testMidSessionAppendsKeepFileBounded() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let maxFileSize = 1024
         let writer = LogFileWriter(url: url, maxFileSize: maxFileSize)
+        defer { writer.flush() }
 
         // Write far more than the cap in one session (~20 KB against a 1 KB cap).
         var lastLine = ""
@@ -163,13 +163,14 @@ import Foundation
     /// trim proceeds normally through the guarded path.
     @Test func testStaleTrimLockFileDoesNotBlockTrimming() throws {
         let url = makeTempURL()
-        defer { cleanup(url) }
+        defer { removeLogFiles(at: url) }
 
         try Data().write(to: URL(fileURLWithPath: url.path + ".lock"))  // stale sidecar
         let history = (0..<500).map { "line \($0)" }.joined(separator: "\n") + "\n"
         try history.write(to: url, atomically: true, encoding: .utf8)
 
         let writer = LogFileWriter(url: url, maxFileSize: 1024)
+        defer { writer.flush() }
         writer.flush()
 
         let contents = try String(contentsOf: url, encoding: .utf8)
@@ -182,11 +183,13 @@ import Foundation
     /// both finish their guarded trims without deadlock and leave a bounded, line-aligned file.
     @Test func testConcurrentWritersTrimWithoutDeadlock() throws {
         let url = makeTempURL()
-        defer { cleanup(url) }
+        defer { removeLogFiles(at: url) }
 
         let maxFileSize = 1024
         let a = LogFileWriter(url: url, maxFileSize: maxFileSize)
+        defer { a.flush() }
         let b = LogFileWriter(url: url, maxFileSize: maxFileSize)
+        defer { b.flush() }
         for i in 0..<300 {
             a.append("writer-a line \(i)\n")
             b.append("writer-b line \(i)\n")
@@ -203,9 +206,10 @@ import Foundation
 
     @Test func testClearTruncatesFile() throws {
         let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { removeLogFiles(at: url) }
 
         let writer = LogFileWriter(url: url)
+        defer { writer.flush() }
 
         writer.append("some log content\n")
         writer.flush()
@@ -232,9 +236,10 @@ import Foundation
     /// case-by-case. `SyncHistoryStore.clear()` inherits the same behaviour through the same writer.
     @Test func testClearRecreatesADeletedLogAsAnEmptyFile() throws {
         let url = makeTempURL()
-        defer { cleanup(url) }
+        defer { removeLogFiles(at: url) }
 
         let writer = LogFileWriter(url: url)
+        defer { writer.flush() }
         writer.append("first line\n")
         writer.flush()
 
@@ -261,9 +266,10 @@ import Foundation
     /// readout kept reporting a full file the user had just cleared.
     @Test func testClearEmptiesTheCurrentFileAfterExternalAtomicReplacement() throws {
         let url = makeTempURL()
-        defer { cleanup(url) }
+        defer { removeLogFiles(at: url) }
 
         let writer = LogFileWriter(url: url)
+        defer { writer.flush() }
         writer.append("first line\n")
         writer.flush()
 

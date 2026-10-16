@@ -68,7 +68,8 @@ public final class SyncHistoryStore: ObservableObject {
     /// - `SYNCCLOUD_HISTORY_FILE` overrides the path outright.
     /// - Under any test runner a per-process temp file is used (the Sync/Dashboard suites build a
     ///   `FileSyncManager`, whose default `syncHistoryStore` is `.shared` — without this they'd
-    ///   record every fixture operation into `~/sync-cloud-history.jsonl`).
+    ///   record every fixture operation into `~/sync-cloud-history.jsonl`). Dead runs' copies are
+    ///   swept first, see `PerProcessTestFile`.
     /// - Otherwise `~/sync-cloud-history.jsonl`.
     public nonisolated static func defaultFileURL() -> URL {
         let environment = ProcessInfo.processInfo.environment
@@ -83,8 +84,7 @@ public final class SyncHistoryStore: ObservableObject {
             || environment["XCTestSessionIdentifier"] != nil
             || environment["XCTestBundlePath"] != nil
         if isRunningTests {
-            return FileManager.default.temporaryDirectory
-                .appendingPathComponent("sync-cloud-history-tests-\(ProcessInfo.processInfo.processIdentifier).jsonl")
+            return PerProcessTestFile.url(stem: PerProcessTestFile.historyStem, extension: "jsonl")
         }
         let homeDir = (NSString(string: "~")).expandingTildeInPath
         return URL(fileURLWithPath: homeDir).appendingPathComponent("sync-cloud-history.jsonl")
