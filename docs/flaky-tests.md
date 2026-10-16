@@ -3208,16 +3208,24 @@ time one `trashItem` from a plain Swift script — tens of milliseconds healthy,
 an `/Applications` swap fell in the same window, but nothing else lines up: `sandboxd` went quiet
 on the prompt's request and resumed 19 ms after the dialog's click.
 
-**Fix — none on `main` yet.** Answer the prompt and the machine recovers at once (rerunning while
-it is up only adds to the backlog). The test-side fix is to stop moving fixtures into the user's
-real Trash: a `FileManaging` that forwards to `FileManager.default` and implements `trashItem` as a
-rename into a per-test directory keeps the real-disk drift gate this test exists for, and takes
-`sandboxd`, `tccd` and `~/.Trash` out of its verdict. It would also stop the pollution: every pass
-leaves another `Docs <time>` in his Trash, which held 199 of them on 2026-10-03. Fixtures named
-like the Restructure suites' — `Payment`, `Statements`, `State Tax`, 1,414 of those — land there
-too, so those suites are exposed the same way. The source of the prompt is the other half: an ad-hoc
-build that reads `~/Documents` while nobody is at the machine raises a dialog no one will answer
-for hours.
+**Fix — for this test, 2026-10-16. Anything else that trashes for real still has it.** Answer the
+prompt and the machine recovers at once (rerunning while it is up only adds to the backlog).
+`confirmingTrashesTheRightCopyAndReturnsToDuplicates()` no longer uses the real Trash: its harness
+gets a `ScratchTrash`, a `FileManager` whose `trashItem` moves the item into a folder the test owns
+and reports where it went, as the real Trash does. Every other call is the real disk, so the drift
+gate this test exists for still stats and re-walks real folders, while `sandboxd`, `tccd` and
+`~/.Trash` are out of its verdict. The test also checks that the copy arrived in that folder, so a
+stand-in that reached for the real Trash again fails by name. It ends the pollution from this test,
+which had left 263 `Docs <time>` in his Trash by 2026-10-16.
+
+The rest of that Trash — about 7,800 items — says who else moves fixtures into it, going by the
+fixture names. About 540 each of `Emptied`, `Payment`, `Statements`, `Claims`, `State Tax`,
+`Reports`, `sub` and `deep` match the Restructure apply suites in `Modules/Sync`
+(`RestructureApplyTests`, `RestructureApplyGuardTests`); about 1,600 `unique<N>.txt` and 540
+`bystander.txt` match `MergeUndoGroupingAndGateTests`; about 540 each of `a.txt` and `b.txt` are
+too common a name to pin to one suite. Each of those waits on the same privacy check, and the same
+stand-in would take it out. The source of the prompt is the other half: an ad-hoc build that reads
+`~/Documents` while nobody is at the machine raises a dialog no one will answer for hours.
 
 **See.** `trashRightCopy(_:)` in `MacApp/DuplicateReviewCoordinator.swift`; `deleteItems` in
 `Modules/Sync/Sources/Sync/FileOperations.swift`; CLAUDE.md, **Trying an app change**, on why every

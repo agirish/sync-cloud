@@ -140,6 +140,35 @@ private final class TrashlessVolume: FileManager, @unchecked Sendable {
     }
 }
 
+/// A real `FileManager` whose Trash is a folder the test owns, so a test that trashes for real
+/// never reaches the user's `~/.Trash`.
+///
+/// Everything but `trashItem` is the real disk, which keeps the drift gate's stats and re-walks
+/// honest. The real Trash is the one thing a test cannot control: every move into it waits on a
+/// privacy check that the system can hold for as long as an unanswered dialog is up — see "A
+/// privacy prompt nobody answered wedges `sandboxd`, so a move into the real Trash outlasts the
+/// wait" in docs/flaky-tests.md — and every pass used to leave another `Docs <time>` in the
+/// Trash of whoever ran it.
+///
+/// Reports where the item went, as the real Trash does: `deleteItems` counts an item with no
+/// resulting URL as permanently deleted, so leaving it out would quietly test the other branch.
+private final class ScratchTrash: FileManager, @unchecked Sendable {
+    let folder: URL
+
+    init(folder: URL) {
+        self.folder = folder
+        super.init()
+    }
+
+    override func trashItem(at url: URL,
+                            resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+        try createDirectory(at: folder, withIntermediateDirectories: true)
+        let destination = folder.appendingPathComponent(url.lastPathComponent)
+        try moveItem(at: url, to: destination)
+        resultingItemURL?.pointee = destination as NSURL
+    }
+}
+
 /// A reference box for what the permanent-delete confirmer was asked about; the closure escapes.
 private final class PermanentDeleteBox: @unchecked Sendable {
     var paths: [String] = []
@@ -688,10 +717,19 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// drops just that copy, and the user lands back on the Duplicates lens. Needs a real fixture because
     /// the keeper-drift gate stats the keeper (existence AND, for files, byte size vs the scan
     /// snapshot) before anything is trashed.
+    ///
+    /// The trash itself goes to a `ScratchTrash` folder beside the fixture, not to `~/.Trash`:
+    /// the real Trash put this test's verdict in the hands of the system's privacy checks, and a
+    /// copy of `Docs` in the Trash of whoever ran it.
     @Test func confirmingTrashesTheRightCopyAndReturnsToDuplicates() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-trash-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: trash)
+        }
         let keep = root.appendingPathComponent("Docs")
         let copy = root.appendingPathComponent("Backup/Docs")
         try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
@@ -699,7 +737,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
         try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
 
-        let harness = Harness()
+        let harness = Harness(fileManager: ScratchTrash(folder: trash))
         harness.lensProviderRoot = root.path
         // A folder review carries the scan's per-entry baselines; the directory half of the gate
         // re-walks against them, and nil would (correctly) refuse the trash.
@@ -727,6 +765,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
             !FileManager.default.fileExists(atPath: copy.path)
         }
 
+        // It went to the stand-in, contents and all — not to the real Trash.
+        #expect(FileManager.default.fileExists(atPath: trash.appendingPathComponent("Docs/a.txt").path),
+                "the right copy left the disk but never reached the test's own Trash folder")
         // The keeper is untouched — the whole point of the drift gate above it.
         #expect(FileManager.default.fileExists(atPath: keep.path))
         // Back to the Duplicates list, with that copy dropped from its group (the group had two
@@ -737,6 +778,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.syncManager.duplicateGroups.isEmpty)
         // And the pre-review Compare setup came back (the pinned right pane released).
         #expect(harness.rightId == "dropbox")
+        // Counted as trashed, not permanently deleted, so the removal offers ⌘Z like the real
+        // Trash's would.
+        #expect(harness.syncManager.banner?.isUndoable == true)
     }
 
     /// **The permanent-delete branch, driven for real** — which only became possible when
