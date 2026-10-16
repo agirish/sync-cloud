@@ -56,9 +56,15 @@ import EventsTestSupport
 
     // MARK: The two switches on the menu
 
-    private func coordinator() -> PlainTextEditor.Coordinator {
-        PlainTextEditor.Coordinator(source: EditorSourceStorage(), undoManager: UndoManager(),
-                                    documentID: nil, onSelectionChange: { _ in })
+    /// **On a scratch suite, never the standard domain.** Under `swift test` that is
+    /// `swiftpm-testing-helper`'s, shared by every test process on the machine — and this Mac is
+    /// also the CI runner. Two processes running this suite at once failed 17 runs in 40 each, on a
+    /// write the other made between a test's own write and its read.
+    private func coordinator(defaults: UserDefaults = ScratchDefaults("EditorTextSettingsTests")) -> PlainTextEditor.Coordinator {
+        let subject = PlainTextEditor.Coordinator(source: EditorSourceStorage(), undoManager: UndoManager(),
+                                                  documentID: nil, onSelectionChange: { _ in })
+        subject.defaults = defaults
+        return subject
     }
 
     /// **Offered on a read-only document too, unlike the markup verbs.** Neither switch changes
@@ -77,18 +83,11 @@ import EventsTestSupport
     /// The tick has to describe the stored setting rather than a fixed default, or the menu says
     /// "off" over a view that is wrapping.
     @Test func theTicksFollowTheStoredSetting() {
-        let defaults = UserDefaults.standard
-        let wraps = defaults.object(forKey: EditorTextSettings.wrapsKey)
-        let checks = defaults.object(forKey: EditorTextSettings.checksSpellingKey)
-        defer {
-            defaults.set(wraps, forKey: EditorTextSettings.wrapsKey)
-            defaults.set(checks, forKey: EditorTextSettings.checksSpellingKey)
-        }
-
+        let defaults = ScratchDefaults("EditorTextSettingsTests.ticks")
         defaults.set(false, forKey: EditorTextSettings.wrapsKey)
         defaults.set(true, forKey: EditorTextSettings.checksSpellingKey)
         let menu = NSMenu()
-        coordinator().insertTextSettings(into: menu, at: 0)
+        coordinator(defaults: defaults).insertTextSettings(into: menu, at: 0)
 
         #expect(menu.items.first { $0.title == "Wrap Lines" }?.state == .off)
         #expect(menu.items.first { $0.title == "Check Spelling While Typing" }?.state == .on)
@@ -100,14 +99,12 @@ import EventsTestSupport
     /// Markdown file — and nowhere else, ticked by the stored setting. Hiding the bar from its own
     /// menu takes that menu away too, so this is the way back on screen.
     @Test func theTextsMenuOffersFormatBarWhereTheBarCanBeDrawn() {
-        let defaults = UserDefaults.standard
-        let stored = defaults.object(forKey: EditorTextSettings.showsFormatBarKey)
-        defer { defaults.set(stored, forKey: EditorTextSettings.showsFormatBarKey) }
+        let defaults = ScratchDefaults("EditorTextSettingsTests.offered")
         defaults.set(false, forKey: EditorTextSettings.showsFormatBarKey)
 
         func titles(offersMarkup: Bool, editsMarkdown: Bool) -> [NSMenuItem] {
             let menu = NSMenu()
-            let subject = coordinator()
+            let subject = coordinator(defaults: defaults)
             subject.offersMarkup = offersMarkup
             subject.editsMarkdown = editsMarkdown
             subject.insertTextSettings(into: menu, at: 0)
@@ -129,12 +126,10 @@ import EventsTestSupport
 
     /// **The item flips View ▸ Format Bar's own setting, and says so.**
     @Test func theTextsFormatBarItemFlipsTheSettingAndSaysSo() async {
-        let defaults = UserDefaults.standard
-        let stored = defaults.object(forKey: EditorTextSettings.showsFormatBarKey)
-        defer { defaults.set(stored, forKey: EditorTextSettings.showsFormatBarKey) }
+        let defaults = ScratchDefaults("EditorTextSettingsTests.flips")
         defaults.set(false, forKey: EditorTextSettings.showsFormatBarKey)
         let log = LogCapture()
-        let subject = coordinator()
+        let subject = coordinator(defaults: defaults)
         subject.toggleFormatBar(NSMenuItem())
         #expect(defaults.bool(forKey: EditorTextSettings.showsFormatBarKey), "Format Bar left the bar hidden")
         #expect(await log.holds(containing: "[edit] Format bar shown from the text's right-click menu"))

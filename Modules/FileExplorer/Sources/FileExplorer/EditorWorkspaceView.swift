@@ -1440,6 +1440,31 @@ public struct EditorWorkspaceView: View {
             }
     }
 
+    /// This view with every setting it reads and writes taken from `store` — for tests only; the app
+    /// never calls it.
+    ///
+    /// **Not `.defaultAppStorage`, because a test reads ``headerContent`` off a view in no
+    /// hierarchy**, where `@AppStorage` has no environment and falls back to the standard domain.
+    /// Under `swift test` that domain is `swiftpm-testing-helper`'s, shared by every test process
+    /// on the machine. A store given here is read whether the view is mounted or not.
+    func readingSettings(from store: UserDefaults) -> Self {
+        var view = self
+        view._glassLevelRaw = AppStorage(wrappedValue: GlassLevel.frosted.rawValue, LiquidGlass.levelKey, store: store)
+        view._glassHueRaw = AppStorage(wrappedValue: LiquidGlassHue.blue.rawValue, LiquidGlass.hueKey, store: store)
+        view._surfaceStyleRaw = AppStorage(wrappedValue: SurfaceStyle.unified.rawValue, LiquidGlass.surfaceStyleKey,
+                                           store: store)
+        view._surfaceTint = AppStorage(wrappedValue: 0, LiquidGlass.tintKey, store: store)
+        view._showsFormatBarPreference = AppStorage(wrappedValue: EditorTextSettings.showsFormatBarDefault,
+                                                    EditorTextSettings.showsFormatBarKey, store: store)
+        view._formatBarShowsLabels = AppStorage(wrappedValue: EditorTextSettings.formatBarShowsLabelsDefault,
+                                                EditorTextSettings.formatBarShowsLabelsKey, store: store)
+        view._editsInPreviewPreference = AppStorage(wrappedValue: EditorTextSettings.editsInPreviewDefault,
+                                                    EditorTextSettings.editsInPreviewKey, store: store)
+        view._editsInPreviewIntroSeen = AppStorage(wrappedValue: false, EditorTextSettings.editsInPreviewIntroSeenKey,
+                                                   store: store)
+        return view
+    }
+
     /// Whether the format bar is drawn over this document — see ``EditorFormatBar/isShown``.
     private var showsFormatBar: Bool {
         EditorFormatBar.isShown(preference: showsFormatBarPreference,

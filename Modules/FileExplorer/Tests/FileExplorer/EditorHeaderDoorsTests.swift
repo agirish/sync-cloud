@@ -20,29 +20,29 @@ import FileExplorerTestSupport
 @MainActor
 @Suite(.serialized) struct EditorHeaderDoorsTests {
 
+    /// Every setting the header reads, this test's own: a fresh one per test, since swift-testing
+    /// builds a new instance of the suite for each. Never the standard domain, which under
+    /// `swift test` is shared by every test process on the machine.
+    private let defaults = ScratchDefaults("EditorHeaderDoorsTests")
+
     private func document(named name: String) throws -> EditorDocument {
         try TestTextFiles.document(named: name)
     }
 
-    /// Runs `body` with Edit in Preview set to `editing`. `headerContent` is rendered off a workspace
-    /// in no view hierarchy, so its `@AppStorage` reads the standard defaults, not an injected store —
-    /// and the setting is on by default (v5.5), which keeps Find in Preview. Put back as found.
+    /// Runs `body` with Edit in Preview set to `editing` — on by default (v5.5), which keeps Find in
+    /// Preview. `headerContent` is rendered off a workspace in no view hierarchy, so the store reaches
+    /// it through ``EditorWorkspaceView/readingSettings(from:)``, not `.defaultAppStorage`.
     private func withEditInPreview<T>(_ editing: Bool, _ body: () throws -> T) rethrows -> T {
-        let key = EditorTextSettings.editsInPreviewKey
-        let found = UserDefaults.standard.object(forKey: key)
-        UserDefaults.standard.set(editing, forKey: key)
-        defer {
-            if let found { UserDefaults.standard.set(found, forKey: key) }
-            else { UserDefaults.standard.removeObject(forKey: key) }
-        }
+        defaults.set(editing, forKey: EditorTextSettings.editsInPreviewKey)
         return try body()
     }
 
     private func workspace(_ document: EditorDocument, mode: EditorMode = .edit,
                            railIsHidden: Bool = false,
                            newTextFile: (() -> Void)? = {}) -> EditorWorkspaceView {
-        .fixture(document: document, folder: "/n/Downloads", railIsHidden: railIsHidden, mode: mode,
-                 onNewTextFile: newTextFile)
+        EditorWorkspaceView.fixture(document: document, folder: "/n/Downloads", railIsHidden: railIsHidden,
+                                    mode: mode, onNewTextFile: newTextFile)
+            .readingSettings(from: defaults)
     }
 
     // MARK: What it says

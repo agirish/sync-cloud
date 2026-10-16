@@ -223,6 +223,10 @@ struct PlainTextEditor: NSViewRepresentable {
         var continuesLists = EditorTextSettings.continuesListsDefault
         /// See ``PlainTextEditor/imageImport``.
         var imageImport: EditorImageImporter?
+        /// Where the right-click menu's switches are read and written. Always `.standard` in the
+        /// app; a test hands in a scratch suite, because under `swift test` the standard domain
+        /// belongs to `swiftpm-testing-helper` and is shared by every test process on the machine.
+        var defaults: UserDefaults = .standard
         private var boundsObserver: (any NSObjectProtocol)?
 
         init(source: EditorSourceStorage, undoManager: UndoManager, documentID: String?,
@@ -377,7 +381,6 @@ struct PlainTextEditor: NSViewRepresentable {
         /// checking change nothing on disk, so there is no reason a file you can only read should
         /// be harder to read.
         func insertTextSettings(into menu: NSMenu, at index: Int) {
-            let defaults = UserDefaults.standard
             let wraps = defaults.object(forKey: EditorTextSettings.wrapsKey) as? Bool
                 ?? EditorTextSettings.wrapsDefault
             let checks = defaults.object(forKey: EditorTextSettings.checksSpellingKey) as? Bool
@@ -428,7 +431,6 @@ struct PlainTextEditor: NSViewRepresentable {
         /// View ▸ Format Bar's setting, flipped — and said, since this is the way back from the
         /// bar's own Hide Format Bar.
         @objc func toggleFormatBar(_ sender: NSMenuItem) {
-            let defaults = UserDefaults.standard
             let shows = !(defaults.object(forKey: EditorTextSettings.showsFormatBarKey) as? Bool
                 ?? EditorTextSettings.showsFormatBarDefault)
             defaults.set(shows, forKey: EditorTextSettings.showsFormatBarKey)
@@ -440,7 +442,6 @@ struct PlainTextEditor: NSViewRepresentable {
         /// `updateNSView` applies it — which is what keeps the two halves of a split in step
         /// instead of leaving the one that was not right-clicked wrapping differently.
         @objc func toggleWrapping(_ sender: NSMenuItem) {
-            let defaults = UserDefaults.standard
             let current = defaults.object(forKey: EditorTextSettings.wrapsKey) as? Bool
                 ?? EditorTextSettings.wrapsDefault
             defaults.set(!current, forKey: EditorTextSettings.wrapsKey)
@@ -457,7 +458,6 @@ struct PlainTextEditor: NSViewRepresentable {
         /// Written to `UserDefaults` like ``toggleWrapping(_:)``, for the same reason: every mounted
         /// editor — both halves of a split — re-renders from the key.
         @objc func toggleReadableLineLength(_ sender: NSMenuItem) {
-            let defaults = UserDefaults.standard
             let on = !Self.storedReadableLineLength(in: defaults)
             defaults.set(on, forKey: EditorTextSettings.readableLineLengthKey)
             Logger.shared.info("[edit] Readable Line Length \(on ? "on" : "off") from the text's right-click menu")
@@ -468,7 +468,7 @@ struct PlainTextEditor: NSViewRepresentable {
         /// ignores `isEnabled`; every other item here is always available.
         func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
             guard menuItem.action == #selector(toggleReadableLineLength(_:)) else { return true }
-            return Self.readableLineLengthApplies(in: .standard)
+            return Self.readableLineLengthApplies(in: defaults)
         }
 
         /// Whether Readable Line Length can do anything: only while lines wrap.
@@ -477,7 +477,6 @@ struct PlainTextEditor: NSViewRepresentable {
         }
 
         @objc func toggleSpellChecking(_ sender: NSMenuItem) {
-            let defaults = UserDefaults.standard
             let current = defaults.object(forKey: EditorTextSettings.checksSpellingKey) as? Bool
                 ?? EditorTextSettings.checksSpellingDefault
             defaults.set(!current, forKey: EditorTextSettings.checksSpellingKey)

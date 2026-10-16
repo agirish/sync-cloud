@@ -2452,6 +2452,30 @@ and anything else brokered by a system daemon is shared across every process on 
 a per-process suffix is the only isolation that holds when this machine runs CI and a session at
 once.
 
+**The standard defaults domain is one of these — measured 2026-10-15.** Under `swift test`,
+`UserDefaults.standard` is not the test's own: it is the domain named `swiftpm-testing-helper`
+(`defaults find <key>` shows it), one plist brokered by `cfprefsd` for every helper process on the
+machine. "Process-wide state, and suites running in parallel" says to prefer a scratch suite to the
+standard domain; this is why that holds *across* processes too, where `.serialized` and a
+save-and-restore `defer` do nothing. `EditorTextSettingsTests.theTextsFormatBarItemFlipsTheSettingAndSaysSo`
+was 0/10 alone, 3/20 with a second process running `defaults write swiftpm-testing-helper
+editorShowsFormatBar` in a loop, and **17/40 in each of two helper processes running its suite
+at once**. `EditorReadableColumnTests.theEditorAppliesTheSwitch` went red the same way on CI.
+**The tell:** a toggle fails twice, on the value *and* on the log line it writes, because the
+sentence follows whatever the toggle read, so the log failure is a knock-on and not a second bug.
+**Fix:** a `ScratchDefaults` per test, handed to the code through a seam
+(`PlainTextEditor.Coordinator.defaults`) and to a hosted view through `.defaultAppStorage`. **A view
+read outside any hierarchy ignores `.defaultAppStorage`:** `EditorHeaderDoorsTests` renders
+`headerContent` off a bare `EditorWorkspaceView`, whose `@AppStorage` then falls back to the standard
+domain, so the store goes in explicitly through `readingSettings(from:)`. After
+the fix: 0/40 and 0/40, and with both suites in each process and a writer flipping all four keys
+they use, 0/30 and 0/30. A mutant whose `validateMenuItem` read `.standard` again failed 59 of
+those 60. To
+reproduce, launch `swiftpm-testing-helper` directly (two `swift test` runs on one scratch path take
+SwiftPM's lock and run one after the other). Still writing the standard domain on 2026-10-15:
+Dashboard's `FileActionHandlerHelperTests`, Events' `LoggerLevelGateTests`, and FileExplorer's
+`FilingRefineControlTests` and `FilingRefineRouteCostTests`.
+
 ### 19. `Task.yield()` assumed to park a test inside an async window — a VACUOUS green, not a red
 
 **Symptom.** There isn't one, which is the entry's point. A test that starts an async operation,

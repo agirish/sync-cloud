@@ -7,11 +7,15 @@ import Design
 /// Readable Line Length (TE51): Source's text in a centred column no wider than Preview's, made by
 /// growing the text view's side insets.
 ///
-/// **Serialized, and the only suite that writes its key** — the hosted cases read it through
-/// `@AppStorage` on the shared defaults. Wrap Lines, which other suites write too, is read here only
-/// through a private defaults suite.
+/// **Every switch is read and written on ``defaults``, a scratch suite of this test's own** — the
+/// hosted editors through `.defaultAppStorage`, the menu through the coordinator's store. Never the
+/// standard domain: under `swift test` that is `swiftpm-testing-helper`'s, shared by every test
+/// process on the machine, so `.serialized` could only ever order this suite against itself.
 @MainActor
 @Suite(.serialized) struct EditorReadableColumnTests {
+
+    /// A fresh one per test: swift-testing builds a new instance of the suite for each.
+    private let defaults = ScratchDefaults("EditorReadableColumnTests")
 
     // MARK: The rule
 
@@ -286,11 +290,11 @@ import Design
 
     /// Mounts the real `PlainTextEditor` and returns the text view `makeNSView` built.
     private func mounted(width: CGFloat, fontScale: CGFloat = 1)
-        -> (host: NSHostingView<PlainTextEditor>, view: NSTextView) {
+        -> (host: NSHostingView<AnyView>, view: NSTextView) {
         let editor = PlainTextEditor(source: EditorSourceStorage(text: "words words words\n"),
                                      isEditable: true, fontScale: fontScale,
                                      documentID: "/a/b.md", undoManager: UndoManager())
-        let host = NSHostingView(rootView: editor)
+        let host = NSHostingView(rootView: AnyView(editor.defaultAppStorage(defaults)))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 300)
         host.layoutSubtreeIfNeeded()
         var found: NSTextView?
@@ -305,9 +309,6 @@ import Design
     }
 
     private func withSetting(_ on: Bool?, _ body: () throws -> Void) rethrows {
-        let defaults = UserDefaults.standard
-        let stored = defaults.object(forKey: EditorTextSettings.readableLineLengthKey)
-        defer { defaults.set(stored, forKey: EditorTextSettings.readableLineLengthKey) }
         if let on { defaults.set(on, forKey: EditorTextSettings.readableLineLengthKey) }
         else { defaults.removeObject(forKey: EditorTextSettings.readableLineLengthKey) }
         try body()
@@ -316,14 +317,8 @@ import Design
     /// **The call site: the editor reads the switch and hands the text view its column** — the
     /// rule above is one revert away from unused without this. Off (and never set) is today's 14pt
     /// at any width; on, a wide editor centres a column scaled by Text size.
-    ///
-    /// Synchronous throughout, so Wrap Lines — pinned on here, and put back — cannot be seen by
-    /// another main-actor test in between.
     @Test func theEditorAppliesTheSwitch() throws {
-        let defaults = UserDefaults.standard
-        let wraps = defaults.object(forKey: EditorTextSettings.wrapsKey)
         defaults.set(true, forKey: EditorTextSettings.wrapsKey)
-        defer { defaults.set(wraps, forKey: EditorTextSettings.wrapsKey) }
         withSetting(nil) {
             let rig = mounted(width: 1200)
             #expect(rig.view.textContainerInset.width == 14, "the switch is on with nothing stored")
@@ -353,10 +348,7 @@ import Design
     /// today's inset** — the menu writes the key, every mounted editor re-renders from it, and the
     /// change arrives through `updateNSView`, the only place the column is handed over.
     @Test func flippingTheSwitchUnderAMountedEditorAppliesIt() {
-        let defaults = UserDefaults.standard
-        let wraps = defaults.object(forKey: EditorTextSettings.wrapsKey)
         defaults.set(true, forKey: EditorTextSettings.wrapsKey)
-        defer { defaults.set(wraps, forKey: EditorTextSettings.wrapsKey) }
         withSetting(false) {
             let rig = mounted(width: 1200)
             #expect(rig.view.textContainerInset.width == 14)
@@ -375,10 +367,7 @@ import Design
     /// **Wrap Lines off under a mounted, capped editor drops the column; back on brings it back** —
     /// the wrapping and the column change in one pass, in that order.
     @Test func turningWrappingOffAndOnUnderAMountedEditor() {
-        let defaults = UserDefaults.standard
-        let wraps = defaults.object(forKey: EditorTextSettings.wrapsKey)
         defaults.set(true, forKey: EditorTextSettings.wrapsKey)
-        defer { defaults.set(wraps, forKey: EditorTextSettings.wrapsKey) }
         withSetting(true) {
             let rig = mounted(width: 1200)
             let centred = rig.view.textContainerInset.width
@@ -399,8 +388,10 @@ import Design
     // MARK: The right-click menu
 
     private func coordinator() -> PlainTextEditor.Coordinator {
-        PlainTextEditor.Coordinator(source: EditorSourceStorage(), undoManager: UndoManager(),
-                                    documentID: nil, onSelectionChange: { _ in })
+        let subject = PlainTextEditor.Coordinator(source: EditorSourceStorage(), undoManager: UndoManager(),
+                                                  documentID: nil, onSelectionChange: { _ in })
+        subject.defaults = defaults
+        return subject
     }
 
     /// **Beside Wrap Lines, ticked by the stored setting** — on a read-only file too, since it
@@ -426,17 +417,14 @@ import Design
         withSetting(false) {
             let subject = coordinator()
             subject.toggleReadableLineLength(NSMenuItem())
-            #expect(UserDefaults.standard.bool(forKey: EditorTextSettings.readableLineLengthKey))
+            #expect(defaults.bool(forKey: EditorTextSettings.readableLineLengthKey))
             subject.toggleReadableLineLength(NSMenuItem())
-            #expect(!UserDefaults.standard.bool(forKey: EditorTextSettings.readableLineLengthKey))
+            #expect(!defaults.bool(forKey: EditorTextSettings.readableLineLengthKey))
         }
     }
 
     /// **Greyed while Wrap Lines is off**, where it would change nothing — and only that item: the
     /// validation must not grey Wrap Lines, the way back.
-    ///
-    /// Wrap Lines is written to the shared defaults and put back with no suspension point between,
-    /// so no other main-actor test can run while it is off.
     @Test func itIsGreyedWhileLinesDoNotWrap() throws {
         let subject = coordinator()
         let menu = NSMenu()
@@ -444,8 +432,6 @@ import Design
         let readable = try #require(menu.items.first { $0.title == "Readable Line Length" })
         let wrap = try #require(menu.items.first { $0.title == "Wrap Lines" })
 
-        let defaults = UserDefaults.standard
-        let stored = defaults.object(forKey: EditorTextSettings.wrapsKey)
         defaults.set(false, forKey: EditorTextSettings.wrapsKey)
         let offReadable = subject.validateMenuItem(readable)
         let offWrap = subject.validateMenuItem(wrap)
@@ -453,7 +439,6 @@ import Design
         subject.insertTextSettings(into: offMenu, at: 0)
         defaults.set(true, forKey: EditorTextSettings.wrapsKey)
         let onReadable = subject.validateMenuItem(readable)
-        defaults.set(stored, forKey: EditorTextSettings.wrapsKey)
 
         #expect(!offReadable, "Readable Line Length is offered while lines do not wrap")
         #expect(offMenu.items.first { $0.title == "Readable Line Length" }?.isEnabled == false,
