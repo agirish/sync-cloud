@@ -235,6 +235,7 @@ import Testing
         "LensWorkspaceView.swift/proxy": .scrollToDestination,
 
         "ContentView.swift/isScanning": .reportsRatherThanTravels,
+        "ContentView.swift/isScanShown": .reportsRatherThanTravels, // the scanning card, the Stop rung
         "OperationBannerView.swift/countdown": .reportsRatherThanTravels,
         "LensWorkspaceView.swift/glow": .reportsRatherThanTravels,
 
