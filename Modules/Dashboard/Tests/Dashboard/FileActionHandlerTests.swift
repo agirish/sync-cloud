@@ -9,7 +9,7 @@ import Settings
     @MainActor
     @Test func testClipboardPersistenceOnCopy() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: SettingsManager())
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings())
         let node = FileNode(id: "/tmp/does-not-exist.txt", name: "does-not-exist.txt", isDirectory: false)
         
         manager.clipboardNodes = [node]
@@ -26,7 +26,7 @@ import Settings
     @MainActor
     @Test func testClipboardClearsOnlyAfterSuccessfulCutPaste() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: SettingsManager())
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings())
         
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("DashboardTests-\(UUID().uuidString)")
         let srcDir = root.appendingPathComponent("src")
@@ -66,7 +66,7 @@ import Settings
     @MainActor
     @Test func testClipboardRemainsWhenCutPasteFails() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: SettingsManager())
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings())
         let node = FileNode(id: "/tmp/does-not-exist.txt", name: "does-not-exist.txt", isDirectory: false)
         
         manager.clipboardNodes = [node]
@@ -87,7 +87,7 @@ import Settings
     @MainActor
     @Test func testMoveItemsToPathMovesViaSyncLayerWithOneConfirmation() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: SettingsManager())
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings())
 
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("DashboardTests-\(UUID().uuidString)")
         let srcDir = root.appendingPathComponent("src")
@@ -130,6 +130,15 @@ import Settings
             }
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
+    }
+
+    /// Settings for the clipboard and move tests, on a scratch suite and with no discovery pass. A
+    /// bare `SettingsManager()` discovered the real `~/Library/CloudStorage` and wrote it to
+    /// `lastKnownAccountFolders` in the standard domain, which under `swift test` is the
+    /// `swiftpm-testing-helper` plist every test process on the machine shares.
+    @MainActor
+    private func scratchSettings() -> SettingsManager {
+        SettingsManager(autoDiscover: false, userDefaults: ScratchDefaults("FileActionHandlerTests"))
     }
 
     // MARK: - Pane-root guards (vanished providers, prefix aliasing)

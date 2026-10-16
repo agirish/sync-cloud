@@ -2472,7 +2472,18 @@ the fix: 0/40 and 0/40, and with both suites in each process and a writer flippi
 they use, 0/30 and 0/30. A mutant whose `validateMenuItem` read `.standard` again failed 59 of
 those 60. To
 reproduce, launch `swiftpm-testing-helper` directly (two `swift test` runs on one scratch path take
-SwiftPM's lock and run one after the other). **The last four package suites that wrote it moved
+SwiftPM's lock and run one after the other), with the two library paths `swift test` would set,
+after `swift build --build-tests`:
+
+```sh
+H=$(dirname $(xcrun --find swift))/../libexec/swift/pm/swiftpm-testing-helper
+X=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer
+D=$PWD/Modules/Dashboard/.build/out/Products/Debug; BIN=$D/DashboardTests.xctest/Contents/MacOS/DashboardTests
+DYLD_LIBRARY_PATH="$D:$X/usr/lib" DYLD_FRAMEWORK_PATH="$X/Library/Frameworks:$X/Library/PrivateFrameworks" \
+  "$H" --test-bundle-path "$BIN" --filter FileActionHandlerTests "$BIN" --testing-library swift-testing
+```
+
+**The last four package suites that wrote it moved
 the same way, also 2026-10-15:** Dashboard's `FileActionHandlerHelperTests` (the handler's own
 `defaults`, through `PaneLinkPreference.isLinked(in:)`), Events' `LoggerLevelGateTests` (a scratch
 suite named as the ambient store in `persistedMinimumLevel(from:ambient:)`), and FileExplorer's
@@ -2480,10 +2491,34 @@ suite named as the ambient store in `persistedMinimumLevel(from:ambient:)`), and
 `filingContentDefaults` and the lens's `.defaultAppStorage`). Under two helper processes the old
 tests failed 19 runs in 60 (Dashboard) and 18 in 40 (FileExplorer); after, 0 in 60 and 0 in 40.
 `LoggerLevelGateTests` failed 0 in 60 either way: its read cannot lose the race, so it was a
-writer reaching other processes rather than a victim. No package test writes the standard domain
-*directly* now, but production code a test drives still can — `SettingsManager`'s
-`lastKnownAccountFolders` and hosted views' `@AppStorage` both turn up in
-`defaults read swiftpm-testing-helper`.
+writer reaching other processes rather than a victim.
+
+**The last writes went 2026-10-16, through code the tests drive.** The shared plist is no
+evidence of who writes it: every process on the machine adds to it, a worktree on an older base
+included, and nothing ever removes a key. **Give the run a domain of its own instead.** The
+standard domain is named after the process, so a copy of the helper under another name gets one:
+`cp "$H" <dir>/probe-dashboard`, launch that copy in place of `$H`, and
+`defaults read probe-dashboard` lists what that run wrote and nothing else. Every package's
+swift-testing run went through it, as did Design's XCTest half (a copy of `xcrun --find xctest`)
+and SyncCloudCLI's two bundles. Two writers were left:
+
+- Dashboard's `FileActionHandlerTests` built a bare `SettingsManager()`, whose discovery pass
+  wrote the real `~/Library/CloudStorage` accounts to `lastKnownAccountFolders`. Its settings now
+  come from `autoDiscover: false` on a `ScratchDefaults`. Measured by mutation, either half alone
+  stops the write; only `SettingsManager()` itself brings it back.
+- FileExplorer's `aStyleChangeFromAppKitLeavesTheTextAlone` sends `changeColor` through the real
+  text view, and `NSTextView` reads the colour from `NSColorPanel.shared` **whatever the sender**,
+  so the door creates the panel and AppKit saves its geometry into the standard domain under three
+  `NSColorPanel` keys. AppKit offers no store to inject, so the test removes every
+  `NSColorPanel` key afterwards (`forgetTheColorPanelsGeometry`). Without that `defer`, or with
+  the name match misspelt, all three keys come back.
+
+`differencesGroupByFolder`, `listDensity`, `editorShowsFormatBar` and
+`editorEditsInPreviewIntroSeen`, all still in the shared plist, were written by **no** test on
+`main`: they predate the moves above, or come from a worktree on an older base. `spellMountProbeMarker`
+was a probe that never landed. After the fix, every probe domain is empty or absent. Under two
+helper processes sharing the real domain, `FileActionHandlerTests` passed 40 runs in 40 and
+`PreviewEditorViewTests` 16 in 16.
 
 ### 19. `Task.yield()` assumed to park a test inside an async window — a VACUOUS green, not a red
 

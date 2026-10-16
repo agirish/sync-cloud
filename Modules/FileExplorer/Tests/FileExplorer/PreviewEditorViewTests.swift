@@ -166,6 +166,7 @@ import EventsTestSupport
     ///
     /// Mutation: map `nil` strings to `""` again, and the note is emptied.
     @Test func aStyleChangeFromAppKitLeavesTheTextAlone() {
+        defer { forgetTheColorPanelsGeometry() }
         let text = "Salt the **pasta** well."
         let r = rig(text)
         #expect(!r.view.usesFontPanel, "no Font panel to send a style change from")
@@ -184,6 +185,20 @@ import EventsTestSupport
             #expect(r.display == "Salt the pasta well.", "\(name)")
         }
         #expect(!r.undo.canUndo)
+    }
+
+    /// **`changeColor` brings up the shared colour panel, whatever its sender**, because
+    /// `NSTextView` reads the colour from `NSColorPanel.shared` rather than from the swatch. AppKit
+    /// then autosaves the panel's frame, toolbar and split-view geometry into the standard
+    /// domain, which under `swift test` is the `swiftpm-testing-helper` plist every test process
+    /// on the machine shares. Nothing reads those keys; they go so a package run leaves that
+    /// domain without them. Matched by name because AppKit, not this code, picks the keys.
+    private func forgetTheColorPanelsGeometry() {
+        let standard = UserDefaults.standard
+        let domain = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        for key in (standard.persistentDomain(forName: domain) ?? [:]).keys where key.contains("NSColorPanel") {
+            standard.removeObject(forKey: key)
+        }
     }
 
     // MARK: Images and files (review V5)
