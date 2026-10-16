@@ -3304,3 +3304,134 @@ pins the call in both editors by the bar it takes down; removing either call fai
 
 **See.** `PlainTextEditor.retireFindBar(of:)` and both `dismantleNSView`s;
 `EditorFindBarTests.closingTheDocumentRetiresItsFindBar`.
+
+### 30. A spell check and a defaults change from another process deadlock a SwiftUI focus move
+
+**Symptom.** No verdict, and no core pegged: the run stops making progress at **0% CPU** with
+dozens of tests in flight. That is the difference from "The wait that hangs instead of failing",
+whose spin keeps one core busy. Seen locally on 2026-10-15 at 09:15: `swift test --filter
+'Editor|LineEndingPaths'` in `Modules/FileExplorer` at `8d559a26`, with `NSZombieEnabled=YES` and a
+second test process running, sat at 0% for 4+ minutes with ~25 tests in flight, among them
+`LineEndingPathsTests.aMixedFileIsConvertedToo` and
+`EditorFindBarTests.theFindOnlyActionIsWhatHidesTheReplaceRow`. Probably also CI run 38483524002
+(`0cfe5460`): FileExplorer's output stops at 23:41:03 with
+`LineEndingPathsTests.carriageReturnsMapAndNormalise` and 37 suites, most of them Editor and
+layout, started and not finished, and the job was cancelled 21 minutes later. That run was never sampled,
+so the match is by shape only. `swift test` buffers its output in blocks, so a frozen log's
+in-flight list is a superset of what was really running.
+
+**Mechanism — two threads, two locks.** The 09:15 sample:
+
+```
+main     CFRunLoop observers → NSRunLoop.flushObservers → UpdateGroup.end → dispatchActions
+           → FocusBridge.moveFocus → -[NSWindow _realMakeFirstResponder:]
+           → -[NSTextView resignFirstResponder] → _performPendingTextChecking
+           → checkTextInRange → … → NSSpellCheckerCheckString + 600
+           → _pthread_mutex_firstfit_lock_wait                      (wants the spell checker's lock)
+checker  -[NSTextCheckingOperation main] → NSSpellCheckerCheckString + 2656   (holds that lock)
+           → scoreParagraph → NLTokenizerCreate → CFLocaleCopyPreferredLanguages
+           → _CFXPreferences withSearchListForIdentifier → _deliverPendingKVONotifications
+           → UserDefaultObserver.observeValue → UpdateGroup.enqueueAction   (wants SwiftUI's update)
+```
+
+CFPreferences does not deliver a change made by **another process** when it arrives. It parks the
+change and hands it to observers on whichever thread next reads preferences through that search
+list. The spell checker reads the preferred languages while it holds its own lock, so it can be
+that thread. The observer it then runs is `@AppStorage`'s, and that needs SwiftUI's update group,
+which the main thread holds while it moves focus. The main thread is waiting for the spell
+checker's lock so it can finish the resigning text view's pending check. Three conditions, all
+needed:
+
+1. a text view that **resigns with a check pending that reaches the spell checker**;
+2. a **change from another process** to a key that an `@AppStorage` in the process observes, in
+   the **standard** domain (the app's search list, which is the one the checker reads);
+3. a **SwiftUI-driven focus move** off that text view.
+
+**Condition 1 is not "spelling on", and that changes what can be fixed.** `scoreParagraph` is
+language identification, not spelling. An lldb breakpoint on `-[NSTextView
+checkTextInRange:types:options:]` read the checking types:
+
+| Text view | Checks | Reached `scoreParagraph` |
+|---|---|---|
+| a SwiftUI `TextField`'s field editor | `0x2301`: orthography, replacement, **correction**, private bit 13 | yes: its resign ran one on main in `EditorGoToLineWiringTests`, which types into the Go to Line field, and 9 background checks in that run reached it too (they carry no view) |
+| an editor's text view, Check Spelling **off** | `0x2001`: orthography, private bit 13 | **no**: 0 hits across 123 tests in five suites that mount editors and type into them |
+| an editor's text view, Check Spelling **on** | adds spelling | not measured: spelling is checked through the same `checkString` call |
+
+A field editor corrects automatically because the system's "Correct spelling automatically" is on,
+so every SwiftUI text field a test types into meets condition 1 on its own. The 09:15 sample does
+not say which text view resigned. `FocusBridge.moveFocus` is SwiftUI moving focus, which fits a
+field as well as an editor, and `EditorFindBarTests`' bar fields were in flight.
+
+**Why editors met condition 1 at all.** Check Spelling While Typing defaults to off. But
+`PlainTextEditor` and `PreviewEditorView` read it through `@AppStorage`, and nine FileExplorer
+suites mounted them on `UserDefaults.standard`. Under `swift test` that is the
+`swiftpm-testing-helper` domain, **one domain shared by every local run, every worktree and the CI
+runner**, which runs as the same user. On 2026-10-15 it held `editorChecksSpelling = 1`, so every
+one of those mounts spell-checked, in every run on the machine. No test leaves that value on
+purpose. The one test that wrote `true` there, `EditorTextSettingsTests`'
+`theTicksFollowTheStoredSetting`, put the old value back in a `defer`, which a killed run never
+reaches. That is the same shape as "Leaked defaults suites". The value was gone again by 17:45;
+who removed it is not known.
+
+Condition 2 comes from the same domain, and "A named NSPasteboard is machine-global, so two test
+PROCESSES share it" has the measurements: until 2026-10-15 several package suites wrote it
+directly, and in every **other** test process alive at the time each write was a change from
+outside. They all write scratch suites now. What still reaches the domain is code a test drives
+(a hosted view's `@AppStorage`, `SettingsManager`) and anything run by hand: a `defaults write
+swiftpm-testing-helper …` loop ran on 2026-10-15 from about 09:09 to past 15:48 PDT, writing
+`editorWrapsLines` and `editorShowsFormatBar`, for every FileExplorer process on the machine, CI
+included.
+
+**Measured, and not.**
+
+- **A suite does not search the app's domain.** With a key written to a binary's own domain by
+  `defaults write`, `UserDefaults.standard` read `1` and `UserDefaults(suiteName:)` read `nil`. So
+  a mount on its own suite sees neither the leaked value nor anyone else's writes.
+- **The cycle was not reproduced, and the synthetic attempt does not count against it.** A rig
+  with an editor set to spell-check, focus moved by a `@FocusState`, and a second process flipping
+  an observed standard-domain key ran thousands of rounds without the cycle. But the same lldb
+  breakpoint, on `NSSpellCheckerCheckString`, **never fired in that rig**: `insertText` into a
+  window that is never key apparently schedules no check, so the rig never met condition 1. Two
+  concurrent copies of the 09:15 filter (one with `NSZombieEnabled`) also finished green, once.
+  **The cycle rests on the 09:15 sample.**
+- **Several of those runs stalled, and none of the stalls was the cycle.** Each sample showed main
+  busy, not blocked: contending CFPreferences' locks under a write every few milliseconds, or
+  committing to the window server at a load average of 20–80. A `defaults write` loop against an
+  observed key costs every mounted process that much even without a deadlock.
+
+**Fix — the editor half only.** Every FileExplorer fixture that mounts `PlainTextEditor` or
+`PreviewEditorView` does so on a `ScratchDefaults` of its own, through `editorTestDefaults` in
+`Modules/FileExplorer/Tests/FileExplorer/EditorMountDefaults.swift`. That gives spelling its coded
+default (off), gives Wrap Lines and Readable Line Length what a clean machine has, and puts the
+editors' `@AppStorage` on a domain no other process writes. A test about a setting writes it to
+that suite, as `EditorReadableColumnTests` and `EditorHeaderDoorsTests` already did once they
+stopped writing the shared domain. To measure coverage, `makeNSView` temporarily logged every
+editor whose `@AppStorage` saw a marker key set only in `swiftpm-testing-helper`. Across the full
+package that was 29 mounts in 9 suites before either change, and 0 after both. Dashboard's one
+editor-mounting suite already mounted on scratch.
+
+**Not fixed — text fields, in tests and in the app.** After the fix, `--filter
+'Editor|LineEndingPaths'` still reached `NSSpellCheckerCheckString` at least 25 times. Every hit on
+the main thread was a SwiftUI field editor resigning; the background ones carry no view. Fields go
+on checking, and views across the package still observe the shared domain through `@AppStorage`
+while other processes write it, so conditions 1 and 2 can still meet. Closing that needs one of: every
+SwiftUI mount in the tests on scratch storage; nothing at all writing the shared domain (package
+tests no longer do directly, but hosted views and a hand-run `defaults write` still can); or
+automatic correction off for field editors in test processes. The app has the same exposure without anyone
+turning spelling on. Its Go to Line, rename and filter fields correct automatically, and another
+process writing `com.abhishekgirish.SyncCloud` (a `defaults write`, or an **app-target test run**,
+whose test host shares that domain with the installed app) supplies condition 2. There is no cheap
+break on this side of AppKit and SwiftUI, and each window is milliseconds wide.
+
+**Tell.** 0% CPU and many tests in flight. `sample <pid>` shows `_pthread_mutex_firstfit_lock_wait`
+under `NSSpellCheckerCheckString` on the main thread, and `UpdateGroup.enqueueAction` under
+`UserDefaultObserver` on an `NSTextCheckingOperation` thread. Then look for the outside writer,
+the half you can see: another test process alive at the time, or `pgrep -fl 'defaults write'`.
+`defaults read swiftpm-testing-helper` shows what the shared domain is feeding mounts that still
+read it.
+
+**See.** `editorTestDefaults` in `Modules/FileExplorer/Tests/FileExplorer/EditorMountDefaults.swift`;
+`PlainTextEditor.makeNSView` and `PreviewEditorView.update` for where the setting reaches the text
+view; "Process-wide state, and suites running in parallel" for the in-process half of the same
+sharing; "A named NSPasteboard is machine-global, so two test PROCESSES share it" for the same
+shape on another shared resource.

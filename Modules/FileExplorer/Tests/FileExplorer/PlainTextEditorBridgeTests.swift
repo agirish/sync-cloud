@@ -116,7 +116,7 @@ import AppKit
         let source = EditorSourceStorage(text: "a document with words in it\n")
         let editor = PlainTextEditor(source: source, isEditable: true, fontScale: 1,
                                      documentID: "/a/b.md", undoManager: undo)
-        let host = NSHostingView(rootView: editor)
+        let host = NSHostingView(rootView: editor.editorTestDefaults("PlainTextEditorBridgeTests"))
         host.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

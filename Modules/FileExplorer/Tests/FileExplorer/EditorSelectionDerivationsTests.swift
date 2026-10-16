@@ -166,7 +166,8 @@ import FileExplorerTestSupport
                                                            documentID: "/ranges.txt", undoManager: UndoManager(),
                                                            onSelectionChange: { reports.ranges.append($0) },
                                                            onSelectionRangeCount: { reports.rangeCounts.append($0) })
-            .frame(width: 300, height: 100))
+            .frame(width: 300, height: 100)
+            .editorTestDefaults("EditorSelectionDerivationsTests.ranges"))
         host.frame = NSRect(x: 0, y: 0, width: 300, height: 100)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host
@@ -217,7 +218,8 @@ import FileExplorerTestSupport
     @Test func aSelectionInAMountedWorkspaceReachesTheStatusLine() async throws {
         let document = try TestTextFiles.document(named: "mounted.txt", text: "one two three\nfour five\n")
         let host = NSHostingView(rootView: EditorWorkspaceView.fixture(document: document, mode: .edit)
-            .environment(\.colorScheme, .light))
+            .environment(\.colorScheme, .light)
+            .editorTestDefaults("EditorSelectionDerivationsTests.workspace"))
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 500)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host

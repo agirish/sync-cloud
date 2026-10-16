@@ -175,10 +175,12 @@ import Design
         let text = long + "\nsecond\nthird line\n"
         let source = EditorSourceStorage(text: text)
         let undo = UndoManager()
+        let defaults = ScratchDefaults("EditorGoToLineTests")
         func editor(_ request: EditorScrollRequest?) -> AnyView {
             AnyView(PlainTextEditor(source: source, isEditable: true, fontScale: 1, documentID: "/t.txt",
                                     undoManager: undo, scrollRequest: request)
-                .frame(width: 220, height: 120))
+                .frame(width: 220, height: 120)
+                .editorTestDefaults(defaults))
         }
         let host = NSHostingView(rootView: editor(nil))
         host.frame = NSRect(x: 0, y: 0, width: 220, height: 120)

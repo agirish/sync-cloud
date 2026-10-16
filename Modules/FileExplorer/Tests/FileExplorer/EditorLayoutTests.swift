@@ -711,7 +711,8 @@ import FileExplorerTestSupport
 
     /// The workspace mounted at a fixed width, so the columns divide a known number.
     private func mounted<V: View>(_ view: V) -> NSHostingView<AnyView> {
-        let host = NSHostingView(rootView: AnyView(view.frame(width: Self.size.width, height: Self.size.height)))
+        let host = NSHostingView(rootView: AnyView(view.frame(width: Self.size.width, height: Self.size.height)
+            .editorTestDefaults("EditorFewerColumnsLayoutTests")))
         host.frame = CGRect(origin: .zero, size: Self.size)
         host.layoutSubtreeIfNeeded()
         return host

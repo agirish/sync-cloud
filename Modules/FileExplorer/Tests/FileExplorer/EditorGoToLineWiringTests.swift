@@ -101,8 +101,9 @@ import FileExplorerTestSupport
     static let text = "first\nsecond\nthird line\nfourth\nfifth and last\n"
 
     private struct Mounted {
-        let host: NSHostingView<EditorWorkspaceView>
+        let host: NSHostingView<AnyView>
         let window: NSWindow
+        let defaults: UserDefaults
         let document: EditorDocument
         let editor: NSTextView
         var caret: EditorCaret { EditorCaret.at(utf16Offset: editor.selectedRange().location, in: editor.string) }
@@ -110,18 +111,21 @@ import FileExplorerTestSupport
 
     private func mountWorkspace() throws -> Mounted {
         let document = try TestTextFiles.document(named: "lines.txt", text: Self.text)
-        let host = NSHostingView(rootView: EditorWorkspaceView.fixture(document: document, mode: .edit))
+        let defaults = ScratchDefaults("EditorGoToLineWiringTests")
+        let host = NSHostingView(rootView: AnyView(EditorWorkspaceView.fixture(document: document, mode: .edit)
+            .editorTestDefaults(defaults)))
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         let window = window(for: host)
         spin(window, 20)
         let editor = try #require(textView(in: host), "no text view mounted — this test sees nothing")
-        return Mounted(host: host, window: window, document: document, editor: editor)
+        return Mounted(host: host, window: window, defaults: defaults, document: document, editor: editor)
     }
 
     /// Text ▸ Go to Line…'s press, as the app makes it: the request counter goes up by one.
     private func pressGoToLine(_ mounted: Mounted, request: Int) {
-        mounted.host.rootView = EditorWorkspaceView.fixture(document: mounted.document, mode: .edit,
-                                                            goToLineRequest: request)
+        mounted.host.rootView = AnyView(EditorWorkspaceView.fixture(document: mounted.document, mode: .edit,
+                                                                    goToLineRequest: request)
+            .editorTestDefaults(mounted.defaults))
         spin(mounted.window)
     }
 

@@ -95,7 +95,7 @@ import Testing
     /// `EditorFindBarTests` takes, because the claim here is likewise about what `makeNSView` really
     /// did rather than about what it was passed.
     private static func textView(of editor: PlainTextEditor) -> NSTextView? {
-        let host = NSHostingView(rootView: editor)
+        let host = NSHostingView(rootView: editor.editorTestDefaults("EditorCaretAnchorTests"))
         host.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         host.layoutSubtreeIfNeeded()
         var found: NSTextView?

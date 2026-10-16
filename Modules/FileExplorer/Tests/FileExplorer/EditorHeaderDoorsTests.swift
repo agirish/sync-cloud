@@ -204,11 +204,11 @@ import FileExplorerTestSupport
     @Test func aClosedDocumentLeavesTheEmptyPageWithThePlusAlone() throws {
         let doc = try document(named: "note.md")
         let size = CGSize(width: 600, height: 300)
-        let open = try #require(Rendered(workspace(doc), size: size))
+        let open = try #require(Rendered(workspace(doc).editorTestDefaults(defaults), size: size))
         let openRow = open.nameRowRings
         try #require(openRow.count >= 7, "the open document drew \(openRow.count) header buttons — the control is about nothing")
         doc.close()
-        let closed = try #require(Rendered(workspace(doc), size: size))
+        let closed = try #require(Rendered(workspace(doc).editorTestDefaults(defaults), size: size))
         #expect(closed.rings.count == 1, "\(closed.rings.count) buttons are drawn over a closed document — the ＋ alone expected")
         if let plus = closed.rings.first {
             #expect(closed.samePixels(plus, as: open, openRow[0]), "the one button left after a close is not the ＋")

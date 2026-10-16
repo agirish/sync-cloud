@@ -101,21 +101,23 @@ import SwiftUI
     // MARK: A press answered once
 
     /// The real editor, mounted in a window (the find bar needs one), holding `findRequest`.
-    private func mountedEditor(findRequest: Int)
-        -> (host: NSHostingView<PlainTextEditor>, window: NSWindow) {
+    private func mountedEditor(findRequest: Int, defaults: UserDefaults)
+        -> (host: NSHostingView<AnyView>, window: NSWindow) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
-        let host = NSHostingView(rootView: editor(findRequest: findRequest))
+        let host = NSHostingView(rootView: editor(findRequest: findRequest, defaults: defaults))
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         return (host, window)
     }
 
-    private func editor(findRequest: Int) -> PlainTextEditor {
-        PlainTextEditor(source: EditorSourceStorage(text: "one two three\n"), isEditable: true, fontScale: 1,
-                        documentID: "/a/b.md", undoManager: UndoManager(),
-                        findRequest: findRequest)
+    /// On its own defaults, as every mounted editor is — see `editorTestDefaults`.
+    private func editor(findRequest: Int, defaults: UserDefaults) -> AnyView {
+        AnyView(PlainTextEditor(source: EditorSourceStorage(text: "one two three\n"), isEditable: true, fontScale: 1,
+                                documentID: "/a/b.md", undoManager: UndoManager(),
+                                findRequest: findRequest)
+            .editorTestDefaults(defaults))
     }
 
     private func markedScroll(in view: NSView) -> NSScrollView? {
@@ -131,7 +133,8 @@ import SwiftUI
     /// view down — so Find once, close, open any file used to put the find bar up by itself: the new
     /// coordinator started at 0 and read the standing count as a fresh press.
     @Test func aTextViewBuiltAfterAFindPressDoesNotOpenTheBar() {
-        let (host, window) = mountedEditor(findRequest: 3)
+        let defaults = ScratchDefaults("EditorFindBarTests")
+        let (host, window) = mountedEditor(findRequest: 3, defaults: defaults)
         guard let scroll = markedScroll(in: host) else {
             Issue.record("the editor mounted no marked scroll view")
             return
@@ -142,7 +145,7 @@ import SwiftUI
 
         // The positive control: the next press, made while this view is on screen, still opens it —
         // so the assertion above is not passing because the bar cannot open here at all.
-        host.rootView = editor(findRequest: 4)
+        host.rootView = editor(findRequest: 4, defaults: defaults)
         host.layoutSubtreeIfNeeded()
         #expect(scroll.isFindBarVisible, "a press made while the text view was on screen was lost")
         _ = window
@@ -214,7 +217,7 @@ import SwiftUI
     @Test func theEditorReallyMarksItsScrollView() {
         let editor = PlainTextEditor(source: EditorSourceStorage(text: "hello"), isEditable: true, fontScale: 1,
                                      documentID: "/a/b.md", undoManager: UndoManager())
-        let host = NSHostingView(rootView: editor)
+        let host = NSHostingView(rootView: editor.editorTestDefaults("EditorFindBarTests.mark"))
         host.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         host.layoutSubtreeIfNeeded()
 
@@ -241,11 +244,13 @@ import SwiftUI
     @Test(arguments: ["Source", "Preview"]) func closingTheDocumentRetiresItsFindBar(_ editor: String) {
         let source = EditorSourceStorage(text: "one two three\n")
         let undo = UndoManager()
+        let defaults = ScratchDefaults("EditorFindBarTests.close")
         func mounted(findRequest: Int) -> AnyView {
-            editor == "Source"
+            AnyView((editor == "Source"
                 ? AnyView(PlainTextEditor(source: source, isEditable: true, fontScale: 1, documentID: "/a/b.md",
                                           undoManager: undo, findRequest: findRequest))
-                : AnyView(PreviewEditorView(source: source, undoManager: undo, findRequest: findRequest))
+                : AnyView(PreviewEditorView(source: source, undoManager: undo, findRequest: findRequest)))
+                .editorTestDefaults(defaults))
         }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)

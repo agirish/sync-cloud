@@ -15,7 +15,10 @@ conclusion.
 No output, log frozen mid-line — often right after `Build complete!` — no test named, one core
 pegged near 100%? **Nothing below applies.** Go to
 [mechanism 8](flaky-tests.md#8-the-wait-that-hangs-instead-of-failing); `sample <pid>` is the only
-truth, because neither the log nor a live pid will say which test is stuck.
+truth, because neither the log nor a live pid will say which test is stuck. **At 0% CPU instead**,
+with dozens of tests in flight, it is not a spin but a deadlock: `sample` it, and if the main thread
+waits on a mutex under `NSSpellCheckerCheckString`, go to
+[A spell check and a defaults change from another process deadlock a SwiftUI focus move](flaky-tests.md#30-a-spell-check-and-a-defaults-change-from-another-process-deadlock-a-swiftui-focus-move).
 
 And the other half of the same question — **a verdict, but no test named**. Exit 65,
 `** TEST FAILED **`, every package suite green, and **no `Test run with N tests` line anywhere in
@@ -82,6 +85,7 @@ machine state at all.
 | The process **crashes**, signal 11 or 6, and the receiver is `0x8000000000000000` — `x0` in the `.ips`, or `unrecognized selector sent to instance 0x8000000000000000` in the log; a subscript shows `Dictionary._Variant.lookup(_:)` under the message send | [An unlocked read of the mock's disk lands inside the write the test is waiting for](flaky-tests.md#27-an-unlocked-read-of-the-mocks-disk-lands-inside-the-write-the-test-is-waiting-for--fixed) — **fixed 2026-10-02** | A data race, not load — about one crash per hundred loaded full runs, so a rerun passes and proves nothing. The address is Swift's mid-mutation placeholder for a dictionary, and the frame under the dictionary code is a read that took no lock. `MockFileManager`'s collections lock now, so a recurrence is another dictionary — possibly in app code |
 | A test that **trashes a real file** times out waiting for it to leave the disk, every run, with **hundreds** of polls and **no** refusal or `Moved … to Trash` line for its path; its copy turns up in `~/.Trash` **~5 s** after the suite started | [A privacy prompt nobody answered wedges `sandboxd`, so a move into the real Trash outlasts the wait](flaky-tests.md#28-a-privacy-prompt-nobody-answered-wedges-sandboxd-so-a-move-into-the-real-trash-outlasts-the-wait) | Not the code. Look for a gap in `tccd`'s `msgID=408.N` sequence, and for a Files & Folders dialog on screen. Answering it clears the machine; rerunning first only grows the backlog |
 | The process **crashes**, signal 6 or 11, no `✘`, and the crash report's main thread is `-[NSTextFinderIndicatorManager _delayedUpdate]` under `__NSFireDelayedPerform` — often inside some other test's `spin()` | [A find indicator's redraw outlives the text view it was asked for](flaky-tests.md#29-a-find-indicators-redraw-outlives-the-text-view-it-was-asked-for--fixed) — **fixed 2026-10-15** | The test under the timer is a bystander. Find the test that opened a find bar without `PlainTextEditor.retireFindBar(of:)` in a `defer` — any find bar can search, because the Find pasteboard is machine-wide |
+| **No verdict at 0% CPU**, dozens of tests in flight, an Editor suite among them; `sample` shows main waiting on a mutex under `NSSpellCheckerCheckString` and an `NSTextCheckingOperation` thread in `UpdateGroup.enqueueAction` | [A spell check and a defaults change from another process deadlock a SwiftUI focus move](flaky-tests.md#30-a-spell-check-and-a-defaults-change-from-another-process-deadlock-a-swiftui-focus-move) | Look for the outside writer: another test process alive at the time, or `pgrep -fl 'defaults write'`. A green rerun proves nothing — the window is milliseconds wide |
 
 ## 2. Check what else is running
 
