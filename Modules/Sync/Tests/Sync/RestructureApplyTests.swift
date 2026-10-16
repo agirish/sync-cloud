@@ -17,6 +17,8 @@ import Testing
         let root: URL
         let profiles: URL
         let manifest: RestructureManifest
+        /// Where this world's landings trash to, inside its temp root — never the real Trash.
+        let trash: ScratchTrash
     }
 
     static func write(_ url: URL, _ contents: String) throws {
@@ -67,8 +69,11 @@ import Testing
     /// for directories, so nothing else in the landing behaves differently.
     final class HidingFileManager: FileManaging, @unchecked Sendable {
         let hidden: Set<String>
-        private let inner = FileManager.default
-        init(hiding: Set<String>) { hidden = hiding }
+        private let inner: FileManager
+        init(hiding: Set<String>, over inner: FileManager) {
+            hidden = hiding
+            self.inner = inner
+        }
 
         func fileExists(atPath path: String) -> Bool {
             hidden.contains(where: { path.hasSuffix($0) }) ? false : inner.fileExists(atPath: path)
@@ -116,8 +121,12 @@ import Testing
 
     /// The flagship-shaped fixture: an era to converge (rename + merge + a seeded collision), a
     /// keep, a refused folder with its reason, and a Singapore folder for the jurisdiction rule.
-    static func makeWorld(fileManager: FileManaging = FileManager.default) async throws -> World {
+    ///
+    /// `fileManager` is handed the world's own Trash to build on, so a double a test layers over
+    /// it still trashes into the temp root.
+    static func makeWorld(fileManager: (ScratchTrash) -> FileManaging = { $0 }) async throws -> World {
         let base = try makeCanonicalTempRoot(prefix: "RestructureApply")
+        let trash = ScratchTrash(in: base)
         let root = base.appendingPathComponent("Documents")
         try write(root.appendingPathComponent("Tax/2013/Federal Tax/1040.pdf"), "federal 1040")
         try write(root.appendingPathComponent("Tax/2013/Federal Tax/w2.pdf"), "w2")
@@ -173,7 +182,7 @@ import Testing
         try Data(#"{"people": []}"#.utf8).write(
             to: profiles.appendingPathComponent("t/people.json"))
 
-        let manager = FileSyncManager(fileManager: fileManager)
+        let manager = FileSyncManager(fileManager: fileManager(trash))
         manager.filingFolderProfile = profile
         manager.filingProfilesDirectory = profiles
         manager.filingProfileDirectoryId = "t"
@@ -191,7 +200,8 @@ import Testing
             family: "Tax", members: ["2013", "2016"], mapping: mapping, kind: .shape,
             in: .fromDisk(root: root), profileId: "t", manifestId: "apply-test-1",
             createdAt: "2026-08-28T12:00:00").get()
-        return World(manager: manager, root: root, profiles: profiles, manifest: manifest)
+        return World(manager: manager, root: root, profiles: profiles, manifest: manifest,
+                     trash: trash)
     }
 
     // MARK: - The landing, with the tree moving underneath it
@@ -464,7 +474,7 @@ import Testing
 
         // The quit: a fresh manager, configured the way FilingArtifacts.attach would from the
         // directory as the apply left it.
-        let reborn = FileSyncManager()
+        let reborn = FileSyncManager(fileManager: world.trash)
         let loaded = try #require(FilingProfileStore.active(in: world.profiles))
         #expect(loaded.id == newId)
         reborn.filingFolderProfile = loaded.profile
@@ -505,6 +515,8 @@ import Testing
         let second = await world.manager.applyPlan(removal)
         #expect(second.refusal == nil)
         #expect(second.removedEmpty == 1)
+        #expect(world.trash.names == ["State Tax"],
+                "the emptied folder left the tree but never reached the test's own Trash")
 
         let blocked = await world.manager.undoReorganisation(
             manifestId: world.manifest.manifestId)
@@ -640,6 +652,7 @@ import Testing
     @Test func aDrainedFolderWithAnEmptyDrainedSubfolderIsRemovable() async throws {
         let base = try makeCanonicalTempRoot(prefix: "RestructureApplyEmpty")
         defer { try? FileManager.default.removeItem(at: base) }
+        let trash = ScratchTrash(in: base)
         let root = base.appendingPathComponent("Documents")
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent("F/Payment/Receipts"),
@@ -652,9 +665,11 @@ import Testing
             profileId: "t", manifestId: "rm-1", createdAt: "t", family: "F", kind: .deadWeight,
             actions: [.init(action: .removeEmptyDir, src: "F/Payment")])
         let execution = FileSyncManager.executeRestructureActions(
-            manifest.actions, root: root.path, fm: FileManager.default)
+            manifest.actions, root: root.path, fm: trash)
         #expect(execution.removedEmpty == 1)
         #expect(execution.skipped.isEmpty)
+        #expect(trash.names == ["Payment"],
+                "the drained folder left the tree but never reached the test's own Trash")
         #expect(!FileManager.default.fileExists(
             atPath: root.appendingPathComponent("F/Payment").path))
 
@@ -662,7 +677,7 @@ import Testing
         try Self.write(root.appendingPathComponent("F/Other/Sub/real.pdf"), "real")
         let refused = FileSyncManager.executeRestructureActions(
             [.init(action: .removeEmptyDir, src: "F/Other")], root: root.path,
-            fm: FileManager.default)
+            fm: trash)
         #expect(refused.removedEmpty == 0)
         #expect(refused.skipped.contains { $0.contains("still holds 1 file") })
 
@@ -677,7 +692,7 @@ import Testing
             atPath: root.appendingPathComponent("F/Junk").path, fm: FileManager.default) == 0)
         let repo = FileSyncManager.executeRestructureActions(
             [.init(action: .removeEmptyDir, src: "F/Repo")], root: root.path,
-            fm: FileManager.default)
+            fm: trash)
         #expect(repo.removedEmpty == 0, "a repository is not an empty folder")
     }
 
@@ -851,8 +866,9 @@ import Testing
     /// lands — and checks the mismatch on the outcome, in the log-bound list, and in the ledger
     /// record the Applied card reads.
     @Test func theVerifiersVerdictReachesTheOutcomeAndTheLedger() async throws {
-        let hiding = Self.HidingFileManager(hiding: ["Tax/2013/Forms/Refund"])
-        let world = try await Self.makeWorld(fileManager: hiding)
+        let world = try await Self.makeWorld {
+            Self.HidingFileManager(hiding: ["Tax/2013/Forms/Refund"], over: $0)
+        }
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
 
         let outcome = await world.manager.applyPlan(

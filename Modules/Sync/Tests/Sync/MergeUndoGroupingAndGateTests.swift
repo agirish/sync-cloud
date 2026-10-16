@@ -62,6 +62,12 @@ import Events
     /// cooperative-pool one**: the merge reaches this seam through `enqueueFileOperation`, which
     /// runs its operation in `Task.detached(priority: .userInitiated)`. Hence `.parksAThread`.
     private final class SamplerObservedTrash: FileManager, @unchecked Sendable {
+        /// Where the trash really goes, once the rendezvous below is over.
+        let trash: ScratchTrash
+        init(trash: ScratchTrash) {
+            self.trash = trash
+            super.init()
+        }
         /// Reads the observed quantity FROM the main actor. Installed by the test before the merge
         /// starts and run from the main queue while this call holds the merge suspended.
         let readLevel = LockedBox<(@MainActor () -> Int)?>(nil)
@@ -91,17 +97,23 @@ import Events
             if sampled.wait(timeout: .now() + 10) == .timedOut {
                 rendezvousExpired.withLock { $0 = true }
             }
-            try super.trashItem(at: url, resultingItemURL: resultingItemURL)
+            try trash.trashItem(at: url, resultingItemURL: resultingItemURL)
         }
     }
 
     /// Records the file-mutating calls the undo makes, in order, so the ORDER of the merge's two
-    /// undo registrations is observable. Real behaviour throughout — every override calls `super`.
+    /// undo registrations is observable. Real behaviour throughout — every override calls `super`,
+    /// except the trash, which goes to the test's own.
     private final class OpRecorder: FileManager, @unchecked Sendable {
         let calls = LockedBox<[String]>([])
+        let trash: ScratchTrash
+        init(trash: ScratchTrash) {
+            self.trash = trash
+            super.init()
+        }
         override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
             calls.withLock { $0.append("trash:\(url.lastPathComponent)") }
-            try super.trashItem(at: url, resultingItemURL: resultingItemURL)
+            try trash.trashItem(at: url, resultingItemURL: resultingItemURL)
         }
         override func moveItem(at src: URL, to dst: URL) throws {
             calls.withLock { $0.append("move:\(dst.lastPathComponent)") }
@@ -159,11 +171,9 @@ import Events
         let base = try makeCanonicalTempRoot(prefix: "MergeGrouping")
         defer { try? FileManager.default.removeItem(at: base) }
         let rName = "Redundant-\(UUID().uuidString)"
-        defer { try? FileManager.default.removeItem(
-            at: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")) }
         let fixture = try makeGroup(base, redundantNames: [rName])
 
-        let trash = SamplerObservedTrash()
+        let trash = SamplerObservedTrash(trash: ScratchTrash(in: base))
         let manager = FileSyncManager(fileManager: trash)
         let undo = UndoManager()
         undo.groupsByEvent = false
@@ -208,6 +218,8 @@ import Events
         // it trashed.
         #expect(FileManager.default.fileExists(atPath: fixture.keeper.appendingPathComponent("unique0.txt").path))
         #expect(FileManager.default.fileExists(atPath: fixture.redundant[0].path) == false)
+        #expect(trash.trash.names == [rName],
+                "the redundant copy left the disk but never reached the test's own Trash")
     }
 
     /// The other direction, and what the grouping is FOR: a merge that folded two copies is still
@@ -217,17 +229,18 @@ import Events
         let base = try makeCanonicalTempRoot(prefix: "MergeOneUndo")
         defer { try? FileManager.default.removeItem(at: base) }
         let names = ["RedA-\(UUID().uuidString)", "RedB-\(UUID().uuidString)"]
-        let trash = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash")
-        defer { for n in names { try? FileManager.default.removeItem(at: trash.appendingPathComponent(n)) } }
         let fixture = try makeGroup(base, redundantNames: names)
 
-        let manager = FileSyncManager(fileManager: FileManager.default)
+        let trash = ScratchTrash(in: base)
+        let manager = FileSyncManager(fileManager: trash)
         manager.undoManager = UndoManager()
         // An unrelated delete FIRST, so its step sits below the merge's on the stack.
         let bystander = base.appendingPathComponent("bystander.txt")
         try write(bystander, bytes: 10, fill: 0x41)
-        await manager.deleteItems(at: [bystander.path], fileManager: FileManager.default)
+        await manager.deleteItems(at: [bystander.path], fileManager: trash)
         try #require(FileManager.default.fileExists(atPath: bystander.path) == false)
+        #expect(trash.names == ["bystander.txt"],
+                "the delete left the disk but never reached the test's own Trash")
         await closeTheUndoEventGroup(manager.undoManager)
 
         manager.duplicateGroups = [fixture.group]
@@ -281,11 +294,9 @@ import Events
         let base = try makeCanonicalTempRoot(prefix: "MergeUndoOrder")
         defer { try? FileManager.default.removeItem(at: base) }
         let rName = "Red-\(UUID().uuidString)"
-        defer { try? FileManager.default.removeItem(
-            at: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")) }
         let fixture = try makeGroup(base, redundantNames: [rName])
 
-        let recorder = OpRecorder()
+        let recorder = OpRecorder(trash: ScratchTrash(in: base))
         let manager = FileSyncManager(fileManager: recorder)
         manager.undoManager = UndoManager()
         manager.duplicateGroups = [fixture.group]
@@ -309,6 +320,8 @@ import Events
                                      "the undo never removed the folded file: \(calls)")
         #expect(restoredAt < removedAt,
                 "the ⌘Z deleted the folded file out of the keeper BEFORE restoring the original — a failed restore then leaves neither: \(calls)")
+        #expect(recorder.trash.names == ["unique0.txt"],
+                "the folded file the undo removed never reached the test's own Trash")
     }
 
     // MARK: FINDING 2 — the merge's trash is gated

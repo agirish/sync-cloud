@@ -69,11 +69,12 @@ import Foundation
     @Test func aCopyMergeKeepsWhatWasThereAddsWhatWasNotAndAsksOnlyAboutFilesInBoth() async throws {
         let root = try makeCanonicalTempRoot(prefix: "folder-merge-copy")
         defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
         let (src, dst) = try fixture(root)
         let prompts = Prompts()
         let m = manager(prompts: prompts, childAnswers: ["a.txt": (.replace, false), "c.txt": (.skip, false)])
         let node = FileNode(id: src.path, name: "Reports", isDirectory: true)
-        let transferred = await m.copyItems(nodes: [node], toPath: dst.deletingLastPathComponent().path)
+        let transferred = await m.copyItems(nodes: [node], toPath: dst.deletingLastPathComponent().path, fileManager: trash)
 
         // The folder prompt offered Merge, with the counts its sentence needs: only.txt and
         // sub/keep.txt are only in the destination; a.txt and sub/c.txt are in both.
@@ -97,6 +98,8 @@ import Foundation
         #expect(read(dst.appendingPathComponent("sub/deep/d.txt")) == "new d")  // a missing folder lands whole
         #expect(files(src).count == 5)                                          // a copy leaves the source alone
         #expect(m.currentError == nil)
+        #expect(trash.names.contains { $0.hasPrefix(".rollback_") },
+                "the replaced a.txt's backup never reached the test's own Trash: \(trash.names)")
 
         // One ⌘Z takes the merge back: what it added goes, what it replaced returns, and what was
         // only ever in the destination is untouched.
@@ -112,6 +115,7 @@ import Foundation
     @Test func applyToAllCoversTheRestOfOneMergeAndNoMore() async throws {
         let root = try makeCanonicalTempRoot(prefix: "folder-merge-apply-all")
         defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
         let src = root.appendingPathComponent("src")
         let dst = root.appendingPathComponent("dst")
         for folder in ["One", "Two"] {
@@ -124,7 +128,7 @@ import Foundation
         let m = manager(prompts: prompts, childAnswers: ["x.txt": (.keepBoth, true)])
 
         let nodes = ["One", "Two"].map { FileNode(id: src.appendingPathComponent($0).path, name: $0, isDirectory: true) }
-        _ = await m.copyItems(nodes: nodes, toPath: dst.path)
+        _ = await m.copyItems(nodes: nodes, toPath: dst.path, fileManager: trash)
 
         // Asked once per merge: x.txt's "keep both, apply to all" answered y and z of the same
         // folder, and the second folder's merge asked afresh.
@@ -137,6 +141,7 @@ import Foundation
     @Test func aChildThatIsAFileOnOneSideAndAFolderOnTheOtherIsAskedAndNeverAnsweredByApplyToAll() async throws {
         let root = try makeCanonicalTempRoot(prefix: "folder-merge-type-mismatch")
         defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
         let src = root.appendingPathComponent("src/F")
         let dst = root.appendingPathComponent("dst/F")
         try write("new", src.appendingPathComponent("a.txt"))
@@ -146,7 +151,7 @@ import Foundation
         let prompts = Prompts()
         let m = manager(prompts: prompts, childAnswers: ["a.txt": (.replace, true)])
 
-        _ = await m.copyItems(nodes: [FileNode(id: src.path, name: "F", isDirectory: true)], toPath: dst.deletingLastPathComponent().path)
+        _ = await m.copyItems(nodes: [FileNode(id: src.path, name: "F", isDirectory: true)], toPath: dst.deletingLastPathComponent().path, fileManager: trash)
 
         #expect(prompts.children.map(\.fileName) == ["a.txt", "b"])
         #expect(prompts.children.last?.isDirectory == true)
@@ -159,11 +164,12 @@ import Foundation
     @Test func aMoveMergeTrashesTheEmptiedSourceAndKeepsOneThatStillHoldsASkippedItem() async throws {
         let root = try makeCanonicalTempRoot(prefix: "folder-merge-move")
         defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
         let (src, dst) = try fixture(root)
         let prompts = Prompts()
         let m = manager(prompts: prompts, childAnswers: ["a.txt": (.replace, false), "c.txt": (.replace, false)])
 
-        let moved = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)], toPath: dst.deletingLastPathComponent().path)
+        let moved = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)], toPath: dst.deletingLastPathComponent().path, fileManager: trash)
 
         #expect(moved.map(\.id) == [src.path])
         #expect(read(dst.appendingPathComponent("sub/c.txt")) == "new c")
@@ -185,9 +191,10 @@ import Foundation
         // Same again with a skip: the skipped file keeps its folder where it was.
         let root2 = try makeCanonicalTempRoot(prefix: "folder-merge-move-skip")
         defer { try? FileManager.default.removeItem(at: root2) }
+        let trash2 = ScratchTrash(in: root2)
         let (src2, dst2) = try fixture(root2)
         let m2 = manager(prompts: Prompts(), childAnswers: ["a.txt": (.replace, false), "c.txt": (.skip, false)])
-        _ = await m2.moveItems(nodes: [FileNode(id: src2.path, name: "Reports", isDirectory: true)], toPath: dst2.deletingLastPathComponent().path)
+        _ = await m2.moveItems(nodes: [FileNode(id: src2.path, name: "Reports", isDirectory: true)], toPath: dst2.deletingLastPathComponent().path, fileManager: trash2)
         #expect(files(src2) == [".DS_Store", "sub/c.txt"])
         #expect(read(dst2.appendingPathComponent("sub/deep/d.txt")) == "new d")
         #expect(read(dst2.appendingPathComponent("sub/c.txt")) == "old c")
@@ -197,6 +204,7 @@ import Foundation
     @Test func mergeIsNotOfferedThroughASymlinkOrForAFileOntoAFolder() async throws {
         let root = try makeCanonicalTempRoot(prefix: "folder-merge-not-offered")
         defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
         let src = root.appendingPathComponent("src")
         let dst = root.appendingPathComponent("dst")
         let elsewhere = root.appendingPathComponent("elsewhere")
@@ -212,7 +220,7 @@ import Foundation
 
         _ = await m.copyItems(nodes: [FileNode(id: src.appendingPathComponent("Linked").path, name: "Linked", isDirectory: true),
                                       FileNode(id: src.appendingPathComponent("Plain").path, name: "Plain", isDirectory: false)],
-                              toPath: dst.path)
+                              toPath: dst.path, fileManager: trash)
 
         #expect(prompts.top.count == 2)
         #expect(prompts.top.allSatisfy { !$0.offersMerge && $0.mergePreview == nil })
@@ -227,6 +235,7 @@ import Foundation
     @Test func aPackageIsNeverMergedAtTheTopOrInsideAMerge() async throws {
         let root = try makeCanonicalTempRoot(prefix: "folder-merge-package")
         defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
         let src = root.appendingPathComponent("src")
         let dst = root.appendingPathComponent("dst")
         for side in [(src, "new"), (dst, "old")] {
@@ -241,7 +250,7 @@ import Foundation
 
         _ = await m.copyItems(nodes: [FileNode(id: src.appendingPathComponent("Note.rtfd").path, name: "Note.rtfd", isDirectory: true),
                                       FileNode(id: src.appendingPathComponent("Folder").path, name: "Folder", isDirectory: true)],
-                              toPath: dst.path)
+                              toPath: dst.path, fileManager: trash)
 
         // The top-level package collision offered no merge; the plain folder did.
         #expect(Dictionary(uniqueKeysWithValues: prompts.top.map { ($0.fileName, $0.offersMerge) }) == ["Note.rtfd": false, "Folder": true])
@@ -261,6 +270,7 @@ import Foundation
     @Test func cancelDuringAMergeStopsTheRemainingChildren() async throws {
         let root = try makeCanonicalTempRoot(prefix: "folder-merge-cancel")
         defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
         let src = root.appendingPathComponent("src/F")
         let dst = root.appendingPathComponent("dst/F")
         try write("new", src.appendingPathComponent("a.txt"))
@@ -273,7 +283,7 @@ import Foundation
             return (.replace, false)
         }
 
-        _ = await m.copyItems(nodes: [FileNode(id: src.path, name: "F", isDirectory: true)], toPath: dst.deletingLastPathComponent().path)
+        _ = await m.copyItems(nodes: [FileNode(id: src.path, name: "F", isDirectory: true)], toPath: dst.deletingLastPathComponent().path, fileManager: trash)
 
         // a.txt's prompt pressed Cancel; the answer still stands for a.txt, nothing after it lands.
         #expect(read(dst.appendingPathComponent("b.txt")) == nil)

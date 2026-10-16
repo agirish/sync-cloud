@@ -382,6 +382,8 @@ import Testing
         let outcome = await world.manager.applyPlan(removal)
         #expect(outcome.refusal == nil)
         #expect(outcome.removedEmpty == 1)
+        #expect(world.trash.names == ["Emptied"],
+                "the emptied folder left the tree but never reached the test's own Trash")
         #expect(!undo.canUndo,
                 "⌘Z after a removal must not replay the previous landing's moves into folders the removal just trashed")
     }
