@@ -6931,3 +6931,41 @@ for l in main v4.x v3.x v2.x; do printf '%-5s ' "$l"
 |---|---|---|
 | `v4.x` | `makeTree()` returns no root; its own callers and `LargeWalkGuardTests`' one leak a `Resurvey-*` folder per test case | RECORDED — not owed (test hygiene) |
 | `v3.x` / `v2.x` | No re-survey suite | CLOSED — does not apply |
+
+## One busy indicator per pane; Compare shown busy only past 0.75 s — main only
+
+A pane reading its folder showed up to three indicators: the centred "Scanning Directory…" while it
+had no rows, a spinner chip in the corner once it had some, and a spinner in every open empty
+Columns column — the chip and the column spinners together for the whole gap between the shallow
+first paint and the deep walk. Now the pane's walk has one, the corner chip (`PaneBusyIndicator`),
+labelled, for the whole load and backed only when rows sit under it; a column spins only for a
+listing it alone is waiting on (`PaneColumnsView.emptyCaption` answers nil, not `.loading`, during
+the walk). Compare's card, count pill and the panes' Stop rung read `FileSyncManager.isScanShown`,
+which rises only once a scan has run 0.75 s, instead of `isScanning` — most rescans take 120–400 ms
+and flashed all three.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s centre=%s chip=%s columnSpinner=%s pillIsScanning=%s scanStartedAt=%s\n' "$l" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift | grep -c 'ProgressView("Scanning Directory')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift | grep -c '!tree.isEmpty && isLoading')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneColumnsView.swift | grep -c 'if isLoading { return .loading }')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferencesView.swift | grep -c 'if syncManager.isScanning {')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift | grep -c 'var scanStartedAt')"
+done
+# measured 2026-10-15, against origin, before this landed:
+# main, v4.x — centre=1 chip=1 columnSpinner=1 pillIsScanning=1 scanStartedAt=1
+# v3.x, v2.x — centre=1 chip=1 columnSpinner=0 pillIsScanning=1 scanStartedAt=0
+```
+
+**`v4.x`: applies whole, RECORDED — not owed.** Every piece is there in `main`'s shape. A pick is
+`PaneBusyIndicator.swift`, the two `FileTreeView` sites, the `emptyCaption` line, `isScanShown` and
+its wait in `FileSyncManager` and `executeScan`, and the three readers (`DifferencesView`'s pill,
+`ContentView`'s card and rung).
+
+**`v3.x`, `v2.x`: the pane half applies, RECORDED — not owed; the column and Compare halves are
+checked, not owed in this shape.** Both carry the centred placeholder and the corner chip. Neither
+has `emptyCaption` (`PaneColumnsView` is there, without the per-column spinner), so there is no
+column half to take. Neither has `scanStartedAt` or `ScanRungMode`; the pill reads `isScanning` and
+would flash the same way, so `isScanShown` would need its own start in `executeScan` there, and the
+rung is a spinning arrow rather than Stop.

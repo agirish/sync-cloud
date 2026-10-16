@@ -780,7 +780,9 @@ extension FileSyncManager {
     /// sitting there and a guard on it would report a cancel long after there was anything to
     /// cancel. The key covers the load phase in front of a scan (where `isScanning` is still
     /// false); `isScanning` covers the drained scan (which has no key). Together they are exactly
-    /// the window in which the UI offers Stop.
+    /// the window in which a Stop can act. The rung only *offers* it from `isScanShown` on, so a
+    /// scan too quick to stop never flashes it; a Stop pressed while it shows always lands inside
+    /// this window.
     ///
     /// **The queued request has to go too.** `pendingScanRequest` holds a scan that has not started
     /// yet; leaving it would let the drain start a *fresh* scan the instant the cancelled one
@@ -805,7 +807,16 @@ extension FileSyncManager {
 
     private func executeScan(_ request: ScanRequest) async {
         isScanning = true
-        scanStartedAt = Date()
+        let started = Date()
+        scanStartedAt = started
+        // `isScanShown` rises only if THIS scan is still the running one when the wait ends —
+        // keyed on its start time, so a wait outliving its scan cannot light up the next one early.
+        scanShownTask?.cancel()
+        scanShownTask = Task { [scanShownWait] in
+            await scanShownWait()
+            guard !Task.isCancelled, isScanning, scanStartedAt == started else { return }
+            isScanShown = true
+        }
         // Same identity discipline as the load records: the scan's own request generation, so a
         // start line pairs with its outcome even when a refresh supersedes the scan mid-flight
         // (which publishes nothing and, before this, logged nothing at all).
@@ -1108,6 +1119,9 @@ extension FileSyncManager {
 
         isScanning = false
         scanStartedAt = nil
+        scanShownTask?.cancel()
+        scanShownTask = nil
+        if isScanShown { isScanShown = false }
 
         if let pending = pendingScanRequest {
             pendingScanRequest = nil

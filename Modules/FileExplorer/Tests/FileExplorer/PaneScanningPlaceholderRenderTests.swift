@@ -5,9 +5,13 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// The scanning placeholder must paint its spinner and label and *nothing else*.
+/// An empty pane being read must paint its busy indicator's spinner and label and *nothing else*.
 ///
-/// It used to wear a `.regularMaterial` card with a shadow. A material has nothing to blur on an
+/// Since 2026-10-15 that indicator is the corner chip (`PaneBusyIndicator`), not a centred
+/// placeholder, and over an empty pane it goes unbacked for exactly the reason below; where it
+/// sits is `PaneBusyChipRenderTests`' business, and this keeps measuring that it brings no fill.
+///
+/// The centred placeholder it replaced used to wear a `.regularMaterial` card with a shadow. A material has nothing to blur on an
 /// empty pane, so what it actually drew was a flat gray slab in the middle of a white surface —
 /// visible in the shipped app, and the reason this test renders rather than inspects the view
 /// tree. Geometry cannot see a fill; only pixels can.

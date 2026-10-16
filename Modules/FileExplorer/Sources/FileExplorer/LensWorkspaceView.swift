@@ -5018,10 +5018,9 @@ public struct LensWorkspaceView: View {
                 .controlSize(.regular)
                 .padding(.top, 2)
         }
-        // The pane's progress dress, which is now no dress at all: this and the file pane's
-        // "Scanning Directory…" both sit on an empty surface, where a material has nothing to
-        // blur and paints a flat gray slab instead. One scan, one dialect — see the file pane's
-        // `.loading` state for why neither wears a card.
+        // No dress at all: this sits on an empty surface, where a material has nothing to blur
+        // and paints a flat gray slab instead. The file pane's busy chip follows the same rule and
+        // goes unbacked over an empty pane — see `PaneBusyIndicator`.
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

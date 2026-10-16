@@ -909,11 +909,17 @@ struct PaneColumnsView: View {
     nonisolated static func emptyCaption(rowsEmpty: Bool, depth: Int, isUnexplored: Bool,
                                          isLoading: Bool, isBeingRead: Bool) -> Caption? {
         guard rowsEmpty, depth > 0 else { return nil }
-        // **Loading outranks unexplored**, because during the shallow first paint every directory
-        // is unexplored — `loadTree` paints at `maxDepth: 1` so the pane appears at once, and the
-        // children arrive with the deep walk. Saying "can't be read" about a folder that is simply
-        // next in the queue is the same wrong answer as "Empty", one word further from the truth.
-        if isLoading { return .loading }
+        // **The pane's walk outranks unexplored**, because during the shallow first paint every
+        // directory is unexplored — `loadTree` paints at `maxDepth: 1` so the pane appears at once,
+        // and the children arrive with the deep walk. Saying "can't be read" about a folder that is
+        // simply next in the queue is the same wrong answer as "Empty", one word further from the
+        // truth.
+        //
+        // **And it answers with silence, not a spinner.** It answered `.loading` until 2026-10-15,
+        // which put a spinner in every open empty column on top of the pane's own corner chip —
+        // several indicators for one walk. The walk has exactly one, `PaneBusyIndicator`, and it is
+        // on screen whenever this is true.
+        if isLoading { return nil }
         // **A listing on its way outranks "can't be read", but only while the answer is still
         // unknown.** Past the node budget a folder is unexplored because nobody has walked it YET,
         // and the column has just asked — calling that "can't be read" is the same mistake as
@@ -931,6 +937,8 @@ struct PaneColumnsView: View {
     enum Caption: Equatable {
         case empty
         case unreadable
+        /// This column's own listing is on its way while the pane itself is idle — the one case in
+        /// which a column carries a spinner of its own.
         case loading
 
         /// `nil` while loading: that state draws a spinner, and a caption beside it would be the

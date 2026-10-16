@@ -383,6 +383,28 @@ public class FileSyncManager: ObservableObject {
     /// Set and cleared in lockstep with `isScanning`, so "scanning with no start time" is not a
     /// state any reader has to handle.
     @Published public internal(set) var scanStartedAt: Date?
+    /// Whether the running scan has run long enough to be shown as running — what every busy
+    /// surface of Compare reads (its card, its count pill, the panes' Stop rung), where
+    /// `isScanning` stays the fact the commands decide by.
+    ///
+    /// **Most scans should never be seen.** A scan of two cached walks finishes in 120–400 ms on
+    /// the user's own pairs (the INFO log's `[scan] … completed … in` lines, 2026-10-09 to 10-15),
+    /// so showing `isScanning` as it is flipped the pill to "scanning…", the in-sync card to the
+    /// big scanning card, and both rungs to Stop, and back, inside half a second: a flash that
+    /// reports nothing anyone can act on. This rises only once a scan has run for
+    /// `defaultScanShownAfter` (`scanShownWait`), and falls with `isScanning`.
+    @Published public internal(set) var isScanShown = false
+    /// How long a scan runs before `isScanShown` rises. 0.75 s clears every scan in that sample and
+    /// still answers inside the second after which a wait reads as the app having stalled.
+    static let defaultScanShownAfter: Duration = .milliseconds(750)
+    /// The wait itself — `defaultScanShownAfter` of sleep. A seam rather than a duration so a test
+    /// decides when the wait ends instead of racing a clock: on a loaded machine a two-file scan has
+    /// been measured at over a second, longer than any wait a timing test could afford.
+    var scanShownWait: @MainActor () async -> Void = {
+        try? await Task.sleep(for: FileSyncManager.defaultScanShownAfter)
+    }
+    /// The wait behind `isScanShown`, cancelled when the scan it was started for ends.
+    var scanShownTask: Task<Void, Never>?
     /// Indicates whether at least one successful scan has occurred.
     @Published public var hasScanned = false
 

@@ -549,7 +549,7 @@ public struct DifferencesView: View {
     /// change-detector would feed this same `detailStyle` decision rather than replace it — and
     /// should be additive, since a detector that MISSES a change under-warns, which is a worse
     /// failure than the over-warning this change fixes.
-    private func countPillDressing(at now: Date) -> CountPillDressing {
+    func countPillDressing(at now: Date) -> CountPillDressing {
         let accent = SemanticCapsuleStyle.onAccent(fill: glassHue.accentFillColor,
                                                    label: glassHue.onAccentLabelColor)
         // **The comparison's age, not the scan's** (`lastScanReadAt`): a scan from cached trees
@@ -563,7 +563,9 @@ public struct DifferencesView: View {
         let stamp = Calendar.current.isDateInToday(scanDate)
             ? scanDate.formatted(date: .omitted, time: .standard)
             : scanDate.formatted(date: .abbreviated, time: .standard)
-        if syncManager.isScanning {
+        // `isScanShown`, not `isScanning`: most rescans finish inside a few hundred milliseconds,
+        // and showing every one flashed "scanning…" over the count and straight back.
+        if syncManager.isScanShown {
             return CountPillDressing(semantic: accent,
                                      detailStyle: .of(.neutral, colorScheme),
                                      detail: "scanning…",

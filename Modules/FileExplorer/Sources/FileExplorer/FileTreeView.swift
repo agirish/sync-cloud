@@ -811,6 +811,11 @@ public struct FileTreeView: View, Equatable {
         )
     }
 
+    /// The pane's one "reading its folder" indicator (see `PaneBusyIndicator`).
+    var busyIndicator: PaneBusyIndicator {
+        PaneBusyIndicator.resolve(isLoading: isLoading, treeIsEmpty: tree.isEmpty)
+    }
+
     // No surface style here: the pane's shape is decided by its container (`paneCardIfNeeded` /
     // `panesRegionFrame`), and its material by the glass level. This view only paints the tint.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
@@ -871,13 +876,10 @@ public struct FileTreeView: View, Equatable {
             case .none:
                 EmptyView()
             case .loading:
-                // No card of its own. This is one of the pane's empty states, and every sibling
-                // (`EmptyStateView`, `settingsProblemPlaceholder`) draws straight onto the pane
-                // surface — a material slab here reads as a gray box floating on an empty white
-                // pane, because there is nothing behind it for a material to blur. Cards are for
-                // things that float OVER content: the refresh chip below, and `ProgressDialog`.
-                ProgressView("Scanning Directory...")
-                    .padding(16)
+                // Nothing in the centre. The pane's one busy indicator is the corner chip below,
+                // for the whole load — this case exists so "Folder is empty" cannot claim a pane
+                // that is still being read. See `PaneBusyIndicator`.
+                EmptyView()
             case .providerDisabled:
                 settingsProblemPlaceholder(
                     icon: "externaldrive.badge.xmark",
@@ -906,22 +908,8 @@ public struct FileTreeView: View, Equatable {
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            if !tree.isEmpty && isLoading {
-                // Subtle corner overlay when refreshing non-empty tree; display-only, so it
-                // must never intercept clicks meant for the rows underneath it.
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .controlSize(.small)
-                            .padding(12)
-                            .background(.regularMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: Radius.well, style: .continuous))
-                            .padding(20)
-                    }
-                }
-                .allowsHitTesting(false)
+            if case .chip(let backed) = busyIndicator {
+                PaneBusyChip(backed: backed)
             }
         }
     }

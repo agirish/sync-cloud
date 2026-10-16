@@ -255,6 +255,11 @@ struct ContentView: View {
     @State var editorPreviewLengthHold: PreviewLengthHold?
     @AppStorage("selectedRightProviderId") var rightProviderId: String = "iCloud"
     @State var isScanning = false
+    /// `syncManager.isScanShown`, mirrored like `isScanning` so the swap animates: what Compare's
+    /// busy surfaces draw from — the scanning card and the panes' Stop rung. A scan that ends
+    /// inside `FileSyncManager.defaultScanShownAfter` never reaches either. `isScanning` stays what the
+    /// commands decide by, because whether ⌘R may start a scan is not a question of display.
+    @State var isScanShown = false
 
     /// The retired welcome tour's seen flag, still read and never written.
     ///
@@ -1377,6 +1382,9 @@ struct ContentView: View {
         }
         .onReceive(syncManager.$isScanning) { scanning in
             withAnimation { isScanning = scanning }
+        }
+        .onReceive(syncManager.$isScanShown) { shown in
+            withAnimation { isScanShown = shown }
         }
         .onReceive(syncManager.refreshSubject) { scope in
             // The scope is the subject's, not this view's: only the sender knows whether one pane
@@ -3981,8 +3989,9 @@ struct ContentView: View {
                     ? { withAnimation(.easeInOut(duration: 0.2)) { togglePanesForCurrentTab() } }
                     : nil,
                 onRefresh: { forceRefreshAction() },
-                isRefreshing: isScanning,
-                // Turns the rung into Stop for as long as the scan runs. Both panes get it —
+                isRefreshing: isScanShown,
+                // Turns the rung into Stop for as long as the scan is shown as running — from
+                // `defaultScanShownAfter` in, so a scan too quick to stop does not flash it. Both panes get it —
                 // there is one scan behind the two of them, so stopping from either is the same
                 // act, and the pane the user happens to be looking at is the one they will reach
                 // for.
@@ -5170,7 +5179,7 @@ struct ContentView: View {
         } else {
             // Compare with nothing to list yet: scanning / all-in-sync / not-scanned placeholder.
                 Group {
-                    if isScanning {
+                    if isScanShown {
                         scanningPlaceholder
                     } else if syncManager.hasScanned {
                         EmptyStateView(

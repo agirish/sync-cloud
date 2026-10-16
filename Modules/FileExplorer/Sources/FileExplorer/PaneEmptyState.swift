@@ -6,7 +6,9 @@ import Foundation
 public enum PaneEmptyState: Equatable, Sendable {
     /// The tree has rows; no placeholder.
     case none
-    /// The tree is empty because a scan is still in flight; show the scanning spinner.
+    /// The tree is empty because a scan is still in flight. Draws nothing in the centre: the
+    /// pane's one busy indicator is its corner chip (`PaneBusyIndicator`). The case still matters,
+    /// because it keeps "Folder is empty" off a pane that has not been read yet.
     case loading
     /// The pane's provider is disabled in Settings (transient: pane selection re-resolves
     /// away from disabled providers, but the tree can render before that lands).
@@ -20,7 +22,7 @@ public enum PaneEmptyState: Equatable, Sendable {
     /// Classifies the pane's placeholder from cheaply available state — no disk I/O.
     /// `rootIsValid` is SettingsManager's last validity check of the provider ROOT; a
     /// focused subfolder that vanished still classifies as an empty folder.
-    /// Order matters: loading always wins (the spinner must behave exactly as before),
+    /// Order matters: loading always wins (nothing may call a pane empty while it is being read),
     /// and a disabled provider outranks its (possibly also invalid) root path because
     /// re-enabling is the actionable fix.
     public static func classify(

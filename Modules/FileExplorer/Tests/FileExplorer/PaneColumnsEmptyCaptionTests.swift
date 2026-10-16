@@ -55,16 +55,23 @@ import Testing
                                              isUnexplored: true, isLoading: false, isBeingRead: false) == .unreadable)
     }
 
-    /// **Loading outranks unexplored**, and that ordering is the fix for the reported symptom
-    /// rather than an optimisation. During the shallow first paint *every* directory is unexplored,
-    /// so without this the pane would swap one wrong answer for another — announcing "can't be
-    /// read" about folders that are merely next in the queue, which is further from the truth than
-    /// "Empty" was.
-    @Test func loadingOutranksUnexplored() {
-        #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1,
-                                             isUnexplored: true, isLoading: true, isBeingRead: false) == .loading)
-        #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1,
-                                             isUnexplored: false, isLoading: true, isBeingRead: false) == .loading)
+    /// **The pane's walk outranks unexplored**, and that ordering is the fix for the reported
+    /// symptom rather than an optimisation. During the shallow first paint *every* directory is
+    /// unexplored, so without this the pane would swap one wrong answer for another — announcing
+    /// "can't be read" about folders that are merely next in the queue, which is further from the
+    /// truth than "Empty" was.
+    ///
+    /// **And the answer is silence, not a spinner** (2026-10-15). It was `.loading`, which drew a
+    /// spinner in every open empty column beside the pane's own corner chip — several busy
+    /// indicators for one walk. The walk has one, `PaneBusyIndicator`, so a column says nothing.
+    @Test func thePanesWalkSilencesEveryEmptyColumn() {
+        for unexplored in [true, false] {
+            for beingRead in [true, false] {
+                #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1, isUnexplored: unexplored,
+                                                     isLoading: true, isBeingRead: beingRead) == nil,
+                        "a column spoke during the pane's walk (unexplored: \(unexplored), being read: \(beingRead))")
+            }
+        }
     }
 
     /// The three are distinct values, so a caller cannot collapse two of them by accident — which
@@ -136,9 +143,11 @@ import Testing
 
     /// The pane's own walk still outranks everything: during the shallow paint every directory is
     /// unexplored and the deep walk is coming, so a per-directory request is not what will fill it.
+    /// Silent rather than a spinner of its own, because the pane's chip is already saying it — a
+    /// column spinner is only for a listing that column alone is waiting on.
     @Test func thePanesOwnWalkStillOutranksTheColumnRequest() {
         #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1, isUnexplored: true,
-                                             isLoading: true, isBeingRead: true) == .loading)
+                                             isLoading: true, isBeingRead: true) == nil)
     }
 }
 
