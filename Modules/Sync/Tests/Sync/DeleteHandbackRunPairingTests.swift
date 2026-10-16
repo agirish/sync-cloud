@@ -31,10 +31,8 @@ import Events
     private final class Marker { var undone = false }
 
     private func isolatedManager() -> FileSyncManager {
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("DeleteHandbackRunPairing-\(UUID().uuidString).jsonl")
         let manager = FileSyncManager()
-        manager.syncHistoryStore = SyncHistoryStore(fileURL: url)
+        manager.syncHistoryStore = makeTempHistoryStore(prefix: "DeleteHandbackRunPairing")
         let um = UndoManager()
         um.groupsByEvent = false            // deterministic manual grouping
         manager.undoManager = um
@@ -56,6 +54,7 @@ import Events
     /// records this delete produced belong to a group nobody has registered yet.
     @Test func aHandedBackDeleteNeverPairsItsRecordsWithTheCallersPreviousStep() async throws {
         let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let previous = Marker()
         registerStep(manager, name: "Merge Photos", marker: previous)
 
@@ -85,6 +84,7 @@ import Events
     /// the history. Without this, dropping the `recordSyncHistory` call entirely would pass above.
     @Test func aHandedBackDeleteStillRecordsItsHistory() async throws {
         let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let fm = MockFileManager()
         try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         fm.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(
@@ -123,6 +123,8 @@ import Events
         let two = try makeGroup(base.appendingPathComponent("two"), redundantName: names[1])
 
         let manager = isolatedManager()             // groupsByEvent = false: the steps are the merges'
+
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         manager.duplicateGroups = [one.group, two.group]
 
         try #require(await manager.mergeDuplicateGroup(one.group) == true, "the first merge failed")

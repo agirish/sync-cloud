@@ -10,14 +10,9 @@ import Events
 @MainActor
 @Suite struct SyncHistoryRecordingTests {
 
-    private func makeStore() -> SyncHistoryStore {
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("SyncHistoryRecordingTest-\(UUID().uuidString).jsonl")
-        return SyncHistoryStore(fileURL: url)
-    }
-
     @Test func testCopyItemsRecordsACopyWithPaneDirection() async throws {
-        let store = makeStore()
+        let store = makeTempHistoryStore(prefix: "SyncHistoryRecordingTest")
+        defer { removeHistoryStoreFiles(store) }
         let manager = FileSyncManager()
         manager.syncHistoryStore = store
         let mockFM = MockFileManager()
@@ -38,7 +33,8 @@ import Events
     }
 
     @Test func testMoveItemsRecordsAMove() async throws {
-        let store = makeStore()
+        let store = makeTempHistoryStore(prefix: "SyncHistoryRecordingTest")
+        defer { removeHistoryStoreFiles(store) }
         let manager = FileSyncManager()
         manager.syncHistoryStore = store
         let mockFM = MockFileManager()
@@ -59,7 +55,8 @@ import Events
     }
 
     @Test func testDeleteItemsRecordsDeletes() async throws {
-        let store = makeStore()
+        let store = makeTempHistoryStore(prefix: "SyncHistoryRecordingTest")
+        defer { removeHistoryStoreFiles(store) }
         let manager = FileSyncManager()
         manager.syncHistoryStore = store
         let mockFM = MockFileManager()
@@ -76,7 +73,8 @@ import Events
     }
 
     @Test func testSyncAllRecordsAllItemsUnderOneRunAndGroupsUndo() async throws {
-        let store = makeStore()
+        let store = makeTempHistoryStore(prefix: "SyncHistoryRecordingTest")
+        defer { removeHistoryStoreFiles(store) }
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
         manager.syncHistoryStore = store

@@ -14,10 +14,8 @@ import Events
     private final class Marker { var undone = false }
 
     private func isolatedManager() -> FileSyncManager {
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("SyncRunUndoGuardTest-\(UUID().uuidString).jsonl")
         let manager = FileSyncManager()
-        manager.syncHistoryStore = SyncHistoryStore(fileURL: url)
+        manager.syncHistoryStore = makeTempHistoryStore(prefix: "SyncRunUndoGuardTest")
         let um = UndoManager()
         um.groupsByEvent = false            // deterministic manual grouping + synchronous undo()
         manager.undoManager = um
@@ -42,6 +40,7 @@ import Events
 
     @Test func previewPresentAndUndoFiresWhenRecordedRunIsOnTop() {
         let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let run = UUID()
         let marker = Marker()
         registerRun(manager, name: "Sync run", marker: marker)
@@ -65,6 +64,7 @@ import Events
         // preview still describes run B's records and undo() would reverse run A. The pairing
         // must die with the manual undo instead.
         let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let markerA = Marker(), markerB = Marker()
         registerRun(manager, name: "Sync run", marker: markerA)
         manager.recordSyncHistory([record(run: UUID())])
@@ -88,6 +88,7 @@ import Events
         // ⇧⌘Z re-registers the run's group under a fresh registration the pairing knows
         // nothing about — the gate must stay closed after a redo, exactly as after an undo.
         let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let marker = Marker()
         registerRun(manager, name: "Sync run", marker: marker)
         manager.recordSyncHistory([record(run: UUID())])
@@ -101,6 +102,7 @@ import Events
         // A window reopen injects a NEW UndoManager: a pairing armed against the old stack
         // must not be validated against the new one's identically-named groups.
         let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let marker = Marker()
         registerRun(manager, name: "Sync run", marker: marker)
         manager.recordSyncHistory([record(run: UUID())])
@@ -118,6 +120,7 @@ import Events
         // "Undo Last Run" describe the delete while reversing the unrelated action on top.
         // The unpaired record must leave the previous run's (still correct) pairing intact.
         let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let marker = Marker()
         registerRun(manager, name: "Copy 1 Items", marker: marker)
         let copyRun = UUID()
@@ -138,6 +141,7 @@ import Events
         // Unlike the gate tests, the real op sites register their undos through the manager's
         // own grouping — so this manager keeps the UndoManager's default event grouping.
         let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         manager.undoManager = UndoManager()
         manager.collisionResolver = { _ in .replace }
         let mockFM = MockFileManager()
@@ -171,6 +175,7 @@ import Events
         // stale run-1 pairing would pass the name gate and preview run 1's paths while undo()
         // restored run 2's item. A mixed delete must invalidate the stale pairing outright.
         let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         manager.undoManager = UndoManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -195,6 +200,7 @@ import Events
 
     @Test func refusesAndNamesTheActionWhenANonSyncActionIsOnTop() {
         let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let syncMarker = Marker()
         registerRun(manager, name: "Sync run", marker: syncMarker)
         manager.recordSyncHistory([record(run: UUID())])
@@ -214,6 +220,7 @@ import Events
 
     @Test func refusesWhenNothingIsUndoable() {
         let manager = isolatedManager()                      // fresh UndoManager, nothing recorded
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         #expect(manager.lastSyncRunUndoPreview == nil)
         manager.undoLastSyncRun()
         #expect(manager.banner?.severity == .warning)
@@ -223,6 +230,7 @@ import Events
         // Simulates ⌘Z between the recorded run and pressing the window button: the stack's top no
         // longer matches, so the button won't blindly reverse whatever is now on top.
         let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let marker = Marker()
         registerRun(manager, name: "Sync run", marker: marker)
         manager.recordSyncHistory([record(run: UUID())])

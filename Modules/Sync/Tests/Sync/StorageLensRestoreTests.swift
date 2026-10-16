@@ -231,6 +231,9 @@ import Testing
         let manager = FileSyncManager()
         manager.storageLensStoreURL = url
         await manager.buildStorageLens(root: root)                     // fresh results on screen
+        // The build saves in the background; awaited so the write cannot land after the `defer`
+        // has removed the store's folder, and recreate it.
+        StorageLensStore.waitForPendingWrites()
         let fresh = try #require(manager.storageLensReport)
 
         #expect(!manager.restoreStorageLens(root: root))               // declines
@@ -342,6 +345,7 @@ import Testing
         #expect(manager.storageLensLifecycle.isRestored)
 
         await manager.buildStorageLens(root: root)
+        StorageLensStore.waitForPendingWrites()     // the rescan saves too — see the guard test
         #expect(!manager.storageLensLifecycle.isRestored)
     }
 }

@@ -8,7 +8,7 @@ import Foundation
 @MainActor
 @Suite struct RestructureVisibilityTests {
 
-    private func makeManager() throws -> FileSyncManager {
+    private func makeManager() throws -> (manager: FileSyncManager, dir: URL) {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("visibility-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir.appendingPathComponent("t"),
@@ -29,11 +29,12 @@ import Foundation
         manager.filingFolderProfile = FolderProfile(profileId: "t", root: "/r",
                                                     folders: folders, personTokens: [])
         manager.restructureStore = RestructureStore(directory: dir, profileId: "t")
-        return manager
+        return (manager, dir)
     }
 
     @Test func aSuppressedFindingLeavesTheVisibleSetAndComesBackOnUnsuppress() throws {
-        let manager = try makeManager()
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let finding = try #require(manager.visibleStructureFindings.first {
             $0.kind == .backlog
         })
@@ -48,7 +49,8 @@ import Foundation
     }
 
     @Test func withNoStoreTheVisibleSetIsTheWholeReport() throws {
-        let manager = try makeManager()
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
         manager.restructureStore = nil
         #expect(manager.visibleStructureFindings == manager.structureFindings)
     }
@@ -60,7 +62,7 @@ import Foundation
 @MainActor
 @Suite struct RestructureTrendStampTests {
 
-    private func makeManager() throws -> FileSyncManager {
+    private func makeManager() throws -> (manager: FileSyncManager, dir: URL) {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("trend-stamp-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir.appendingPathComponent("t"),
@@ -81,12 +83,13 @@ import Foundation
                                                     folders: folders, personTokens: [])
         manager.filingProfileDirectoryId = "t"
         manager.restructureStore = RestructureStore(directory: dir, profileId: "t")
-        return manager
+        return (manager, dir)
     }
 
     /// The point carries the detectors' own per-kind counts, summing to what the lens shows.
     @Test func aStampCountsTheSurveysFindingsByKind() throws {
-        let manager = try makeManager()
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let expected = manager.structureFindings.count
         #expect(expected > 0, "a positive control: this profile fires")
 
@@ -105,7 +108,8 @@ import Foundation
     /// **Suppression does not move the line.** A trend that fell when the user hid a card would
     /// answer "is the tree getting better?" with "did you look away?".
     @Test func aSuppressedFindingStillCounts() throws {
-        let manager = try makeManager()
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let finding = try #require(manager.visibleStructureFindings.first)
         let expected = manager.structureFindings.count
 
@@ -126,7 +130,8 @@ import Foundation
     /// Checked by making the count itself impossible: a manager with no profile cannot produce
     /// findings, so a stamp that reached the counting stage could not record the total below.
     @Test func aProfileAlreadyStampedIsAnsweredWithoutCountingAgain() throws {
-        let manager = try makeManager()
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
         manager.stampStructureTrend()
         let first = try #require(manager.restructureStore?.trend.last)
         #expect(first.total > 0)
@@ -144,7 +149,8 @@ import Foundation
 
     /// With no profile there is no survey to count, and a zero point would read as a clean tree.
     @Test func nothingIsStampedWithoutAProfile() throws {
-        let manager = try makeManager()
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
         manager.filingFolderProfile = nil
         manager.stampStructureTrend()
         #expect(manager.restructureStore?.trend.isEmpty == true)
@@ -211,20 +217,22 @@ import Foundation
         return FolderProfile(profileId: "t", root: root, folders: folders, personTokens: [])
     }
 
-    private func makeManager(extra: [String: (Int, Int)] = [:]) throws -> FileSyncManager {
+    private func makeManager(extra: [String: (Int, Int)] = [:]) throws
+        -> (manager: FileSyncManager, dir: URL) {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("memo-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let manager = FileSyncManager()
         manager.filingFolderProfile = Self.profile(extra: extra)
         manager.restructureStore = RestructureStore(directory: dir, profileId: "t")
-        return manager
+        return (manager, dir)
     }
 
     /// Suppressing one finding and un-suppressing it again — and then *moving* the suppression to
     /// a second finding, which leaves the set the same size and a different answer.
     @Test func aSuppressionThatMovesInvalidatesTheMemo() throws {
-        let manager = try makeManager()
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let backlogs = manager.visibleStructureFindings.filter { $0.kind == .backlog }
         #expect(backlogs.count == 2, "a positive control: two families fire")
         let first = backlogs[0], second = backlogs[1]
@@ -247,15 +255,17 @@ import Foundation
     /// A different store carrying different suppressions replaces the answer, even though nothing
     /// about the profile moved.
     @Test func swappingTheStoreInvalidatesTheMemo() throws {
-        let manager = try makeManager()
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let finding = try #require(manager.visibleStructureFindings.first { $0.kind == .backlog })
         manager.restructureStore?.suppress(RestructureKey(finding))
         #expect(!manager.visibleStructureFindings.contains { $0.id == finding.id })
 
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+        let swapDir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("memo-swap-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        manager.restructureStore = RestructureStore(directory: dir, profileId: "t")
+        try FileManager.default.createDirectory(at: swapDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: swapDir) }
+        manager.restructureStore = RestructureStore(directory: swapDir, profileId: "t")
         #expect(manager.visibleStructureFindings.contains { $0.id == finding.id },
                 "a fresh store suppresses nothing")
 
@@ -268,8 +278,9 @@ import Foundation
     /// scan's root are both in the key. Driven three ways: the root alone, the groups alone, and
     /// an element rewrite that leaves the group count unchanged.
     @Test func theDuplicateScanInvalidatesTheMemo() throws {
-        let manager = try makeManager(extra: ["Papers": (0, 2),
-                                              "Papers/One": (4, 0), "Papers/Two": (4, 0)])
+        let (manager, dir) = try makeManager(extra: ["Papers": (0, 2),
+                                                     "Papers/One": (4, 0), "Papers/Two": (4, 0)])
+        defer { try? FileManager.default.removeItem(at: dir) }
         func group(_ name: String, _ folders: [String]) -> DuplicateGroup {
             DuplicateGroup(matchType: .sameText, name: name, isDirectory: false,
                            copies: folders.map {
@@ -309,7 +320,8 @@ import Foundation
     /// A new profile replaces everything under the memo — the report, the folder universe §5.9
     /// reads, and the answer.
     @Test func aNewProfileInvalidatesTheMemo() throws {
-        let manager = try makeManager()
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
         #expect(!manager.visibleStructureFindings.isEmpty, "a positive control")
         manager.filingFolderProfile = FolderProfile(profileId: "t2", root: Self.root,
                                                     folders: [:], personTokens: [])
@@ -322,7 +334,8 @@ import Foundation
     /// replaced. Set two profiles back to back, let the tasks land, and the answer must be the
     /// second one's — indefinitely.
     @Test func aSupersededWarmUpNeverOverwritesTheCache() async throws {
-        let manager = try makeManager()
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
         manager.filingFolderProfile = Self.profile()          // warm-up 1, immediately superseded
         manager.filingFolderProfile = FolderProfile(profileId: "t2", root: Self.root,
                                                     folders: [:], personTokens: [])
@@ -336,7 +349,8 @@ import Foundation
     /// …and the warm-up does land, for the profile that is current. Without this the test above
     /// would pass against a warm-up that never ran at all.
     @Test func theWarmUpInstallsAReportForTheCurrentProfile() async throws {
-        let manager = try makeManager()
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
         // Drain to the warm-up's install. It races the synchronous path by design, so the
         // observable claim is only that the answer is correct and stays correct.
         for _ in 0..<50 { try await Task.sleep(nanoseconds: 2_000_000) }

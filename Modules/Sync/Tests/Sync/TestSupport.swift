@@ -366,6 +366,25 @@ func makeCanonicalTempRoot(prefix: String) throws -> URL {
     return URL(fileURLWithPath: canonical ?? raw.path, isDirectory: true)
 }
 
+/// A `SyncHistoryStore` on its own temp file, so a test's records stay out of the per-process
+/// shared store. The caller owns cleanup: `defer { removeHistoryStoreFiles(store) }`.
+@MainActor
+func makeTempHistoryStore(prefix: String) -> SyncHistoryStore {
+    SyncHistoryStore(fileURL: FileManager.default.temporaryDirectory
+        .appendingPathComponent("\(prefix)-\(UUID().uuidString).jsonl"))
+}
+
+/// Removes what a ``makeTempHistoryStore(prefix:)`` store put on disk: its file AND the `.lock`
+/// sidecar `LogFileWriter`'s trim takes beside it. Flushes first — the writer creates both on its
+/// background queue, from `init` onwards, so a remove that does not wait for it runs before they
+/// exist and the queue writes them afterwards.
+@MainActor
+func removeHistoryStoreFiles(_ store: SyncHistoryStore) {
+    store.flushToDisk()
+    try? FileManager.default.removeItem(at: store.fileURL)
+    try? FileManager.default.removeItem(atPath: store.fileURL.path + ".lock")
+}
+
 /// Every set-aside a store has written beside `url`, sorted by name.
 ///
 /// The kept name is unique PER EPISODE (``UnreadableSetAside``), so a test discovers the rescued
