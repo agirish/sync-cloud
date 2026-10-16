@@ -11,7 +11,7 @@ import Settings
     @MainActor
     @Test func testFocusFolderDerivesRelativePathFromProviderRoot() {
         let manager = FileSyncManager()
-        let settings = SettingsManager(autoDiscover: false) // seeded iCloud provider only
+        let settings = scratchSettings() // seeded iCloud provider only
         let handler = FileActionHandler(syncManager: manager, settings: settings)
 
         let root = settings.rootPath(for: "iCloud")
@@ -27,7 +27,7 @@ import Settings
         // A fresh scratch suite has no value for the key, which is the unlinked default.
         let defaults = ScratchDefaults("FileActionHandlerHelperTests")
         let manager = FileSyncManager()
-        let settings = SettingsManager(autoDiscover: false)
+        let settings = scratchSettings()
         let handler = FileActionHandler(syncManager: manager, settings: settings, defaults: defaults)
 
         let root = settings.rootPath(for: "iCloud")
@@ -48,7 +48,7 @@ import Settings
         let defaults = ScratchDefaults("FileActionHandlerHelperTests")
         defaults.set(true, forKey: PaneLinkPreference.defaultsKey)
         let manager = FileSyncManager()
-        let settings = SettingsManager(autoDiscover: false)
+        let settings = scratchSettings()
         let handler = FileActionHandler(syncManager: manager, settings: settings, defaults: defaults)
 
         let root = settings.rootPath(for: "iCloud")
@@ -67,7 +67,7 @@ import Settings
         let defaults = ScratchDefaults("FileActionHandlerHelperTests")
         defaults.set(true, forKey: PaneLinkPreference.defaultsKey)
         let manager = FileSyncManager()
-        let settings = SettingsManager(autoDiscover: false)
+        let settings = scratchSettings()
         let handler = FileActionHandler(syncManager: manager, settings: settings, defaults: defaults)
 
         let root = settings.rootPath(for: "iCloud")
@@ -81,7 +81,7 @@ import Settings
     @MainActor
     @Test func testFocusFolderOnRootYieldsEmptyRelativePath() {
         let manager = FileSyncManager()
-        let settings = SettingsManager(autoDiscover: false)
+        let settings = scratchSettings()
         let handler = FileActionHandler(syncManager: manager, settings: settings)
 
         let root = settings.rootPath(for: "iCloud")
@@ -93,7 +93,7 @@ import Settings
 
     @MainActor
     @Test func testProviderDisplayNameMatchesRootAndRespectsBoundary() {
-        let settings = SettingsManager(autoDiscover: false)
+        let settings = scratchSettings()
         let handler = FileActionHandler(syncManager: FileSyncManager(), settings: settings)
         let root = settings.rootPath(for: "iCloud")
 
@@ -109,5 +109,13 @@ import Settings
         // Backslash must be escaped before the quote, else the quote's backslash gets doubled.
         #expect(FileActionHandler.escapeForAppleScript(#"a"b\c"#) == #"a\"b\\c"#)
         #expect(FileActionHandler.escapeForAppleScript("plain") == "plain")
+    }
+
+    /// Settings on a scratch suite, so the seed is iCloud and nothing else. On the standard domain
+    /// (under `swift test`, the `swiftpm-testing-helper` plist every test process shares) the seed
+    /// also took whatever `lastKnownAccountFolders` and root overrides other runs had left there.
+    @MainActor
+    private func scratchSettings() -> SettingsManager {
+        SettingsManager(autoDiscover: false, userDefaults: ScratchDefaults("FileActionHandlerHelperTests"))
     }
 }

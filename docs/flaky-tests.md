@@ -2485,8 +2485,9 @@ DYLD_LIBRARY_PATH="$D:$X/usr/lib" DYLD_FRAMEWORK_PATH="$X/Library/Frameworks:$X/
 
 **The last four package suites that wrote it moved
 the same way, also 2026-10-15:** Dashboard's `FileActionHandlerHelperTests` (the handler's own
-`defaults`, through `PaneLinkPreference.isLinked(in:)`), Events' `LoggerLevelGateTests` (a scratch
-suite named as the ambient store in `persistedMinimumLevel(from:ambient:)`), and FileExplorer's
+`defaults`, through `PaneLinkPreference.isLinked(in:)`; its settings followed on 2026-10-16,
+below), Events' `LoggerLevelGateTests` (a scratch suite named as the ambient store in
+`persistedMinimumLevel(from:ambient:)`), and FileExplorer's
 `FilingRefineControlTests` and `FilingRefineRouteCostTests` (one suite as the manager's
 `filingContentDefaults` and the lens's `.defaultAppStorage`). Under two helper processes the old
 tests failed 19 runs in 60 (Dashboard) and 18 in 40 (FileExplorer); after, 0 in 60 and 0 in 40.
@@ -2519,6 +2520,18 @@ and SyncCloudCLI's two bundles. Two writers were left:
 was a probe that never landed. After the fix, every probe domain is empty or absent. Under two
 helper processes sharing the real domain, `FileActionHandlerTests` passed 40 runs in 40 and
 `PreviewEditorViewTests` 16 in 16.
+
+**One reader was left, and moved 2026-10-16 too.** `FileActionHandlerHelperTests` gave the
+handler a scratch suite on 2026-10-15 but still built its `SettingsManager` on the standard
+domain. It wrote nothing, so the probes above could not see it, but its provider seed read
+whatever `lastKnownAccountFolders` and root overrides other runs had left: six real accounts,
+under a comment saying "seeded iCloud provider only". Its settings now come from a
+`ScratchDefaults`, as `FileActionHandlerTests`' do. Measured with saved builds under renamed
+helpers, 10 runs per cell: on an empty probe domain old and new both passed 10 in 10. With one
+account (`/tmp/hostile/OneDrive-Hostile`) and a root override putting it at
+`~/Library/Mobile Documents`, old failed 10 in 10 (`"\(root)Extra"` named the account instead of
+"other pane") and new passed 10 in 10. The account list alone cannot do that: an account's root
+ends in its own folder name, so it never sits above iCloud's. It takes the override beside it.
 
 ### 19. `Task.yield()` assumed to park a test inside an async window — a VACUOUS green, not a red
 
