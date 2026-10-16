@@ -200,6 +200,25 @@ public enum DestinationBrowser {
         }
     }
 
+    /// ``listSubfolders(of:showHidden:fileManager:)`` for a caller that can suspend — the picker's
+    /// column load. A folder whose contents are not on this Mac is asked for first, through
+    /// `waitForContents`, without holding a thread while its cloud app answers or does not; the
+    /// listing then never waits — an answered folder is on disk, an unanswered one is refused at
+    /// once and reads "Can’t be read". With OneDrive not running, a listing of its `.Trash` never
+    /// returns (measured from Terminal, 2026-10-02); a picker browsing into it with hidden files
+    /// shown would leave that column loading for good, and every column after it, which load in turn.
+    public static func listSubfoldersSuspending(
+        of path: String,
+        showHidden: Bool = false,
+        fileManager: FileManaging
+    ) async -> DestinationFolderListing {
+        let root = PaneBrowsePath.normalized(path)
+        if !root.isEmpty {
+            _ = await fileManager.waitForContents(of: URL(fileURLWithPath: root))
+        }
+        return listSubfolders(of: path, showHidden: showHidden, fileManager: fileManager)
+    }
+
     /// Folders under `root` whose name contains `query`, breadth-first.
     ///
     /// Breadth-first and bounded on purpose. The corpus is a live provider, which can be very large

@@ -43,18 +43,27 @@ import Foundation
 /// the fan-out: its first walk took 5.5 s and the two after it 3.0 and 2.4 s, skipping both. Folders
 /// a walk meets one after another — below the fan-out's horizon, `TreeBuilder.maxFanLevel` — wait
 /// one after another.
+///
+/// **Every listing asks through it, not just the walks.** `FileManaging.listing(of:)` and
+/// `childCount(of:)` route a dataless folder here — and step around one met inside a recursive
+/// listing — so the destination picker, the undo identities, a folder merge, the filing renamer,
+/// Look for Names, Edit's rail and the filing card cannot block on one either. Those callers are
+/// synchronous and WAIT for the answer (`readBlocking`): at most the deadline, only the first time,
+/// and on their own thread — the main actor's, for a move's undo registration. One that can suspend
+/// asks first with `waitForContents(of:)`, which holds no thread, and its listing then never waits.
 extension FileSyncManager {
 
-    final class DatalessFolderReads: @unchecked Sendable {
+    public final class DatalessFolderReads: @unchecked Sendable {
 
-        /// The one the app's walks share — so the storage lens, a column's graft and the panes all
-        /// know the same unanswered folders. Tests make their own, with a short deadline.
-        static let shared = DatalessFolderReads(deadline: .seconds(5))
+        /// The one the app's walks and listings share — so the storage lens, a column's graft, the
+        /// panes and every `listing(of:)` know the same unanswered folders. Tests make their own,
+        /// with a short deadline.
+        public static let shared = DatalessFolderReads(deadline: .seconds(5))
 
         /// How long a walk waits for a folder's provider before calling it unanswered.
-        let deadline: Duration
+        public let deadline: Duration
 
-        init(deadline: Duration) {
+        public init(deadline: Duration) {
             self.deadline = deadline
         }
 
@@ -114,7 +123,8 @@ extension FileSyncManager {
         }
 
         /// `read(_:_:)` for a caller that cannot suspend — the comparison's disk walk, which runs
-        /// inside a `FileManager.DirectoryEnumerator` loop. The listing still runs off the pool; it is
+        /// inside a `FileManager.DirectoryEnumerator` loop, and `FileManaging.listing(of:)`, whose
+        /// callers are synchronous. The listing still runs off the pool; it is
         /// the CALLER that waits here, blocking its thread for at most `deadline` and only the first
         /// time a folder goes unanswered — after that the answer is immediate. Wakes every 50 ms to
         /// see whether its task was cancelled, so a superseded scan does not sit out the deadline.
@@ -142,7 +152,7 @@ extension FileSyncManager {
 
         /// Whether a read of `path` is still out — running or past its deadline. For the tests that
         /// release a parked listing and then need to know it has come back.
-        func isOutstanding(_ path: String) -> Bool {
+        public func isOutstanding(_ path: String) -> Bool {
             let path = Self.key(path)
             lock.lock(); defer { lock.unlock() }
             return reads[path] != nil

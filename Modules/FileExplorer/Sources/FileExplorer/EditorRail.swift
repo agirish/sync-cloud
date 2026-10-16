@@ -100,7 +100,7 @@ public enum EditorRail {
     /// not agree with.
     public static func entries(in folder: String,
                         showsHidden: Bool,
-                        fileManager: FileManager = .default,
+                        fileManager: FileManaging = FileManager.default,
                         isCloudOnly: (String) -> Bool = {
                             MaterializationStatus.isCloudOnly(atPath: $0)
                         }) -> [EditorRailEntry] {
@@ -120,18 +120,25 @@ public enum EditorRail {
     /// keeping directories out of the count. Counting them would put a second wrong answer where
     /// the first one was — "none of the 12 files" over a folder holding eight subfolders and four
     /// files.
+    ///
+    /// **Listed through Sync's shared `listing(of:)`**, which asks a folder whose contents are not on
+    /// this Mac through the dataless-folder reads: when its cloud app is not running, the bare
+    /// `contentsOfDirectory` this used to call never returned, and the rail re-lists after every
+    /// autosave — one more stuck thread each time. Such a folder now reads as unreadable, after at
+    /// most the reads' deadline and only the first time; the rail's refresh asks through
+    /// ``surveySuspending(in:showsHidden:fileManager:)``, which does not hold a thread for even that.
     public static func survey(in folder: String,
                        showsHidden: Bool,
-                       fileManager: FileManager = .default,
+                       fileManager: FileManaging = FileManager.default,
                        isCloudOnly: (String) -> Bool = {
                            MaterializationStatus.isCloudOnly(atPath: $0)
                        }) -> Survey {
         // Unreadable, or no folder at all: "there are no other files in it" is a claim, and there
         // is nothing here to base one on. `nil` says that; `0` would assert it.
-        guard !folder.isEmpty,
-              let names = try? fileManager.contentsOfDirectory(atPath: folder) else {
-            return Survey(rows: [], otherFileCount: nil)
-        }
+        guard !folder.isEmpty else { return Survey(rows: [], otherFileCount: nil) }
+        let listing = fileManager.listing(of: URL(fileURLWithPath: folder))
+        guard listing.outcome != .unreadable else { return Survey(rows: [], otherFileCount: nil) }
+        let names = listing.urls.map(\.lastPathComponent)
         var rows: [EditorRailEntry] = []
         for name in names {
             guard showsHidden || !name.hasPrefix(".") else { continue }
@@ -172,6 +179,21 @@ public enum EditorRail {
             others += 1
         }
         return Survey(rows: [], otherFileCount: others)
+    }
+
+    /// ``survey(in:showsHidden:fileManager:isCloudOnly:)`` for a caller that can suspend — the
+    /// rail's own refresh. A folder whose contents are not on this Mac is asked for first, through
+    /// `waitForContents`, without holding a thread while its cloud app answers or does not; the
+    /// survey's listing then never waits — an answered folder is on disk, an unanswered one is
+    /// refused at once.
+    public static func surveySuspending(in folder: String,
+                                        showsHidden: Bool,
+                                        fileManager: FileManaging = FileManager.default) async -> Survey {
+        // Not for "": `URL(fileURLWithPath:)` makes that the working directory.
+        if !folder.isEmpty {
+            _ = await fileManager.waitForContents(of: URL(fileURLWithPath: folder))
+        }
+        return survey(in: folder, showsHidden: showsHidden, fileManager: fileManager)
     }
 
     /// The rows that match what was typed into the rail's filter.

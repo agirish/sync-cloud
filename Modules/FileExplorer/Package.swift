@@ -68,7 +68,7 @@ let package = Package(
             ]),
         .target(
             name: "FileExplorerTestSupport",
-            dependencies: ["FileExplorer"]),
+            dependencies: ["FileExplorer", "Sync"]),
         .testTarget(
             name: "FileExplorerTests",
             dependencies: [

@@ -36,6 +36,10 @@ public protocol FileManaging: Sendable {
     /// Answering it costs one `stat` and never asks the provider. Follows a symbolic link, as the
     /// listing that would follow does. The default (every test double) is `false`.
     func isDataless(at url: URL) -> Bool
+    /// Where `listing(of:)` and `childCount(of:)` ask for a dataless folder's contents — off the
+    /// cooperative pool, for at most a deadline, one read per folder. The app's shared one; a test
+    /// disk carries its own, with a short deadline. The default (every test double) is the shared one.
+    var datalessFolderReads: FileSyncManager.DatalessFolderReads { get }
 }
 
 // Swift Protocols don't allow default implementations directly in the requirement, 
@@ -55,6 +59,8 @@ extension FileManaging {
     }
 
     public func isDataless(at url: URL) -> Bool { false }
+
+    public var datalessFolderReads: FileSyncManager.DatalessFolderReads { .shared }
 }
 
 // Ensure the real macOS FileManager strictly conforms to this interface.

@@ -16,12 +16,21 @@ public enum PeopleNameScanner {
     /// `root` is the provider root the profile's relative paths hang off. Unreadable folders are
     /// skipped rather than failing the sweep: a person's folder living on an evicted iCloud path is
     /// an ordinary state, and one of them must not cost the other four hundred.
+    ///
+    /// **Through the shared `listing(of:)`, because an evicted folder is exactly what it guards.**
+    /// Its contents are not on this Mac, so listing it asks the cloud app for them — and when that
+    /// app is not running, the bare `contentsOfDirectory` this used to call never returned: the
+    /// sweep stopped for good at that folder, holding the thread it ran on, one more per click on
+    /// Look for Names. Now the folder costs at most the reads' deadline, once, and is skipped like
+    /// any other folder that cannot be read.
     public static func fileNames(registry: PersonRegistry, profile: FolderProfile, root: URL,
-                                 fileManager: FileManager = .default) -> [String: [String]] {
+                                 fileManager: FileManaging = FileManager.default) -> [String: [String]] {
         var out: [String: [String]] = [:]
         for relative in PersonNameLearning.personFolders(registry: registry, profile: profile) {
             let url = root.appendingPathComponent(relative)
-            guard let names = try? fileManager.contentsOfDirectory(atPath: url.path) else { continue }
+            let listing = fileManager.listing(of: url)
+            guard listing.outcome != .unreadable else { continue }
+            let names = listing.urls.map(\.lastPathComponent)
             // Directory entries only — a subfolder's NAME is not a document's name, and including
             // it would let a folder called "Granny Elder" vouch for itself.
             let files = names.filter { name in
@@ -38,7 +47,7 @@ public enum PeopleNameScanner {
     /// The whole sweep: read, then learn.
     public static func suggestions(registry: PersonRegistry, profile: FolderProfile, root: URL,
                                    dismissed: Set<String>,
-                                   fileManager: FileManager = .default) -> [PersonNameSuggestion] {
+                                   fileManager: FileManaging = FileManager.default) -> [PersonNameSuggestion] {
         let names = fileNames(registry: registry, profile: profile, root: root,
                               fileManager: fileManager)
         let found = PersonNameLearning.suggestions(registry: registry, profile: profile,

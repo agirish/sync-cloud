@@ -678,7 +678,8 @@ public struct DestinationPicker: View {
         for directory in columnDirectories where listings[directory] == nil {
             let showHidden = showHidden
             let listing = await Task.detached {
-                DestinationBrowser.listSubfolders(of: directory, showHidden: showHidden, fileManager: FileManager.default)
+                await DestinationBrowser.listSubfoldersSuspending(of: directory, showHidden: showHidden,
+                                                                  fileManager: FileManager.default)
             }.value
             guard !Task.isCancelled else { return }
             listings[directory] = listing

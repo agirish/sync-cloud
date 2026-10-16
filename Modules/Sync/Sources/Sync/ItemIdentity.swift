@@ -73,6 +73,12 @@ public extension ItemIdentity {
     /// walk precisely because recursive-on-main froze the UI for the length of the tree (see its
     /// own cost note). Taking folder identities lazily, or off the main actor, is a decision for
     /// the call site; this type does not make it.
+    ///
+    /// **A folder whose contents are not on this Mac costs a question to its cloud app**, because
+    /// listing it asks — and a move's registration asks on the main actor. Through `listing(of:)`
+    /// it waits at most the dataless reads' deadline, once, and a folder that did not answer is
+    /// `.indeterminate`: the undo then refuses rather than vouching for a folder nobody read. Before,
+    /// with that app not running, the listing would never have returned — on the main actor.
     static func snapshot(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
         guard let attrs = try? fm.attributesOfItem(atPath: url.path) else {
             // attributesOfItem throws for both "not there" and "there but unreadable", and those
@@ -229,7 +235,8 @@ public extension ItemIdentity {
         // `options: []` is the recursive walk. `.listedWithUnreadableDescendants` is a real but
         // PARTIAL answer, and partial proves nothing about the part that was withheld — the same
         // refusal `folderDriftedInPlace` makes of it, and the safe direction: `.indeterminate`
-        // REFUSES the undo rather than authorising it.
+        // REFUSES the undo rather than authorising it. A folder in the tree whose cloud app did
+        // not answer is one such withheld part: `listing` steps around it rather than waiting.
         let listing = fm.listing(of: url, options: [])
         guard listing.outcome == .listed else {
             return (.indeterminate, listing.unreadableDescendants.first)

@@ -76,7 +76,7 @@ extension ContentView {
         let folder = editorFolder
         let showsHidden = syncManager.showHiddenFiles
         let survey = await Task.detached(priority: .userInitiated) {
-            EditorRail.survey(in: folder, showsHidden: showsHidden)
+            await EditorRail.surveySuspending(in: folder, showsHidden: showsHidden)
         }.value
         // The folder can change while the walk is out; a late answer for the wrong folder would
         // list somebody else's files under this one's heading.

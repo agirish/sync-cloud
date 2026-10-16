@@ -256,7 +256,7 @@ public struct FileDiffEngine {
             // diff reports nothing under it as missing. The scan root itself (`prefix` "") marks
             // the whole side. A folder that is not dataless costs one `stat` here and nothing else.
             if fileManager.isDataless(at: rootURL),
-               datalessReads.readBlocking(rootURL.path, { fileManager.listing(of: rootURL).outcome }) == nil {
+               datalessReads.readBlocking(rootURL.path, { fileManager.listingForARead(of: rootURL).outcome }) == nil {
                 unreadableDirKeys.insert(prefix)
                 return
             }

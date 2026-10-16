@@ -72,10 +72,14 @@ extension FileSyncManager {
     /// A folder's immediate children, hidden ones included, in name order — the order a merge
     /// asks its questions in. Through the shared `listing(of:)`, so the children are spelled under
     /// the path the transfer was given; and anything short of a complete listing throws, because a
-    /// merge of a folder it could only partly read would report itself done.
+    /// merge of a folder it could only partly read would report itself done. A folder whose cloud
+    /// app did not answer throws as that, not as a permission problem.
     nonisolated static func mergeChildren(of folder: URL, fileManager fm: FileManaging) throws -> [URL] {
         let listing = fm.listing(of: folder)
         guard listing.isComplete else {
+            if listing.isUnanswered {
+                throw FileOperationError.folderNotAnswered(folderName: folder.lastPathComponent)
+            }
             throw CocoaError(.fileReadNoPermission, userInfo: [NSFilePathErrorKey: folder.path])
         }
         return listing.urls
@@ -122,7 +126,13 @@ extension FileSyncManager {
             var entries: [String: Bool] = [:]
             var pending: [(url: URL, relative: String)] = [(root, "")]
             while let (folder, relative) = pending.popLast() {
-                guard let children = try? mergeChildren(of: folder, fileManager: fm) else { continue }
+                // A folder whose contents are not on this Mac is not asked for here: that waits on
+                // its cloud app, for up to the reads' deadline — five times this whole preview's
+                // budget, spent before the alert can open. The merge itself asks, if it is chosen.
+                // And a folder that cannot be read gives up too, rather than being skipped: a count
+                // that leaves it out is a number the app invented, as much as a capped one is.
+                if fm.isDataless(at: folder) { return nil }
+                guard let children = try? mergeChildren(of: folder, fileManager: fm) else { return nil }
                 for child in children {
                     visited += 1
                     if visited > entryLimit || Date() > deadline { return nil }

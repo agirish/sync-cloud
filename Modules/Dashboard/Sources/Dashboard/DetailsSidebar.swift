@@ -638,9 +638,20 @@ public struct DetailsSidebar: View {
     /// Not `private`, so `DetailsSidebarSizeTests` can drive it against a real locked directory.
     /// The unreadable case cannot be reached any other way: it is a property of the filesystem,
     /// and the sidebar itself is a SwiftUI view no unit test can drive.
-    nonisolated static func computeDirectorySizeString(path: String) async -> String? {
+    ///
+    /// **A folder whose contents are not on this Mac is asked for, never walked into.** The
+    /// enumerator reads a folder's contents on the call after the one that yielded it, and for a
+    /// dataless folder that asks its cloud app — which, not running, never answers. Each OneDrive
+    /// account's folder holds a dataless `.Trash` on this machine (measured 2026-10-15), so selecting
+    /// one with OneDrive quit would leave the size at "Calculating…" for good, one more stuck thread
+    /// per selection. Each such folder is skipped by the enumerator and asked through
+    /// `waitForContents`, which holds no thread while it waits; answered, it is walked like any
+    /// other, and unanswered it is a part of the tree withheld — the total becomes a floor ("+"),
+    /// or "--" when it was the folder itself.
+    nonisolated static func computeDirectorySizeString(path: String,
+                                                       fileManager: FileManaging = FileManager.default) async -> String? {
         let url = URL(fileURLWithPath: path)
-        let fm = FileManager.default
+        let fm = fileManager
 
         let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .fileSizeKey]
         // Built ONCE. `resourceValues(forKeys:)` takes a Set, and constructing it inside the
@@ -658,6 +669,11 @@ public struct DetailsSidebar: View {
         /// an array, and this walks a tree that can hold tens of thousands of them while polling
         /// for cancellation.
         func walk(_ root: URL) async -> (total: Int64, entries: Int, failures: [URL])? {
+            // Asked first, suspending, if its contents are not on this Mac (see the doc above).
+            // Unanswered, nothing below it was read: the root's own failure, as a locked one is.
+            guard await fm.waitForContents(of: root) else {
+                return Task.isCancelled ? nil : (0, 0, [root])
+            }
             // The enumerator is non-nil even for a folder that cannot be listed — it simply yields
             // nothing — so this walk used to total 0 bytes for a locked folder and the sidebar
             // reported "Zero KB" as if that were its size. The error handler is what separates the
@@ -691,6 +707,16 @@ public struct DetailsSidebar: View {
                     await Task.yield()
                 }
                 count += 1
+
+                // Not walked into: asked, and walked by a walk of its own (see the doc above).
+                if fileURL.hasDirectoryPath, fm.isDataless(at: fileURL) {
+                    enumerator.skipDescendants()
+                    guard let below = await walk(fileURL) else { return nil }
+                    total += below.total
+                    count += below.entries
+                    failures.urls.append(contentsOf: below.failures)
+                    continue
+                }
 
                 autoreleasepool {
                     guard let values = try? fileURL.resourceValues(forKeys: keySet),

@@ -6969,3 +6969,43 @@ has `emptyCaption` (`PaneColumnsView` is there, without the per-column spinner),
 column half to take. Neither has `scanStartedAt` or `ScanRungMode`; the pill reads `isScanning` and
 would flash the same way, so `isScanShown` would need its own start in `executeScan` there, and the
 rung is a spinning arrow rather than Stop.
+
+## Every listing asks a folder whose cloud app never answers through the dataless reads — main only
+
+The dataless reads (`DatalessFolderReads`) guarded only the two walks. Everything else that lists a
+folder — the shared `FileManaging.listing(of:)` / `childCount(of:)`, and four bare
+`contentsOfDirectory` / enumerator sites — still blocked for good on a dataless folder whose app is
+not running. Measured with a recording disk: the move undo's identity listing runs on the MAIN
+thread (Rename, Move, Filing), the merge listings and the copy undo's deep walk on the cooperative
+pool, the picker's column on the pool. `listing` and `childCount` now ask a dataless folder through
+the reads (waiting at most the deadline, once per folder) and step around one met inside a recursive
+walk; `waitForContents(of:)` lets an async caller ask without holding a thread. Routed through them:
+the destination picker's columns and search, `ItemIdentity.snapshot` / `deepSnapshot`, the folder
+merge (its error names the cause; its preview no longer asks, and gives up at a folder it cannot
+read instead of counting around it), `liveFiles`, `PeopleNameScanner`, Edit's rail, the filing
+card's peek and the Details sidebar's folder size. A folder that is not dataless costs one `stat`.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s datalessReads=%s merge=%s liveFiles=%s people=%s rail=%s deepIdentity=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/DatalessFolderReads.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations.swift | grep -c 'func mergeChildren')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+FilingRename.swift 2>/dev/null | grep -c 'fm.listing(of: dir')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/PeopleNameScanner.swift 2>/dev/null | grep -c 'contentsOfDirectory')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorRail.swift 2>/dev/null | grep -c 'contentsOfDirectory')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/ItemIdentity.swift | grep -c 'fm.listing(of: url, options: \[\])')"
+done
+# measured 2026-10-15, against origin, before this landed:
+# main  datalessReads=1 merge=1 liveFiles=1 people=1 rail=1 deepIdentity=1
+# v4.x  datalessReads=0 merge=0 liveFiles=1 people=1 rail=0 deepIdentity=1
+# v3.x  datalessReads=0 merge=0 liveFiles=0 people=0 rail=0 deepIdentity=0
+# v2.x  datalessReads=0 merge=0 liveFiles=0 people=0 rail=0 deepIdentity=0
+```
+
+**`v4.x`, `v3.x`, `v2.x`: RECORDED — not owed, and not pickable alone.** Read from the code, not
+run there. None of the three has `DatalessFolderReads` or `isDataless(at:)`, so a pick must take
+the row above first. Every line has `listing(of:)`, the picker and the shallow move-undo identity
+(on the main actor there too); `v4.x` also has the deep identity, `liveFiles` and Look for Names;
+none has the folder merge or Edit's rail. The listing guard and its tests (`UnansweredListingTests`)
+then apply site by site; the FileExplorer and Dashboard tests need `FileExplorerTestSupport`'s
+`UnansweredRealDisk`.

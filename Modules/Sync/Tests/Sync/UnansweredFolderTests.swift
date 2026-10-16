@@ -39,7 +39,10 @@ import Testing
             CloudProvider(id: id, displayName: id, imageName: "folder", rootPath: root + path, type: .localFolder)
         }
 
-        func disk(gate: ParkGate) throws -> UnansweredFolderDisk {
+        /// `reads` is the registry the disk's own listings ask through — pass the manager's, so the
+        /// test has ONE registry, as the app does.
+        func disk(gate: ParkGate,
+                  reads: FileSyncManager.DatalessFolderReads = .init(deadline: .milliseconds(250))) throws -> UnansweredFolderDisk {
             let mock = MockFileManager()
             for dir in ["/home", "/home/Notes", "/home/Cloud", "/home/Cloud/Archive", "/home/Cloud/Docs",
                         "/other", "/other/Notes", "/other/Cloud", "/other/Cloud/Archive", "/other/Cloud/Docs",
@@ -51,7 +54,7 @@ import Testing
                          "/other/Cloud/Docs/b.txt"] {
                 mock.setStub(MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil), at: root + file)
             }
-            return UnansweredFolderDisk(inner: mock, unanswered: unanswered, gate: gate)
+            return UnansweredFolderDisk(inner: mock, unanswered: unanswered, gate: gate, reads: reads)
         }
     }
 
@@ -71,8 +74,8 @@ import Testing
     @Test(.parksAThread) func aFolderThatNeverAnswersStillLetsTheRefreshCompare() async throws {
         let f = Fixture(root: "/refresh")
         let gate = ParkGate()
-        let manager = FileSyncManager(fileManager: try f.disk(gate: gate))
         let reads = FileSyncManager.DatalessFolderReads(deadline: .milliseconds(250))
+        let manager = FileSyncManager(fileManager: try f.disk(gate: gate, reads: reads))
         manager.datalessFolderReads = reads
         let log = LogCapture()
 
@@ -105,9 +108,9 @@ import Testing
     @Test(.parksAThread) func aRefreshSkipsAFolderStillUnansweredAndReadsItOnceItAnswers() async throws {
         let f = Fixture(root: "/skip")
         let gate = ParkGate()
-        let disk = try f.disk(gate: gate)
-        let manager = FileSyncManager(fileManager: disk)
         let reads = FileSyncManager.DatalessFolderReads(deadline: .milliseconds(250))
+        let disk = try f.disk(gate: gate, reads: reads)
+        let manager = FileSyncManager(fileManager: disk)
         manager.datalessFolderReads = reads
 
         await manager.refreshTreesAndScan(left: f.home, right: f.other)
@@ -148,9 +151,9 @@ import Testing
     @Test(.parksAThread) func aPaneRootThatNeverAnswersIsUnknownAndIsNotKept() async throws {
         let f = Fixture(root: "/rootpane")
         let gate = ParkGate()
-        let disk = try f.disk(gate: gate)
-        let manager = FileSyncManager(fileManager: disk)
         let reads = FileSyncManager.DatalessFolderReads(deadline: .milliseconds(250))
+        let disk = try f.disk(gate: gate, reads: reads)
+        let manager = FileSyncManager(fileManager: disk)
         manager.datalessFolderReads = reads
         // Both panes on an `Archive`; the left one is the folder that does not answer.
         let left = f.provider("left", at: "/home/Cloud/Archive")
@@ -185,8 +188,9 @@ import Testing
     @Test(.parksAThread) func aSupersededWalkStopsWaitingForTheFolder() async throws {
         let f = Fixture(root: "/supersede")
         let gate = ParkGate()
-        let manager = FileSyncManager(fileManager: try f.disk(gate: gate))
-        manager.datalessFolderReads = FileSyncManager.DatalessFolderReads(deadline: .seconds(60))
+        let reads = FileSyncManager.DatalessFolderReads(deadline: .seconds(60))
+        let manager = FileSyncManager(fileManager: try f.disk(gate: gate, reads: reads))
+        manager.datalessFolderReads = reads
 
         let first = Task { await manager.refreshTreesAndScan(left: f.home, right: f.other) }
         await awaitSignal(gate.entered, "the walk never reached the folder that does not answer")
@@ -214,8 +218,8 @@ import Testing
     @Test(.parksAThread) func theComparisonsOwnWalkGivesUpOnTheFolderToo() async throws {
         let f = Fixture(root: "/coldscan")
         let gate = ParkGate()
-        let manager = FileSyncManager(fileManager: try f.disk(gate: gate))
         let reads = FileSyncManager.DatalessFolderReads(deadline: .milliseconds(250))
+        let manager = FileSyncManager(fileManager: try f.disk(gate: gate, reads: reads))
         manager.datalessFolderReads = reads
         #expect(manager.prefetchedTrees.isEmpty, "a cached tree would take the other branch")
 
@@ -241,8 +245,9 @@ import Testing
     @Test(.parksAThread) func aCancelledComparisonStopsWaitingForTheFolder() async throws {
         let f = Fixture(root: "/cancel")
         let gate = ParkGate()
-        let manager = FileSyncManager(fileManager: try f.disk(gate: gate))
-        manager.datalessFolderReads = FileSyncManager.DatalessFolderReads(deadline: .seconds(60))
+        let reads = FileSyncManager.DatalessFolderReads(deadline: .seconds(60))
+        let manager = FileSyncManager(fileManager: try f.disk(gate: gate, reads: reads))
+        manager.datalessFolderReads = reads
 
         let scan = Task {
             await manager.scanDirectories(left: f.home, leftPath: f.home.rootPath,
@@ -267,8 +272,8 @@ import Testing
     @Test(.parksAThread) func theDiskWalkMarksTheFolderUnexploredAndListsNothingBelowIt() async throws {
         let f = Fixture(root: "/diskwalk")
         let gate = ParkGate()
-        let disk = try f.disk(gate: gate)
         let reads = FileSyncManager.DatalessFolderReads(deadline: .milliseconds(250))
+        let disk = try f.disk(gate: gate, reads: reads)
 
         let walk = Task.detached {
             try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: f.home.rootPath), fileManager: disk,
@@ -337,25 +342,41 @@ import Testing
 ///
 /// The recursive enumerator descends LAZILY, as the real one was measured to: it reads a folder's
 /// contents on the call AFTER the one that yielded the folder, so `skipDescendants()` made in
-/// between keeps it from asking the provider at all.
+/// between keeps it from asking the provider at all. And it marks a folder entry as one
+/// (`hasDirectoryPath`), as the real one does in both its absolute and its relative spelling —
+/// measured 2026-10-15, and pinned by `theRealEnumeratorMarksEveryFolderItYields`.
+///
+/// Its listings ask through `datalessFolderReads`, a short-deadline registry of its own, so a test
+/// neither waits out the app's five seconds nor shares the app's registry.
 final class UnansweredFolderDisk: FileManaging, @unchecked Sendable {
     private let inner: MockFileManager
     private let unanswered: String
     private let gate: ParkGate
+    let datalessFolderReads: FileSyncManager.DatalessFolderReads
     private let lock = NSLock()
     private var reads = 0
+    private var readQueues: [String] = []
     private var answered = false
 
-    init(inner: MockFileManager, unanswered: String, gate: ParkGate) {
+    init(inner: MockFileManager, unanswered: String, gate: ParkGate,
+         reads: FileSyncManager.DatalessFolderReads = .init(deadline: .milliseconds(250))) {
         self.inner = inner
         self.unanswered = unanswered
         self.gate = gate
+        self.datalessFolderReads = reads
     }
 
     /// How many times something asked the provider for the folder's contents.
     var providerReads: Int {
         lock.lock(); defer { lock.unlock() }
         return reads
+    }
+
+    /// The dispatch queue each of those asks ran on — the cooperative pool's
+    /// (`com.apple.root.*.cooperative`) is the one it must never be.
+    var providerReadQueues: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return readQueues
     }
 
     func isDataless(at url: URL) -> Bool {
@@ -365,11 +386,15 @@ final class UnansweredFolderDisk: FileManaging, @unchecked Sendable {
 
     /// One listing of the dataless folder: the provider is asked, and the call parks until it answers.
     fileprivate func askTheProvider() {
+        let queue = String(cString: __dispatch_queue_get_label(nil))
         lock.lock()
         guard !answered else { lock.unlock(); return }
         reads += 1
+        readQueues.append(queue)
         lock.unlock()
-        gate.park(timeout: 30)
+        // Two minutes, so "came back while still parked" stays true on a loaded machine: the tests
+        // release it themselves, and only a caller blocked on it ever waits this out.
+        gate.park(timeout: 120)
         lock.lock(); answered = true; lock.unlock()
     }
 
@@ -379,8 +404,20 @@ final class UnansweredFolderDisk: FileManaging, @unchecked Sendable {
         if u.path == unanswered { askTheProvider() }
         let listing = inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h)
         guard !m.contains(.skipsSubdirectoryDescendants), let listing else { return listing }
-        let entries = listing.allObjects.compactMap { $0 as? URL }
+        let entries = listing.allObjects.compactMap { $0 as? URL }.map(markingFolders)
         return DescendingEnumerator(entries: entries, unanswered: unanswered, disk: self)
+    }
+
+    /// The entry as the real enumerator spells it: a folder's URL says it is one.
+    private func markingFolders(_ entry: URL) -> URL {
+        var isDirectory: ObjCBool = false
+        guard inner.fileExists(atPath: entry.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return entry
+        }
+        if let base = entry.baseURL {
+            return URL(fileURLWithPath: entry.relativePath, isDirectory: true, relativeTo: base)
+        }
+        return URL(fileURLWithPath: entry.path, isDirectory: true)
     }
 
     func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }

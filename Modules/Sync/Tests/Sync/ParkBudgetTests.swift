@@ -277,6 +277,12 @@ import Testing
             // The MAIN thread, on purpose: holding the main actor is what that test measures. Not a
             // pool thread, so no reservation; bounded, and running out is the failure it records.
             "ColdScanStartsOffTheMainActorTests.swift": ["semaphore.wait(timeout: .now() + timeout)"],
+            // `OneThreadExecutor`'s wait for its probe job: on `DispatchQueue.global()`, which
+            // overcommits, never the pool; bounded at 5 s. The parks it measures are `ParkGate`'s,
+            // and every test that uses it declares `.parksAThread`.
+            "UnansweredListingTests.swift": [
+                "DispatchQueue.global().async { done.resume(returning: ran.wait(timeout: .now() + 5) == .success) }",
+            ],
         ]
         var found: [String: Set<String>] = [:]
         for (name, text) in try Self.testSources where name != "ParkBudgetTests.swift" {

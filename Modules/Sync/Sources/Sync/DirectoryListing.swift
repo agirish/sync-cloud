@@ -64,11 +64,22 @@ public struct DirectoryListing: Sendable {
     /// site that needs to tell them apart switches on `outcome` instead.
     public var isComplete: Bool { outcome == .listed }
 
-    public init(urls: [URL], outcome: DirectoryListingOutcome, unreadableDescendants: [URL] = []) {
+    /// True when the folder's contents are not on this Mac and the app that syncs it did not answer
+    /// in time — see `FileSyncManager.DatalessFolderReads`. `outcome` is then `.unreadable`, so
+    /// nothing changes for a caller that only switches on it; this is for one that has to say WHY,
+    /// and must not send someone to check a folder's permissions over a cloud app that is not running.
+    public let isUnanswered: Bool
+
+    public init(urls: [URL], outcome: DirectoryListingOutcome, unreadableDescendants: [URL] = [],
+                isUnanswered: Bool = false) {
         self.urls = urls
         self.outcome = outcome
         self.unreadableDescendants = unreadableDescendants
+        self.isUnanswered = isUnanswered
     }
+
+    /// A folder whose provider did not answer: unknown, never empty.
+    static let unanswered = DirectoryListing(urls: [], outcome: .unreadable, isUnanswered: true)
 }
 
 public extension FileManaging {
@@ -123,6 +134,31 @@ public extension FileManaging {
         options: FileManager.DirectoryEnumerationOptions = [.skipsSubdirectoryDescendants],
         keeping isWanted: (URL) -> Bool = { _ in true }
     ) -> DirectoryListing {
+        listing(of: url, includingPropertiesForKeys: keys, options: options, keeping: isWanted,
+                askingThrough: datalessFolderReads)
+    }
+
+    /// ``listing(of:includingPropertiesForKeys:options:keeping:)``, with the reads it asks a dataless
+    /// folder through spelled out — `nil` for the one caller that must not ask: the body of a read
+    /// itself (``listingForARead(of:)``), which would otherwise join its own read and wait out the
+    /// deadline on itself.
+    internal func listing(
+        of url: URL,
+        includingPropertiesForKeys keys: [URLResourceKey]?,
+        options: FileManager.DirectoryEnumerationOptions,
+        keeping isWanted: (URL) -> Bool,
+        askingThrough reads: FileSyncManager.DatalessFolderReads?
+    ) -> DirectoryListing {
+        // **A folder whose contents are not on this Mac is asked for through the reads** — off the
+        // cooperative pool, for at most their deadline, one read per folder. Listing it is what
+        // materializes it, so an answer means the walk below reads it from disk; no answer is
+        // `.unanswered`. The caller's thread waits here, at most the deadline and only the first
+        // time a folder goes unanswered; after that the answer is immediate. A folder that is not
+        // dataless costs one `stat` here and nothing else.
+        if let reads, isDataless(at: url),
+           reads.readBlocking(url.path, { [self] in listingForARead(of: url).outcome }) == nil {
+            return .unanswered
+        }
         // `.producesRelativePathURLs` rather than prefix arithmetic on the paths: measured, the
         // enumerator yields children under `/private/var/…` while `resolvingSymlinksInPath` hands
         // back `/var/…`, so `hasPrefix(target.path)` matches nothing. The relative path is exact
@@ -133,7 +169,7 @@ public extension FileManaging {
         // itself is 0.030s. That is the whole extra cost, and it buys the promise at every depth.
         let walked = options.union(.producesRelativePathURLs)
         let direct = drainListing(of: url, keys: keys, options: walked,
-                                  respellingUnder: url, keeping: isWanted)
+                                  respellingUnder: url, keeping: isWanted, askingThrough: reads)
         guard direct.outcome == .unreadable,
               let target = DirectoryListingSupport.traversableTarget(of: url, using: self)
         else { return direct }
@@ -146,7 +182,27 @@ public extension FileManaging {
         // the line is `aSymlinkThatLeadsNowhereReadableIsStillUnreadable`, which asks all four
         // shapes and pairs them with a readable control.
         return drainListing(of: target, keys: keys, options: walked,
-                            respellingUnder: url, keeping: isWanted)
+                            respellingUnder: url, keeping: isWanted, askingThrough: reads)
+    }
+
+    /// For a caller that can SUSPEND: asks the provider of a folder whose contents are not on this
+    /// Mac for them, through the same reads `listing` uses, without holding a thread while it waits.
+    /// True when the folder can now be listed without asking — it was never dataless, or it
+    /// answered and is on disk now; false when it did not answer, or the task was cancelled.
+    ///
+    /// Call it before a synchronous listing of the folder and that listing never waits: an answered
+    /// folder lists inline, and one that went unanswered is refused at once — the registry remembers
+    /// it. That is how an async caller keeps the synchronous `listing` it already has.
+    func waitForContents(of url: URL) async -> Bool {
+        guard isDataless(at: url) else { return true }
+        return await datalessFolderReads.read(url.path, { [self] in listingForARead(of: url).outcome }) != nil
+    }
+
+    /// The listing a `DatalessFolderReads` read runs: shallow, keeping nothing the read does not
+    /// need, and never asking through the reads itself — it IS the read.
+    internal func listingForARead(of url: URL) -> DirectoryListing {
+        listing(of: url, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants],
+                keeping: { _ in true }, askingThrough: nil)
     }
 
     /// One pass of the enumerator, with no fallback of its own.
@@ -161,7 +217,8 @@ public extension FileManaging {
         keys: [URLResourceKey]?,
         options: FileManager.DirectoryEnumerationOptions,
         respellingUnder base: URL,
-        keeping isWanted: (URL) -> Bool
+        keeping isWanted: (URL) -> Bool,
+        askingThrough reads: FileSyncManager.DatalessFolderReads?
     ) -> DirectoryListing {
         var failures: [URL] = []
 
@@ -192,6 +249,27 @@ public extension FileManaging {
             // what every consumer reads, is identical either way.
             let spelled = base.appendingPathComponent(child.relativePath, isDirectory: child.hasDirectoryPath)
             if isWanted(spelled) { kept.append(spelled) }
+
+            // **A recursive walk is not let into a dataless folder**: the enumerator reads a
+            // folder's contents on the call after the one that yielded it, and a provider that is
+            // not running never hands them over. Skipped here and listed by a nested walk instead,
+            // whose first step asks through the reads — the shape `FileDiffEngine`'s walk has.
+            // `hasDirectoryPath` is the enumerator's own word, so a file costs no `stat`.
+            if let reads, !options.contains(.skipsSubdirectoryDescendants), child.hasDirectoryPath,
+               isDataless(at: spelled) {
+                enumerator.skipDescendants()
+                let below = listing(of: spelled, includingPropertiesForKeys: keys, options: options,
+                                    keeping: isWanted, askingThrough: reads)
+                switch below.outcome {
+                case .unreadable:
+                    failures.append(spelled)
+                case .listedWithUnreadableDescendants:
+                    failures.append(contentsOf: below.unreadableDescendants)
+                    kept.append(contentsOf: below.urls)
+                case .listed:
+                    kept.append(contentsOf: below.urls)
+                }
+            }
         }
 
         let verdict = DirectoryListingSupport.classify(entryCount: entryCount, failures: failures, root: url)
@@ -228,7 +306,24 @@ public extension FileManaging {
         options: FileManager.DirectoryEnumerationOptions,
         cap: Int
     ) -> DirectoryChildCount {
-        let direct = drainCount(of: url, options: options, cap: cap)
+        childCount(of: url, options: options, cap: cap, askingThrough: datalessFolderReads)
+    }
+
+    /// ``childCount(of:options:cap:)`` with its reads spelled out — see the `listing` overload of
+    /// the same shape for why one exists.
+    internal func childCount(
+        of url: URL,
+        options: FileManager.DirectoryEnumerationOptions,
+        cap: Int,
+        askingThrough reads: FileSyncManager.DatalessFolderReads?
+    ) -> DirectoryChildCount {
+        // A folder whose contents are not on this Mac, asked for as `listing` asks — a count is a
+        // listing too, and it would wait on the provider the same way.
+        if let reads, isDataless(at: url),
+           reads.readBlocking(url.path, { [self] in listingForARead(of: url).outcome }) == nil {
+            return DirectoryChildCount(count: 0, outcome: .unreadable, isCapped: false)
+        }
+        let direct = drainCount(of: url, options: options, cap: cap, askingThrough: reads)
         guard direct.outcome == .unreadable,
               let target = DirectoryListingSupport.traversableTarget(of: url, using: self)
         else { return direct }
@@ -238,13 +333,14 @@ public extension FileManaging {
         // count of zero and an uncapped walk, so `direct` and a failed `retried` are the same
         // value. `countingThroughASymlinkReachesTheRealNumber` and its locked-link control are
         // what pin it.
-        return drainCount(of: target, options: options, cap: cap)
+        return drainCount(of: target, options: options, cap: cap, askingThrough: reads)
     }
 
     fileprivate func drainCount(
         of url: URL,
         options: FileManager.DirectoryEnumerationOptions,
-        cap: Int
+        cap: Int,
+        askingThrough reads: FileSyncManager.DatalessFolderReads?
     ) -> DirectoryChildCount {
         var failures: [URL] = []
         let record: (URL, Error) -> Bool = { failedURL, _ in
@@ -259,11 +355,29 @@ public extension FileManaging {
 
         var count = 0
         var isCapped = false
-        while enumerator.nextObject() != nil {
+        while let entry = enumerator.nextObject() {
             count += 1
             if count >= cap {
                 isCapped = true
                 break
+            }
+            // Not let into a dataless folder, for `drainListing`'s reason: counted by a nested
+            // count whose first step asks through the reads, against what is left of the cap.
+            if let reads, !options.contains(.skipsSubdirectoryDescendants),
+               let child = entry as? URL, child.hasDirectoryPath, isDataless(at: child) {
+                enumerator.skipDescendants()
+                let below = childCount(of: child, options: options, cap: cap - count, askingThrough: reads)
+                count += below.count
+                switch below.outcome {
+                case .unreadable, .listedWithUnreadableDescendants:
+                    failures.append(child)
+                case .listed:
+                    break
+                }
+                if below.isCapped || count >= cap {
+                    isCapped = true
+                    break
+                }
             }
         }
 

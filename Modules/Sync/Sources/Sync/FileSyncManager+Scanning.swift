@@ -1547,7 +1547,9 @@ extension FileSyncManager {
                         // real-filesystem branch above decides for the same directory, where
                         // `contentsOfDirectory` throws and the failure is reported honestly. This
                         // makes the two branches agree.
-                        let listing = fileManager.listing(of: dirURL, options: [.skipsSubdirectoryDescendants])
+                        // Never asking through the reads: `rawChildURLs` already has, for a dataless
+                        // folder, and this is then the read's own body — asking again would join it.
+                        let listing = fileManager.listingForARead(of: dirURL)
                         // Switched rather than compared with `!=`: `DirectoryListingOutcome`
                         // promises its callers handle every case, which is what makes a fourth
                         // case a compile error here instead of one silently absorbed into "fine".

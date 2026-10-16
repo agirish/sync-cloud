@@ -497,10 +497,20 @@ enum DestinationPeek {
     /// the folder was unreadable, or this task was superseded while the listing ran. Both mean the
     /// caller must NOT write — in the superseded case another read already owns the field, and
     /// stamping it (even with nil) would blank a count that is correct for what's on screen.
-    static func itemCount(atPath path: String) async -> Int? {
+    ///
+    /// **A destination whose contents are not on this Mac is asked for first, suspending**
+    /// (`waitForContents`): when its cloud app is not running, the bare `contentsOfDirectory` this
+    /// used to call never returned, and every card that showed the folder left one more thread stuck
+    /// in it. Unanswered, there is no count to publish — the same nil an unreadable folder gets.
+    static func itemCount(atPath path: String, fileManager: FileManaging = FileManager.default) async -> Int? {
+        // Not for "": `URL(fileURLWithPath:)` makes that the working directory.
+        guard !path.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: path)
+        guard await fileManager.waitForContents(of: url) else { return nil }
         let count = await Task.detached(priority: .utility) { () -> Int? in
-            guard let entries = try? FileManager.default.contentsOfDirectory(atPath: path) else { return nil }
-            return entries.filter { !$0.hasPrefix(".") }.count
+            let listing = fileManager.listing(of: url)
+            guard listing.outcome != .unreadable else { return nil }
+            return listing.urls.filter { !$0.lastPathComponent.hasPrefix(".") }.count
         }.value
         // Checked AFTER the await, not before: the read is only stale once it has finished late.
         // (Same shape as FileTreeView's download-watch poll, which re-checks `Task.isCancelled`
