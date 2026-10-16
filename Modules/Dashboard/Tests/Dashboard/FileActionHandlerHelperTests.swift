@@ -24,10 +24,11 @@ import Settings
     @MainActor
     @Test func testFocusFolderMovesOnlyTargetPaneWhenUnlinked() {
         // Default (unlinked): drilling into the left pane must not disturb the right pane.
-        UserDefaults.standard.removeObject(forKey: PaneLinkPreference.defaultsKey)
+        // A fresh scratch suite has no value for the key, which is the unlinked default.
+        let defaults = ScratchDefaults("FileActionHandlerHelperTests")
         let manager = FileSyncManager()
         let settings = SettingsManager(autoDiscover: false)
-        let handler = FileActionHandler(syncManager: manager, settings: settings)
+        let handler = FileActionHandler(syncManager: manager, settings: settings, defaults: defaults)
 
         let root = settings.rootPath(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
@@ -44,11 +45,11 @@ import Settings
         // grows, its saved focus is overwritten for the next launch, and FolderJumpStore
         // records "Recent" folders the user never visited). The rail's delegate passes
         // suppressLinkedNavigation.
-        UserDefaults.standard.set(true, forKey: PaneLinkPreference.defaultsKey)
-        defer { UserDefaults.standard.removeObject(forKey: PaneLinkPreference.defaultsKey) }
+        let defaults = ScratchDefaults("FileActionHandlerHelperTests")
+        defaults.set(true, forKey: PaneLinkPreference.defaultsKey)
         let manager = FileSyncManager()
         let settings = SettingsManager(autoDiscover: false)
-        let handler = FileActionHandler(syncManager: manager, settings: settings)
+        let handler = FileActionHandler(syncManager: manager, settings: settings, defaults: defaults)
 
         let root = settings.rootPath(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
@@ -63,11 +64,11 @@ import Settings
     @Test func testFocusFolderMovesBothPanesWhenLinked() {
         // With "Link both panes" on, drilling into a folder from the file list must move the
         // sibling pane to the same relative path — the bug where only breadcrumb clicks honored it.
-        UserDefaults.standard.set(true, forKey: PaneLinkPreference.defaultsKey)
-        defer { UserDefaults.standard.removeObject(forKey: PaneLinkPreference.defaultsKey) }
+        let defaults = ScratchDefaults("FileActionHandlerHelperTests")
+        defaults.set(true, forKey: PaneLinkPreference.defaultsKey)
         let manager = FileSyncManager()
         let settings = SettingsManager(autoDiscover: false)
-        let handler = FileActionHandler(syncManager: manager, settings: settings)
+        let handler = FileActionHandler(syncManager: manager, settings: settings, defaults: defaults)
 
         let root = settings.rootPath(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)

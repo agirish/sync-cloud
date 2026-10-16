@@ -1,7 +1,7 @@
 import Testing
 import AppKit
 import SwiftUI
-import Sync
+@testable import Sync
 @testable import FileExplorer
 
 /// How often does drawing the Organize toolbar ask the app which backend a refine would use?
@@ -39,11 +39,15 @@ import Sync
     /// app wires: nil leaves the seam unset, which is the CLI/test shape.
     private func mountToolbar(routes: RouteCounter, displayChecks: RouteCounter?,
                               configured: Bool?) -> NSHostingView<AnyView> {
+        // One scratch suite for the manager and the view alike — never the standard domain, which
+        // under `swift test` is one plist shared by every test process on the machine.
+        let defaults = ScratchDefaults("FilingRefineRouteCostTests")
         // The cloud toggle gates `filingCloudRefineAvailable` before anything else, so without it
         // neither seam is ever consulted and both tests below would pass on an empty toolbar.
-        UserDefaults.standard.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-        UserDefaults.standard.set("claude-opus-5", forKey: FileSyncManager.cloudModelDefaultsKey)
+        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        defaults.set("claude-opus-5", forKey: FileSyncManager.cloudModelDefaultsKey)
         let m = FileSyncManager()
+        m.filingContentDefaults = defaults
         // Stands in for the app's router, whose `.refine` arm reads the Keychain.
         m.filingBackendIdentity = { tier in
             if tier == .refine { routes.hit() }
@@ -66,7 +70,6 @@ import Sync
         // the overview, where no lens's own controls are drawn at all. Without this the mount
         // renders a summary page and every assertion about a filing control fails as "painted
         // nothing", which is indistinguishable from the control being broken.
-        let defaults = ScratchDefaults("FilingRefineRouteCostTests")
         defaults.set(OrganizeLens.toFile.rawValue, forKey: OrganizeLens.defaultsKey)
         let host = NSHostingView(rootView: AnyView(
             LensWorkspaceView(syncManager: m, lens: .filing, providerName: "Projects",
@@ -88,10 +91,6 @@ import Sync
     }
 
     @Test func drawingTheToolbarDoesNotAskTheRouterPerRender() throws {
-        defer {
-            UserDefaults.standard.removeObject(forKey: FileSyncManager.usesCloudDefaultsKey)
-            UserDefaults.standard.removeObject(forKey: FileSyncManager.cloudModelDefaultsKey)
-        }
         // Wired the way the app wires it: a cheap `isConfigured` seam for display, the router
         // reserved for the money decisions.
         let routes = RouteCounter(), display = RouteCounter()
@@ -106,10 +105,6 @@ import Sync
     }
 
     @Test func anUnwiredDisplaySeamStillAnswersCorrectlyByResolvingTheRoute() throws {
-        defer {
-            UserDefaults.standard.removeObject(forKey: FileSyncManager.usesCloudDefaultsKey)
-            UserDefaults.standard.removeObject(forKey: FileSyncManager.cloudModelDefaultsKey)
-        }
         // The CLI/test shape. The fallback is the EXPENSIVE path by design — it is the honest
         // answer, and leaving it as the fallback is what keeps `filingCloudRefineAvailable`
         // meaningful for callers with no Keychain. The app must wire the seam; this pins that the

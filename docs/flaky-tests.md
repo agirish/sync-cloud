@@ -2472,9 +2472,18 @@ the fix: 0/40 and 0/40, and with both suites in each process and a writer flippi
 they use, 0/30 and 0/30. A mutant whose `validateMenuItem` read `.standard` again failed 59 of
 those 60. To
 reproduce, launch `swiftpm-testing-helper` directly (two `swift test` runs on one scratch path take
-SwiftPM's lock and run one after the other). Still writing the standard domain on 2026-10-15:
-Dashboard's `FileActionHandlerHelperTests`, Events' `LoggerLevelGateTests`, and FileExplorer's
-`FilingRefineControlTests` and `FilingRefineRouteCostTests`.
+SwiftPM's lock and run one after the other). **The last four package suites that wrote it moved
+the same way, also 2026-10-15:** Dashboard's `FileActionHandlerHelperTests` (the handler's own
+`defaults`, through `PaneLinkPreference.isLinked(in:)`), Events' `LoggerLevelGateTests` (a scratch
+suite named as the ambient store in `persistedMinimumLevel(from:ambient:)`), and FileExplorer's
+`FilingRefineControlTests` and `FilingRefineRouteCostTests` (one suite as the manager's
+`filingContentDefaults` and the lens's `.defaultAppStorage`). Under two helper processes the old
+tests failed 19 runs in 60 (Dashboard) and 18 in 40 (FileExplorer); after, 0 in 60 and 0 in 40.
+`LoggerLevelGateTests` failed 0 in 60 either way: its read cannot lose the race, so it was a
+writer reaching other processes rather than a victim. No package test writes the standard domain
+*directly* now, but production code a test drives still can — `SettingsManager`'s
+`lastKnownAccountFolders` and hosted views' `@AppStorage` both turn up in
+`defaults read swiftpm-testing-helper`.
 
 ### 19. `Task.yield()` assumed to park a test inside an async window — a VACUOUS green, not a red
 

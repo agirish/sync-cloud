@@ -11,7 +11,8 @@ import Design
 public class FileActionHandler {
     private let syncManager: FileSyncManager
     private let settings: SettingsManager
-    /// Read for the "Confirm before deleting" flag; injectable so tests don't mutate `.standard`.
+    /// Read for the "Confirm before deleting" and "Link both panes" flags; injectable so tests don't
+    /// mutate `.standard`.
     private let defaults: UserDefaults
     /// The system pasteboard this handler copies to and pastes from — injected for the same reason
     /// `defaults` is: a test that used the real one would clobber the developer's clipboard mid-session,
@@ -114,7 +115,7 @@ public class FileActionHandler {
         // plumbing but has NO visible sibling — honoring the link there silently dragged the
         // hidden right pane along (growing its history, overwriting its saved focus for the next
         // launch, and recording "Recent" folders the user never visited).
-        if PaneLinkPreference.isLinked && !suppressLinkedNavigation {
+        if PaneLinkPreference.isLinked(in: defaults) && !suppressLinkedNavigation {
             // `relPath` is relative to THIS pane's root, and the sibling's root need not share its
             // origin any more — a source lands at `openAt`, which is `""` for iCloud and two
             // components deep for Google Drive. Handing the same string to both sent the sibling

@@ -326,7 +326,14 @@ public class Logger: ObservableObject {
     /// `from:` is still honoured for the *explicit* suites the Settings tests pass, so what that
     /// UI writes stays testable — the override is only on the ambient default.
     public nonisolated static func persistedMinimumLevel(from defaults: UserDefaults = .standard) -> LogLevel {
-        if isRunningTests, defaults == .standard { return .debug }
+        persistedMinimumLevel(from: defaults, ambient: .standard)
+    }
+
+    /// The rule above with the ambient store named, so a test can stock a scratch suite as the
+    /// ambient one instead of writing the machine-wide standard domain, which under `swift test` is
+    /// one plist shared by every test process on the machine.
+    nonisolated static func persistedMinimumLevel(from defaults: UserDefaults, ambient: UserDefaults) -> LogLevel {
+        if isRunningTests, defaults == ambient { return .debug }
         return defaults.string(forKey: minimumLevelDefaultsKey).flatMap(LogLevel.init(rawValue:)) ?? .debug
     }
 

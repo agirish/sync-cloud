@@ -15,7 +15,10 @@ public enum PaneLinkPreference {
     public static let defaultsKey = "breadcrumbLinkBothPanes"
     /// Whether the user has the panes linked. Reads the same UserDefaults key `@AppStorage` writes,
     /// so it stays true to the toggle without threading the state through every call site.
-    public static var isLinked: Bool { UserDefaults.standard.bool(forKey: defaultsKey) }
+    public static var isLinked: Bool { isLinked(in: .standard) }
+    /// The same read against a given store — `FileActionHandler` reads its own, so a test can hand
+    /// it a scratch suite instead of writing the machine-wide standard domain.
+    public static func isLinked(in defaults: UserDefaults) -> Bool { defaults.bool(forKey: defaultsKey) }
 }
 
 /// The breadcrumb's source chip, as numbers.

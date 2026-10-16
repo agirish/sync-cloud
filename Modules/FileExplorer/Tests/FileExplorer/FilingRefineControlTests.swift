@@ -1,7 +1,7 @@
 import Testing
 import AppKit
 import SwiftUI
-import Sync
+@testable import Sync
 @testable import FileExplorer
 
 /// Does the Refine control actually reach the screen, and does it say the right thing?
@@ -16,12 +16,12 @@ import Sync
 /// the stored model must rasterize differently. A button that hard-coded "Claude", or read a
 /// different key than the classifier does, satisfies every "something painted" case here and fails
 /// only that one.
-/// **`.serialized`, and it is not a preference.** The view reads the model through `@AppStorage`,
-/// which is hard-wired to `UserDefaults.standard`, so every test here writes the same two global
-/// keys. Run in parallel — Swift Testing's default — one test's `resetDefaults()` lands between
-/// another's write and its mount, and the second renders whichever state won the race. That is a
-/// flake that reports as "the button paints the same thing for Opus and Haiku", i.e. as the exact
-/// product bug this suite exists to catch.
+/// **Every setting lives in a scratch suite the manager owns, never the standard domain.** A test
+/// that shares one store with another renders whichever state won the race, which reports as "the
+/// button paints the same thing for Opus and Haiku" — the exact product bug this suite exists to
+/// catch. `.serialized` once kept the tests in this process apart; it cannot reach another one,
+/// and under `swift test` the standard domain is one plist shared by every test process on the
+/// machine, which is also the CI runner.
 ///
 /// **`.machinePinned(.pixelSampling)`** because it reads pixels back out of a live renderer
 /// (`colorAt(`) — the repo-wide marker for a suite that only produces a trustworthy verdict on the
@@ -46,15 +46,15 @@ import Sync
     /// A manager holding a COMPLETED Organize scan of `/root/Downloads`, with the cached taxonomy
     /// a refine pass needs — the state the lens is in when the user is looking at results.
     ///
-    /// **Both settings go to `UserDefaults.standard`, and that is forced rather than lazy.** The
-    /// view reads the model through `@AppStorage`, which is hard-wired to `.standard`, and the
-    /// manager's `filingContentDefaults` defaults to `.standard` too — so `.standard` is the one
-    /// store where the button and the manager can be made to agree, which is the very thing these
-    /// tests are checking. Under `swift test` this is the test runner's own domain, and every
-    /// caller removes both keys in a `defer`.
+    /// **Every setting goes to one scratch suite, the manager's `filingContentDefaults`,** and
+    /// `mount` hands the same suite to the view through `.defaultAppStorage` — so the button and
+    /// the manager read one store and can be made to agree, which is the very thing these tests
+    /// are checking. A fresh suite per manager, so no two mounts share one.
     private static func manager(cloudOn: Bool, model: String? = nil,
                                 routesTo: String? = nil) -> FileSyncManager {
         let m = FileSyncManager()
+        let defaults = ScratchDefaults("FilingRefineControlTests")
+        m.filingContentDefaults = defaults
         // `routesTo` stands in for the app's router. nil leaves it unset, so the manager falls back
         // to what the toggle configures — which is what most of these tests want.
         if let routesTo { m.filingBackendIdentity = { _ in routesTo } }
@@ -70,22 +70,14 @@ import Sync
         // controls are drawn at all, so every assertion here would fail as "painted nothing",
         // indistinguishable from the Refine control being broken.
         //
-        // It goes to `.standard` with the other two rather than through a scratch store:
-        // `.defaultAppStorage` redirects EVERY `@AppStorage` beneath it, so a scratch store put
-        // here would shadow the two cloud settings this suite exists to vary — which it did, and
-        // four tests then compared two renders of the same button.
-        UserDefaults.standard.set(OrganizeLens.toFile.rawValue, forKey: OrganizeLens.defaultsKey)
-        UserDefaults.standard.set(cloudOn, forKey: FileSyncManager.usesCloudDefaultsKey)
-        if let model { UserDefaults.standard.set(model, forKey: FileSyncManager.cloudModelDefaultsKey) }
-        else { UserDefaults.standard.removeObject(forKey: FileSyncManager.cloudModelDefaultsKey) }
+        // It goes in the same suite as the two cloud settings: `.defaultAppStorage` redirects EVERY
+        // `@AppStorage` beneath it, so a store holding only this key would shadow the two this
+        // suite exists to vary — which it once did, and four tests then compared two renders of
+        // the same button.
+        defaults.set(OrganizeLens.toFile.rawValue, forKey: OrganizeLens.defaultsKey)
+        defaults.set(cloudOn, forKey: FileSyncManager.usesCloudDefaultsKey)
+        if let model { defaults.set(model, forKey: FileSyncManager.cloudModelDefaultsKey) }
         return m
-    }
-
-    /// Removes every key this suite writes. Every test defers this.
-    private static func resetDefaults() {
-        UserDefaults.standard.removeObject(forKey: FileSyncManager.cloudModelDefaultsKey)
-        UserDefaults.standard.removeObject(forKey: FileSyncManager.usesCloudDefaultsKey)
-        UserDefaults.standard.removeObject(forKey: OrganizeLens.defaultsKey)
     }
 
     private final class Mounted {
@@ -104,6 +96,7 @@ import Sync
         let subject = LensWorkspaceView(syncManager: manager, lens: .filing,
                                providerName: "Projects", scanTargetFolder: "/root/Downloads",
                                onFindDuplicates: {}, onConfigureCloudRefine: configure)
+            .defaultAppStorage(manager.filingContentDefaults)
             .frame(width: Self.canvas.width, height: Self.canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
@@ -156,7 +149,6 @@ import Sync
     }
 
     @Test func theRefineControlPaintsWhenThereAreResults() throws {
-        defer { Self.resetDefaults() }
         let withCloud = try #require(toolbarStrip(mount(
             Self.manager(cloudOn: true, model: "claude-opus-5"))))
         let withoutCloud = try #require(toolbarStrip(mount(
@@ -175,7 +167,6 @@ import Sync
         // THE assertion. The button promises a model and the classifier sends to one; if the
         // button read a different key, or hard-coded a name, these two mounts — identical in every
         // other input — would rasterize the same.
-        defer { Self.resetDefaults() }
         let opus = try #require(toolbarStrip(mount(
             Self.manager(cloudOn: true, model: "claude-opus-5"))))
         let haiku = try #require(toolbarStrip(mount(
@@ -189,7 +180,6 @@ import Sync
         // A host with no Settings to open (the previews, and any embedder that doesn't pass the
         // closure) must not paint a button that does nothing. The positive control is the mount
         // above, which passes one and paints more.
-        defer { Self.resetDefaults() }
         let offered = try #require(toolbarStrip(mount(
             Self.manager(cloudOn: false), configure: {})))
         let withheld = try #require(toolbarStrip(mount(
@@ -214,7 +204,6 @@ import Sync
         // Compared against the WORKING cloud state rather than against "something painted": both
         // paint a sparkles button of similar size, so only comparing the two catches a branch that
         // picked the wrong one.
-        defer { Self.resetDefaults() }
         let downgraded = try #require(toolbarStrip(mount(
             Self.manager(cloudOn: true, model: "claude-opus-5", routesTo: "on-device"),
             configure: {})))
@@ -238,13 +227,12 @@ import Sync
         //
         // Asserted on ONE mounted view across a setting change, not on two fresh mounts: two mounts
         // would pass even if the value were captured at init, which is exactly the failure mode.
-        defer { Self.resetDefaults() }
         let m = Self.manager(cloudOn: false)
         let mounted = mount(m, configure: {})
         let before = try #require(toolbarStrip(mounted))
 
-        UserDefaults.standard.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-        UserDefaults.standard.set("claude-opus-5", forKey: FileSyncManager.cloudModelDefaultsKey)
+        m.filingContentDefaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        m.filingContentDefaults.set("claude-opus-5", forKey: FileSyncManager.cloudModelDefaultsKey)
         // Re-render the way dismissing the Settings overlay does.
         m.banner = .success("settings closed")
         mounted.host.needsLayout = true

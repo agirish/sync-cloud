@@ -94,10 +94,12 @@ import Foundation
         // This process IS a test runner, which is the premise; without it the assertion below
         // would pass for the ordinary reason and prove nothing.
         #expect(Logger.isRunningTests, "the runner detection stopped recognising this process")
-        UserDefaults.standard.set(LogLevel.error.rawValue, forKey: Logger.minimumLevelDefaultsKey)
-        defer { UserDefaults.standard.removeObject(forKey: Logger.minimumLevelDefaultsKey) }
+        // A scratch suite stands in for `.standard`: under `swift test` the standard domain is one
+        // plist shared by every test process on the machine, so writing it reaches theirs.
+        let ambient = ScratchDefaults("LoggerLevelGateTests")
+        ambient.set(LogLevel.error.rawValue, forKey: Logger.minimumLevelDefaultsKey)
 
-        #expect(Logger.persistedMinimumLevel() == .debug,
+        #expect(Logger.persistedMinimumLevel(from: ambient, ambient: ambient) == .debug,
                 "a test host inherited the machine's log level and would drop every debug line")
     }
 
