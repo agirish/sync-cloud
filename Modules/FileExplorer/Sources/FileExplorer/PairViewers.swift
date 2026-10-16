@@ -300,14 +300,6 @@ struct PDFPairView: NSViewRepresentable {
         }
     }
 
-    /// A `PDFDocument` crossing back from the lane. `@unchecked` for the same reason
-    /// ``SendableImage`` is: PDFKit's types carry no conformance, and this one is created inside
-    /// the lane and handed to exactly one view.
-    private struct SendableDocument: @unchecked Sendable {
-        let document: PDFDocument
-        init(_ document: PDFDocument) { self.document = document }
-    }
-
     @MainActor
     private func go(_ view: PDFView?, to index: Int) {
         guard let view, let document = view.document,

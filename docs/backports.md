@@ -7009,3 +7009,35 @@ the row above first. Every line has `listing(of:)`, the picker and the shallow m
 none has the folder merge or Edit's rail. The listing guard and its tests (`UnansweredListingTests`)
 then apply site by site; the FileExplorer and Dashboard tests need `FileExplorerTestSupport`'s
 `UnansweredRealDisk`.
+
+## The column preview opens its PDF through the PDFKit lane — main only
+
+`PDFPagePreview` used to call `PDFDocument(url:)` on the main actor, in `makeNSView` and
+`updateNSView`. That was a main-thread parse per selected PDF, and a parse outside
+`PDFKitSerialAccess` that could overlap a duplicate scan's or a document survey's extraction, which
+is the overlap the lane exists to prevent. The preview now opens its document through
+`PDFKitSerialAccess.perform`, the way `PDFPairView` already did. The newest request wins, and a load
+that lands after dismantle is dropped. `SendableDocument` is now one shared type.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s pdfPagePreview=%s laneInPreview=%s lane=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PDFPagePreview.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PDFPagePreview.swift 2>/dev/null | grep -c 'PDFKitSerialAccess.perform')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/PDFKitSerialAccess.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-16, against origin, before this landed:
+# main  pdfPagePreview=1 laneInPreview=0 lane=1
+# v4.x  pdfPagePreview=0 laneInPreview=0 lane=1
+# v3.x  pdfPagePreview=0 laneInPreview=0 lane=0
+# v2.x  pdfPagePreview=0 laneInPreview=0 lane=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v4.x` | Has the lane, but its column preview shows PDFs through Quick Look, out of process, so no app parse happens there to route | CLOSED — does not apply |
+| `v3.x` / `v2.x` | Neither the lane nor `PDFPagePreview` | CLOSED — does not apply |
+
+A future pick of the PDF renderer (see "2026-09-09 — a PDF preview fits the whole page instead of
+the pane's width", RECORDED — not owed) should take this change with it. Otherwise the defect it
+brings along is a main-thread parse outside the lane.

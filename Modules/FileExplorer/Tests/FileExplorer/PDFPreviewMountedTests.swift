@@ -1,4 +1,5 @@
 import AppKit
+import os
 import PDFKit
 import Quartz
 import SwiftUI
@@ -15,13 +16,19 @@ import UniformTypeIdentifiers
 /// never from the constants that produced them — which matters most for the scroll, because "there
 /// is a scroll view" and "it has somewhere to scroll to" are different claims and only the second is
 /// the complaint this change answers.
+///
+/// **Serialized, because four of these hold PDFKit's one lane.** Run in parallel, each hold queued
+/// behind the last, and in a loaded full-package run three of them waited out their budget for the
+/// lane while it was held by a sibling waiting on the main actor.
 @MainActor
-@Suite struct PDFPreviewMountedTests {
+@Suite(.serialized) struct PDFPreviewMountedTests {
 
     /// A real multi-page PDF and a real image, because both renderers read the file.
     private final class Fixture {
         let root: String
         let pdf: String
+        /// A second PDF, for the tests that move the preview from one document to another.
+        let otherPDF: String
         let png: String
         /// US Letter, the shape the fit rule is most often asked about.
         static let pageSize = CGSize(width: 612, height: 792)
@@ -47,6 +54,8 @@ import UniformTypeIdentifiers
             }
             pdf = dir.appendingPathComponent("report.pdf").path
             doc.write(toFile: pdf)
+            otherPDF = dir.appendingPathComponent("other.pdf").path
+            try FileManager.default.copyItem(atPath: pdf, toPath: otherPDF)
 
             let art = NSImage(size: NSSize(width: 200, height: 200))
             art.lockFocus()
@@ -182,8 +191,10 @@ import UniformTypeIdentifiers
     @Test func testThePageSitsOnThePanesSurfaceRatherThanAWhiteSlab() async throws {
         let fixture = try Fixture()
         let mounted = mount(item(fixture.pdf, uti: UTType.pdf.identifier), width: 820, height: 700)
-        let settled = await wait(mounted.window, upTo: 10) { pdfView(in: mounted.host) != nil }
-        try #require(settled.held, "no PDF view after \(settled.pumps) layout passes")
+        // The document as well as the view: it arrives from the lane after the view mounts, and
+        // the scroll view this reads is the one PDFKit lays out around a document.
+        let settled = await wait(mounted.window, upTo: 10) { pdfView(in: mounted.host)?.document != nil }
+        try #require(settled.held, "no PDF document after \(settled.pumps) layout passes")
         let view = try #require(pdfView(in: mounted.host))
 
         #expect(view.backgroundColor.alphaComponent == 0,
@@ -238,6 +249,206 @@ import UniformTypeIdentifiers
                 "the clip view moved \(scroll.documentVisibleRect.origin.y - opensAt)pt from \(opensAt) — there is a scroll view but nothing scrolls")
         #expect(pageUnderViewport(of: view) == Fixture.pageCount,
                 "the far end of the scroll shows page \(pageUnderViewport(of: view).map(String.init) ?? "nothing") of \(Fixture.pageCount) — the rest of the document is not reachable")
+    }
+
+    // MARK: The load goes through the lane
+
+    /// Holds `PDFKitSerialAccess`'s one lane until released, so a test can see what the preview
+    /// does while its parse is queued behind someone else's.
+    ///
+    /// The hold is queued like any parse, so `waitUntilHeld` returns only once it is really in the
+    /// lane — a parse or another test's hold that got there first runs to completion before it.
+    /// **The wait polls rather than blocking on a semaphore**: these tests are main-actor, and a
+    /// main thread parked behind another test's hold is a main thread that test needs to release it.
+    private final class LaneHold: Sendable {
+        private let gate = DispatchSemaphore(value: 0)
+        private let held = OSAllocatedUnfairLock(initialState: false)
+        private let released = OSAllocatedUnfairLock(initialState: false)
+
+        init() {
+            Task.detached { [gate, held] in
+                await PDFKitSerialAccess.perform { held.withLock { $0 = true }; gate.wait() }
+            }
+        }
+
+        func waitUntilHeld() async -> Bool {
+            let deadline = Date().addingTimeInterval(30)
+            while Date() < deadline {
+                if held.withLock({ $0 }) { return true }
+                try? await Task.sleep(nanoseconds: 5_000_000)
+            }
+            return false
+        }
+
+        /// Idempotent, so a `defer` can always call it without stealing a later hold's signal.
+        func release() {
+            let first = released.withLock { done in defer { done = true }; return !done }
+            if first { gate.signal() }
+        }
+    }
+
+    /// Every document a `PDFView` was handed, in order — read off `PDFViewDocumentChanged`, which
+    /// PDFKit posts on each assignment, so an assignment that was later overwritten still shows.
+    @MainActor
+    private final class DocumentLog {
+        private(set) var urls: [URL?] = []
+        private var token: NSObjectProtocol?
+
+        init(_ view: PDFView) {
+            token = NotificationCenter.default.addObserver(
+                forName: .PDFViewDocumentChanged, object: view, queue: nil
+            ) { [weak self, weak view] _ in
+                // Posted synchronously from the assignment, which is on the main actor. The view is
+                // read directly rather than off the notification: it is the only object observed.
+                MainActor.assumeIsolated { self?.urls.append(view?.document?.documentURL) }
+            }
+        }
+
+        /// The documents actually assigned, leaving out the clears in between.
+        var assigned: [URL] { urls.compactMap { $0 } }
+
+        func stop() { token.map(NotificationCenter.default.removeObserver); token = nil }
+    }
+
+    /// Hosts `PDFPagePreview` on its own, so a test can change its URL or unmount it — the column
+    /// mounts a fresh one per selection and gives no way to drive either.
+    private func host(_ root: some View) -> (window: NSWindow, host: NSHostingView<AnyView>) {
+        let host = NSHostingView(rootView: AnyView(root))
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 700)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.layoutIfNeeded()
+        return (window, host)
+    }
+
+    /// **The parse is in the lane, so it is off the main thread.** With the lane held, the view
+    /// mounts and stays empty; release it and the page arrives. A parse on the main actor would have
+    /// handed the view its document in `makeNSView`, lane or no lane.
+    @Test func thePreviewOpensItsDocumentInTheLaneRatherThanOnTheMainThread() async throws {
+        let fixture = try Fixture()
+        let hold = LaneHold()
+        defer { hold.release() }
+        try #require(await hold.waitUntilHeld(), "the lane never came free to be held")
+
+        // Hosted directly rather than through the column, so the lane is held for one layout pass
+        // and not through the column's settle delay — every other PDFKit reader in the process is
+        // queued behind this hold. The column's choice of this view is pinned above.
+        let hosted = host(PDFPagePreview(url: URL(fileURLWithPath: fixture.pdf)))
+        let view = try #require(pdfView(in: hosted.host), "the preview did not mount")
+        #expect(view.document == nil,
+                "the document was there while the lane was held — it was parsed outside the lane")
+
+        hold.release()
+        let arrived = await wait(hosted.window, upTo: 10) { view.document != nil }
+        #expect(arrived.held, "the document never arrived once the lane was free (\(arrived.pumps) passes)")
+        #expect(view.document?.documentURL?.path == fixture.pdf)
+    }
+
+    /// **Latest request wins.** A, then B, both queued behind a held lane: A's parse finishes first,
+    /// and must be dropped rather than shown under B's name until B lands. The final document is
+    /// not enough to tell — on a FIFO lane B lands last either way — so every assignment is read.
+    @Test func aLoadForAFileNoLongerShownIsDropped() async throws {
+        let fixture = try Fixture()
+        let first = URL(fileURLWithPath: fixture.pdf)
+        let second = URL(fileURLWithPath: fixture.otherPDF)
+        let hold = LaneHold()
+        defer { hold.release() }
+        try #require(await hold.waitUntilHeld(), "the lane never came free to be held")
+
+        let hosted = host(PDFPagePreview(url: first))
+        let view = try #require(pdfView(in: hosted.host))
+        let log = DocumentLog(view)
+        defer { log.stop() }
+        hosted.host.rootView = AnyView(PDFPagePreview(url: second))
+        hosted.window.layoutIfNeeded()
+        #expect(pdfView(in: hosted.host) === view, "the URL change rebuilt the view instead of updating it")
+
+        hold.release()
+        let arrived = await wait(hosted.window, upTo: 10) { view.document != nil }
+        try #require(arrived.held, "no document arrived (\(arrived.pumps) passes)")
+        // Both parses have had their turn once B is in; pump on so a late A would have landed.
+        _ = await LayoutPumpWait.pump(hosted.window, upTo: 0.3) { false }
+
+        #expect(view.document?.documentURL == second)
+        #expect(log.assigned == [second],
+                "the view was handed \(log.assigned.map(\.lastPathComponent)) — a stale load was assigned")
+    }
+
+    /// **A re-render while the page is loading does not queue another parse.** The view has no
+    /// document until the lane answers, so a guard on the document's URL would read every ancestor
+    /// re-render as "a different file" and open it again. The environment flip is the re-render: it
+    /// reaches `updateNSView` without changing the URL.
+    @Test func aReRenderDuringTheLoadDoesNotOpenTheDocumentAgain() async throws {
+        let fixture = try Fixture()
+        let url = URL(fileURLWithPath: fixture.pdf)
+        let hold = LaneHold()
+        defer { hold.release() }
+        try #require(await hold.waitUntilHeld(), "the lane never came free to be held")
+
+        // The same modifier from the first mount, so each flip is the same view updated rather
+        // than a different view type replacing it.
+        func rendered(_ scheme: ColorScheme) -> some View {
+            PDFPagePreview(url: url).environment(\.colorScheme, scheme)
+        }
+        let hosted = host(rendered(.light))
+        let view = try #require(pdfView(in: hosted.host))
+        let log = DocumentLog(view)
+        defer { log.stop() }
+        for tick in 0..<4 {
+            hosted.host.rootView = AnyView(rendered(tick.isMultiple(of: 2) ? .dark : .light))
+            hosted.window.layoutIfNeeded()
+        }
+        #expect(pdfView(in: hosted.host) === view)
+
+        hold.release()
+        let arrived = await wait(hosted.window, upTo: 10) { view.document != nil }
+        try #require(arrived.held, "no document arrived (\(arrived.pumps) passes)")
+        _ = await LayoutPumpWait.pump(hosted.window, upTo: 0.3) { false }
+
+        #expect(log.assigned == [url],
+                "the document was opened \(log.assigned.count) times for one file")
+    }
+
+    /// **A load that lands after the view has gone does nothing.** Dismantling drops the document
+    /// so the file is not held open; a parse still in the lane must not hand one straight back.
+    @Test func aLoadThatLandsAfterDismantleIsDropped() async throws {
+        let fixture = try Fixture()
+        let hold = LaneHold()
+        defer { hold.release() }
+        try #require(await hold.waitUntilHeld(), "the lane never came free to be held")
+
+        let hosted = host(PDFPagePreview(url: URL(fileURLWithPath: fixture.pdf)))
+        // Held here, so the view outlives its dismantle — the case the flag exists for.
+        let view = try #require(pdfView(in: hosted.host))
+        hosted.host.rootView = AnyView(Color.clear)
+        hosted.window.layoutIfNeeded()
+        #expect(pdfView(in: hosted.host) == nil, "the preview was not unmounted")
+
+        hold.release()
+        // The released parse resumes on a main-actor turn; give it several.
+        _ = await LayoutPumpWait.pump(hosted.window, upTo: 0.5) { false }
+        #expect(view.document == nil, "a dismantled preview was handed its document after all")
+    }
+
+    /// **The preview's parse never overlaps another.** The column mounts while a duplicate scan's
+    /// extractions are running; `peakConcurrentParses` is 0 or 1 for the life of the process on a
+    /// serial lane, and anything above 1 means a second lane exists somewhere.
+    @Test func thePreviewParseNeverOverlapsAnExtraction() async throws {
+        let fixture = try Fixture()
+        let path = fixture.pdf
+        let scan = Task.detached {
+            await withTaskGroup(of: Void.self) { group in
+                for _ in 0..<6 { group.addTask { _ = await PDFTextExtractor.read(atPath: path) } }
+            }
+        }
+        let mounted = mount(item(fixture.pdf, uti: UTType.pdf.identifier), width: 820, height: 700)
+        let arrived = await wait(mounted.window, upTo: 10) { pdfView(in: mounted.host)?.document != nil }
+        await scan.value
+        try #require(arrived.held, "the preview never got its document (\(arrived.pumps) passes)")
+        #expect(PDFKitSerialAccess.peakConcurrentParses <= 1,
+                "two PDFKit parses ran at once — peak \(PDFKitSerialAccess.peakConcurrentParses)")
     }
 
     /// Which page the reader is actually looking at, read off the laid-out pages under the middle

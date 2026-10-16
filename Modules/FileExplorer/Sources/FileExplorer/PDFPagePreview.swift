@@ -1,6 +1,7 @@
 import AppKit
 import PDFKit
 import SwiftUI
+import Sync
 import UniformTypeIdentifiers
 
 /// Which renderer draws a previewable file.
@@ -125,8 +126,28 @@ final class FitPagePDFView: PDFView {
 /// The scrollers are `PDFView`'s own, in this process, which is the other half of what this fixes:
 /// the Quick Look path renders in an `NSRemoteView` whose scrolling is the extension's business and
 /// not reachable from here.
+///
+/// **The document is opened through `PDFKitSerialAccess`, never on the main actor** — the same rule
+/// as `PDFPairView`, for the same two reasons. `PDFDocument(url:)` parses, and a large PDF parsed
+/// inline is a main-thread stall per selection. And PDFKit's parsing is not thread-safe: a preview
+/// opened beside the lane could overlap a duplicate scan's or a document survey's extraction, which
+/// is the overlap the lane's 4.5–6.3% measurement is about. So the view mounts empty and the page
+/// arrives when the lane has parsed it.
 struct PDFPagePreview: NSViewRepresentable {
     let url: URL
+
+    /// What the view has asked the lane for, so a load that comes back can be checked against it.
+    @MainActor
+    final class Coordinator {
+        /// The URL most recently requested. **Latest request wins**: a load that finishes for any
+        /// other URL is dropped, never assigned — otherwise a slow open of the previous file could
+        /// land after the current one and put the wrong document under the current file's name.
+        var requested: URL?
+        /// Set by `dismantleNSView`, so a load still in the lane when the view goes does nothing.
+        var isDismantled = false
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> FitPagePDFView {
         let view = FitPagePDFView()
@@ -136,8 +157,7 @@ struct PDFPagePreview: NSViewRepresentable {
         // The pane paints its own surface behind this — see `clearInheritedBackground`, which is
         // where the rest of that happens and why one line here is not enough.
         view.clearInheritedBackground()
-        view.document = PDFDocument(url: url)
-        view.invalidateFit()
+        load(url, into: view, coordinator: context.coordinator)
         return view
     }
 
@@ -145,14 +165,41 @@ struct PDFPagePreview: NSViewRepresentable {
         // Guarded for the reason `QuickLookPreview.updateNSView` is: this runs on every ancestor
         // re-render, and re-reading a document rebuilds every page and throws away the reader's
         // scroll position.
-        guard view.document?.documentURL != url else { return }
-        view.document = PDFDocument(url: url)
-        view.invalidateFit()
+        //
+        // **Against the REQUESTED url, not `view.document?.documentURL`.** While a load is in the
+        // lane the view has no document, so the document's URL would read as "not this one" on
+        // every re-render and queue a fresh parse each time — and the same for a file that fails
+        // to open, which never gets a document at all.
+        guard context.coordinator.requested != url else { return }
+        load(url, into: view, coordinator: context.coordinator)
     }
 
-    static func dismantleNSView(_ view: FitPagePDFView, coordinator: ()) {
+    static func dismantleNSView(_ view: FitPagePDFView, coordinator: Coordinator) {
         // A `PDFDocument` holds the file open; dropping it with the view keeps a preview walk from
-        // leaving one descriptor per file behind.
+        // leaving one descriptor per file behind. The flag stops a load still in the lane from
+        // handing one straight back.
+        coordinator.isDismantled = true
         view.document = nil
+    }
+
+    /// Opens `url` in the lane and hands the document to `view` — if it is still the one wanted.
+    @MainActor
+    private func load(_ url: URL, into view: FitPagePDFView, coordinator: Coordinator) {
+        // A different file's document comes down now rather than when the new one lands: a page
+        // from the previous selection sitting under the new file's name, even briefly, is a wrong
+        // preview, and it releases that file's descriptor sooner.
+        if coordinator.requested != nil { view.document = nil }
+        coordinator.requested = url
+        Task { @MainActor [weak view] in
+            let opened = await PDFKitSerialAccess.perform {
+                PDFDocument(url: url).map(SendableDocument.init)
+            }
+            guard let view, !coordinator.isDismantled, coordinator.requested == url else { return }
+            view.document = opened?.document
+            // The document arrives after the first layout pass, so the fit computed then was for no
+            // page at all — and `layout()` refits only on a size change unless told otherwise.
+            view.invalidateFit()
+            view.needsLayout = true
+        }
     }
 }
