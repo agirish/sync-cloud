@@ -316,6 +316,22 @@ enum PDFFixtures {
         #expect(pdf.path == stopped && pdf.facts?.pageCount == 1)
     }
 
+    /// **A PDF's header draws no location line** — the text header's "in Finance" or "iCloud ›
+    /// Documents › …" crumbs (asked 2026-10-17: "it doesn't make sense"). Its second row says what
+    /// the file is; Reveal in Browse on the name is the way to where it lives. Read over the
+    /// header's own body, so the text header's location line is untouched by this.
+    @Test func thePDFHeaderDrawsNoLocationLine() throws {
+        let card = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
+        let start = try #require(card.range(of: "struct EditorPDFHeader<Trailing: View>: View {"))
+        let end = try #require(card.range(of: "static var readOnlyTag", range: start.upperBound..<card.endIndex))
+        let header = String(card[start.upperBound..<end.lowerBound])
+        #expect(!header.contains("EditorLocationLabel"), "the PDF header draws the location crumbs again")
+        #expect(!header.contains("EditorDocumentLocation"), "the PDF header takes a location again")
+        #expect(header.contains("Label(\"Reveal in Browse\""), "the PDF's name lost its way to where it lives")
+        let workspace = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
+        #expect(workspace.contains("EditorLocationLabel(location: location"), "the TEXT header lost its location line too")
+    }
+
     /// **The reader counts its skips on itself, never on the column preview's counter.**
     /// `PDFPreviewMountedTests` asserts that counter does not move across a held lane; this suite
     /// withdraws opens on purpose, so counting there turned the preview's test red whenever the two

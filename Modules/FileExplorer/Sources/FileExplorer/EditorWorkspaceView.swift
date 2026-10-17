@@ -739,9 +739,8 @@ public struct EditorWorkspaceView: View {
     private var header: some View {
         EditorDocumentHeader {
             if let pdf {
-                EditorPDFHeader(pdf: pdf, accent: accent, onAccent: onAccent, location: location,
-                                onLocationDoor: onLocationDoor, onRevealInBrowse: onRevealInBrowse,
-                                onClose: onCloseDocument) {
+                EditorPDFHeader(pdf: pdf, accent: accent, onAccent: onAccent,
+                                onRevealInBrowse: onRevealInBrowse, onClose: onCloseDocument) {
                     expandButton(worded: false)
                 }
             } else if document.path == nil { emptyHeaderContent } else { headerContent }

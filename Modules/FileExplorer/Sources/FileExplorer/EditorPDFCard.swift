@@ -318,12 +318,14 @@ struct EditorPDFStatusLine: View {
 ///
 /// The Expand button is the workspace's own view, handed in. The × is drawn here with the text
 /// header's modifiers and its accessibility label, calling the same host close.
+///
+/// **No location line** — the text header's "in Finance" or "iCloud › Documents › …" crumbs are
+/// not drawn here (asked 2026-10-17: "it doesn't make sense"). A PDF's second row says only what
+/// it is; the name's right-click Reveal in Browse is the way to where it lives.
 struct EditorPDFHeader<Trailing: View>: View {
     @ObservedObject var pdf: EditorPDFDocument
     let accent: Color
     let onAccent: Color
-    let location: EditorDocumentLocation?
-    let onLocationDoor: (EditorDocumentLocation.Door) -> Void
     let onRevealInBrowse: (String) -> Void
     let onClose: () -> Void
     @ViewBuilder let trailing: Trailing
@@ -370,17 +372,7 @@ struct EditorPDFHeader<Trailing: View>: View {
                     .overlay(Capsule().strokeBorder(.tertiary))
                     .fixedSize()
                     .help("PDFs open read-only in Edit — nothing here writes to the file")
-                if let location {
-                    HStack(spacing: 6) {
-                        Text("·").foregroundStyle(.tertiary).fixedSize()
-                        EditorLocationLabel(location: location, accent: accent, onDoor: onLocationDoor)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.trailing, 8)
-                    .layoutPriority(-1)
-                } else {
-                    Spacer(minLength: 8)
-                }
+                Spacer(minLength: 8)
             }
             .scaledFont(.system(size: 10))
             .foregroundStyle(.secondary)
