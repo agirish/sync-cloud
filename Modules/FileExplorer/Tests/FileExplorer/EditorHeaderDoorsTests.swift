@@ -596,7 +596,7 @@ import FileExplorerTestSupport
         #expect(EditorWorkspaceView.emptyCaption(hasFolder: false, showsRail: true).hasPrefix("Pick a folder"))
         // The page draws THIS caption — a scan of the one call site, comments stripped.
         let code = try Self.headerSource()
-        #expect(code.contains("caption(Self.emptyCaption(hasFolder: !folder.isEmpty, showsRail: showsRail))"),
+        #expect(code.contains("caption(Self.emptyCaption(hasFolder: !folder.isEmpty, showsRail: showsRail),"),
                 "the empty page does not draw `emptyCaption`")
     }
 

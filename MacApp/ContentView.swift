@@ -645,6 +645,10 @@ struct ContentView: View {
     /// clears it, which ends Expand (`EditorExpand.paneOpenedByHand`). Persisted, like the pane
     /// override above it, for the same reason.
     @AppStorage(TopPaneVisibility.editorRailHiddenKey) var editorRailHidden: Bool = false
+    /// The Text Files list folded into the strip by hand (TE77) — the strip's buttons, the list's
+    /// fold button and View ▸ Text Files move it. Separate from Expand's bit above, so folding the
+    /// list does not light Expand and leaving Expand gives back a list folded by hand still folded.
+    @AppStorage(TopPaneVisibility.editorRailFoldedKey) var editorRailFolded: Bool = TopPaneVisibility.editorRailFoldedDefault
     /// Expand's record of what it put away — see `EditorExpand`, the only thing that writes them.
     @AppStorage(TopPaneVisibility.editorExpandSidebarPutAwayKey) var editorExpandSidebarPutAway: Bool = false
     @AppStorage(TopPaneVisibility.editorExpandFoldedPaneKey) var editorExpandFoldedPane: Bool = false

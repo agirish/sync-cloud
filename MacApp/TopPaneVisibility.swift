@@ -78,21 +78,36 @@ enum TopPaneVisibility {
 
     // MARK: - The editor's file rail
 
-    /// Whether the editor's file rail is drawn, from the two bits that decide it.
+    /// Whether the editor's file rail is drawn, from the three bits that decide it.
     ///
     /// `paneHidden` is the workspace's existing override (``panesHidden(for:override:)``);
-    /// `railHidden` is the editor-only bit "Just the text" sets. The rail exists to be the ONE file
-    /// list on screen: while the source pane is open it lists the pane's folder a second time, so
-    /// the pane wins. While the pane is collapsed the rail bit decides. The bit is READ only in
-    /// that state, and this rule never clears it — opening the pane by hand does
-    /// (`EditorExpand.paneOpenedByHand`, CHR-3), so folding it again shows the list.
-    static func editorRailIsDrawn(paneHidden: Bool, railHidden: Bool) -> Bool {
-        paneHidden && !railHidden
+    /// `railHidden` is the editor-only bit "Just the text" sets; `railFolded` is the list folded
+    /// into the strip by hand (TE77). The rail exists to be the ONE file list on screen: while the
+    /// source pane is open it lists the pane's folder a second time, so the pane wins. While the
+    /// pane is collapsed the two rail bits decide, and either one withholds it. They are READ only
+    /// in that state, and this rule never clears them — opening the pane by hand clears Expand's
+    /// (`EditorExpand.paneOpenedByHand`, CHR-3), so folding it again shows the list unless it was
+    /// folded by hand too.
+    ///
+    /// **Two bits, not one, because Expand reads its own.** Expand is on while its bit is set and
+    /// the pane folded (`EditorExpand.isOn`); a list folded by hand into that same bit would light
+    /// the header's Files button, and leaving Expand would unfold a list the person had folded.
+    static func editorRailIsDrawn(paneHidden: Bool, railHidden: Bool, railFolded: Bool) -> Bool {
+        paneHidden && !railHidden && !railFolded
     }
 
     /// The defaults key for the rail bit. Persisted like ``overridesKey``, for the same reason: a
     /// layout someone quit in is the layout they relaunch into.
     static let editorRailHiddenKey = "editorRailHidden"
+
+    /// The defaults key for the list folded into the strip by hand (TE77). Its own key, not
+    /// Expand's — see ``editorRailIsDrawn(paneHidden:railHidden:railFolded:)``.
+    static let editorRailFoldedKey = "editorRailFolded"
+
+    /// **Folded until someone opens it** (decision AF, 2026-10-16): a new window shows the strip's
+    /// Text Files and Outline buttons, not a 232pt column, and the empty page carries a Show Text
+    /// Files button so a first session still finds the files. Remembered once changed.
+    static let editorRailFoldedDefault = true
 
     /// Defaults keys for ``EditorExpand``'s two record bits. Persisted like the rail bit: a window
     /// quit while expanded relaunches expanded, and leaving it then must still give back the same.

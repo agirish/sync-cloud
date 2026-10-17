@@ -110,6 +110,11 @@ public struct EditorWorkspaceView: View {
     let railIsHidden: Bool
     /// The Expand button's act. The host owns the bit and what else moves with it.
     let onToggleJustTheText: () -> Void
+    /// The rail's fold button (TE77): the list folds into the pane's strip. `nil` draws no button.
+    let onFoldRail: (() -> Void)?
+    /// The empty page's Show Text Files button — the host passes it only while the list is folded
+    /// or put away with the pane folded too, when nothing else on the page leads to a file.
+    let onShowTextFiles: (() -> Void)?
     /// The header's ＋ — **the host's ⌘N closure itself**, not a second copy of what it does.
     ///
     /// ⌘N sets `isNaming` AND bumps the focus counter this view only reads (``namingFocus``); a
@@ -368,7 +373,9 @@ public struct EditorWorkspaceView: View {
                 folderDisplayName: String? = nil,
                 newFileFolderName: String? = nil,
                 onImagesImported: ((EditorImageImport.Report) -> Void)? = nil,
-                onPreviewLengthHold: ((PreviewLengthHold) -> Void)? = nil) {
+                onPreviewLengthHold: ((PreviewLengthHold) -> Void)? = nil,
+                onFoldRail: (() -> Void)? = nil,
+                onShowTextFiles: (() -> Void)? = nil) {
         self._railFilter = railFilter
         self._railFilterIsExpanded = railFilterIsExpanded
         self._railTab = railTab
@@ -385,6 +392,8 @@ public struct EditorWorkspaceView: View {
         self.showsRail = showsRail
         self.railIsHidden = railIsHidden
         self.onToggleJustTheText = onToggleJustTheText
+        self.onFoldRail = onFoldRail
+        self.onShowTextFiles = onShowTextFiles
         self.onNewTextFile = onNewTextFile
         self.onCloseDocument = onCloseDocument
         self.accent = accent
@@ -538,7 +547,8 @@ public struct EditorWorkspaceView: View {
                                onCreate: onCreate,
                                onNewTextFile: onNewTextFile,
                                newFileFolderName: newFileFolderName,
-                               rowActions: railRowActions)
+                               rowActions: railRowActions,
+                               onFold: onFoldRail)
                 .frame(maxHeight: .infinity)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
             }
@@ -1104,6 +1114,9 @@ public struct EditorWorkspaceView: View {
         }
     }
 
+    /// The empty page's button while the list is folded (TE77).
+    static let showTextFilesTitle = "Show Text Files"
+
     /// What the empty page's header says in place of a file name.
     static let emptyTitle = "No document open"
 
@@ -1537,7 +1550,8 @@ public struct EditorWorkspaceView: View {
             // already written for a reader.
             caption(refused)
         } else if document.path == nil {
-            caption(Self.emptyCaption(hasFolder: !folder.isEmpty, showsRail: showsRail))
+            caption(Self.emptyCaption(hasFolder: !folder.isEmpty, showsRail: showsRail),
+                    showTextFiles: folder.isEmpty ? nil : onShowTextFiles)
         } else {
             VStack(spacing: 0) {
                 if let diskBanner {
@@ -1987,8 +2001,10 @@ public struct EditorWorkspaceView: View {
         .background(.quaternary.opacity(0.4))
     }
 
-    private func caption(_ text: String) -> some View {
-        VStack {
+    /// - Parameter showTextFiles: draws Show Text Files under the words (TE77) — the empty page's
+    ///   way to the list while it is folded into the strip, which a first session opens into.
+    private func caption(_ text: String, showTextFiles: (() -> Void)? = nil) -> some View {
+        VStack(spacing: 12) {
             Spacer(minLength: 0)
             Text(text)
                 .scaledFont(.system(size: 12))
@@ -1996,6 +2012,16 @@ public struct EditorWorkspaceView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 32)
+            if let showTextFiles {
+                Button(action: showTextFiles) {
+                    Label(Self.showTextFilesTitle, systemImage: EditorRailTab.files.symbol)
+                        .scaledFont(.system(size: 12, weight: .medium))
+                }
+                .buttonStyle(.bordered)
+                .tint(accent)
+                .help(ShortcutHint.tooltip("Show the folder's text files beside the document",
+                                           AppChord.editorTextFiles.display))
+            }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -45,6 +45,7 @@ import Foundation
             newTab: {}, closeTab: closeTab, cycleTab: { _ in }, reopenClosedTab: {},
             tabBar: TabBarSwitch(isOn: false, isForced: false, set: { _ in }),
             folderSidebar: .constant(true),
+            editorTextFiles: .constant(true),
             statusBar: .constant(true),
             organizeLens: OrganizeLensSwitch(current: .duplicates, select: { _ in }),
             organizeVerbs: OrganizeVerbs(organizeFolder: {}, findDuplicates: {},
@@ -197,6 +198,7 @@ import Foundation
         #expect(publisher.effectiveReopenClosedTab == nil)
         #expect(publisher.effectiveTabBar == nil)
         #expect(publisher.effectiveFolderSidebar == nil)
+        #expect(publisher.effectiveEditorTextFiles == nil)
         #expect(publisher.effectiveStatusBar == nil)
         #expect(publisher.effectiveOrganizeLens == nil)
         #expect(publisher.effectiveOrganizeVerbs == nil)
@@ -241,6 +243,7 @@ import Foundation
         #expect(publisher.effectiveReopenClosedTab != nil)
         #expect(publisher.effectiveTabBar != nil)
         #expect(publisher.effectiveFolderSidebar != nil)
+        #expect(publisher.effectiveEditorTextFiles != nil)
         #expect(publisher.effectiveStatusBar != nil)
         #expect(publisher.effectiveOrganizeLens != nil)
         #expect(publisher.effectiveOrganizeVerbs != nil)

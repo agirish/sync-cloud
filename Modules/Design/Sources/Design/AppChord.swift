@@ -138,6 +138,12 @@ public extension AppChord {
     /// it does not join `TextEditingChord`'s colliding set.
     static let goToLine = AppChord("l", [.control, .command])
 
+    /// View ▸ Text Files — Edit's Text Files / Outline list, folded into the pane's strip or back
+    /// (TE81). **⌃⌘T was free, and checked rather than assumed**: ⌘T is New Tab and ⇧⌘T the tab
+    /// bar; the ⌃⌘ letters in use are S, E and L. AppKit binds no ⌃⌘ letter (``editorExpand``), so
+    /// the field editor never claims it. Beside ⌃⌘S, the sidebar's: the two columns' switches.
+    static let editorTextFiles = AppChord("t", [.control, .command])
+
     /// Text ▸ Find Next / Use Selection for Find — the find bar's own two verbs, which AppKit
     /// binds to nothing until a menu item names them. ⌘G and ⌘E, the platform's own.
     static let findNext = AppChord("g", .command)
@@ -392,7 +398,7 @@ public extension AppChord {
         copyToLeft, copyToRight, moveToLeft, moveToRight,
         textBigger, textSmaller, textDefaultSize,
         editorSourceMode, editorPreviewMode, editorSplitMode, editorExpand,
-        findNext, useSelectionForFind, goToLine,
+        findNext, useSelectionForFind, goToLine, editorTextFiles,
         // `italic` is `infoInspector`, already listed above — see its note.
         bold, strikethrough, inlineCode, link,
     ]

@@ -186,18 +186,39 @@ import FileExplorer
         #expect(toggle.contains("expand.leave()") && toggle.contains("expand.enter(sidebarShowing: folderSidebarIsShowing)"),
                 "the toggle moves the bits itself rather than through EditorExpand")
         #expect(!toggle.contains("editorRailHidden ="), "the toggle flips the rail bit directly")
-        // The spine's Text Files rung is a door of its own (CHR-2): the list back, the pane left
-        // folded — through `EditorExpand`, and logged. The toggle's way out reopens a pane Expand
-        // folded, and an open pane draws no list.
+        // The spine's list buttons are doors of their own (CHR-2, TE77): the list back, the pane
+        // left folded — through `EditorExpand` when Expand had it, and logged. The toggle's way out
+        // reopens a pane Expand folded, and an open pane draws no list.
         let spine = try Self.source("ContentView+SplitLayout.swift")
-        #expect(spine.contains("Button { showEditorTextFiles() } label: {"),
-                "the spine's \"Show the text files\" rung does not run showEditorTextFiles")
+        #expect(spine.contains("Button { runEditorRailRung(tab) } label: {"),
+                "the spine's list buttons do not run runEditorRailRung")
         #expect(!spine.contains("Button { toggleJustTheText() } label: {"),
                 "the spine's rung runs the header's toggle, which reopens a pane Expand folded")
-        #expect(!spine.contains("editorRailHidden = false"), "the spine still clears the bit directly")
-        let rung = try Self.memberBody("func showEditorTextFiles()", in: source)
+        #expect(!spine.contains("editorRailHidden = false") && !spine.contains("editorRailFolded ="),
+                "the spine writes a rail bit directly")
+        let rung = try Self.memberBody("func showEditorRail(tab: EditorRailTab, from door: EditorRailDoor)", in: source)
         #expect(rung.contains("expand.textFilesShown()"), "the rung moves the bits itself rather than through EditorExpand")
-        #expect(rung.contains(#"Logger.shared.info("[edit] Expand off from the strip — ""#), "the rung is not logged")
+        #expect(rung.contains(#"Logger.shared.info("[edit] Expand off from \(door.rawValue) — ""#), "ending Expand from the strip is not logged")
+        #expect(rung.contains(#"Logger.shared.info("[edit] Text Files list shown from \(door.rawValue)")"#), "showing the list is not logged")
+        let fold = try Self.memberBody("func foldEditorRail(from door: EditorRailDoor)", in: source)
+        #expect(fold.contains("editorRailFolded = true") && !fold.contains("editorRailHidden"),
+                "the hand fold writes Expand's bit — folding would light Files")
+        #expect(fold.contains(#"Logger.shared.info("[edit] Text Files list folded from \(door.rawValue)")"#), "folding is not logged")
+        // TE77's two view doors and TE81's menu item reach the host's acts.
+        #expect(try Self.call("EditorWorkspaceView(", in: workspace).passes("onFoldRail", "{ foldEditorRail(from: .foldButton) }"),
+                "the list's fold button is not handed foldEditorRail")
+        #expect(try Self.call("EditorWorkspaceView(", in: workspace)
+                    .passes("onShowTextFiles", "(panesHiddenForCurrentTab && !showsRail) ? { showEditorRail(tab: .files, from: .emptyPage) } : nil"),
+                "the empty page's Show Text Files is not handed showEditorRail, or is offered beside an open pane")
+        #expect(try CallArguments(of: "ShortcutValuePublisher(", in: publisher)
+                    .passes("editorTextFiles", "shortcutEditorTextFiles"),
+                "the chord publisher is not handed shortcutEditorTextFiles")
+        let menuItem = try Self.memberBody("var shortcutEditorTextFiles: Binding<Bool>?", in: source)
+        #expect(menuItem.contains("selectedWorkspace == .editor && panesHiddenForCurrentTab"),
+                "View ▸ Text Files is offered outside Edit, or beside an open pane that is the list")
+        #expect(menuItem.contains("get: { editorRailIsDrawn }"), "View ▸ Text Files ticks on something other than the list as drawn")
+        let app = try Self.source("SyncCloudApp.swift")
+        #expect(app.contains("ColumnCommands()"), "View ▸ Text Files is not in the View menu")
         #expect(!rung.contains("expand.leave()"), "the rung leaves Expand the header's way, reopening the pane")
     }
 

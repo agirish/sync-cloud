@@ -71,25 +71,49 @@ import FileExplorer
 
     /// The quiet state: pane collapsed, nothing asked of the rail — it is the file list.
     @Test func theRailIsDrawnInTheQuietState() {
-        #expect(TopPaneVisibility.editorRailIsDrawn(paneHidden: true, railHidden: false))
+        #expect(TopPaneVisibility.editorRailIsDrawn(paneHidden: true, railHidden: false, railFolded: false))
     }
 
     /// An open pane IS the file list, so the rail steps aside rather than listing the folder twice.
     @Test func theRailYieldsToAnOpenPane() {
-        #expect(!TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: false))
+        #expect(!TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: false, railFolded: false))
     }
 
     /// "Just the text": the pane is collapsed and the rail bit is set, so neither list is drawn.
     @Test func justTheTextHidesTheRail() {
-        #expect(!TopPaneVisibility.editorRailIsDrawn(paneHidden: true, railHidden: true))
+        #expect(!TopPaneVisibility.editorRailIsDrawn(paneHidden: true, railHidden: true, railFolded: false))
+    }
+
+    /// **Folded by hand (TE77) withholds the list as Expand does, and through its own bit** — a
+    /// list folded by hand must not read as Expand, or the header would light Files. Every
+    /// combination: drawn only with the pane folded and BOTH rail bits clear. Mutation: drop
+    /// `!railFolded` from the rule and the folded rows fail.
+    @Test func eitherRailBitWithholdsTheListAndOnlyAFoldedPaneDrawsIt() {
+        for pane in [false, true] {
+            for hidden in [false, true] {
+                for folded in [false, true] {
+                    #expect(TopPaneVisibility.editorRailIsDrawn(paneHidden: pane, railHidden: hidden, railFolded: folded)
+                                == (pane && !hidden && !folded),
+                            "pane hidden=\(pane), Expand's bit=\(hidden), folded=\(folded)")
+                }
+            }
+        }
+    }
+
+    /// **A new window opens with the list folded** (decision AF): the default is the folded state,
+    /// so the quiet layout is sidebar · strip · text. Pinned because the default IS the decision.
+    @Test func theListStartsFolded() {
+        #expect(TopPaneVisibility.editorRailFoldedDefault)
+        #expect(TopPaneVisibility.editorRailFoldedKey != TopPaneVisibility.editorRailHiddenKey,
+                "the hand fold shares Expand's key — folding the list would light Expand")
     }
 
     /// With the pane open the bit is not consulted at all — both values of it answer the same —
     /// which is what lets the bit survive a trip into the pane and back without being cleared.
     /// The rule takes the bit by value and has nowhere to write, so "ignored" is the whole claim.
     @Test func anOpenPaneIgnoresTheRailBitRatherThanClearingIt() {
-        let withBitClear = TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: false)
-        let withBitSet = TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: true)
+        let withBitClear = TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: false, railFolded: false)
+        let withBitSet = TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: true, railFolded: true)
         #expect(withBitClear == withBitSet, "an open pane answers differently depending on the rail bit")
         #expect(!withBitSet)
     }
@@ -172,7 +196,7 @@ import FileExplorer
         #expect(!expand.sidebarPutAway && !expand.paneFoldedByExpand, "a spent record was kept")
         expand.paneFolded = true            // the pane header's fold, which writes only the pane
         #expect(!expand.isOn, "folding the pane again re-lit Expand")
-        #expect(TopPaneVisibility.editorRailIsDrawn(paneHidden: expand.paneFolded, railHidden: expand.railHidden),
+        #expect(TopPaneVisibility.editorRailIsDrawn(paneHidden: expand.paneFolded, railHidden: expand.railHidden, railFolded: false),
                 "folding the pane again did not bring the Text Files list")
         // And Expand from there starts afresh, and leaving it keeps the pane the person folded.
         expand.enter(sidebarShowing: true)
@@ -191,7 +215,7 @@ import FileExplorer
                                   sidebarPutAway: false, paneFoldedByExpand: false)
         expand.enter(sidebarShowing: true)
         expand.textFilesShown()
-        #expect(TopPaneVisibility.editorRailIsDrawn(paneHidden: expand.paneFolded, railHidden: expand.railHidden),
+        #expect(TopPaneVisibility.editorRailIsDrawn(paneHidden: expand.paneFolded, railHidden: expand.railHidden, railFolded: false),
                 "the rung did not bring the Text Files list back (pane \(expand.paneFolded ? "folded" : "open"))")
         #expect(expand.paneFolded, "the rung opened the file pane")
         #expect(!expand.isOn && !expand.hidesSidebar, "Expand is still on, or still holds the sidebar")

@@ -93,7 +93,7 @@ import FileExplorerTestSupport
         #expect(workspace.contains("if let path = document.path {"),
                 "the header's Reveal in Browse no longer names the open document")
         // …and the rail is handed the workspace's actions, not a set of its own.
-        #expect(workspace.contains("rowActions: railRowActions)"),
+        #expect(workspace.contains("rowActions: railRowActions,"),
                 "the rail is built without the workspace's row actions")
     }
 

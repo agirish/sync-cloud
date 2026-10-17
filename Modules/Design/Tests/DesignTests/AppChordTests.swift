@@ -77,6 +77,8 @@ import Foundation
         // Text ▸ Go to Line… (TE61): the modes' ⌃⌘ again, on L — not ⌘L (the activity log) and not
         // ⇧⌘L (Markup ▸ Link).
         #expect(AppChord.goToLine.display == "⌃⌘L")
+        // View ▸ Text Files (TE81): ⌃⌘ on T — not ⌘T (New Tab) and not ⇧⌘T (the tab bar).
+        #expect(AppChord.editorTextFiles.display == "⌃⌘T")
         #expect(AppChord.bold.display == "⌘B")
         #expect(AppChord.strikethrough.display == "⇧⌘X")
         #expect(AppChord.inlineCode.display == "⇧⌘K")

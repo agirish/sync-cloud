@@ -785,7 +785,8 @@ struct SyncCloudApp: App {
                 // while the column was held; back with it, and disabled rather than deleted while
                 // the panes are collapsed — the same rule as the toolbar button, so the two halves
                 // of one control cannot disagree.
-                ToggleFolderSidebarCommand()    // ⌃⌘S
+                // With Edit's Text Files after it, as one child — this builder is at its ten.
+                ColumnCommands()                // ⌃⌘S, and ⌃⌘T in Edit
                 // Tab Bar and Status Bar, as one child — this builder is at its ten. See the type.
                 PaneChromeCommands()            // ⇧⌘T, and Status Bar with no chord
                 ToggleHiddenFilesCommand()      // ⇧⌘.

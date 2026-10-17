@@ -98,12 +98,23 @@ struct EditorFileRailView: View {
     /// **No default**, so every construction site says what its menu does: a defaulted `{ _ in }`
     /// is how a door ships drawn and wired to nothing, which the Open in Edit review found twice.
     let rowActions: EditorRailRowActions
+    /// The fold button at the end of the line under the tabs (TE77): the list folds into the file
+    /// pane's strip, where a button per tab brings it back. `nil` draws none — the previews and
+    /// layout probes, which have no strip to fold into.
+    ///
+    /// **On that line, not beside the tabs**, where it first sat in the mockup: the tab bar spans
+    /// the rail with 5pt to spare at the largest text size (`theRailTabsFitTheRailAtEveryTextSize`),
+    /// and a button beside it would take its room from the words.
+    var onFold: (() -> Void)? = nil
 
     /// The rail row's one outline, stated once and used by both the hit shape and the hover wash.
     /// `roundedRect(7)` is what the `.row` variant defaults to; naming it here is what lets the
     /// `.filled` arm — which would otherwise default to a capsule — wear the same shape.
     static let rowShape = HoverAffordanceShape.roundedRect(7)
     static var rowOutline: HoverAffordanceOutline { HoverAffordanceOutline(kind: rowShape) }
+
+    /// The fold button's tooltip and VoiceOver label.
+    static let foldTitle = "Fold the list into the strip"
 
     /// The rail's width. See ``EditorLayoutMetrics/railWidth``.
     static var width: CGFloat { EditorLayoutMetrics.railWidth }
@@ -220,6 +231,19 @@ struct EditorFileRailView: View {
                     .disabled(onNewTextFile == nil)
                 }
                 .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
+            }
+            // On both tabs, at the same end of the line, so it does not move when the tab does.
+            if let onFold {
+                Button(action: onFold) {
+                    Image(systemName: "chevron.left")
+                        .scaledFont(.system(size: 10, weight: .bold))
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+                .accessibilityLabel(Self.foldTitle)
+                .shortcutKeycap(AppChord.editorTextFiles.display)
+                .help(ShortcutHint.tooltip(Self.foldTitle, AppChord.editorTextFiles.display))
+                .chromeGlassClearance(.leading, rowSpacing: 5)
             }
         }
         // **A floor, not a height.** The two tabs put different things in this row — 18pt buttons

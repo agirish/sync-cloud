@@ -508,6 +508,10 @@ private struct FolderSidebarVisibleKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
+private struct EditorTextFilesVisibleKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 private struct StatusBarVisibleKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
@@ -882,6 +886,13 @@ extension FocusedValues {
         get { self[FolderSidebarVisibleKey.self] }
         set { self[FolderSidebarVisibleKey.self] = newValue }
     }
+
+    /// **View ▸ Text Files** (TE81) — Edit's list, folded into the strip or back. `nil` outside
+    /// Edit and while Edit's pane is open; see `ContentView.shortcutEditorTextFiles`.
+    var editorTextFilesVisible: Binding<Bool>? {
+        get { self[EditorTextFilesVisibleKey.self] }
+        set { self[EditorTextFilesVisibleKey.self] = newValue }
+    }
 }
 
 // MARK: - ContentView's half
@@ -967,6 +978,10 @@ struct ShortcutValuePublisher: ViewModifier {
     /// `nil` wherever the column cannot be drawn — see `shortcutFolderSidebar`, which is the one
     /// place that decides it.
     let folderSidebar: Binding<Bool>?
+    /// View ▸ Text Files. `nil` wherever the list cannot be drawn — see `shortcutEditorTextFiles`.
+    /// Suspended with the rest: unfolding the list under a destination pick moves the window
+    /// under a question about it.
+    let editorTextFiles: Binding<Bool>?
     /// `nil` wherever the bar is not drawn — see `shortcutStatusBar`.
     let statusBar: Binding<Bool>?
     let organizeLens: OrganizeLensSwitch?
@@ -1027,6 +1042,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveReopenClosedTab: (() -> Void)? { suspended ? nil : reopenClosedTab }
     var effectiveTabBar: TabBarSwitch? { suspended ? nil : tabBar }
     var effectiveFolderSidebar: Binding<Bool>? { suspended ? nil : folderSidebar }
+    var effectiveEditorTextFiles: Binding<Bool>? { suspended ? nil : editorTextFiles }
     var effectiveStatusBar: Binding<Bool>? { suspended ? nil : statusBar }
     var effectiveOrganizeLens: OrganizeLensSwitch? { suspended ? nil : organizeLens }
     var effectiveOrganizeVerbs: OrganizeVerbs? { suspended ? nil : organizeVerbs }
@@ -1074,6 +1090,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.reopenClosedTab, effectiveReopenClosedTab)   // File ▸ Reopen Closed Tab
             .focusedSceneValue(\.tabBarVisible, effectiveTabBar)              // ⇧⌘T
             .focusedSceneValue(\.folderSidebarVisible, effectiveFolderSidebar) // View ▸ Sidebar, ⌃⌘S
+            .focusedSceneValue(\.editorTextFilesVisible, effectiveEditorTextFiles) // View ▸ Text Files, ⌃⌘T
             .focusedSceneValue(\.statusBarVisible, effectiveStatusBar)         // View ▸ Status Bar
             .focusedSceneValue(\.organizeLens, effectiveOrganizeLens)         // View ▸ Organize ▸ …
             .focusedSceneValue(\.organizeVerbs, effectiveOrganizeVerbs)       // File ▸ Organize's verbs
@@ -1113,6 +1130,7 @@ extension ContentView {
             reopenClosedTab: shortcutReopenClosedTab,
             tabBar: shortcutTabBar,
             folderSidebar: shortcutFolderSidebar,
+            editorTextFiles: shortcutEditorTextFiles,
             statusBar: shortcutStatusBar,
             organizeLens: shortcutOrganizeLens,
             organizeVerbs: shortcutOrganizeVerbs,
@@ -2642,6 +2660,31 @@ struct TextSizeCommands: View {
 /// for the reasoning. **Disabled rather than absent**, matching the toolbar button beside it: a
 /// toolbar that reflowed as the gate flipped is unsettling, and a greyed row still answers "where
 /// did the sidebar go" where a missing one leaves the reader looking for it.
+/// **View ▸ Sidebar and View ▸ Text Files, as one child — the View menu's builder is at its ten.**
+/// Adjacent and answering one question, whether a column beside the content is drawn: the same
+/// accommodation `PaneChromeCommands` makes for the bars.
+struct ColumnCommands: View {
+    var body: some View {
+        ToggleFolderSidebarCommand()    // ⌃⌘S
+        ToggleEditorTextFilesCommand()  // ⌃⌘T — Edit's
+    }
+}
+
+/// **View ▸ Text Files ⌃⌘T** (TE81) — Edit's Text Files / Outline list, folded into the file
+/// pane's strip or back, ticked while it is on screen. The same act as the strip's buttons and the
+/// list's fold button (`ContentView.showEditorRail` / `foldEditorRail`). Disabled outside Edit and
+/// while Edit's pane is open, where the pane is the file list — disabled rather than absent, the
+/// rule the Sidebar item above it follows.
+struct ToggleEditorTextFilesCommand: View {
+    @FocusedValue(\.editorTextFilesVisible) private var textFiles
+
+    var body: some View {
+        Toggle("Text Files", isOn: textFiles ?? .constant(false))
+            .keyboardShortcut(AppChord.editorTextFiles.key, modifiers: AppChord.editorTextFiles.modifiers)
+            .disabled(textFiles == nil)
+    }
+}
+
 struct ToggleFolderSidebarCommand: View {
     @FocusedValue(\.folderSidebarVisible) private var folderSidebar
 
