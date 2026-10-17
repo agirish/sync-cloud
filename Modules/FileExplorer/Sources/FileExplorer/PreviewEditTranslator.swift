@@ -42,6 +42,9 @@ struct PreviewEditContext: Equatable {
     /// Whether an edit in a tidy table re-pads it (decision T). Off for each match of a Replace All,
     /// whose re-paddings would overlap; the whole is re-padded once instead.
     var realignsTables = true
+    /// Text ▸ Continue Lists (TE54), as Source follows it (LST-3): off, Return in a list item writes
+    /// no marker and Tab and ⇧Tab move no item.
+    var continuesLists = true
 }
 
 /// Read-only pieces counted by what they are and what they say (``PreviewEditTranslator/check``).
@@ -159,11 +162,12 @@ enum PreviewEditTranslator {
                 return phantomParagraph(after: phantom, typing: edit.text, pending: context.pending, in: p)
             }
             return text(edit, in: p, context: context)
-        case .returnKey: return returnKey(at: edit.range, in: p)
+        case .returnKey: return returnKey(at: edit.range, in: p, continuesLists: context.continuesLists)
         case .lineBreak:
             // With `text`: the break the session held at a paragraph's end, and what is typed after it.
             return lineBreak(at: edit.range, typing: edit.text, pending: context.pending, in: p)
-        case .tab, .backtab: return tab(at: edit.range, outdent: edit.action == .backtab, in: p)
+        case .tab, .backtab:
+            return tab(at: edit.range, outdent: edit.action == .backtab, in: p, continuesLists: context.continuesLists)
         case .format(let verb): return format(verb, over: edit.range, in: p, context: context)
         case .tickTask: return tickTask(at: edit.range, in: p)
         }
@@ -696,7 +700,8 @@ enum PreviewEditTranslator {
 
     // MARK: Return, ⇧Return, Tab
 
-    private static func returnKey(at range: NSRange, in p: MarkdownProjection) -> PreviewEditOutcome {
+    private static func returnKey(at range: NSRange, in p: MarkdownProjection,
+                                  continuesLists: Bool = true) -> PreviewEditOutcome {
         guard range.length == 0 else { return .refuse(.notSupported) }
         let caret = range.location
         guard let blockIndex = PreviewEditRules.block(at: caret, in: p) else { return .refuse(.notText) }
@@ -733,10 +738,23 @@ enum PreviewEditTranslator {
                 ?? .refuse(.notSupported)
 
         case .listItem:
-            return listReturn(at: caret, block: blockIndex, atEnd: atEnd, in: p)
+            guard continuesLists else { return plainListReturn(block: blockIndex, atEnd: atEnd, in: p) }
+            return listReturn(at: caret, block: blockIndex, atEnd: atEnd, in: p) ?? .refuse(.notSupported)
 
         case .paragraph, .heading:
-            if atEnd { return .openPhantom(afterBlock: blockIndex) }
+            if atEnd {
+                // **The end of an item's last words is the end of the item, whichever block holds
+                // them** (LST-8, 2026-10-15) — a later paragraph of it, or words that are a heading.
+                // Source carries the list on there; Preview opened a paragraph inside the item, so
+                // the same Return wrote two different documents. TE54's rule decides, as for the
+                // item's first words; where it says no — more of the item follows, a line under it
+                // would run on — this is a paragraph's end like any other.
+                if continuesLists, block.indent > 0,
+                   let carried = listReturn(at: caret, block: blockIndex, atEnd: true, in: p, orNil: true) {
+                    return carried
+                }
+                return .openPhantom(afterBlock: blockIndex)
+            }
             guard case .paragraph = block.kind, caret > block.rendered.location,
                   let point = PreviewEditRules.insertionPoint(at: caret, in: p) else {
                 return .refuse(.notSupported)
@@ -761,9 +779,26 @@ enum PreviewEditTranslator {
         }
     }
 
+    /// **Return in a list item with Continue Lists off** (LST-3, 2026-10-15): no marker — what
+    /// Return at the end of any other block does here, a paragraph opened after it, which the first
+    /// character typed writes: `- a` then a paragraph, at the item's own indent in a sub-list, so a
+    /// sub-list ends and the list around it carries on. Not where the item holds blocks of its own
+    /// under its words, which a paragraph written between would cut off from it — nor in the middle
+    /// of its words, which Preview has never split.
+    private static func plainListReturn(block: Int, atEnd: Bool, in p: MarkdownProjection) -> PreviewEditOutcome {
+        guard atEnd else { return .refuse(.notSupported) }
+        if p.blocks.indices.contains(block + 1), p.blocks[block + 1].indent > p.blocks[block].indent {
+            return .refuse(.notSupported)
+        }
+        return .openPhantom(afterBlock: block)
+    }
+
     /// Return in a list item: TE54's rule, byte for byte what Return does there in Source (C11).
+    ///
+    /// - Parameter orNil: `nil` rather than a refusal where the rule offers nothing — for the words
+    ///   of an item that are a block of their own (LST-8), where Return is then a paragraph's end.
     private static func listReturn(at renderedCaret: Int, block: Int, atEnd: Bool,
-                                   in p: MarkdownProjection) -> PreviewEditOutcome {
+                                   in p: MarkdownProjection, orNil: Bool = false) -> PreviewEditOutcome? {
         guard atEnd else { return .refuse(.notSupported) }
         let ns = p.source as NSString
         // The end of the item's line in the source: after its words, or after its marker when empty.
@@ -776,10 +811,10 @@ enum PreviewEditTranslator {
             segment.spans.map { NSMaxRange(p.spans[$0].source) }.reduce(NSMaxRange(segment.source), max)
         } ?? NSMaxRange(p.blocks[block].source)
         guard let line = p.index.line(p.index.lineNumber(containing: wordsEnd)) else {
-            return .refuse(.notSupported)
+            return orNil ? nil : .refuse(.notSupported)
         }
         let tail = ns.substring(with: NSRange(location: wordsEnd, length: max(0, line.end - wordsEnd)))
-        guard tail.allSatisfy({ $0 == " " || $0 == "\t" }) else { return .refuse(.notSupported) }
+        guard tail.allSatisfy({ $0 == " " || $0 == "\t" }) else { return orNil ? nil : .refuse(.notSupported) }
         let sourceCaret = line.end
         let ending = PreviewEditRules.lineEnding
         let edits: [PreviewSourceEdit]
@@ -813,7 +848,7 @@ enum PreviewEditTranslator {
             edits = [PreviewSourceEdit(range: line, text: text)]
             caret = line.location + (ending + indent).utf16.count
         case nil:
-            return .refuse(.notSupported)
+            return orNil ? nil : .refuse(.notSupported)
         }
         // Ending a list is not checked against an expected rendering: the empty item goes, and
         // what the line it leaves becomes is TE54's rule, verified by the parser itself.
@@ -880,27 +915,39 @@ enum PreviewEditTranslator {
         [point.source] + point.spans.reversed().map { NSMaxRange(p.spans[$0].source) }
     }
 
-    private static func tab(at range: NSRange, outdent: Bool, in p: MarkdownProjection) -> PreviewEditOutcome {
+    private static func tab(at range: NSRange, outdent: Bool, in p: MarkdownProjection,
+                            continuesLists: Bool = true) -> PreviewEditOutcome {
         let range = withoutTrailingBlockBreak(range, in: p)
         guard let blockIndex = PreviewEditRules.block(at: range.location, in: p) else { return .ignore }
         let block = p.blocks[blockIndex]
         guard block.readOnly == nil else { return .ignore }
         switch block.kind {
         case .listItem:
+            // Continue Lists off: no item moves (LST-3). The key is taken — a tab character has no
+            // rendering of its own in an item's words.
+            guard continuesLists else { return .ignore }
             // Over several items, nothing: TE54 moves one item, and Source's Tab replaces such a
             // selection with a tab — moving only the first was half the edit (review, 2026-10-09).
             if NSMaxRange(range) > NSMaxRange(block.rendered) { return .refuse(.crossesBlocks) }
-            // The whole item moves, by TE54's rule, from anywhere on its line.
-            let caretSource = PreviewEditRules.insertionPoint(at: range.location, in: p)?.source
+            // The whole item moves, by TE54's rule, from anywhere in its words — which on screen
+            // are one paragraph, and in the file may run on over several lines (LST-9, 2026-10-15).
+            // TE54 reads the marker off the line it is asked about, so it is asked on the item's
+            // first line: from its second, the caret mapped there, no marker was read, and Tab did
+            // nothing. The caret then stays on the same rendered character.
+            let firstLineEnd = p.index.line(p.index.lineNumber(containing: block.source.location))?.end
                 ?? NSMaxRange(block.source)
+            let asked = PreviewEditRules.insertionPoint(at: range.location, in: p)?.source ?? NSMaxRange(block.source)
+            let onFirstLine = asked >= block.source.location && asked <= firstLineEnd
             switch MarkdownListEdits.tabEdit(in: p.source as NSString,
-                                             selection: NSRange(location: caretSource, length: 0),
+                                             selection: NSRange(location: onFirstLine ? asked : firstLineEnd, length: 0),
                                              outdent: outdent) {
             case .rewrite(let rewritten, let text, let selection):
                 let edits = [PreviewSourceEdit(range: rewritten, text: text)]
                 let source = applied(edits, to: p.source)
-                return .apply(application(edits, undo: .own, caret: selection.location,
-                                          after: MarkdownProjection.project(source, style: p.style, after: p)))
+                let after = MarkdownProjection.project(source, style: p.style, after: p)
+                let caret = onFirstLine ? selection.location
+                    : PreviewEditRules.insertionPoint(at: range.location, in: after)?.source ?? selection.location
+                return .apply(application(edits, undo: .own, caret: caret, after: after))
             case .unchanged, nil:
                 return .ignore
             }

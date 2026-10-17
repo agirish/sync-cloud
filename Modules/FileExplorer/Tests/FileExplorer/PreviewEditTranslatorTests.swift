@@ -316,6 +316,38 @@ import Foundation
         #expect(result?.undo == .own)
     }
 
+    /// **The end of an item's last words carries the list on, whichever block holds them** (LST-8,
+    /// 2026-10-15) — a later paragraph of the item, or words that are a heading — byte for byte as
+    /// Source does. Preview opened a paragraph inside the item instead, so one Return wrote two
+    /// different documents depending on the half it was pressed in. Where TE54 offers nothing, it is
+    /// a paragraph's end as before.
+    @Test(arguments: [("- a\n\n  more", "more"), ("- # Groceries\n- Hardware", "Groceries"),
+                      ("1. Step\n\n   Notes on it", "Notes on it")])
+    func returnAtTheEndOfAnItemsLaterWordsMatchesSource(_ source: String, _ needle: String) {
+        let p = project(source)
+        let sourceCaret = NSMaxRange((source as NSString).range(of: needle))
+        guard case .continueWith(let opening)? = MarkdownListEdits.returnEdit(
+            in: source, selection: NSRange(location: sourceCaret, length: 0)) else {
+            Issue.record("TE54's rule did not carry \(source.debugDescription) on")
+            return
+        }
+        let expected = (source as NSString).replacingCharacters(in: NSRange(location: sourceCaret, length: 0),
+                                                                with: "\n" + opening)
+        let result = applied(edit(NSRange(location: after(needle, in: p), length: 0), .returnKey, in: source))
+        #expect(result?.source == expected)
+        #expect(result?.undo == .own)
+    }
+
+    /// …and where the rule offers nothing — more of the item follows — it is a paragraph's end.
+    @Test func returnInsideAnItemsLaterWordsStillOpensAParagraph() {
+        let source = "- a\n\n  b\n\n  c"
+        guard case .openPhantom = edit(NSRange(location: after("b", in: project(source)), length: 0), .returnKey,
+                                       in: source) else {
+            Issue.record("Return between two paragraphs of an item did not open a paragraph")
+            return
+        }
+    }
+
     /// Return on an empty sub-list item ends the sub-list, not the list: the line keeps the item's
     /// indent, and a break after the caret keeps `- c` an item — the TE54 review's rule, byte for
     /// byte what `carryOnList` writes in Source.
@@ -355,6 +387,78 @@ import Foundation
         let result = applied(edit(NSRange(location: after("item", in: project(tasks)), length: 0), .returnKey, in: tasks))
         #expect(result?.source == "- item\n  - [ ] \n  - [x] sub")
         #expect(result?.projection.blocks.contains { if case .heading = $0.kind { return true } else { return false } } == false)
+    }
+
+    /// **Text ▸ Continue Lists off is off in Preview too** (LST-3, 2026-10-15), as Help says it is.
+    /// Return at the end of an item writes no marker: it opens a paragraph after the item, as at the
+    /// end of any other block — at the item's own indent in a sub-list — and Tab and ⇧Tab move no
+    /// item. Where the item holds blocks under its words, a paragraph between would cut them off,
+    /// and Return is refused. On, the list carries on as ever.
+    @Test func continueListsOffWritesNoMarkerInPreview() {
+        let source = "- one\n- two"
+        let p = project(source)
+        let off = PreviewEditContext(continuesLists: false)
+        let end = after("one", in: p)
+        guard case .openPhantom(let block) = edit(NSRange(location: end, length: 0), .returnKey, in: source, context: off) else {
+            Issue.record("Return with Continue Lists off did not open a paragraph")
+            return
+        }
+        #expect(applied(type("x", at: end, in: source,
+                             context: PreviewEditContext(phantomAfterBlock: block, continuesLists: false)))?.source
+                == "- one\n\nx\n\n- two")
+        let nested = "- a\n  - b\n  - c"
+        guard case .openPhantom(let inner) = edit(NSRange(location: after("b", in: project(nested)), length: 0), .returnKey,
+                                                  in: nested, context: off) else {
+            Issue.record("Return in a sub-list with Continue Lists off did not open a paragraph")
+            return
+        }
+        #expect(applied(type("x", at: after("b", in: project(nested)), in: nested,
+                             context: PreviewEditContext(phantomAfterBlock: inner, continuesLists: false)))?.source
+                == "- a\n  - b\n\n  x\n\n  - c")
+        let parent = "- a\n  - b"
+        #expect(refusal(edit(NSRange(location: after("a", in: project(parent)), length: 0), .returnKey, in: parent,
+                             context: off)) == .notSupported)
+        for key in [RenderedEdit.Action.tab, .backtab] {
+            if case .ignore = edit(NSRange(location: after("two", in: p), length: 0), key, in: source, context: off) {} else {
+                Issue.record("\(key) moved an item with Continue Lists off")
+            }
+        }
+        // On: the list carries on, and Tab moves the item.
+        #expect(applied(edit(NSRange(location: end, length: 0), .returnKey, in: source))?.source == "- one\n- \n- two")
+        #expect(applied(edit(NSRange(location: after("two", in: p), length: 0), .tab, in: source))?.source == "- one\n  - two")
+    }
+
+    /// The session carries the setting into every edit — it is not part of the context each edit
+    /// resets (LST-3).
+    @MainActor @Test func theSessionCarriesContinueListsIntoEveryEdit() {
+        let source = EditorSourceStorage(text: "- one\n- two")
+        let session = PreviewEditSession(source: source, undoManager: UndoManager())
+        session.continuesLists = false
+        let end = NSMaxRange((session.projection.renderedString as NSString).range(of: "one"))
+        _ = session.perform(RenderedEdit(range: NSRange(location: end, length: 0), action: .returnKey))
+        _ = session.perform(RenderedEdit(range: NSRange(location: end + 1, length: 0), text: "x", action: .typing))
+        #expect(source.textStorage.string == "- one\n\nx\n\n- two")
+        // A second Return, after the first edit reset the context, is still off.
+        let two = NSMaxRange((session.projection.renderedString as NSString).range(of: "two"))
+        _ = session.perform(RenderedEdit(range: NSRange(location: two, length: 0), action: .returnKey))
+        _ = session.perform(RenderedEdit(range: NSRange(location: two + 1, length: 0), text: "y", action: .typing))
+        #expect(source.textStorage.string == "- one\n\nx\n\n- two\n\ny")
+    }
+
+    /// **Tab moves an item from anywhere in its words** (LST-9, 2026-10-15) — on screen one
+    /// paragraph, in the file two lines. From the second, the caret mapped onto a line with no marker
+    /// on it, TE54 read none, and Tab did nothing. The caret stays on the character it was after.
+    @Test func tabMovesAWrappedItemFromAnyOfItsLines() {
+        let source = "- Groceries\n- Preheat the oven\n  to 200 degrees"
+        let p = project(source)
+        for needle in ["Preheat", "200"] {
+            let result = applied(edit(NSRange(location: after(needle, in: p), length: 0), .tab, in: source))
+            #expect(result?.source == "- Groceries\n  - Preheat the oven\n    to 200 degrees", "Tab after \(needle)")
+            #expect(result?.renderedSelection == NSRange(location: after(needle, in: p), length: 0), "Tab after \(needle)")
+            let back = applied(edit(NSRange(location: after(needle, in: p), length: 0), .backtab,
+                                    in: "- Groceries\n  - Preheat the oven\n    to 200 degrees"))
+            #expect(back?.source == source, "⇧Tab after \(needle)")
+        }
     }
 
     @Test func returnInCodeAddsALineWithTheBlocksIndent() {

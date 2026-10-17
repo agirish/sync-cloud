@@ -45,6 +45,9 @@ struct PreviewEditorView: NSViewRepresentable {
     /// Text ▸ Check Spelling While Typing, followed here as Source follows it (review V10).
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling: Bool
         = EditorTextSettings.checksSpellingDefault
+    /// Text ▸ Continue Lists, followed here as Source follows it (LST-3).
+    @AppStorage(EditorTextSettings.continuesListsKey) private var continuesLists: Bool
+        = EditorTextSettings.continuesListsDefault
 
     func makeCoordinator() -> Coordinator {
         Coordinator(session: PreviewEditSession(source: source, undoManager: undoManager,
@@ -107,6 +110,7 @@ struct PreviewEditorView: NSViewRepresentable {
         }
         coordinator.session.undoManager = undoManager
         coordinator.session.documentFolder = documentFolder
+        coordinator.session.continuesLists = continuesLists
         if coordinator.session.style.scale != fontScale {
             // The column stays as it was: only the text size moved.
             coordinator.session.style = .init(scale: fontScale, columnWidth: coordinator.session.style.columnWidth)

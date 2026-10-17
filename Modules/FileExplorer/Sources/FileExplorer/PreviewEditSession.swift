@@ -33,12 +33,22 @@ final class PreviewEditSession {
     let display = NSTextStorage()
     private(set) var projection: MarkdownProjection
     private(set) var context = PreviewEditContext()
+    /// Text ▸ Continue Lists, handed in by the view and carried into every edit's context — kept
+    /// apart from ``context``, which each edit resets (LST-3).
+    var continuesLists = true
 
     var style: MarkdownProjection.Style {
         didSet {
             guard style != oldValue else { return }
             restyle(columnOnly: style.scale == oldValue.scale)
         }
+    }
+
+    /// ``context`` with the settings that outlive an edit.
+    private var editContext: PreviewEditContext {
+        var context = self.context
+        context.continuesLists = continuesLists
+        return context
     }
 
     /// Told about every refusal, with where in the source the refused edit was — the view shows the
@@ -175,7 +185,7 @@ final class PreviewEditSession {
                 // for with it — it dropped them, and wrote `one**x**` (round 2, 2026-10-10).
                 return resolve(edit.action) {
                     PreviewEditTranslator.translate(RenderedEdit(range: NSRange(location: held.at, length: 0),
-                                                                 action: edit.action), in: $0, context: self.context)
+                                                                 action: edit.action), in: $0, context: self.editContext)
                 }
             }
             dropHeld()
@@ -216,7 +226,7 @@ final class PreviewEditSession {
         // A deletion is aimed where the caret was — ⌫ at a paragraph's start is about that paragraph,
         // not the line break before it.
         attemptedAt = edit.action == .delete ? NSMaxRange(edit.range) : edit.range.location
-        let context = self.context
+        let context = self.editContext
         // **What Markdown draws as nothing until something follows it on the line** — spaces at a
         // line's end, or before a span's closing marker or punctuation (`**world **` is no bold,
         // round 2), and ⇧Return at a paragraph's end: a hard break with nothing after it is no

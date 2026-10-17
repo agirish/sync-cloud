@@ -151,6 +151,11 @@ struct MarkdownListLine {
 /// `textStorage.mutableString`, nothing here copies the document to answer a keystroke.
 enum MarkdownListEdits {
 
+    /// Told each time ``returnEdit(in:selection:)`` or ``tabEdit(in:selection:outdent:)`` reads the
+    /// buffer — a test's count of what one key costs (LST-14). Task-local, so tests running side by
+    /// side never count each other's keys.
+    @TaskLocal static var onRead: (@Sendable () -> Void)?
+
     /// What Return does on a list item.
     enum ReturnEdit: Equatable {
         /// Insert the newline exactly as Return would, then this opening — the two as ONE undo step,
@@ -188,10 +193,17 @@ enum MarkdownListEdits {
     /// after `-\th` or `-   wide`, whose words start further in, the `  - b` that was their sibling
     /// would become the new item's child. The parser is asked there too; see ``opensAnItem``.
     static func returnEdit(in ns: NSString, selection: NSRange) -> ReturnEdit? {
+        onRead?()
         guard selection.length == 0, MarkdownEdits.isValid(selection, in: ns) else { return nil }
         let line = MarkdownSourceLines.line(containing: selection.location, in: ns)
         guard selection.location == NSMaxRange(line.content) else { return nil }
         let own = MarkdownListLine.parse(ns.substring(with: line.content))
+        // **A blank line is no item's words** (LST-1, 2026-10-15). cmark ends an item on the line
+        // before whatever closes it, so the blank line under a list is the last item's to the
+        // parser — and Return there wrote a marker above the paragraph after the list, which the
+        // first word typed then made the new item's words. Only an empty item's own line, which
+        // has its marker on it, is blank and still an item's.
+        guard own != nil || !isBlank(ns.substring(with: line.content)) else { return nil }
         // **No parse for a line no item can hold**: one at the left edge with no list line above it
         // in its run of written lines — a lazy line follows its item without a blank line between,
         // and every other line of an item is indented. Return at the end of a paragraph's line is
@@ -214,10 +226,26 @@ enum MarkdownListEdits {
         if place.itemLine == place.line, opening.isEmpty {
             // The word the empty item was read with can make the line under it a lazy line of that
             // word; only a line indented to the item's content column is really the item's.
-            let written = MarkdownSourceLines.line(after: line, in: ns).flatMap { firstWritten(from: $0, in: ns) }
+            let next = MarkdownSourceLines.line(after: line, in: ns)
+            // **And nothing after a blank line is an empty item's** (LST-12, 2026-10-15): an item
+            // that opens on a blank line may open on one only, so the blank line under `- ` ends it,
+            // and `  more` after it is a paragraph after the list — which the word made the item's,
+            // and Return left the bullet standing. A box is content, so a task is read as written.
+            let opensBlank = opening.task == nil
+                && (next.map { isBlank(ns.substring(with: $0.content)) } ?? true)
+            let written = opensBlank ? nil : next.flatMap { firstWritten(from: $0, in: ns) }
             let reallyBelow = written.map { indentColumns(of: $0, in: ns) >= opening.contentColumn } ?? false
             guard place.below == .nothing || !reallyBelow else { return nil }
-            let next = MarkdownSourceLines.line(after: line, in: ns)
+            // **Not where it is all an empty item holds** (LST-13, 2026-10-15). Ending a sub-list
+            // leaves a blank line where the empty sub-item was; under a parent that opens on a blank
+            // line of its own — `- ` and nothing else — that is its second, which ends the parent
+            // too, and the sub-items after went to the top level. Its first content line is right
+            // under it, so the line above says.
+            if place.nested, let above = MarkdownSourceLines.line(before: line, in: ns),
+               let parent = MarkdownListLine.parse(ns.substring(with: above.content)),
+               parent.isEmpty, parent.task == nil, parent.indentColumns < opening.indentColumns {
+                return nil
+            }
             return .endList(line.content, indent: place.nested ? opening.indent : "",
                             separatesNext: next.map { !isBlank(ns.substring(with: $0.content)) } ?? false)
         }
@@ -226,23 +254,45 @@ enum MarkdownListEdits {
             guard let next = opening.opening(countingOn: true) else { return nil }
             // **Asked of the parser only where a line below reaches the new item's content column**
             // — none that does not can become its own, and most Returns are spared the parse.
-            let below = MarkdownSourceLines.line(after: line, in: ns).flatMap { firstWritten(from: $0, in: ns) }
-            let reaches = below.map { indentColumns(of: $0, in: ns) >= (MarkdownListLine.parse(next)?.contentColumn ?? 0) }
+            let following = MarkdownSourceLines.line(after: line, in: ns)
+            let below = following.flatMap { firstWritten(from: $0, in: ns) }
+            let column = MarkdownListLine.parse(next)?.contentColumn ?? 0
+            let reaches = below.map { indentColumns(of: $0, in: ns) >= column }
             guard reaches != true || opensAnItem(next, at: selection, on: place.line, in: ns) else { return nil }
+            // **And it must still take no line once a word is typed in it** (LST-4, 2026-10-15). An
+            // empty item has no paragraph for the line straight under it to run on into; the word
+            // does. Where the item carried on ends in a heading or a rule — no paragraph either — the
+            // line under it was a paragraph of its own (`- # Groceries` over `Some text`), and the
+            // first word typed made it the new item's. Asked only where a line right under could run
+            // on: a list line short of the new item's words is an item of the list, never words.
+            if let following, !isBlank(ns.substring(with: following.content)),
+               MarkdownListLine.parse(ns.substring(with: following.content)) == nil
+                || indentColumns(of: following, in: ns) >= column {
+                guard opensAnItem(next, typed: true, at: selection, on: place.line, in: ns) else { return nil }
+            }
             return .continueWith(next)
         case .child(let childLine):
             var child: MarkdownSourceLines.Line? = line
             for _ in place.line..<childLine { child = child.flatMap { MarkdownSourceLines.line(after: $0, in: ns) } }
-            // Numbered 1 if numbered: it opens the sub-list right under the item's words, and only
-            // a list starting at 1 may interrupt a paragraph.
-            guard let opening = child.flatMap({ MarkdownListLine.parse(ns.substring(with: $0.content)) })?
-                .renumbered(1).opening(countingOn: false) else { return nil }
+            guard let first = child.flatMap({ MarkdownListLine.parse(ns.substring(with: $0.content)) })
+            else { return nil }
+            // **The sub-list's own number first** (LST-10, 2026-10-15), so a sub-list that starts at 3
+            // still does, the new item taking the 3 as any item put in a numbered list takes its
+            // place. Only where that does not open an item is it numbered 1: right under the item's
+            // words, where only a list starting at 1 may interrupt a paragraph. Renumbered every
+            // time, a heading's sub-list at 3 restarted at 1 and every sub-item's number fell by one.
+            //
             // **Only where the opening is an item as it stands, empty.** Under the item's words it
             // almost never is: an empty item may not interrupt a paragraph, so `  - ` there is a
             // setext underline that makes the words a heading, and `  * ` or `  1. ` are more of the
             // words (found 2026-10-09). A task box is content, and words that are a `#` heading are
             // no paragraph; those carry on.
-            return opensAnItem(opening, at: selection, on: place.line, in: ns) ? .continueWith(opening) : nil
+            let numbered = first.renumbered(1)
+            for candidate in numbered.marker == first.marker ? [first] : [first, numbered] {
+                guard let opening = candidate.opening(countingOn: false) else { continue }
+                if opensAnItem(opening, at: selection, on: place.line, in: ns) { return .continueWith(opening) }
+            }
+            return nil
         case .more:
             return nil
         }
@@ -284,9 +334,17 @@ enum MarkdownListEdits {
     /// second at the 4 MiB the editor opens. Kept whole-document on purpose: the check is what
     /// caught the arithmetic three review passes running, and a window onto part of the document
     /// is a second set of rules about which blocks a move can reach.
-    static func tabEdit(in ns: NSString, selection: NSRange, outdent: Bool) -> TabEdit? {
-        guard MarkdownEdits.isValid(selection, in: ns) else { return nil }
-        let line = MarkdownSourceLines.line(containing: selection.location, in: ns)
+    static func tabEdit(in ns: NSString, selection asked: NSRange, outdent: Bool) -> TabEdit? {
+        onRead?()
+        guard MarkdownEdits.isValid(asked, in: ns) else { return nil }
+        let line = MarkdownSourceLines.line(containing: asked.location, in: ns)
+        // **A selection that ends just past the line's break is that line** (LST-2, 2026-10-15) —
+        // what a triple-click selects. Read as a selection over two lines it was today's Tab, which
+        // replaced the item with a tab character, and the item under it, now behind that tab, went
+        // in under the one above. Moved here, the selection keeps its break.
+        let takesBreak = asked.length > 0 && line.terminatorLength > 0 && NSMaxRange(asked) == line.end
+        let selection = takesBreak
+            ? NSRange(location: asked.location, length: NSMaxRange(line.content) - asked.location) : asked
         guard NSMaxRange(selection) <= NSMaxRange(line.content),
               let item = MarkdownListLine.parse(ns.substring(with: line.content)) else { return nil }
         let body = MarkdownFrontMatter.bodyStart(in: ns)
@@ -332,6 +390,11 @@ enum MarkdownListEdits {
             candidates.append((false, true))
             if ordered(item) { candidates.append((true, true)) }
         }
+        // **A numbered item Tab makes the first of a new sub-list is numbered 1** (LST-11,
+        // 2026-10-15), as Help says — not only where it must be. Under a blank line nothing is
+        // interrupted, so `2. b` kept its 2 and the new sub-list started at 2. A move that keeps the
+        // number and opens a list is held back while a renumbered one is tried; ⇧Tab keeps it.
+        var heldBack: TabEdit?
         for (renumberItem, renumberFollowing) in candidates {
             let edit = rewrite(item, renumbered: renumberItem, on: line, lines: lines, firstLine: context.line,
                                extent: extent,
@@ -341,11 +404,21 @@ enum MarkdownListEdits {
             let movedLine = MarkdownSourceLines.line(startingAt: line.content.location, in: result)
             let leaves = MarkdownSourceContext.leaves(in: item.isEmpty ? written(result, at: movedLine) : result,
                                                       body: body)
-            if sameDocument(before, leaves, moved: moved, by: outdent ? -1 : 1) {
-                return .rewrite(range: edit.range, text: edit.text, selection: edit.selection)
+            guard sameDocument(before, leaves, moved: moved, by: outdent ? -1 : 1) else { continue }
+            let kept = takesBreak
+                ? NSRange(location: edit.selection.location, length: edit.selection.length + line.terminatorLength)
+                : edit.selection
+            let accepted = TabEdit.rewrite(range: edit.range, text: edit.text, selection: kept)
+            if !outdent, !renumberItem, ordered(item),
+               case .listItem(let landed) = MarkdownSourceContext.block(at: movedLine.content.location, in: result,
+                                                                         asIfWritten: item.isEmpty, body: body),
+               landed.opensItsList {
+                heldBack = heldBack ?? accepted
+                continue
             }
+            return accepted
         }
-        return .unchanged
+        return heldBack ?? .unchanged
     }
 
     /// **The same document with the item moved, and nothing else** — every block still there, on
@@ -405,7 +478,12 @@ enum MarkdownListEdits {
     /// below as its own. Asked of the parser, over the text up to the next written line, because
     /// CommonMark has two rules the column arithmetic does not see: an empty item may not
     /// interrupt a paragraph, and its content column is one past its marker whatever followed it.
-    private static func opensAnItem(_ opening: String, at selection: NSRange, on number: Int, in ns: NSString) -> Bool {
+    ///
+    /// - Parameter typed: ask it of the item with a word typed after the opening — what it will be a
+    ///   keystroke later, when a line under it can run on into that word (LST-4).
+    private static func opensAnItem(_ opening: String, typed: Bool = false, at selection: NSRange, on number: Int,
+                                    in ns: NSString) -> Bool {
+        let opening = typed ? opening + "x" : opening
         let written = ns.replacingCharacters(in: selection, with: "\n" + opening) as NSString
         let caret = selection.location + 1 + (opening as NSString).length
         guard let place = MarkdownSourceContext.itemAtLineEnd(at: caret, in: written) else { return false }

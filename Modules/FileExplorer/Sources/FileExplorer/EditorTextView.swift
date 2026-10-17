@@ -71,6 +71,17 @@ final class EditorTextView: NSTextView {
         handler?.handlePaste(from: pasteboard, in: self) == true
     }
 
+    /// The modifiers of the key being handled — set across `keyDown(with:)`, empty otherwise. What
+    /// tells ⇧Return from Return (LST-7): AppKit sends both as `insertNewline:`, and the command
+    /// carries no event.
+    private(set) var keyModifiers: NSEvent.ModifierFlags = []
+
+    override func keyDown(with event: NSEvent) {
+        keyModifiers = event.modifierFlags
+        defer { keyModifiers = [] }
+        super.keyDown(with: event)
+    }
+
     // **No conversion on a key command as such** (fixed 2026-10-05). Every key command passes
     // through `doCommand(by:)` — arrows, Page Down, ⌘-arrows, Esc, ⇧Tab on a line that is no list
     // item — and converting there rewrote a file that was only being read: ↓ in an opened CRLF

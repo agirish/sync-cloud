@@ -1128,6 +1128,17 @@ import EventsTestSupport
         #expect(m.preview != nil, "Preview is read-only with the setting unset")
     }
 
+    /// **Text ▸ Continue Lists reaches an editable Preview** (LST-3) — through the view's own
+    /// `@AppStorage`, as Check Spelling does, so turning it off in the menu turns it off here.
+    @Test func previewFollowsContinueLists() async throws {
+        let m = try Mounted("- one\n- two", mode: .preview, editing: true)
+        await m.settle { m.preview != nil }
+        #expect(m.preview?.coordinator?.session.continuesLists == true)
+        m.defaults.set(false, forKey: EditorTextSettings.continuesListsKey)
+        await m.settle { m.preview?.coordinator?.session.continuesLists == false }
+        #expect(m.preview?.coordinator?.session.continuesLists == false, "Preview did not hear Continue Lists turned off")
+    }
+
     /// **The intro shows the first time Preview becomes editable, in the default setup** (review V2):
     /// Preview with the format bar on. Turning editing on moves the pill from its own row into the
     /// bar's, and the pill used to keep the popover's state itself — so the intro was raised on the

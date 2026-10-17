@@ -40,6 +40,9 @@ enum MarkdownSourceContext {
         var previousSiblingLine: Int?
         /// The 1-based line of the item whose content holds this item's list, `nil` at the top.
         var parentItemLine: Int?
+        /// Whether it is its own list's first item — whatever list comes before that one, which
+        /// ``previousSiblingLine`` reaches into. A list's first number is its start (LST-11).
+        var opensItsList = false
     }
 
     /// What holds the line containing UTF-16 offset `location`.
@@ -733,7 +736,7 @@ enum MarkdownSourceContext {
         let grandparent = list.flatMap(cmark_node_parent)
         let parent = grandparent.flatMap { cmark_node_get_type($0) == CMARK_NODE_ITEM ? fileLine($0) : nil }
         return .listItem(ListItem(line: line + bodyStartLine - 1, previousSiblingLine: previous,
-                                  parentItemLine: parent))
+                                  parentItemLine: parent, opensItsList: cmark_node_previous(item) == nil))
     }
 
     /// The blocks that hold `line`, outermost first — walked from the LAST child back at each

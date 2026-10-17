@@ -34,7 +34,29 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
     // MARK: Return, Tab, ⇧Tab
 
     func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
-        guard continuesLists, typesMarkdown(in: view) else { return false }
+        let modifiers = (view as? EditorTextView)?.keyModifiers ?? NSApp?.currentEvent?.modifierFlags ?? []
+        return command(selector, in: view, shift: modifiers.contains(.shift))
+    }
+
+    /// The key commands this editor answers in a Markdown file, with ⇧ said rather than read off the
+    /// current event — the seam a test drives.
+    ///
+    /// **⇧Return and ⌃Return are a plain line break** (LST-6, LST-7, 2026-10-15), whatever Continue
+    /// Lists says. AppKit sends ⇧Return as Return, so it carried a list on where Preview makes it a
+    /// line break; and ⌃Return as `insertLineBreak:`, which writes U+2028 — a new line on screen and
+    /// none to Markdown, so `- eggs`, ⌃Return, `- milk` was one item reading "eggs - milk".
+    func command(_ selector: Selector, in view: NSTextView, shift: Bool) -> Bool {
+        if typesMarkdown(in: view) {
+            if selector == #selector(NSResponder.insertLineBreak(_:)) {
+                view.insertNewline(nil)
+                return true
+            }
+            if selector == #selector(NSResponder.insertNewline(_:)), shift { return false }
+        }
+        // **One selection** (LST-15, 2026-10-15), as for a paste: a column selection over several
+        // items is "a selection over several lines", which is today's key. It moved the first
+        // range's item alone and dropped the rest of the selection.
+        guard continuesLists, typesMarkdown(in: view), view.selectedRanges.count == 1 else { return false }
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
             return carryOnList(in: view)
@@ -50,11 +72,14 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
     /// Return at the end of a list item: the line break EXACTLY as Return makes it, and the
     /// opening after it — or the empty item's opening taken off before it.
     private func carryOnList(in view: NSTextView) -> Bool {
-        guard MarkdownListEdits.returnEdit(in: buffer(of: view), selection: view.selectedRange()) != nil
+        guard let first = MarkdownListEdits.returnEdit(in: buffer(of: view), selection: view.selectedRange())
         else { return false }
-        // This Return writes: the file to LF first, then measured again on it (`EditorLineEndings`).
-        (view as? EditorTextView)?.convertLineEndingsToLF(on: "Return in a list")
-        guard let edit = MarkdownListEdits.returnEdit(in: buffer(of: view), selection: view.selectedRange())
+        // This Return writes: the file to LF first, then measured again on it (`EditorLineEndings`) —
+        // only when that changed something (LST-14, 2026-10-15): in an LF file, which is nearly
+        // every file, the second reading was the first again, at a parse or two of the document.
+        let converted = (view as? EditorTextView)?.convertLineEndingsToLF(on: "Return in a list") ?? []
+        guard let edit = converted.isEmpty
+                ? Optional(first) : MarkdownListEdits.returnEdit(in: buffer(of: view), selection: view.selectedRange())
         else { return false }
         view.breakUndoCoalescing()
         switch edit {
@@ -82,9 +107,12 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
                                                     outdent: outdent) else { return false }
         // Taken but changing nothing — an item that cannot move: no edit, so no conversion either.
         guard case .rewrite = first else { return true }
-        (view as? EditorTextView)?.convertLineEndingsToLF(on: outdent ? "⇧Tab in a list" : "Tab in a list")
-        guard case .rewrite(let range, let text, let selection)? =
-                MarkdownListEdits.tabEdit(in: buffer(of: view), selection: view.selectedRange(), outdent: outdent)
+        // Measured again only on a buffer the conversion changed (LST-14): a Tab is several parses
+        // of the whole document, and in an LF file the second reading was the first again.
+        let converted = (view as? EditorTextView)?.convertLineEndingsToLF(on: outdent ? "⇧Tab in a list" : "Tab in a list") ?? []
+        guard case .rewrite(let range, let text, let selection)? = converted.isEmpty
+                ? Optional(first)
+                : MarkdownListEdits.tabEdit(in: buffer(of: view), selection: view.selectedRange(), outdent: outdent)
         else { return true }
         replace(range, with: text, in: view)
         view.setSelectedRange(selection)

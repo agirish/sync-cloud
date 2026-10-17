@@ -1,6 +1,7 @@
 import Testing
 import SwiftUI
 import AppKit
+import cmark_gfm
 @testable import FileExplorer
 import FileExplorerTestSupport
 
@@ -163,9 +164,6 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "- eggs\n- ")
     }
 
-    /// **Return on an empty item with more of the list below** ends the list there with a line to
-    /// type on and a blank line under it, so what is typed is a paragraph and `3. Bake` stays an
-    /// item. One ⌘Z puts the item back.
     /// **An empty sub-item ends its sub-list and keeps the caret in the item above** — indented to
     /// it, so what is typed is a paragraph of that item and the sub-items after stay its own.
     @Test func returnOnAnEmptySubItemStaysInTheItemAbove() {
@@ -179,6 +177,9 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "- a\n  - \n  - b")
     }
 
+    /// **Return on an empty item with more of the list below** ends the list there with a line to
+    /// type on and a blank line under it, so what is typed is a paragraph and `3. Bake` stays an
+    /// item. One ⌘Z puts the item back.
     @Test func returnOnAnEmptyItemMidListLeavesALineToTypeOn() {
         let rig = rig("1. Preheat\n2. \n3. Bake")
         rig.view.setSelectedRange(NSRange(location: 14, length: 0))
@@ -234,6 +235,22 @@ import FileExplorerTestSupport
         #expect(!rig.coordinator.textView(rig.view, doCommandBy: returnKey))
     }
 
+    /// **Return on the blank line under a list is a Return, and what is typed there is a paragraph**
+    /// (LST-1). It wrote `- ` on the blank line, so what was typed there was one more item of the list
+    /// — and over a paragraph rather than a heading, that paragraph went into the new item too.
+    @Test func returnOnTheBlankLineUnderAListIsAReturn() {
+        let rig = rig("- milk\n- eggs\n\n## Next")
+        rig.view.setSelectedRange(NSRange(location: 14, length: 0))
+        spin()
+        press(returnKey, in: rig)
+        #expect(rig.view.string == "- milk\n- eggs\n\n\n## Next")
+        type("Then", in: rig)
+        let leaves = MarkdownSourceContext.leaves(in: rig.view.string as NSString)
+        #expect(leaves.filter { $0.depth > 0 }.map(\.text) == ["", "milk", "", "eggs"],
+                "\(rig.view.string.debugDescription) reads \(leaves)")
+        #expect(leaves.contains { $0.text == "Then" && $0.depth == 0 }, "\(rig.view.string.debugDescription) reads \(leaves)")
+    }
+
     /// **Each door that must leave Return alone**, by what reaches the buffer: a plain newline.
     @Test(arguments: ["off", "plain text", "read-only", "composing", "selection", "mid-item"])
     func returnIsAReturnWhereTheRuleDoesNotApply(_ why: String) {
@@ -249,6 +266,71 @@ import FileExplorerTestSupport
         default: break
         }
         #expect(!rig.coordinator.textView(rig.view, doCommandBy: returnKey), "\(why): the delegate took Return")
+    }
+
+    /// Counts reads, from wherever the rule is asked.
+    final class ReadCount: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        func bump() { lock.withLock { count += 1 } }
+        var value: Int { lock.withLock { count } }
+    }
+
+    /// **One key reads the list once in an LF file** (LST-14, 2026-10-15). Return and Tab measured
+    /// the buffer, converted a CRLF file to LF, and measured again — in an LF file too, where the
+    /// conversion changed nothing and the second reading, a parse or two of the whole document, was
+    /// the first again. In a CRLF file it is still measured on the LF text it writes into.
+    @Test(arguments: [("- a\n- b", 7, "Return", 1), ("- a\r\n- b", 8, "Return", 2),
+                      ("- a\n- b", 7, "Tab", 1), ("- a\r\n- b", 8, "Tab", 2)])
+    func oneKeyReadsTheListOnceInAnLFFile(_ text: String, _ caret: Int, _ key: String, _ reads: Int) {
+        let rig = rig(text)
+        rig.view.setSelectedRange(NSRange(location: caret, length: 0))
+        spin()
+        let count = ReadCount()
+        MarkdownListEdits.$onRead.withValue({ count.bump() }) {
+            press(key == "Tab" ? tabKey : returnKey, in: rig)
+        }
+        #expect(rig.view.string == (key == "Tab" ? "- a\n  - b" : "- a\n- b\n- "), "the key did not do its edit")
+        #expect(count.value == reads, "\(key) in \(text.debugDescription) read the list \(count.value) times")
+    }
+
+    /// A Return key event, as the window hands one to the text view — ⇧ held or not.
+    private func returnKeyEvent(shift: Bool, in rig: Rig) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shift ? .shift : [],
+                         timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: rig.window.windowNumber,
+                         context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                         isARepeat: false, keyCode: 36)!
+    }
+
+    /// **⌃Return writes a plain line break in a Markdown file, never U+2028** (LST-6, 2026-10-15).
+    /// AppKit's `insertLineBreak:` writes a LINE SEPARATOR — a new line on screen and none to
+    /// Markdown, so `- eggs`, ⌃Return, `- milk` was one item reading "eggs - milk". In a plain-text
+    /// file the key is still AppKit's own.
+    @Test func controlReturnWritesAPlainLineBreak() {
+        let lineBreak = #selector(NSResponder.insertLineBreak(_:))
+        let rig = rig("- eggs")
+        press(lineBreak, in: rig)
+        type("- milk", in: rig)
+        #expect(rig.view.string == "- eggs\n- milk")
+        #expect(MarkdownSourceContext.leaves(in: rig.view.string as NSString).filter { $0.kind == CMARK_NODE_ITEM.rawValue }.count == 2)
+        let plain = self.rig("- eggs", markdown: false)
+        #expect(!plain.coordinator.textView(plain.view, doCommandBy: lineBreak), "a .txt file's ⌃Return was taken")
+    }
+
+    /// **⇧Return is a plain Return in a list** (LST-7, 2026-10-15), as it is a line break in Preview.
+    /// AppKit sends it as `insertNewline:`, so it carried the list on. Driven by a real key event: the
+    /// command carries none, and the ⇧ is read off the key the view is handling.
+    @Test func shiftReturnIsAPlainReturnInAList() {
+        let rig = rig("- eggs")
+        rig.view.keyDown(with: returnKeyEvent(shift: true, in: rig))
+        spin()
+        #expect(rig.view.string == "- eggs\n")
+        #expect(!rig.coordinator.command(returnKey, in: rig.view, shift: true))
+        // The positive control: the same key without ⇧ carries the list on.
+        let control = self.rig("- eggs")
+        control.view.keyDown(with: returnKeyEvent(shift: false, in: control))
+        spin()
+        #expect(control.view.string == "- eggs\n- ")
     }
 
     // MARK: - TE54 Tab and ⇧Tab
@@ -267,6 +349,35 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "- a\n  - b")
         undo(rig)
         #expect(rig.view.string == "- a\n- b")
+    }
+
+    /// **Tab on a triple-clicked item moves it** (LST-2). The selection ran past the line's break, so
+    /// the text view's own Tab replaced the item with a tab, and the item under it nested under the
+    /// one above: `- milk\n\t- bread`.
+    @Test func tabOnATripleClickedItemMovesIt() {
+        let rig = rig("- milk\n- eggs\n- bread")
+        rig.view.setSelectedRange(NSRange(location: 7, length: 7))
+        spin()
+        press(tabKey, in: rig)
+        #expect(rig.view.string == "- milk\n  - eggs\n- bread")
+        #expect((rig.view.string as NSString).substring(with: rig.view.selectedRange()) == "- eggs\n")
+        undo(rig)
+        #expect(rig.view.string == "- milk\n- eggs\n- bread")
+    }
+
+    /// **Several selections are the key's own** (LST-15) — a column selection over two items is a
+    /// selection over several lines. Tab moved the first range's item alone and dropped the second
+    /// range; the delegate now declines, as the paste does with several selections.
+    @Test func tabOverSeveralSelectionsIsTheKeysOwn() {
+        let rig = rig("- a\n- b\n- c")
+        rig.view.selectedRanges = [NSValue(range: NSRange(location: 6, length: 1)),
+                                   NSValue(range: NSRange(location: 10, length: 1))]
+        spin()
+        #expect(rig.view.selectedRanges.count == 2, "the second selection did not take, so this proves nothing")
+        #expect(!rig.coordinator.textView(rig.view, doCommandBy: tabKey))
+        #expect(!rig.coordinator.textView(rig.view, doCommandBy: backtabKey))
+        #expect(rig.view.string == "- a\n- b\n- c")
+        #expect(rig.view.selectedRanges.count == 2)
     }
 
     /// The first item has nothing to nest under: the key is taken, and nothing changes — no tab
