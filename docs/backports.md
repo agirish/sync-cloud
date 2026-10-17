@@ -1275,6 +1275,14 @@ sends the next person back to `git log`.
 
 Move an item out of "owed" only when `git branch -r --contains <sha>` names the line.
 
+## 2026-10-17 — the `v5.x` line opens; `main` moves to 6.0-dev
+
+`v5.x` was cut from the `v5.5` tag when `main` opened the v6 line. Nothing lies between the tag and
+the cut, so `v5.x` starts with everything `main` shipped as v5.5 and owes nothing; from here, `main`'s
+v6 work is a feature line under the no-backport standing direction, and its fixes are recorded here
+as for the other lines. `v5.x`'s opening commit re-bumps it to `5.6-dev`/`506` and carries the
+five-line documents (CLAUDE.md, the CI workflow, this record) — checked, nothing else in that range.
+
 ## 2026-08-28 — the `v4.x` line opens; v5.0 lands on `main`
 
 `v4.x` was cut from the `v4.6` tag when the v5.0 Organize work landed on `main`. Recorded, not
