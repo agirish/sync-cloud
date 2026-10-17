@@ -91,6 +91,15 @@ enum MarkdownPasteEdits {
 
         let link = "[\(core)](\(destination(url)))"
         let replacement = leading + link + trailing + terminator
+        // **The paragraph must read as it did, link aside** (review IMG-7): words that cut through
+        // an emphasis run — `Note:** read` out of `**Note:** read` — made `**[Note:** read](url)`,
+        // two literal asterisks and the bold gone. Such a paste is a plain paste.
+        let (paragraph, start) = Self.paragraph(around: selection, in: ns)
+        let edited = ns.replacingCharacters(in: whole, with: replacement) as NSString
+        let after = edited.substring(with: NSRange(location: start, length: (paragraph as NSString).length
+                                                    + (replacement as NSString).length - whole.length))
+        guard MarkdownSourceContext.styledCharacters(paragraph) == MarkdownSourceContext.styledCharacters(after)
+        else { return nil }
         let caret = selection.location + ((leading + link) as NSString).length
         return MarkdownSplice(range: whole, text: replacement,
                               selection: NSRange(location: caret, length: 0))

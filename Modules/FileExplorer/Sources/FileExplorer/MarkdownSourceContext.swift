@@ -504,6 +504,52 @@ enum MarkdownSourceContext {
         return text
     }
 
+    /// **What the reader sees of `text`, character by character, with the styles each is drawn in**
+    /// — emphasis, strong, strikethrough, code, raw HTML — and LINKS left out: a link's words are
+    /// read as words, so a paragraph reads the same with some of them made a link as without.
+    ///
+    /// What TE55 holds a link to before it writes one (review IMG-7, 2026-10-15). A selection that
+    /// cuts through an emphasis run — `Note:** read` out of `**Note:** read` — made
+    /// `**[Note:** read](url)`, which the parser reads as two literal asterisks and a link: the bold
+    /// gone, the markers on show. Asking the parser covers every delimiter rule at once, where a
+    /// count of `*`, `_` and `~` would have to restate flanking.
+    ///
+    /// Each block opens with a marker of its kind, so a change in which block holds the words is a
+    /// difference too. The parse is the preview's, run on `text` alone.
+    static func styledCharacters(_ text: String) -> [String] {
+        var bytes = Array(text.utf8)
+        return bytes.withUnsafeMutableBufferPointer { buffer -> [String] in
+            guard let root = parse(buffer) else { return [] }
+            defer { cmark_node_free(root) }
+            var out: [String] = []
+            func walk(_ node: UnsafeMutablePointer<cmark_node>, styles: String) {
+                let type = cmark_node_get_type(node)
+                let name = String(cString: cmark_node_get_type_string(node))
+                if isBlock(node) { out.append("¶" + name) }
+                var inner = styles
+                switch type {
+                case CMARK_NODE_EMPH: inner += "e"
+                case CMARK_NODE_STRONG: inner += "s"
+                case CMARK_NODE_IMAGE: inner += "i"
+                case CMARK_NODE_CODE: inner += "c"
+                case CMARK_NODE_HTML_INLINE: inner += "h"
+                case CMARK_NODE_SOFTBREAK, CMARK_NODE_LINEBREAK: out.append(styles + "\u{0}\n")
+                default: if name == "strikethrough" { inner += "x" }
+                }
+                if let literal = cmark_node_get_literal(node) {
+                    out.append(contentsOf: String(cString: literal).map { inner + "\u{0}" + String($0) })
+                }
+                var child = cmark_node_first_child(node)
+                while let current = child {
+                    walk(current, styles: inner)
+                    child = cmark_node_next(current)
+                }
+            }
+            walk(root, styles: "")
+            return out
+        }
+    }
+
     // MARK: - What a line verb may rewrite (FMT-6)
 
     /// What one line a Markup line verb covers is, as the preview's parser reads it.

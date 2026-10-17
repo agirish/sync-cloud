@@ -1,5 +1,6 @@
 import AppKit
 import Events
+import UniformTypeIdentifiers
 
 /// **The four things a key, a paste or a drop does differently in a writable Markdown file**
 /// (TE54–TE56): Return carries a list on, Tab and ⇧Tab move an item, a web address pasted onto
@@ -154,8 +155,10 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
 
         // TE55: one web address, pasted over words. "Nothing else" on the clipboard: a file copied
         // in Finder carries its name as a string too, and is not an address. An address put there
-        // as a URL alone, with no text beside it, is the same address.
-        let address = string ?? Self.webURL(on: pasteboard)
+        // as a URL alone, with no text beside it, is the same address — but **not one beside a
+        // picture** (review IMG-2): a picture copied in a browser carries its own address, and
+        // with words selected that pasted a link to it, and no picture.
+        let address = string ?? (Self.carriesImageData(pasteboard) ? nil : Self.webURL(on: pasteboard))
         if let address, selection.length > 0, !pasteboard.canReadObject(forClasses: [NSURL.self],
                                                                         options: [.urlReadingFileURLsOnly: true]),
            MarkdownPasteEdits.linkPaste(address, over: selection, in: buffer(of: view)) != nil {
@@ -171,11 +174,17 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         // TE56: image data and no text — a screenshot, or a picture copied in a browser, which puts
         // its address beside it as a URL. Anything carrying text pastes the text, as it always did:
         // rich text copied from a document often carries a picture OF itself too.
-        guard string == nil, let importer = imageImport, let png = Self.pngData(on: pasteboard) else {
+        guard string == nil, let importer = imageImport, let image = Self.pastedImage(on: pasteboard) else {
             return false
         }
-        insertImages([.png(png)], at: selection, in: view, importer: importer)
+        insertImages([image], at: selection, in: view, importer: importer)
         return true
+    }
+
+    /// Whether the clipboard holds a picture's data — of a type an image reads — and not only an
+    /// address or a file's URL.
+    static func carriesImageData(_ pasteboard: NSPasteboard) -> Bool {
+        pasteboard.availableType(from: NSImage.imageTypes.map { NSPasteboard.PasteboardType($0) }) != nil
     }
 
     /// The one web URL on the clipboard when it holds a URL and no text — what a URL written as an
@@ -186,14 +195,35 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         return url.absoluteString
     }
 
-    /// The clipboard's image as PNG: PNG as it came, anything else AppKit can read converted.
-    static func pngData(on pasteboard: NSPasteboard) -> Data? {
-        if let png = pasteboard.data(forType: .png) { return png }
+    /// The formats a pasted picture is saved in as it came — each one Preview draws, and each
+    /// already compressed. Anything else (TIFF, PDF, BMP…) is converted to PNG.
+    static let keptImageFormats: [(type: NSPasteboard.PasteboardType, fileExtension: String)] = [
+        (.png, "png"),
+        (NSPasteboard.PasteboardType(UTType.jpeg.identifier), "jpg"),
+        (NSPasteboard.PasteboardType(UTType.heic.identifier), "heic"),
+        (NSPasteboard.PasteboardType(UTType.gif.identifier), "gif"),
+        (NSPasteboard.PasteboardType(UTType.webP.identifier), "webp"),
+    ]
+
+    /// **The clipboard's picture, saved as it came** where it is one of ``keptImageFormats``, and
+    /// anything else AppKit reads converted to PNG — `nil` for no picture.
+    ///
+    /// Everything used to be converted (review IMG-4, 2026-10-15): a JPEG photo re-encoded as PNG
+    /// came out 4.8 times the size — 657 KB to 3.2 MB — in somebody's synced folder, and a real
+    /// photo could cross the 25 MB Preview draws. TIFF is uncompressed and PDF is not a picture
+    /// Preview draws, so those two still become PNG.
+    static func pastedImage(on pasteboard: NSPasteboard) -> EditorImageImport.Source? {
+        for format in keptImageFormats {
+            if let data = pasteboard.data(forType: format.type), !data.isEmpty {
+                return .data(data, extension: format.fileExtension)
+            }
+        }
         guard pasteboard.canReadObject(forClasses: [NSImage.self], options: nil),
               let image = NSImage(pasteboard: pasteboard),
               let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
-        return bitmap.representation(using: .png, properties: [:])
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
+        return .png(png)
     }
 
     // MARK: Drop

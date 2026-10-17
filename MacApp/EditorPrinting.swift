@@ -60,7 +60,8 @@ extension ContentView {
             name: editorDocument.name,
             text: editorDocument.text,
             isMarkdown: editorDocument.isMarkdown,
-            folder: (path as NSString).deletingLastPathComponent,
+            // Where the preview reads the note's images from — through a symlink to the note, its file's folder.
+            folder: EditorImageImport.linkFolder(ofNote: path),
             // Settings ▸ Text size, so the page is set in the type the reader reads in.
             fontScale: appFontScale,
             accent: glassHue.accentColor)

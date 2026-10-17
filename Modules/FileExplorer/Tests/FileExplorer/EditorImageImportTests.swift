@@ -210,18 +210,83 @@ import FileExplorerTestSupport
                       in: folder(of: note), before: before, mentioning: "can't be read")
     }
 
-    /// **An image Preview will not draw is said so at once**, not found out by looking.
-    @Test func anImageTooLargeToDrawIsSaidSo() throws {
-        let small = try imageElsewhere()
-        #expect(EditorImageImport.drawWarning(for: [small]) == nil)
-        let large = try TestTextFiles.write("", named: "Huge.png")
-        let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: large))
-        try handle.truncate(atOffset: UInt64(MarkdownImageSource.maxBytes + 1))
+    /// A file of `bytes` — sparse, so a test of the limit costs no disk.
+    private func sized(_ name: String, _ bytes: Int, in folder: String? = nil) throws -> String {
+        let path = try folder.map { $0 + "/" + name } ?? TestTextFiles.write("", named: name)
+        if !fm.fileExists(atPath: path) { fm.createFile(atPath: path, contents: nil) }
+        let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: path))
+        try handle.truncate(atOffset: UInt64(bytes))
         try handle.close()
-        let warning = try #require(EditorImageImport.drawWarning(for: [small, large]))
-        #expect(warning.contains("“Huge.png”"))
-        #expect(warning.contains("too large to draw"))
-        #expect(EditorImageImport.drawWarning(for: [large, large])?.contains("2 of the images") == true)
+        return path
+    }
+
+    /// **One drop or paste adds at most 25 MB, counted before anything is written** (review IMG-5,
+    /// his call): over it, nothing is copied, no folder is made, and the reason gives the size and
+    /// the limit — of one file, of several together, or of a pasted image.
+    @Test func anImportOverTheLimitAddsNothing() throws {
+        let note = try note()
+        let limit = EditorImageImport.maxTotalBytes
+        #expect(EditorImageImport.sizeText(limit) == "25 MB")
+        let before = listing(folder(of: note))
+        let half = try sized("Half.png", limit / 2 + 1)
+        let other = try sized("Other.png", limit / 2 + 1)
+        expectRefusal(EditorImageImport.importImages([.file(half), .file(other)], forNote: note),
+                      in: folder(of: note), before: before,
+                      mentioning: "These 2 images come to a little over 25 MB together, and one drop or paste can add at most 25 MB")
+        expectRefusal(EditorImageImport.importImages([.file(try sized("Huge.tiff", 30_000_000))], forNote: note),
+                      in: folder(of: note), before: before, mentioning: "“Huge.tiff” is 30 MB")
+        expectRefusal(EditorImageImport.importImages([.png(Data(count: limit + 1))], forNote: note),
+                      in: folder(of: note), before: before, mentioning: "The pasted image is a little over 25 MB")
+    }
+
+    /// **The limit is 25,000,000 bytes — 25 MB as Finder counts it — and Preview's is untouched**
+    /// (his call, 2026-10-16). One byte more is refused, its size written as Finder writes it.
+    @Test func theLimitIsTwentyFiveMillionBytesAsFinderCountsThem() throws {
+        #expect(EditorImageImport.maxTotalBytes == 25_000_000)
+        #expect(MarkdownImageSource.maxBytes == 25 * 1024 * 1024, "Preview's drawing limit moved")
+        let note = try note()
+        let over = try sized("Over.png", 25_000_001)
+        expectRefusal(EditorImageImport.importImages([.file(over)], forNote: note), in: folder(of: note),
+                      before: listing(folder(of: note)),
+                      mentioning: "“Over.png” is a little over 25 MB, and one drop or paste can add at most 25 MB of images.")
+        let finders26 = try sized("Finder26.png", 26_000_000)
+        expectRefusal(EditorImageImport.importImages([.file(finders26)], forNote: note), in: folder(of: note),
+                      before: listing(folder(of: note)), mentioning: "“Finder26.png” is 26 MB")
+        let exact = try sized("Exact.png", 25_000_000)
+        guard case .wrote(let files, _, _, nil) = EditorImageImport.importImages([.file(exact)], forNote: note) else {
+            Issue.record("25,000,000 bytes was refused")
+            return
+        }
+        #expect(files.count == 1)
+        for file in files { try? fm.removeItem(atPath: file) }
+    }
+
+    /// **Up to the limit, exactly, is added** — and an image already in the Images folder is linked
+    /// whatever its size, because linking it copies nothing.
+    @Test func theLimitItselfIsAddedAndImagesAlreadyThereDoNotCount() throws {
+        let note = try note()
+        let limit = EditorImageImport.maxTotalBytes
+        let exact = try sized("Exact.png", limit - png().count)
+        let report = EditorImageImport.importImages([.file(exact), .png(png())], forNote: note)
+        guard case .wrote(let files, _, _, nil) = report else {
+            Issue.record("refused at the limit: \(report)")
+            return
+        }
+        #expect(files.count == 2)
+        let images = folder(of: note) + "/Images"
+        let big = try sized("Pasta-9.png", 40 << 20, in: images)
+        #expect(EditorImageImport.importImages([.file(big), .png(png())], forNote: note)
+                == .wrote(files: [images + "/Pasta-10.png"], madeFolder: nil,
+                          linked: ["Images/Pasta-9.png", "Images/Pasta-10.png"]))
+        for file in files + [big] { try? fm.removeItem(atPath: file) }
+    }
+
+    /// **The Help states the limit** — the number the code holds, as the reason reads it — and no
+    /// longer says a larger image is saved all the same.
+    @Test func theHelpStatesTheLimit() throws {
+        let images = try EditRepoFile.helpParagraph("To put a picture in a Markdown note")
+        #expect(images.contains("at most \(EditorImageImport.sizeText(EditorImageImport.maxTotalBytes)) of images"))
+        #expect(!images.contains("saved and linked all the same"))
     }
 
     // MARK: - Refusals: nothing written, a reason given
@@ -258,6 +323,23 @@ import FileExplorerTestSupport
                       in: folder(of: note), before: after, mentioning: "Images folder here can't be written")
     }
 
+    /// **Images already in a read-only Images folder are linked where they are** — that writes
+    /// nothing, so the folder's permission is no reason to refuse (review IMG-6). One image that
+    /// would be copied in still asks, and is refused.
+    @Test func imagesAlreadyInAReadOnlyFolderAreStillLinked() throws {
+        let note = try note()
+        _ = EditorImageImport.importImages([.png(png()), .png(png())], forNote: note)
+        let images = folder(of: note) + "/Images"
+        try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: images)
+        defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: images) }
+        #expect(EditorImageImport.importImages([.file(images + "/Pasta-2.png"), .file(images + "/Pasta-1.png")],
+                                               forNote: note)
+                == .wrote(files: [], madeFolder: nil, linked: ["Images/Pasta-2.png", "Images/Pasta-1.png"]))
+        let elsewhere = try imageElsewhere()
+        expectRefusal(EditorImageImport.importImages([.file(images + "/Pasta-1.png"), .file(elsewhere)], forNote: note),
+                      in: images, before: ["Pasta-1.png", "Pasta-2.png"], mentioning: "can't be written to")
+    }
+
     /// **The real permission, not the injected one** — a read-only folder on disk.
     @Test func aReallyReadOnlyFolderIsRefused() throws {
         let note = try note()
@@ -277,6 +359,30 @@ import FileExplorerTestSupport
         let before = listing(folder(of: note))
         expectRefusal(EditorImageImport.importImages([.file(source)], forNote: note, isCloudOnly: { $0.hasSuffix(".png") }),
                       in: folder(of: note), before: before, mentioning: "still in the cloud")
+    }
+
+    /// **The cloud-only refusal reads for a paste as well as a drop** (review IMG-11) — a file copied
+    /// in Finder and pasted was told to be dropped again.
+    @Test func theCloudOnlyRefusalDoesNotSayDrop() throws {
+        let note = try note()
+        let report = EditorImageImport.importImages([.file(try imageElsewhere())], forNote: note, isCloudOnly: { $0.hasSuffix(".png") })
+        guard case .refused(let reason) = report else {
+            Issue.record("not refused: \(report)")
+            return
+        }
+        #expect(reason.hasSuffix("Download it first, then add it again."), "\(reason)")
+        #expect(!reason.contains("drop"), "\(reason)")
+    }
+
+    /// **An `Images` alias whose folder has gone is said to be one** (review IMG-10) — not "a file
+    /// called Images", which the reader goes looking for and does not find.
+    @Test func anImagesAliasWithNothingBehindItIsNamedAsOne() throws {
+        let note = try note()
+        try fm.createSymbolicLink(atPath: folder(of: note) + "/Images", withDestinationPath: folder(of: note) + "/Gone")
+        let before = listing(folder(of: note))
+        expectRefusal(EditorImageImport.importImages([.png(png())], forNote: note), in: folder(of: note), before: before,
+                      mentioning: "“Images” in this note's folder is an alias to a folder that isn't there any more")
+        #expect(listing(folder(of: note)) == before)
     }
 
     @Test func aCloudOnlyImagesFolderIsRefused() throws {
@@ -343,6 +449,25 @@ import FileExplorerTestSupport
         #expect(links == ["Images/Weeknight%20Pasta-8.png"])
     }
 
+    /// **A number given out once is not given out again, with its file AND its link gone** — the
+    /// link can still be in the undo history (review IMG-3): paste A, delete its line and its file,
+    /// paste B, and ⌘Z twice brought A's link back over B's picture.
+    @Test func aNumberGivenOutIsNotGivenOutAgainThisSession() throws {
+        let note = try note()
+        guard case .wrote(let first, _, _, _) = EditorImageImport.importImages([.png(png())], forNote: note) else {
+            Issue.record("refused")
+            return
+        }
+        try fm.removeItem(atPath: first[0])
+        #expect(listing(folder(of: note) + "/Images").isEmpty, "the file is still there, so this proves nothing")
+        guard case .wrote(_, _, let links, _) = EditorImageImport.importImages([.png(png())], forNote: note, linkedIn: "")
+        else {
+            Issue.record("refused")
+            return
+        }
+        #expect(links == ["Images/Pasta-2.png"], "a number given out this session was given out again")
+    }
+
     /// A note whose name is long enough to be shortened still counts on from its own images — 250
     /// characters, which no volume takes with `-1.png` after it unshortened.
     @Test func aLongNamesImagesStillCountOn() throws {
@@ -376,6 +501,32 @@ import FileExplorerTestSupport
         expectRefusal(EditorImageImport.importImages([.png(png())], forNote: note,
                                                      isCloudOnly: { $0 == resolved }),
                       in: folder(of: note), before: before, mentioning: "still in the cloud")
+    }
+
+    /// **A note opened through a symlink gets its images beside the FILE, not the link** (review
+    /// IMG-1). The note is saved where the link leads, so that is the folder its `Images/…` link is
+    /// read from — by other devices, and by Preview and print here, which ask the same question.
+    @MainActor
+    @Test func aSymlinkedNotesImagesGoBesideTheFileItLeadsTo() throws {
+        let real = try note()
+        let elsewhere = (try TestTextFiles.write("", named: "x") as NSString).deletingLastPathComponent
+        let link = elsewhere + "/Pasta.md"
+        try fm.createSymbolicLink(atPath: link, withDestinationPath: real)
+        let before = listing(elsewhere)
+        guard case .wrote(let files, _, let links, _) = EditorImageImport.importImages([.png(png())], forNote: link) else {
+            Issue.record("refused")
+            return
+        }
+        #expect(listing(elsewhere) == before, "an Images folder was made beside the link")
+        #expect(listing(folder(of: real) + "/Images") == ["Pasta-1.png"])
+        #expect(EditorImageImport.linkFolder(ofNote: link) == URL(fileURLWithPath: folder(of: real)).resolvingSymlinksInPath().path)
+        #expect(EditorImageImport.linkFolder(ofNote: real) == folder(of: real), "a note that is no link moved")
+        #expect(MarkdownImageSource.resolve(links[0], relativeTo: EditorImageImport.linkFolder(ofNote: link))
+                == .local(files[0]))
+        // Preview and print read the note's links from that folder too.
+        let workspace = try EditorFormatBarTests.source("EditorWorkspaceView.swift")
+        #expect(workspace.contains("document.path.map(EditorImageImport.linkFolder(ofNote:))"))
+        #expect(try EditRepoFile.text("MacApp/EditorPrinting.swift").contains("folder: EditorImageImport.linkFolder(ofNote: path),"))
     }
 
     /// A FOLDER named like an image is not an image drop: AppKit's drop goes ahead.

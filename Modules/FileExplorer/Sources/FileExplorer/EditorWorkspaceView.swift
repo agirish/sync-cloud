@@ -1874,9 +1874,10 @@ public struct EditorWorkspaceView: View {
     ///
     /// **The DOCUMENT's folder, not the rail's.** They are usually the same and are not always: a
     /// file opened from a pane row in another folder keeps its own, and an image beside *it* is
-    /// what its `![…](shot.png)` means.
+    /// what its `![…](shot.png)` means. And the folder of the FILE, through a symlink to it — where
+    /// the note is saved, and where its pasted images go (``EditorImageImport/linkFolder(ofNote:)``).
     private var documentFolder: String? {
-        document.path.map { ($0 as NSString).deletingLastPathComponent }
+        document.path.map(EditorImageImport.linkFolder(ofNote:))
     }
 
     /// A `#heading` link inside the document, followed rather than opened.

@@ -1506,14 +1506,8 @@ extension ContentView {
                     + (madeFolder.map { " and made \($0)" } ?? "") + ", linked \(linked.joined(separator: ", "))"
                     + (failed.map { "; then stopped: \($0)" } ?? ""))
             }
-            let warning = EditorImageImport.drawWarning(for: files)
-            if let warning { Logger.shared.info("[edit] \(warning)") }
-            // One banner: a failure outranks the warning, which the log still has.
-            if let failed {
-                syncManager.banner = .error(failed)
-            } else if let warning {
-                syncManager.banner = .warning(warning)
-            }
+            // Nothing written is past what Preview draws: an import over it is refused whole.
+            if let failed { syncManager.banner = .error(failed) }
             if let reread = madeFolder ?? files.first { rereadPanesAfterEditorWrite(reread) }
             // The rail lists the note's folder — and an image, or the folder it went in, is a new
             // entry there.

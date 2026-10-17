@@ -26,3 +26,26 @@ extension MarkdownListEdits {
         tabEdit(in: text as NSString, selection: selection, outdent: outdent)
     }
 }
+
+/// **Files outside this package that Edit's paste and drop make claims in** — the app's wiring and
+/// its Help, under `MacApp/`, which no package test otherwise reads. Read from this file's own path.
+enum EditRepoFile {
+    static func text(_ relative: String) throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // …/Tests/FileExplorer
+            .deletingLastPathComponent()   // …/Tests
+            .deletingLastPathComponent()   // …/Modules/FileExplorer
+            .deletingLastPathComponent()   // …/Modules
+            .deletingLastPathComponent()   // the repo
+        return try String(contentsOf: root.appendingPathComponent(relative), encoding: .utf8)
+    }
+
+    /// The Help paragraph that opens with `opening` — each is one string literal on one line.
+    static func helpParagraph(_ opening: String) throws -> String {
+        let help = try text("MacApp/HelpBook.swift")
+        guard let line = help.split(separator: "\n").first(where: { $0.contains("\"" + opening) }) else {
+            throw CocoaError(.fileReadCorruptFile, userInfo: [NSLocalizedDescriptionKey: "no Help paragraph opens “\(opening)”"])
+        }
+        return String(line)
+    }
+}

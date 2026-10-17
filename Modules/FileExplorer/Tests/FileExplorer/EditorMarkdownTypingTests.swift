@@ -545,6 +545,37 @@ import FileExplorerTestSupport
         #expect(data.starts(with: [0x89, 0x50, 0x4E, 0x47]), "not a PNG")
     }
 
+    /// **A JPEG or HEIC picture on the clipboard is saved as it came**, byte for byte (review
+    /// IMG-4) — a photo re-encoded as PNG came out several times larger in a synced folder. TIFF,
+    /// above, still becomes PNG.
+    @Test func aPastedJPEGOrHEICIsSavedAsItCame() throws {
+        let note = try TestTextFiles.write("x", named: "Note.md")
+        let rig = rig("x", importer: note)
+        let jpeg = try #require(NSBitmapImageRep(data: pngData())?.representation(using: .jpeg, properties: [:]))
+        let board = pasteboard { $0.setData(jpeg, forType: NSPasteboard.PasteboardType("public.jpeg")) }
+        defer { board.releaseGlobally() }
+        #expect(rig.coordinator.handlePaste(from: board, in: rig.view))
+        #expect(rig.view.string == "x\n\n![](Images/Note-1.jpg)")
+        let folder = (note as NSString).deletingLastPathComponent + "/Images/"
+        #expect(try Data(contentsOf: URL(fileURLWithPath: folder + "Note-1.jpg")) == jpeg, "the JPEG was re-encoded")
+        // HEIC is taken as it is, never decoded, so any bytes stand in for it here.
+        let heic = Data("heic bytes".utf8)
+        let other = pasteboard { $0.setData(heic, forType: NSPasteboard.PasteboardType("public.heic")) }
+        defer { other.releaseGlobally() }
+        #expect(PlainTextEditor.Coordinator.pastedImage(on: other) == .data(heic, extension: "heic"))
+    }
+
+    /// **The Help says which pictures keep their format** — and no longer that every pasted image
+    /// is saved as a PNG (review IMG-9: an image file copied in Finder never was).
+    @Test func theHelpSaysWhichPastedPicturesKeepTheirFormat() throws {
+        let images = try EditRepoFile.helpParagraph("To put a picture in a Markdown note")
+        #expect(images.contains("is copied as it is"))
+        #expect(images.contains("saved as it came if it is a PNG, JPEG, HEIC, GIF or WebP, and as a PNG otherwise"))
+        #expect(!images.contains("A pasted image is saved as a PNG"))
+        let kept = PlainTextEditor.Coordinator.keptImageFormats.map { $0.fileExtension }
+        #expect(kept == ["png", "jpg", "heic", "gif", "webp"], "the Help names five formats")
+    }
+
     /// **Image data with text beside it pastes the text**, as it always did — a file copied in
     /// Finder is its name plus its icon, and the icon is not what anybody meant.
     @Test func imageDataWithTextIsATextPaste() throws {
@@ -608,7 +639,7 @@ import FileExplorerTestSupport
     }
 
     /// **A picture copied in a browser** — image data with its address beside it as a URL, and no
-    /// text — is the picture, written as a PNG. With words selected, the address links them (TE55).
+    /// text — is the picture, written as a PNG.
     @Test func aPictureCopiedInABrowserIsThePicture() throws {
         let note = try TestTextFiles.write("x", named: "Note.md")
         let rig = rig("x", importer: note)
@@ -620,6 +651,31 @@ import FileExplorerTestSupport
         #expect(board.string(forType: .string) == nil, "the URL came with text, so this proves nothing")
         #expect(rig.coordinator.handlePaste(from: board, in: rig.view))
         #expect(rig.view.string == "x\n\n![](Images/Note-1.png)")
+    }
+
+    /// **…and still the picture over selected words** (review IMG-2): its address linked the words
+    /// to it, and no picture was saved. The words go, as any paste over a selection takes them.
+    /// An address alone on the clipboard still links them — `aURLWithNoTextBesideItLinksToo`.
+    @Test func aPictureCopiedInABrowserOverWordsIsStillThePicture() throws {
+        let note = try TestTextFiles.write("See the docs", named: "Note.md")
+        let rig = rig("See the docs", importer: note)
+        rig.view.setSelectedRange(NSRange(location: 4, length: 8))
+        let board = pasteboard {
+            $0.setData(pngData(), forType: .png)
+            $0.writeObjects([URL(string: "https://example.com/photo.png")! as NSURL])
+        }
+        defer { board.releaseGlobally() }
+        #expect(rig.coordinator.handlePaste(from: board, in: rig.view))
+        #expect(rig.view.string == "See \n\n![](Images/Note-1.png)")
+        #expect(FileManager.default.fileExists(atPath: (note as NSString).deletingLastPathComponent + "/Images/Note-1.png"))
+    }
+
+    /// **The Help says a browser's picture is the picture**, words selected or not.
+    @Test func theHelpSaysABrowsersPictureIsThePicture() throws {
+        let links = try EditRepoFile.helpParagraph("Select some words and paste a web address")
+        #expect(links.contains("a picture copied in a browser carries its address too, and pastes as the picture"))
+        let images = try EditRepoFile.helpParagraph("To put a picture in a Markdown note")
+        #expect(images.contains("or a picture copied in a browser, over selected words too"))
     }
 
     @Test func noImporterNoImage() {

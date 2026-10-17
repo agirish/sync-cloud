@@ -15,8 +15,13 @@ public enum EditorImageImport {
     enum Source: Equatable, Sendable {
         /// A file dropped from Finder, by path.
         case file(String)
-        /// Image data from the clipboard — a screenshot taken with ⌃⇧⌘4 — already PNG.
-        case png(Data)
+        /// Image data from the clipboard — a screenshot, a picture copied in a browser — and the
+        /// extension it is saved under: its own where it came as a format kept as it is, else
+        /// `png` (see `PlainTextEditor.Coordinator.pastedImage(on:)`).
+        case data(Data, extension: String)
+
+        /// PNG data — a screenshot taken with ⌃⇧⌘4.
+        static func png(_ data: Data) -> Source { .data(data, extension: "png") }
     }
 
     /// What happened, for the host: the files it now owes the panes a re-read for, or why nothing
@@ -57,6 +62,8 @@ public enum EditorImageImport {
         -> Report {
         guard !sources.isEmpty else { return .refused("There was no image to add.") }
         let fileManager = FileManager.default
+        // The note as it is on disk — through a symlink to it, the file the link leads to.
+        let notePath = noteFile(notePath)
         let noteFolder = (notePath as NSString).deletingLastPathComponent
         // A dropped alias-by-symlink is copied as the file it points at — copying the link would put
         // a link to a photo elsewhere in this folder, not the photo.
@@ -79,7 +86,7 @@ public enum EditorImageImport {
             // on the main thread, for as long as the provider takes, and a provider that does not
             // answer hangs the window (`DatalessFolderReads`). The pane offers Download.
             guard !isCloudOnly(path) else {
-                return .refused("“\(name)” is still in the cloud. Download it first, then drop it again.")
+                return .refused("“\(name)” is still in the cloud. Download it first, then add it again.")
             }
             // Asked here, so an unreadable photo is not reported as one that "couldn't be saved".
             guard fileManager.isReadableFile(atPath: path) else {
@@ -93,7 +100,25 @@ public enum EditorImageImport {
         case .failure(let refusal): return .refused(refusal.message)
         case .success(let found): folder = found
         }
-        guard isWritable(folder.exists ? folder.path : noteFolder) else {
+        // An image already in the folder is linked where it is — a second copy of it beside itself
+        // is clutter in a synced folder, and nothing to protect.
+        let resolvedFolder = URL(fileURLWithPath: folder.path).resolvingSymlinksInPath().path
+        func isInPlace(_ source: Source) -> Bool {
+            guard folder.exists, case .file(let path) = source else { return false }
+            return (path as NSString).deletingLastPathComponent == resolvedFolder
+        }
+        let incoming = sources.filter { !isInPlace($0) }
+        // **The size, before anything is written** (review IMG-5, his call 2026-10-15): one drop or
+        // paste adds at most 25 MB. A large image copied on the main thread held the window — 339ms
+        // for 256 MB here, and far longer from a slow disk — to add a picture Preview would not
+        // draw. Images already in the folder are linked, not copied: they cost nothing, and do not
+        // count.
+        let total = incoming.reduce(0) { $0 + byteCount(of: $1) }
+        guard total <= maxTotalBytes else { return .refused(tooLarge(incoming, total: total)) }
+        // **Asked only of an import that writes** (review IMG-6): linking images already in a
+        // read-only Images folder — a shared folder, say — writes nothing, and was refused.
+        let writes = !incoming.isEmpty
+        guard !writes || isWritable(folder.exists ? folder.path : noteFolder) else {
             return .refused(folder.exists
                 ? "The \(folder.name) folder here can't be written to, so the image couldn't be added."
                 : "This note's folder can't be written to, so the image couldn't be added.")
@@ -104,8 +129,10 @@ public enum EditorImageImport {
         // count read the same one.
         let stem = fittedStem(imageStem(forNote: notePath))
         let existing = folder.exists ? ((try? fileManager.contentsOfDirectory(atPath: folder.path)) ?? []) : []
+        let givenOutKey = givenOut.key(folder: resolvedFolder, stem: stem)
         var number = max(highestNumber(for: stem, among: existing),
-                         highestLinkedNumber(for: stem, folder: folder.name, in: noteText))
+                         highestLinkedNumber(for: stem, folder: folder.name, in: noteText),
+                         givenOut.highest(for: givenOutKey))
 
         var madeFolder: String?
         if !folder.exists {
@@ -120,12 +147,8 @@ public enum EditorImageImport {
         var written: [String] = []
         var links: [String] = []
         var failure: String?
-        let resolvedFolder = URL(fileURLWithPath: folder.path).resolvingSymlinksInPath().path
         for (index, source) in sources.enumerated() {
-            // An image already in the folder is linked where it is — a second copy of it beside
-            // itself is clutter in a synced folder, and nothing to protect.
-            if case .file(let path) = source, folder.exists,
-               (path as NSString).deletingLastPathComponent == resolvedFolder {
+            if isInPlace(source), case .file(let path) = source {
                 links.append(link(folder: folder.name, file: (path as NSString).lastPathComponent))
                 continue
             }
@@ -135,8 +158,8 @@ public enum EditorImageImport {
             case .file(let path):
                 ext = (path as NSString).pathExtension
                 label = "“\((path as NSString).lastPathComponent)”"
-            case .png:
-                ext = "png"
+            case .data(_, let fileExtension):
+                ext = fileExtension
                 label = "The pasted image"
             }
             // A name taken between the listing and the write is refused by the write, not replaced;
@@ -149,7 +172,7 @@ public enum EditorImageImport {
                 do {
                     switch source {
                     case .file(let from): try EditorFileStore.createNew(copying: from, toPath: path)
-                    case .png(let data): try EditorFileStore.createNew(data, atPath: path)
+                    case .data(let data, _): try EditorFileStore.createNew(data, atPath: path)
                     }
                     landed = name
                 } catch is EditorFileStore.AlreadyExists {
@@ -172,6 +195,7 @@ public enum EditorImageImport {
                 failure = failure ?? "\(label) couldn't be saved in \(folder.name) — every name was taken."
             }
             if let landed {
+                givenOut.record(number, for: givenOutKey)
                 written.append((folder.path as NSString).appendingPathComponent(landed))
                 links.append(link(folder: folder.name, file: landed))
             }
@@ -195,21 +219,65 @@ public enum EditorImageImport {
         return .wrote(files: written, madeFolder: madeFolder, linked: links, failed: failure)
     }
 
-    /// **What to tell the reader about images just written that Preview will not draw** — a file
-    /// over ``MarkdownImageSource/maxBytes`` is linked like any other and shows there as "Too large
-    /// to draw", which nobody should find out by looking. `nil` when every one will draw.
-    public static func drawWarning(for files: [String]) -> String? {
-        let large = files.compactMap { path -> (String, Int)? in
-            let size = ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.intValue ?? 0
-            return size > MarkdownImageSource.maxBytes ? ((path as NSString).lastPathComponent, size) : nil
+    /// **The most one drop or paste may add: 25 MB as Finder counts it** — 25,000,000 bytes, what
+    /// Finder and SyncCloud's own size labels call 25 MB, so a file either calls 26 MB is refused
+    /// (his call, 2026-10-16). Counted over the whole import, before anything is written — see
+    /// ``importImages(_:forNote:linkedIn:isCloudOnly:isWritable:)``.
+    ///
+    /// **Its own number, not Preview's.** ``MarkdownImageSource/maxBytes`` (25 × 1024 × 1024, which
+    /// Finder shows as 26.2 MB) is what Preview DRAWS, and stays as it is; this sits under it, so
+    /// every image added is one Preview shows.
+    static let maxTotalBytes = 25_000_000
+
+    /// The bytes `source` would add: a file's size, or the pasted data's.
+    private static func byteCount(of source: Source) -> Int {
+        switch source {
+        case .file(let path):
+            return ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.intValue ?? 0
+        case .data(let data, _):
+            return data.count
         }
-        guard let first = large.first else { return nil }
-        let limit = FileSyncManager.formatBytes(MarkdownImageSource.maxBytes)
-        return large.count == 1
-            ? "“\(first.0)” is \(FileSyncManager.formatBytes(first.1)), and Preview draws images up to \(limit), "
-                + "so it shows there as too large to draw. The file and its link are kept."
-            : "\(large.count) of the images are over \(limit), the most Preview draws, so they show there as too "
-                + "large to draw. The files and their links are kept."
+    }
+
+    /// A size as Finder and the rest of SyncCloud write it — decimal, `ByteCountFormatter`'s
+    /// `.file` style — so the limit reads "25 MB" and an image's size reads as Finder shows it.
+    static func sizeText(_ bytes: Int) -> String {
+        FileSyncManager.formatBytes(bytes)
+    }
+
+    /// Why an import over ``maxTotalBytes`` added nothing: how large it was, and the limit.
+    private static func tooLarge(_ incoming: [Source], total: Int) -> String {
+        let limit = sizeText(maxTotalBytes)
+        // Rounded, a total just over the limit would read as the limit itself.
+        let size = sizeText(total) == limit ? "a little over \(limit)" : sizeText(total)
+        let what: String
+        switch (incoming.count, incoming.first) {
+        case (1, .file(let path)?): what = "“\((path as NSString).lastPathComponent)” is \(size)"
+        case (1, _): what = "The pasted image is \(size)"
+        default: what = "These \(incoming.count) images come to \(size) together"
+        }
+        return what + ", and one drop or paste can add at most \(limit) of images. Nothing was added."
+    }
+
+    /// **The folder a note's relative links are read against: the folder its FILE is in**, through a
+    /// symlink to the note — what Preview, print and the image import all resolve `Images/…` from.
+    ///
+    /// A note opened by a symlink in another folder is SAVED where the link leads
+    /// (``EditorFileStore/resolved(_:)``), so every other app and device reads its links from there.
+    /// Taking the link's own folder put a pasted image beside the link, and wrote a link to it into a
+    /// file in a folder that has no such image (review IMG-1, 2026-10-15) — and this app's Preview,
+    /// reading from the link's folder too, drew it, so nothing on this Mac said so.
+    ///
+    /// One `readlink` for a note that is not a link, which is nearly every note. A symlinked FOLDER
+    /// above the note needs no resolving: `Images/` through it is the same folder.
+    public static func linkFolder(ofNote notePath: String) -> String {
+        (noteFile(notePath) as NSString).deletingLastPathComponent
+    }
+
+    /// The note's own file: `notePath`, or where it leads when it is a symlink.
+    static func noteFile(_ notePath: String) -> String {
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: notePath)) != nil else { return notePath }
+        return EditorFileStore.resolved(notePath)
     }
 
     // MARK: - The rules, each on its own
@@ -231,7 +299,14 @@ public enum EditorImageImport {
         }
         let path = (noteFolder as NSString).appendingPathComponent(name)
         var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory) else {
+            // Listed, yet not there: an alias whose folder has gone (review IMG-10). "A file called
+            // Images" sent the reader looking for a file that is not one.
+            return .failure(Refusal(message: "“\(name)” in this note's folder is an alias to a folder that isn't "
+                + "there any more, so the image has nowhere to go. Remove the alias or put its folder back, "
+                + "then try again."))
+        }
+        guard isDirectory.boolValue else {
             return .failure(Refusal(message: "There's a file called “\(name)” in this note's folder, so "
                 + "the image has nowhere to go. Rename that file, then try again."))
         }
@@ -255,6 +330,32 @@ public enum EditorImageImport {
         let visible = String(stem.drop { $0 == "." })
         return visible.isEmpty ? "Image" : visible
     }
+
+    /// **Every number given out since the app opened, per Images folder and note name** (review
+    /// IMG-3, 2026-10-15) — the third record, beside the folder and the note's text.
+    ///
+    /// Those two miss a link that is only in the UNDO history: paste A as `Pasta-1`, delete its
+    /// line, delete its file, paste B — B was `Pasta-1` too, and ⌘Z twice brought A's link back over
+    /// B's picture. Undo lives for the session, and so does this; nothing is written down. Keyed
+    /// case-blind, which on a case-sensitive disk can only skip a number, never repeat one.
+    private final class GivenOut: @unchecked Sendable {
+        private let lock = NSLock()
+        private var numbers: [String: Int] = [:]
+
+        func key(folder: String, stem: String) -> String {
+            (folder + "/" + stem).precomposedStringWithCanonicalMapping.lowercased()
+        }
+
+        func highest(for key: String) -> Int {
+            lock.withLock { numbers[key] ?? 0 }
+        }
+
+        func record(_ number: Int, for key: String) {
+            lock.withLock { numbers[key] = max(numbers[key] ?? 0, number) }
+        }
+    }
+
+    private static let givenOut = GivenOut()
 
     /// The highest `N` among names of the form `<stem>-N.<ext>`, any extension, any case — 0 when
     /// there are none.

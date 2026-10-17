@@ -260,6 +260,42 @@ struct MarkdownPasteEditsTests {
                 == "Files <10 MB are [inlined](https://e.com); files >10 MB are linked")
     }
 
+    // MARK: - Found by the 2026-10-15 review (IMG-7)
+
+    /// **Words that cut through an emphasis run are a plain paste** — `**[Note:** read](url)` reads
+    /// as two literal asterisks and a link, the bold gone (review IMG-7). Asked of the parser, so
+    /// every delimiter's own flanking rule decides it: a run cut at either end, intraword emphasis,
+    /// strikethrough.
+    @Test(arguments: ["**«Note:** read» this", "*«foo* bar»", "foo*«bar»*baz", "~~«gone~~ here»",
+                      "«a **b» c**", "_«x_ y»"])
+    func wordsThatCutThroughEmphasisAreAPlainPaste(_ marked: String) {
+        #expect(paste("https://e.com", over: marked) == nil, "\(marked.debugDescription) was linked")
+    }
+
+    /// The positive control: a whole run, words inside one, or underscores inside a word that were
+    /// never emphasis, are linked as ever — and the paragraph still reads as it did.
+    @Test(arguments: [
+        ("**«Note:»** read", "**[Note:](https://e.com)** read"),
+        ("«**bold** words»", "[**bold** words](https://e.com)"),
+        ("**«bold words»**", "**[bold words](https://e.com)**"),
+        ("~~«gone»~~", "~~[gone](https://e.com)~~"),
+        ("snake_«case»_word", "snake_[case](https://e.com)_word"),
+    ])
+    func wordsInsideOrAroundARunAreLinked(_ marked: String, _ expected: String) throws {
+        #expect(try #require(paste("https://e.com", over: marked)).0 == expected)
+    }
+
+    /// **The Help says the link is made in Source** (review IMG-8): Preview pastes plain text, so
+    /// an address pasted over words there replaces them, and the Help said only "a Markdown file".
+    @MainActor
+    @Test func theHelpSaysALinkPasteIsSourcesOnly() throws {
+        let links = try EditRepoFile.helpParagraph("Select some words and paste a web address")
+        #expect(links.contains("only in a Markdown file, in Source: in Preview the address is pasted as text."))
+        // Which it is: Preview's paste never asks for a link.
+        let preview = try EditorFormatBarTests.source("PreviewEditorView.swift")
+        #expect(!preview.contains("linkPaste"), "Preview makes links now — say so in the Help")
+    }
+
     // MARK: - TE56: where the image's line goes
 
     private func caret(_ marked: String) -> (text: String, range: NSRange) {
