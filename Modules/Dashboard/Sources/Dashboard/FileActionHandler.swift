@@ -425,7 +425,8 @@ public class FileActionHandler {
             Logger.shared.info("User deleted \(nodes.count) item(s) (confirmation disabled in Settings)")
         }
         Task {
-            await syncManager.deleteItems(at: nodes.map { $0.id }, reportsNothingToDo: true)
+            await syncManager.deleteItems(at: nodes.map { $0.id }, fileManager: syncManager.fileManager,
+                                          reportsNothingToDo: true)
         }
     }
 }

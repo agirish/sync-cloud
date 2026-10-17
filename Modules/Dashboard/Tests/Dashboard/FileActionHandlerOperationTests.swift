@@ -467,13 +467,12 @@ import Settings
 
     @MainActor
     @Test func testConfirmDeleteConfirmedTrashesItems() async throws {
-        let manager = FileSyncManager()
-        // Wire an UndoManager so the trashed file can be restored afterwards — the test then
-        // leaves nothing behind in the user's Trash.
-        let undoManager = UndoManager()
-        manager.undoManager = undoManager
         let dir = try makeTempDir("del-confirm")
         defer { try? FileManager.default.removeItem(at: dir) }
+        let trash = ScratchTrash(in: dir)
+        let manager = FileSyncManager(fileManager: trash)
+        // Wired so the delete registers its undo, which is what makes the banner undoable.
+        manager.undoManager = UndoManager()
         let file = try makeFile(in: dir, named: "trash-me.txt")
         let handler = FileActionHandler(
             syncManager: manager,
@@ -493,24 +492,19 @@ import Settings
         await waitUntil("the completion banner to publish") { manager.banner != nil }
         #expect(manager.banner?.message == "Deleted \"trash-me.txt\"")
         #expect(manager.banner?.isUndoable == true)
-
-        // Cleanup: restore from Trash via the registered undo (best-effort).
-        if undoManager.canUndo {
-            undoManager.undo()
-            await waitBestEffort { FileManager.default.fileExists(atPath: file.path) }
-            await waitForOperationsToFinish(manager)
-        }
+        #expect(trash.names == ["trash-me.txt"],
+                "the file left the disk but never reached the test's own Trash")
     }
 
     /// With "Confirm before deleting" switched off, the delete proceeds without ever consulting
     /// the confirmer.
     @MainActor
     @Test func testConfirmDeleteSkipsPromptWhenSettingDisabled() async throws {
-        let manager = FileSyncManager()
-        let undoManager = UndoManager()
-        manager.undoManager = undoManager
         let dir = try makeTempDir("del-noprompt")
         defer { try? FileManager.default.removeItem(at: dir) }
+        let trash = ScratchTrash(in: dir)
+        let manager = FileSyncManager(fileManager: trash)
+        manager.undoManager = UndoManager()
         let file = try makeFile(in: dir, named: "silent.txt")
         let defaults = ScratchDefaults("FAH-del-noprompt")
         defaults.set(false, forKey: GeneralSettings.confirmBeforeDeleteKey)
@@ -534,13 +528,8 @@ import Settings
 
         #expect(confirmerCalls == 0)
         #expect(!FileManager.default.fileExists(atPath: file.path))
-
-        // Cleanup: restore from Trash via the registered undo (best-effort).
-        if undoManager.canUndo {
-            undoManager.undo()
-            await waitBestEffort { FileManager.default.fileExists(atPath: file.path) }
-            await waitForOperationsToFinish(manager)
-        }
+        #expect(trash.names == ["silent.txt"],
+                "the file left the disk but never reached the test's own Trash")
     }
 
     /// The pane bar's Delete asks even with the setting off — `alwaysConfirm: true`.

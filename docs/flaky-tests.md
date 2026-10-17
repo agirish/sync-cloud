@@ -3256,8 +3256,9 @@ time one `trashItem` from a plain Swift script — tens of milliseconds healthy,
 an `/Applications` swap fell in the same window, but nothing else lines up: `sandboxd` went quiet
 on the prompt's request and resumed 19 ms after the dialog's click.
 
-**Fix — for this test and every Sync suite that trashed, 2026-10-16.** Answer the prompt and the
-machine recovers at once (rerunning while it is up only adds to the backlog).
+**Fix — for this test, every Sync suite that trashed, and Dashboard's deletes, 2026-10-16.**
+Answer the prompt and the machine recovers at once (rerunning while it is up only adds to the
+backlog).
 `confirmingTrashesTheRightCopyAndReturnsToDuplicates()` no longer uses the real Trash: its harness
 gets a `ScratchTrash`, a `FileManager` whose `trashItem` moves the item into a folder the test owns
 and reports where it went, as the real Trash does. Every other call is the real disk, so the drift
@@ -3288,13 +3289,21 @@ and so does `applyPlan`'s matching call. In the app that is `FileManager.default
 `MacApp/SyncCloudApp.swift` builds the manager with `FileSyncManager()` — so nothing changes
 there. `applyPlan` still registers its rename and move undo without one; neither ever trashes.
 
-**A correction, and what is left.** The first trace put `silent.txt` and `trash-me.txt` on
+**A correction, and the other packages.** The first trace put `silent.txt` and `trash-me.txt` on
 `DocumentSurveyRunTests`. They came from Dashboard's `FileActionHandlerOperationTests`, run by
 another session at the same moment: a trace on a shared machine counts everyone's trashes, so
-match each item to a fixture the suite really writes. That suite still trashes for real —
-`FileActionHandler.confirmDelete` calls `deleteItems` with no file manager, so a test cannot hand
-it another — and puts the file back by ⌘Z afterwards. Only `Modules/Sync` was traced suite by
-suite.
+match each item to a fixture the suite really writes. That suite's two delete tests trashed for
+real and put the file back by ⌘Z, best-effort, leaving it behind whenever the restore missed —
+`FileActionHandler.confirmDelete` called `deleteItems` with no file manager, so no test could hand
+it another. It now passes the manager's own, which in the app is `FileManager.default` (the one
+handler is built from the `SyncCloudApp` manager), and the tests trash into a Dashboard copy of
+`ScratchTrash`.
+
+Every other package was then run whole under the same watch: Design, Events, FileExplorer,
+Settings and the app's own `SyncCloudTests` moved nothing into the Trash. One test still does:
+`SyncCloudCLI`'s `EnvironmentDefaultsTests` leaves a `.rollback_<UUID>` every run. Its cleanup
+looks for its own file's name, but the replaced file reaches the Trash as a backup under another.
+The copy seam it calls already takes a file manager, so a stand-in would fix it from the test.
 
 The Trash on this Mac held 11,806 items before that tracing; a count by name during it found
 about 545 of each fixture name above, 2,279 `.rollback_<UUID>` and 1,634 `.tmp_<UUID>`. The source

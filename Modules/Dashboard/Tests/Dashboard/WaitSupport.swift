@@ -47,23 +47,3 @@ func waitUntil(
 /// left. Same number, and the same reason, as the copies in `Modules/Sync/Tests/Sync/TestSupport
 /// .swift` and `SyncCloudTests/TestSupport.swift`.
 let waitPollFloor = 50
-
-/// Polls like ``waitUntil(_:timeout:sourceLocation:_:)`` but **asserts nothing when it gives up**.
-///
-/// For cleanup that runs *after* every assertion and genuinely does not care — restoring a file
-/// from the Trash so a run does not leave litter behind. A failure here would be noise about
-/// hygiene, reported against a test whose subject already passed.
-///
-/// It exists so that "this wait may expire" is a decision written at the call site rather than a
-/// property of the helper. That is the whole lesson of the entry above: the old helper let every
-/// caller expire in silence, including the ten that could not afford to.
-@MainActor
-func waitBestEffort(timeout: TimeInterval = 2, _ condition: () -> Bool) async {
-    var polls = 0
-    let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-    while polls < waitPollFloor || ContinuousClock.now < deadline {
-        polls += 1
-        if condition() { return }
-        try? await Task.sleep(nanoseconds: 10_000_000)
-    }
-}
