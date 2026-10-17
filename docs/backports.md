@@ -7047,3 +7047,32 @@ done
 A future pick of the PDF renderer (see "2026-09-09 — a PDF preview fits the whole page instead of
 the pane's width", RECORDED — not owed) should take this change with it. Otherwise the defect it
 brings along is a main-thread parse outside the lane.
+
+## File ▸ Print opens its rendered PDF through the PDFKit lane — main only
+
+`DocumentPrinting.operation(for:)` used to open the PDF it had just rendered with
+`PDFDocument(data:)` on the main actor, the last parse in the process outside `PDFKitSerialAccess`.
+The parse now awaits `perform`; the render and the print operation stay on the main actor. ⌘P now
+goes through `DocumentPrinting.prepare`, which hands the operation over once the lane has parsed it,
+and drops a second press while the first is still waiting. The lane's doc no longer names a parse
+that skips its turn.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s printing=%s lane=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/DocumentPrinting.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/PDFKitSerialAccess.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-16, against origin, before this landed:
+# main  printing=1 lane=1
+# v4.x  printing=0 lane=1
+# v3.x  printing=0 lane=0
+# v2.x  printing=0 lane=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v4.x` / `v3.x` / `v2.x` | No `DocumentPrinting` — File ▸ Print is not on any maintenance line | CLOSED — does not apply |
+
+A future pick of File ▸ Print (RD9) should take this change with it, and needs the lane, which only
+`v4.x` has.

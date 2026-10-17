@@ -67,20 +67,32 @@ extension ContentView {
     }
 
     /// ⌘P — render, then hand the pages to the system print panel.
+    ///
+    /// The pages are opened in the PDFKit lane, so the panel arrives a moment after the press —
+    /// longer while a scan holds the lane — and a second ⌘P in that moment is dropped rather than
+    /// starting a second print (`DocumentPrinting.prepare`).
     func printEditorDocument() {
         guard let job = editorPrintJob else { return }
-        guard let operation = DocumentPrinting.operation(for: job) else {
-            syncManager.banner = .error("Couldn't prepare “\(job.name)” for printing.")
-            Logger.shared.warning("Editor print produced no pages for \(job.name)")
-            return
-        }
-        Logger.shared.info("Editor printing \(job.name)")
-        // A sheet on the window the document is in, rather than a dialog belonging to nothing.
-        // `runModal()` without a window is the fallback for a state that should not arise.
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+        // Taken at the press, not when the pages arrive: by then another window may be key, and the
+        // sheet belongs on the one the document is in. `runModal()` without a window is the
+        // fallback for a state that should not arise.
+        let window = NSApp.keyWindow ?? NSApp.mainWindow
+        let started = DocumentPrinting.prepare(job) { operation in
+            guard let operation else {
+                syncManager.banner = .error("Couldn't prepare “\(job.name)” for printing.")
+                Logger.shared.warning("Editor print produced no pages for \(job.name)")
+                return
+            }
+            guard let window else { operation.run(); return }
+            guard window.isVisible else {
+                Logger.shared.info("Editor print of \(job.name) dropped — its window closed before the pages were ready")
+                return
+            }
+            Logger.shared.info("Editor printing \(job.name)")
             operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
-        } else {
-            operation.run()
+        }
+        if !started {
+            Logger.shared.info("Editor print of \(job.name) ignored — another print is still being prepared")
         }
     }
 
