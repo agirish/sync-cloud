@@ -1017,6 +1017,10 @@ struct MarkdownSourceContextTests {
         "---\na: 1\n---",
         // A newline followed by a combining mark is still the newline `split` cuts at.
         "---\n---\n\u{301}.",
+        // Classic Mac and mixed endings: `\r` alone ends a line too (CHR-5).
+        "---\rtitle: x\r---\rBody",
+        "---\r\ntitle: x\ry: 2\n---\r- a",
+        "---\r---\r\u{301}.",
     ])
     func bodyStartIsSplitsAnswer(_ source: String) {
         let split = MarkdownFrontMatter.split(source)

@@ -37,59 +37,73 @@ enum MarkdownFrontMatter {
     /// thematic break, because a file that begins with a horizontal rule is a real file and reading
     /// the whole of it as unterminated front matter would make its entire text disappear from the
     /// preview.
+    ///
+    /// **Lines end at `\r\n`, `\n` and `\r` alike** (CHR-5) — the three the parser and
+    /// `EditorCaret` count. It split on `\n` alone, so a file with classic Mac line endings had one
+    /// line, its front matter went unrecognised, and the last YAML key became a setext heading in the
+    /// outline and in the status line's "in …". The block's text and the body are cut from the file
+    /// as written, so an LF or CRLF file gets back exactly what it did.
     static func split(_ source: String) -> Split {
-        // Kept as substrings and rejoined only on the path that finds a block, so a file without
-        // front matter — which is most of them — is handed to the parser untouched.
-        let lines = source.components(separatedBy: "\n")
-        guard let first = lines.first,
-              trimmed(first) == "---",
-              lines.count > 1 else {
+        let ns = source as NSString
+        guard let found = block(in: ns) else {
             return Split(frontMatter: nil, body: source, bodyStartLine: 1)
         }
-        guard let closing = lines.dropFirst().firstIndex(where: { closers.contains(trimmed($0)) })
-        else {
-            return Split(frontMatter: nil, body: source, bodyStartLine: 1)
-        }
-        let matter = lines[1..<closing].joined(separator: "\n")
-        let body = lines[(closing + 1)...].joined(separator: "\n")
-        // `closing` is a 0-based index, so the closing delimiter is on line `closing + 1` and the
-        // body starts on the line after that.
-        return Split(frontMatter: matter, body: body, bodyStartLine: closing + 2)
+        // The block's lines as written, less the one character that ended the last of them: its
+        // `\n` — what rejoining the lines on `\n` produced, so a CRLF block still ends in its `\r`,
+        // as it always did — or a CR-only file's `\r`.
+        let written = ns.substring(with: found.matter) as NSString
+        let last = written.length > 0 ? written.character(at: written.length - 1) : 0
+        let matter = last == newline || last == carriageReturn
+            ? written.substring(to: written.length - 1) : written as String
+        return Split(frontMatter: matter, body: ns.substring(from: found.bodyOffset),
+                     bodyStartLine: found.bodyStartLine)
     }
 
     /// Where ``split(_:)``'s body begins, as a line and as a UTF-16 offset into `ns` — **the same
     /// answer, without splitting the buffer.** This is asked on a keystroke
-    /// (``MarkdownSourceContext``), and `split` copies every line of the buffer out to answer it.
-    /// `bodyStartIsSplitsAnswer` holds the two together.
+    /// (``MarkdownSourceContext``), and it walks only as far as the closer. `bodyStartIsSplitsAnswer`
+    /// holds the two together.
     static func bodyStart(in ns: NSString) -> (line: Int, offset: Int) {
-        // `split`'s own rule, walked line by line from the top and stopped at the closer, rather
-        // than every line of the buffer copied out first: lines by `\n` alone, the first trimmed to
-        // `---`, the block closed by the first later line trimmed to `---` or `...`, and nothing
-        // when there is no second line or no closer.
-        func line(from start: Int) -> (text: String, next: Int?) {
-            // `.literal`: a newline followed by a combining mark is still the newline `split` cuts
-            // at — without it, the two disagree about where the body starts.
-            let newline = ns.range(of: "\n", options: .literal,
-                                   range: NSRange(location: start, length: ns.length - start))
-            guard newline.location != NSNotFound else {
-                return (ns.substring(from: start), nil)
-            }
-            return (ns.substring(with: NSRange(location: start, length: newline.location - start)),
-                    NSMaxRange(newline))
-        }
-        let first = line(from: 0)
-        guard trimmed(first.text) == "---", var start = first.next else { return (1, 0) }
+        guard let found = block(in: ns) else { return (1, 0) }
+        return (found.bodyStartLine, found.bodyOffset)
+    }
+
+    /// The one walk both answers take: the first line trimmed to `---`, the block closed by the
+    /// first later line trimmed to `---` or `...`, and nothing when there is no second line or no
+    /// closer. UTF-16 throughout, with `.literal` matching: a line ending followed by a combining
+    /// mark is still the line ending the parser cuts at.
+    private static func block(in ns: NSString) -> (matter: NSRange, bodyOffset: Int, bodyStartLine: Int)? {
+        let first = line(in: ns, from: 0)
+        guard trimmed(ns.substring(with: first.content)) == "---", let matterStart = first.next else { return nil }
+        var start = matterStart
         var index = 1
         while true {
-            let current = line(from: start)
-            if closers.contains(trimmed(current.text)) {
-                return (index + 2, current.next ?? ns.length)
+            let current = line(in: ns, from: start)
+            if closers.contains(trimmed(ns.substring(with: current.content))) {
+                return (NSRange(location: matterStart, length: current.content.location - matterStart),
+                        current.next ?? ns.length, index + 2)
             }
-            guard let next = current.next else { return (1, 0) }
+            guard let next = current.next else { return nil }
             start = next
             index += 1
         }
     }
+
+    /// The line starting at `start`, without its ending, and where the next one starts — `nil` for
+    /// the last line, which has no ending.
+    private static func line(in ns: NSString, from start: Int) -> (content: NSRange, next: Int?) {
+        let rest = NSRange(location: start, length: ns.length - start)
+        let end = ns.rangeOfCharacter(from: lineEndings, options: .literal, range: rest)
+        guard end.location != NSNotFound else { return (rest, nil) }
+        let content = NSRange(location: start, length: end.location - start)
+        let isCRLF = ns.character(at: end.location) == carriageReturn
+            && end.location + 1 < ns.length && ns.character(at: end.location + 1) == newline
+        return (content, end.location + (isCRLF ? 2 : 1))
+    }
+
+    private static let lineEndings = CharacterSet(charactersIn: "\r\n")
+    private static let newline: unichar = 0x0A
+    private static let carriageReturn: unichar = 0x0D
 
     /// A line with its trailing carriage return and spaces gone.
     ///
@@ -105,7 +119,9 @@ enum MarkdownFrontMatter {
     /// A count rather than the keys themselves: the chip is one line in a document view, and the
     /// block is one click away when somebody wants to read it.
     static func keyCount(in matter: String) -> Int {
-        matter.components(separatedBy: "\n").reduce(into: 0) { count, line in
+        // Every line ending ``split(_:)`` cuts at — a CR-only block is one string with no `\n` in it.
+        matter.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n").reduce(into: 0) { count, line in
             let text = line.trimmingCharacters(in: .whitespaces)
             // A nested value (`  - one`) is not a key, and neither is a blank line or a comment.
             guard !text.isEmpty, !text.hasPrefix("#"), !text.hasPrefix("-") else { return }

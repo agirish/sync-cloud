@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SwiftUI
 @testable import FileExplorer
 
 /// The outline, and the two lookups the rail and the split sync are built on.
@@ -65,6 +66,32 @@ import Foundation
         #expect(rows.first?.title.isEmpty == true)
     }
 
+    /// **A heading's name leaves its inline HTML out** (CHR-6). `## Setup <a id="setup"></a>` is
+    /// the usual way to pin an anchor, and the rail and the status line read the markup as part of
+    /// the name. Inline code is part of a name, so it stays; the space the markup sat beside goes
+    /// with it; and a heading with no HTML is named exactly as before.
+    @Test func aHeadingsInlineHTMLIsNoPartOfItsName() {
+        let rows = outline("""
+        ## Setup <a id="setup"></a>
+
+        # A <br> B
+
+        ## The `<div>` element
+
+        ## <span>Wrapped</span> words
+
+        ##  Spaced   out
+        """)
+        #expect(rows.map(\.title) == ["Setup", "A B", "The <div> element", "Wrapped words", "Spaced   out"],
+                "named \(rows.map(\.title))")
+        // The name the status line shows, and the anchor a `#setup` link finds it by.
+        let item = EditorStatusHeadings.make(outline: rows, caretLine: 2, isMarkdown: true,
+                                             offersRailOutline: false, accent: .blue,
+                                             onSelect: { _ in }, onShowRailOutline: {})
+        #expect(item?.title == "in Setup")
+        #expect(MarkdownOutline.line(forAnchor: "setup", in: rows) == 1)
+    }
+
     // MARK: Which section am I in
 
     @Test func theCurrentRowIsTheLastHeadingAtOrBeforeTheLine() {
@@ -123,6 +150,40 @@ import Foundation
 
     /// CRLF is one Character and two UTF-16 units, so the offset has to count the units while the
     /// line count counts the character.
+    // MARK: Where a heading is now
+
+    /// **A heading chosen from an outline taken before the latest edits lands where it is now**
+    /// (CHR-4). The outline waits for the typing to settle and the parse to return, and the jump
+    /// sent the entry's own line — a paragraph pasted above "Method" put the caret a paragraph
+    /// short of it. Lines added above, lines taken out, nothing moved, and the heading gone.
+    @Test func aHeadingFromAStaleOutlineIsFoundWhereItIsNow() throws {
+        let before = "# Title\n\nintro\n\n## Method\n\nsteps\n\n## Notes\n"
+        let method = outline(before)[1]
+        try #require(method.line == 5)
+        let pasted = "# Title\n\nintro\npasted one\npasted two\npasted three\n\n## Method\n\nsteps\n\n## Notes\n"
+        #expect(MarkdownOutline.line(of: method, in: pasted) == 8)
+        #expect(MarkdownOutline.line(of: method, in: "# Title\n## Method\n\nsteps\n\n## Notes\n") == 2)
+        #expect(MarkdownOutline.line(of: method, in: before) == 5)
+        #expect(MarkdownOutline.line(of: method, in: "# Title\n\nintro\n") == 5, "a heading that is gone keeps its line")
+    }
+
+    /// **The look is for THAT heading** — its level and the name the outline gives it — so a
+    /// heading with the same words at another level, or the level's `#`s over other words, is
+    /// passed over; a setext heading, one in a quote, and one written with emphasis are found; and
+    /// the nearest of two matches wins, below first. Lines are counted as the parser counts them.
+    @Test func theLookMatchesTheHeadingsLevelAndName() {
+        let bold = MarkdownOutlineEntry(line: 2, level: 2, depth: 0, title: "Bold move")
+        #expect(MarkdownOutline.line(of: bold, in: "# Bold move\n### Bold move\n## Other\n\n## **Bold** move\n") == 5)
+        let big = MarkdownOutlineEntry(line: 1, level: 1, depth: 0, title: "Big")
+        #expect(MarkdownOutline.line(of: big, in: "a\n\nBig\n===\n") == 3)
+        let quoted = MarkdownOutlineEntry(line: 1, level: 2, depth: 0, title: "Quoted")
+        #expect(MarkdownOutline.line(of: quoted, in: "x\n\n> ## Quoted\n") == 3)
+        let twice = MarkdownOutlineEntry(line: 4, level: 2, depth: 0, title: "Same")
+        #expect(MarkdownOutline.line(of: twice, in: "## Same\n\n\n\n\n## Same\n") == 6, "the nearer match, below, did not win")
+        let crOnly = MarkdownOutlineEntry(line: 1, level: 2, depth: 0, title: "Here")
+        #expect(MarkdownOutline.line(of: crOnly, in: "one\rtwo\r\n## Here\r") == 3)
+    }
+
     @Test func crlfOffsetsCountBothUnits() {
         #expect(EditorCaret.utf16Offset(ofLine: 2, in: "one\r\ntwo") == 5)
     }

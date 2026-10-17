@@ -15,6 +15,9 @@ struct MarkdownRun: Equatable, Sendable {
     var isStruck = false
     /// The destination, when this run is part of a link.
     var link: String?
+    /// Raw inline HTML — drawn as code, like ``isCode``, but no part of a heading's NAME: the outline
+    /// and the status line leave it out (``MarkdownOutline/title(of:)``, CHR-6).
+    var isHTML = false
 }
 
 /// A line of styled text — one paragraph, one heading, one table cell.
@@ -333,6 +336,7 @@ enum MarkdownBlocks {
             var run = style
             run.text = html.rawHTML
             run.isCode = true
+            run.isHTML = true
             runs.append(run)
 
         case let image as Image:
@@ -379,6 +383,6 @@ enum MarkdownBlocks {
 
     private static func sameStyle(_ a: MarkdownRun, _ b: MarkdownRun) -> Bool {
         a.isBold == b.isBold && a.isItalic == b.isItalic && a.isCode == b.isCode
-            && a.isStruck == b.isStruck && a.link == b.link
+            && a.isStruck == b.isStruck && a.link == b.link && a.isHTML == b.isHTML
     }
 }

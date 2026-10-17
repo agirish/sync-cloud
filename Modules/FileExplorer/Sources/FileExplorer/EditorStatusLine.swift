@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import Design
 
 /// The strip under the document: what is in the buffer, and where the caret is in it.
@@ -431,19 +432,21 @@ struct EditorStatusHeadings: Equatable {
 
 /// **"in Method ▾"** — the heading the caret is in, and a menu of the document's headings with
 /// that one ticked. Choosing one scrolls there, exactly as a click on the rail's outline does.
+///
+/// **A button that builds its menu when it is pressed** (CHR-7). It was a SwiftUI `Menu` holding a
+/// `Toggle` per heading, and the status line draws this item in up to seven rungs for
+/// `ViewThatFits` to choose among — so every move of the caret into another section re-evaluated
+/// every heading seven times over: about 28 ms a move at 2,000 headings in a debug build, against
+/// 1–3 ms for a move that stayed in its section. Now the line carries the label alone, and
+/// ``menu(for:)`` builds the items from the outline as it stands at the press.
 struct EditorHeadingMenu: View {
     let headings: EditorStatusHeadings
+    /// Where the menu opens from: the label's own view, recorded by the probe behind it. Made with
+    /// the item rather than kept as state, so the press and the probe always share one.
+    private let anchor = EditorHeadingMenuAnchor()
 
     var body: some View {
-        Menu {
-            ForEach(Array(headings.outline.enumerated()), id: \.element.id) { index, entry in
-                Toggle(EditorStatusHeadings.menuTitle(entry), isOn: headings.choice(index))
-            }
-            if headings.offersRailOutline {
-                Divider()
-                Button(EditorStatusHeadings.railOutlineTitle) { headings.onShowRailOutline() }
-            }
-        } label: {
+        Button { Self.present(headings, from: anchor.view) } label: {
             HStack(spacing: 3) {
                 Image(systemName: EditorRailTab.outline.symbol)
                     .scaledFont(.system(size: 8, weight: .semibold))
@@ -458,9 +461,8 @@ struct EditorHeadingMenu: View {
             .padding(.horizontal, 4)
             .contentShape(Rectangle())
         }
-        .menuStyle(.button)
         .buttonStyle(.hoverAffordance(.segment, tint: headings.accent))
-        .menuIndicator(.hidden)
+        .background(EditorHeadingMenuAnchor.Probe(anchor: anchor))
         // The wash's own padding taken back outside it, as the header's folded crumb does, so the
         // glyph starts on the line's 14pt edge and the counts keep their 14pt gap.
         .padding(.horizontal, -4)
@@ -468,4 +470,65 @@ struct EditorHeadingMenu: View {
         .accessibilityLabel(headings.accessibilityName)
         .accessibilityHint("Shows the document's headings")
     }
+
+    /// **The menu, built from the outline as it stands**: every heading, lower levels stepped in
+    /// (``EditorStatusHeadings/menuTitle(_:)``), the one the caret is in ticked, and choosing any —
+    /// the ticked one too — going to it (``EditorStatusHeadings/choice(_:)``). While the rail shows its
+    /// Text Files, a last item switches it to the Outline.
+    static func menu(for headings: EditorStatusHeadings) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for (index, entry) in headings.outline.enumerated() {
+            let item = EditorClosureMenuItem(title: EditorStatusHeadings.menuTitle(entry)) {
+                headings.choice(index).wrappedValue = true
+            }
+            item.state = index == headings.current ? .on : .off
+            menu.addItem(item)
+        }
+        if headings.offersRailOutline {
+            menu.addItem(.separator())
+            menu.addItem(EditorClosureMenuItem(title: EditorStatusHeadings.railOutlineTitle) {
+                headings.onShowRailOutline()
+            })
+        }
+        return menu
+    }
+
+    /// Opens ``menu(for:)`` under the label, as the pull-down it replaces did — AppKit moves it up when
+    /// the line is at the foot of the screen.
+    private static func present(_ headings: EditorStatusHeadings, from view: NSView?) {
+        guard let view else { return }
+        let below = view.isFlipped ? NSPoint(x: 0, y: view.bounds.maxY + 2) : NSPoint(x: 0, y: -2)
+        menu(for: headings).popUp(positioning: nil, at: below, in: view)
+    }
+}
+
+/// The view a heading menu opens from — an empty one behind the label, so it shares its frame.
+final class EditorHeadingMenuAnchor {
+    weak var view: NSView?
+
+    struct Probe: NSViewRepresentable {
+        let anchor: EditorHeadingMenuAnchor
+        func makeNSView(context: Context) -> NSView {
+            let view = NSView()
+            anchor.view = view
+            return view
+        }
+        func updateNSView(_ nsView: NSView, context: Context) { anchor.view = nsView }
+    }
+}
+
+/// A menu item that runs a closure. Its own target, which the menu it is in keeps alive.
+final class EditorClosureMenuItem: NSMenuItem {
+    private let act: () -> Void
+
+    init(title: String, act: @escaping () -> Void) {
+        self.act = act
+        super.init(title: title, action: #selector(fire), keyEquivalent: "")
+        target = self
+    }
+
+    required init(coder: NSCoder) { fatalError("EditorClosureMenuItem is built in code") }
+
+    @objc private func fire() { act() }
 }

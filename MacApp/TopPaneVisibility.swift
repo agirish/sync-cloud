@@ -84,8 +84,8 @@ enum TopPaneVisibility {
     /// `railHidden` is the editor-only bit "Just the text" sets. The rail exists to be the ONE file
     /// list on screen: while the source pane is open it lists the pane's folder a second time, so
     /// the pane wins. While the pane is collapsed the rail bit decides. The bit is READ only in
-    /// that state and never cleared by the pane opening, so "just the text" survives a trip into
-    /// the pane and back.
+    /// that state, and this rule never clears it — opening the pane by hand does
+    /// (`EditorExpand.paneOpenedByHand`, CHR-3), so folding it again shows the list.
     static func editorRailIsDrawn(paneHidden: Bool, railHidden: Bool) -> Bool {
         paneHidden && !railHidden
     }
@@ -208,8 +208,8 @@ enum TopPaneVisibility {
 /// Four bits, each persisted where it already lived, and one method per act that moves them, so a
 /// test can walk every combination without a window.
 struct EditorExpand: Equatable {
-    /// The Text Files list withheld — `editorRailHidden`. Survives the pane being opened by hand,
-    /// by design (see `TopPaneVisibility.editorRailIsDrawn`).
+    /// The Text Files list withheld — `editorRailHidden`. Cleared by the pane being opened by hand
+    /// (``paneOpenedByHand()``), which ends Expand.
     var railHidden: Bool
     /// Edit's file pane folded to its spine — Edit's entry in the pane overrides.
     var paneFolded: Bool
@@ -250,10 +250,14 @@ struct EditorExpand: Equatable {
         sidebarPutAway = false
     }
 
-    /// The pane opened from its spine. That ends Expand, so the record is spent: the sidebar comes
-    /// back with the pane, as it always did, and a later fold from the spine does not leave Expand
-    /// owing a pane it never folded. The rail bit stays, as `editorRailIsDrawn` requires.
+    /// The pane opened from its spine. **That ends Expand completely** (CHR-3): the record is
+    /// spent — the sidebar comes back with the pane, as it always did, and a later fold does not
+    /// leave Expand owing a pane it never folded — and the rail bit goes too. It used to stay, so
+    /// folding the pane again from its header re-lit Expand on its own: the list hidden, Files lit
+    /// and Text ▸ Expand ticked, with the sidebar still showing. Folded now, the pane gives the
+    /// ordinary layout, the Text Files list beside the text.
     mutating func paneOpenedByHand() {
+        railHidden = false
         paneFolded = false
         paneFoldedByExpand = false
         sidebarPutAway = false
@@ -277,6 +281,19 @@ struct EditorExpand: Equatable {
     /// ⌃⌘S showed the sidebar while Expand had it put away — the person asked for it back, so
     /// Expand stops holding it off. Expand itself stays on.
     mutating func sidebarShownByHand() {
+        sidebarPutAway = false
+    }
+
+    /// **The strip's "Show the text files" rung: the list, and the pane left folded** (CHR-2).
+    ///
+    /// It ran ``leave()``, which reopens a pane Expand folded — and with the pane open the list is
+    /// not drawn (`TopPaneVisibility.editorRailIsDrawn`), so the rung named the text files and
+    /// showed the pane. Now it clears the rail bit and nothing else on screen moves but what Expand
+    /// was holding: Expand is over, so its hold on the sidebar goes with it. The record is spent,
+    /// as `paneOpenedByHand` spends it, so a later Expand starts from what is showing then.
+    mutating func textFilesShown() {
+        railHidden = false
+        paneFoldedByExpand = false
         sidebarPutAway = false
     }
 }

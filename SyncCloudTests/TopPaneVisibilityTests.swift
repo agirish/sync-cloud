@@ -156,20 +156,46 @@ import FileExplorer
         #expect(expand.hidesSidebar, "a sidebar shown by hand survived a second entry")
     }
 
-    /// **Opening the pane from its spine ends Expand and spends the record.** The sidebar comes
-    /// back with the pane, and a later fold from the spine — which re-lights Expand, the rail bit
-    /// having survived — does not leave Expand owing a pane or a sidebar.
-    @Test func openingThePaneByHandSpendsTheRecord() {
-        var expand = EditorExpand(railHidden: false, paneFolded: false,
+    /// **Opening the pane from its spine ends Expand completely, and spends the record** (CHR-3).
+    /// The sidebar comes back with the pane, and the rail bit goes too: a later fold from the pane's
+    /// header gives the ordinary folded layout — the Text Files list beside the text — rather than
+    /// re-lighting Expand with the sidebar still showing, which is what a surviving bit did.
+    /// Mutation: keep the rail bit in `paneOpenedByHand` and the fold re-lights Expand.
+    @Test(arguments: [false, true])
+    func openingThePaneByHandSpendsTheRecord(paneWasFolded: Bool) {
+        var expand = EditorExpand(railHidden: false, paneFolded: paneWasFolded,
                                   sidebarPutAway: false, paneFoldedByExpand: false)
         expand.enter(sidebarShowing: true)
         expand.paneOpenedByHand()
         #expect(!expand.isOn && !expand.hidesSidebar)
-        #expect(expand.railHidden, "the rail bit was cleared — editorRailIsDrawn requires it to survive")
-        expand.paneFolded = true            // the spine's fold
-        #expect(expand.isOn && !expand.hidesSidebar)
+        #expect(!expand.railHidden, "the rail bit survived the pane being opened by hand")
+        #expect(!expand.sidebarPutAway && !expand.paneFoldedByExpand, "a spent record was kept")
+        expand.paneFolded = true            // the pane header's fold, which writes only the pane
+        #expect(!expand.isOn, "folding the pane again re-lit Expand")
+        #expect(TopPaneVisibility.editorRailIsDrawn(paneHidden: expand.paneFolded, railHidden: expand.railHidden),
+                "folding the pane again did not bring the Text Files list")
+        // And Expand from there starts afresh, and leaving it keeps the pane the person folded.
+        expand.enter(sidebarShowing: true)
         expand.leave()
         #expect(expand.paneFolded, "leaving reopened a pane the person folded themselves")
+    }
+
+    /// **The strip's "Show the text files" rung shows the text files** (CHR-2), from either layout
+    /// Expand can begin in. It ran `leave()`, which reopens a pane Expand folded — and an open pane
+    /// draws no list, so the rung named the list and showed the pane. Now the list is drawn, the
+    /// pane stays folded, Expand is over and holds nothing, and its record is spent. Mutation: make
+    /// `textFilesShown` reopen the pane Expand folded, as `leave()` does, and the open-pane start fails.
+    @Test(arguments: [false, true])
+    func theStripsTextFilesRungShowsTheListAndLeavesThePaneFolded(paneWasFolded: Bool) {
+        var expand = EditorExpand(railHidden: false, paneFolded: paneWasFolded,
+                                  sidebarPutAway: false, paneFoldedByExpand: false)
+        expand.enter(sidebarShowing: true)
+        expand.textFilesShown()
+        #expect(TopPaneVisibility.editorRailIsDrawn(paneHidden: expand.paneFolded, railHidden: expand.railHidden),
+                "the rung did not bring the Text Files list back (pane \(expand.paneFolded ? "folded" : "open"))")
+        #expect(expand.paneFolded, "the rung opened the file pane")
+        #expect(!expand.isOn && !expand.hidesSidebar, "Expand is still on, or still holds the sidebar")
+        #expect(!expand.sidebarPutAway && !expand.paneFoldedByExpand, "a spent record was kept")
     }
 
     /// The log names what moved, and only that.

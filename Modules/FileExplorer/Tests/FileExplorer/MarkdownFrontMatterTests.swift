@@ -33,6 +33,30 @@ import Foundation
         #expect(split.bodyStartLine == 4)
     }
 
+    /// **A file with classic Mac line endings — `\r` alone — is recognised too** (CHR-5). Split on
+    /// `\n` alone it was one line, so the block went unrecognised and its last key, underlined by
+    /// the closer, became a setext heading: the outline listed `title: Plan` and the status line
+    /// named it as the section a caret in the block was in. The body starts on the file's own line.
+    @Test func aClassicMacFileIsRecognisedToo() {
+        let source = "---\rtitle: Plan\rauthor: A\r---\r\r# Real\rbody\r"
+        let split = MarkdownFrontMatter.split(source)
+        #expect(split.frontMatter == "title: Plan\rauthor: A")
+        #expect(split.body == "\r# Real\rbody\r")
+        #expect(split.bodyStartLine == 5)
+        #expect(MarkdownFrontMatter.keyCount(in: split.frontMatter ?? "") == 2)
+        let headings = MarkdownOutline.entries(from: MarkdownBlocks.blocks(from: source))
+        #expect(headings.map(\.title) == ["Real"], "the outline listed \(headings.map(\.title))")
+        #expect(headings.map(\.line) == [6], "the heading landed on line \(headings.map(\.line))")
+    }
+
+    /// The three endings mixed, as a file edited on two systems has them: each ends one line.
+    @Test func mixedLineEndingsEachEndALine() {
+        let split = MarkdownFrontMatter.split("---\r\ntitle: Plan\rauthor: A\n---\rBody")
+        #expect(split.frontMatter == "title: Plan\rauthor: A")
+        #expect(split.body == "Body")
+        #expect(split.bodyStartLine == 5)
+    }
+
     @Test func yamlsOtherCloserIsAccepted() {
         #expect(MarkdownFrontMatter.split("---\na: 1\n...\nbody\n").frontMatter == "a: 1")
     }

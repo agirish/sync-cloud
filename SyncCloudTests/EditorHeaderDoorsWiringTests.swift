@@ -156,7 +156,8 @@ import FileExplorer
         // Text ▸ Go to Line…'s counter reaches the workspace that opens the field (TE61).
         #expect(try Self.call("EditorWorkspaceView(", in: workspace).passes("goToLineRequest", "editorGoToLineRequest"),
                 "Text ▸ Go to Line… bumps a counter the workspace is never handed")
-        // "On" is the bit AND the pane folded — the bit alone survives the pane being reopened.
+        // "On" is the bit AND the pane folded — a bit stored by an older build can sit beside an
+        // open pane, and must not light Files there.
         let expanded = try Self.memberBody("var editorIsExpanded: Bool", in: source)
         #expect(expanded.contains("editorRailHidden && panesHiddenForCurrentTab"),
                 "Expand reads as on without the pane being folded — lit Files beside an open pane")
@@ -185,11 +186,19 @@ import FileExplorer
         #expect(toggle.contains("expand.leave()") && toggle.contains("expand.enter(sidebarShowing: folderSidebarIsShowing)"),
                 "the toggle moves the bits itself rather than through EditorExpand")
         #expect(!toggle.contains("editorRailHidden ="), "the toggle flips the rail bit directly")
-        // The spine's Text Files rung is the third door, and runs the same toggle — so it is logged.
+        // The spine's Text Files rung is a door of its own (CHR-2): the list back, the pane left
+        // folded — through `EditorExpand`, and logged. The toggle's way out reopens a pane Expand
+        // folded, and an open pane draws no list.
         let spine = try Self.source("ContentView+SplitLayout.swift")
-        #expect(spine.contains("Button { toggleJustTheText() } label: {"),
-                "the spine's rung turns Expand off by itself, unlogged")
+        #expect(spine.contains("Button { showEditorTextFiles() } label: {"),
+                "the spine's \"Show the text files\" rung does not run showEditorTextFiles")
+        #expect(!spine.contains("Button { toggleJustTheText() } label: {"),
+                "the spine's rung runs the header's toggle, which reopens a pane Expand folded")
         #expect(!spine.contains("editorRailHidden = false"), "the spine still clears the bit directly")
+        let rung = try Self.memberBody("func showEditorTextFiles()", in: source)
+        #expect(rung.contains("expand.textFilesShown()"), "the rung moves the bits itself rather than through EditorExpand")
+        #expect(rung.contains(#"Logger.shared.info("[edit] Expand off from the strip — ""#), "the rung is not logged")
+        #expect(!rung.contains("expand.leave()"), "the rung leaves Expand the header's way, reopening the pane")
     }
 
     /// **Offered where the header draws the button**: in Edit, over any open document — a refused

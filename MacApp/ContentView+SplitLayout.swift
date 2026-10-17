@@ -468,15 +468,15 @@ extension ContentView {
             .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor, shape: .roundedRect(8)))
             .help("Show the \(name) pane to browse or re-scope")
             .accessibilityLabel("Show the \(name) source pane")
-            // **The way back from Expand ("Just the text").** The header's lit Files button is still
-            // on screen, so this is a second door to the same act, put where the rail was: the
-            // strip is what is left of the columns, and it is where a reader looks for them. Gated
-            // on the workspace and not only on the bit — the bit is editor-only, but this spine is
-            // drawn by every workspace with a collapsible pane, and a stray rung in Organize would
-            // be the first thing anyone clicked. It runs the button's own toggle, so it is logged
-            // the same way.
+            // **The way back to the Text Files list from Expand ("Just the text").** Put where the
+            // rail was: the strip is what is left of the columns, and it is where a reader looks for
+            // them. Gated on the workspace and not only on the bit — the bit is editor-only, but this
+            // spine is drawn by every workspace with a collapsible pane, and a stray rung in Organize
+            // would be the first thing anyone clicked. **It shows the list and leaves the pane
+            // folded** (CHR-2): it ran the header's toggle, whose way out reopens a pane Expand
+            // folded, and an open pane draws no list — "Show the text files" showed the pane.
             if showsTextFilesRung {
-                Button { toggleJustTheText() } label: {
+                Button { showEditorTextFiles() } label: {
                     Image(systemName: "doc.text")
                         .scaledFont(.system(size: 14, weight: .semibold))
                         .foregroundStyle(glassHue.accentColor)

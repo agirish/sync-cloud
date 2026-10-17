@@ -53,9 +53,27 @@ struct MarkdownPreview: View {
                 .task(id: EditorPreviewScrollKey(request: scrollRequest, count: blocks.count)) {
                     // One turn, so the rows named below have been built.
                     await Task.yield()
-                    scroll(to: scrollRequest, with: proxy)
+                    // **A request is answered ONCE** (CHR-1). The count is in the key so a request
+                    // made before its blocks were parsed is answered when they arrive — not so an
+                    // answered one is asked again: a change from elsewhere that added a paragraph
+                    // (TE59's quiet reload) re-ran this with the same standing request, and the
+                    // preview left wherever the reader had scrolled to for a heading chosen long
+                    // before, now at a line that named something else.
+                    guard Self.shouldScroll(scrollRequest, answered: answeredRequest) else { return }
+                    if scroll(to: scrollRequest, with: proxy) { answeredRequest = scrollRequest }
                 }
         }
+    }
+
+    /// The last request this preview scrolled for — see ``shouldScroll(_:answered:)``. View state, so
+    /// a preview a mode switch builds starts with none and opens where its request says.
+    @State private var answeredRequest: EditorScrollRequest?
+
+    /// **Whether a request still needs a scroll: one that has not been answered.** A request carries
+    /// a token, so asking for the same line again is a new request and is answered again.
+    static func shouldScroll(_ request: EditorScrollRequest?, answered: EditorScrollRequest?) -> Bool {
+        guard let request else { return false }
+        return request != answered
     }
 
     /// What a click on a link does.
@@ -70,15 +88,17 @@ struct MarkdownPreview: View {
     }
 
     /// Where a scroll lands, or nothing when the request names a document this preview has not
-    /// rendered yet.
-    private func scroll(to request: EditorScrollRequest?, with proxy: ScrollViewProxy) {
+    /// rendered yet — and whether it scrolled, so an unanswered request waits for the blocks.
+    @discardableResult
+    private func scroll(to request: EditorScrollRequest?, with proxy: ScrollViewProxy) -> Bool {
         guard let request,
               let index = MarkdownOutline.blockIndex(forLine: request.line, in: blocks) else {
-            return
+            return false
         }
         // **No animation.** In split this fires on every line scrolled past on the other side, and
         // an animated scroll chasing a scroll wheel lags behind it and then overshoots.
         proxy.scrollTo(index, anchor: .top)
+        return true
     }
 
     /// What a preview scroll depends on: the request, and whether the blocks it names exist yet.

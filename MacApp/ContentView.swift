@@ -640,9 +640,9 @@ struct ContentView: View {
     /// deliberately showing or hiding the panes on a workspace sticks across launches.
     @AppStorage(TopPaneVisibility.overridesKey) private var topPaneOverridesRaw: String = ""
 
-    /// "Just the text" — the editor's file rail withheld. Read only while the editor's source pane
-    /// is collapsed: `TopPaneVisibility.editorRailIsDrawn` is the rule, and it never clears this
-    /// bit, so the choice survives a trip into the pane and back. Persisted, like the pane
+    /// "Just the text" — the editor's file rail withheld: Expand's bit. Read only while the editor's
+    /// source pane is collapsed (`TopPaneVisibility.editorRailIsDrawn`); opening the pane by hand
+    /// clears it, which ends Expand (`EditorExpand.paneOpenedByHand`). Persisted, like the pane
     /// override above it, for the same reason.
     @AppStorage(TopPaneVisibility.editorRailHiddenKey) var editorRailHidden: Bool = false
     /// Expand's record of what it put away — see `EditorExpand`, the only thing that writes them.

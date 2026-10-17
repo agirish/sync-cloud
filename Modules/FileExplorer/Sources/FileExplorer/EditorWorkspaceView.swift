@@ -260,6 +260,9 @@ public struct EditorWorkspaceView: View {
     @State private var caret: EditorCaret = EditorCaret(line: 1, column: 1)
     /// The open document's headings, re-derived beside the blocks they come from.
     @State private var outline: [MarkdownOutlineEntry] = []
+    /// Which parse is on screen — see ``EditorParseLanding``. Held, not observed: counting a parse
+    /// must not re-render the view.
+    @State private var parseTickets = EditorParseTickets()
     /// Where the text view has been asked to put the caret, and where the preview has been asked to
     /// scroll. **Two requests, because they are asked for by different things**: an outline click
     /// moves both, and a scroll in split moves only the preview.
@@ -1398,10 +1401,21 @@ public struct EditorWorkspaceView: View {
                 if !blocks.isEmpty { try? await Task.sleep(for: .milliseconds(150)) }
                 guard !Task.isCancelled else { return }
                 let source = document.text
+                let path = document.path
+                parseTickets.started &+= 1
+                let ticket = parseTickets.started
                 let parsed = await Task.detached(priority: .userInitiated) {
                     MarkdownBlocks.blocks(from: source)
                 }.value
-                guard !Task.isCancelled else { return }
+                // **Landed even when a keystroke cancelled this task while it parsed** (CHR-4). It
+                // was thrown away, so in a long note — over a second's parse at 256 KB in a debug
+                // build — steady typing kept the outline, the rail and the status line's "in …" on
+                // the text as it was before the first keystroke. A finished parse is newer than
+                // what is on screen, so it lands, unless a later one already has or the file
+                // changed under it; the next parse follows with the text as it is now.
+                guard EditorParseLanding.lands(ticket: ticket, takenOn: path, current: document.path,
+                                               shown: parseTickets.shown) else { return }
+                parseTickets.shown = ticket
                 blocks = parsed
                 // Derived here rather than in a body pass: it is a walk of every block, and a body
                 // pass happens on every keystroke.
@@ -1812,9 +1826,14 @@ public struct EditorWorkspaceView: View {
     /// lands on the surface that is not there costs nothing — while resolving which one to send
     /// would have to know the mode, the Markdown-ness of the file and which half of a split has
     /// focus, to save exactly one assignment.
+    ///
+    /// **To where the heading is NOW** (CHR-4): the outline is re-derived only after the typing
+    /// settles and the parse returns, so an entry can name the line its heading used to be on —
+    /// `MarkdownOutline.line(of:in:)` finds the heading in the text as it stands.
     private func goToHeading(_ entry: MarkdownOutlineEntry) {
+        let line = MarkdownOutline.line(of: entry, in: document.text)
         scrollToken &+= 1
-        let request = EditorScrollRequest(line: entry.line, token: scrollToken)
+        let request = EditorScrollRequest(line: line, token: scrollToken)
         editorScrollRequest = request
         previewScrollRequest = request
         // **In Preview there is no text view to move the caret**, so nothing reported it — the
@@ -1822,7 +1841,7 @@ public struct EditorWorkspaceView: View {
         // had been, however often another heading was chosen. The caret goes there itself, and its
         // anchor with it, which is also where Source puts it when it comes back.
         if resolvedMode == .preview,
-           let offset = PlainTextEditor.utf16Offset(ofLine: entry.line, in: document.text, using: lineIndex) {
+           let offset = PlainTextEditor.utf16Offset(ofLine: line, in: document.text, using: lineIndex) {
             let clamped = EditorCaretAnchors.clamped(offset, in: document.text)
             caretOffset = clamped
             document.caretAnchors.remember(clamped, for: document.path)
@@ -2058,5 +2077,21 @@ struct EditorDocumentHeader<Content: View>: View {
         content
             .padding(.horizontal, Self.horizontalPadding)
             .padding(.vertical, Self.verticalPadding)
+    }
+}
+
+/// The parses a workspace has started, and the one whose blocks are on screen (CHR-4).
+final class EditorParseTickets {
+    var started = 0
+    var shown = 0
+}
+
+/// **Whether a finished parse goes on screen** (CHR-4): it was taken of the file still open, and it
+/// was started after the one on screen. A keystroke during the parse is no reason to drop it — the
+/// text it parsed is newer than what is drawn — but a parse finishing after a later one must not
+/// put older blocks back, and one of another file must not land on this one.
+enum EditorParseLanding {
+    static func lands(ticket: Int, takenOn path: String?, current: String?, shown: Int) -> Bool {
+        path == current && ticket > shown
     }
 }

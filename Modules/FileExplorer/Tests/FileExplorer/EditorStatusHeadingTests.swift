@@ -318,4 +318,231 @@ import Design
         let drawn = try #require(drawnHeading(width: 1_200, scale: 1, glass: false))
         #expect(abs(drawn.width - (try outset(scale: 1, glass: false)) - whole) <= 2, "drawn \(drawn.width)pt of \(whole)pt")
     }
+
+    // MARK: - The jump, answered once
+
+    /// What the workspace hands the read-only Preview: its blocks and the standing scroll request,
+    /// held where the test can change them without rebuilding the preview — as a reload does.
+    final class PreviewInput: ObservableObject {
+        @Published var blocks: [MarkdownBlock]
+        @Published var request: EditorScrollRequest?
+        init(blocks: [MarkdownBlock], request: EditorScrollRequest?) {
+            self.blocks = blocks
+            self.request = request
+        }
+    }
+
+    private struct PreviewHarness: View {
+        @ObservedObject var input: PreviewInput
+        var body: some View {
+            MarkdownPreview(blocks: input.blocks, accent: .blue, scrollRequest: input.request)
+        }
+    }
+
+    /// Sixty sections, each a heading and a paragraph — and optionally a paragraph added near the top,
+    /// as a save from another app would add one.
+    static func sections(addingAParagraph: Bool) -> String {
+        var lines: [String] = []
+        for i in 0..<60 {
+            lines += ["## Section \(i)", "", "Paragraph \(i), with enough words to give it some height.", ""]
+        }
+        if addingAParagraph { lines.insert(contentsOf: ["Added elsewhere.", ""], at: 2) }
+        return lines.joined(separator: "\n")
+    }
+
+    private func pump(_ window: NSWindow, _ seconds: Double = 0.5) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            window.layoutIfNeeded()
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        window.layoutIfNeeded()
+    }
+
+    /// Pumps until the preview's offset has held still for half a second, and returns it. A
+    /// `scrollTo` into a lazy stack is not one move: SwiftUI keeps re-aiming it as rows are measured,
+    /// for longer on a loaded machine — measured: a scroll home taken before it settled was undone,
+    /// back to 2582pt, in a full-package run beside two others.
+    private func settled(_ scroll: NSScrollView, in window: NSWindow, upTo seconds: Double = 15) async -> CGFloat {
+        var last = scroll.contentView.bounds.origin.y
+        var still = 0
+        let deadline = Date().addingTimeInterval(seconds)
+        while still < 5, Date() < deadline {
+            await pump(window, 0.1)
+            let now = scroll.contentView.bounds.origin.y
+            still = now == last ? still + 1 : 0
+            last = now
+        }
+        return last
+    }
+
+    private func scrollView(in view: NSView) -> NSScrollView? {
+        if let found = view as? NSScrollView { return found }
+        for sub in view.subviews { if let found = scrollView(in: sub) { return found } }
+        return nil
+    }
+
+    /// **A heading chosen in Preview is gone to once (CHR-1).** Choose one, scroll back up by hand,
+    /// and then the file changes elsewhere and gains a paragraph — TE59's quiet reload, which moves
+    /// the block count. The reader stays where they scrolled: the request was answered, and the
+    /// count is in the scroll's key only so a request made before the blocks arrive is answered
+    /// when they do. It sent the reader back to the old line, by then a different block.
+    ///
+    /// The read-only Preview reads no setting, but Edit in Preview is ON by default, so the suite is
+    /// pinned to it off all the same: this is the Preview a reader without editing sees.
+    @Test func aChangeFromElsewhereDoesNotGoBackToTheHeadingChosen() async throws {
+        let defaults = ScratchDefaults("EditorStatusHeadingTests")
+        defaults.set(false, forKey: EditorTextSettings.editsInPreviewKey)
+        let before = MarkdownBlocks.blocks(from: Self.sections(addingAParagraph: false))
+        let chosen = MarkdownOutline.entries(from: before)[40]
+        let input = PreviewInput(blocks: before, request: EditorScrollRequest(line: chosen.line, token: 1))
+        let host = NSHostingView(rootView: PreviewHarness(input: input).defaultAppStorage(defaults))
+        host.frame = NSRect(x: 0, y: 0, width: 500, height: 400)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.orderOut(nil) }
+        await pump(window)
+        let scroll = try #require(scrollView(in: host), "no scroll view under the preview")
+        try #require(await settled(scroll, in: window) > 100, "the heading was not gone to — the test sees nothing")
+
+        scroll.contentView.scroll(to: .zero)
+        scroll.reflectScrolledClipView(scroll.contentView)
+        try #require(await settled(scroll, in: window) < 1, "the scroll home did not hold")
+
+        input.blocks = MarkdownBlocks.blocks(from: Self.sections(addingAParagraph: true))
+        let afterReload = await settled(scroll, in: window)
+        #expect(afterReload < 1, "the reload went back to the heading chosen: y = \(afterReload)")
+
+        // And the next choice is still gone to — a new token is a new request.
+        input.request = EditorScrollRequest(line: chosen.line, token: 2)
+        #expect(await settled(scroll, in: window) > 100, "a second choice of the same heading went nowhere")
+    }
+
+    /// The rule on its own: a request is scrolled for until it has been, and again only when a new
+    /// one — a new token — arrives.
+    @Test func aRequestIsAnsweredOnce() {
+        let request = EditorScrollRequest(line: 12, token: 3)
+        #expect(MarkdownPreview.shouldScroll(request, answered: nil))
+        #expect(!MarkdownPreview.shouldScroll(request, answered: request))
+        #expect(MarkdownPreview.shouldScroll(EditorScrollRequest(line: 12, token: 4), answered: request))
+        #expect(!MarkdownPreview.shouldScroll(nil, answered: request))
+    }
+
+    // MARK: - A jump to where the heading is now
+
+    /// **A finished parse lands unless a later one already has, or the file changed** (CHR-4). A
+    /// keystroke during the parse used to throw it away, so steady typing in a long note kept the
+    /// outline — and with it this line's "in …" and its menu — on the text before the first key.
+    @Test func aFinishedParseLandsUnlessALaterOneHas() {
+        #expect(EditorParseLanding.lands(ticket: 4, takenOn: "/n/a.md", current: "/n/a.md", shown: 3),
+                "a parse a keystroke overtook was thrown away")
+        #expect(!EditorParseLanding.lands(ticket: 4, takenOn: "/n/a.md", current: "/n/a.md", shown: 5),
+                "an older parse put its blocks back over a newer one's")
+        #expect(!EditorParseLanding.lands(ticket: 6, takenOn: "/n/a.md", current: "/n/b.md", shown: 5),
+                "one file's parse landed on another")
+        #expect(!EditorParseLanding.lands(ticket: 5, takenOn: "/n/a.md", current: "/n/a.md", shown: 5))
+    }
+
+    /// **What the workspace does with the two rules**: the heading menu's jump — the rail's too —
+    /// sends the line the heading is on NOW, in Source and in Preview, and the parse lands by the
+    /// rule above rather than by whether its task was cancelled.
+    @Test func theWorkspaceJumpsToWhereTheHeadingIsAndKeepsAFinishedParse() throws {
+        let workspace = try EditorFormatBarTests.source("EditorWorkspaceView.swift")
+        let jump = try EditorFormatBarTests.slice(workspace, from: "private func goToHeading(", to: "\n    }\n")
+        #expect(jump.contains("let line = MarkdownOutline.line(of: entry, in: document.text)"),
+                "the jump does not look for the heading in the text as it stands")
+        #expect(jump.contains("EditorScrollRequest(line: line, token: scrollToken)"))
+        #expect(jump.contains("utf16Offset(ofLine: line,"), "Preview's caret goes to the outline's line")
+        #expect(!jump.contains("entry.line"), "the jump still sends the outline's own line")
+        let parse = try EditorFormatBarTests.slice(workspace, from: "MarkdownBlocks.blocks(from: source)",
+                                                   to: "outline = MarkdownOutline.entries(from: parsed)")
+        #expect(parse.contains("EditorParseLanding.lands("), "the parse lands without the rule")
+        #expect(!parse.contains("Task.isCancelled"), "a finished parse is thrown away when a keystroke overtook it")
+    }
+
+    // MARK: - The menu, built when it opens
+
+    /// **The line carries the label, and no view per heading** (CHR-7). The item was a SwiftUI
+    /// `Menu` with a `Toggle` per heading, drawn in every rung `ViewThatFits` measures — so each
+    /// move of the caret into another section re-evaluated every heading up to seven times. Read off
+    /// the item's own body type: no `ForEach`, no `Toggle`, no `Menu`.
+    @Test func theLineCarriesNoViewPerHeading() throws {
+        let many = (0..<50).map { entry("Section \($0)", level: 2, line: $0 * 3 + 1) }
+        let item = try #require(make(many, caretLine: 40))
+        let drawn = String(describing: type(of: EditorHeadingMenu(headings: item).body))
+        #expect(!drawn.contains("ForEach") && !drawn.contains("Toggle"),
+                "the heading item builds a view per heading: \(drawn.prefix(240))")
+        #expect(!drawn.contains("Menu<"), "the heading item is a SwiftUI Menu again: \(drawn.prefix(240))")
+    }
+
+    /// **The menu built at the press is the outline as it stands**: every heading in order, stepped
+    /// in by level, the one the caret is in ticked and no other, choosing any — the ticked one too —
+    /// going to it, and the rail's Outline item last, after a divider, only where it is offered.
+    @Test func theMenuBuiltAtThePressIsTheOutline() throws {
+        var picked: [Int] = []
+        var shown = 0
+        let item = try #require(make(pasta, caretLine: 16, rail: true,
+                                     picked: { picked.append($0.line) }, showRail: { shown += 1 }))
+        let menu = EditorHeadingMenu.menu(for: item)
+        // A menu item's action is sent through the application; run alone, this suite has none yet.
+        _ = NSApplication.shared
+        #expect(menu.items.map(\.title) == pasta.map(EditorStatusHeadings.menuTitle) + ["", EditorStatusHeadings.railOutlineTitle])
+        #expect(menu.items.prefix(3).map(\.state) == [.off, .off, .on])
+        #expect(menu.items[3].isSeparatorItem)
+        menu.performActionForItem(at: 1)
+        menu.performActionForItem(at: 2)
+        #expect(picked == [5, 12], "choosing went to \(picked)")
+        menu.performActionForItem(at: 4)
+        #expect(shown == 1)
+
+        let later = entry("Later", level: 2, line: 5)
+        let above = try #require(make([later], caretLine: 2))
+        let plain = EditorHeadingMenu.menu(for: above)
+        #expect(plain.items.map(\.title) == [EditorStatusHeadings.menuTitle(later)],
+                "the rail's item was offered, or a heading was missing")
+        #expect(plain.items.allSatisfy { $0.state == .off }, "a heading is ticked above the first one")
+    }
+
+    // MARK: - Through the parse the workspace runs (CHR-8)
+
+    /// What the line says with the caret `extra` UTF-16 units into 1-based `line` of `source` —
+    /// through the parse, the outline and the caret derivation the workspace itself runs, rather
+    /// than an outline written by hand, which is all the tests above give it.
+    private func named(_ source: String, line: Int, extra: Int = 0) throws -> String? {
+        let outline = MarkdownOutline.entries(from: MarkdownBlocks.blocks(from: source))
+        let start = try #require(EditorCaret.utf16Offset(ofLine: line, in: source), "no line \(line)")
+        let caret = EditorCaret.at(utf16Offset: start + extra, in: source)
+        return make(outline, caretLine: caret.line)?.title
+    }
+
+    /// Each case: a note, where the caret is, and what the line should say. Front matter in all
+    /// three line endings, a setext heading and its underline, a `#` in a fenced block, closing
+    /// `#`s, emoji and CJK — measured in UTF-16, as the text view reports the caret — headings in a
+    /// list item and a quote, and a heading carrying inline HTML.
+    nonisolated static let pipelineCases: [(source: String, line: Int, extra: Int, says: String)] = [
+        ("---\ntitle: Plan\n---\n\n# Real\nbody\n", 2, 0, "Headings"),
+        ("---\ntitle: Plan\n---\n\n# Real\nbody\n", 6, 0, "in Real"),
+        ("---\r\ntitle: Plan\r\n---\r\n\r\n# Real\r\nbody\r\n", 2, 0, "Headings"),
+        ("---\r\ntitle: Plan\r\n---\r\n\r\n# Real\r\nbody\r\n", 6, 0, "in Real"),
+        ("---\rtitle: Plan\r---\r\r# Real\rbody\r", 2, 0, "Headings"),
+        ("---\rtitle: Plan\r---\r\r# Real\rbody\r", 6, 0, "in Real"),
+        ("Title\n=====\n\npara\n\nSub\n---\n\nmore\n", 2, 0, "in Title"),
+        ("Title\n=====\n\npara\n\nSub\n---\n\nmore\n", 7, 0, "in Sub"),
+        ("# One\n\n```sh\n# not a heading\n```\n\ntext\n", 4, 0, "in One"),
+        ("## Setup ##\n\n# 🎉 発表 — 準備\n\n😀😀 text\n", 1, 0, "in Setup"),
+        ("## Setup ##\n\n# 🎉 発表 — 準備\n\n😀😀 text\n", 5, 5, "in 🎉 発表 — 準備"),
+        ("- item\n\n  ## Nested\n\n  text\n\n> # Quoted\n> more\n", 5, 0, "in Nested"),
+        ("- item\n\n  ## Nested\n\n  text\n\n> # Quoted\n> more\n", 8, 0, "in Quoted"),
+        ("## Setup <a id=\"setup\"></a>\n\ntext\n", 3, 0, "in Setup"),
+    ]
+
+    /// **The heading the line names, through the real parse** (CHR-8). Mutations: put block lines
+    /// back in the body's numbering rather than the file's, or name the section by the last
+    /// heading strictly BEFORE the caret's line — each fails cases here.
+    @Test(arguments: pipelineCases)
+    func theLineNamesTheSectionThroughTheRealParse(_ example: (source: String, line: Int, extra: Int, says: String)) throws {
+        let said = try named(example.source, line: example.line, extra: example.extra)
+        #expect(said == example.says,
+                "\(example.source.debugDescription), caret on line \(example.line): said \(said ?? "nothing")")
+    }
 }

@@ -98,24 +98,24 @@ extension ContentView {
                                             railHidden: editorRailHidden)
     }
 
-    /// **Whether Expand is on: the rail bit set AND the source pane folded.** The bit alone is not
-    /// it — it survives the pane being opened again from the spine's chevron, by design (see
-    /// `TopPaneVisibility.editorRailIsDrawn`), and with the pane and the sidebar back on screen a
-    /// lit "Files", a ticked Text ▸ Expand and a first press that changed nothing visible would all
-    /// be claiming the document had the window. The header lights on this, the menu ticks on it,
-    /// and the toggle decides by it.
+    /// **Whether Expand is on: the rail bit set AND the source pane folded.** Opening the pane by
+    /// hand clears the bit now (CHR-3), but the bit alone is still not it: a bit stored by a build
+    /// that kept it across an open pane would otherwise light "Files" and tick Text ▸ Expand beside
+    /// an open pane and a sidebar, and its first press would change nothing visible. The header
+    /// lights on this, the menu ticks on it, and the toggle decides by it.
     var editorIsExpanded: Bool {
         editorRailHidden && panesHiddenForCurrentTab
     }
 
-    /// The Expand button's act, and Text ▸ Expand's (TE48), and the spine's Text Files rung's. On:
+    /// The Expand button's act, and Text ▸ Expand's (TE48) — the strip's rung has its own,
+    /// `showEditorTextFiles`, which leaves the pane folded. On:
     /// the text alone — the rail, the pane and the sidebar put away. Off: each given back as it
     /// was when Expand began (asked 2026-10-04). `EditorExpand` is the rule; this writes it.
     ///
     /// Decided by ``editorIsExpanded``, not by the bit: with the bit left set and the pane open
     /// again, a press EXPANDS — folds the pane — which is what the unlit button offered.
     ///
-    /// **Logged, both ways, naming what moved.** Three doors reach it and none draws anything that
+    /// **Logged, both ways, naming what moved.** Two doors reach it and none draws anything that
     /// outlives the change, so the log is the one place a session can read back which happened
     /// and what went or came back with it.
     func toggleJustTheText() {
@@ -130,6 +130,18 @@ extension ContentView {
             editorExpand = expand
             Logger.shared.info("[edit] Expand on — " + EditorExpand.moved(from: before, to: expand) + " put away")
         }
+    }
+
+    /// **The strip's "Show the text files" rung** (CHR-2): the Text Files list back, the file pane
+    /// left folded — `EditorExpand.textFilesShown`. Not `toggleJustTheText`, whose way out gives
+    /// back a pane Expand folded, and with the pane open the list is not drawn. Logged like the
+    /// toggle, for the same reason.
+    func showEditorTextFiles() {
+        let before = editorExpand
+        var expand = before
+        expand.textFilesShown()
+        editorExpand = expand
+        Logger.shared.info("[edit] Expand off from the strip — " + EditorExpand.moved(from: before, to: expand) + " back")
     }
 
     /// The pane's one-click open, as a rule: which path a selection change opens, or `nil`.
