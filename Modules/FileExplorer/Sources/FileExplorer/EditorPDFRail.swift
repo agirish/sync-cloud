@@ -117,6 +117,53 @@ enum EditorPDFOutline {
     }
 }
 
+// MARK: - The Pages tab's layout
+
+/// **How the Pages tab lays out a PDF's pages** (asked 2026-10-17): a grid, which gains columns as
+/// the side column is dragged wider, or a list, one page under another at the column's width.
+///
+/// The geometry lives here rather than in the view so the thumbnails can be asked for at the size
+/// the cells draw them: a list page at full width is two to five times a grid cell's, and drawn
+/// from a grid-sized image it would be a blur.
+public enum EditorPDFPagesLayout: String, CaseIterable, Sendable {
+    case grid, list
+
+    var title: String { self == .grid ? "Grid" : "List" }
+    var symbol: String { self == .grid ? "square.grid.2x2" : "rectangle.grid.1x2" }
+    var help: String { self == .grid ? "Show the pages in a grid" : "Show the pages one below another" }
+
+    /// The tab's side padding, the gap between columns, and each cell's inset — the view's own.
+    static let sidePadding: CGFloat = 12
+    static let columnGap: CGFloat = 10
+    static let cellInset: CGFloat = 4
+    /// The narrowest a grid cell gets before the grid drops a column. Two columns always.
+    static let minimumGridCell: CGFloat = 100
+
+    /// Columns at a side column `railWidth` wide: two at the default 232pt, four at the widest.
+    func columns(railWidth: CGFloat) -> Int {
+        guard self == .grid else { return 1 }
+        let inner = railWidth - 2 * Self.sidePadding
+        return max(2, Int((inner + Self.columnGap) / (Self.minimumGridCell + Self.columnGap)))
+    }
+
+    /// The width a page image is drawn at, in points.
+    func imageWidth(railWidth: CGFloat) -> CGFloat {
+        let count = CGFloat(columns(railWidth: railWidth))
+        let inner = railWidth - 2 * Self.sidePadding
+        return max(1, (inner - (count - 1) * Self.columnGap) / count - 2 * Self.cellInset)
+    }
+
+    /// The long edge, in pixels, the thumbnails are asked for: a Letter page at ``imageWidth``, on
+    /// a Retina screen, rounded up to a step of ``EditorPDFThumbnails/longEdge`` so a drag asks for
+    /// a new size a handful of times rather than on every point. The default grid gets exactly the
+    /// size it always had.
+    func renderEdge(railWidth: CGFloat) -> CGFloat {
+        let step = EditorPDFThumbnails.longEdge
+        let needed = imageWidth(railWidth: railWidth) * 2 * 1.3
+        return min(step * 6, max(step, (needed / step).rounded(.up) * step))
+    }
+}
+
 // MARK: - The thumbnails
 
 /// **The Pages tab's thumbnails — rendered in the PDFKit lane, a page at a time, only for the pages
@@ -153,13 +200,46 @@ public final class EditorPDFThumbnails: ObservableObject {
     /// fresh document would otherwise draw nothing until the list was scrolled.
     @Published private(set) var attachments = 0
 
-    /// The long edge a thumbnail is rendered to, in pixels: twice the ~110pt a page gets in the
-    /// rail's two columns, for a Retina screen.
+    /// The long edge a thumbnail is rendered to, in pixels, at the narrowest: twice the ~110pt a
+    /// page gets in the rail's two columns, for a Retina screen. Wider cells ask for more — see
+    /// ``renderEdge`` — in steps of this.
     nonisolated static let longEdge: CGFloat = 240
-    /// How many pages either side of the visible ones are rendered ahead of a scroll.
+    /// How many pages either side of the visible ones are rendered ahead of a scroll, at
+    /// ``longEdge``. Bigger pages look fewer ahead: ``margin(forEdge:)``.
     static let margin = 4
-    /// The most images held at once — about 10 MB at ``longEdge``.
+    /// The most images held at once at ``longEdge`` — about 10 MB. Bigger images, fewer held:
+    /// ``capacity(forEdge:)``.
     static let capacity = 48
+
+    /// The long edge the Pages tab's cells need now — ``longEdge`` until it says otherwise.
+    private(set) var renderEdge: CGFloat = EditorPDFThumbnails.longEdge
+    /// The edge each held image was drawn at, so a page drawn small is drawn again when its cell
+    /// grows — and kept on screen, upscaled, until the sharper one lands.
+    private var drawnEdge: [Int: CGFloat] = [:]
+
+    /// **The image cap scales with the pixels in an image**, so the bytes held stay near the grid's
+    /// ~10 MB — with a floor of 8, a list's window: a page or two on screen and two either side.
+    /// At the widest list (1,440px) that floor is ~40 MB, held only while the list is.
+    static func capacity(forEdge edge: CGFloat) -> Int {
+        let ratio = longEdge / max(edge, longEdge)
+        return max(8, Int(Double(capacity) * Double(ratio * ratio)))
+    }
+
+    /// Pages drawn ahead of a scroll: ``margin`` for grid-sized images, two for list-sized ones,
+    /// where one page is most of the screen and each costs several times the lane time.
+    static func margin(forEdge edge: CGFloat) -> Int {
+        edge > longEdge * 2 ? 2 : margin
+    }
+
+    /// Sets the long edge the cells need. A bigger one redraws what is held, nearest first, and
+    /// shows the smaller image until each lands; a smaller one keeps what is held, since a bigger
+    /// image draws fine smaller, and lets the cap trim it.
+    func setRenderEdge(_ edge: CGFloat) {
+        guard edge != renderEdge else { return }
+        renderEdge = edge
+        evict()
+        kick()
+    }
 
     /// The document thumbnails are drawn from, created on the main actor and then touched only
     /// inside the lane — the box is how it crosses there.
@@ -284,6 +364,7 @@ public final class EditorPDFThumbnails: ObservableObject {
         wanted = Wanted()
         asking = nil
         if !images.isEmpty { images = [:] }
+        drawnEdge = [:]
         drawn = []
         skippedTurns = 0
     }
@@ -297,8 +378,9 @@ public final class EditorPDFThumbnails: ObservableObject {
             wanted.set([])
             return
         }
-        let lower = max(first - Self.margin, 0)
-        let upper = min(last + Self.margin, pageCount - 1)
+        let margin = Self.margin(forEdge: renderEdge)
+        let lower = max(first - margin, 0)
+        let upper = min(last + margin, pageCount - 1)
         let around = (lower...upper).filter { !visible.contains($0) }
             .sorted { distance($0, first, last) < distance($1, first, last) }
         queue = onScreen + around
@@ -312,19 +394,20 @@ public final class EditorPDFThumbnails: ObservableObject {
         page < first ? first - page : page - last
     }
 
-    /// Past ``capacity``, drops the images farthest from ``window``.
+    /// Past the cap for ``renderEdge``, drops the images farthest from ``window``.
     private func evict() {
-        guard images.count > Self.capacity, let window else { return }
+        let capacity = Self.capacity(forEdge: renderEdge)
+        guard images.count > capacity, let window else { return }
         let far = images.keys.filter { !window.contains($0) }
             .sorted { distance($0, window.lowerBound, window.upperBound)
                       > distance($1, window.lowerBound, window.upperBound) }
         var next = images
-        for page in far.prefix(images.count - Self.capacity) { next[page] = nil }
+        for page in far.prefix(images.count - capacity) { next[page] = nil; drawnEdge[page] = nil }
         images = next
     }
 
     private func nextPage() -> Int? {
-        queue.first { images[$0] == nil && !failed.contains($0) }
+        queue.first { (drawnEdge[$0] ?? 0) < renderEdge && !failed.contains($0) }
     }
 
     private func kick() {
@@ -336,9 +419,9 @@ public final class EditorPDFThumbnails: ObservableObject {
             // this object and its images alive past the model that owns them.
             while let ask = self?.nextAsk(generation) {
                 let result = await Self.render(page: ask.page, source: ask.source, wanted: ask.wanted,
-                                               lane: ask.lane)
+                                               longEdge: ask.edge, lane: ask.lane)
                 guard let self, generation == self.generation else { return }
-                self.land(result, page: ask.page)
+                self.land(result, page: ask.page, edge: ask.edge)
             }
             guard let self, generation == self.generation else { return }
             self.pump = nil
@@ -346,14 +429,14 @@ public final class EditorPDFThumbnails: ObservableObject {
     }
 
     /// The next turn to ask for in `generation`, or `nil` when there is none — and marks it asked.
-    private func nextAsk(_ generation: Int) -> (page: Int, source: Source, wanted: Wanted, lane: Lane)? {
+    private func nextAsk(_ generation: Int) -> (page: Int, source: Source, wanted: Wanted, edge: CGFloat, lane: Lane)? {
         guard generation == self.generation, let page = nextPage(), let source else { return nil }
         asking = page
-        return (page, source, wanted, lane)
+        return (page, source, wanted, renderEdge, lane)
     }
 
     /// What one turn brought back, applied.
-    private func land(_ result: Render, page: Int) {
+    private func land(_ result: Render, page: Int, edge: CGFloat) {
         asking = nil
         switch result {
         case .image(let image):
@@ -361,6 +444,7 @@ public final class EditorPDFThumbnails: ObservableObject {
             // Kept only if still near; drawn either way, so counted either way.
             if wanted.contains(page) {
                 images[page] = image
+                drawnEdge[page] = edge
                 evict()
             }
         case .failed:
@@ -374,6 +458,7 @@ public final class EditorPDFThumbnails: ObservableObject {
 
     /// One lane turn: open the source if this is its first, then draw one page.
     nonisolated static func render(page: Int, source: Source, wanted: Wanted,
+                                   longEdge: CGFloat = EditorPDFThumbnails.longEdge,
                                    lane: Lane = .pdfKit) async -> Render {
         await lane.perform {
             guard wanted.contains(page) else { return .skipped }

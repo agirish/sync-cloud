@@ -36,7 +36,8 @@ struct EditorPDFRailOutline: View {
     }
 }
 
-/// The rail's Pages tab: the open PDF's pages as thumbnails, two to a row, the current page ringed.
+/// The rail's Pages tab: the open PDF's pages as thumbnails, the current page ringed — in a grid of
+/// two columns or more as the side column widens, or one under another (``EditorPDFPagesLayout``).
 ///
 /// **What is on screen is what is asked for.** Each cell reports itself as it comes and goes, and
 /// the set goes to ``EditorPDFThumbnails/show(_:)``, which renders those pages and a few either
@@ -50,11 +51,15 @@ struct EditorPDFRailPages: View {
     @ObservedObject var view: EditorPDFViewState
     @ObservedObject var thumbnails: EditorPDFThumbnails
     let accent: Color
+    var layout: EditorPDFPagesLayout = .grid
+    var railWidth: CGFloat = EditorLayoutMetrics.railWidth
 
     @State private var visible: Set<Int> = []
 
-    private let columns = [GridItem(.flexible(), spacing: 10, alignment: .top),
-                           GridItem(.flexible(), spacing: 10, alignment: .top)]
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: EditorPDFPagesLayout.columnGap, alignment: .top),
+              count: layout.columns(railWidth: railWidth))
+    }
 
     var body: some View {
         if let facts = pdf.facts, pdf.phase == .open, facts.pageCount > 0 {
@@ -72,10 +77,12 @@ struct EditorPDFRailPages: View {
                                 .onDisappear { visible.remove(index); thumbnails.show(visible) }
                         }
                     }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, EditorPDFPagesLayout.sidePadding)
                     .padding(.vertical, 6)
                 }
                 .onAppear { proxy.scrollTo(view.currentPage, anchor: .center) }
+                // A switch of layout puts every cell somewhere new; the reader's page stays in view.
+                .onChange(of: layout) { _, _ in proxy.scrollTo(view.currentPage, anchor: .center) }
                 .onChange(of: view.currentPage) { _, page in
                     guard !visible.contains(page) else { return }
                     proxy.scrollTo(page, anchor: .center)
@@ -86,6 +93,17 @@ struct EditorPDFRailPages: View {
             // The tab put away: nothing on screen, so nothing is asked for. What was drawn stays,
             // within the cap, for the tab coming back.
             .onDisappear { thumbnails.show([]) }
+            // **The size the cells draw at, asked for once a drag settles.** A drag crosses a size
+            // step a few times, and each crossing redraws every page held; the pause lets a drag
+            // ask once. The first ask, before anything is drawn, goes at once.
+            .task(id: layout.renderEdge(railWidth: railWidth)) {
+                let edge = layout.renderEdge(railWidth: railWidth)
+                if !thumbnails.images.isEmpty {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    guard !Task.isCancelled else { return }
+                }
+                thumbnails.setRenderEdge(edge)
+            }
         } else {
             Text(Self.caption(phase: pdf.phase))
                 .scaledFont(.system(size: 11))
@@ -125,7 +143,7 @@ struct EditorPDFRailPages: View {
                     .monospacedDigit()
                     .foregroundStyle(isCurrent ? .primary : .secondary)
             }
-            .padding(4)
+            .padding(EditorPDFPagesLayout.cellInset)
             .contentShape(EditorFileRailView.rowOutline)
         }
         // The rail's own row wash, as every other row here wears — a bare `.plain` was the one

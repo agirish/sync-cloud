@@ -129,6 +129,9 @@ struct EditorFileRailView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Grid or list for the Pages tab — one choice for every PDF, kept across launches.
+    @AppStorage("editorPDFPagesLayout") private var pagesLayout: EditorPDFPagesLayout = .grid
+
     /// The tab drawn: the one chosen, unless it is not offered — Pages with no PDF open, Outline
     /// on a PDF without a contents. See ``EditorRailTab/resolved(_:pdfIsOpen:pdfHasOutline:)``.
     var shownTab: EditorRailTab { EditorRailTab.resolved(tab, pdfIsOpen: pdf != nil, pdfHasOutline: pdfHasOutline) }
@@ -161,7 +164,8 @@ struct EditorFileRailView: View {
             case .files: filesSection
             case .pages:
                 if let pdf {
-                    EditorPDFRailPages(pdf: pdf, view: pdf.view, thumbnails: pdf.thumbnails, accent: accent)
+                    EditorPDFRailPages(pdf: pdf, view: pdf.view, thumbnails: pdf.thumbnails, accent: accent,
+                                       layout: pagesLayout, railWidth: width)
                 }
             case .outline: outlineSection
             }
@@ -249,6 +253,25 @@ struct EditorFileRailView: View {
                     .shortcutKeycap(AppChord.newTextFile.display)
                     .help(ShortcutHint.tooltip(newFileDestination, AppChord.newTextFile.display))
                     .disabled(onNewTextFile == nil)
+                }
+                .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
+            }
+            if shownTab == .pages, pdf != nil {
+                // Grid and List, one glass capsule as Filter and ＋ are on Files, the one in use lit.
+                HStack(spacing: 5) {
+                    ForEach(EditorPDFPagesLayout.allCases, id: \.self) { layout in
+                        Button {
+                            pagesLayout = layout
+                        } label: {
+                            Image(systemName: layout.symbol)
+                                .scaledFont(.system(size: 11, weight: .semibold))
+                                .frame(width: 18, height: 18)
+                        }
+                        .buttonStyle(.hoverAffordance(pagesLayout == layout ? .filled : .glyph, tint: accent))
+                        .accessibilityLabel(layout.title)
+                        .accessibilityAddTraits(pagesLayout == layout ? .isSelected : [])
+                        .help(layout.help)
+                    }
                 }
                 .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
             }

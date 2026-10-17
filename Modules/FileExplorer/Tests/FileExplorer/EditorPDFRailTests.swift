@@ -640,6 +640,88 @@ import FileExplorerTestSupport
                                                             quickLook: { _ in }))
     }
 
+    // MARK: Grid or list
+
+    /// **The grid gains columns as the column widens, the list gains sharpness** — and the default
+    /// grid asks for exactly the thumbnails it always had.
+    @Test func theGridGainsColumnsAndTheListGainsSharpness() {
+        let grid = EditorPDFPagesLayout.grid, list = EditorPDFPagesLayout.list
+        let narrow = EditorLayoutMetrics.railWidth, wide = EditorLayoutMetrics.maxRailWidth
+        #expect(grid.columns(railWidth: narrow) == 2)
+        #expect(grid.columns(railWidth: wide) == 4)
+        #expect(list.columns(railWidth: narrow) == 1 && list.columns(railWidth: wide) == 1)
+        #expect(grid.renderEdge(railWidth: narrow) == EditorPDFThumbnails.longEdge)
+        // A grid cell stays near its old size as columns come, so its images do too.
+        #expect(grid.renderEdge(railWidth: wide) <= EditorPDFThumbnails.longEdge * 2)
+        // A list page is drawn for its width: sharper than a grid's, sharper again wider, capped.
+        let listNarrow = list.renderEdge(railWidth: narrow), listWide = list.renderEdge(railWidth: wide)
+        #expect(listNarrow > grid.renderEdge(railWidth: narrow))
+        #expect(listWide > listNarrow && listWide <= EditorPDFThumbnails.longEdge * 6)
+        // Enough pixels for the cell on a Retina screen: a Letter page, at the image's width.
+        #expect(listWide >= list.imageWidth(railWidth: wide) * 2 * 792 / 612)
+    }
+
+    /// **The cap follows the image size**: the grid's 48 at its own size, fewer as each grows, and
+    /// never under a list's window. Bigger pages look fewer ahead.
+    @Test func theImageCapScalesWithTheImageSize() {
+        #expect(EditorPDFThumbnails.capacity(forEdge: EditorPDFThumbnails.longEdge) == EditorPDFThumbnails.capacity)
+        #expect(EditorPDFThumbnails.capacity(forEdge: 480) == 12)
+        #expect(EditorPDFThumbnails.capacity(forEdge: 1200) == 8)
+        #expect(EditorPDFThumbnails.margin(forEdge: 480) == EditorPDFThumbnails.margin)
+        #expect(EditorPDFThumbnails.margin(forEdge: 720) == 2)
+    }
+
+    /// **A bigger size redraws what is held, and the small image stays until the sharp one lands**
+    /// — no cell goes blank on a switch to List. A smaller size redraws nothing.
+    @Test func aBiggerSizeRedrawsWithoutBlankingAndASmallerOneRedrawsNothing() async throws {
+        let file = path("sharper.pdf")
+        PDFFixtures.write(file, pages: 12, text: false)
+        let pdf = await opened(file)
+        let window: Set<Int> = [0, 1]
+        func longEdge(_ page: Int) -> Int { pdf.thumbnails.images[page].map { max($0.width, $0.height) } ?? 0 }
+        pdf.thumbnails.show(window)
+        await wait("the grid-sized thumbnails") { window.allSatisfy { longEdge($0) == 240 } }
+
+        pdf.thumbnails.setRenderEdge(720)
+        #expect(window.allSatisfy { pdf.thumbnails.images[$0] != nil },
+                "a cell went blank while its sharper image was drawn")
+        await wait("the list-sized thumbnails") { window.allSatisfy { longEdge($0) == 720 } }
+
+        let before = pdf.thumbnails.drawn.count
+        pdf.thumbnails.setRenderEdge(240)
+        pdf.thumbnails.show(window)
+        // The grid's wider margin is drawn ahead: once its last page lands, the lane is quiet.
+        await wait("the grid's margin") { pdf.thumbnails.images[1 + EditorPDFThumbnails.margin] != nil }
+        let redrawn = pdf.thumbnails.drawn.dropFirst(before).filter(window.contains)
+        #expect(redrawn.isEmpty, "a smaller size redrew pages already held bigger: \(Array(redrawn))")
+        #expect(window.allSatisfy { longEdge($0) == 720 })
+    }
+
+    /// **A mounted list asks for list-sized pages**, and the rail hands the tab its choice and width.
+    @Test func theMountedListAsksForSharperPages() async throws {
+        let file = path("list.pdf")
+        PDFFixtures.write(file, pages: 10, text: false)
+        let pdf = await opened(file)
+        let width = EditorLayoutMetrics.railWidth
+        let pages = EditorPDFRailPages(pdf: pdf, view: pdf.view, thumbnails: pdf.thumbnails, accent: .blue,
+                                       layout: .list, railWidth: width)
+        let host = NSHostingView(rootView: AnyView(pages.frame(width: width, height: 400)))
+        host.frame = CGRect(x: 0, y: 0, width: width, height: 400)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil }
+        let edge = EditorPDFPagesLayout.list.renderEdge(railWidth: width)
+        await wait("the first page, list-sized") {
+            window.layoutIfNeeded()
+            return pdf.thumbnails.images[0].map { max($0.width, $0.height) } == Int(edge)
+        }
+        #expect(pdf.thumbnails.renderEdge == edge)
+
+        let rail = try ChromeGlassWiringTests.source("EditorFileRailView.swift")
+        #expect(rail.contains("layout: pagesLayout, railWidth: width)"), "the Pages tab is not handed the choice and the width")
+        #expect(rail.contains("ForEach(EditorPDFPagesLayout.allCases"), "the Pages tab offers no Grid / List switch")
+    }
+
     /// **A lane of the test's own, in front of the real one.** Held, it stops only THIS test's turns;
     /// released, each turn still runs inside `PDFKitSerialAccess` (`run`, from this queue's thread),
     /// so the lane's rule holds in tests too. Holding is immediate — nothing to wait for.
