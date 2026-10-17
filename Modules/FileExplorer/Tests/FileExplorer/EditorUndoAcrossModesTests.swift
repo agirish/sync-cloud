@@ -304,6 +304,55 @@ import FileExplorerTestSupport
         #expect(rig.document.text == "- [ ] milk\nnotes\n")
     }
 
+    /// **A tick, and its ⌘Z, leave Source's selection and scroll where they were** — in Split, where
+    /// a checkbox and a caret share the screen. The tick once rewrote the whole buffer, which threw
+    /// the text back to the caret with the preview following it; since TE67.0 it is one character,
+    /// and P52 asked for this to be pinned rather than read in code (it passes on the code before
+    /// P52). The box is on screen and the selection far above it, so a scroll back to the selection
+    /// is a move of thousands of points. **Nothing but Source's own layout can move it**: the
+    /// read-only preview follows the text and never leads it, and the storage edit is synchronous —
+    /// so the settle after it is the pump's floor of layout passes, not a wait for a later signal.
+    /// Mutation: make the tick replace the whole storage.
+    @Test func aTickInSplitMovesNeitherTheSelectionNorTheScroll() async throws {
+        let text = (1...400).map { $0 == 300 ? "- [ ] milk" : "line \($0)" }.joined(separator: "\n") + "\n"
+        let rig = try Rig(text, mode: .split)
+        defer { withExtendedLifetime(rig) {} }
+        let view = try #require(rig.textView)
+        let clip = try #require(view.enclosingScrollView?.contentView)
+        rig.probe.window.makeFirstResponder(view)
+        let selection = NSRange(location: try #require(EditorCaret.utf16Offset(ofLine: 20, in: text)) + 1, length: 4)
+        view.setSelectedRange(selection)
+        let box = try #require(EditorCaret.utf16Offset(ofLine: 300, in: text))
+        view.scrollRangeToVisible(NSRange(location: box, length: 0))
+        // TextKit 2 lays out lazily: settle on a scroll position before measuring from it.
+        var top = clip.bounds.origin.y
+        let settled = await LayoutPumpWait.pump(rig.probe.window, upTo: 5) {
+            defer { top = clip.bounds.origin.y }
+            return top > 1_000 && clip.bounds.origin.y == top
+        }
+        try #require(settled.held, "Source never settled scrolled to the box (at \(top)), so there is nothing to keep")
+        func positions(_ step: String) {
+            #expect(view.selectedRange() == selection, "\(step) moved the selection to \(view.selectedRange())")
+            #expect(abs(clip.bounds.origin.y - top) < 0.5, "\(step) scrolled Source from \(top) to \(clip.bounds.origin.y)")
+        }
+
+        #expect(EditorWorkspaceView.toggleTask(onLine: 300, in: rig.document.buffer.source, undoManager: rig.undo))
+        await rig.endOfEvent()
+        // Past the parse's debounce, which is when the preview redraws and could pull Source along.
+        _ = await LayoutPumpWait.pump(rig.probe.window, upTo: 0.5) { false }
+        #expect(rig.textView?.string.contains("- [x] milk\nline 301") == true, "the tick did not reach the text on screen")
+        positions("the tick")
+
+        await rig.undoAndSettle(expecting: text)
+        _ = await LayoutPumpWait.pump(rig.probe.window, upTo: 0.5) { false }
+        positions("⌘Z on the tick")
+
+        // The control: a scroll back to the selection IS seen here, so the checks above could fail.
+        view.scrollRangeToVisible(selection)
+        let moved = await LayoutPumpWait.pump(rig.probe.window, upTo: 2) { top - clip.bounds.origin.y > 1_000 }
+        #expect(moved.held, "a scroll to the selection never showed here, so the checks above saw nothing")
+    }
+
     /// C25 from Preview: tick there, come back to Source, ⌘Z unticks what is on screen.
     @Test func aTickInPreviewIsUndoneFromSource() async throws {
         let rig = try Rig("- [ ] milk\n", mode: .preview)
@@ -328,6 +377,20 @@ import FileExplorerTestSupport
         #expect(body.contains("Self.toggleTask(onLine: line, in: buffer.source, undoManager: undoManager)"),
                 "the checkbox no longer ticks through the undoable path")
         #expect(!body.contains("document.text ="), "the checkbox writes the buffer directly again — no undo")
+    }
+
+    /// **The tick reads the storage where it is** (P52) — `textStorage.string` is a copy of the whole
+    /// document, made to look at one line. `MarkdownEditsTests` counts what the tick reads from the
+    /// string it is handed; this pins that it is handed the storage's own.
+    /// Mutation: hand it `source.textStorage.string as NSString`.
+    @Test func theTickReadsTheStorageInPlace() throws {
+        let code = try EditorFormatBarTests.source("EditorWorkspaceView.swift")
+        let start = try #require(code.range(of: "static func toggleTask(onLine line: Int, in source: EditorSourceStorage,"))
+        let end = try #require(code.range(of: "static let taskActionName", range: start.upperBound..<code.endIndex))
+        let body = String(code[start.upperBound..<end.lowerBound])
+        #expect(body.contains("MarkdownEdits.taskToggle(onLine: line, in: source.textStorage.mutableString)"),
+                "the tick no longer reads the storage's own characters")
+        #expect(!body.contains("textStorage.string"), "the tick copies the whole document again")
     }
 
     // MARK: A file switch in between

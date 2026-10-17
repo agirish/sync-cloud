@@ -539,6 +539,53 @@ import EventsTestSupport
         #expect(r.source.text == "- [ ] salt")
     }
 
+    /// **A tick far down a note, and its ⌘Z, are one step and leave the scroll where it was** — in
+    /// the editable Preview, the default and the one a tick is clicked in every day (P52). The caret
+    /// goes to the box, as the translator says (`caret: box.source.location`): the click was there,
+    /// and a click in text puts the caret where it lands. What must not happen is the view scrolling
+    /// away from the box — which a tick whose caret lands anywhere else does, since the coordinator
+    /// scrolls to the selection.
+    /// Mutation: the translator's tick caret at 0 — both scroll checks fail. (`splice` replacing the
+    /// whole display does NOT fail it: on this uniform note that moves no scroll, measured 2026-10-17.)
+    @Test func aTickFarDownIsOneStepAndKeepsTheScroll() async throws {
+        let text = (1...300).map { $0 == 200 ? "- [ ] milk" : "Line \($0) of the note." }.joined(separator: "\n\n")
+        let r = rig(text)
+        let clip = try #require(r.view.enclosingScrollView?.contentView)
+        caret(after: "Line 3 of", in: r)
+        let box = try #require((0..<(r.display as NSString).length).first {
+            r.view.textStorage?.attribute(.previewAttachment, at: $0, effectiveRange: nil) as? String == "task"
+        })
+        r.view.scrollRangeToVisible(NSRange(location: box, length: 1))
+        // TextKit 2 lays out lazily: settle on a scroll position before measuring from it.
+        var top = clip.bounds.origin.y
+        let settled = await LayoutPumpWait.pump(r.window, upTo: 5) {
+            defer { top = clip.bounds.origin.y }
+            return top > 1_000 && clip.bounds.origin.y == top
+        }
+        try #require(settled.held, "Preview never settled scrolled to the box (at \(top)), so there is nothing to keep")
+
+        r.coordinator.perform(RenderedEdit(range: NSRange(location: box, length: 1), action: .tickTask))
+        _ = await LayoutPumpWait.pump(r.window, upTo: 0.5) { false }
+        #expect(r.source.text.contains("- [x] milk"), "the tick did not reach the source")
+        #expect(r.undo.undoActionName == EditorWorkspaceView.taskActionName)
+        #expect(abs(clip.bounds.origin.y - top) < 0.5, "the tick scrolled Preview from \(top) to \(clip.bounds.origin.y)")
+        let caret = r.view.firstRect(forCharacterRange: r.view.selectedRange(), actualRange: nil)
+        let onScreen = r.view.convert(r.window.convertFromScreen(caret), from: nil)
+        #expect(clip.documentVisibleRect.intersects(onScreen.insetBy(dx: -1, dy: -1)),
+                "the caret went to \(r.view.selectedRange()), off screen, not to the box at \(box)")
+
+        sendUndo(r)
+        _ = await LayoutPumpWait.pump(r.window, upTo: 0.5) { false }
+        #expect(r.source.text == text, "⌘Z did not take the tick back")
+        #expect(!r.undo.canUndo, "the tick was more than one undo step")
+        #expect(abs(clip.bounds.origin.y - top) < 0.5, "⌘Z scrolled Preview from \(top) to \(clip.bounds.origin.y)")
+
+        // The control: a scroll to the top IS seen here, so the checks above could fail.
+        r.view.scrollRangeToVisible(NSRange(location: 0, length: 0))
+        let moved = await LayoutPumpWait.pump(r.window, upTo: 2) { top - clip.bounds.origin.y > 1_000 }
+        #expect(moved.held, "a scroll to the top never showed here, so the checks above saw nothing")
+    }
+
     /// **A double-click on a task box is one tick, not a tick and an untick** (review V11): the
     /// second click of a double-click arrives as a mouse-down of its own, with a click count of 2,
     /// and ticked the box back — two undo steps for what reads as one press.

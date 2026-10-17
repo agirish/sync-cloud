@@ -232,8 +232,13 @@ public final class EditorDocument: ObservableObject {
     /// the text view hands back is bridged from UTF-16 text storage, so it transcoded the whole
     /// document to answer. Now it walks once per edit and the other five reads are a tuple compare.
     ///
-    /// The length check inside is kept for the same reason it was written: most keystrokes change
-    /// the length, so most edits never reach the byte comparison at all.
+    /// **Unit for unit, by `NSString`** (P54) — the comparison that asks whether the file would
+    /// change. Swift's `!=` is Unicode's canonical equivalence, so an accent the buffer writes
+    /// differently from the file read clean whenever the UTF-8 lengths came out equal, and ⌘S,
+    /// autosave, the close and quit prompts — and a change on disk, which reloads a clean buffer
+    /// quietly — all passed over a change to the bytes. And `utf8.count` on the bridged buffer
+    /// transcoded it on every edit; the UTF-16 length is the storage's own, and most keystrokes
+    /// change it, so most edits never reach the comparison at all.
     public var isDirty: Bool {
         let key = (buffer.textVersion, savedVersion)
         if let memo = dirtyMemo, memo.textVersion == key.0, memo.savedVersion == key.1 {
@@ -246,8 +251,7 @@ public final class EditorDocument: ObservableObject {
 
     private func computeIsDirty() -> Bool {
         guard path != nil, readOnlyReason == nil else { return false }
-        let text = buffer.text
-        return text.utf8.count != savedText.utf8.count || text != savedText
+        return !(buffer.text as NSString).isEqual(to: savedText)
     }
 
     /// Whether ⌘S has anything to do.

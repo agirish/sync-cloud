@@ -1907,22 +1907,23 @@ public struct EditorWorkspaceView: View {
     /// It was `document.text = rewritten`: a whole-buffer write the undo stack never heard of, so a
     /// tick could not be undone and left every range the stack held pointing at a buffer that had
     /// moved under it. It is now the few characters that changed, through the document's storage
-    /// (`EditorSourceStorage.replace`), registered on the document's own stack. The rewrite is still
-    /// `MarkdownEdits.toggleTask`'s, so what a tick does to the file is unchanged.
+    /// (`EditorSourceStorage.replace`), registered on the document's own stack. The edit is
+    /// `MarkdownEdits.taskToggle`'s, the box's one character — and `replace` converts any carriage
+    /// return in the file to LF in the same step, as it does for every edit from outside the view.
     ///
     /// A stale click — the line no longer holds a checkbox — leaves the text and the stack alone.
     ///
     /// **Measured against the storage's characters, not the published text.** The two differ by a
     /// word an input method is composing in Split, and a range taken from one and applied to the
-    /// other would land that many characters early.
+    /// other would land that many characters early. **Read where they are**, through
+    /// `mutableString`: `textStorage.string` copies the whole document to look at one line (P52).
     ///
     /// - Returns: whether anything was ticked.
     @discardableResult
     static func toggleTask(onLine line: Int, in source: EditorSourceStorage,
                            undoManager: UndoManager) -> Bool {
-        let current = source.textStorage.string
-        guard let rewritten = MarkdownEdits.toggleTask(onLine: line, in: current) else { return false }
-        let change = MarkdownEdits.minimalReplacement(from: current, to: rewritten)
+        guard let change = MarkdownEdits.taskToggle(onLine: line, in: source.textStorage.mutableString)
+        else { return false }
         source.replace(change.range, with: change.text, undoManager: undoManager,
                        actionName: Self.taskActionName)
         return true

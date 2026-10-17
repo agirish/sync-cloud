@@ -7145,3 +7145,33 @@ done
 |---|---|---|
 | `v4.x` / `v3.x` / `v2.x` | No Edit rail and no PDF model (both are v5) | CLOSED — does not apply |
 | `v5.x` | The Edit rail without PDFs, and no PDF model (measured `railTab=1 pdfModel=0`) | RECORDED — not owed (main only) |
+
+## A checkbox tick reads one line; the dirty check compares units, not Unicode (P52, P54) — main only
+
+A tick from the read-only Preview — Edit in Preview off, or a note over its 256 K limit — used to
+copy the whole storage, walk it a Character at a time to the line, build a new text and diff the
+two in full. `MarkdownEdits.taskToggle` now reads the storage's UTF-16 in place, only as far as the
+line's end, and returns the one unit of the box that changes; the edit is the same, held to a
+verbatim copy of the old code on 4,000 generated documents. `EditorDocument.isDirty` compared with
+Swift's `!=`, which is canonical equivalence: a buffer whose bytes differ from the file's only in
+how an accent is written read clean whenever the UTF-8 lengths matched, so ⌘S, autosave, the close
+and quit prompts and a quiet reload from disk passed over it. It compares with `NSString.isEqual`
+now, unit for unit.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s oldTick=%s oldDirty=%s\n' "$l" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/MarkdownEdits.swift 2>/dev/null | grep -c 'Range<String.Index>')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorDocument.swift 2>/dev/null | grep -c 'text != savedText')"
+done
+# measured 2026-10-17, against origin, before this landed:
+# main  oldTick=1 oldDirty=1
+# v5.x  oldTick=1 oldDirty=1
+# v4.x, v3.x, v2.x — every line: oldTick=0 oldDirty=0 (neither file exists)
+# and on this change's own tree: 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Both: the tick walks and rewrites the whole text, and `isDirty` uses `!=`. A pick is this one commit; `MarkdownEdits.swift`, `EditorDocument.swift` and `toggleTask` in `EditorWorkspaceView.swift` are as `v5.5` shipped them, so it should apply as it stands | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace, so no preview to tick in and no buffer to call dirty | CLOSED — does not apply |

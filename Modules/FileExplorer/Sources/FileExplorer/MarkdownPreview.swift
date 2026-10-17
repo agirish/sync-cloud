@@ -12,9 +12,9 @@ import Design
 /// document's text and cannot write back, so the buffer stays the single source of truth and
 /// toggling modes cannot lose an edit. The checkbox is the exception because a checklist you can
 /// read and not tick is a checklist you have to switch modes to use — and it is a safe one: the
-/// click leaves through ``onToggleTask``, which rewrites exactly three characters of exactly one
-/// line through ``MarkdownEdits/toggleTask(onLine:in:)``, and it is withheld entirely on a document
-/// that cannot be saved.
+/// click leaves through ``onToggleTask``, which flips the box on exactly one line through
+/// ``MarkdownEdits/taskToggle(onLine:in:)`` — converting a file's carriage returns too, as any first
+/// edit does (``EditorLineEndings``) — and it is withheld entirely on a document that cannot be saved.
 struct MarkdownPreview: View {
 
     let blocks: [MarkdownBlock]

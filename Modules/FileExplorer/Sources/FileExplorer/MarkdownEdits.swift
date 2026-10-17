@@ -2,14 +2,16 @@ import Foundation
 
 /// Edits made to Markdown source by something other than typing.
 ///
-/// **Pure functions over a string, with the buffer handed in and a new buffer handed back.** The
+/// **Pure functions over a string, with the buffer handed in and a new buffer — or the edit that
+/// makes it — handed back.** The
 /// alternative — reaching into the `NSTextView` and splicing — would put the app's only unattended
 /// writes to somebody's file behind a view, where nothing can test them. Everything here can be run
 /// against a fixture and asserted character for character, which is the bar for code that edits
 /// files in his cloud folders.
 enum MarkdownEdits {
 
-    /// Flips the checkbox on a 1-based source line, or answers `nil` when there is not one to flip.
+    /// The edit that flips the checkbox on a 1-based source line — the one UTF-16 unit of the box
+    /// that changes, and what goes there — or `nil` when there is not one to flip.
     ///
     /// **`nil` is the honest answer to a stale click, and it has to be checked.** The preview is
     /// rendered from a parse that is up to 150ms behind the buffer, so a click can arrive naming a
@@ -19,32 +21,57 @@ enum MarkdownEdits {
     /// The match is deliberately narrow: leading whitespace, a list marker, whitespace, then the
     /// box. A `[ ]` written in the middle of a sentence is not a checkbox and is left alone — the
     /// same distinction ``MarkdownListMarker/task(done:)`` exists to make.
-    static func toggleTask(onLine target: Int, in text: String) -> String? {
+    ///
+    /// **Read in place, and only as far as the line** (P52). A tick is one click on one line of a
+    /// document that can be 4 MiB, and it used to copy the whole text, walk it a Character at a time,
+    /// build a new text and diff the two in full: 19 ms at 200 KB. Now it reads the UTF-16 up to the
+    /// line's end and works on that line alone. The flip is the same Character rules applied to the
+    /// same line, so what a tick writes is unchanged.
+    static func taskToggle(onLine target: Int, in text: NSString) -> (range: NSRange, text: String)? {
         guard let range = lineRange(of: target, in: text) else { return nil }
-        let line = String(text[range])
+        let line = text.substring(with: range)
         guard let flipped = flippedCheckbox(in: line) else { return nil }
-        return text.replacingCharacters(in: range, with: flipped)
+        let change = minimalReplacement(from: line, to: flipped)
+        return (NSRange(location: range.location + change.range.location, length: change.range.length), change.text)
     }
 
-    /// The line's own range, not including its terminator.
-    static func lineRange(of target: Int, in text: String) -> Range<String.Index>? {
+    /// The line's own range in UTF-16, not including its terminator.
+    ///
+    /// **LF, CR and CRLF end a line, as in ``EditorLineIndex``** — counted by unit, which counts the
+    /// same lines as a walk by Character: a CR or an LF is always a Character of its own, or the
+    /// two are one, `"\r\n"`. Read ``lineScanChunk`` units at a time, so finding line 3 of a long
+    /// document reads one chunk of it.
+    static func lineRange(of target: Int, in text: NSString) -> NSRange? {
         guard target >= 1 else { return nil }
+        let length = text.length
         var line = 1
-        var start = text.startIndex
-        var index = text.startIndex
-        while index < text.endIndex {
-            let character = text[index]
-            let next = text.index(after: index)
-            if character == "\n" || character == "\r\n" || character == "\r" {
-                if line == target { return start..<index }
-                line += 1
-                start = next
+        var start = 0
+        var afterCR = false
+        var units = [unichar](repeating: 0, count: lineScanChunk)
+        var chunk = 0
+        while chunk < length {
+            let count = min(lineScanChunk, length - chunk)
+            text.getCharacters(&units, range: NSRange(location: chunk, length: count))
+            for index in 0..<count {
+                let unit = units[index]
+                if unit == 0x0A && afterCR {
+                    // A CRLF's LF: its CR has already ended the line.
+                    start = chunk + index + 1
+                } else if unit == 0x0A || unit == 0x0D {
+                    if line == target { return NSRange(location: start, length: chunk + index - start) }
+                    line += 1
+                    start = chunk + index + 1
+                }
+                afterCR = unit == 0x0D
             }
-            index = next
+            chunk += count
         }
         // The last line, which has no terminator after it.
-        return line == target ? start..<text.endIndex : nil
+        return line == target ? NSRange(location: start, length: length - start) : nil
     }
+
+    /// How many UTF-16 units ``lineRange(of:in:)`` reads at a time.
+    static let lineScanChunk = 4096
 
     /// The same line with its checkbox flipped, or `nil` when it has none.
     ///

@@ -1,4 +1,5 @@
 import Testing
+import AppKit
 import Foundation
 @testable import FileExplorer
 
@@ -133,6 +134,29 @@ import Foundation
         #expect(!document.isDirty)
         document.text = "d\n"
         #expect(document.isDirty, "an equal-length change was missed")
+    }
+
+    /// **A change Unicode calls equivalent is still a change to the file** (P54). Swift's `==` on
+    /// two Strings is canonical equivalence, so a buffer whose bytes differ from the file's only in
+    /// how an accent is written — `é` as one scalar or as `e` and a combining mark — read clean
+    /// whenever the two came to the same UTF-8 length: no dot, ⌘S greyed out, autosave never
+    /// writing it, and a close that did not ask. Both pairs keep the length and change the bytes:
+    /// one accent written each way round, and two marks on one letter in the other order. Each is
+    /// typed both as a Swift string and as the app's buffer holds it — bridged from a text storage.
+    @Test(arguments: [("e\u{301}\u{E9}\n", "\u{E9}e\u{301}\n"), ("a\u{301}\u{316}\n", "a\u{316}\u{301}\n")],
+          [false, true])
+    func aChangeOnlyInHowUnicodeIsWrittenIsDirty(_ pair: (String, String), fromStorage: Bool) {
+        let (saved, typed) = pair
+        #expect(saved == typed && saved.utf8.count == typed.utf8.count,
+                "the fixture no longer describes an equivalent, same-length pair")
+        func asBuffer(_ text: String) -> String { fromStorage ? NSTextStorage(string: text).string : text }
+        let document = EditorDocument()
+        document.open(.editable(text: saved, stamp: stamp(saved.utf8.count), encoding: .utf8), at: "/tmp/a.md")
+        #expect(!document.isDirty)
+        document.text = asBuffer(typed)
+        #expect(document.isDirty, "a buffer whose bytes differ from the file's reads as saved")
+        document.text = asBuffer(saved)
+        #expect(!document.isDirty, "the buffer back at the file's own bytes reads as changed")
     }
 
     @Test func theNameIsTheFilesOwnRatherThanItsPath() {
