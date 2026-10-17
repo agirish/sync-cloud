@@ -162,7 +162,8 @@ public class FileActionHandler {
         Logger.shared.info("User initiated copy of \(nodes.count) item(s)")
         Task {
             guard let roots = await transferRoots(fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) else { return }
-            let copiedNodes = await syncManager.copyItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right)
+            let copiedNodes = await syncManager.copyItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right,
+                                                          fileManager: syncManager.fileManager)
             setTransferBanner(verb: "Copied", copiedNodes, to: targetDisplayName)
         }
     }
@@ -178,7 +179,8 @@ public class FileActionHandler {
         let targetDisplayName = providerDisplayName(forProviderId: fromLeft ? rightProviderId : leftProviderId)
 
         Logger.shared.info("User initiated move of \(nodes.count) item(s)")
-        let movedNodes = await syncManager.moveItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right)
+        let movedNodes = await syncManager.moveItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right,
+                                                     fileManager: syncManager.fileManager)
         setTransferBanner(verb: "Moved", movedNodes, to: targetDisplayName)
         return movedNodes
     }
@@ -232,7 +234,8 @@ public class FileActionHandler {
         let destDisplayName = providerDisplayName(forPath: destinationPath)
         Logger.shared.info("User initiated move of \(nodes.count) item(s) to a dropped-on directory")
         Task {
-            let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath)
+            let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath,
+                                                         fileManager: syncManager.fileManager)
             setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName)
         }
     }
@@ -279,7 +282,8 @@ public class FileActionHandler {
         Logger.shared.info("User pasted \(nodes.count) item(s) (\(isCut ? "move" : "copy"))")
         Task {
             if isCut {
-                let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath)
+                let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath,
+                                                             fileManager: syncManager.fileManager)
                 let successfullyMovedIds = Set(movedNodes.map { $0.id })
                 syncManager.clipboardNodes.removeAll { successfullyMovedIds.contains($0.id) }
                 if syncManager.clipboardNodes.isEmpty {
@@ -300,7 +304,8 @@ public class FileActionHandler {
                 }
                 setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName)
             } else {
-                let copiedNodes = await syncManager.copyItems(nodes: nodes, toPath: destinationPath)
+                let copiedNodes = await syncManager.copyItems(nodes: nodes, toPath: destinationPath,
+                                                              fileManager: syncManager.fileManager)
                 setTransferBanner(verb: "Copied", copiedNodes, to: destDisplayName)
             }
         }
@@ -382,7 +387,7 @@ public class FileActionHandler {
         if let newName = renamePrompter(node.name, FileSyncManager.validateItemName), newName != node.name {
             Logger.shared.info("User initiated rename of '\(node.name)' to '\(newName)'")
             Task {
-                await syncManager.renameItem(at: node.id, to: newName)
+                await syncManager.renameItem(at: node.id, to: newName, fileManager: syncManager.fileManager)
             }
         }
     }
@@ -401,7 +406,7 @@ public class FileActionHandler {
         if let folderName = newFolderPrompter(FileSyncManager.validateItemName) {
             Logger.shared.info("User initiated create folder: '\(folderName)'")
             Task {
-                await syncManager.createFolder(named: folderName, in: path)
+                await syncManager.createFolder(named: folderName, in: path, fileManager: syncManager.fileManager)
             }
         }
     }

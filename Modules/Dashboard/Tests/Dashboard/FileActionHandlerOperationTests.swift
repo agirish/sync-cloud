@@ -1,6 +1,7 @@
 import Testing
 import AppKit
 import Foundation
+import os
 import Sync
 import Settings
 @testable import Dashboard
@@ -696,6 +697,187 @@ import Settings
         #expect(FileManager.default.fileExists(atPath: created.path, isDirectory: &isDir))
         #expect(isDir.boolValue)
         #expect(manager.currentError == nil)
+    }
+
+    // MARK: - Every operation runs on the manager's own file manager
+
+    /// A real `FileManager` that notes the destination of every move and every new folder.
+    ///
+    /// Each handler operation below ends in one of those two calls on the file manager it was
+    /// handed: a copy moves its staged file onto the destination, a move or a rename moves the
+    /// item, and a new folder is `createDirectory`. So a note here says the operation ran on THIS
+    /// file manager. Drop a call site's `fileManager:` and the same operation runs on
+    /// `FileManager.default`, lands just the same and leaves no note, which is how these tests tell
+    /// the two apart when the disk cannot.
+    private final class RecordingFileManager: FileManager, @unchecked Sendable {
+        private let notes = OSAllocatedUnfairLock(initialState: [String]())
+        var destinations: [String] { notes.withLock { $0 } }
+
+        override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+            notes.withLock { $0.append(dstURL.lastPathComponent) }
+            try super.moveItem(at: srcURL, to: dstURL)
+        }
+
+        override func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool,
+                                      attributes: [FileAttributeKey: Any]? = nil) throws {
+            notes.withLock { $0.append(url.lastPathComponent) }
+            try super.createDirectory(at: url, withIntermediateDirectories: createIntermediates,
+                                      attributes: attributes)
+        }
+    }
+
+    /// Waits for `landed`, then checks it was the manager's own file manager that put it there.
+    @MainActor
+    private func expectTheManagersFileManagerLanded(_ landed: URL, _ recorder: RecordingFileManager,
+                                                    _ manager: FileSyncManager,
+                                                    sourceLocation: SourceLocation = #_sourceLocation) async {
+        await waitUntil("\(landed.lastPathComponent) to land") {
+            FileManager.default.fileExists(atPath: landed.path)
+        }
+        await waitForOperationsToFinish(manager)
+        #expect(recorder.destinations.contains(landed.lastPathComponent),
+                "\(landed.lastPathComponent) landed, but not through the manager's file manager: \(recorder.destinations)",
+                sourceLocation: sourceLocation)
+    }
+
+    /// Two providers rooted at fresh temp dirs, for the pane-to-pane routes.
+    @MainActor
+    private func twoPanes(_ label: String) throws -> (left: URL, right: URL, settings: SettingsManager) {
+        let left = try makeTempDir("\(label)-left")
+        let right = try makeTempDir("\(label)-right")
+        let settings = makeSettings(providers: [
+            CloudProvider(id: "L", displayName: "LeftSide", imageName: "icloud", rootPath: left.path, type: .iCloud),
+            CloudProvider(id: "R", displayName: "RightSide", imageName: "icloud", rootPath: right.path, type: .iCloud),
+        ])
+        return (left, right, settings)
+    }
+
+    @MainActor
+    @Test func aPaneCopyRunsOnTheManagersFileManager() async throws {
+        let recorder = RecordingFileManager()
+        let manager = FileSyncManager(fileManager: recorder)
+        let panes = try twoPanes("fm-pane-copy")
+        defer {
+            try? FileManager.default.removeItem(at: panes.left)
+            try? FileManager.default.removeItem(at: panes.right)
+        }
+        let handler = FileActionHandler(syncManager: manager, settings: panes.settings,
+                                        pasteboard: Self.scratchPasteboard("aPaneCopyRunsOnTheManagersFileManager"))
+        let file = try makeFile(in: panes.left, named: "pane-copy.txt")
+
+        handler.copyItems([FileNode(id: file.path, name: "pane-copy.txt", isDirectory: false)],
+                          fromLeft: true, leftProviderId: "L", rightProviderId: "R")
+
+        await expectTheManagersFileManagerLanded(panes.right.appendingPathComponent("pane-copy.txt"),
+                                                 recorder, manager)
+    }
+
+    @MainActor
+    @Test func aPaneMoveRunsOnTheManagersFileManager() async throws {
+        let recorder = RecordingFileManager()
+        let manager = FileSyncManager(fileManager: recorder)
+        let panes = try twoPanes("fm-pane-move")
+        defer {
+            try? FileManager.default.removeItem(at: panes.left)
+            try? FileManager.default.removeItem(at: panes.right)
+        }
+        let handler = FileActionHandler(syncManager: manager, settings: panes.settings,
+                                        pasteboard: Self.scratchPasteboard("aPaneMoveRunsOnTheManagersFileManager"))
+        let file = try makeFile(in: panes.left, named: "pane-move.txt")
+
+        _ = await handler.moveItems([FileNode(id: file.path, name: "pane-move.txt", isDirectory: false)],
+                                    fromLeft: true, leftProviderId: "L", rightProviderId: "R")
+
+        await expectTheManagersFileManagerLanded(panes.right.appendingPathComponent("pane-move.txt"),
+                                                 recorder, manager)
+    }
+
+    @MainActor
+    @Test func aDropMoveRunsOnTheManagersFileManager() async throws {
+        let recorder = RecordingFileManager()
+        let manager = FileSyncManager(fileManager: recorder)
+        let src = try makeTempDir("fm-drop-src")
+        let dst = try makeTempDir("fm-drop-dst")
+        defer {
+            try? FileManager.default.removeItem(at: src)
+            try? FileManager.default.removeItem(at: dst)
+        }
+        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        pasteboard: Self.scratchPasteboard("aDropMoveRunsOnTheManagersFileManager"))
+        let file = try makeFile(in: src, named: "dropped.txt")
+
+        handler.moveItems([FileNode(id: file.path, name: "dropped.txt", isDirectory: false)], toPath: dst.path)
+
+        await expectTheManagersFileManagerLanded(dst.appendingPathComponent("dropped.txt"), recorder, manager)
+    }
+
+    @MainActor
+    @Test func aCutPasteRunsOnTheManagersFileManager() async throws {
+        let recorder = RecordingFileManager()
+        let manager = FileSyncManager(fileManager: recorder)
+        let src = try makeTempDir("fm-cut-src")
+        let dst = try makeTempDir("fm-cut-dst")
+        defer {
+            try? FileManager.default.removeItem(at: src)
+            try? FileManager.default.removeItem(at: dst)
+        }
+        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        pasteboard: Self.scratchPasteboard("aCutPasteRunsOnTheManagersFileManager"))
+        let file = try makeFile(in: src, named: "cut-paste.txt")
+
+        handler.pasteItems([FileNode(id: file.path, name: "cut-paste.txt", isDirectory: false)],
+                           toPath: dst.path, isCut: true)
+
+        await expectTheManagersFileManagerLanded(dst.appendingPathComponent("cut-paste.txt"), recorder, manager)
+    }
+
+    @MainActor
+    @Test func aCopyPasteRunsOnTheManagersFileManager() async throws {
+        let recorder = RecordingFileManager()
+        let manager = FileSyncManager(fileManager: recorder)
+        let src = try makeTempDir("fm-paste-src")
+        let dst = try makeTempDir("fm-paste-dst")
+        defer {
+            try? FileManager.default.removeItem(at: src)
+            try? FileManager.default.removeItem(at: dst)
+        }
+        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        pasteboard: Self.scratchPasteboard("aCopyPasteRunsOnTheManagersFileManager"))
+        let file = try makeFile(in: src, named: "copy-paste.txt")
+
+        handler.pasteItems([FileNode(id: file.path, name: "copy-paste.txt", isDirectory: false)],
+                           toPath: dst.path, isCut: false)
+
+        await expectTheManagersFileManagerLanded(dst.appendingPathComponent("copy-paste.txt"), recorder, manager)
+    }
+
+    @MainActor
+    @Test func aRenameRunsOnTheManagersFileManager() async throws {
+        let recorder = RecordingFileManager()
+        let manager = FileSyncManager(fileManager: recorder)
+        let dir = try makeTempDir("fm-rename")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = try makeFile(in: dir, named: "old-name.txt")
+        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        renamePrompter: { _, _ in "new-name.txt" })
+
+        handler.beginRename(FileNode(id: file.path, name: "old-name.txt", isDirectory: false))
+
+        await expectTheManagersFileManagerLanded(dir.appendingPathComponent("new-name.txt"), recorder, manager)
+    }
+
+    @MainActor
+    @Test func aNewFolderRunsOnTheManagersFileManager() async throws {
+        let recorder = RecordingFileManager()
+        let manager = FileSyncManager(fileManager: recorder)
+        let dir = try makeTempDir("fm-newfolder")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        newFolderPrompter: { _ in "Recorded Folder" })
+
+        handler.beginCreateFolder(in: dir.path)
+
+        await expectTheManagersFileManagerLanded(dir.appendingPathComponent("Recorded Folder"), recorder, manager)
     }
 
     // MARK: - Get Info

@@ -3256,9 +3256,8 @@ time one `trashItem` from a plain Swift script — tens of milliseconds healthy,
 an `/Applications` swap fell in the same window, but nothing else lines up: `sandboxd` went quiet
 on the prompt's request and resumed 19 ms after the dialog's click.
 
-**Fix — for this test, every Sync suite that trashed, and Dashboard's deletes, 2026-10-16.**
-Answer the prompt and the machine recovers at once (rerunning while it is up only adds to the
-backlog).
+**Fix — for every test that trashed, in every package CI runs, 2026-10-16.** Answer the prompt
+and the machine recovers at once (rerunning while it is up only adds to the backlog).
 `confirmingTrashesTheRightCopyAndReturnsToDuplicates()` no longer uses the real Trash: its harness
 gets a `ScratchTrash`, a `FileManager` whose `trashItem` moves the item into a folder the test owns
 and reports where it went, as the real Trash does. Every other call is the real disk, so the drift
@@ -3297,13 +3296,20 @@ real and put the file back by ⌘Z, best-effort, leaving it behind whenever the 
 `FileActionHandler.confirmDelete` called `deleteItems` with no file manager, so no test could hand
 it another. It now passes the manager's own, which in the app is `FileManager.default` (the one
 handler is built from the `SyncCloudApp` manager), and the tests trash into a Dashboard copy of
-`ScratchTrash`.
+`ScratchTrash`. The handler's seven other calls into the manager — copy and move from a pane, a
+drop, cut and copy paste, rename and new folder — skipped it the same way and pass it now too. No
+test trashed through them, so each is pinned instead by a recording file manager that notes the
+move or new folder the operation ends in.
 
-Every other package was then run whole under the same watch: Design, Events, FileExplorer,
-Settings and the app's own `SyncCloudTests` moved nothing into the Trash. One test still does:
-`SyncCloudCLI`'s `EnvironmentDefaultsTests` leaves a `.rollback_<UUID>` every run. Its cleanup
-looks for its own file's name, but the replaced file reaches the Trash as a backup under another.
-The copy seam it calls already takes a file manager, so a stand-in would fix it from the test.
+Every other package was then run whole under the same watch, on 2026-10-16 at `03abc1ad`:
+Design, Events, FileExplorer, Settings and the app's own `SyncCloudTests` moved nothing into the
+Trash. The one test left was `SyncCloudCLI`'s `EnvironmentDefaultsTests`, which left a
+`.rollback_<UUID>` every run: its cleanup looked for its own file's name, but the replaced file
+reaches the Trash as a backup under another. Its copy seam already takes a file manager, so it now
+passes a CLI copy of `ScratchTrash` and checks the backup arrived there. That was the last known
+real-Trash user across every package CI runs — Sync, Events, Settings, Design, Dashboard,
+FileExplorer, `SyncCloudCLI` and `SyncCloudTests`. A new one shows up as a name in `~/.Trash`; trace
+it the same way, by suite and with the watch running.
 
 The Trash on this Mac held 11,806 items before that tracing; a count by name during it found
 about 545 of each fixture name above, 2,279 `.rollback_<UUID>` and 1,634 `.tmp_<UUID>`. The source
