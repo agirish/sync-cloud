@@ -247,6 +247,9 @@ extension ContentView {
                 bottomPaneView
                     .frame(width: row.workspaceWidth)
                     .clipped()
+                    // With the strip's own curve, so the lens header moves down beside the pane's
+                    // toolbar card as the strip slides in — as Edit's document column does.
+                    .designAnimation(.easeOut(duration: 0.18), value: sourcePaneShowsTabStrip)
             }
             .frame(width: totalWidth, height: geo.size.height)
             .overlay(alignment: .leading) {

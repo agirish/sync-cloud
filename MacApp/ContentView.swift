@@ -5174,6 +5174,9 @@ struct ContentView: View {
                 // The single lens source is the left provider; its picker shows in the workspace only
                 // while the rail is collapsed (expanded, the rail header owns the provider dropdown).
                 showSourcePicker: panesHiddenForCurrentTab,
+                // The rail's strip, so the lens header stays level with the pane's toolbar card —
+                // the same answer Edit's document column is given, false while the rail is collapsed.
+                paneShowsTabStrip: sourcePaneShowsTabStrip,
                 providers: settings.enabledProviders,
                 currentProviderId: leftProviderId,
                 onSelectProvider: { leftProviderId = $0 },

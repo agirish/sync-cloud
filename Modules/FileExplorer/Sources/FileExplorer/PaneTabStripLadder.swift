@@ -44,8 +44,9 @@ public enum PaneTabStripLadder {
     public static let stripHeight: CGFloat = 34
 
     /// **How far the strip pushes the pane's toolbar card down** — what a column beside the pane
-    /// has to leave empty for its own header to stay level with the pane's (Edit's document column,
-    /// see `EditorWorkspaceView.paneShowsTabStrip`).
+    /// has to leave empty for its own header to stay level with the pane's (Edit's document column
+    /// and the Organize lenses, see `EditorWorkspaceView.paneShowsTabStrip` and
+    /// `LensWorkspaceView.paneShowsTabStrip`).
     ///
     /// The strip at its pinned height, plus, in `.cards`, the gutter between its card and the
     /// header's: `paneColumn` cards the strip with `paneCardIfNeeded`, which insets by `cardInset`

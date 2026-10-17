@@ -261,13 +261,28 @@ import FileExplorer
     @Test func theDocumentColumnIsToldAboutThePanesTabStrip() throws {
         let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
         #expect(try CallArguments(of: "EditorWorkspaceView(", in: sourceCodeOnly(editor))
-                    .passes("paneShowsTabStrip", "editorPaneShowsTabStrip"),
+                    .passes("paneShowsTabStrip", "sourcePaneShowsTabStrip"),
                 "the workspace is not told whether the pane draws its tab strip")
         let tabs = CodeText(try OpenInEditorMenuTests.macApp("ContentView+PaneTabs.swift"))
         #expect(tabs.contains("!panesHiddenForCurrentTab && paneShowsTabStrip(isLeft: true)"),
                 "the strip's presence is not the LEFT pane's own rule, gated on the pane being open")
-        #expect(CodeText(editor).contains(".designAnimation(.easeOut(duration: 0.18), value: editorPaneShowsTabStrip)"),
+        #expect(CodeText(editor).contains(".designAnimation(.easeOut(duration: 0.18), value: sourcePaneShowsTabStrip)"),
                 "the document column does not move with the strip's own animation")
+    }
+
+    /// **An Organize lens is told the same thing, by the same rule** — its header card leaves the
+    /// strip's slot empty too (`LensWorkspaceView.paneShowsTabStrip`), measured in Dashboard's
+    /// `LensHeaderMatchesPaneHeaderTests`. Pinned: the one construction is handed the predicate
+    /// Edit's column is (so a collapsed rail leaves no slot), and the workspace moves with the
+    /// strip's curve.
+    @Test func theLensIsToldAboutThePanesTabStrip() throws {
+        let content = sourceCodeOnly(try OpenInEditorMenuTests.macApp("ContentView.swift"))
+        #expect(try CallArguments(of: "LensWorkspaceView(", in: content)
+                    .passes("paneShowsTabStrip", "sourcePaneShowsTabStrip"),
+                "the lens is not told whether the pane draws its tab strip")
+        let split = CodeText(try OpenInEditorMenuTests.macApp("ContentView+SplitLayout.swift"))
+        #expect(split.contains(".designAnimation(.easeOut(duration: 0.18), value: sourcePaneShowsTabStrip)"),
+                "the lens column does not move with the strip's own animation")
     }
 
     /// **The app's closures, pinned by scan** — the review lesson from TE27–TE30: a test that

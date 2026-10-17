@@ -503,6 +503,13 @@ public struct LensWorkspaceView: View {
     /// source rail is collapsed; when it's expanded, the rail header owns the provider dropdown, so
     /// showing it here too would name the provider twice.
     private let showSourcePicker: Bool
+    /// **Whether the source pane beside this column is drawing its tab strip** — two tabs, or View ▸
+    /// Tab Bar. The strip sits above the pane's toolbar card and pushes it down by
+    /// ``PaneTabStripLadder/slotHeight(_:)``, so the column leaves the same slot empty above
+    /// ``lensHeaderCard`` to keep the header's bottom edge on the pane's header↔list line — the
+    /// rule Edit's document column follows (`EditorWorkspaceView.paneShowsTabStrip`). `false`
+    /// whenever the rail is collapsed: there is no pane to line up with then.
+    private let paneShowsTabStrip: Bool
     /// The enabled providers the source can switch between, and the current one — the single
     /// provider choice the lens workspace needs (no Left/Right).
     private let providers: [CloudProvider]
@@ -570,6 +577,7 @@ public struct LensWorkspaceView: View {
         onPauseDocumentSurvey: (() -> Void)? = nil,
         onStopDocumentSurvey: (() -> Void)? = nil,
         showSourcePicker: Bool = false,
+        paneShowsTabStrip: Bool = false,
         providers: [CloudProvider] = [],
         currentProviderId: String = "",
         onSelectProvider: @escaping (String) -> Void = { _ in },
@@ -628,6 +636,7 @@ public struct LensWorkspaceView: View {
         self.onPauseDocumentSurvey = onPauseDocumentSurvey
         self.onStopDocumentSurvey = onStopDocumentSurvey
         self.showSourcePicker = showSourcePicker
+        self.paneShowsTabStrip = paneShowsTabStrip
         self.providers = providers
         self.currentProviderId = currentProviderId
         self.onSelectProvider = onSelectProvider
@@ -1091,6 +1100,13 @@ public struct LensWorkspaceView: View {
             // edge lands on 83.5 — the file pane's header/list boundary — no matter what's been
             // scanned. The `sourceBar` sits below it (and only ever appears when the source rail
             // is collapsed, i.e. when there's no pane left to line up with anyway).
+            //
+            // **Under the pane's tab strip, the strip's slot is left empty** (`paneShowsTabStrip`)
+            // so that edge stays on the pane's line — Edit's document column does the same. In
+            // `.cards` it is a gap above the header card where the strip's own card stands in the
+            // pane; in `.unified` a clear band inside this column's one region, as the pane's strip
+            // is flush inside its region (`PaneTabStripLadder.slotHeight`).
+            Color.clear.frame(height: paneShowsTabStrip ? PaneTabStripLadder.slotHeight(surfaceStyle) : 0)
             lensHeaderCard(rows: rows, counts: counts, scopeFolders: scopeFolders)
             // The reading is a three-hour background job and its card lives on one lens; the strip
             // is how the other five say it is happening. Padded like `sourceBar`, below the header

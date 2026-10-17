@@ -427,7 +427,7 @@ extension ContentView {
                         .clipped()
                         // With the strip's own curve, so the header card moves down beside the pane's
                         // toolbar card as the strip slides in, rather than a frame after it.
-                        .designAnimation(.easeOut(duration: 0.18), value: editorPaneShowsTabStrip)
+                        .designAnimation(.easeOut(duration: 0.18), value: sourcePaneShowsTabStrip)
                 }
                 .overlay(alignment: .leading) {
                     editorColumnResizeHandle(displayedWidth: column,
@@ -547,7 +547,7 @@ extension ContentView {
             onNewTextFile: shortcutNewTextFile,
             onCloseDocument: { closeEditorDocument() },
             onAutosaveResumed: { runAutosave() },
-            paneShowsTabStrip: editorPaneShowsTabStrip,
+            paneShowsTabStrip: sourcePaneShowsTabStrip,
             folderDisplayName: editorFolderDisplayName,
             newFileFolderName: editorNewFileFolderName,
             onImagesImported: { noteEditorImages($0) },

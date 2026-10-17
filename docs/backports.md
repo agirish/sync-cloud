@@ -7248,3 +7248,34 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s sidebarCard=%s spineCard=%s i
 inset tests for the one-box tests; `LensHeaderCardTests` measures inside `windowRegionFrame`. On
 `v4.x` and older drop the `EditorWorkspaceView` and `ContentView+Editor` hunks; on `v3.x`/`v2.x`
 also the folder-sidebar seam and the `ActivePaneMark` hunk.
+
+---
+
+## An Organize lens's header leaves the pane's tab-strip slot empty — main only
+
+With two tabs in the rail (or View ▸ Tab Bar on), the strip pushes the pane's toolbar card down by
+`PaneTabStripLadder.slotHeight`, and the lens header card beside it stayed at the top of the column,
+its bottom edge one strip slot above the pane's — in Unified and Cards alike. `LensWorkspaceView`
+now takes `paneShowsTabStrip` and leaves that slot clear above `lensHeaderCard`, as Edit's document
+column already did. The host passes the predicate Edit uses, renamed `editorPaneShowsTabStrip` →
+`sourcePaneShowsTabStrip` now that two columns read it; it is false while the rail is collapsed.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s lens=%s slotHeight=%s lensSlot=%s\n' "$l" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift 2>/dev/null | grep -c 'lensHeaderCard(rows')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneTabStripLadder.swift 2>/dev/null | grep -c 'func slotHeight')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift 2>/dev/null | grep -c 'paneShowsTabStrip')"
+done
+# measured 2026-10-17, against origin, before this landed:
+# main  lens=2 slotHeight=1 lensSlot=0
+# v5.x  lens=2 slotHeight=1 lensSlot=0
+# v4.x  lens=2 slotHeight=0 lensSlot=0
+# v3.x, v2.x — lens=0 slotHeight=0 lensSlot=0 (no lens workspace, no strip)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The gap, and everything the fix stands on: the strip, `slotHeight`, `editorPaneShowsTabStrip`. A pick is this one commit; the rename touches `ContentView+Editor.swift` and the Edit wiring test as well | RECORDED — owed, not picked (no backporting) |
+| `v4.x` | The lens header and a tab strip, but no `slotHeight` — that came with Edit's own fix, which `v4.x` has no document column to need. A pick would have to bring the helper too | RECORDED — owed, needs `slotHeight` first |
+| `v3.x` / `v2.x` | No lens workspace and no tab strip | CLOSED — does not apply |

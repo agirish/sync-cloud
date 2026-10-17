@@ -113,12 +113,13 @@ extension ContentView {
             })
     }
 
-    /// Whether the source pane beside Edit's document is drawing its tab strip, which pushes the
-    /// pane's toolbar card down — see `EditorWorkspaceView.paneShowsTabStrip`. The pane's own rule,
-    /// and only while the pane is open: collapsed, no strip is on screen. Here rather than in
-    /// `ContentView+Editor.swift` because it reads the strip: this file's readers are called from
-    /// the files `everyTabVerbTheHostWiresReachesTheFocusDoorUnconditionally` walks.
-    var editorPaneShowsTabStrip: Bool {
+    /// Whether the source pane beside Edit's document or an Organize lens is drawing its tab strip,
+    /// which pushes the pane's toolbar card down — see `EditorWorkspaceView.paneShowsTabStrip` and
+    /// `LensWorkspaceView.paneShowsTabStrip`; both columns leave its slot empty above their header.
+    /// The pane's own rule, and only while the pane is open: collapsed, no strip is on screen. Here
+    /// rather than in `ContentView+Editor.swift` because it reads the strip: this file's readers are
+    /// called from the files `everyTabVerbTheHostWiresReachesTheFocusDoorUnconditionally` walks.
+    var sourcePaneShowsTabStrip: Bool {
         !panesHiddenForCurrentTab && paneShowsTabStrip(isLeft: true)
     }
 
