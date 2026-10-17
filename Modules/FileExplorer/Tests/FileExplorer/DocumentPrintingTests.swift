@@ -1,4 +1,5 @@
 import AppKit
+import Sync
 import Testing
 @testable import FileExplorer
 
@@ -38,9 +39,15 @@ import Testing
                 "the operation was built while the lane was held — the PDF was parsed outside it")
 
         hold.release()
-        let deadline = Date().addingTimeInterval(10)
-        while first.operations.isEmpty, Date() < deadline {
-            try await Task.sleep(for: .milliseconds(10))
+        // **Waited for in lane turns, not seconds** (`docs/flaky-tests.md`, "The wait that hangs
+        // instead of failing"). The parse was queued behind the hold, and the lane runs in order, so
+        // the moment one turn of ours comes back the parse has run; what is left is its hop back to
+        // the main actor. A 10 s budget here ran out on CI three times in a day under load, with
+        // nothing wrong with printing — the parse was simply still queued behind other suites.
+        await PDFKitSerialAccess.perform {}
+        for _ in 0..<1000 where first.operations.isEmpty {
+            await PDFKitSerialAccess.perform {}
+            try await Task.sleep(for: .milliseconds(5))
         }
         #expect(first.operations.count == 1, "the operation never arrived once the lane was free")
         let operation = try #require(first.operations.first ?? nil, "the render produced no operation")

@@ -725,9 +725,16 @@ alone" did not.
   lane and then slept or polled on the main actor. A full run crowds the main actor, so each hold
   stretched to seconds, and other suites' 30 s `LaneHold.waitUntilHeld` budgets ran out:
   `PDFPreviewMountedTests` and `DocumentPrintingTests`, three reds per run. With `--skip
-  EditorPDFRailTests` the run went green. Fix: release the hold as soon as the queued turn is
-  observable, from a detached task, and read lane-side counts through a lock. **Never wait on
-  the main actor while holding the lane.**
+  EditorPDFRailTests` the run went green. **The first fix was not enough.** Releasing "the moment
+  the queued turn is observable" still waited on the main actor, through `Task.yield`, and two
+  more such holds added in `04d21b27` turned CI red twice, on the same SHA, in runs of about 800 s
+  instead of 444. In both runs `DocumentPrintingTests`' 10 s budget after its own hold ran out.
+  The real fix is in `EditorPDFThumbnails.Lane`: the pump's lane is injected, and those tests hold
+  a private lane in front of the real one (`HeldLane`), so they block nobody else. The one test
+  that must prove the real lane is used holds it from a detached task, with nothing on the main
+  actor. **A test of a `@MainActor` object must not hold `PDFKitSerialAccess`; give the code a
+  lane to inject.** The tell: in the CI log, unrelated tests "pass after" hundreds of seconds, all
+  about the same number, and the run is far longer than the last green one.
 ### 4. Leaked defaults suites
 
 **Symptom.** Accumulating `<SuiteName>-<UUID>.plist` files in `~/Library/Preferences`, and

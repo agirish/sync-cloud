@@ -241,7 +241,24 @@ public final class EditorPDFThumbnails: ObservableObject {
     /// The source itself, for a test that reads ``Source/draws`` off the main actor.
     var currentSource: Source? { source }
 
-    public init() {}
+    /// Where a turn runs. **Always the process-wide PDFKit lane in the app** (``Lane/pdfKit``); a
+    /// test hands in a private one it can hold — see ``Lane``.
+    private let lane: Lane
+
+    /// **The turn-taker, as a value, so a test need not hold the process's lane.** Holding
+    /// `PDFKitSerialAccess` to make a turn wait blocks every PDF suite in the package, and a hold
+    /// that then waits on the main actor — which any test of this `@MainActor` pump must — lasts
+    /// as long as the main actor is crowded: measured on CI 2026-10-17, three such holds here made
+    /// a print test's 10 s budget run out twice, on a run twice its usual length. Only
+    /// `thumbnailsRenderThroughTheLane` uses the real lane, and it holds it from a detached task.
+    struct Lane: Sendable {
+        let perform: @Sendable (@escaping @Sendable () -> Render) async -> Render
+        static let pdfKit = Lane { body in await PDFKitSerialAccess.perform(body) }
+    }
+
+    public init() { lane = .pdfKit }
+
+    init(lane: Lane) { self.lane = lane }
 
     /// Starts over for a newly opened (or reloaded, or unlocked) PDF of `pageCount` pages.
     func attach(path: String, pageCount: Int, unlocked: PDFDocument? = nil) {
@@ -318,7 +335,8 @@ public final class EditorPDFThumbnails: ObservableObject {
             // duplicate scan for minutes, and a strong reference held through that wait would keep
             // this object and its images alive past the model that owns them.
             while let ask = self?.nextAsk(generation) {
-                let result = await Self.render(page: ask.page, source: ask.source, wanted: ask.wanted)
+                let result = await Self.render(page: ask.page, source: ask.source, wanted: ask.wanted,
+                                               lane: ask.lane)
                 guard let self, generation == self.generation else { return }
                 self.land(result, page: ask.page)
             }
@@ -328,10 +346,10 @@ public final class EditorPDFThumbnails: ObservableObject {
     }
 
     /// The next turn to ask for in `generation`, or `nil` when there is none — and marks it asked.
-    private func nextAsk(_ generation: Int) -> (page: Int, source: Source, wanted: Wanted)? {
+    private func nextAsk(_ generation: Int) -> (page: Int, source: Source, wanted: Wanted, lane: Lane)? {
         guard generation == self.generation, let page = nextPage(), let source else { return nil }
         asking = page
-        return (page, source, wanted)
+        return (page, source, wanted, lane)
     }
 
     /// What one turn brought back, applied.
@@ -355,8 +373,9 @@ public final class EditorPDFThumbnails: ObservableObject {
     }
 
     /// One lane turn: open the source if this is its first, then draw one page.
-    nonisolated static func render(page: Int, source: Source, wanted: Wanted) async -> Render {
-        await PDFKitSerialAccess.perform {
+    nonisolated static func render(page: Int, source: Source, wanted: Wanted,
+                                   lane: Lane = .pdfKit) async -> Render {
+        await lane.perform {
             guard wanted.contains(page) else { return .skipped }
             source.draws.withLock { $0 += 1 }
             if source.reopens, source.drawnSinceOpen >= recycleEvery {

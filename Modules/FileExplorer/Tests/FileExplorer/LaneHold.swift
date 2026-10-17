@@ -21,8 +21,15 @@ final class LaneHold: Sendable {
         }
     }
 
+    /// **Ten minutes, not thirty seconds.** The hold queues like any parse, so how long it waits is
+    /// how busy the lane is — in a full package run, with other suites holding it in turn, that
+    /// was measured past 30 s (CI, 2026-10-17), and the hold failed as if it were broken. A lane that
+    /// never comes free still fails, after a wait no healthy run reaches. It polls with the lane
+    /// NOT held, so its main-actor sleeps cost nobody else anything.
+    static let patience: TimeInterval = 600
+
     func waitUntilHeld() async -> Bool {
-        let deadline = Date().addingTimeInterval(30)
+        let deadline = Date().addingTimeInterval(Self.patience)
         while Date() < deadline {
             if held.withLock({ $0 }) { return true }
             try? await Task.sleep(nanoseconds: 5_000_000)

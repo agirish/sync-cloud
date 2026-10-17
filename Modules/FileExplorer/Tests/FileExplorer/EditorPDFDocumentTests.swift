@@ -243,33 +243,6 @@ enum PDFFixtures {
 
     // MARK: The lane
 
-    /// Holds the lane until released — `PDFPreviewMountedTests`' hold, for the same reason it polls.
-    private final class LaneHold: Sendable {
-        private let gate = DispatchSemaphore(value: 0)
-        private let held = OSAllocatedUnfairLock(initialState: false)
-        private let released = OSAllocatedUnfairLock(initialState: false)
-
-        init() {
-            Task.detached { [gate, held] in
-                await PDFKitSerialAccess.perform { held.withLock { $0 = true }; gate.wait() }
-            }
-        }
-
-        func waitUntilHeld() async -> Bool {
-            let deadline = Date().addingTimeInterval(30)
-            while Date() < deadline {
-                if held.withLock({ $0 }) { return true }
-                try? await Task.sleep(nanoseconds: 5_000_000)
-            }
-            return false
-        }
-
-        func release() {
-            let first = released.withLock { done in defer { done = true }; return !done }
-            if first { gate.signal() }
-        }
-    }
-
     /// **The open is in the lane**: with the lane held, the model stays loading and no document
     /// reaches it; released, it opens. A parse anywhere else would have opened behind the hold.
     @Test func theOpenWaitsForTheLane() async throws {

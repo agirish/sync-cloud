@@ -181,70 +181,69 @@ import FileExplorerTestSupport
 
     // MARK: The thumbnails
 
-    /// **Through the lane**: with the lane held no thumbnail is drawn; released, they arrive.
+    /// **Through the lane**: with the process's PDFKit lane held, the render step draws nothing;
+    /// released, it draws. **Held, drawn and released entirely off the main actor** — this is the
+    /// one test that holds the real lane, and a hold that waits on the main actor (crowded in a
+    /// full run) is what starved the other PDF suites' budgets (see `EditorPDFThumbnails.Lane`).
     @Test func thumbnailsRenderThroughTheLane() async throws {
         let file = path("pages.pdf")
         PDFFixtures.write(file, pages: 12)
-        let pdf = await opened(file)
-        #expect(pdf.phase == .open)
-
-        let hold = LaneHold()
-        defer { hold.release() }
-        try #require(await hold.waitUntilHeld(), "the lane never came free to be held")
-        pdf.thumbnails.show([0, 1, 2, 3])
-        // **The hold is released the moment the first render is queued**, not after a pause:
-        // every other PDF suite in the package waits on this lane, and a hold that waited on the
-        // main actor (crowded in a full run) outlasted their 30 s budgets — measured: three lane
-        // tests red with this suite in the run, all green with it skipped. `asking` is set as the
-        // pump hands its turn to the lane; nothing drawn by then is the claim.
-        await Self.until { pdf.thumbnails.asking != nil }
-        let queued = pdf.thumbnails.asking
-        let source = try #require(pdf.thumbnails.currentSource)
-        // Off the main actor from here to the release: the control draws the same page OFF the
-        // lane, three times over, so a render that went around the lane has had longer than it
-        // needs — then the count is read and the lane let go, from this same task.
-        let drawnWhileHeld = await Task.detached { [hold] () -> Int in
+        let source = EditorPDFThumbnails.Source(path: file)
+        let wanted = EditorPDFThumbnails.Wanted()
+        wanted.set([0])
+        let (drawnWhileHeld, rendered) = await Task.detached { () -> (Int, Bool) in
+            let hold = LaneHold()
+            guard await hold.waitUntilHeld() else { hold.release(); return (-1, false) }
+            let render = Task.detached { await EditorPDFThumbnails.render(page: 0, source: source, wanted: wanted) }
+            // The control draws the same page OFF the lane, three times over, so a render that
+            // went around the lane has had longer than it needs; then the count, then the release.
             let control = PDFDocument(url: URL(fileURLWithPath: file))
             for _ in 0..<3 {
                 _ = control?.page(at: 0).flatMap { EditorPDFThumbnails.drawThumbnail($0, longEdge: 240) }
             }
             let drawn = source.draws.withLock { $0 }
             hold.release()
-            return drawn
+            if case .image = await render.value { return (drawn, true) }
+            return (drawn, false)
         }.value
-        #expect(queued == 0, "the first visible page was not the first asked for")
+        try #require(drawnWhileHeld >= 0, "the lane never came free to be held")
         #expect(drawnWhileHeld == 0, "\(drawnWhileHeld) thumbnail(s) drawn while the lane was held — around it")
-        await wait("the visible thumbnails") { (0...3).allSatisfy { pdf.thumbnails.images[$0] != nil } }
-        // The margin is rendered ahead of a scroll, and nothing past it.
-        await wait("the margin") { pdf.thumbnails.images.count == 4 + EditorPDFThumbnails.margin }
-        #expect(Set(pdf.thumbnails.images.keys) == Set(0..<(4 + EditorPDFThumbnails.margin)))
+        #expect(rendered, "released, the render drew nothing")
+
+        // And the pump, on the app's own lane: the visible pages, then the margin, nothing past it.
+        let thumbnails = EditorPDFThumbnails()
+        thumbnails.attach(path: file, pageCount: 12)
+        thumbnails.show([0, 1, 2, 3])
+        await wait("the visible thumbnails") { (0...3).allSatisfy { thumbnails.images[$0] != nil } }
+        await wait("the margin") { thumbnails.images.count == 4 + EditorPDFThumbnails.margin }
+        #expect(Set(thumbnails.images.keys) == Set(0..<(4 + EditorPDFThumbnails.margin)))
     }
 
-    /// **Pages scrolled away are cancelled**: a window asked for and left before the lane came
-    /// free is never drawn. Its one turn already queued skips itself at its head.
+    /// **Pages scrolled away are cancelled**: a window asked for and left before its turn came is
+    /// never drawn. Its one turn already queued skips itself at its head. Held on a lane of the
+    /// test's own, so nothing else in the package waits on this test.
     @Test func pagesScrolledAwayAreCancelled() async throws {
         let file = path("long.pdf")
         PDFFixtures.write(file, pages: 300, text: false)
-        let pdf = await opened(file)
-        #expect(pdf.facts?.pageCount == 300)
-
-        let hold = LaneHold()
-        defer { hold.release() }
-        try #require(await hold.waitUntilHeld(), "the lane never came free to be held")
-        pdf.thumbnails.show(Set(0..<6))
+        let lane = HeldLane()
+        defer { lane.release() }
+        let thumbnails = EditorPDFThumbnails(lane: lane.lane)
+        thumbnails.attach(path: file, pageCount: 300)
+        lane.hold()
+        thumbnails.show(Set(0..<6))
         // The first window's turn must be queued behind the hold before the scroll away, or there
-        // is nothing to cancel — and the hold goes the moment it is (see the test above).
-        await Self.until { pdf.thumbnails.asking != nil }
-        let queued = pdf.thumbnails.asking
-        pdf.thumbnails.show(Set(200..<206))
-        hold.release()
+        // is nothing to cancel.
+        await Self.until { thumbnails.asking != nil }
+        let queued = thumbnails.asking
+        thumbnails.show(Set(200..<206))
+        lane.release()
         try #require(queued == 0, "the first window's turn was never queued")
 
-        await wait("the window scrolled to") { (200..<206).allSatisfy { pdf.thumbnails.images[$0] != nil } }
-        let early = pdf.thumbnails.drawn.filter { $0 < 6 + EditorPDFThumbnails.margin }
+        await wait("the window scrolled to") { (200..<206).allSatisfy { thumbnails.images[$0] != nil } }
+        let early = thumbnails.drawn.filter { $0 < 6 + EditorPDFThumbnails.margin }
         #expect(early.isEmpty, "pages scrolled away were drawn anyway: \(early)")
-        #expect(pdf.thumbnails.skippedTurns == 1,
-                "the turn queued for the first window ran \(pdf.thumbnails.skippedTurns == 0 ? "and drew" : "\(pdf.thumbnails.skippedTurns) times")")
+        #expect(thumbnails.skippedTurns == 1,
+                "the turn queued for the first window ran \(thumbnails.skippedTurns == 0 ? "and drew" : "\(thumbnails.skippedTurns) times")")
     }
 
     /// **Bounded, and released with the PDF.** A long scroll keeps at most `capacity` images; a
@@ -396,17 +395,18 @@ import FileExplorerTestSupport
     @Test func aTurnFromBeforeAReloadDrawsNothing() async throws {
         let file = path("reloaded.pdf")
         PDFFixtures.write(file, pages: 10)
-        let pdf = await opened(file)
-        let hold = LaneHold()
-        defer { hold.release() }
-        try #require(await hold.waitUntilHeld(), "the lane never came free to be held")
-        pdf.thumbnails.show([0])
-        await Self.until { pdf.thumbnails.asking != nil }
-        let old = try #require(pdf.thumbnails.currentSource)
-        pdf.thumbnails.attach(path: file, pageCount: 10)   // what a reload does
-        pdf.thumbnails.show([0])                           // and the grid asks for the same page
-        hold.release()
-        await wait("the reloaded page") { pdf.thumbnails.images[0] != nil }
+        let lane = HeldLane()
+        defer { lane.release() }
+        let thumbnails = EditorPDFThumbnails(lane: lane.lane)
+        thumbnails.attach(path: file, pageCount: 10)
+        lane.hold()
+        thumbnails.show([0])
+        await Self.until { thumbnails.asking != nil }
+        let old = try #require(thumbnails.currentSource)
+        thumbnails.attach(path: file, pageCount: 10)   // what a reload does
+        thumbnails.show([0])                           // and the grid asks for the same page
+        lane.release()
+        await wait("the reloaded page") { thumbnails.images[0] != nil }
         #expect(old.draws.withLock { $0 } == 0, "the turn from before the reload drew from the old document")
     }
 
@@ -432,10 +432,10 @@ import FileExplorerTestSupport
     @Test func aQueuedTurnDoesNotKeepTheThumbnailsAlive() async throws {
         let file = path("alive.pdf")
         PDFFixtures.write(file, pages: 4)
-        let hold = LaneHold()
-        defer { hold.release() }
-        try #require(await hold.waitUntilHeld(), "the lane never came free to be held")
-        var thumbnails: EditorPDFThumbnails? = EditorPDFThumbnails()
+        let lane = HeldLane()
+        defer { lane.release() }
+        lane.hold()
+        var thumbnails: EditorPDFThumbnails? = EditorPDFThumbnails(lane: lane.lane)
         weak var weakly = thumbnails
         thumbnails?.attach(path: file, pageCount: 4)
         thumbnails?.show([0])
@@ -640,26 +640,23 @@ import FileExplorerTestSupport
                                                             quickLook: { _ in }))
     }
 
-    /// Holds the lane until released — `EditorPDFDocumentTests`' hold, for the same reason it polls.
-    private final class LaneHold: Sendable {
+    /// **A lane of the test's own, in front of the real one.** Held, it stops only THIS test's turns;
+    /// released, each turn still runs inside `PDFKitSerialAccess` (`run`, from this queue's thread),
+    /// so the lane's rule holds in tests too. Holding is immediate — nothing to wait for.
+    final class HeldLane: Sendable {
+        private let queue = DispatchQueue(label: "EditorPDFRailTests.HeldLane")
         private let gate = DispatchSemaphore(value: 0)
-        private let held = OSAllocatedUnfairLock(initialState: false)
         private let released = OSAllocatedUnfairLock(initialState: false)
 
-        init() {
-            Task.detached { [gate, held] in
-                await PDFKitSerialAccess.perform { held.withLock { $0 = true }; gate.wait() }
+        var lane: EditorPDFThumbnails.Lane {
+            EditorPDFThumbnails.Lane { [queue] body in
+                await withCheckedContinuation { continuation in
+                    queue.async { continuation.resume(returning: PDFKitSerialAccess.run(body)) }
+                }
             }
         }
 
-        func waitUntilHeld() async -> Bool {
-            let deadline = Date().addingTimeInterval(30)
-            while Date() < deadline {
-                if held.withLock({ $0 }) { return true }
-                try? await Task.sleep(nanoseconds: 5_000_000)
-            }
-            return false
-        }
+        func hold() { queue.async { [gate] in gate.wait() } }
 
         func release() {
             let first = released.withLock { done in defer { done = true }; return !done }
