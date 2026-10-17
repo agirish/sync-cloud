@@ -235,6 +235,69 @@ enum MarkdownSourceContext {
         }
     }
 
+    /// **The table holding `location`'s line, as the preview's parser reads it** — its header's
+    /// line and its last row's — or `nil` where cmark draws no table: in a code block however it is
+    /// fenced or indented, in front matter or raw HTML, or on lines that only look like a table
+    /// (TBL-7). The Table menu's own reading of the rows stays ``MarkdownTables``'; this says
+    /// whether there is a table at all, and where it ends (TBL-3, TBL-9).
+    ///
+    /// Parsed down to the last line before a blank one, not to the end of the note: a table ends at
+    /// a blank line at the latest, and nothing below a line changes what holds it.
+    /// Counts the parses ``tableLines(at:in:)`` makes while a test has bound it (TBL-19) — a
+    /// task-local, so tests running beside it in other tasks cannot add to the count.
+    final class ParseCount: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        var count: Int { lock.withLock { value } }
+        func add() { lock.withLock { value += 1 } }
+    }
+    @TaskLocal static var tableParses: ParseCount?
+
+    static func tableLines(at location: Int, in ns: NSString)
+        -> (first: MarkdownSourceLines.Line, last: MarkdownSourceLines.Line)? {
+        func isBlank(_ line: MarkdownSourceLines.Line) -> Bool {
+            (0..<line.content.length).allSatisfy {
+                let unit = ns.character(at: line.content.location + $0)
+                return unit == 0x20 || unit == 0x09
+            }
+        }
+        let line = MarkdownSourceLines.line(containing: location, in: ns)
+        guard !isBlank(line) else { return nil }
+        let body = MarkdownFrontMatter.bodyStart(in: ns)
+        guard line.content.location >= body.offset else { return nil }
+        var end = line
+        var below = 0
+        while let next = MarkdownSourceLines.line(after: end, in: ns), !isBlank(next) {
+            end = next
+            below += 1
+        }
+        var bytes = Array(ns.substring(with: NSRange(location: body.offset,
+                                                     length: NSMaxRange(end.content) - body.offset)).utf8)
+        tableParses?.add()
+        let lines = bytes.withUnsafeMutableBufferPointer { buffer -> (start: Int, end: Int, number: Int)? in
+            guard let root = parse(buffer) else { return nil }
+            defer { cmark_node_free(root) }
+            // The line asked about, numbered from the document's last line — which cmark reports —
+            // rather than by counting every line above it again: that count cost as much as the
+            // parse on a long note (TBL-19, measured 2026-10-16: 58 of 118 ms at 3.5 MB).
+            let number = Int(cmark_node_get_end_line(root)) - below
+            guard let table = chain(holding: number, in: root).last(where: {
+                String(cString: cmark_node_get_type_string($0)) == "table"
+            }) else { return nil }
+            return (Int(cmark_node_get_start_line(table)), Int(cmark_node_get_end_line(table)), number)
+        }
+        guard let lines else { return nil }
+        let number = lines.number
+        guard lines.start <= number,
+              let first = MarkdownSourceLines.line(lines.start, from: line, number: number, in: ns) else { return nil }
+        var last = line
+        for _ in number..<max(number, lines.end) {
+            guard let next = MarkdownSourceLines.line(after: last, in: ns) else { break }
+            last = next
+        }
+        return (first, last)
+    }
+
     /// Whether `location` is somewhere a Markdown edit must leave alone: the front matter, a code
     /// block, or raw HTML. What TE55 and TE56 ask before they write a link into the text.
     static func isLiteral(at location: Int, in ns: NSString) -> Bool {

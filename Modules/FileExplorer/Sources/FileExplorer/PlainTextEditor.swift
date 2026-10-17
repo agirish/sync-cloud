@@ -358,11 +358,12 @@ struct PlainTextEditor: NSViewRepresentable {
                 insertTextSettings(into: menu, at: 0)
                 return menu
             }
-            let ns = view.string as NSString
+            let tables = MarkdownTables.reading(view.string as NSString, view.selectedRange())
             let markup = Self.markupMenu(target: self, action: #selector(applyMarkup(_:)),
-                                         tables: MarkdownTables.available(in: ns, selection: view.selectedRange()),
-                                         inTable: MarkdownTables.touches(ns, view.selectedRange()),
-                                         crossesCells: MarkdownEdits.crossesCells(ns, view.selectedRange()),
+                                         tables: tables.available, inTable: tables.touches,
+                                         crossesCells: MarkdownEdits.crossesCells(view.string as NSString, view.selectedRange(),
+                                                                                  touches: tables.touches),
+                                         abutsTable: tables.abuts,
                                          enabled: isMarkdownDocument)
             let host = NSMenuItem(title: "Markup", action: nil, keyEquivalent: "")
             host.submenu = markup
@@ -498,7 +499,9 @@ struct PlainTextEditor: NSViewRepresentable {
         ///
         /// **And with `inTable`, the verbs that would break a table are greyed** (TE76), as the
         /// format bar greys them — ``MarkupVerb/breaksTables``, refused there by the verbs
-        /// themselves. So the Markup submenu enables its items by hand too.
+        /// themselves. So the Markup submenu enables its items by hand too. With `abutsTable`, the
+        /// list and quote verbs are greyed too: the paragraph runs into a table they would swallow
+        /// (FMT-2, ``MarkupVerb/continuesLazily``).
         ///
         /// **`enabled: false` greys every item** — a file that is not Markdown (FMT-18), where the
         /// verbs would write `**` and `- ` into a `.txt`, a `.yaml` or a `.json`. The submenu stays,
@@ -508,7 +511,8 @@ struct PlainTextEditor: NSViewRepresentable {
         /// **And with `crossesCells`, the marks and Link are greyed** (FMT-1): the selection runs
         /// across a table's cells, where wrapping it would break the table.
         static func markupMenu(target: AnyObject?, action: Selector, tables: Set<TableVerb>? = nil,
-                               inTable: Bool = false, crossesCells: Bool = false, enabled: Bool = true) -> NSMenu {
+                               inTable: Bool = false, crossesCells: Bool = false, abutsTable: Bool = false,
+                               enabled: Bool = true) -> NSMenu {
             let markup = NSMenu(title: "Markup")
             markup.autoenablesItems = false
             let table = NSMenu(title: MarkupVerb.tableMenuTitle)
@@ -536,6 +540,7 @@ struct PlainTextEditor: NSViewRepresentable {
                     table.addItem(item)
                 } else {
                     item.isEnabled = enabled && !(inTable && verb.breaksTables) && !(crossesCells && verb.wrapsWords)
+                        && !(abutsTable && verb.continuesLazily)
                     markup.addItem(item)
                 }
             }

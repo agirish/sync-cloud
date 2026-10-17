@@ -393,13 +393,14 @@ struct PreviewEditorView: NSViewRepresentable {
         /// the Format Bar switch on top — what Help says right-clicking the text offers (review:
         /// Preview had AppKit's menu alone).
         func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
-            let ns = session.source.text as NSString
             let selection = session.sourceSelection(for: view.selectedRange()) ?? NSRange(location: 0, length: 0)
+            let tables = MarkdownTables.reading(session.source.text as NSString, selection)
             let markup = PlainTextEditor.Coordinator.markupMenu(
                 target: self, action: #selector(applyMarkupItem(_:)),
-                tables: MarkdownTables.available(in: ns, selection: selection),
-                inTable: MarkdownTables.touches(ns, selection),
-                crossesCells: MarkdownEdits.crossesCells(ns, selection))
+                tables: tables.available, inTable: tables.touches,
+                crossesCells: MarkdownEdits.crossesCells(session.source.text as NSString, selection,
+                                                         touches: tables.touches),
+                abutsTable: tables.abuts)
             let host = NSMenuItem(title: "Markup", action: nil, keyEquivalent: "")
             host.submenu = markup
             let shows = UserDefaults.standard.object(forKey: EditorTextSettings.showsFormatBarKey) as? Bool

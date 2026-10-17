@@ -1006,6 +1006,39 @@ import EventsTestSupport
         (text as NSString).range(of: needle).location
     }
 
+    /// **What the Table capsule's controls do** (TBL-17): Row adds a row BELOW and Column a column
+    /// to the RIGHT, each chevron offering both sides; Delete asks which; Format formats. Nothing
+    /// pinned it — the control count and a grep for `onVerb(verb)` both read the same with Above and
+    /// Below swapped, and "Row" names both — so the list the capsule draws from is read, and the
+    /// capsule is held to drawing from it rather than naming verbs of its own.
+    ///
+    /// Mutations: swap a press and its other side in the list, or draw a control from a verb
+    /// written in `tableCapsule(worded:)` — each fails a line.
+    @Test func theTableCapsulesPressesDoWhatTheirWordsSay() throws {
+        #expect(EditorFormatBar.tableCapsule == [
+            .press(.addRowBelow, chevron: [.addRowAbove, .addRowBelow]),
+            .press(.addColumnRight, chevron: [.addColumnLeft, .addColumnRight]),
+            .menu([.deleteRow, .deleteColumn]),
+            .button(.tidy),
+        ])
+        let offered = EditorFormatBar.tableCapsule.flatMap { control -> [TableVerb] in
+            switch control {
+            case .press(_, let chevron): return chevron
+            case .menu(let verbs): return verbs
+            case .button(let verb): return [verb]
+            }
+        }
+        #expect(Set(offered.map(MarkupVerb.table)) == Set(EditorFormatBar.tableEditVerbs)
+                && offered.count == EditorFormatBar.tableEditVerbs.count,
+                "the capsule offers \(offered.map(\.title)), not each table edit once")
+        let capsule = try Self.slice(try Self.source("EditorFormatBar.swift"),
+                                     from: "private func tableCapsule(worded: Bool)", to: "\n    }\n")
+        #expect(capsule.contains("Self.tableCapsule"), "the capsule does not draw from tableCapsule")
+        for verb in TableVerb.allCases where verb != .insert {
+            #expect(!capsule.contains(".\(verb)"), "the capsule names .\(verb) itself rather than reading it from the list")
+        }
+    }
+
     /// **The Table capsule comes with the caret into a table and goes when it leaves** (TE73): six
     /// more controls — Row and its chevron, Column and its chevron, Delete, Format — on the real
     /// bar, from the state the caret's place derives. Mutations: draw the capsule on `touchesTable`
@@ -1085,7 +1118,8 @@ import EventsTestSupport
         #expect(surface.contains("MarkdownEdits.breaksTable(verb, in: view.string, selection: view.selectedRange())"),
                 "a press from the menu bar that a table refuses says nothing")
         let editor = try Self.source("PlainTextEditor.swift")
-        #expect(editor.contains("inTable: MarkdownTables.touches(ns, view.selectedRange())"),
+        #expect(editor.contains("MarkdownTables.reading(view.string as NSString, view.selectedRange())")
+                && editor.contains("inTable: tables.touches"),
                 "the right-click menu is not told the caret is in a table")
     }
 
@@ -1128,6 +1162,40 @@ import EventsTestSupport
                                                           tables: [], inTable: true, crossesCells: true)
         let live = menu.items.filter { !$0.isSeparatorItem && $0.submenu == nil && $0.isEnabled }.map(\.title)
         #expect(!marks.contains { live.contains($0.title) }, "the right-click menu offers \(live) across cells")
+    }
+
+    /// **Whether a selection crosses cells costs no parse of its own** (FMT-1 with TBL-19). TBL-19
+    /// reads a selection's table questions with one parse per end through `MarkdownTables.reading`;
+    /// FMT-1's `crossesCells` asked `touches` again, a second parse of the note down to the table for
+    /// every selection with something in it, on the main thread as the selection moves. The format
+    /// bar and both right-click menus hand it the answer they already have.
+    ///
+    /// Mutation: `touches: nil` in `MarkupFormatState.of`, and the counts go to 2 and 3.
+    @Test func aSelectionsCellCrossingCostsNoParseOfItsOwn() throws {
+        let text = Self.tableText
+        let ns = text as NSString
+        func parses(_ body: () -> Void) -> Int {
+            let count = MarkdownSourceContext.ParseCount()
+            MarkdownSourceContext.$tableParses.withValue(count) { body() }
+            return count.count
+        }
+        let gion = NSRange(location: Self.offset(of: "Gion"), length: 4)
+        let start = Self.offset(of: "| Day")
+        let rows = NSRange(location: start, length: Self.offset(of: "| Sat") - start)
+        #expect(parses { _ = MarkupFormatState.of(text, selection: gion) } == 1, "a word in a cell is read with more than one parse")
+        #expect(parses { _ = MarkupFormatState.of(text, selection: rows) } == 2, "two rows are read with more than a parse an end")
+        // Still read, both ways round.
+        #expect(!MarkupFormatState.of(text, selection: gion).crossesCells)
+        #expect(MarkupFormatState.of(text, selection: rows).crossesCells)
+        // The control: asked alone, it parses.
+        #expect(parses { _ = MarkdownEdits.crossesCells(ns, gion) } >= 1, "the control parses nothing — the counts above are vacuous")
+        // Both right-click menus hand over what `reading` found.
+        let editor = try Self.source("PlainTextEditor.swift")
+        let preview = try Self.source("PreviewEditorView.swift")
+        for (name, source) in [("Source's", editor), ("Preview's", preview)] {
+            #expect(source.contains("touches: tables.touches)"), "\(name) right-click menu parses again for crossesCells")
+            #expect(!source.contains("crossesCells: MarkdownEdits.crossesCells(ns,"), "\(name) right-click menu asks crossesCells apart")
+        }
     }
 
     /// **The Table button makes a table from the selected lines when they split into cells, else

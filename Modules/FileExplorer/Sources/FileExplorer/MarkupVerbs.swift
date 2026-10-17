@@ -86,6 +86,17 @@ public enum MarkupVerb: Hashable, Sendable {
         }
     }
 
+    /// **Whether this verb opens a block a paragraph's next lines join lazily** (FMT-2) — a list
+    /// item or a quote. On a paragraph line right above a table, with no blank line between, the
+    /// table's lines would become that item's or quote's text and cmark would draw no table; a
+    /// heading ends at its own line, and a fence or divider stands on lines of its own.
+    var continuesLazily: Bool {
+        switch self {
+        case .bulletList, .numberedList, .taskItem, .blockQuote: return true
+        default: return false
+        }
+    }
+
     /// Whether this is one of the Table submenu's items.
     public var isTable: Bool {
         if case .table = self { return true }
@@ -232,7 +243,8 @@ extension MarkdownEdits {
     }
 
     static func breaksTable(_ verb: MarkupVerb, _ ns: NSString, _ selection: NSRange) -> Bool {
-        (verb.breaksTables && MarkdownTables.touches(ns, selection))
+        (verb.breaksTables && (MarkdownTables.touches(ns, selection)
+                               || verb.continuesLazily && MarkdownTables.abuts(ns, selection)))
             || (verb.wrapsWords && crossesCells(ns, selection))
     }
 
@@ -242,8 +254,13 @@ extension MarkdownEdits {
     /// in the header over a delimiter row that no longer was one, and the table read as paragraphs.
     /// The marks were offered there because they "only wrap words inside a cell"; inside one they
     /// still do.
-    static func crossesCells(_ ns: NSString, _ selection: NSRange) -> Bool {
-        guard selection.length > 0, isValid(selection, in: ns), MarkdownTables.touches(ns, selection) else { return false }
+    ///
+    /// `touches`, when the caller has it already — the format bar and both right-click menus read
+    /// it with the rest through ``MarkdownTables/reading(_:_:)`` — so the selection is parsed once
+    /// (TBL-19) rather than again here.
+    static func crossesCells(_ ns: NSString, _ selection: NSRange, touches: Bool? = nil) -> Bool {
+        guard selection.length > 0, isValid(selection, in: ns),
+              touches ?? MarkdownTables.touches(ns, selection) else { return false }
         let selected = ns.substring(with: selection)
         return selected.contains(where: \.isNewline) || MarkdownTables.hasUnescapedPipe(selected)
     }

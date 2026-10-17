@@ -23,6 +23,9 @@ struct MarkupFormatState: Equatable, Sendable {
     /// Whether the selection runs across a table's cells — where the inline marks and Link would
     /// break it, and so are greyed too (FMT-1, ``MarkdownEdits/crossesCells(_:_:)``).
     var crossesCells = false
+    /// Whether the selection's paragraph runs straight into a table below — where a list or quote
+    /// would swallow it, and so they are greyed (FMT-2, ``MarkdownTables/abuts(_:_:)``).
+    var abutsTable = false
 
     static let none = MarkupFormatState(lit: [], heading: .body)
 
@@ -32,14 +35,16 @@ struct MarkupFormatState: Equatable, Sendable {
         let ns = text as NSString
         guard MarkdownEdits.isValid(selection, in: ns) else { return .none }
         let survey = MarkdownEdits.LineSurvey(covering: selection, in: ns)
+        let tables = MarkdownTables.reading(ns, selection)
         return MarkupFormatState(
             lit: Set(MarkupVerb.menuOrder.compactMap { $0 }.filter {
                 MarkdownEdits.isApplied($0, ns, selection, survey: survey)
             }),
             heading: MarkdownEdits.headingLevel(ns, selection, survey: survey),
-            tables: MarkdownTables.available(in: ns, selection: selection),
-            touchesTable: MarkdownTables.touches(ns, selection),
-            crossesCells: MarkdownEdits.crossesCells(ns, selection))
+            tables: tables.available,
+            touchesTable: tables.touches,
+            crossesCells: MarkdownEdits.crossesCells(ns, selection, touches: tables.touches),
+            abutsTable: tables.abuts)
     }
 
     /// This state with `verbs` lit as well — editable Preview's pending styles, which a caret there
@@ -230,6 +235,26 @@ struct EditorFormatBar: View, Equatable {
     /// tables — this capsule is only there when the caret is already in one.
     static let tableEditVerbs: [MarkupVerb] = Array(MarkupVerb.tableSections.dropFirst().joined())
 
+    /// One control of the Table capsule: a press with a chevron beside it for both sides, a menu
+    /// asking which, or a plain button.
+    enum TableCapsuleControl: Equatable, Sendable {
+        case press(TableVerb, chevron: [TableVerb])
+        case menu([TableVerb])
+        case button(TableVerb)
+    }
+
+    /// **What each of the Table capsule's controls does, in order** (TE73) — the one list the capsule
+    /// draws from: Row adds one below, Column one to the right, each with a chevron for both sides;
+    /// Delete asks Row or Column; Format formats. A list a test can read (TBL-17), because the words
+    /// cannot tell: "Row" names Add Row Above and Below alike, and a capsule drawn with the two
+    /// swapped looked, counted and read the same.
+    static let tableCapsule: [TableCapsuleControl] = [
+        .press(.addRowBelow, chevron: [.addRowAbove, .addRowBelow]),
+        .press(.addColumnRight, chevron: [.addColumnLeft, .addColumnRight]),
+        .menu([.deleteRow, .deleteColumn]),
+        .button(.tidy),
+    ]
+
     private nonisolated static func isHeading(_ verb: MarkupVerb) -> Bool {
         if case .heading = verb { return true }
         return false
@@ -348,6 +373,7 @@ struct EditorFormatBar: View, Equatable {
         }
         if case .table(let op) = verb { return state.tables.contains(op) }
         return !(verb.breaksTables && state.touchesTable) && !(verb.wrapsWords && state.crossesCells)
+            && !(verb.continuesLazily && state.abutsTable)
     }
 
     /// **Whether a MENU item would do something** — ``isOffered(_:in:)`` but for the Table button's
@@ -705,17 +731,18 @@ struct EditorFormatBar: View, Equatable {
             .padding(.leading, 6)
             .padding(.trailing, 2)
             .accessibilityLabel("Table")
-        tableEdit(.addRowBelow, other: .addRowAbove, worded: worded)
-        tableEdit(.addColumnRight, other: .addColumnLeft, worded: worded)
-        tableChoice([.table(.deleteRow), .table(.deleteColumn)], worded: worded)
-        verbButton(.table(.tidy), worded: worded)
-    }
-
-    /// An edit with a side: the press does `primary`, the chevron beside it offers both.
-    @ViewBuilder
-    private func tableEdit(_ primary: TableVerb, other: TableVerb, worded: Bool) -> some View {
-        verbButton(.table(primary), worded: worded)
-        tableChoice([.table(other), .table(primary)], worded: false, chevronOnly: true)
+        ForEach(Array(Self.tableCapsule.enumerated()), id: \.offset) { _, control in
+            switch control {
+            case .press(let verb, let chevron):
+                // The press does `verb`; the chevron beside it offers both sides.
+                verbButton(.table(verb), worded: worded)
+                tableChoice(chevron.map(MarkupVerb.table), worded: false, chevronOnly: true)
+            case .menu(let verbs):
+                tableChoice(verbs.map(MarkupVerb.table), worded: worded)
+            case .button(let verb):
+                verbButton(.table(verb), worded: worded)
+            }
+        }
     }
 
     /// A menu of table items, each enabled where it would do something.

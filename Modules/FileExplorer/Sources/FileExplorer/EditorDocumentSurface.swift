@@ -137,13 +137,17 @@ public enum EditorDocumentSurface {
             if breaks, verb.wrapsWords {
                 // FMT-1 — the format bar greys these too; across cells a mark breaks the table.
                 Logger.shared.info("Markup ▸ \(verb.title) did nothing: the selection runs across a table's cells, and a mark wraps words inside one")
+            } else if breaks, !MarkdownTables.touches(view.string as NSString, view.selectedRange()) {
+                // FMT-2 — the paragraph runs straight into a table the list or quote would swallow.
+                Logger.shared.info("Markup ▸ \(verb.title) did nothing: the line runs straight into a table, which a list or quote here would take in as its text — put a blank line between them first")
             } else if breaks {
                 // TE76 — the format bar greys these; a press from the menu bar says why instead.
                 Logger.shared.info("Markup ▸ \(verb.title) did nothing: the selection is in a table, and it would take the table's lines out of it")
             } else if case .table(let op) = verb {
                 // The Table items cannot know where the caret is when the menu draws them; one that
                 // had nothing to do says why, rather than doing nothing silently.
-                Logger.shared.info("Markup ▸ \(verb.title) did nothing: \(op.refusal)")
+                Logger.shared.info("Markup ▸ \(verb.title) did nothing: "
+                                   + MarkdownTables.refusal(op, in: view.string as NSString, selection: view.selectedRange()))
             }
         }
         return true

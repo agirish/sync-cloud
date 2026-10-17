@@ -183,7 +183,8 @@ import EventsTestSupport
         "Code Block verb": "x\n\n```\none\n```\n\ntwo\n",
         "Horizontal Rule verb": "x\n\none\n\n---\n\ntwo\n",
         "Insert Table verb": "x\n\none\n\n| Column 1 | Column 2 | Column 3 |\n| -------- | -------- | -------- |\n|          |          |          |\n|          |          |          |\n\ntwo\n",
-        "Add Row Below verb": "x\n\n| a   | b   |\n| --- | --- |\n|     |     |\n| c   | d   |\n",
+        // A compact delimiter row stays compact (TBL-4; this pinned `| --- | --- |`).
+        "Add Row Below verb": "x\n\n| a   | b   |\n|-----|-----|\n|     |     |\n| c   | d   |\n",
         "Paste of two lines": "x\n\nonex\ny\n\ntwo\n",
         "Replace with a line break": "x\n\nox\nye\n\ntwo\n",
         "Image paste": "x\n\none\n\n![](Images/Note-1.png)\n\ntwo\n",

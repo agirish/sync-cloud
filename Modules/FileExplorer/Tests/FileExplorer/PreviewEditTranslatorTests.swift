@@ -396,12 +396,13 @@ import Foundation
     // MARK: Tables (A1 in a cell, A7)
 
     /// C14, decision T = re-align as you type (2026-10-05): typing in a cell of an aligned table
-    /// re-pads the whole table, so its pipes still line up.
+    /// re-pads the whole table, so its pipes still line up — its compact delimiter row staying
+    /// compact (TBL-4; this pinned `| --- | --- |`).
     @Test func typingInAnAlignedTableReAlignsIt() {
         let source = "| a | b |\n|---|---|\n| c | d |"
         let p = project(source)
         let result = applied(type("x", at: after("c", in: p), in: source))
-        #expect(result?.source == "| a   | b   |\n| --- | --- |\n| cx  | d   |")
+        #expect(result?.source == "| a   | b   |\n|-----|-----|\n| cx  | d   |")
         #expect(result?.projection.renderedString == "a\tb\ncx\td")
         // The caret is still after the x, in its cell.
         #expect(result.map { ($0.source as NSString).substring(to: $0.sourceSelection.location) }?

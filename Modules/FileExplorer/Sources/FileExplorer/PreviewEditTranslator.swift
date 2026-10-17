@@ -446,11 +446,11 @@ enum PreviewEditTranslator {
     /// **Which tables decision T re-pads:** those whose pipes line up AND are written padded —
     /// `| a | b |`, the way Format Table writes them. A compact `|a|b|` or a pipe-less `a | b` can
     /// line up too, but re-padding would rewrite the author's style on the first keystroke
-    /// (review, 2026-10-05); those keep it, as a ragged table does.
+    /// (review, 2026-10-05); those keep it, as a ragged table does. **The Table menu's rule too**
+    /// (TBL-4) — ``MarkdownTables/keepsLinedUp(source:table:)``, one predicate, so a row added from
+    /// the menu and a word typed in a cell treat a table the same way.
     static func realignsAsYouType(_ source: String, table range: NSRange) -> Bool {
-        guard MarkdownTables.isAligned(source: source, table: range),
-              let header = MarkdownTables.lines(of: source as NSString, in: range).lines.first else { return false }
-        return header.drop(while: { $0 == " " || $0 == "\t" }).hasPrefix("| ")
+        MarkdownTables.keepsLinedUp(source: source, table: range)
     }
 
     /// The source ranges a rendered selection removes, and where text typed over it goes.
