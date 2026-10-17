@@ -107,4 +107,16 @@ import UniformTypeIdentifiers
         #expect(PDFPageFit.scale(pageSize: letter, viewSize: CGSize(width: 400, height: 0)) == 1)
         #expect(PDFPageFit.scale(pageSize: .zero, viewSize: CGSize(width: 400, height: 560)) == 1)
     }
+
+    // MARK: - What the icon says when there is no page
+
+    /// The caption under a PDF preview's icon: silent while the page is a moment away, the reason
+    /// once it is not coming, and nothing at all once it is shown.
+    @Test func aPDFsCaptionNamesWhyThereIsNoPage() {
+        #expect(ColumnPreviewColumn.pdfCaption(nil) == nil,
+                "a caption while the page is still opening would flash on every selection")
+        #expect(ColumnPreviewColumn.pdfCaption(.opened) == nil)
+        #expect(ColumnPreviewColumn.pdfCaption(.unreadable) == "This PDF can’t be opened")
+        #expect(ColumnPreviewColumn.pdfCaption(.locked) == "This PDF is password-protected")
+    }
 }

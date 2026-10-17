@@ -1,4 +1,6 @@
 import AppKit
+import Events
+import os
 import PDFKit
 import SwiftUI
 import Sync
@@ -116,7 +118,46 @@ final class FitPagePDFView: PDFView {
     }
 }
 
-/// A PDF in the preview pane: the whole page, scrolling through the document.
+/// What became of a preview's open, reported to whoever mounted it.
+enum PDFOpenOutcome: Equatable, Sendable {
+    /// The document is in the view.
+    case opened
+    /// PDFKit could not read it, or it has no pages: damaged, not really a PDF, or gone between the
+    /// column's probe and the parse.
+    case unreadable
+    /// It opened, but shows nothing until a password is given — which a preview never asks for.
+    case locked
+}
+
+/// A PDF in the preview pane, with something to look at until the page is there.
+///
+/// The page arrives from `PDFKitSerialAccess` a moment after the view mounts — longer while a scan
+/// is extracting text in the same lane — and an empty `PDFView` paints nothing at all, so without
+/// this the pane went blank between the column's icon and the page. `placeholder` stands behind the
+/// view until the page lands, and stays, with the outcome to caption, if it never does.
+///
+/// **The outcome is this mount's own `@State`.** The column mounts a fresh preview per selection, so
+/// a result can never outlive the file it was for: walk A → B → A and the second A starts with no
+/// outcome, showing the placeholder while it loads, rather than inheriting the first A's `.opened`
+/// and leaving a blank pane until the parse lands.
+struct PDFPagePreview<Placeholder: View>: View {
+    let url: URL
+    /// What stands behind the page: given nil while the open is in flight, and the outcome when it
+    /// failed. Not shown at all once the page is in — the page does not cover the whole view, so a
+    /// placeholder left behind it would show around its edges.
+    @ViewBuilder let placeholder: (PDFOpenOutcome?) -> Placeholder
+
+    @State private var outcome: PDFOpenOutcome?
+
+    var body: some View {
+        PDFPageView(url: url) { _, concluded in outcome = concluded }
+            .background {
+                if outcome != .opened { placeholder(outcome) }
+            }
+    }
+}
+
+/// The PDF itself: the whole page, scrolling through the document.
 ///
 /// `.singlePageContinuous` is what makes a scroll walk the document rather than stop at the end of
 /// page one, and it is the mode the reader is asking for when they scroll a preview at all. Page
@@ -133,18 +174,27 @@ final class FitPagePDFView: PDFView {
 /// opened beside the lane could overlap a duplicate scan's or a document survey's extraction, which
 /// is the overlap the lane's 4.5–6.3% measurement is about. So the view mounts empty and the page
 /// arrives when the lane has parsed it.
-struct PDFPagePreview: NSViewRepresentable {
+struct PDFPageView: NSViewRepresentable {
     let url: URL
+    /// Told how each open concluded, on the main actor, once the view holds the result. Never told
+    /// about an open that was superseded or outlived its view.
+    ///
+    /// No default, for the reason `ColumnPreviewColumn.onOpenInEditor` has none: a defaulted no-op
+    /// is a deleted argument that compiles, and a placeholder that then never leaves.
+    let onOutcome: (URL, PDFOpenOutcome) -> Void
 
     /// What the view has asked the lane for, so a load that comes back can be checked against it.
     @MainActor
     final class Coordinator {
-        /// The URL most recently requested. **Latest request wins**: a load that finishes for any
-        /// other URL is dropped, never assigned — otherwise a slow open of the previous file could
-        /// land after the current one and put the wrong document under the current file's name.
+        /// The URL most recently requested, for `updateNSView`'s guard.
         var requested: URL?
-        /// Set by `dismantleNSView`, so a load still in the lane when the view goes does nothing.
-        var isDismantled = false
+        /// The open in flight. **Latest request wins**: a newer request or the view's dismantle
+        /// withdraws it, and a withdrawn open is neither started by the lane nor assigned if it was
+        /// already running — otherwise a slow open of the previous file could land after the current
+        /// one and put the wrong document under the current file's name.
+        var pending: PDFOpenTicket?
+        /// The latest `onOutcome`, refreshed on every update so an open reports to the current one.
+        var onOutcome: (URL, PDFOpenOutcome) -> Void = { _, _ in }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -157,11 +207,13 @@ struct PDFPagePreview: NSViewRepresentable {
         // The pane paints its own surface behind this — see `clearInheritedBackground`, which is
         // where the rest of that happens and why one line here is not enough.
         view.clearInheritedBackground()
+        context.coordinator.onOutcome = onOutcome
         load(url, into: view, coordinator: context.coordinator)
         return view
     }
 
     func updateNSView(_ view: FitPagePDFView, context: Context) {
+        context.coordinator.onOutcome = onOutcome
         // Guarded for the reason `QuickLookPreview.updateNSView` is: this runs on every ancestor
         // re-render, and re-reading a document rebuilds every page and throws away the reader's
         // scroll position.
@@ -171,35 +223,101 @@ struct PDFPagePreview: NSViewRepresentable {
         // every re-render and queue a fresh parse each time — and the same for a file that fails
         // to open, which never gets a document at all.
         guard context.coordinator.requested != url else { return }
+        // A different file's document comes down now rather than when the new one lands: a page
+        // from the previous file sitting under the new file's name, even briefly, is a wrong
+        // preview, and it releases that file's descriptor sooner. (The column never takes this
+        // path — it mounts a fresh preview per selection — but a representable owes its update a
+        // right answer whoever calls it.)
+        view.document = nil
         load(url, into: view, coordinator: context.coordinator)
     }
 
     static func dismantleNSView(_ view: FitPagePDFView, coordinator: Coordinator) {
         // A `PDFDocument` holds the file open; dropping it with the view keeps a preview walk from
-        // leaving one descriptor per file behind. The flag stops a load still in the lane from
-        // handing one straight back.
-        coordinator.isDismantled = true
+        // leaving one descriptor per file behind. Withdrawing the open stops one still in the lane
+        // from handing a document straight back — or from being parsed at all, if its turn has not
+        // come.
+        coordinator.pending?.withdraw()
         view.document = nil
     }
 
     /// Opens `url` in the lane and hands the document to `view` — if it is still the one wanted.
     @MainActor
     private func load(_ url: URL, into view: FitPagePDFView, coordinator: Coordinator) {
-        // A different file's document comes down now rather than when the new one lands: a page
-        // from the previous selection sitting under the new file's name, even briefly, is a wrong
-        // preview, and it releases that file's descriptor sooner.
-        if coordinator.requested != nil { view.document = nil }
+        coordinator.pending?.withdraw()
+        let ticket = PDFOpenTicket()
+        coordinator.pending = ticket
         coordinator.requested = url
+        let queued = ContinuousClock.now
         Task { @MainActor [weak view] in
-            let opened = await PDFKitSerialAccess.perform {
-                PDFDocument(url: url).map(SendableDocument.init)
+            let lane = await PDFKitSerialAccess.perform { () -> PDFOpenTicket.Result in
+                // **Not parsed at all once withdrawn.** Each selection mounts its own preview, so a
+                // walk through a folder during a scan leaves one queued open per file it settled on;
+                // parsing them would put every abandoned file ahead of the one being looked at.
+                guard ticket.isWanted else { PDFOpenTicket.noteSkipped(); return .skipped }
+                let started = ContinuousClock.now
+                let document = PDFDocument(url: url).map(SendableDocument.init)
+                return .parsed(document, waited: started - queued, parsing: .now - started)
             }
-            guard let view, !coordinator.isDismantled, coordinator.requested == url else { return }
-            view.document = opened?.document
-            // The document arrives after the first layout pass, so the fit computed then was for no
-            // page at all — and `layout()` refits only on a size change unless told otherwise.
+            guard case let .parsed(opened, waited, parsing) = lane,
+                  let view, ticket.isWanted else { return }
+            let outcome: PDFOpenOutcome
+            switch opened?.document {
+            case let document? where document.isLocked: outcome = .locked
+            case let document? where document.pageCount > 0: outcome = .opened
+            default: outcome = .unreadable
+            }
+            // Only a document there is something to show of — a locked one draws nothing, and holds
+            // the file open for no reason.
+            view.document = outcome == .opened ? opened?.document : nil
+            // `layout()` fits only on a size change. A view that has never had a page has no fit to
+            // keep, but one that showed another file's page still holds that page's fit.
             view.invalidateFit()
             view.needsLayout = true
+            Self.log(outcome, url: url, waited: waited, parsing: parsing)
+            coordinator.onOutcome(url, outcome)
         }
     }
+
+    /// The cost this design adds is the wait for the lane, so it is what the trace reports; a failure
+    /// is a warning, because a preview that stays on its icon is otherwise unexplained.
+    private static func log(_ outcome: PDFOpenOutcome, url: URL, waited: Duration, parsing: Duration) {
+        func ms(_ d: Duration) -> Int { Int(d / .milliseconds(1)) }
+        switch outcome {
+        case .opened:
+            Logger.shared.debug("[preview] PDF \(url.path) opened — waited \(ms(waited)) ms for the PDFKit lane, parsed in \(ms(parsing)) ms")
+        case .locked:
+            Logger.shared.info("[preview] PDF \(url.path) is password-protected — showing its icon")
+        case .unreadable:
+            Logger.shared.warning("[preview] PDF \(url.path) could not be opened — damaged, empty or not a PDF; showing its icon")
+        }
+    }
+}
+
+/// One open, withdrawable until the lane is done with it.
+///
+/// A class with its own lock rather than state on the coordinator because the lane reads it, off the
+/// main actor, to decide whether to parse at all.
+final class PDFOpenTicket: Sendable {
+    /// What the lane did with an open.
+    enum Result: Sendable {
+        /// Withdrawn before its turn came; nothing was parsed.
+        case skipped
+        /// Parsed — `nil` when PDFKit could not read the file — with the time spent queued behind
+        /// other PDFKit work and the time the parse itself took.
+        case parsed(SendableDocument?, waited: Duration, parsing: Duration)
+    }
+
+    private let wanted = OSAllocatedUnfairLock(initialState: true)
+
+    var isWanted: Bool { wanted.withLock { $0 } }
+    func withdraw() { wanted.withLock { $0 = false } }
+
+    private static let skips = OSAllocatedUnfairLock(initialState: 0)
+
+    /// How many opens the lane has skipped because they were withdrawn first, for the life of the
+    /// process. Test instrumentation, like `PDFKitSerialAccess.peakConcurrentParses`: a skipped
+    /// parse has no other outside signature. Never reset, for that counter's reason.
+    static var skippedOpens: Int { skips.withLock { $0 } }
+    fileprivate static func noteSkipped() { skips.withLock { $0 += 1 } }
 }

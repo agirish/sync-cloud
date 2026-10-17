@@ -7019,6 +7019,12 @@ is the overlap the lane exists to prevent. The preview now opens its document th
 `PDFKitSerialAccess.perform`, the way `PDFPairView` already did. The newest request wins, and a load
 that lands after dismantle is dropped. `SendableDocument` is now one shared type.
 
+A follow-up on `main` closed what review found in that first cut. The column's icon now stays behind
+the page until the lane delivers it, where the pane used to go blank. A PDF that cannot be opened
+or is password-protected keeps the icon with a caption, and says so in the log. An open withdrawn
+before the lane reaches it is not parsed at all. The lane's doc now also names the one parse still
+outside it, File ▸ Print's `PDFDocument(data:)`.
+
 ```sh
 for l in main v4.x v3.x v2.x; do
   printf '%-5s pdfPagePreview=%s laneInPreview=%s lane=%s\n' "$l" \
@@ -7035,8 +7041,8 @@ done
 
 | Line | Carries | Status |
 |---|---|---|
-| `v4.x` | Has the lane, but its column preview shows PDFs through Quick Look, out of process, so no app parse happens there to route | CLOSED — does not apply |
-| `v3.x` / `v2.x` | Neither the lane nor `PDFPagePreview` | CLOSED — does not apply |
+| `v4.x` | Has the lane, but its column preview shows PDFs through Quick Look, out of process, so no app parse happens there to route. Nor does it have `DocumentPrinting` (File ▸ Print), checked 2026-10-16 | CLOSED — does not apply |
+| `v3.x` / `v2.x` | Neither the lane, `PDFPagePreview` nor `DocumentPrinting` | CLOSED — does not apply |
 
 A future pick of the PDF renderer (see "2026-09-09 — a PDF preview fits the whole page instead of
 the pane's width", RECORDED — not owed) should take this change with it. Otherwise the defect it

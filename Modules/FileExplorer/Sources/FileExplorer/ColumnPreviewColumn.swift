@@ -440,6 +440,17 @@ struct ColumnPreviewColumn: View {
         }
     }
 
+    /// The line under the icon while a PDF preview has no page to show: none while it is still
+    /// opening — the page is a moment away and a caption would flash — and the reason once it has
+    /// failed. Pure and `static` for `caption(source:isAwaitingDownload:)`'s reason.
+    static func pdfCaption(_ outcome: PDFOpenOutcome?) -> String? {
+        switch outcome {
+        case .unreadable: return "This PDF can’t be opened"
+        case .locked: return "This PDF is password-protected"
+        case .opened, .none: return nil
+        }
+    }
+
     /// `caption(source:isAwaitingDownload:)` for the file on screen right now.
     var previewCaption: String? {
         Self.caption(source: probe?.source, isAwaitingDownload: isAwaitingDownload)
@@ -488,7 +499,11 @@ struct ColumnPreviewColumn: View {
             // a Quick Look extension per row.
             switch renderer {
             case .pdfPages:
-                PDFPagePreview(url: URL(fileURLWithPath: item.path))
+                // The icon stays behind the page until it is parsed, and keeps a caption if it
+                // never is — see `PDFPagePreview`.
+                PDFPagePreview(url: URL(fileURLWithPath: item.path)) { outcome in
+                    placeholder(caption: Self.pdfCaption(outcome))
+                }
             case .quickLook:
                 QuickLookPreview(url: URL(fileURLWithPath: item.path))
             }
