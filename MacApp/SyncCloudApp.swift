@@ -122,6 +122,9 @@ struct SyncCloudApp: App {
     /// what makes the document outlive the window rather than adding a third modal question about
     /// it: close the window, reopen from the Dock, and the typing is still there.
     @StateObject private var editorDocument = EditorDocument()
+    /// The PDF open in Edit, read-only — beside the text document, never at once with it
+    /// (`EditorOpenRoute`). Here for the document's reason: it outlives the window.
+    @StateObject private var editorPDF = EditorPDFDocument()
 
     /// One undo stack per document, so ⌘Z survives switching files — beside the document they
     /// belong to and outliving the window for the same reason. See ``PlainTextEditor/undoManager``
@@ -652,6 +655,7 @@ struct SyncCloudApp: App {
                     showHelp: $showHelp,
                     hasBootstrappedSession: $hasBootstrappedSession,
                     editorDocument: editorDocument,
+                    editorPDF: editorPDF,
                     editorUndoManager: editorUndoStore.current,
                     editorUndoStore: editorUndoStore,
                     editorAutosavePolicy: editorAutosavePolicy,

@@ -235,7 +235,10 @@ struct PaneActionDelegate: FileActionDelegate {
     /// word, from the one static both surfaces call.
     func editorRefusal(forPath path: String, isDirectory: Bool, size: Int) -> String? {
         guard servesEditor, !isDirectory else { return nil }
-        if !EditableText.isText(path: path) { return "Not a kind Edit opens." }
+        if !EditableText.opensInEdit(path: path) { return "Not a kind Edit opens." }
+        // A PDF is drawn by PDFKit, not read into a text buffer, so the text read's size limit is
+        // not its limit.
+        if EditableText.isPDF(path: path) { return nil }
         return EditorRailEntry.tooLargeReason(size: size)
     }
 

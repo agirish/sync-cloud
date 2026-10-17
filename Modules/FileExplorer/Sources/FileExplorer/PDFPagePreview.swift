@@ -319,5 +319,5 @@ final class PDFOpenTicket: Sendable {
     /// process. Test instrumentation, like `PDFKitSerialAccess.peakConcurrentParses`: a skipped
     /// parse has no other outside signature. Never reset, for that counter's reason.
     static var skippedOpens: Int { skips.withLock { $0 } }
-    fileprivate static func noteSkipped() { skips.withLock { $0 += 1 } }
+    static func noteSkipped() { skips.withLock { $0 += 1 } }
 }

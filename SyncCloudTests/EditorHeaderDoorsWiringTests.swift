@@ -164,7 +164,7 @@ import FileExplorer
         let item = try Self.memberBody("var shortcutEditorExpand: EditorExpandSwitch?", in: source)
         #expect(item.contains("EditorExpandSwitch.isOffered("), "Text ▸ Expand is offered without the button's rule")
         #expect(item.contains("workspace: selectedWorkspace"), "Text ▸ Expand is not gated on the workspace")
-        #expect(item.contains("hasDocument: editorDocument.path != nil"), "Text ▸ Expand does not ask whether a document is open")
+        #expect(item.contains("hasDocument: editorOpenPath != nil"), "Text ▸ Expand does not ask whether a document — text or PDF — is open")
         #expect(item.contains("isOn: editorIsExpanded"), "Text ▸ Expand ticks on something other than the button's lit state")
         #expect(item.contains("{ toggleJustTheText() }"), "Text ▸ Expand does not run the button's toggle")
         #expect(!item.contains("editorRailHidden ="), "Text ▸ Expand flips the bit itself, skipping the pane's collapse")
@@ -249,14 +249,21 @@ import FileExplorer
     /// switch silently lost its undo history.
     @Test func theLoadIsHandedTheWindowsRealDocumentAndUndoStore() throws {
         let body = try Self.memberBody("func loadIntoEditor(path: String)", in: Self.editor())
-        #expect(body.contains("EditorDocumentLoad.run("),
-                "loadIntoEditor no longer runs the shared load — the ordering is untested again")
-        let call = try Self.call("EditorDocumentLoad.run(", in: body)
+        // Through `EditorOpenRoute`, which sends a PDF to its own model and text to the shared load.
+        #expect(body.contains("EditorOpenRoute.load("),
+                "loadIntoEditor no longer runs the route — a PDF could reach the text reader")
+        let call = try Self.call("EditorOpenRoute.load(", in: body)
         #expect(call.passes("path", "path"), "the load is handed a path other than the one asked for")
         #expect(call.passes("document", "editorDocument"),
                 "the load is handed a document other than the window's")
         #expect(call.passes("undoStore", "editorUndoStore"),
                 "the load is handed an undo store other than the window's — undo would not survive a switch")
+        #expect(call.passes("pdf", "editorPDF"), "the load is handed a PDF model other than the window's")
+        // …and the route's text arm runs the shared load with exactly what it was handed.
+        let route = try Self.memberBody("static func load(path: String", in: Self.source("EditorOpenRoute.swift"))
+        let text = try Self.call("EditorDocumentLoad.run(", in: route)
+        #expect(text.passes("path", "path") && text.passes("document", "document") && text.passes("undoStore", "undoStore"),
+                "the route's text arm does not run the shared load with the window's pieces")
     }
 
     /// **And the load is the ONLY thing `loadIntoEditor` does to the stacks.** A `remember` or

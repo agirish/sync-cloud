@@ -15,8 +15,9 @@ import Sync
 struct DocumentPrintActions {
     /// Renders the document and puts the system print panel up over the window.
     let print: () -> Void
-    /// Asks where to put it, then writes the same render there.
-    let export: () -> Void
+    /// Asks where to put it, then writes the same render there. `nil` for a PDF, which already is
+    /// one — Export as PDF… is not offered for it, while Print… is.
+    let export: (() -> Void)?
 
     /// Whether the two items are offered at all, as a pure rule.
     ///
@@ -39,6 +40,11 @@ extension ContentView {
     /// The two items' actions, or `nil` when they are not offered — see
     /// ``DocumentPrintActions/isOffered(workspace:hasDocument:isRefused:)``.
     var shortcutDocumentPrint: DocumentPrintActions? {
+        // A PDF prints its own pages, once they are open — not while it is locked or refused.
+        if editorPDF.path != nil {
+            guard selectedWorkspace == .editor, editorPDF.canPrint else { return nil }
+            return DocumentPrintActions(print: { printEditorPDF() }, export: nil)
+        }
         guard DocumentPrintActions.isOffered(workspace: selectedWorkspace,
                                              hasDocument: editorDocument.path != nil,
                                              isRefused: editorDocument.refusal != nil) else {
@@ -94,6 +100,24 @@ extension ContentView {
         }
         if !started {
             Logger.shared.info("Editor print of \(job.name) ignored — another print is still being prepared")
+        }
+    }
+
+    /// ⌘P for a PDF open in Edit: **its own pages, through `PDFDocument.printOperation`** — not
+    /// `DocumentPDF`, which renders text. The document is the one the page view draws, opened
+    /// through `PDFKitSerialAccess` (and unlocked there, when it needed a password); the print panel
+    /// is AppKit's, on the main thread, which is the lane's documented exception for drawing.
+    func printEditorPDF() {
+        guard let operation = editorPDF.printOperation() else {
+            syncManager.banner = .error("Couldn't prepare “\(editorPDF.name)” for printing.")
+            Logger.shared.warning("Editor print produced no operation for \(editorPDF.path ?? "") (PDF)")
+            return
+        }
+        Logger.shared.info("Editor printing \(editorPDF.name) (PDF)")
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+        } else {
+            operation.run()
         }
     }
 

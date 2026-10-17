@@ -18,6 +18,7 @@ extension EditorWorkspaceView {
     @MainActor
     public static func fixture(
         document: EditorDocument = EditorDocument(),
+        pdf: EditorPDFDocument? = nil,
         folder: String = "/n",
         entries: [EditorRailEntry] = [],
         showsRail: Bool = false,
@@ -40,6 +41,7 @@ extension EditorWorkspaceView {
         EditorWorkspaceView(
             document: document,
             autosavePolicy: EditorAutosavePolicy(),
+            pdf: pdf,
             folder: folder,
             entries: entries,
             showsRail: showsRail,

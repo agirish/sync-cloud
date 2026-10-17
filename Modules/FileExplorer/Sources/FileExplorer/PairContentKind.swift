@@ -2,7 +2,7 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// Whether the Edit workspace opens this path.
+/// Whether the Edit workspace opens this path, and as what.
 ///
 /// **A public window onto an internal answer, and the point is that the answer is not re-derived.**
 /// ``PairContentKind`` is internal to this package, so the Info inspector (Dashboard) and the File
@@ -22,6 +22,21 @@ public enum EditableText {
     /// Whether ``EditorRail`` would list this file and the editor would load it.
     public static func isText(path: String) -> Bool {
         PairContentKind.classify(path: path) == .text
+    }
+
+    /// Whether the editor opens this file as a read-only PDF — ``EditorPDFDocument`` rather than
+    /// the text document. The host routes on it before any text read is attempted.
+    public static func isPDF(path: String) -> Bool {
+        PairContentKind.classify(path: path) == .pdf
+    }
+
+    /// **Whether "Open in Edit" is offered for this file**: text, which opens writable, or a PDF,
+    /// which opens read-only. The gate every door asks — ⌘O, the row menu, the preview's button,
+    /// a click in Edit's pane, the inspector, row dimming. ``isText(path:)`` keeps meaning "text",
+    /// for the surfaces that still only handle text (the rail's list, Compare, duplicates).
+    public static func opensInEdit(path: String) -> Bool {
+        let kind = PairContentKind.classify(path: path)
+        return kind == .text || kind == .pdf
     }
 
     /// The extensions themselves, lowercased — for the one reader that cannot ask per path:

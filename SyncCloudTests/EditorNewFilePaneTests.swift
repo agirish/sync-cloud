@@ -178,7 +178,7 @@ import Sync
         #expect(!body.contains("paneSelectionBinding"),
                 "the app's write goes through the click's setter — it would resolve a Compare-with pick")
         #expect(try CallArguments(of: "Self.owedPaneSelection(", in: body.normalized)
-                    .passes("openDocument", "editorDocument.path"),
+                    .passes("openDocument", "editorOpenPath"),
                 "the rule is not told which document is open — it could drag the reader back")
     }
 
@@ -192,7 +192,7 @@ import Sync
             body.range(of: "guard EditorHandOffRun.opens("),
             "openInEditor no longer returns early for the open document — a ⌘N would open the file twice")
         let opens = try CallArguments(of: "EditorHandOffRun.opens(", in: body.normalized)
-        #expect(opens.unlabeled == ["path"] && opens.passes("openDocument", "editorDocument.path"),
+        #expect(opens.unlabeled == ["path"] && opens.passes("openDocument", "editorOpenPath"),
                 "the guard no longer asks about the path against the open document")
         let load = try #require(body.range(of: "loadIntoEditor(path: path)"))
         #expect(guardLine.lowerBound < load.lowerBound)

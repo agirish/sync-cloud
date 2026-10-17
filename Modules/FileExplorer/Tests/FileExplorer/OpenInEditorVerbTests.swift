@@ -76,12 +76,20 @@ import FileExplorerTestSupport
     ///
     /// The point of the predicate is that the inspector and the File menu cannot drift from this
     /// menu; a test that checks each side against its own hand-written list would not see them
-    /// drift apart. This asserts them against each other over the same inputs.
+    /// drift apart. This asserts them against each other over the same inputs — the menu as DRAWN,
+    /// since the item now asks `opensInEdit` (text, or a PDF read-only) rather than the text kind.
     @Test func thePredicateAgreesWithTheGateTheRowMenuApplies() {
+        let delegate = Recorder()
         for name in ["notes.md", "readme.txt", "Package.swift", "photo.jpg", "report.pdf", "noext"] {
-            #expect(EditableText.isText(path: name) == (PairContentKind.classify(path: name) == .text),
+            let drawn = NSHostingView(rootView: AnyView(
+                SharedFileMenuItems.openInEditor(name, delegate: delegate).labelsHidden())).fittingSize.height > 0
+            #expect(EditableText.opensInEdit(path: name) == drawn,
                     "the predicate and the row menu's gate disagree about \(name)")
         }
+        // And the predicate is text OR PDF, nothing wider.
+        #expect(EditableText.opensInEdit(path: "/a/report.pdf") && EditableText.isPDF(path: "/a/report.pdf"))
+        #expect(!EditableText.isText(path: "/a/report.pdf"), "isText must keep meaning text")
+        #expect(!EditableText.opensInEdit(path: "/a/photo.jpg"))
     }
 
     /// **The rail lists exactly the text files, spelled out rather than re-derived.**
@@ -112,7 +120,7 @@ import FileExplorerTestSupport
     /// returning nothing at all for a non-text row, which is a difference a rendered measurement
     /// can see: an empty build has no size.
     @MainActor
-    @Test func theRowMenuOffersTheEditorOnlyForTextFiles() {
+    @Test func theRowMenuOffersTheEditorOnlyForFilesEditOpens() {
         let delegate = Recorder()
         func drawn(_ path: String) -> CGSize {
             NSHostingView(rootView: AnyView(
@@ -120,9 +128,11 @@ import FileExplorerTestSupport
             )).fittingSize
         }
         let text = drawn("/a/notes.md")
+        let pdf = drawn("/a/report.pdf")
         let image = drawn("/a/photo.jpg")
         #expect(text.height > 0, "no item was built for a text row — the verb is gone")
-        #expect(image.height == 0, "an item was built for a JPEG — the text gate is not applied")
+        #expect(pdf.height > 0, "no item was built for a PDF row — PDFs open read-only in Edit")
+        #expect(image.height == 0, "an item was built for a JPEG — the gate is not applied")
     }
 
     /// **The menu as it is actually DRAWN, in order — not the source that describes it.**
@@ -157,12 +167,15 @@ import FileExplorerTestSupport
         #expect(editor == 1, "Open in Edit is the \(editor + 1)th item drawn, not the first after Refresh")
         #expect(drawn.first == refreshWidth, "Refresh no longer leads the menu")
 
-        // …and the same menu over a PDF draws no editor row at all, which is what makes the index
-        // above a fact about THIS item rather than about whatever sits second.
-        let pdf = Self.drawnRowWidths(for: "/a/report.pdf", delegate: delegate)
-        #expect(!pdf.contains(editorWidth), "a PDF row draws Open in Edit")
-        #expect(pdf.first == refreshWidth && pdf.dropFirst().first == getInfoWidth,
+        // …and the same menu over an archive draws no editor row at all, which is what makes the
+        // index above a fact about THIS item rather than about whatever sits second.
+        let archive = Self.drawnRowWidths(for: "/a/bundle.zip", delegate: delegate)
+        #expect(!archive.contains(editorWidth), "an archive row draws Open in Edit")
+        #expect(archive.first == refreshWidth && archive.dropFirst().first == getInfoWidth,
                 "with no editor item, Get Info should lead the single-file branch")
+        // A PDF row draws it, in the same place (Phase 1a).
+        let pdf = Self.drawnRowWidths(for: "/a/report.pdf", delegate: delegate)
+        #expect(pdf.firstIndex(of: editorWidth) == 1, "a PDF row does not lead with Open in Edit")
     }
 
     /// One item hosted alone, measured at the width the menu gives it.

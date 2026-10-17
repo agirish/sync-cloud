@@ -1337,11 +1337,11 @@ enum SharedFileMenuItems {
         }
     }
 
-    /// **"Open in Edit" — the hand-off to the one writable text surface.**
+    /// **"Open in Edit" — the hand-off to Edit, the one place a single file's contents are worked on.**
     ///
-    /// Offered only for a file `PairContentKind` already calls text, which is the same table the
-    /// editor's rail filters on: a menu item that opened a JPEG into a text editor would be
-    /// offering something the editor would then refuse.
+    /// Offered for a file the editor opens — text, writable, or a PDF, read-only — through
+    /// `EditableText.opensInEdit`, the gate every other door asks: a menu item that opened a JPEG
+    /// into the editor would be offering something the editor would then refuse.
     ///
     /// One member rather than an item written at each menu site, for the reason `SharedFileMenuItems`
     /// exists at all: the pane tree and the columns view each build their own menu, and a verb
@@ -1351,7 +1351,7 @@ enum SharedFileMenuItems {
     /// view at once, and is exactly why it is written here rather than there.
     @ViewBuilder
     static func openInEditor(_ path: String, delegate: FileActionDelegate) -> some View {
-        if PairContentKind.classify(path: path) == .text {
+        if EditableText.opensInEdit(path: path) {
             Button(action: { delegate.handleOpenInEditor(path) }) {
                 // "Open in Edit", not "Open in Editor" — the same shape as the reverse hand-off's
                 // "Reveal in Browse", and both name a workspace by the word on its bar segment.

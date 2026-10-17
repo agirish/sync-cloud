@@ -51,12 +51,19 @@ import Testing
         #expect(opens(isDirectory: nil) == nil)
     }
 
-    /// The kind gate is `EditableText.isText`, the same predicate the row menu and the preview
-    /// column ask. A PDF row is dimmed in this pane, and a click on it opens nothing.
+    /// The kind gate is `EditableText.opensInEdit`, the same predicate the row menu and the preview
+    /// column ask. A JPEG row is dimmed in this pane, and a click on it opens nothing.
     @Test func aKindEditCannotOpenDoesNotOpen() {
-        #expect(opens(paths: ["/a/report.pdf"]) == nil)
         #expect(opens(paths: ["/a/photo.jpg"]) == nil)
+        #expect(opens(paths: ["/a/archive.zip"]) == nil)
         // The control: the predicate is really being asked, not the extension's length or case.
         #expect(opens(paths: ["/a/README"]) != nil || opens(paths: ["/a/notes.txt"]) != nil)
+    }
+
+    /// **A PDF opens, read-only** (Phase 1a) — it was dimmed and refused here until PDFs had a
+    /// model of their own in Edit.
+    @Test func aPDFOpens() {
+        #expect(opens(paths: ["/a/report.pdf"]) == "/a/report.pdf")
+        #expect(opens(paths: ["/a/REPORT.PDF"]) == "/a/REPORT.PDF")
     }
 }

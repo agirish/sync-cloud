@@ -216,11 +216,12 @@ extension ContentView {
               paths.count == 1, let path = paths.first,
               path != paidSelection,
               let isDirectory, !isDirectory,
-              EditableText.isText(path: path) else { return nil }
+              EditableText.opensInEdit(path: path) else { return nil }
         return path
     }
 
-    /// In Edit, the open pane IS the file list, so selecting a single text file in it opens the
+    /// In Edit, the open pane IS the file list, so selecting a single file Edit opens — text, or a
+    /// PDF read-only — opens the
     /// file — the same route a rail row takes, `openInEditor`, which guards the already-open case
     /// and settles a dirty buffer first. **Not `handOffToEditor`**: that re-roots the pane and
     /// switches workspace, and here the pane is already the folder and the workspace is already
@@ -256,7 +257,7 @@ extension ContentView {
     /// `paneContext(isLeft:)`, which builds the whole pane's context to answer one id.
     var editorDocumentLocation: EditorDocumentLocation? {
         EditorHeaderLocation.location(
-            documentPath: editorDocument.path,
+            documentPath: editorOpenPath,
             paneFolder: editorFolder,
             sourceRoot: (settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath,
             providerName: settings.availableProviders.first { $0.id == leftProviderId }?.displayName,
@@ -397,6 +398,8 @@ extension ContentView {
         EditorWorkspaceView(
             document: editorDocument,
             autosavePolicy: editorAutosavePolicy,
+            // Only while a PDF is open; the text document is empty then.
+            pdf: editorPDF.path == nil ? nil : editorPDF,
             folder: editorFolder,
             entries: editorRailSurvey.rows,
             otherFileCount: editorRailSurvey.otherFileCount,
@@ -437,7 +440,7 @@ extension ContentView {
             // Read at press time, both of them: the closure is built during this render, and the
             // document or the pane can have moved by the time the word is clicked.
             onLocationDoor: { door in
-                editorLocationDoors.open(door, documentPath: editorDocument.path,
+                editorLocationDoors.open(door, documentPath: editorOpenPath,
                                          location: editorDocumentLocation)
             },
             railRowActions: EditorRailRowActions(
@@ -497,8 +500,8 @@ extension ContentView {
     func openInEditor(path: String, selectsInPane: Bool = false) {
         // Re-clicking the row that is already open does nothing — unless the last attempt was
         // refused. See `EditorHandOffRun.opens`, the guard the hand-off asks too.
-        guard EditorHandOffRun.opens(path, openDocument: editorDocument.path,
-                                     isRefused: editorDocument.refusal != nil) else {
+        guard EditorHandOffRun.opens(path, openDocument: editorOpenPath,
+                                     isRefused: editorOpenIsRefused) else {
             if selectsInPane { owePaneSelection(path) }
             return
         }
@@ -524,9 +527,18 @@ extension ContentView {
         // made one non-Markdown file destroy the setting for the rest of the session: read three
         // notes in Preview, open a `.txt` in between, and the third note opens in Edit. The type
         // that owns the rule says the opposite in its own doc comment.
-        EditorDocumentLoad.run(path: path, document: editorDocument, undoStore: editorUndoStore,
-                               log: { Logger.shared.info($0) })
+        //
+        // **A PDF goes to its own model, before any text read** — `EditorOpenRoute`, which empties
+        // the text document so no save path has anything to write while the PDF is on screen.
+        EditorOpenRoute.load(path: path, document: editorDocument, undoStore: editorUndoStore,
+                             pdf: editorPDF, log: { Logger.shared.info($0) })
     }
+
+    /// The open file, text or PDF — see ``EditorOpenRoute/openPath(document:pdf:)``.
+    var editorOpenPath: String? { EditorOpenRoute.openPath(document: editorDocument, pdf: editorPDF) }
+
+    /// Whether the open file was refused, text or PDF.
+    var editorOpenIsRefused: Bool { EditorOpenRoute.isRefused(document: editorDocument, pdf: editorPDF) }
 
     /// The one line every load writes — opened, read-only or refused. A function of its own so a
     /// test can count "Editor opened" lines through the same words the app writes (TE47).
@@ -639,7 +651,7 @@ extension ContentView {
             path, pane: pane,
             syncManager: syncManager,
             paneRoot: (settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath,
-            openDocument: editorDocument.path, isRefused: editorDocument.refusal != nil,
+            openDocument: editorOpenPath, isRefused: editorOpenIsRefused,
             // The folder the pane will show IN EDIT, whichever workspace this is pressed from.
             paneFolder: { leftPaneFolder(in: .editor) },
             settle: { settleEditorDocument() },
@@ -845,14 +857,14 @@ extension ContentView {
     /// document through — but only if it is still the refused document by then: a user who has
     /// moved on in the meantime is not moved back.
     func fetchExternalOpenFromCloud(_ path: String) {
-        guard editorDocument.path == path, editorDocument.refusal != nil,
+        guard editorOpenPath == path, editorOpenIsRefused,
               MaterializationStatus.isCloudOnly(atPath: path) else { return }
         let name = ExternalOpen.name(path)
         Logger.shared.info("[open] \(path) is still in the cloud — fetching it before Edit can read it")
         syncManager.banner = .warning("Downloading “\(name)” — it opens here when it arrives.")
         Task { @MainActor in
             let landed = await ExternalOpen.fetch(path)
-            guard editorDocument.path == path, editorDocument.refusal != nil else {
+            guard editorOpenPath == path, editorOpenIsRefused else {
                 Logger.shared.info("[open] \(path) \(landed ? "arrived" : "did not arrive"); Edit has moved on, so it is left")
                 return
             }
@@ -872,7 +884,7 @@ extension ContentView {
     /// with a document open. See ``EditorDocumentClose/isOffered(workspace:hasDocument:)``.
     var shortcutCloseDocument: (() -> Void)? {
         guard EditorDocumentClose.isOffered(workspace: selectedWorkspace,
-                                            hasDocument: editorDocument.path != nil) else { return nil }
+                                            hasDocument: editorOpenPath != nil) else { return nil }
         return { closeEditorDocument() }
     }
 
@@ -887,6 +899,14 @@ extension ContentView {
     /// closed file, and every rule the binding adds is about a pick: the other pane's clear and the
     /// focused-pane move are both skipped for an empty write, and Compare's pick needs a row.
     func closeEditorDocument() {
+        // A PDF has nothing to settle; its own close releases its pages.
+        if editorPDF.path != nil {
+            EditorOpenRoute.closePDF(editorPDF,
+                                     paneSelection: { syncManager.selectedLeftPaths },
+                                     setPaneSelection: { syncManager.selectedLeftPaths = $0 },
+                                     log: { Logger.shared.info($0) })
+            return
+        }
         guard EditorDocumentClose.run(
             document: editorDocument, undoStore: editorUndoStore,
             settle: { settleEditorDocument() },
@@ -978,7 +998,7 @@ extension ContentView {
     /// calls, so the item and the button cannot fold different things.
     var shortcutEditorExpand: EditorExpandSwitch? {
         guard EditorExpandSwitch.isOffered(workspace: selectedWorkspace,
-                                           hasDocument: editorDocument.path != nil,
+                                           hasDocument: editorOpenPath != nil,
                                            isOn: editorIsExpanded) else { return nil }
         return EditorExpandSwitch(isOn: editorIsExpanded) { toggleJustTheText() }
     }
@@ -1778,7 +1798,7 @@ extension ContentView {
     /// The workspace recorded is the one on screen NOW, so a door that switches workspace must
     /// switch first (Reveal in Browse, every hand-off into Edit).
     func owePaneSelection(_ path: String) {
-        editorPaneSelectionOwed = PaneSelectionDebt(path: path, document: editorDocument.path,
+        editorPaneSelectionOwed = PaneSelectionDebt(path: path, document: editorOpenPath,
                                                     workspace: selectedWorkspace)
         settleOwedPaneSelection()
         if editorPaneSelectionOwed != nil {
@@ -1805,7 +1825,7 @@ extension ContentView {
     func settleOwedPaneSelection() {
         guard let owed = editorPaneSelectionOwed else { return }
         let decision = Self.owedPaneSelection(
-            owed: owed, openDocument: editorDocument.path, workspace: selectedWorkspace,
+            owed: owed, openDocument: editorOpenPath, workspace: selectedWorkspace,
             paneFolder: editorFolder,
             paneIsCurrent: paneTreeIsCurrent,
             isListed: !syncManager.leftNodes(for: [owed.path]).isEmpty,

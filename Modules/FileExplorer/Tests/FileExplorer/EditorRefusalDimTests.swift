@@ -21,7 +21,7 @@ import Sync
         var search = PaneSearchRowContext.none
         search.isDimmed = searchDimmed
         return FileRowView(
-            node: FileRowInfo(FileNode(id: "/a/Quarterly report.pdf", name: "Quarterly report.pdf",
+            node: FileRowInfo(FileNode(id: "/a/Quarterly report.zip", name: "Quarterly report.zip",
                                        isDirectory: false, fileSize: 4096)),
             isIgnored: false, diffStatus: nil, containedDiffCount: 0,
             density: .comfortable, fonts: .unscaled,

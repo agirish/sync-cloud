@@ -173,9 +173,9 @@ import FileExplorer
     /// The same class of gap `bothPreviewMountsWireTheEditButtonToTheHandOff` closes for the
     /// preview, closed the same way.
     ///
-    /// The predicate half matters as much as the action half: `isText: true` in the menu, or
+    /// The predicate half matters as much as the action half: `opensInEdit: true` in the menu, or
     /// `isOffered: { _ in true }` in the inspector, would offer a PDF to a text editor, and the
-    /// resolver's own tests cannot see it because they inject `isText` directly.
+    /// resolver's own tests cannot see it because they inject `opensInEdit` directly.
     @Test func theInspectorAndTheFileMenuAreWiredToTheRealHandOff() throws {
         let content = sourceCodeOnly(try Self.macApp("ContentView.swift"))
         // The construction's own argument list, where it was the next 240 characters.
@@ -184,7 +184,7 @@ import FileExplorer
         #expect(CodeText(content).contains("editorHandOff: EditorHandOff("),
                 "the hand-off is built, but not handed to the inspector")
         let handOff = CallArguments(inspector)
-        #expect(handOff.passes("isOffered", "{ EditableText.isText(path: $0) }"),
+        #expect(handOff.passes("isOffered", "{ EditableText.opensInEdit(path: $0) }"),
                 "the inspector no longer asks the row menu's own predicate what the editor opens")
         #expect(handOff.passes("open", "{ handOffToEditor($0) }"),
                 "the inspector's Open in Edit is not wired to handOffToEditor")
@@ -194,7 +194,7 @@ import FileExplorer
         let resolver = CodeText(resolverText)
         #expect(resolver.contains("return PaneRowVerbs("), "the slice is not the resolver's body")
         #expect(try CallArguments(of: "PaneRowVerbAvailability.resolve(", in: resolverText)
-                    .passes("isText", "node.map { EditableText.isText(path: $0.id) } ?? false"),
+                    .passes("opensInEdit", "node.map { EditableText.opensInEdit(path: $0.id) } ?? false"),
                 "File ▸ Open in Edit no longer asks the row menu's own predicate about the selection")
         // Of the resolver's two `PaneRowVerbs(`, the one that offers anything — the other is `none`.
         let offered = argumentLists(of: "PaneRowVerbs(", in: resolverText).map(CallArguments.init)

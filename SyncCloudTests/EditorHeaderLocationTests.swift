@@ -292,7 +292,7 @@ import FileExplorer
         #expect(workspace.passes("location", "editorDocumentLocation"),
                 "the header is not handed the document's location")
         let open = try CallArguments(of: "editorLocationDoors.open(", in: code)
-        #expect(open.unlabeled == ["door"] && open.passes("documentPath", "editorDocument.path"),
+        #expect(open.unlabeled == ["door"] && open.passes("documentPath", "editorOpenPath"),
                 "the header's doors are not wired to EditorLocationDoors")
         #expect(open.passes("location", "editorDocumentLocation"),
                 "the doors are not handed the live location at press time")

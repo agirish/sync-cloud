@@ -82,6 +82,10 @@ public struct EditorWorkspaceView: View {
     @ObservedObject var buffer: EditorBuffer
     /// Which files autosave may write. See ``EditorAutosavePolicy``.
     @ObservedObject var autosavePolicy: EditorAutosavePolicy
+    /// **The PDF open in Edit, or `nil`** — handed in only while one is open, when the text
+    /// document is empty (`path == nil`). The header and the document card draw the PDF instead;
+    /// nothing a text file draws is reachable, which is the point — see ``EditorPDFDocument``.
+    let pdf: EditorPDFDocument?
 
     /// The folder the sidebar has selected. Empty when there is none.
     let folder: String
@@ -325,6 +329,7 @@ public struct EditorWorkspaceView: View {
 
     public init(document: EditorDocument,
                 autosavePolicy: EditorAutosavePolicy,
+                pdf: EditorPDFDocument? = nil,
                 folder: String,
                 entries: [EditorRailEntry],
                 otherFileCount: Int? = nil,
@@ -386,6 +391,7 @@ public struct EditorWorkspaceView: View {
         // caller to hand this view the wrong one.
         self.buffer = document.buffer
         self.autosavePolicy = autosavePolicy
+        self.pdf = pdf
         self.folder = folder
         self.entries = entries
         self.otherFileCount = otherFileCount
@@ -526,7 +532,7 @@ public struct EditorWorkspaceView: View {
             EditorFileRailView(folderName: folderName,
                                entries: entries,
                                otherFileCount: otherFileCount,
-                               selectedPath: document.path,
+                               selectedPath: pdf?.path ?? document.path,
                                accent: accent,
                                onAccent: onAccent,
                                tab: $railTab,
@@ -640,19 +646,34 @@ public struct EditorWorkspaceView: View {
                                 onCreate: onCreate, folderName: newFileFolderLabel)
                     .padding(.top, 6)
             }
-            body(for: document)
-            // **Not under a refusal.** A document that could not be read has an empty buffer, and
-            // "0 words · 0 characters" under a caption explaining why there is nothing here reads
-            // as a measurement of the file rather than of the nothing that was loaded.
-            if document.path != nil, document.refusal == nil {
-                Divider()
-                // Formatted when the stamp moved, not here — see ``EditorDocument/sizeCaption``.
-                EditorStatusLine(facts: facts, caret: caret, fileSize: document.sizeCaption,
-                                 headings: statusHeadings, hint: statusHint,
-                                 selection: selectionFacts, goToLine: statusGoToLine, notice: diskNotice)
-                    // Compared on what it draws, the closures left out — see `EditorStatusLine.==`.
-                    .equatable()
+            if let pdf {
+                EditorPDFBody(pdf: pdf, accent: accent, quickLook: railRowActions.quickLook)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let facts = pdf.facts, pdf.phase == .open {
+                    Divider()
+                    EditorPDFStatusLine(state: pdf.view, facts: facts)
+                }
+            } else {
+                textBody
             }
+        }
+    }
+
+    /// The text document under the header, and its status line.
+    @ViewBuilder
+    private var textBody: some View {
+        body(for: document)
+        // **Not under a refusal.** A document that could not be read has an empty buffer, and
+        // "0 words · 0 characters" under a caption explaining why there is nothing here reads
+        // as a measurement of the file rather than of the nothing that was loaded.
+        if document.path != nil, document.refusal == nil {
+            Divider()
+            // Formatted when the stamp moved, not here — see ``EditorDocument/sizeCaption``.
+            EditorStatusLine(facts: facts, caret: caret, fileSize: document.sizeCaption,
+                             headings: statusHeadings, hint: statusHint,
+                             selection: selectionFacts, goToLine: statusGoToLine, notice: diskNotice)
+                // Compared on what it draws, the closures left out — see `EditorStatusLine.==`.
+                .equatable()
         }
     }
 
@@ -699,7 +720,13 @@ public struct EditorWorkspaceView: View {
     /// same means measuring them, and measuring them means being able to build one.
     private var header: some View {
         EditorDocumentHeader {
-            if document.path == nil { emptyHeaderContent } else { headerContent }
+            if let pdf {
+                EditorPDFHeader(pdf: pdf, accent: accent, onAccent: onAccent, location: location,
+                                onLocationDoor: onLocationDoor, onRevealInBrowse: onRevealInBrowse,
+                                onClose: onCloseDocument) {
+                    expandButton(worded: false)
+                }
+            } else if document.path == nil { emptyHeaderContent } else { headerContent }
         }
     }
 

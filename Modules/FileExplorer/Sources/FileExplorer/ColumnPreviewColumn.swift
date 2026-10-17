@@ -471,10 +471,11 @@ struct ColumnPreviewColumn: View {
     /// **Both halves are load-bearing.** `.quickLook` is the classification's word for "the bytes
     /// are on this disk": a cloud-only placeholder must not be handed to the editor (that is the
     /// provider download this column exists to avoid starting) and a vanished file has nothing to
-    /// open. The text test is the row menu's own gate, asked through the one public spelling of it,
-    /// so this button and that menu item cannot come to disagree about what a text file is.
+    /// open. The kind test is the row menu's own gate, asked through the one public spelling of it,
+    /// so this button and that menu item cannot come to disagree about what Edit opens — text, or a
+    /// PDF read-only.
     static func offersEditor(source: ColumnPreviewSource?, path: String) -> Bool {
-        source == .quickLook && EditableText.isText(path: path)
+        source == .quickLook && EditableText.opensInEdit(path: path)
     }
 
     /// ``offersEditor(source:path:)`` for the file on screen right now.

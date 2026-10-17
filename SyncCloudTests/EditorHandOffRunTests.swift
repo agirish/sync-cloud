@@ -436,8 +436,8 @@ import FileExplorer
         #expect(run.unlabeled == ["path"], "the act is handed \(run.unlabeled), not the path it was asked to open")
         for (label, value) in [("pane", "pane"), ("syncManager", "syncManager"),
                                ("paneRoot", "(settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath"),
-                               ("openDocument", "editorDocument.path"),
-                               ("isRefused", "editorDocument.refusal != nil"),
+                               ("openDocument", "editorOpenPath"),
+                               ("isRefused", "editorOpenIsRefused"),
                                ("paneFolder", "{ leftPaneFolder(in: .editor) }"),
                                ("settle", "{ settleEditorDocument() }"),
                                ("endNaming", "{ editorIsNaming = false }"),

@@ -376,11 +376,11 @@ import AppKit
     static func resolve(count: Int = 1, isDirectory: Bool = true, isCloudOnly: Bool = false,
                         canOpenInNewTab: Bool = true,
                         isComparing: Bool = true,
-                        isText: Bool = false) -> PaneRowVerbAvailability.Answer {
+                        opensInEdit: Bool = false) -> PaneRowVerbAvailability.Answer {
         PaneRowVerbAvailability.resolve(selectionCount: count, isDirectory: isDirectory,
                                         isCloudOnly: isCloudOnly,
                                         canOpenInNewTab: canOpenInNewTab, isComparing: isComparing,
-                                        isText: isText)
+                                        opensInEdit: opensInEdit)
     }
 
     /// **File ▸ Open in Edit: one row, a file, and a file the editor opens.**
@@ -390,12 +390,12 @@ import AppKit
     /// for, a multi-selection would hand over whichever node happened to be first, and a `.pdf`
     /// would open a document the editor then refuses.
     @Test func openInEditNeedsASingleTextFile() {
-        #expect(Self.resolve(count: 1, isDirectory: false, isText: true).openInEditor)
-        #expect(!Self.resolve(count: 1, isDirectory: true, isText: true).openInEditor,
+        #expect(Self.resolve(count: 1, isDirectory: false, opensInEdit: true).openInEditor)
+        #expect(!Self.resolve(count: 1, isDirectory: true, opensInEdit: true).openInEditor,
                 "a folder offered the editor")
-        #expect(!Self.resolve(count: 2, isDirectory: false, isText: true).openInEditor,
+        #expect(!Self.resolve(count: 2, isDirectory: false, opensInEdit: true).openInEditor,
                 "a multi-selection offered the editor")
-        #expect(!Self.resolve(count: 1, isDirectory: false, isText: false).openInEditor,
+        #expect(!Self.resolve(count: 1, isDirectory: false, opensInEdit: false).openInEditor,
                 "a file the editor does not open was offered to it")
     }
 
@@ -405,7 +405,7 @@ import AppKit
     @Test func openInEditDoesNotReadTheCloudBadge() {
         for isCloudOnly in [true, false] {
             #expect(Self.resolve(count: 1, isDirectory: false, isCloudOnly: isCloudOnly,
-                                 isText: true).openInEditor,
+                                 opensInEdit: true).openInEditor,
                     "the editor item read the cloud badge")
         }
     }

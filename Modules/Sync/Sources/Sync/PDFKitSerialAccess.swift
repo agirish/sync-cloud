@@ -16,16 +16,18 @@ import Foundation
 /// This covers PDFKit only. Vision recognition and plain-text reads are not PDFKit, are far slower
 /// per file, and stay on their callers' concurrent queues — see `ContentSignalExtractor.workQueue`.
 ///
-/// **One exception, and it is by construction rather than by oversight: the two mounted `PDFView`s**
-/// — Compare's `PDFPairView` and the Browse/Compare column preview's `PDFPagePreview` — and File ▸
-/// Print's operation, which is the same shape. All three open their documents through this lane —
-/// each awaits ``perform`` — but a `PDFView` then LAYS OUT AND DRAWS its document on the main thread,
-/// on its own schedule, and so does a print operation drawing its pages; there is no seam to
-/// route that through. It is AppKit drawing its own view; handing it a document is the only moment
-/// the app controls. So the sentence above holds for their parses, and not for the drawing they do
-/// afterwards. Recorded here rather than left for the next reader to
-/// discover, because "everything takes its turn here" is what keeps the 4.5–6.3% disagreement
-/// above out, and a claim that broad has to name where it stops holding.
+/// **One exception, and it is by construction rather than by oversight: the three mounted
+/// `PDFView`s** — Compare's `PDFPairView`, the Browse/Compare column preview's `PDFPagePreview`, and
+/// Edit's PDF reader, whose `EditorPDFDocument` opens (and unlocks) the document it hands the view —
+/// and File ▸ Print's operation, which is the same shape. All of them open their documents through
+/// this lane — each awaits ``perform`` — but a `PDFView` then LAYS OUT AND DRAWS its document on the
+/// main thread, on its own schedule, and so does a print operation drawing its pages (Edit prints a
+/// PDF from the reader's own document, already parsed here); there is no seam to route that
+/// through. It is AppKit drawing its own view; handing it a document is the only moment the app
+/// controls. So the sentence above holds for their parses, and not for the drawing they do
+/// afterwards. Recorded here rather than left for the next reader to discover, because "everything
+/// takes its turn here" is what keeps the 4.5–6.3% disagreement above out, and a claim that broad
+/// has to name where it stops holding.
 public enum PDFKitSerialAccess {
 
     private static let queue = DispatchQueue(label: "com.synccloud.pdfkit", qos: .utility)

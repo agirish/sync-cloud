@@ -374,7 +374,8 @@ import FileExplorer
         let record = try #require(body.range(of: "editorPaneSelectionOwed = PaneSelectionDebt("),
                                   "the open-document debt is no longer what is recorded")
         let debt = try Self.call("PaneSelectionDebt(", in: body)
-        #expect(debt.passes("path", "path") && debt.passes("document", "editorDocument.path"),
+        // The open file, text or PDF (`EditorOpenRoute.openPath`) — a PDF is the open document too.
+        #expect(debt.passes("path", "path") && debt.passes("document", "editorOpenPath"),
                 "the debt no longer records the open document")
         #expect(debt.passes("workspace", "selectedWorkspace"),
                 "the debt no longer records the workspace it was owed in — it would pay in another")
@@ -442,7 +443,7 @@ import FileExplorer
         let body = try Self.body("func settleOwedPaneSelection() {")
         let rule = try Self.call("Self.owedPaneSelection(", in: body)
         for (label, value) in [("owed", "owed"),
-                               ("openDocument", "editorDocument.path"), ("workspace", "selectedWorkspace"),
+                               ("openDocument", "editorOpenPath"), ("workspace", "selectedWorkspace"),
                                ("paneFolder", "editorFolder"),
                                ("paneIsCurrent", "paneTreeIsCurrent"),
                                ("isListed", "!syncManager.leftNodes(for: [owed.path]).isEmpty"),

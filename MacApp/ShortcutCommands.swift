@@ -148,15 +148,16 @@ enum PaneRowVerbAvailability {
     /// **Get Info is absent**, for the reason the mockup settled: it wants Finder's ⌘I, which is
     /// the Info Inspector here, and the inspector already answers it without leaving the window.
     static func resolve(selectionCount: Int, isDirectory: Bool, isCloudOnly: Bool,
-                        canOpenInNewTab: Bool, isComparing: Bool, isText: Bool) -> Answer {
+                        canOpenInNewTab: Bool, isComparing: Bool, opensInEdit: Bool) -> Answer {
         let single = selectionCount == 1
         return Answer(
             openInNewTab: single && isDirectory && canOpenInNewTab,
             singleNodeVerbs: single,
             // The same three terms every other door applies, in the same order: one row, a file,
-            // and a file the editor opens. `isText` is answered by `EditableText.isText` at the
-            // call site — the row menu's own gate — so this item and that menu cannot disagree.
-            openInEditor: single && !isDirectory && isText,
+            // and a file the editor opens. `opensInEdit` is answered by `EditableText.opensInEdit`
+            // at the call site — the row menu's own gate — so this item and that menu cannot
+            // disagree: text, or a PDF, which opens read-only.
+            openInEditor: single && !isDirectory && opensInEdit,
             // A folder is never dataless in the sense the flag means, and the row menu gates on
             // `!isDirectory` too — a menu item offering to download a folder would be a promise
             // `MaterializationStatus.download` cannot keep.
@@ -1410,7 +1411,7 @@ extension ContentView {
             isComparing: layoutMode == .compare,
             // A path read, no I/O — exactly as `isCloudOnly` above reads a cache rather than
             // stat-ing. This resolver runs on every `ContentView` body pass.
-            isText: node.map { EditableText.isText(path: $0.id) } ?? false)
+            opensInEdit: node.map { EditableText.opensInEdit(path: $0.id) } ?? false)
         // Resolved here, not in the item: the row menu reads the same `isNodeIgnored` to decide
         // which of the two verbs it is offering, and the two must not answer differently.
         let allIgnored = selection.allSatisfy { delegate.isNodeIgnored($0, currentPath: context.currentPath) }
@@ -1916,8 +1917,9 @@ struct ExportPDFCommand: View {
     @FocusedValue(\.documentPrint) private var actions
 
     var body: some View {
-        Button("Export as PDF…") { actions?.export() }
-            .disabled(actions == nil)
+        Button("Export as PDF…") { actions?.export?() }
+            // Not offered for a PDF: it already is one.
+            .disabled(actions?.export == nil)
     }
 }
 

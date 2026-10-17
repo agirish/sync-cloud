@@ -134,13 +134,13 @@ import FileExplorerTestSupport
         return window
     }
 
-    /// **A text file on disk draws the button; a PDF beside it does not.**
+    /// **A text file on disk draws the button, and so does a PDF (Phase 1a); an archive does not.**
     ///
     /// The negative half is what makes the positive one a fact about this button rather than about
     /// whatever else the column happens to draw: same column, same mount, same wait, one extension
-    /// of difference. Measured, the text column draws exactly one control and the PDF column draws
-    /// none at all.
-    @Test func aTextFileDrawsTheEditButtonAndAPDFDoesNot() async throws {
+    /// of difference. Measured, the text and PDF columns draw exactly one control each and the
+    /// archive column draws none at all.
+    @Test func aTextFileAndAPDFDrawTheEditButtonAndAnArchiveDoesNot() async throws {
         let width = Self.editButtonWidth()
         #expect(width > 0, "the Edit button drew nothing even on its own — this suite is blind")
 
@@ -154,8 +154,14 @@ import FileExplorerTestSupport
 
         let pdf = await mounted(try Self.item("scan.pdf"), source: .quickLook, opened: opened)
         defer { pdf.contentView = nil }
-        #expect(Self.focusRings(pdf.contentView!).isEmpty,
-                "a PDF on disk drew a control the text file's Edit button is supposed to be")
+        let drawnOnPDF = Self.focusRings(pdf.contentView!)
+        #expect(drawnOnPDF.count == 1 && drawnOnPDF.allSatisfy { Self.matches($0, width) },
+                "a PDF on disk drew \(drawnOnPDF.map(\.width)), not the one Edit button")
+
+        let archive = await mounted(try Self.item("bundle.zip"), source: .quickLook, opened: opened)
+        defer { archive.contentView = nil }
+        #expect(Self.focusRings(archive.contentView!).isEmpty,
+                "an archive on disk drew a control the Edit button is supposed to be")
     }
 
     /// **A cloud-only placeholder draws Download and not Edit.** The two are mutually exclusive by

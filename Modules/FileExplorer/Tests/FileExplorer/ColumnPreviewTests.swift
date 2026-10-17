@@ -178,14 +178,17 @@ import UniformTypeIdentifiers
     /// dataless placeholder to the editor asks the provider for the whole file, which is the
     /// download this column's classification exists to refuse — and `.missing` and `nil` are the
     /// states where there is nothing, or nothing known, to open.
-    @Test func onlyAMaterializedTextFileOffersTheEditor() {
+    @Test func onlyAMaterializedFileEditOpensOffersTheEditor() {
         #expect(ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/notes.txt"))
         #expect(ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/notes.md"))
+        // A PDF opens in Edit read-only (Phase 1a) — on this disk only, like text.
+        #expect(ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/scan.pdf"))
+        #expect(!ColumnPreviewColumn.offersEditor(source: .cloudOnly, path: "\(Self.dir)/scan.pdf"))
         for source: ColumnPreviewSource? in [.cloudOnly, .missing, nil] {
             #expect(!ColumnPreviewColumn.offersEditor(source: source, path: "\(Self.dir)/notes.txt"),
                     "\(String(describing: source)) offered the editor — the bytes are not on this disk")
         }
-        for name in ["scan.pdf", "photo.jpg", "clip.mov", "archive.zip"] {
+        for name in ["photo.jpg", "clip.mov", "archive.zip"] {
             #expect(!ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/\(name)"),
                     "\(name) offered the editor, which would then refuse it")
         }
@@ -194,10 +197,10 @@ import UniformTypeIdentifiers
     /// The button asks the same question the row menu's item does, through the one public spelling
     /// of it. Asserted as agreement rather than against a second hand-written list: two lists are
     /// two things to keep in step, and this whole predicate exists so there is only one.
-    @Test func theButtonAndTheRowMenuAgreeAboutWhatIsText() {
+    @Test func theButtonAndTheRowMenuAgreeAboutWhatEditOpens() {
         for name in ["notes.txt", "notes.md", "scan.pdf", "photo.jpg", "Package.swift", "noext"] {
             #expect(ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/\(name)")
-                    == EditableText.isText(path: name),
+                    == EditableText.opensInEdit(path: name),
                     "the preview column and the row menu disagree about \(name)")
         }
     }

@@ -1,0 +1,466 @@
+import AppKit
+import Combine
+import PDFKit
+import Sync
+
+/// **A PDF open in Edit — read-only, and deliberately not an ``EditorDocument``.**
+///
+/// That type is a text buffer: its saved text, encoding, undo store, autosave, disk watch, printing
+/// and status line all assume one, and about a thousand tests hold it to that. So a PDF gets a model
+/// of its own beside it, and the host shows one or the other. **The point is what a PDF can never
+/// reach**: every write the editor makes ends at `EditorFileStore.write`, which needs the text
+/// document's path and encoding, and ⌘S, autosave, the settle and the quit flush all ask that
+/// document. While a PDF is open the text document is empty — `path == nil` — so each of them is a
+/// no-op by the rules it already has, rather than by a new check somebody has to remember.
+///
+/// **Split in two, for ``EditorDocument``'s reason.** This object is the file's identity — which
+/// PDF, whether it opened, what it is — and changes only on open, close, unlock and reload; the
+/// window observes it. Where the reader is in it, the zoom and the fit move on every scroll, and
+/// live on ``view``, which only the PDF card observes. A page turn must not re-render the window.
+///
+/// **Every parse goes through `PDFKitSerialAccess`** — the open, the unlock and the facts — with
+/// the column preview's rule (Phase 0): the latest request wins, and a load that comes back for any
+/// earlier one is dropped. The mounted `PDFView` then draws on the main thread, the lane's one
+/// documented exception.
+@MainActor
+public final class EditorPDFDocument: ObservableObject {
+
+    /// What the card shows.
+    public enum Phase: Equatable, Sendable {
+        /// The lane has the file; nothing to show yet.
+        case loading
+        /// Pages on screen.
+        case open
+        /// It needs a password — `unlock(password:)`.
+        case locked
+        /// Nothing could be shown. The reason is written for the reader.
+        case refused(String)
+    }
+
+    /// What a load found, crossing back from the lane.
+    enum Read: Sendable {
+        case open(SendableDocument, EditorPDFFacts)
+        case locked(SendableDocument)
+        case unreadable
+        /// Withdrawn before its turn came — another open or a close got there first — so nothing
+        /// was parsed. Arrowing through a folder of PDFs in Edit's pane queues no abandoned parses.
+        case skipped
+    }
+
+    /// The file on screen, or `nil` when no PDF is open.
+    @Published public private(set) var path: String?
+    @Published public private(set) var phase: Phase = .loading
+    /// What the status line says about the file. `nil` until it has opened (and been unlocked).
+    @Published public private(set) var facts: EditorPDFFacts?
+    /// The document the page view draws — only once it is open, never while it is locked.
+    @Published private(set) var document: PDFDocument?
+
+    /// Where the reader is, and how the page is sized — see ``EditorPDFViewState``.
+    public let view = EditorPDFViewState()
+
+    /// A locked document waiting for its password. Held apart from ``document`` so the page view
+    /// never gets a document it cannot draw.
+    private var locked: PDFDocument?
+    /// Bumped by every open, reload and close. **Latest request wins**: a load that comes back
+    /// under an older number is dropped, never assigned.
+    private var generation = 0
+    /// The open in flight, withdrawable until the lane reaches it — the column preview's ticket.
+    private var ticket: PDFOpenTicket?
+    /// What the file looked like when it was last read — the watch compares against it.
+    private var stamp: EditorFileStore.Stamp?
+    private var watcher: EditorFileWatcher?
+    private var pending: Task<Void, Never>?
+    private var activation: NSObjectProtocol?
+    private var log: (String) -> Void = { _ in }
+
+    /// How long the watch lets a burst of events settle before it looks — an atomic save empties
+    /// the path for a moment.
+    let settle: Duration
+    private let isCloudOnly: (String) -> Bool
+
+    /// Told the outcome of every load that is applied — the tests' way to see what a load did.
+    var onLoaded: ((Phase) -> Void)?
+    /// Every lane read that has come back, applied or dropped — so a test can wait for a load it
+    /// expects to be DROPPED, which tells `onLoaded` nothing.
+    private(set) var loadsReturned = 0
+
+    public init(settle: Duration = .milliseconds(250),
+                isCloudOnly: @escaping (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }) {
+        self.settle = settle
+        self.isCloudOnly = isCloudOnly
+    }
+
+    public var name: String { path.map { ($0 as NSString).lastPathComponent } ?? "" }
+
+    /// Why nothing is on screen, or `nil`. **A refused PDF is let through a second open** — the
+    /// hand-off's rule for a refused text file, so a file downloaded since is one click away.
+    public var refusal: String? {
+        if case .refused(let reason) = phase { return reason }
+        return nil
+    }
+
+    /// Whether File ▸ Print… has pages to print.
+    public var canPrint: Bool { document != nil }
+
+    // MARK: Opening and closing
+
+    /// Opens `path`, replacing whatever PDF was open, and logs one line when the lane answers.
+    ///
+    /// **A cloud-only file is refused without being parsed**: `PDFDocument(url:)` on a dataless file
+    /// downloads it synchronously on whatever thread asked, which here is the lane every duplicate
+    /// scan waits on. The fetch-then-open path a file from Finder takes is the way in for those.
+    public func open(path: String, log: @escaping (String) -> Void) {
+        close()
+        self.log = log
+        self.path = path
+        view.reset()
+        arm(path)
+        observeActivation()
+        if isCloudOnly(path) {
+            finish(.refused(Self.notDownloadedReason), path: path)
+            return
+        }
+        load(path, keepingPage: nil)
+    }
+
+    /// Drops the document — and with it the decoded pages a long scan holds. The watch stops and a
+    /// load still in the lane will find itself superseded.
+    public func close() {
+        generation &+= 1
+        ticket?.withdraw()
+        ticket = nil
+        pending?.cancel()
+        pending = nil
+        watcher?.cancel()
+        watcher = nil
+        document = nil
+        locked = nil
+        facts = nil
+        stamp = nil
+        path = nil
+        phase = .loading
+        view.reset()
+    }
+
+    /// Tries a password on a locked PDF, in the lane. **The password is used once and kept
+    /// nowhere** — not on this object, not in the log, not in the view after the attempt.
+    @discardableResult
+    public func unlock(password: String) async -> Bool {
+        guard phase == .locked, let locked, let path else { return false }
+        let generation = self.generation
+        let held = SendableDocument(locked)
+        let facts = await PDFKitSerialAccess.perform { () -> EditorPDFFacts? in
+            guard held.document.unlock(withPassword: password) else { return nil }
+            return EditorPDFFacts.read(held.document, path: path)
+        }
+        guard generation == self.generation, self.path == path else { return false }
+        guard let facts else {
+            log("Editor could not unlock \(path) — the password was not accepted")
+            return false
+        }
+        self.locked = nil
+        document = held.document
+        self.facts = facts
+        phase = .open
+        log("Editor unlocked \(path) (PDF, \(Self.pages(facts.pageCount)))")
+        onLoaded?(.open)
+        return true
+    }
+
+    private func load(_ path: String, keepingPage page: Int?) {
+        generation &+= 1
+        let generation = self.generation
+        ticket?.withdraw()
+        let ticket = PDFOpenTicket()
+        self.ticket = ticket
+        let before = EditorFileStore.stamp(ofPath: path)
+        Task { @MainActor [weak self] in
+            let read = await Self.read(path, ticket: ticket)
+            guard let self else { return }
+            loadsReturned &+= 1
+            guard generation == self.generation, self.path == path else { return }
+            self.stamp = before
+            switch read {
+            case .skipped:
+                // Withdrawn, yet still the current generation: unreachable, since every withdraw
+                // comes with a new generation. Said rather than left as a silent no-op.
+                assertionFailure("a skipped open of \(path) came back as the current one")
+            case .unreadable:
+                document = nil
+                locked = nil
+                facts = nil
+                finish(.refused(Self.unreadableReason), path: path)
+            case .locked(let held):
+                document = nil
+                facts = nil
+                locked = held.document
+                finish(.locked, path: path)
+            case .open(let held, let facts):
+                locked = nil
+                document = held.document
+                self.facts = facts
+                if let page { view.requestPage(min(page, max(facts.pageCount - 1, 0))) }
+                finish(.open, path: path, reloaded: page != nil)
+            }
+        }
+    }
+
+    private func finish(_ phase: Phase, path: String, reloaded: Bool = false) {
+        self.phase = phase
+        log(Self.logLine(path: path, phase: phase, pageCount: facts?.pageCount, reloaded: reloaded,
+                         page: view.currentPage))
+        onLoaded?(phase)
+    }
+
+    /// The lane's half of a load: open, and if it opened, read what the status line needs.
+    nonisolated static func read(_ path: String, ticket: PDFOpenTicket = PDFOpenTicket()) async -> Read {
+        await PDFKitSerialAccess.perform {
+            guard ticket.isWanted else {
+                PDFOpenTicket.noteSkipped()
+                return .skipped
+            }
+            guard let document = PDFDocument(url: URL(fileURLWithPath: path)) else { return .unreadable }
+            if document.isLocked { return .locked(SendableDocument(document)) }
+            return .open(SendableDocument(document), EditorPDFFacts.read(document, path: path))
+        }
+    }
+
+    // MARK: Words
+
+    static let notDownloadedReason = "Not downloaded — there is nothing here to read yet."
+    static let unreadableReason = "PDFKit couldn't read this file."
+    static let goneReason = "It is no longer here — it was moved or deleted."
+
+    static func pages(_ count: Int) -> String { count == 1 ? "1 page" : "\(count) pages" }
+
+    /// One line per load, in `EditorDocumentLoad.logLine`'s shape. Separate so the wording can be
+    /// asserted without a lane.
+    static func logLine(path: String, phase: Phase, pageCount: Int?, reloaded: Bool = false,
+                        page: Int = 0) -> String {
+        switch phase {
+        case .loading: return "Editor is opening \(path) (PDF)"
+        case .locked: return "Editor opened \(path) (PDF, locked — waiting for its password)"
+        case .refused(let reason): return "Editor could not open \(path) — \(reason)"
+        case .open:
+            let pages = Self.pages(pageCount ?? 0)
+            return reloaded
+                ? "Editor reloaded \(path) (PDF, \(pages)) — changed elsewhere; kept page \(page + 1)"
+                : "Editor opened \(path) (PDF, \(pages))"
+        }
+    }
+
+    // MARK: The watch
+
+    /// **The PDF's own small watch** — not `EditorDiskWatch`, which re-reads with the text reader
+    /// and asks text questions (unsaved typing, "Use the Disk's"). A read-only PDF has none of
+    /// those: a change is reloaded through the lane on the page the reader was on, and a file that
+    /// went away says so.
+    private func arm(_ path: String) {
+        watcher?.cancel()
+        watcher = EditorFileWatcher(path: path, isCloudOnly: isCloudOnly) { [weak self] in
+            Task { @MainActor in self?.eventArrived() }
+        }
+    }
+
+    /// The net under the events: a change made while the app was in the background.
+    private func observeActivation() {
+        guard activation == nil else { return }
+        activation = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.look() }
+            }
+    }
+
+    func eventArrived() {
+        pending?.cancel()
+        let settle = self.settle
+        pending = Task { [weak self] in
+            try? await Task.sleep(for: settle)
+            guard !Task.isCancelled else { return }
+            self?.look()
+        }
+    }
+
+    /// Looks at the disk now: a new stamp reloads, keeping the page; an empty path says so.
+    func look() {
+        guard let path else { return }
+        // Not while a load is out — it read the stamp it will compare against.
+        guard phase != .loading else { return }
+        // A refusal for not being downloaded is answered by the fetch-then-open path, not here.
+        if refusal == Self.notDownloadedReason { return }
+        guard let now = EditorFileStore.stamp(ofPath: path) else {
+            guard refusal != Self.goneReason else { return }
+            document = nil
+            locked = nil
+            facts = nil
+            stamp = nil
+            finish(.refused(Self.goneReason), path: path)
+            return
+        }
+        guard now != stamp else { return }
+        // An atomic save installed a new inode; the descriptor still holds the old one.
+        arm(path)
+        load(path, keepingPage: view.currentPage)
+    }
+}
+
+/// **Where the reader is in the PDF, and how the page is sized** — the half of the model that moves
+/// on every scroll, observed only by the PDF card. See ``EditorPDFDocument``.
+@MainActor
+public final class EditorPDFViewState: ObservableObject {
+    /// The page under the reader's eye, zero-based — reported by the view.
+    @Published public internal(set) var currentPage = 0
+    /// The scale the view is drawing at — reported by the view.
+    @Published public internal(set) var scale: CGFloat = 1
+    /// How the page is sized. `nil` once the reader has zoomed by hand, until a fit is picked again.
+    @Published public var fit: EditorPDFFit? = .page
+    /// A page the view is asked to show — a count, so asking twice for one page is two asks.
+    @Published public private(set) var pageRequest: EditorPDFRequest<Int>?
+    /// A scale the view is asked to take — the zoom buttons.
+    @Published public private(set) var scaleRequest: EditorPDFRequest<CGFloat>?
+    private var token = 0
+
+    /// The zoom buttons' steps: Preview's, roughly — a quarter up, back down by the same.
+    static let zoomStep: CGFloat = 1.25
+    static let minScale: CGFloat = 0.1
+    static let maxScale: CGFloat = 8
+
+    public func requestPage(_ index: Int) {
+        token &+= 1
+        pageRequest = EditorPDFRequest(value: index, token: token)
+    }
+
+    public func zoom(in zoomingIn: Bool) {
+        let next = zoomingIn ? scale * Self.zoomStep : scale / Self.zoomStep
+        token &+= 1
+        fit = nil
+        scaleRequest = EditorPDFRequest(value: min(max(next, Self.minScale), Self.maxScale), token: token)
+    }
+
+    func reset() {
+        currentPage = 0
+        scale = 1
+        fit = .page
+        pageRequest = nil
+        scaleRequest = nil
+    }
+}
+
+/// One ask of the page view, with a token so the same value asked twice is asked twice.
+public struct EditorPDFRequest<Value: Equatable>: Equatable {
+    public var value: Value
+    public var token: Int
+}
+
+/// Page / Width / Actual — where Source / Preview / Split sit for Markdown.
+public enum EditorPDFFit: String, CaseIterable, Sendable {
+    /// The whole page, both dimensions inside the view — `PDFPageFit`, the preview's own rule.
+    case page
+    /// The page's width across the view; the height scrolls.
+    case width
+    /// 100%: one PDF point to one screen point.
+    case actual
+
+    public var title: String {
+        switch self {
+        case .page: return "Page"
+        case .width: return "Width"
+        case .actual: return "Actual"
+        }
+    }
+
+    /// The scale this fit asks for, for a page of `pageSize` in a view of `viewSize`.
+    ///
+    /// `.page` is `PDFPageFit.scale`, capped at 1 as the preview's is, so a small page is not blown
+    /// up past its size. `.width` is not capped — fitting the width of a narrow receipt is what the
+    /// reader asked for — and keeps the page-break margins PDFKit draws either side.
+    static func scale(_ fit: EditorPDFFit, pageSize: CGSize, viewSize: CGSize, margin: CGFloat) -> CGFloat {
+        switch fit {
+        case .page: return PDFPageFit.scale(pageSize: pageSize, viewSize: viewSize)
+        case .actual: return 1
+        case .width:
+            guard pageSize.width > 0, viewSize.width > 2 * margin else { return 1 }
+            return (viewSize.width - 2 * margin) / pageSize.width
+        }
+    }
+}
+
+/// What the status line says about the open PDF, read in the lane once per load.
+public struct EditorPDFFacts: Equatable, Sendable {
+    public var pageCount: Int
+    /// Each page's media box, in points — pages of one file can differ.
+    public var pageSizes: [CGSize]
+    public var majorVersion: Int
+    public var minorVersion: Int
+    /// The file's size, formatted.
+    public var fileSize: String?
+    /// Whether any of the first pages has text to select — a scan has none.
+    public var hasText: Bool
+
+    /// How many pages are asked for text. A 300-page scan is not walked end to end to say "Image
+    /// only": if the first few have no text layer, the rest of a scan will not either.
+    static let textProbePages = 5
+
+    /// Called inside the lane only.
+    nonisolated static func read(_ document: PDFDocument, path: String) -> EditorPDFFacts {
+        let count = document.pageCount
+        let sizes = (0..<count).map { document.page(at: $0)?.bounds(for: .mediaBox).size ?? .zero }
+        let hasText = (0..<min(count, textProbePages)).contains { index in
+            guard let text = document.page(at: index)?.string else { return false }
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let size = EditorFileStore.stamp(ofPath: path).map { FileSyncManager.formatBytes($0.size) }
+        return EditorPDFFacts(pageCount: count, pageSizes: sizes, majorVersion: document.majorVersion,
+                              minorVersion: document.minorVersion, fileSize: size, hasText: hasText)
+    }
+
+    /// "Letter · 8.5 × 11 in" for the page at `index`, or `nil` past the end.
+    public func paperCaption(page index: Int) -> String? {
+        guard pageSizes.indices.contains(index) else { return nil }
+        return Self.paperCaption(pageSizes[index])
+    }
+
+    /// The paper's name when it is a common one, then its size in inches.
+    static func paperCaption(_ size: CGSize) -> String {
+        let inches = "\(Self.inches(size.width)) × \(Self.inches(size.height)) in"
+        guard let name = paperName(size) else { return inches }
+        return "\(name) · \(inches)"
+    }
+
+    /// Named papers, portrait, in points. Matched either way up, within a point.
+    static let papers: [(name: String, size: CGSize)] = [
+        ("Letter", CGSize(width: 612, height: 792)),
+        ("Legal", CGSize(width: 612, height: 1008)),
+        ("Tabloid", CGSize(width: 792, height: 1224)),
+        ("A3", CGSize(width: 842, height: 1191)),
+        ("A4", CGSize(width: 595, height: 842)),
+        ("A5", CGSize(width: 420, height: 595)),
+    ]
+
+    static func paperName(_ size: CGSize) -> String? {
+        let portrait = CGSize(width: min(size.width, size.height), height: max(size.width, size.height))
+        return papers.first {
+            abs($0.size.width - portrait.width) <= 1.5 && abs($0.size.height - portrait.height) <= 1.5
+        }?.name
+    }
+
+    /// Points to inches, to two decimals with trailing zeros dropped — 8.5, 11, 8.27.
+    static func inches(_ points: CGFloat) -> String {
+        let value = (points / 72 * 100).rounded() / 100
+        return value == value.rounded() ? String(Int(value)) : String(format: "%g", Double(value))
+    }
+
+    public var versionCaption: String { "PDF \(majorVersion).\(minorVersion)" }
+    public var textCaption: String { hasText ? "Text selectable" : "Image only" }
+}
+
+extension EditorPDFDocument {
+    /// File ▸ Print… for the open PDF — `nil` while nothing is open to print (locked, refused,
+    /// still loading). Scaled to the paper and rotated to it, as Preview prints.
+    public func printOperation(info: NSPrintInfo = .shared) -> NSPrintOperation? {
+        guard let document else { return nil }
+        let operation = document.printOperation(for: info, scalingMode: .pageScaleToFit, autoRotate: true)
+        operation?.jobTitle = name
+        return operation
+    }
+}

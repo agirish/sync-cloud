@@ -7084,3 +7084,32 @@ done
 
 A future pick of File ▸ Print (RD9) should take this change with it, and needs the lane, which only
 `v4.x` has.
+
+## Edit opens a PDF read-only — main only
+
+Edit used to open only text. A PDF that reached it through Open With ▸ Other… went through the
+text reader's lossy decode and opened read-only as garbled text. Now ⌘O, the row menu's Open in
+Edit, the preview column's button, a click in Edit's pane and the inspector offer PDFs too, behind
+`EditableText.opensInEdit`. A PDF opens into `EditorPDFDocument`, a read-only model beside
+`EditorDocument`, never a kind of it. The text document is emptied (`path == nil`), so no save path
+can reach the PDF. The parse, the unlock and the facts go through `PDFKitSerialAccess`.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s editorDocument=%s editableText=%s pdfModel=%s lane=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorDocument.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PairContentKind.swift 2>/dev/null | grep -c 'enum EditableText')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/PDFKitSerialAccess.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-16, against origin, before this landed:
+# main  editorDocument=1 editableText=1 pdfModel=0 lane=1
+# v4.x  editorDocument=0 editableText=0 pdfModel=0 lane=1
+# v3.x  editorDocument=0 editableText=0 pdfModel=0 lane=0
+# v2.x  editorDocument=0 editableText=0 pdfModel=0 lane=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace at all (`EditorDocument` is v5) | CLOSED — does not apply |
+| `v5.x` | Edit, without `EditorPDFDocument` (cut at `v5.5` before this landed; measured `pdfModel=0`) | RECORDED — not owed (main only) |

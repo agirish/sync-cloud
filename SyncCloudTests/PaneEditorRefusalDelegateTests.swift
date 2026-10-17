@@ -24,7 +24,8 @@ import FileExplorer
             onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
     }
 
-    /// The same three rows against both delegates: only (Edit, a file, not text) answers.
+    /// The same rows against both delegates: only (Edit, a file, a kind Edit does not open)
+    /// answers. A PDF is a kind Edit opens (Phase 1a, read-only), so it stays bright.
     @Test func onlyTheEditorsDelegateRefusesAnything() {
         let manager = FileSyncManager()
         let settings = SettingsManager()
@@ -35,7 +36,8 @@ import FileExplorer
         #expect(browse.editorRefusal(forPath: "/a/x.md", isDirectory: false, size: 10) == nil)
         #expect(browse.editorRefusal(forPath: "/a/x.pdf", isDirectory: true, size: 0) == nil)
 
-        #expect(edit.editorRefusal(forPath: "/a/x.pdf", isDirectory: false, size: 10) == "Not a kind Edit opens.")
+        #expect(edit.editorRefusal(forPath: "/a/x.zip", isDirectory: false, size: 10) == "Not a kind Edit opens.")
+        #expect(edit.editorRefusal(forPath: "/a/x.pdf", isDirectory: false, size: 10) == nil)
         #expect(edit.editorRefusal(forPath: "/a/x.md", isDirectory: false, size: 10) == nil)
         // A folder named like a PDF is still a folder: it leads out of the listing and stays bright.
         #expect(edit.editorRefusal(forPath: "/a/x.pdf", isDirectory: true, size: 0) == nil)
@@ -51,8 +53,10 @@ import FileExplorer
         #expect(expected != nil, "the fixture is not over the limit, so the test below proves nothing")
         #expect(edit.editorRefusal(forPath: "/a/x.md", isDirectory: false, size: huge) == expected)
         #expect(edit.editorRefusal(forPath: "/a/x.md", isDirectory: false, size: 10) == nil)
-        // The kind comes first: a huge PDF is refused for its kind, not its size.
-        #expect(edit.editorRefusal(forPath: "/a/x.pdf", isDirectory: false, size: huge) == "Not a kind Edit opens.")
+        // The kind comes first: a huge archive is refused for its kind, not its size.
+        #expect(edit.editorRefusal(forPath: "/a/x.zip", isDirectory: false, size: huge) == "Not a kind Edit opens.")
+        // And a huge PDF is not refused at all: PDFKit draws it, the text read's limit is not its own.
+        #expect(edit.editorRefusal(forPath: "/a/x.pdf", isDirectory: false, size: huge) == nil)
     }
 
     /// **The one that guards the re-render.** `FileTreeView` is `Equatable` through

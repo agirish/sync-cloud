@@ -63,6 +63,11 @@ struct ContentView: View {
     /// The one open document, owned by the app — see ``SyncCloudApp/editorDocument``. Held here as
     /// an `@ObservedObject` so the workspace is a rendering of it and nothing else.
     @ObservedObject var editorDocument: EditorDocument
+    /// The PDF open in Edit, beside the text document and never at the same time — see
+    /// ``EditorPDFDocument`` and `EditorOpenRoute`. Owned by the app for the document's reason.
+    /// Observed for its identity only: where the reader is in it lives on its `view`, which only
+    /// the PDF card observes, so a page turn does not re-render this window.
+    @ObservedObject var editorPDF: EditorPDFDocument
     /// What the last look at the editor's folder found — the rail's rows, and the count its empty
     /// caption needs. **One piece of state rather than two**, so the "did anything change" guard in
     /// ``refreshEditorRail()`` stays a single comparison: held apart, a folder whose only change was
@@ -4245,9 +4250,9 @@ struct ContentView: View {
             Divider()
             DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true, overridePath: infoPath, singleSource: layoutMode == .singleSource, cloudCoverage: settings.cloudCoverage,
                            // The app answers what the editor opens, because the app is where every
-                           // other door asks it: `EditableText.isText` is the row menu's own gate,
-                           // so the inspector cannot come to disagree with the menu about a file.
-                           editorHandOff: EditorHandOff(isOffered: { EditableText.isText(path: $0) },
+                           // other door asks it: `EditableText.opensInEdit` is the row menu's own
+                           // gate, so the inspector cannot come to disagree with the menu about a file.
+                           editorHandOff: EditorHandOff(isOffered: { EditableText.opensInEdit(path: $0) },
                                                        open: { handOffToEditor($0) }))
         }
         .frame(width: inspectorDragWidth ?? inspectorWidth)
