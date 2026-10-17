@@ -3256,45 +3256,45 @@ time one `trashItem` from a plain Swift script — tens of milliseconds healthy,
 an `/Applications` swap fell in the same window, but nothing else lines up: `sandboxd` went quiet
 on the prompt's request and resumed 19 ms after the dialog's click.
 
-**Fix — for this test and four Sync suites, 2026-10-16. The suites named below still trash for
-real.** Answer the prompt and the machine recovers at once (rerunning while it is up only adds to
-the backlog). `confirmingTrashesTheRightCopyAndReturnsToDuplicates()` no longer uses the real
-Trash: its harness gets a `ScratchTrash`, a `FileManager` whose `trashItem` moves the item into a
-folder the test owns and reports where it went, as the real Trash does. Every other call is the
-real disk, so the drift gate this test exists for still stats and re-walks real folders, while
-`sandboxd`, `tccd` and `~/.Trash` are out of its verdict. The test also checks that the copy
-arrived in that folder, so a stand-in that reached for the real Trash again fails by name. It ends
-the pollution from this test, which had left 263 `Docs <time>` in his Trash by 2026-10-16.
+**Fix — for this test and every Sync suite that trashed, 2026-10-16.** Answer the prompt and the
+machine recovers at once (rerunning while it is up only adds to the backlog).
+`confirmingTrashesTheRightCopyAndReturnsToDuplicates()` no longer uses the real Trash: its harness
+gets a `ScratchTrash`, a `FileManager` whose `trashItem` moves the item into a folder the test owns
+and reports where it went, as the real Trash does. Every other call is the real disk, so the drift
+gate this test exists for still stats and re-walks real folders, while `sandboxd`, `tccd` and
+`~/.Trash` are out of its verdict. The test also checks that the copy arrived in that folder, so a
+stand-in that reached for the real Trash again fails by name. It ends the pollution from this
+test, which had left 263 `Docs <time>` in his Trash by 2026-10-16.
 
-Four `Modules/Sync` suites share one `ScratchTrash`, in `Tests/Sync/ScratchTrash.swift`:
-`FolderMergeTests`, `MergeUndoGroupingAndGateTests`, `RestructureApplyTests` and
-`RestructureApplyGuardTests`. They were picked by tracing, not by fixture names — each suite run
-alone, with `~/.Trash` listed before and after. They added 7, 4, 2 and 1 items a run (`a.txt`,
-`b.txt`, `Reports`, `sub`, `deep` and two `.rollback_<UUID>` replace backups; `bystander.txt` and
-three `unique<N>.txt`; `Payment` and `State Tax`; `Emptied`), and after the change they add none.
-Each also checks that its trash arrived in its own folder, so a stand-in pointed back at the real
-Trash fails by name. Matching names had put `Reports`, `sub`, `deep`, `Statements` and `Claims` on
-the two Restructure suites; the trace puts the first three on `FolderMergeTests` and the last two
-on `RestructureScaffoldApplyTests`.
+Every `Modules/Sync` suite that moved something into the real Trash now uses one shared
+`ScratchTrash`, in `Tests/Sync/ScratchTrash.swift`. They were found by tracing, not by fixture
+names: each suite run alone, with `~/.Trash` listed before and after and watched while it ran,
+which also catches a suite that trashes and then deletes. Nine left items behind, per run:
+`FolderMergeTests` 7 (`a.txt`, `b.txt`, `Reports`, `sub`, `deep`, two `.rollback_<UUID>` replace
+backups), `MergeUndoGroupingAndGateTests` 4 (`bystander.txt`, three `unique<N>.txt`),
+`RestructureApplyTests` 2 (`Payment`, `State Tax`), `RestructureScaffoldApplyTests` 2
+(`Statements`, `Claims`), `OrphanSweeperTests` 2 and `AutoVerifyOnScanTests` 1 (`.tmp_<UUID>`),
+`RestructureApplyGuardTests` 1 (`Emptied`), and `CopyWalkCaseVariantRestartTests` and
+`VerifyAllWithChecksumTests` 1 each (`.rollback_<UUID>`). Four more deleted what they trashed, so
+no count saw them: `AtomicReplaceTests`, `FileSyncManagerDuplicatesTests`, `MergeUndoPromiseTests`
+and `DeleteHandbackRunPairingTests` — 6, 4, 3 and 2 moves a run, each waiting on the same check.
+After the change none of them moves anything into the Trash, and each checks that its trash
+arrived in its own folder, so a stand-in pointed back at the real Trash fails by name.
 
-**Still trashing for real.** One whole-package run left 21 items in the Trash before the change
-and 7 after. By the same per-suite trace:
+`RestructureScaffoldApplyTests` needed an app change. `applyScaffold` registered its ⌘Z through
+`registerCreateFolderUndo(url:)` with no file manager, so the undo trashed through
+`FileManager.default` whatever the manager held; it now passes the one that created the folders,
+and so does `applyPlan`'s matching call. In the app that is `FileManager.default` either way —
+`MacApp/SyncCloudApp.swift` builds the manager with `FileSyncManager()` — so nothing changes
+there. `applyPlan` still registers its rename and move undo without one; neither ever trashes.
 
-- `RestructureScaffoldApplyTests` — `Statements`, `Claims`. A test cannot fix it: `applyScaffold`
-  registers its ⌘Z through `registerCreateFolderUndo(url:)` without the manager's file manager,
-  so the undo trashes through `FileManager.default`. `applyPlan` registers its created folders'
-  undo the same way; nothing in the traced runs trashed through that one.
-- `OrphanSweeperTests` (two `.tmp_<UUID>`), `AutoVerifyOnScanTests` (one `.tmp_<UUID>`),
-  `CopyWalkCaseVariantRestartTests` and `VerifyAllWithChecksumTests` (one `.rollback_<UUID>`
-  each).
-- `DocumentSurveyRunTests` — `silent.txt` and `trash-me.txt` when run alone, nothing in the
-  package run.
-- `AtomicReplaceTests`, `FileSyncManagerDuplicatesTests`, `MergeUndoPromiseTests` and
-  `DeleteHandbackRunPairingTests` move 6, 4, 3 and at least 1 item a run into the real Trash and
-  then delete them, as `CopyWalkCaseVariantRestartTests` does with one of its two. A before/after
-  count cannot see them; watching `~/.Trash` while they run can. Each move still waits on the
-  privacy check. `MergeCancelMidCopyTests` deletes from `~/.Trash` too, but only what a regression
-  would have put there; it moved nothing.
+**A correction, and what is left.** The first trace put `silent.txt` and `trash-me.txt` on
+`DocumentSurveyRunTests`. They came from Dashboard's `FileActionHandlerOperationTests`, run by
+another session at the same moment: a trace on a shared machine counts everyone's trashes, so
+match each item to a fixture the suite really writes. That suite still trashes for real —
+`FileActionHandler.confirmDelete` calls `deleteItems` with no file manager, so a test cannot hand
+it another — and puts the file back by ⌘Z afterwards. Only `Modules/Sync` was traced suite by
+suite.
 
 The Trash on this Mac held 11,806 items before that tracing; a count by name during it found
 about 545 of each fixture name above, 2,279 `.rollback_<UUID>` and 1,634 `.tmp_<UUID>`. The source

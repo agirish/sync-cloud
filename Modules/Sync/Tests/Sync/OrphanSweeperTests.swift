@@ -131,6 +131,7 @@ import Testing
         // the expectations below.
         let root = try makeCanonicalTempRoot(prefix: "OrphanSweeperTests")
         defer { try? fm.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
 
         let oldDate = Date().addingTimeInterval(-anHourAndABit)
         func makeFile(_ name: String, old: Bool) throws -> URL {
@@ -159,9 +160,11 @@ import Testing
         #expect(Set(scan.tempPaths) == [oldTmp.path, oldTmpDir.path])
         #expect(scan.rollbackCount == 1)
 
-        let removed = OrphanSweeper.removeTempArtifacts(atPaths: scan.tempPaths, fileManager: fm)
+        let removed = OrphanSweeper.removeTempArtifacts(atPaths: scan.tempPaths, fileManager: trash)
 
         #expect(removed == 2)
+        #expect(trash.names == [oldTmp.lastPathComponent, oldTmpDir.lastPathComponent].sorted(),
+                "the swept artifacts left the tree but never reached the test's own Trash")
         #expect(!fm.fileExists(atPath: oldTmp.path))
         #expect(!fm.fileExists(atPath: oldTmpDir.path))
         #expect(fm.fileExists(atPath: recentTmp.path))

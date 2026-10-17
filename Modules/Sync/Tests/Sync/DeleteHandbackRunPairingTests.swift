@@ -30,8 +30,8 @@ import Events
     /// A tiny undoable target, so a registered step is a real one.
     private final class Marker { var undone = false }
 
-    private func isolatedManager() -> FileSyncManager {
-        let manager = FileSyncManager()
+    private func isolatedManager(fileManager: FileManaging = FileManager.default) -> FileSyncManager {
+        let manager = FileSyncManager(fileManager: fileManager)
         manager.syncHistoryStore = makeTempHistoryStore(prefix: "DeleteHandbackRunPairing")
         let um = UndoManager()
         um.groupsByEvent = false            // deterministic manual grouping
@@ -113,16 +113,15 @@ import Events
     @Test func asecondMergeOfASameNamedGroupDoesNotInheritTheFirstMergesStep() async throws {
         let base = try makeCanonicalTempRoot(prefix: "TwoMerges")
         defer { try? FileManager.default.removeItem(at: base) }
-        let trash = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash")
+        let trash = ScratchTrash(in: base)
         let names = ["RedOne-\(UUID().uuidString)", "RedTwo-\(UUID().uuidString)"]
-        defer { for n in names { try? FileManager.default.removeItem(at: trash.appendingPathComponent(n)) } }
 
         // Two groups whose keepers share a NAME — "Keeper" — so both merges register a step called
         // "Merge Keeper". Distinct parents, so they are genuinely two groups.
         let one = try makeGroup(base.appendingPathComponent("one"), redundantName: names[0])
         let two = try makeGroup(base.appendingPathComponent("two"), redundantName: names[1])
 
-        let manager = isolatedManager()             // groupsByEvent = false: the steps are the merges'
+        let manager = isolatedManager(fileManager: trash)   // groupsByEvent = false: the steps are the merges'
 
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         manager.duplicateGroups = [one.group, two.group]
@@ -132,6 +131,7 @@ import Events
                      "the first merge's step is not named as the second's will be, so the collision below cannot arise")
 
         try #require(await manager.mergeDuplicateGroup(two.group) == true, "the second merge failed")
+        #expect(trash.names == names, "the merges' redundant copies never reached the test's own Trash")
 
         #expect(manager.lastSyncRunUndoPreview == nil,
                 "the second merge's deletes paired with the FIRST merge's step, and the name gate passed over the second merge's identically named group: “Undo Last Run” would offer \(manager.lastSyncRunUndoPreview?.operationCount ?? 0) delete(s) while undo() reverses a whole merge — restoring the copies AND deleting the folded files back out of the keeper")

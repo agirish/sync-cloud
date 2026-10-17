@@ -42,7 +42,7 @@ import Foundation
         let differed = dateDiff("diff.txt", size: 4)
         let skipped = dateDiff("gone.txt", size: 6)
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager(fileManager: ScratchTrash(in: base))
         // No collision or delete prompt can fire here, but the seams stay mocked so no NSAlert
         // could ever appear if that changes.
         manager.collisionResolver = { _ in .replace }
@@ -70,7 +70,7 @@ import Foundation
     /// fixture for staging a file operation against the manual pass. Exposes the right-side
     /// URL of the identical pair so a test can overwrite it the way an undo would.
     @MainActor
-    private func makeRaceFixture(fileManager: FileManaging = FileManager.default) throws -> (
+    private func makeRaceFixture(fileManager: FileManaging? = nil) throws -> (
         manager: FileSyncManager,
         identical: FileDifference,
         differed: FileDifference,
@@ -104,7 +104,8 @@ import Foundation
         let identical = dateDiff("same.txt", size: 9)
         let differed = dateDiff("diff.txt", size: 4)
 
-        let manager = FileSyncManager(fileManager: fileManager)
+        // Without a file manager of its own, the fixture's Trash is a folder inside it.
+        let manager = FileSyncManager(fileManager: fileManager ?? ScratchTrash(in: base))
         // No prompt can fire in these tests, but the seams stay mocked so no NSAlert could
         // ever appear if that changes.
         manager.collisionResolver = { _ in .replace }
@@ -636,6 +637,9 @@ import Foundation
         // The run completed and resolved its row; only the differing pair is left.
         #expect(manager.differences.map(\.id) == [fixture.differed.id])
         #expect(manager.banner?.severity != .warning)
+        let trash = try #require(manager.fileManager as? ScratchTrash)
+        #expect(trash.names.contains { $0.hasPrefix(".rollback_") },
+                "the replaced same.txt's backup never reached the test's own Trash: \(trash.names)")
     }
 
     /// Cancel rests on the same verdicts (see `testDismissAfterAFileOperationHidesNothing`), so

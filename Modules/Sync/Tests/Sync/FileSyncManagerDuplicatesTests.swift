@@ -1182,13 +1182,8 @@ import Combine
         try write(keeper.appendingPathComponent("keeper-only.txt"), bytes: 5000, fill: 0x4B)
         try write(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
         try write(redundant.appendingPathComponent("redundant-only.txt"), bytes: 5000, fill: 0x52)
-        // The redundant folder is trashed to ~/.Trash on success — clean it up.
-        defer {
-            let trashed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")
-            try? FileManager.default.removeItem(at: trashed)
-        }
-
-        let manager = FileSyncManager()
+        let trash = ScratchTrash(in: base)
+        let manager = FileSyncManager(fileManager: trash)
         let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 10000, itemCount: 2,
                               modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
         let r = DuplicateCopy(id: redundant.path, name: rName, isDirectory: true, size: 10000, itemCount: 2,
@@ -1205,6 +1200,7 @@ import Combine
         #expect(FileManager.default.fileExists(atPath: keeper.appendingPathComponent("keeper-only.txt").path))     // keeper intact
         #expect(!FileManager.default.fileExists(atPath: redundant.path))                                            // redundant gone
         #expect(manager.duplicateGroups.isEmpty)
+        #expect(trash.names == [rName], "the redundant folder never reached the test's own Trash")
     }
 
     @MainActor
@@ -1248,12 +1244,8 @@ import Combine
         try write(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
         try write(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
         try write(redundant.appendingPathComponent("redundant-only.txt"), bytes: 5000, fill: 0x52)
-        defer {
-            let trashed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")
-            try? FileManager.default.removeItem(at: trashed)
-        }
-
-        let manager = FileSyncManager()
+        let trash = ScratchTrash(in: base)
+        let manager = FileSyncManager(fileManager: trash)
         let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 5000, itemCount: 1,
                               modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
         let r = DuplicateCopy(id: redundant.path, name: rName, isDirectory: true, size: 10000, itemCount: 2,
@@ -1271,6 +1263,7 @@ import Combine
         #expect(!FileManager.default.fileExists(atPath: keeper.appendingPathComponent("redundant-only 2.txt").path),
                 "the dropped call must not re-fold already-folded files as \" 2\" copies")
         #expect(manager.mergingGroupIDs.isEmpty, "the in-flight marker clears when the merge ends")
+        #expect(trash.names == [rName], "the redundant folder never reached the test's own Trash")
     }
 
     @MainActor
@@ -1392,14 +1385,6 @@ import Combine
     // temp tree, then resolve — so the baseline the scan records and the walk the resolve-time
     // check performs are the production ones, and a convention drift between them fails here.
 
-    /// Removes what a resolve trashed from the real ~/.Trash — these tests run the production
-    /// delete path, so a successful resolve lands the redundant folder there (same cleanup shape
-    /// as `mergeFoldsUniqueFilesThenTrashesRedundant`).
-    private func removeFromTrash(_ names: [String]) {
-        let trash = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash")
-        for n in names { try? FileManager.default.removeItem(at: trash.appendingPathComponent(n)) }
-    }
-
     /// **A `.DS_Store` is not drift.** The scan skips `options.ignoredNames` when it measures a
     /// folder, so a re-walk that counts them disagrees with the baseline by a constant offset —
     /// and every folder the user ever opened in Finder is then refused with "changed since it was
@@ -1410,14 +1395,14 @@ import Combine
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         let aName = "KeepA-\(UUID().uuidString)", bName = "CopyB-\(UUID().uuidString)"
         defer { try? FileManager.default.removeItem(at: root) }
-        defer { removeFromTrash([aName, bName]) }
+        let trash = ScratchTrash(in: root)
         for folder in [aName, bName] {
             try write(root.appendingPathComponent("\(folder)/f1.txt"), bytes: 5000, fill: 0x41)
             try write(root.appendingPathComponent("\(folder)/f2.txt"), bytes: 6000, fill: 0x42)
             try write(root.appendingPathComponent("\(folder)/.DS_Store"), bytes: 800, fill: 0x44)
         }
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager(fileManager: trash)
         await manager.findDuplicates(root: root)
         let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }),
                                  "two folders identical up to an ignored name must still group")
@@ -1427,6 +1412,8 @@ import Combine
 
         #expect(ok == true, "a folder that merely holds a .DS_Store was refused as 'changed since it was scanned'")
         #expect(!FileManager.default.fileExists(atPath: redundantPath))
+        #expect(trash.names == [(redundantPath as NSString).lastPathComponent],
+                "the redundant folder never reached the test's own Trash")
         #expect(FileManager.default.fileExists(atPath: group.keeper.path))
     }
 
@@ -1440,13 +1427,13 @@ import Combine
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         let aName = "KeepA-\(UUID().uuidString)", bName = "CopyB-\(UUID().uuidString)"
         defer { try? FileManager.default.removeItem(at: root) }
-        defer { removeFromTrash([aName, bName]) }
+        let trash = ScratchTrash(in: root)
         for folder in [aName, bName] {
             try write(root.appendingPathComponent("\(folder)/f1.txt"), bytes: 5000, fill: 0x41)
             try write(root.appendingPathComponent("\(folder)/f2.txt"), bytes: 6000, fill: 0x42)
         }
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager(fileManager: trash)
         await manager.findDuplicates(root: root)
         let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }))
         let redundantPath = try #require(group.recommendedRemovalPaths.first)
@@ -1478,13 +1465,13 @@ import Combine
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         let aName = "KeepA-\(UUID().uuidString)", bName = "CopyB-\(UUID().uuidString)"
         defer { try? FileManager.default.removeItem(at: root) }
-        defer { removeFromTrash([aName, bName]) }
+        let trash = ScratchTrash(in: root)
         for folder in [aName, bName] {
             try write(root.appendingPathComponent("\(folder)/f1.txt"), bytes: 5000, fill: 0x41)
             try write(root.appendingPathComponent("\(folder)/f2.txt"), bytes: 6000, fill: 0x42)
         }
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager(fileManager: trash)
         await manager.findDuplicates(root: root)
         let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }))
         let redundantPath = try #require(group.recommendedRemovalPaths.first)
@@ -1552,7 +1539,7 @@ import Combine
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         let aName = "CleanA-\(UUID().uuidString)", bName = "MaskB-\(UUID().uuidString)"
         defer { try? FileManager.default.removeItem(at: root) }
-        defer { removeFromTrash([aName, bName]) }
+        let trash = ScratchTrash(in: root)
         for folder in [aName, bName] {
             for i in 1...4 {
                 try write(root.appendingPathComponent("\(folder)/f\(i).txt"), bytes: 5000, fill: 0x41)
@@ -1561,7 +1548,7 @@ import Combine
         // Only the B copy holds the ignored name, sized exactly like the file it will "replace".
         try write(root.appendingPathComponent("\(bName)/.DS_Store"), bytes: 5000, fill: 0x44)
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager(fileManager: trash)
         await manager.findDuplicates(root: root)
         let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }))
         let maskedPath = try #require(group.copies.first(where: { ($0.path as NSString).lastPathComponent == bName })?.path)
@@ -1587,7 +1574,7 @@ import Combine
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         let aName = "KeepA-\(UUID().uuidString)", bName = "CopyB-\(UUID().uuidString)"
         defer { try? FileManager.default.removeItem(at: root) }
-        defer { removeFromTrash([aName, bName]) }
+        let trash = ScratchTrash(in: root)
         for folder in [aName, bName] {
             try write(root.appendingPathComponent("\(folder)/f.txt"), bytes: 5000, fill: 0x41)
             try FileManager.default.createSymbolicLink(
@@ -1595,7 +1582,7 @@ import Combine
                 withDestinationPath: "f.txt")
         }
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager(fileManager: trash)
         await manager.findDuplicates(root: root)
         let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }),
                                  "two folders identical link-for-link must group")
@@ -1605,6 +1592,8 @@ import Combine
 
         #expect(ok == true, "an unchanged folder was refused because the re-walk stats symlinks by a different convention than the scan")
         #expect(!FileManager.default.fileExists(atPath: redundantPath))
+        #expect(trash.names == [(redundantPath as NSString).lastPathComponent],
+                "the redundant folder never reached the test's own Trash")
     }
 
     /// The scan records the baseline in its own conventions: ignored names are absent from the

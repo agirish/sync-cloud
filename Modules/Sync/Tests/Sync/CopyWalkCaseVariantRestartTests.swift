@@ -56,17 +56,12 @@ import Events
         try #require(FileSyncManager.volumeSupportsCaseSensitiveNames(for: dst) == false,
                      "this machine's temp volume distinguishes names by case, so the two spellings below are two real files and this test cannot exercise the case-variant restart")
 
-        // Names differing ONLY by case, unique so the Trash cleanup below is exact.
+        // Names differing ONLY by case.
         let stem = "CaseWalk-\(UUID().uuidString)"
         let upperName = stem + ".txt"
         let lowerName = stem.lowercased() + ".txt"
         try #require(upperName != lowerName && upperName.lowercased() == lowerName,
                      "the fixture's two names do not differ only by case")
-        let trash = fm.homeDirectoryForCurrentUser.appendingPathComponent(".Trash")
-        defer {
-            for n in [upperName, lowerName] { try? fm.removeItem(at: trash.appendingPathComponent(n)) }
-        }
-
         // Shorter source path first, so the upper-case item is item 0 of the batch.
         let srcA = root.appendingPathComponent("a")
         let srcB = root.appendingPathComponent("bb")
@@ -75,7 +70,8 @@ import Events
         try Data(repeating: 0x41, count: 10).write(to: srcA.appendingPathComponent(upperName))
         try Data(repeating: 0x42, count: 20).write(to: srcB.appendingPathComponent(lowerName))
 
-        let manager = FileSyncManager(fileManager: fm)
+        let trash = ScratchTrash(in: root)
+        let manager = FileSyncManager(fileManager: trash)
         manager.undoManager = UndoManager()
         manager.collisionResolver = { _ in .replace }
         manager.permanentDeleteConfirmer = { _ in false }
@@ -83,7 +79,7 @@ import Events
         let transferred = await manager.copyItems(
             nodes: [FileNode(id: srcA.appendingPathComponent(upperName).path, name: upperName, isDirectory: false),
                     FileNode(id: srcB.appendingPathComponent(lowerName).path, name: lowerName, isDirectory: false)],
-            toPath: dst.path, fileManager: fm)
+            toPath: dst.path, fileManager: trash)
 
         // Premises: both items copied, in that order, and the folding volume left ONE file holding
         // the second item's bytes.
@@ -104,5 +100,7 @@ import Events
                 "⌘Z left \(after) in a folder that was empty before the batch — the earlier item's walk still described the copy this batch superseded, so its registration was refused as drift and the later item restored it as a backup")
         #expect(manager.banner?.severity != .warning,
                 "the undo blamed the user for a change the batch itself made: “\(manager.banner?.message ?? "nil")”")
+        #expect(trash.names.contains { $0.lowercased() == lowerName },
+                "the copy the undo removed never reached the test's own Trash: \(trash.names)")
     }
 }

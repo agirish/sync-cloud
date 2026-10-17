@@ -181,12 +181,17 @@ import EventsTestSupport
     /// A Trash-less volume for ONE named path only, so a single merge can produce both outcomes.
     private final class TrashlessForOne: FileManager, @unchecked Sendable {
         let refusedPath: String
-        init(refusedPath: String) { self.refusedPath = refusedPath; super.init() }
+        let trash: ScratchTrash
+        init(refusedPath: String, trash: ScratchTrash) {
+            self.refusedPath = refusedPath
+            self.trash = trash
+            super.init()
+        }
         override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
             if url.path == refusedPath {
                 throw NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
             }
-            try super.trashItem(at: url, resultingItemURL: resultingItemURL)
+            try trash.trashItem(at: url, resultingItemURL: resultingItemURL)
         }
     }
 
@@ -203,16 +208,14 @@ import EventsTestSupport
         let bName = "B-\(UUID().uuidString)"
         let a = base.appendingPathComponent(aName)
         let b = base.appendingPathComponent(bName)
-        let trashedA = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(aName)")
-        defer { try? FileManager.default.removeItem(at: trashedA) }
-
         try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
         for (url, fill, unique) in [(a, UInt8(0x61), "a-only.txt"), (b, UInt8(0x62), "b-only.txt")] {
             try write(url.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
             try write(url.appendingPathComponent(unique), bytes: 4000, fill: fill)
         }
 
-        let manager = FileSyncManager(fileManager: TrashlessForOne(refusedPath: b.path))
+        let trash = ScratchTrash(in: base)
+        let manager = FileSyncManager(fileManager: TrashlessForOne(refusedPath: b.path, trash: trash))
         let undo = UndoManager()
         manager.undoManager = undo
         manager.permanentDeleteConfirmer = { _ in true }
@@ -229,8 +232,8 @@ import EventsTestSupport
         _ = await manager.mergeDuplicateGroup(group)
 
         // The premise: A trashed, B destroyed.
-        try #require(FileManager.default.fileExists(atPath: trashedA.path),
-                     "A did not reach the Trash — this is not the mixed case")
+        try #require(trash.names == [aName],
+                     "A did not reach the Trash — this is not the mixed case: \(trash.names)")
         try #require(FileManager.default.fileExists(atPath: b.path) == false,
                      "B was not permanently deleted — this is not the mixed case")
 
@@ -254,11 +257,10 @@ import EventsTestSupport
         let base = try makeCanonicalTempRoot(prefix: "MergeUndoPromiseTrash")
         defer { try? FileManager.default.removeItem(at: base) }
         let rName = "Redundant-\(UUID().uuidString)"
-        let trashed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")
-        defer { try? FileManager.default.removeItem(at: trashed) }
         let pair = try makePair(base, redundantName: rName)
 
-        let manager = FileSyncManager(fileManager: FileManager.default)
+        let trash = ScratchTrash(in: base)
+        let manager = FileSyncManager(fileManager: trash)
         manager.undoManager = UndoManager()
         manager.duplicateGroups = [pair.group]
 
@@ -269,6 +271,7 @@ import EventsTestSupport
         #expect(manager.banner?.message.contains("⌘Z") == true,
                 "a genuinely reversible merge stopped offering its undo")
         #expect(manager.banner?.isUndoable == true)
+        #expect(trash.names == [rName], "the redundant copy never reached the test's own Trash")
     }
 
     /// Parks the FIRST `attributesOfItem` of one exact path — the folded file's destination in
@@ -277,14 +280,16 @@ import EventsTestSupport
     /// to be done. Bounded park, recorded timeout, per the `ParkGate`/`FirstStatGate` contract.
     private final class DestinationStatGate: FileManager, @unchecked Sendable {
         let targetPath: String
+        let trash: ScratchTrash
         let entered = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
         // In a box rather than as stored vars: `FileManager` already conforms to `Sendable`, so
         // the compiler rejects mutable stored properties on a subclass outright.
         private let state = LockedBox((gated: false, timedOut: false))
 
-        init(targetPath: String) {
+        init(targetPath: String, trash: ScratchTrash) {
             self.targetPath = targetPath
+            self.trash = trash
             super.init()
         }
 
@@ -306,6 +311,10 @@ import EventsTestSupport
             }
             return try super.attributesOfItem(atPath: path)
         }
+
+        override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            try trash.trashItem(at: url, resultingItemURL: resultingItemURL)
+        }
     }
 
     /// The dc865114 ordering claim — "the copy/sync call sites await [the identity walk], which
@@ -322,11 +331,10 @@ import EventsTestSupport
         let base = try makeCanonicalTempRoot(prefix: "MergeUndoArm")
         defer { try? FileManager.default.removeItem(at: base) }
         let rName = "Redundant-\(UUID().uuidString)"
-        let trashed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")
-        defer { try? FileManager.default.removeItem(at: trashed) }
         let pair = try makePair(base, redundantName: rName)
 
-        let gate = DestinationStatGate(targetPath: pair.keeper.appendingPathComponent("unique.txt").path)
+        let gate = DestinationStatGate(targetPath: pair.keeper.appendingPathComponent("unique.txt").path,
+                                       trash: ScratchTrash(in: base))
         let manager = FileSyncManager(fileManager: gate)
         manager.undoManager = UndoManager()
         manager.duplicateGroups = [pair.group]
@@ -357,6 +365,7 @@ import EventsTestSupport
                      "the walk resumed by timeout, not by this test — the park was never actually held")
         #expect(ok == true, "once the walk resolves, the merge completes normally")
         #expect(manager.banner?.message.contains("⌘Z") == true)
+        #expect(gate.trash.names == [rName], "the redundant copy never reached the test's own Trash")
     }
 }
 

@@ -208,16 +208,18 @@ import Foundation
     /// "fixes" the sweep into the epoch blind.
     @MainActor
     @Test(.parksAThread) func testOrphanSweepDuringTheHashDoesNotDiscardTheBatch() async throws {
-        let gate = FirstStatGate(inner: FileManager.default)
-        let fixture = try makeFixture(fileManager: gate)
-        defer { fixture.cleanup() }
-        let manager = fixture.manager
-
         // A real orphaned staging artifact, old enough to reap, under its own root — so the thing
         // the sweep trashes is never one of the files being hashed.
         let fm = FileManager.default
         let root = try makeCanonicalTempRoot(prefix: "AutoVerifySweep")
         defer { try? fm.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+
+        let gate = FirstStatGate(inner: trash)
+        let fixture = try makeFixture(fileManager: gate)
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
         let orphan = root.appendingPathComponent(".tmp_\(UUID().uuidString)")
         try "partial".write(to: orphan, atomically: true, encoding: .utf8)
         try fm.setAttributes(
@@ -244,6 +246,8 @@ import Foundation
             try await Task.sleep(nanoseconds: 25_000_000)
         }
         try #require(trashed, "the sweep must have trashed the artifact while the hash was parked")
+        #expect(trash.names == [orphan.lastPathComponent],
+                "the artifact left the tree but never reached the test's own Trash")
 
         // It took part in neither mechanism: not the epoch, not the operation queue.
         #expect(manager.fileOperationsEpoch == epochBefore)

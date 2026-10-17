@@ -343,20 +343,15 @@ import Foundation
         let dst = base.appendingPathComponent("dst")
         try fm.createDirectory(at: src, withIntermediateDirectories: true)
         try fm.createDirectory(at: dst, withIntermediateDirectories: true)
-        // The backup can land in the real ~/.Trash (outside `base`), so clean it explicitly.
-        var backupToClean: URL?
-        defer {
-            if let b = backupToClean { try? fm.removeItem(at: b) }
-            try? fm.removeItem(at: base)
-        }
+        defer { try? fm.removeItem(at: base) }
+        let trash = ScratchTrash(in: base)
 
         let srcFile = src.appendingPathComponent("f.txt")
         let dstFile = dst.appendingPathComponent("f.txt")
         try "NEW".data(using: .utf8)!.write(to: srcFile)
         try "OLD".data(using: .utf8)!.write(to: dstFile)
 
-        let overwritten = try FileSyncManager.safeCopyItem(at: srcFile, to: dstFile)
-        backupToClean = overwritten
+        let overwritten = try FileSyncManager.safeCopyItem(at: srcFile, to: dstFile, fileManager: trash)
 
         // Destination now holds the new content; the source is untouched (copy).
         #expect(try String(contentsOf: dstFile, encoding: .utf8) == "NEW")
@@ -365,6 +360,8 @@ import Foundation
         // otherwise the in-place `.rollback_` backup).
         let backup = try #require(overwritten)
         #expect(try String(contentsOf: backup, encoding: .utf8) == "OLD")
+        #expect(backup.path.hasPrefix(trash.folder.path),
+                "the replaced file's backup never reached the test's own Trash: \(backup.path)")
         // At no point is the destination absent, and no stray temp is left behind.
         let leftovers = try fm.contentsOfDirectory(atPath: dst.path).filter { $0.hasPrefix(".tmp_") }
         #expect(leftovers.isEmpty)
@@ -377,19 +374,15 @@ import Foundation
         let dst = base.appendingPathComponent("dst")
         try fm.createDirectory(at: src, withIntermediateDirectories: true)
         try fm.createDirectory(at: dst, withIntermediateDirectories: true)
-        var backupToClean: URL?
-        defer {
-            if let b = backupToClean { try? fm.removeItem(at: b) }
-            try? fm.removeItem(at: base)
-        }
+        defer { try? fm.removeItem(at: base) }
+        let trash = ScratchTrash(in: base)
 
         let srcFile = src.appendingPathComponent("f.txt")
         let dstFile = dst.appendingPathComponent("f.txt")
         try "NEW".data(using: .utf8)!.write(to: srcFile)
         try "OLD".data(using: .utf8)!.write(to: dstFile)
 
-        let overwritten = try FileSyncManager.safeMoveItem(at: srcFile, to: dstFile)
-        backupToClean = overwritten
+        let overwritten = try FileSyncManager.safeMoveItem(at: srcFile, to: dstFile, fileManager: trash)
 
         #expect(try String(contentsOf: dstFile, encoding: .utf8) == "NEW")
         #expect(fm.fileExists(atPath: srcFile.path) == false) // move removes the source
@@ -408,11 +401,8 @@ import Foundation
         let dst = base.appendingPathComponent("dst")
         try fm.createDirectory(at: src, withIntermediateDirectories: true)
         try fm.createDirectory(at: dst, withIntermediateDirectories: true)
-        var backupToClean: URL?
-        defer {
-            if let b = backupToClean { try? fm.removeItem(at: b) }
-            try? fm.removeItem(at: base)
-        }
+        defer { try? fm.removeItem(at: base) }
+        let trash = ScratchTrash(in: base)
 
         let srcDir = src.appendingPathComponent("folder")
         let dstDir = dst.appendingPathComponent("folder")
@@ -421,8 +411,7 @@ import Foundation
         try "new".data(using: .utf8)!.write(to: srcDir.appendingPathComponent("new.txt"))
         try "old".data(using: .utf8)!.write(to: dstDir.appendingPathComponent("old.txt"))
 
-        let overwritten = try FileSyncManager.safeCopyItem(at: srcDir, to: dstDir)
-        backupToClean = overwritten
+        let overwritten = try FileSyncManager.safeCopyItem(at: srcDir, to: dstDir, fileManager: trash)
 
         // The destination folder now mirrors the source (new.txt present, old.txt gone from it).
         #expect(fm.fileExists(atPath: dstDir.appendingPathComponent("new.txt").path))
@@ -443,11 +432,8 @@ import Foundation
         let dst = base.appendingPathComponent("dst")
         try fm.createDirectory(at: src, withIntermediateDirectories: true)
         try fm.createDirectory(at: dst, withIntermediateDirectories: true)
-        var backups: [URL] = []
-        defer {
-            for b in backups { try? fm.removeItem(at: b) }
-            try? fm.removeItem(at: base)
-        }
+        defer { try? fm.removeItem(at: base) }
+        let trash = ScratchTrash(in: base)
 
         func isDir(_ url: URL) -> Bool {
             var d: ObjCBool = false
@@ -461,8 +447,7 @@ import Foundation
         try "child".data(using: .utf8)!.write(to: dstDir.appendingPathComponent("c.txt"))
         try "FILE".data(using: .utf8)!.write(to: srcFile)
 
-        let b1 = try FileSyncManager.safeCopyItem(at: srcFile, to: dstDir)
-        if let b1 { backups.append(b1) }
+        let b1 = try FileSyncManager.safeCopyItem(at: srcFile, to: dstDir, fileManager: trash)
         #expect(isDir(dstDir) == false)                                   // dest is now a file
         #expect(try String(contentsOf: dstDir, encoding: .utf8) == "FILE")
         let backupDir = try #require(b1)
@@ -475,8 +460,7 @@ import Foundation
         try "in".data(using: .utf8)!.write(to: srcDir2.appendingPathComponent("in.txt"))
         try "OLDFILE".data(using: .utf8)!.write(to: dstFile2)
 
-        let b2 = try FileSyncManager.safeCopyItem(at: srcDir2, to: dstFile2)
-        if let b2 { backups.append(b2) }
+        let b2 = try FileSyncManager.safeCopyItem(at: srcDir2, to: dstFile2, fileManager: trash)
         #expect(isDir(dstFile2))                                          // dest is now a directory
         #expect(fm.fileExists(atPath: dstFile2.appendingPathComponent("in.txt").path))
         let backupFile = try #require(b2)
@@ -495,11 +479,8 @@ import Foundation
         let dst = base.appendingPathComponent("dst")
         try fm.createDirectory(at: src, withIntermediateDirectories: true)
         try fm.createDirectory(at: dst, withIntermediateDirectories: true)
-        var backupToClean: URL?
-        defer {
-            if let b = backupToClean { try? fm.removeItem(at: b) }
-            try? fm.removeItem(at: base)
-        }
+        defer { try? fm.removeItem(at: base) }
+        let trash = ScratchTrash(in: base)
 
         let srcFile = src.appendingPathComponent("f.txt")
         let dstFile = dst.appendingPathComponent("f.txt")
@@ -509,7 +490,7 @@ import Foundation
         try fm.setAttributes([.modificationDate: srcDate], ofItemAtPath: srcFile.path)
         try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000_000)], ofItemAtPath: dstFile.path)
 
-        backupToClean = try FileSyncManager.safeCopyItem(at: srcFile, to: dstFile)
+        _ = try FileSyncManager.safeCopyItem(at: srcFile, to: dstFile, fileManager: trash)
 
         let dstDate = try #require(try fm.attributesOfItem(atPath: dstFile.path)[.modificationDate] as? Date)
         #expect(abs(dstDate.timeIntervalSince(srcDate)) < 1)
