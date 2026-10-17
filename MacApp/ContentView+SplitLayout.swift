@@ -438,7 +438,7 @@ extension ContentView {
     var railSpine: some View {
         let provider = settings.availableProviders.first(where: { $0.id == leftProviderId })
         let name = provider?.displayName ?? "Source"
-        let rungs = Self.spineRungs(workspace: selectedWorkspace)
+        let rungs = Self.spineRungs(workspace: selectedWorkspace, pdfIsOpen: editorPDF.path != nil)
         let railRungs = rungs.compactMap(\.railTab)
         let showsRailRungs = !railRungs.isEmpty
         // One card, one 34pt strip, for every workspace that draws a spine — the list's buttons
@@ -469,7 +469,7 @@ extension ContentView {
             .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor, shape: .roundedRect(8)))
             .help("Show the \(name) pane to browse or re-scope")
             .accessibilityLabel("Show the \(name) source pane")
-            // **The Text Files list's place when it is not on screen** (TE77): one button per tab,
+            // **The Files list's place when it is not on screen** (TE77): one button per tab,
             // under a rule, in the strip that is already there — folding the list never adds a
             // second strip beside this one. Gated on the workspace: the list is Edit's, but this
             // spine is drawn by every workspace with a collapsible pane, and a stray button in
@@ -480,8 +480,8 @@ extension ContentView {
                     .frame(width: 16)
                 ForEach(railRungs, id: \.self) { tab in
                     let drawn = editorRailIsDrawn
-                    let lit = EditorRailFold.rungIsLit(tab, railDrawn: drawn, currentTab: editorRailTab)
-                    let title = EditorRailFold.rungTitle(tab, railDrawn: drawn, currentTab: editorRailTab)
+                    let lit = EditorRailFold.rungIsLit(tab, railDrawn: drawn, currentTab: editorRailShownTab)
+                    let title = EditorRailFold.rungTitle(tab, railDrawn: drawn, currentTab: editorRailShownTab)
                     Button { runEditorRailRung(tab) } label: {
                         Image(systemName: Self.railRungSymbol(tab))
                             .scaledFont(.system(size: 14, weight: .semibold))
@@ -512,6 +512,7 @@ extension ContentView {
     static func railRungSymbol(_ tab: EditorRailTab) -> String {
         switch tab {
         case .files: return "doc.text"
+        case .pages: return "square.grid.2x2"
         case .outline: return "list.bullet.indent"
         }
     }
@@ -520,8 +521,10 @@ extension ContentView {
     enum SpineRung: Equatable {
         /// The chevron-and-cloud button that re-expands the source pane. Every spine has it.
         case sourcePane
-        /// Edit's Text Files list, folded or put away by Expand, or lit while it shows that tab.
+        /// Edit's Files list, folded or put away by Expand, or lit while it shows that tab.
         case textFiles
+        /// The same list's Pages tab — only while a PDF is open, as the tab itself is.
+        case pages
         /// The same list's Outline tab.
         case outline
 
@@ -530,6 +533,7 @@ extension ContentView {
             switch self {
             case .sourcePane: return nil
             case .textFiles: return .files
+            case .pages: return .pages
             case .outline: return .outline
             }
         }
@@ -538,8 +542,17 @@ extension ContentView {
     /// The spine's rungs, top to bottom. Pure, so `EditorRailSpineTests` can pin that the list's
     /// buttons are Edit's alone. Edit draws them whether the list is showing or not — lit for the
     /// tab on screen — so the strip does not grow and shrink as the list opens and folds (TE77).
-    static func spineRungs(workspace: Workspace) -> [SpineRung] {
-        workspace == .editor ? [.sourcePane, .textFiles, .outline] : [.sourcePane]
+    /// **One rung per rail tab, so a PDF adds Pages** — `EditorRailTab.shown(pdfIsOpen:)` is the
+    /// rule for both, and the strip grows by that one button only when the rail's tabs do.
+    static func spineRungs(workspace: Workspace, pdfIsOpen: Bool = false) -> [SpineRung] {
+        guard workspace == .editor else { return [.sourcePane] }
+        return [.sourcePane] + EditorRailTab.shown(pdfIsOpen: pdfIsOpen).map { tab -> SpineRung in
+            switch tab {
+            case .files: return .textFiles
+            case .pages: return .pages
+            case .outline: return .outline
+            }
+        }
     }
 
     /// Invisible drag handle on the rail/workspace boundary — mirrors `paneResizeHandle` but writes

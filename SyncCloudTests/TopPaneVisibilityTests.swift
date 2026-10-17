@@ -228,10 +228,10 @@ import FileExplorer
         var all = EditorExpand(railHidden: false, paneFolded: false, sidebarPutAway: false, paneFoldedByExpand: false)
         let open = all
         all.enter(sidebarShowing: true)
-        #expect(EditorExpand.moved(from: open, to: all) == "the Text Files list, the file pane and the sidebar")
+        #expect(EditorExpand.moved(from: open, to: all) == "the Files list, the file pane and the sidebar")
         var listOnly = quiet
         listOnly.enter(sidebarShowing: false)
-        #expect(EditorExpand.moved(from: quiet, to: listOnly) == "the Text Files list")
+        #expect(EditorExpand.moved(from: quiet, to: listOnly) == "the Files list")
         #expect(EditorExpand.moved(from: quiet, to: quiet) == "nothing")
     }
 

@@ -548,6 +548,7 @@ public struct EditorWorkspaceView: View {
                                currentOutlineIndex: MarkdownOutline.currentEntry(forLine: caret.line,
                                                                                 in: outline),
                                outlineAnchors: $railOutlineAnchors,
+                               pdf: pdf,
                                onSelectHeading: goToHeading,
                                onOpen: onOpen,
                                onCreate: onCreate,
@@ -703,7 +704,7 @@ public struct EditorWorkspaceView: View {
 
     /// The status line's heading item (TE57): the rail's own outline and scroll request, reachable
     /// with the rail away — and a way to the rail's Outline tab while the rail is drawn and on its
-    /// Text Files tab.
+    /// Files tab.
     private var statusHeadings: EditorStatusHeadings? {
         EditorStatusHeadings.make(outline: outline, caretLine: caret.line, isMarkdown: document.isMarkdown,
                                   offersRailOutline: EditorStatusHeadings.offersRailOutline(showsRail: showsRail,
@@ -1142,7 +1143,7 @@ public struct EditorWorkspaceView: View {
     }
 
     /// The empty page's button while the list is folded (TE77).
-    static let showTextFilesTitle = "Show Text Files"
+    static let showTextFilesTitle = "Show Files"
 
     /// What the empty page's header says in place of a file name.
     static let emptyTitle = "No document open"
@@ -2046,7 +2047,7 @@ public struct EditorWorkspaceView: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(accent)
-                .help(ShortcutHint.tooltip("Show the folder's text files beside the document",
+                .help(ShortcutHint.tooltip("Show the folder's files beside the document",
                                            AppChord.editorTextFiles.display))
             }
             Spacer(minLength: 0)

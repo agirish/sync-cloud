@@ -39,7 +39,7 @@ public final class EditorPDFDocument: ObservableObject {
 
     /// What a load found, crossing back from the lane.
     enum Read: Sendable {
-        case open(SendableDocument, EditorPDFFacts)
+        case open(SendableDocument, EditorPDFFacts, [EditorPDFOutlineEntry])
         case locked(SendableDocument)
         case unreadable
         /// Withdrawn before its turn came — another open or a close got there first — so nothing
@@ -54,9 +54,15 @@ public final class EditorPDFDocument: ObservableObject {
     @Published public private(set) var facts: EditorPDFFacts?
     /// The document the page view draws — only once it is open, never while it is locked.
     @Published private(set) var document: PDFDocument?
+    /// The PDF's bookmarks, flattened for the rail's Outline tab — read in the same lane turn as
+    /// ``facts``. Empty until it has opened, and for a file with none.
+    @Published public private(set) var outline: [EditorPDFOutlineEntry] = []
 
     /// Where the reader is, and how the page is sized — see ``EditorPDFViewState``.
     public let view = EditorPDFViewState()
+    /// The rail's Pages tab — see ``EditorPDFThumbnails``. Attached when the PDF opens, detached
+    /// on every close, so a long scan's thumbnails never outlive it.
+    public let thumbnails = EditorPDFThumbnails()
 
     /// A locked document waiting for its password. Held apart from ``document`` so the page view
     /// never gets a document it cannot draw.
@@ -136,6 +142,8 @@ public final class EditorPDFDocument: ObservableObject {
         document = nil
         locked = nil
         facts = nil
+        outline = []
+        thumbnails.detach()
         stamp = nil
         path = nil
         phase = .loading
@@ -149,22 +157,39 @@ public final class EditorPDFDocument: ObservableObject {
         guard phase == .locked, let locked, let path else { return false }
         let generation = self.generation
         let held = SendableDocument(locked)
-        let facts = await PDFKitSerialAccess.perform { () -> EditorPDFFacts? in
+        let unlocked = await PDFKitSerialAccess.perform { () -> Unlocked? in
             guard held.document.unlock(withPassword: password) else { return nil }
-            return EditorPDFFacts.read(held.document, path: path)
+            // The thumbnails' own copy, unlocked in this same turn — the password is not kept
+            // for a later one (``EditorPDFThumbnails``).
+            let copy = PDFDocument(url: URL(fileURLWithPath: path))
+                .flatMap { $0.unlock(withPassword: password) ? SendableDocument($0) : nil }
+            return Unlocked(facts: EditorPDFFacts.read(held.document, path: path),
+                            outline: EditorPDFOutline.flatten(held.document),
+                            thumbnailSource: copy)
         }
         guard generation == self.generation, self.path == path else { return false }
-        guard let facts else {
+        guard let unlocked else {
             log("Editor could not unlock \(path) — the password was not accepted")
             return false
         }
+        let facts = unlocked.facts
         self.locked = nil
         document = held.document
         self.facts = facts
+        outline = unlocked.outline
+        thumbnails.attach(path: path, pageCount: facts.pageCount,
+                          unlocked: unlocked.thumbnailSource?.document)
         phase = .open
         log("Editor unlocked \(path) (PDF, \(Self.pages(facts.pageCount)))")
         onLoaded?(.open)
         return true
+    }
+
+    /// What a successful unlock read, crossing back from the lane.
+    private struct Unlocked: Sendable {
+        var facts: EditorPDFFacts
+        var outline: [EditorPDFOutlineEntry]
+        var thumbnailSource: SendableDocument?
     }
 
     private func load(_ path: String, keepingPage page: Int?) {
@@ -189,16 +214,22 @@ public final class EditorPDFDocument: ObservableObject {
                 document = nil
                 locked = nil
                 facts = nil
+                outline = []
+                thumbnails.detach()
                 finish(.refused(Self.unreadableReason), path: path)
             case .locked(let held):
                 document = nil
                 facts = nil
+                outline = []
+                thumbnails.detach()
                 locked = held.document
                 finish(.locked, path: path)
-            case .open(let held, let facts):
+            case .open(let held, let facts, let outline):
                 locked = nil
                 document = held.document
                 self.facts = facts
+                self.outline = outline
+                thumbnails.attach(path: path, pageCount: facts.pageCount)
                 if let page { view.requestPage(min(page, max(facts.pageCount - 1, 0))) }
                 finish(.open, path: path, reloaded: page != nil)
             }
@@ -221,7 +252,8 @@ public final class EditorPDFDocument: ObservableObject {
             }
             guard let document = PDFDocument(url: URL(fileURLWithPath: path)) else { return .unreadable }
             if document.isLocked { return .locked(SendableDocument(document)) }
-            return .open(SendableDocument(document), EditorPDFFacts.read(document, path: path))
+            return .open(SendableDocument(document), EditorPDFFacts.read(document, path: path),
+                         EditorPDFOutline.flatten(document))
         }
     }
 
@@ -293,6 +325,8 @@ public final class EditorPDFDocument: ObservableObject {
             document = nil
             locked = nil
             facts = nil
+            outline = []
+            thumbnails.detach()
             stamp = nil
             finish(.refused(Self.goneReason), path: path)
             return

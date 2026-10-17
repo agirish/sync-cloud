@@ -2,15 +2,17 @@ import SwiftUI
 import Design
 import Sync
 
-/// The editor's file rail: the text-like files in the selected folder, and the way to add one.
+/// The editor's file rail: the text-like files and PDFs in the selected folder, and the way to add a
+/// text file — and, while a PDF is open, its pages.
 ///
 /// **A rail rather than a tree.** Changing folder is the sidebar's job, and this list exists so
 /// that opening a second file in the folder you are already in does not send you to another
 /// workspace and back.
 ///
-/// **Two tabs over one stack.** The files and the open document's outline used to be stacked here,
+/// **Tabs over one stack.** The files and the open document's outline used to be stacked here,
 /// the second under a divider and capped at eight rows so the first would not vanish; they are now
-/// the two halves of ``EditorRailTab``, each with the whole card. That doc has the argument.
+/// tabs of ``EditorRailTab``, each with the whole card, and a PDF adds a third for its pages. That
+/// doc has the argument.
 struct EditorFileRailView: View {
 
     let folderName: String
@@ -77,6 +79,11 @@ struct EditorFileRailView: View {
     /// a path and an integer, and a session would have to open tens of thousands of files before
     /// that is worth a rule.
     @Binding var outlineAnchors: [String: Int]
+    /// **The PDF open in Edit, or `nil`** — the workspace's own (``EditorWorkspaceView/pdf``),
+    /// handed in only while one is open. It is what adds the Pages tab, and what the Outline tab
+    /// lists instead of headings. Observed only by the two sections that draw it, so a page turn
+    /// redraws those and not this rail.
+    var pdf: EditorPDFDocument? = nil
     /// Sends the reader to a heading's line.
     var onSelectHeading: (MarkdownOutlineEntry) -> Void = { _ in }
     let onOpen: (EditorRailEntry) -> Void
@@ -119,30 +126,29 @@ struct EditorFileRailView: View {
     /// The rail's width. See ``EditorLayoutMetrics/railWidth``.
     static var width: CGFloat { EditorLayoutMetrics.railWidth }
 
-    /// The outline's top row, as `.scrollPosition(id:)` reports and accepts it.
-    @State private var outlineTopRow: Int?
-    /// The outline section's height, as the scroll view reports it — the one input that decides how
-    /// many rows are on screen, and so whether the caret's heading would be past the fold.
-    ///
-    /// **`onGeometryChange` on the scroll view, not a `GeometryReader` around it.** A reader is a
-    /// container with no intrinsic size of its own, and one wrapped around this rail collapsed it to
-    /// 10pt for anything asking its ideal height — the trap `EditorLayoutTests` caught when the
-    /// outline was first built. A modifier reads the same number and takes part in no layout.
-    @State private var outlineHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Read again for the outline's row-height arithmetic — how many rows fit is a question about
-    /// the app's text size as much as about the section's height.
-    @Environment(\.appFontScale) private var fontScale
+
+    /// The tab drawn: the one chosen, unless that is Pages with no PDF open — see
+    /// ``EditorRailTab/resolved(_:pdfIsOpen:)``.
+    var shownTab: EditorRailTab { EditorRailTab.resolved(tab, pdfIsOpen: pdf != nil) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            EditorRailTabBar(tab: $tab, accent: accent, onAccent: onAccent)
+            // The bar reads the drawn tab and writes the chosen one, so a click on Files while a
+            // remembered Pages is filtered out is a change — and the lens sits on what is drawn.
+            EditorRailTabBar(tab: Binding(get: { shownTab }, set: { tab = $0 }),
+                             tabs: EditorRailTab.shown(pdfIsOpen: pdf != nil),
+                             accent: accent, onAccent: onAccent)
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
                 .padding(.bottom, 6)
             contextRow
-            switch tab {
+            switch shownTab {
             case .files: filesSection
+            case .pages:
+                if let pdf {
+                    EditorPDFRailPages(pdf: pdf, view: pdf.view, thumbnails: pdf.thumbnails, accent: accent)
+                }
             case .outline: outlineSection
             }
             Spacer(minLength: 0)
@@ -184,7 +190,7 @@ struct EditorFileRailView: View {
     /// clicked. It says something worth saying on both sides, so it says it on both sides.
     private var contextRow: some View {
         HStack(spacing: 5) {
-            Image(systemName: tab == .files ? "folder" : "doc.text")
+            Image(systemName: shownTab == .files ? "folder" : "doc.text")
                 .scaledFont(.system(size: 10))
                 .foregroundStyle(.tertiary)
             Text(contextName)
@@ -193,7 +199,7 @@ struct EditorFileRailView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
-            if tab == .files {
+            if shownTab == .files {
                 // Frosted and Clear: Filter and ＋ share one glass capsule, as Finder groups related
                 // buttons (`ChromeGlass`). The row's own 5pt, so Solid's layout is untouched.
                 HStack(spacing: 5) {
@@ -214,7 +220,7 @@ struct EditorFileRailView: View {
                             .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.hoverAffordance(filterIsExpanded ? .filled : .glyph, tint: accent))
-                    .accessibilityLabel("Filter text files")
+                    .accessibilityLabel("Filter files")
                     .help("Filter this list by name")
                     .disabled(entries.isEmpty)
                     Button {
@@ -253,7 +259,16 @@ struct EditorFileRailView: View {
         .frame(minHeight: 18)
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
-        .help(tab == .files ? newFileDestination : "The headings in the open document")
+        .help(contextHelp)
+    }
+
+    /// The context line's tooltip: where ＋ makes a file, or what the tab is listing.
+    private var contextHelp: String {
+        switch shownTab {
+        case .files: return newFileDestination
+        case .pages: return "The pages of the open PDF"
+        case .outline: return pdf == nil ? "The headings in the open document" : "The bookmarks in the open PDF"
+        }
     }
 
     /// What the context line names — the folder, or the open file.
@@ -261,10 +276,10 @@ struct EditorFileRailView: View {
     /// The two "nothing here yet" cases say what to do about it rather than going blank: an empty
     /// rail with an unexplained blank line above it is the state a first-run session actually sees.
     private var contextName: String {
-        switch tab {
+        switch shownTab {
         case .files:
             return folderName.isEmpty ? "No folder selected" : folderName
-        case .outline:
+        case .pages, .outline:
             guard let selectedPath, !selectedPath.isEmpty else { return "No file open" }
             return (selectedPath as NSString).lastPathComponent
         }
@@ -280,7 +295,13 @@ struct EditorFileRailView: View {
             : "New files are created in \(destination)"
     }
 
-    /// The folder's text files: the naming row, the filter field, and the list itself.
+    /// The folder's files: the naming row, the filter field, and the list — a Text Files section and
+    /// a PDFs section, each left out when it has no rows (``EditorRail/sections(_:)``).
+    ///
+    /// **The naming row is above the sections, not a row inside Text Files**, and that is what keeps
+    /// it out of reach of the rule that hides an empty section: ⌘N in a folder of nothing but PDFs
+    /// still opens a row to name the new text file, over the PDFs. It is also why it is outside the
+    /// scroll view, as it always was — a row being typed into must not scroll away.
     @ViewBuilder
     private var filesSection: some View {
         if isNaming {
@@ -302,7 +323,10 @@ struct EditorFileRailView: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(shown) { entry in row(entry) }
+                    ForEach(EditorRail.sections(shown)) { section in
+                        sectionHeading(section.title)
+                        ForEach(section.rows) { entry in row(entry) }
+                    }
                 }
                 .padding(.horizontal, 6)
                 .padding(.bottom, 8)
@@ -310,7 +334,18 @@ struct EditorFileRailView: View {
         }
     }
 
-    /// The open document's headings.
+    /// A section's heading — Text Files, PDFs — in the sidebar's section-heading style.
+    private func sectionHeading(_ title: String) -> some View {
+        Text(title)
+            .scaledFont(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    /// The open document's outline: a Markdown file's headings, or a PDF's bookmarks.
     ///
     /// **Its own tab rather than a capped section under the files.** The stacked arrangement was
     /// argued for on the grounds that "which file" and "where in it" are one question — true, and
@@ -318,77 +353,19 @@ struct EditorFileRailView: View {
     /// anything longer. A tab answers the second question with the whole card; the first is one
     /// click away, and ⌘N brings it back on its own.
     ///
-    /// **The two empty states are different questions**, the same distinction ``emptyCaption(anyEntries:)``
-    /// draws for the files: nothing is open, or something is open and has no headings in it. A
-    /// `.txt` and a note that never types a `#` land in the second, which is why it says what makes
-    /// a heading rather than only that there are none.
+    /// **One list for both kinds** (``EditorRailOutlineList``), so the scroll memory, the opening
+    /// scroll and the current row's mark are the same code for a PDF as for a note — a PDF's
+    /// bookmarks arrive as rows of the same type (``EditorPDFOutline/rows(_:)``).
     @ViewBuilder
     private var outlineSection: some View {
-        if outline.isEmpty {
-            Text(Self.outlineEmptyCaption(hasDocument: selectedPath != nil))
-                .scaledFont(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 12)
-                .padding(.top, 4)
+        if let pdf {
+            EditorPDFRailOutline(pdf: pdf, view: pdf.view, outlineAnchors: $outlineAnchors, accent: accent)
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(Array(outline.enumerated()), id: \.element.id) { index, entry in
-                        outlineRow(entry, isCurrent: index == currentOutlineIndex)
-                            .id(entry.id)
-                    }
-                }
-                // The rows are the scroll targets, which is what lets the view below report which
-                // of them are on screen.
-                .scrollTargetLayout()
-                .padding(.horizontal, 6)
-                .padding(.bottom, 8)
-            }
-            // **Both directions of one binding.** It accepts the row to open at, below, and it
-            // reports the top row as the reader scrolls, which is what the recording reads.
-            .scrollPosition(id: $outlineTopRow)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { outlineHeight = $0 }
-            // **`initial: true` on the outline, not on the path.** The outline is CLEARED the
-            // instant the path changes and refilled 150ms later by a parse that runs off the main
-            // actor, so a restore hung on the path change would scroll a list with no rows in it and
-            // do nothing at all. This fires on the arrival, which is the first moment there is
-            // anything to scroll to — and on the tab coming back, where the rows are already there.
-            .onChange(of: outline, initial: true) { _, rows in
-                guard !rows.isEmpty else { return }
-                let fits = EditorOutlineScroll.rowsThatFit(height: outlineHeight, scale: fontScale)
-                if let target = EditorOutlineScroll.openingTarget(remembered: rememberedAnchor,
-                                                                  current: currentOutlineRow,
-                                                                  outline: rows,
-                                                                  rowsThatFit: fits) {
-                    outlineTopRow = target
-                }
-            }
-            // **Recording is the binding reporting, not a second observation.** Every way the top
-            // row can change ends up here — the reader scrolling, and the opening scroll above —
-            // and both are worth remembering: the list is where it is either way.
-            .onChange(of: outlineTopRow) { _, top in
-                guard EditorOutlineScroll.recordsAnchor(path: selectedPath,
-                                                        outlineIsEmpty: outline.isEmpty,
-                                                        top: top),
-                      let path = selectedPath, let top else { return }
-                outlineAnchors[path] = top
-            }
+            EditorRailOutlineList(rows: outline, currentIndex: currentOutlineIndex, path: selectedPath,
+                                  emptyCaption: Self.outlineEmptyCaption(hasDocument: selectedPath != nil),
+                                  outlineAnchors: $outlineAnchors, accent: accent,
+                                  onSelect: onSelectHeading)
         }
-    }
-
-    /// The row this document was left on, or `nil` for one nobody has scrolled yet.
-    private var rememberedAnchor: Int? {
-        selectedPath.flatMap { outlineAnchors[$0] }
-    }
-
-    /// The caret's heading as a row id rather than an index into the array — which is what the
-    /// scroll view speaks, and what makes "is it visible" a set membership test.
-    private var currentOutlineRow: Int? {
-        guard let currentOutlineIndex, outline.indices.contains(currentOutlineIndex) else {
-            return nil
-        }
-        return outline[currentOutlineIndex].id
     }
 
     /// What the outline says when it has no rows — **two different questions, asked as a function
@@ -410,48 +387,7 @@ struct EditorFileRailView: View {
     /// fold arithmetic runs on. **A seam rather than a replica**: the number that matters is what
     /// this builder lays out, and a test that rebuilt the row would be measuring its own copy.
     static func outlineRowProbe(_ entry: MarkdownOutlineEntry, isCurrent: Bool) -> some View {
-        EditorFileRailView.probe.outlineRow(entry, isCurrent: isCurrent)
-    }
-
-    /// A rail with nothing in it, built only to reach ``outlineRow(_:isCurrent:)`` from the probe.
-    private static var probe: EditorFileRailView {
-        EditorFileRailView(folderName: "", entries: [], selectedPath: nil, accent: .blue,
-                           onAccent: .white, tab: .constant(.outline), isNaming: .constant(false),
-                           typedName: .constant(""), prefilledName: { "" }, refusal: { _ in nil },
-                           filter: .constant(""), filterIsExpanded: .constant(false),
-                           outlineAnchors: .constant([:]), onOpen: { _ in }, onCreate: { _ in true },
-                           onNewTextFile: nil,
-                           rowActions: EditorRailRowActions(revealInBrowse: { _ in }, getInfo: { _ in },
-                                                            quickLook: { _ in }))
-    }
-
-    private func outlineRow(_ entry: MarkdownOutlineEntry, isCurrent: Bool) -> some View {
-        Button {
-            onSelectHeading(entry)
-        } label: {
-            HStack(spacing: 0) {
-                Color.clear.frame(width: CGFloat(entry.depth) * Self.outlineIndentStep, height: 1)
-                // **An empty heading keeps its row.** `##` on its own is legal and it is somewhere
-                // in the document you can go; a row with nothing in it would be unclickable-looking,
-                // so it says what it is instead of pretending it is not there.
-                Text(entry.title.isEmpty ? "Untitled heading" : entry.title)
-                    .scaledFont(.system(size: 11,
-                                        weight: isCurrent ? .semibold : .regular))
-                    .foregroundStyle(entry.title.isEmpty ? AnyShapeStyle(.tertiary)
-                                                         : AnyShapeStyle(.primary))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .contentShape(Self.rowOutline)
-        }
-        .buttonStyle(.hoverAffordance(isCurrent ? .filled : .row,
-                                      tint: accent, shape: Self.rowShape))
-        .help(entry.title.isEmpty ? "Untitled heading" : entry.title)
-        .accessibilityLabel("Heading level \(entry.level), \(entry.title)")
-        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
+        EditorRailOutlineList.probe.row(entry, isCurrent: isCurrent)
     }
 
     /// What the rail says when it is listing nothing — **four different questions, asked as a
@@ -460,14 +396,14 @@ struct EditorFileRailView: View {
     ///
     /// No folder chosen; a filter that matched nothing; a folder that really is empty; and a folder
     /// that is **full of files this editor does not open**. The last is the one that was missing,
-    /// and it is the ordinary case on a real disk: the rail lists only `PairContentKind.text`, so a
-    /// folder of scans, PDFs or Word documents drew "No text files in this folder" — true, and
+    /// and it is the ordinary case on a real disk: the rail lists only text files and PDFs, so a
+    /// folder of photos or Word documents drew "No text files in this folder" — true, and
     /// indistinguishable from what an empty folder drew. Standing in a folder he had just filled,
     /// the app appeared to have lost it.
     ///
-    /// "The + button makes one" survives into the new arm because the advice still applies: there
-    /// is no text file here and he can have one. What it must not do any more is arrive alone,
-    /// implying there is nothing else here either.
+    /// "The + button makes a text file" survives into the new arm because the advice still applies:
+    /// there is nothing here Edit opens and he can have a note. What it must not do any more is
+    /// arrive alone, implying there is nothing else here either.
     ///
     /// - Parameter otherFiles: how many files the folder holds that the rail will not list, or
     ///   `nil` when nothing counted them. `nil` and `0` are treated alike on purpose — see
@@ -475,13 +411,13 @@ struct EditorFileRailView: View {
     nonisolated static func fileEmptyCaption(folderName: String, anyEntries: Bool,
                                              filter: String, otherFiles: Int?) -> String {
         guard !folderName.isEmpty else {
-            return "Pick a folder in the sidebar to see the text files in it."
+            return "Pick a folder in the sidebar to see its text files and PDFs."
         }
         if anyEntries {
-            return "No text files here match “\(filter.trimmingCharacters(in: .whitespaces))”."
+            return "No files here match “\(filter.trimmingCharacters(in: .whitespaces))”."
         }
         guard let otherFiles, otherFiles > 0 else {
-            return "No text files in this folder. The + button makes one."
+            return "No text files or PDFs in this folder. The + button makes a text file."
         }
         // Two sentences rather than one pluralised template: "None of the 1 file" is what a shared
         // template produces, and the singular is not a corner — one PDF in a folder of its own is
@@ -549,7 +485,7 @@ struct EditorFileRailView: View {
                     .frame(width: Self.dotColumnWidth, alignment: .leading)
                     .accessibilityHidden(dot == nil)
                     .accessibilityLabel("Unsaved")
-                Image(systemName: "doc.text")
+                Image(systemName: entry.kind == .pdf ? "doc.richtext" : "doc.text")
                     .scaledFont(.system(size: 11))
                 Text(entry.name)
                     .scaledFont(.system(size: 12, weight: isSelected ? .semibold : .regular))

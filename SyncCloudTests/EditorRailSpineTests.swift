@@ -31,14 +31,21 @@ import FileExplorer
     @Test func editDrawsAButtonPerTabUnderThePaneRung() {
         let rungs = ContentView.spineRungs(workspace: .editor)
         #expect(rungs == [.sourcePane, .textFiles, .outline])
-        #expect(rungs.compactMap(\.railTab) == EditorRailTab.allCases,
+        #expect(rungs.compactMap(\.railTab) == EditorRailTab.shown(pdfIsOpen: false),
                 "a rail tab has no button in the strip, or a button opens the wrong tab")
+        // A PDF adds the Pages tab to the rail, and its button to the strip — the same rule.
+        let withPDF = ContentView.spineRungs(workspace: .editor, pdfIsOpen: true)
+        #expect(withPDF == [.sourcePane, .textFiles, .pages, .outline])
+        #expect(withPDF.compactMap(\.railTab) == EditorRailTab.shown(pdfIsOpen: true))
+        #expect(ContentView.spineRungs(workspace: .browse, pdfIsOpen: true) == [.sourcePane],
+                "a PDF open in Edit put a list button on another workspace's strip")
     }
 
     /// The glyph is the tab's own, so the button and the tab it opens match.
     @Test func eachButtonWearsItsTabsGlyph() {
         #expect(ContentView.railRungSymbol(.files) == "doc.text")
         #expect(ContentView.railRungSymbol(.outline) == "list.bullet.indent")
+        #expect(ContentView.railRungSymbol(.pages) == "square.grid.2x2")
     }
 
     // MARK: What a button does
@@ -67,9 +74,11 @@ import FileExplorer
 
     /// The tooltip names the next act, as Expand's word does: Hide on the lit button, Show on the rest.
     @Test func theTitleNamesTheNextAct() {
-        #expect(EditorRailFold.rungTitle(.files, railDrawn: true, currentTab: .files) == "Hide the text files")
+        #expect(EditorRailFold.rungTitle(.files, railDrawn: true, currentTab: .files) == "Hide the files")
         #expect(EditorRailFold.rungTitle(.outline, railDrawn: true, currentTab: .files) == "Show the outline")
-        #expect(EditorRailFold.rungTitle(.files, railDrawn: false, currentTab: .files) == "Show the text files")
+        #expect(EditorRailFold.rungTitle(.files, railDrawn: false, currentTab: .files) == "Show the files")
+        #expect(EditorRailFold.rungTitle(.pages, railDrawn: true, currentTab: .files) == "Show the pages")
+        #expect(EditorRailFold.rungTitle(.pages, railDrawn: true, currentTab: .pages) == "Hide the pages")
         #expect(EditorRailFold.rungTitle(.outline, railDrawn: true, currentTab: .outline) == "Hide the outline")
     }
 

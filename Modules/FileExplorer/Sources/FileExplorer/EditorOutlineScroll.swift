@@ -18,7 +18,7 @@ import Design
 /// one. Deciding both rules at restore time, before the list is on screen, puts the whole decision
 /// somewhere a test can watch it — and removes the one-shot flag the callback version needed to
 /// stop it dragging the list back to the caret every time the reader scrolled away.
-enum EditorOutlineScroll {
+public enum EditorOutlineScroll {
 
     /// The row to restore for `remembered`, or `nil` to leave the list where it is.
     ///
@@ -84,6 +84,13 @@ enum EditorOutlineScroll {
     /// under the edge — and the whole point of the number is to decide exactly that.
     static func rowsThatFit(height: CGFloat, scale: CGFloat) -> Int {
         max(Int((height / rowHeight(scale: scale)).rounded(.down)), 1)
+    }
+
+    /// **An outline's place follows its file when the file moves** — the host's rekey, for a note
+    /// the disk watch followed. One map holds every file's anchor, a PDF's beside a note's, so the
+    /// move touches only the key that moved.
+    public static func moveAnchor(in anchors: inout [String: Int], from old: String, to new: String) {
+        if let anchor = anchors.removeValue(forKey: old) { anchors[new] = anchor }
     }
 
     /// Whether a reported top row should be written down as this document's anchor.

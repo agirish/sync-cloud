@@ -3,10 +3,20 @@ import Sync
 
 /// One row of the editor's file rail.
 public struct EditorRailEntry: Identifiable, Equatable, Sendable {
+
+    /// Which section of the Files tab the row is drawn in, and which of Edit's two models opens it.
+    public enum Kind: Sendable {
+        /// Opened as text, through `BoundedTextRead` — so its size cap applies.
+        case text
+        /// Opened read-only through PDFKit (``EditorPDFDocument``) — no text read, so no text cap.
+        case pdf
+    }
+
     public var path: String
     public var name: String
     public var size: Int
     public var isCloudOnly: Bool
+    public var kind: Kind
     /// ``size`` in the words the row shows.
     ///
     /// **Stored, because `FileSyncManager.formatBytes` builds a `ByteCountFormatter` per call** and
@@ -16,18 +26,22 @@ public struct EditorRailEntry: Identifiable, Equatable, Sendable {
     /// formatting is paid, once per row per listing.
     public var sizeCaption: String
 
-    public init(path: String, name: String, size: Int, isCloudOnly: Bool) {
+    public init(path: String, name: String, size: Int, isCloudOnly: Bool, kind: Kind = .text) {
         self.path = path
         self.name = name
         self.size = size
         self.isCloudOnly = isCloudOnly
+        self.kind = kind
         self.sizeCaption = FileSyncManager.formatBytes(size)
     }
 
     public var id: String { path }
 
-    /// Bigger than the editor is willing to read.
-    public var isTooLarge: Bool { size > BoundedTextRead.maxBytes }
+    /// Bigger than the editor is willing to read — **a text file only.** The cap is
+    /// `BoundedTextRead`'s, and a PDF never goes through it: Edit hands a PDF to PDFKit, where a
+    /// 40 MB scan is an ordinary file and opens like any other. Dimming one for the text cap would
+    /// mark a file as unopenable that opens on the click.
+    public var isTooLarge: Bool { kind == .text && size > BoundedTextRead.maxBytes }
 
     /// Whether the row is drawn dim — it can be shown, but opening it will not produce a document.
     ///
@@ -42,8 +56,12 @@ public struct EditorRailEntry: Identifiable, Equatable, Sendable {
     ///
     /// Worded to match `BoundedTextRead.Outcome.caption`, which is what the editor shows when the
     /// same file is opened anyway — two surfaces saying the same thing about one file.
+    ///
+    /// A PDF has only the first reason, worded as ``EditorPDFDocument`` words its own refusal of
+    /// a file that is not downloaded — the same sentence, so the row and the card agree.
     public var dimmedReason: String? {
         if isCloudOnly { return "Not downloaded — there is nothing here to read yet." }
+        guard kind == .text else { return nil }
         return Self.tooLargeReason(size: size)
     }
 
@@ -89,7 +107,7 @@ public enum EditorRail {
         }
     }
 
-    /// The text-like files directly inside `folder`, in the order the rail draws them.
+    /// The text-like files and PDFs directly inside `folder`, in the order the rail draws them.
     ///
     /// **One level, no recursion.** The rail answers "what can I open in the folder I am standing
     /// in"; a recursive list would answer a different question and would walk a tree on every
@@ -110,10 +128,11 @@ public enum EditorRail {
 
     /// ``entries``, plus the count that answers the question an empty rail used to get wrong.
     ///
-    /// **A folder full of PDFs is not an empty folder, and the rail said it was.** The list filters
-    /// on `PairContentKind.text`, so standing in a folder of scans or Word documents drew "No text
-    /// files in this folder" — true, and indistinguishable on screen from a folder with nothing in
-    /// it at all. The count is what lets the caption tell those two apart.
+    /// **A folder full of files Edit does not open is not an empty folder, and the rail said it
+    /// was.** The list keeps `PairContentKind.text` and `.pdf`, so standing in a folder of Word
+    /// documents or photos drew "No text files in this folder" — true, and indistinguishable on
+    /// screen from a folder with nothing in it at all. The count is what lets the caption tell
+    /// those two apart. (A folder of scans used to be the example; PDFs are listed now.)
     ///
     /// **The second pass runs only for a folder that listed nothing**, so the ordinary case pays
     /// nothing for it: it re-walks names already in hand, and the `stat` per name is the price of
@@ -142,7 +161,12 @@ public enum EditorRail {
         var rows: [EditorRailEntry] = []
         for name in names {
             guard showsHidden || !name.hasPrefix(".") else { continue }
-            guard PairContentKind.classify(path: name) == .text else { continue }
+            let kind: EditorRailEntry.Kind
+            switch PairContentKind.classify(path: name) {
+            case .text: kind = .text
+            case .pdf: kind = .pdf
+            case .image, .other: continue
+            }
             let path = (folder as NSString).appendingPathComponent(name)
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
@@ -159,7 +183,7 @@ public enum EditorRail {
             // Asked per row, and only for rows that survived the filters above — it is one `lstat`,
             // which is cheap enough per visible row but not cheap enough per directory entry.
             rows.append(EditorRailEntry(path: path, name: name, size: size,
-                                        isCloudOnly: isCloudOnly(path)))
+                                        isCloudOnly: isCloudOnly(path), kind: kind))
         }
         // Localized standard order, so "note 2" sorts before "note 10" and the rail reads the way
         // Finder does rather than the way ASCII does.
@@ -169,9 +193,9 @@ public enum EditorRail {
         var others = 0
         for name in names {
             guard showsHidden || !name.hasPrefix(".") else { continue }
-            // Every name that gets this far already failed the text classification above — had one
-            // passed it, existed, and not been a directory, it would be a row and this pass would
-            // not be running. So the directory check is the only question left to ask.
+            // Every name that gets this far is neither text nor a PDF — had one been either,
+            // existed, and not been a directory, it would be a row and this pass would not be
+            // running. So the directory check is the only question left to ask.
             let path = (folder as NSString).appendingPathComponent(name)
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
@@ -194,6 +218,35 @@ public enum EditorRail {
             _ = await fileManager.waitForContents(of: URL(fileURLWithPath: folder))
         }
         return survey(in: folder, showsHidden: showsHidden, fileManager: fileManager)
+    }
+
+    /// One section of the Files tab: which kind it holds, and its rows.
+    struct Section: Equatable, Identifiable {
+        let kind: EditorRailEntry.Kind
+        let rows: [EditorRailEntry]
+        var id: EditorRailEntry.Kind { kind }
+
+        var title: String {
+            switch kind {
+            case .text: return "Text Files"
+            case .pdf: return "PDFs"
+            }
+        }
+    }
+
+    /// The Files tab's sections — **Text Files, then PDFs, each in the order it was handed** (the
+    /// survey's Finder order, after any filter), and **a section with no rows is left out**: a
+    /// "PDFs" heading over nothing would read as a list that failed to load.
+    ///
+    /// Sections and not one interleaved list because the two open into different things — one a
+    /// document you can type into, the other a read-only reader — and the rail is where the choice
+    /// is made. The ⌘N naming row is not a row here: it is drawn above the list, so no rule about
+    /// empty sections can hide it (``EditorFileRailView``).
+    static func sections(_ entries: [EditorRailEntry]) -> [Section] {
+        [EditorRailEntry.Kind.text, .pdf].compactMap { kind in
+            let rows = entries.filter { $0.kind == kind }
+            return rows.isEmpty ? nil : Section(kind: kind, rows: rows)
+        }
     }
 
     /// The rows that match what was typed into the rail's filter.

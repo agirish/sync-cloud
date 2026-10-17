@@ -92,13 +92,14 @@ import FileExplorerTestSupport
         #expect(!EditableText.opensInEdit(path: "/a/photo.jpg"))
     }
 
-    /// **The rail lists exactly the text files, spelled out rather than re-derived.**
+    /// **The rail lists exactly the text files and the PDFs, spelled out rather than re-derived.**
     ///
     /// The expectation used to be `names.filter { PairContentKind.classify(path: $0) == .text }` —
     /// the same call `EditorRail.entries` filters on, so both sides of the comparison moved
     /// together and the test could only fail if `contentsOfDirectory` broke. Written out by hand,
-    /// it is an independent claim about which of these four files a person should see.
-    @Test func theRailListsTheTextFilesAndOnlyThose() throws {
+    /// it is an independent claim about which of these four files a person should see. The PDF is
+    /// listed since Phase 1b of the PDF reader; the photo still is not.
+    @Test func theRailListsTheTextFilesAndPDFsAndOnlyThose() throws {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("editor-verb-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -108,7 +109,7 @@ import FileExplorerTestSupport
         }
         let listed = Set(EditorRail.entries(in: folder.path, showsHidden: false,
                                             isCloudOnly: { _ in false }).map(\.name))
-        #expect(listed == ["notes.md", "readme.txt"], "the rail lists \(listed)")
+        #expect(listed == ["notes.md", "readme.txt", "paper.pdf"], "the rail lists \(listed)")
     }
 
     /// **The menu item itself, not the classifier it consults.**

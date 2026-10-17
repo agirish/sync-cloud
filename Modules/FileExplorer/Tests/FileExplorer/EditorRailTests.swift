@@ -26,7 +26,9 @@ import Sync
     /// flag, which a temp directory can never produce.
     private let nothingIsCloudOnly: (String) -> Bool = { _ in false }
 
-    @Test func onlyTextKindsAreListed() throws {
+    /// Text kinds and PDFs — the two Edit opens. A PDF was filtered out until the reader could open
+    /// one (Phase 1b); a photo still is.
+    @Test func onlyTextKindsAndPDFsAreListed() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
         try file("notes.md", in: folder)
@@ -35,34 +37,36 @@ import Sync
         try file("paper.pdf", in: folder)
         try file("data.json", in: folder)
 
-        let names = EditorRail.entries(in: folder.path, showsHidden: false,
-                                       isCloudOnly: nothingIsCloudOnly).map(\.name)
-        #expect(names == ["data.json", "notes.md", "readme.txt"])
+        let rows = EditorRail.entries(in: folder.path, showsHidden: false,
+                                      isCloudOnly: nothingIsCloudOnly)
+        #expect(rows.map(\.name) == ["data.json", "notes.md", "paper.pdf", "readme.txt"])
+        #expect(rows.map(\.kind) == [.text, .text, .pdf, .text])
     }
 
-    /// **A folder of PDFs is not an empty folder**, and the rail could not tell the difference:
-    /// it lists only text kinds, so a folder of scans and a folder with nothing in it both drew
-    /// "No text files in this folder". This is the count that separates them.
+    /// **A folder of files Edit does not open is not an empty folder**, and the rail could not tell
+    /// the difference: a folder of photos and a folder with nothing in it both drew "No text files
+    /// in this folder". This is the count that separates them. (The fixture was two PDFs and a
+    /// `.docx` until PDFs were listed; a photo takes their place.)
     @Test func aFolderOfUnopenableFilesIsCountedRatherThanCalledEmpty() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
-        try file("scan one.pdf", in: folder)
-        try file("scan two.pdf", in: folder)
+        try file("photo one.jpg", in: folder)
+        try file("photo two.jpg", in: folder)
         try file("letter.docx", in: folder)
 
         let survey = EditorRail.survey(in: folder.path, showsHidden: false,
                                        isCloudOnly: nothingIsCloudOnly)
-        #expect(survey.rows.isEmpty, "a PDF was offered for editing")
+        #expect(survey.rows.isEmpty, "a file Edit does not open was listed")
         #expect(survey.otherFileCount == 3,
                 "counted \(survey.otherFileCount as Int?) of the 3 files in the folder")
     }
 
     /// Directories are not files, and counting them would put a second wrong answer where the
-    /// first one was — "none of the 4 files" over a folder holding three subfolders and one PDF.
+    /// first one was — "none of the 4 files" over a folder holding three subfolders and one file.
     @Test func theOtherFileCountLeavesFoldersOut() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
-        try file("paper.pdf", in: folder)
+        try file("letter.docx", in: folder)
         for name in ["Archive", "Sent", "Drafts"] {
             try FileManager.default.createDirectory(at: folder.appendingPathComponent(name),
                                                     withIntermediateDirectories: true)
@@ -79,8 +83,8 @@ import Sync
     @Test func theOtherFileCountFollowsTheHiddenFilesPreference() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
-        try file("visible.pdf", in: folder)
-        try file(".hidden.pdf", in: folder)
+        try file("visible.docx", in: folder)
+        try file(".hidden.docx", in: folder)
 
         #expect(EditorRail.survey(in: folder.path, showsHidden: false,
                                   isCloudOnly: nothingIsCloudOnly).otherFileCount == 1)
@@ -94,7 +98,7 @@ import Sync
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
         try file("notes.md", in: folder)
-        try file("paper.pdf", in: folder)
+        try file("letter.docx", in: folder)
 
         let survey = EditorRail.survey(in: folder.path, showsHidden: false,
                                        isCloudOnly: nothingIsCloudOnly)

@@ -47,7 +47,7 @@ import FileExplorer
     @Test func aMoveTakesTheWindowsPathKeyedStateWithIt() throws {
         let moved = try Self.body("func editorDocumentDidMove(from old: String, to new: String, byThisApp: Bool)")
         #expect(moved.contains("editorAutosavePolicy.move(from: old, to: new)"))
-        #expect(moved.contains("editorOutlineAnchors[new] = anchor"))
+        #expect(moved.contains("EditorOutlineScroll.moveAnchor(in: &editorOutlineAnchors, from: old, to: new)"))
         #expect(moved.contains("refreshEditorRail()"))
         #expect(moved.contains("rereadPanesAfterEditorWrite(new, writer: \"The open document was moved elsewhere to\")"),
                 "the log calls a move a write Edit made")

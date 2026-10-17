@@ -1,11 +1,12 @@
 import FileExplorer
 
-/// **Edit's Text Files / Outline list, folded into the strip by hand** (TE77, asked 2026-10-16).
+/// **Edit's Files / Outline list, folded into the strip by hand** (TE77, asked 2026-10-16).
 ///
 /// Edit drew four columns side by side — the sidebar, the file pane's strip, this list and the
 /// text — and the list was the one of them nothing could put away on its own: only Expand hid it,
-/// and Expand takes the pane and the sidebar with it. Folded, the list becomes two buttons in the
-/// pane's strip, one per tab, so it never adds a second strip beside the first.
+/// and Expand takes the pane and the sidebar with it. Folded, the list becomes buttons in the
+/// pane's strip, one per tab — three with a PDF open — so it never adds a second strip beside the
+/// first.
 ///
 /// The bit is `ContentView.editorRailFolded`; ``TopPaneVisibility/editorRailIsDrawn(paneHidden:railHidden:railFolded:)``
 /// reads it. This type is the strip buttons' rule, kept pure so a test can walk it without a window.
@@ -39,8 +40,17 @@ enum EditorRailFold {
     /// The button's tooltip and VoiceOver label — its next act, as the Expand button's word is.
     static func rungTitle(_ tab: EditorRailTab, railDrawn: Bool, currentTab: EditorRailTab) -> String {
         switch rungAct(for: tab, railDrawn: railDrawn, currentTab: currentTab) {
-        case .fold: return tab == .files ? "Hide the text files" : "Hide the outline"
-        case .show, .switchTo: return tab == .files ? "Show the text files" : "Show the outline"
+        case .fold: return "Hide the \(noun(tab))"
+        case .show, .switchTo: return "Show the \(noun(tab))"
+        }
+    }
+
+    /// What a strip button names: the tab's half of the list.
+    static func noun(_ tab: EditorRailTab) -> String {
+        switch tab {
+        case .files: return "files"
+        case .pages: return "pages"
+        case .outline: return "outline"
         }
     }
 }

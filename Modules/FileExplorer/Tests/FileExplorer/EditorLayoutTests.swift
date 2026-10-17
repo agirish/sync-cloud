@@ -433,26 +433,32 @@ import FileExplorerTestSupport
 
     // MARK: The rail's tabs
 
-    /// **The words fit both halves at every text size — measured, not assumed.**
+    /// **The words fit every segment at every text size — measured, not assumed.**
     ///
-    /// The bar spans a rail that is 232pt and cannot be anything else, in two equal halves, so what
-    /// decides whether "Text Files" truncates is the widest label in HALF the bar. An ideal-width
-    /// reading of the real bar would answer about the sum of the two, which is a different and more
-    /// forgiving number — hence `tabs:`, which puts the widest title in both halves and measures the
-    /// layout's actual worst case. `fittingSize` overstates a symbol's ink by a few points, so this
-    /// errs toward failing early, which is the safe direction for a ceiling.
+    /// The bar spans a rail that is 232pt and cannot be anything else, in equal segments — three
+    /// with a PDF open — so what decides whether a word truncates is the widest label in ONE
+    /// segment. An ideal-width reading of the real bar would answer about the sum, which is a
+    /// different and more forgiving number — hence `tabs:`, which puts one title in every segment
+    /// and measures the layout's actual worst case. With glyphs, "Outline" overflowed from Default
+    /// up (``EditorRailTab/title`` has the numbers); words alone pass with the widest at 64 of 67pt.
     @Test func theRailTabsFitTheRailAtEveryTextSize() {
-        let widest = EditorRailTab.allCases.max { $0.title.count < $1.title.count } ?? .files
         // What the bar is actually handed: the rail, less the 10pt it is inset by on each side.
         let available = EditorLayoutMetrics.railWidth - 20
+        // Every title in every segment of the widest bar there is — the three a PDF brings — rather
+        // than the longest title by character count: "Pages" is shorter than "Outline" and not
+        // necessarily narrower in every font, and the measurement is cheap.
+        let widestBar = EditorRailTab.shown(pdfIsOpen: true)
+        #expect(widestBar.count == 3, "the PDF bar is the widest case and has \(widestBar.count) tabs")
         for scale in scales {
-            let bar = EditorRailTabBar(tab: .constant(.files),
-                                       tabs: [widest, widest],
-                                       accent: .blue, onAccent: .white)
-                .environment(\.appFontScale, scale)
-            let measured = size(bar).width
-            #expect(measured <= available,
-                    "“\(widest.title)” in both halves measured \(measured) against \(available) at scale \(scale) — the label truncates")
+            for title in EditorRailTab.allCases {
+                let bar = EditorRailTabBar(tab: .constant(.files),
+                                           tabs: Array(repeating: title, count: widestBar.count),
+                                           accent: .blue, onAccent: .white)
+                    .environment(\.appFontScale, scale)
+                let measured = size(bar).width
+                #expect(measured <= available,
+                        "“\(title.title)” in all \(widestBar.count) segments measured \(measured) against \(available) at scale \(scale) — the label truncates")
+            }
         }
     }
 

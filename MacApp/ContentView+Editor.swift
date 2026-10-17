@@ -139,11 +139,11 @@ extension ContentView {
     enum EditorRailDoor: String {
         case strip = "the strip"
         case foldButton = "the list's fold button"
-        case menu = "View ▸ Text Files"
+        case menu = "View ▸ Files"
         case emptyPage = "the empty page"
     }
 
-    /// **The Text Files list back on screen, on `tab`** (TE77). From the strip, the menu or the
+    /// **The Files list back on screen, on `tab`** (TE77). From the strip, the menu or the
     /// empty page — and from under Expand, which this ends the way the strip always did (CHR-2):
     /// `EditorExpand.textFilesShown` clears Expand's bit and spends its record, and leaves the pane
     /// folded, because an open pane draws no list. Not `toggleJustTheText`, whose way out reopens
@@ -159,29 +159,37 @@ extension ContentView {
         if editorRailTab != tab { editorRailTab = tab }
         if editorRailFolded {
             editorRailFolded = false
-            Logger.shared.info("[edit] Text Files list shown from \(door.rawValue)")
+            Logger.shared.info("[edit] Files list shown from \(door.rawValue)")
         }
     }
 
-    /// **The Text Files list folded into the strip** (TE77). Writes only the hand-folded bit:
+    /// **The Files list folded into the strip** (TE77). Writes only the hand-folded bit:
     /// Expand's stays as it was, so the header does not light Files for a list folded by hand.
     func foldEditorRail(from door: EditorRailDoor) {
         guard !editorRailFolded else { return }
         editorRailFolded = true
-        Logger.shared.info("[edit] Text Files list folded from \(door.rawValue)")
+        Logger.shared.info("[edit] Files list folded from \(door.rawValue)")
+    }
+
+    /// **The rail tab as DRAWN** — the stored one, unless that is Pages with no PDF open
+    /// (`EditorRailTab.resolved`). The strip lights and acts on this, not on `editorRailTab`: the
+    /// stored Pages survives a note opening, and a strip reading it would light no button while
+    /// the rail showed Files.
+    var editorRailShownTab: EditorRailTab {
+        EditorRailTab.resolved(editorRailTab, pdfIsOpen: editorPDF.path != nil)
     }
 
     /// A strip button's click — `EditorRailFold.rungAct` decides between showing the list on that
     /// tab, folding it, and switching tabs.
     func runEditorRailRung(_ tab: EditorRailTab) {
-        switch EditorRailFold.rungAct(for: tab, railDrawn: editorRailIsDrawn, currentTab: editorRailTab) {
+        switch EditorRailFold.rungAct(for: tab, railDrawn: editorRailIsDrawn, currentTab: editorRailShownTab) {
         case .show(let tab): showEditorRail(tab: tab, from: .strip)
         case .fold: foldEditorRail(from: .strip)
         case .switchTo(let tab): editorRailTab = tab
         }
     }
 
-    /// **View ▸ Text Files ⌃⌘T** (TE81): ticked while the list is on screen. `nil` — greyed —
+    /// **View ▸ Files ⌃⌘T** (TE81): ticked while the list is on screen. `nil` — greyed —
     /// outside Edit and while Edit's pane is open, where the pane is the file list and the list
     /// would not be drawn whatever the item said. Under Expand it is offered and unticked, and
     /// ticking it ends Expand as the strip's button does.
@@ -1343,7 +1351,7 @@ extension ContentView {
     /// suppression — and logged a write Edit never made.
     func editorDocumentDidMove(from old: String, to new: String, byThisApp: Bool) {
         editorAutosavePolicy.move(from: old, to: new)
-        if let anchor = editorOutlineAnchors.removeValue(forKey: old) { editorOutlineAnchors[new] = anchor }
+        EditorOutlineScroll.moveAnchor(in: &editorOutlineAnchors, from: old, to: new)
         if var review = editorDivergenceReview, review.path == old {
             review.path = new
             editorDivergenceReview = review

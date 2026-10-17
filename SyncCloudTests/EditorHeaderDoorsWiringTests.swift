@@ -192,6 +192,16 @@ import FileExplorer
         let spine = try Self.source("ContentView+SplitLayout.swift")
         #expect(spine.contains("Button { runEditorRailRung(tab) } label: {"),
                 "the spine's list buttons do not run runEditorRailRung")
+        // **The strip reads the tab as DRAWN** (PDF reader 1b): a remembered Pages is drawn as
+        // Files while a note is open, and a strip reading the stored tab lit no button then.
+        #expect(spine.contains("rungIsLit(tab, railDrawn: drawn, currentTab: editorRailShownTab)")
+                    && spine.contains("rungTitle(tab, railDrawn: drawn, currentTab: editorRailShownTab)"),
+                "the strip lights or names its buttons by the stored tab, not the drawn one")
+        #expect(spine.contains("Self.spineRungs(workspace: selectedWorkspace, pdfIsOpen: editorPDF.path != nil)"),
+                "the strip is not told a PDF is open, so it can never draw the Pages button")
+        #expect(try Self.memberBody("func runEditorRailRung(_ tab: EditorRailTab)", in: source)
+                    .contains("currentTab: editorRailShownTab"),
+                "a strip click decides by the stored tab, not the drawn one")
         #expect(!spine.contains("Button { toggleJustTheText() } label: {"),
                 "the spine's rung runs the header's toggle, which reopens a pane Expand folded")
         #expect(!spine.contains("editorRailHidden = false") && !spine.contains("editorRailFolded ="),
@@ -199,11 +209,11 @@ import FileExplorer
         let rung = try Self.memberBody("func showEditorRail(tab: EditorRailTab, from door: EditorRailDoor)", in: source)
         #expect(rung.contains("expand.textFilesShown()"), "the rung moves the bits itself rather than through EditorExpand")
         #expect(rung.contains(#"Logger.shared.info("[edit] Expand off from \(door.rawValue) — ""#), "ending Expand from the strip is not logged")
-        #expect(rung.contains(#"Logger.shared.info("[edit] Text Files list shown from \(door.rawValue)")"#), "showing the list is not logged")
+        #expect(rung.contains(#"Logger.shared.info("[edit] Files list shown from \(door.rawValue)")"#), "showing the list is not logged")
         let fold = try Self.memberBody("func foldEditorRail(from door: EditorRailDoor)", in: source)
         #expect(fold.contains("editorRailFolded = true") && !fold.contains("editorRailHidden"),
                 "the hand fold writes Expand's bit — folding would light Files")
-        #expect(fold.contains(#"Logger.shared.info("[edit] Text Files list folded from \(door.rawValue)")"#), "folding is not logged")
+        #expect(fold.contains(#"Logger.shared.info("[edit] Files list folded from \(door.rawValue)")"#), "folding is not logged")
         // TE77's two view doors and TE81's menu item reach the host's acts.
         #expect(try Self.call("EditorWorkspaceView(", in: workspace).passes("onFoldRail", "{ foldEditorRail(from: .foldButton) }"),
                 "the list's fold button is not handed foldEditorRail")

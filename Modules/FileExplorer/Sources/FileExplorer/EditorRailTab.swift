@@ -1,7 +1,8 @@
 import SwiftUI
 import Design
 
-/// What the editor's rail is showing — the folder's text files, or the open document's headings.
+/// What the editor's rail is showing — the folder's files, the open PDF's pages, or the open
+/// document's outline.
 ///
 /// **Two halves of one question, asked one at a time.** They were stacked in the rail until now,
 /// the outline under the files behind a divider, on the argument that "which file" and "where in
@@ -20,36 +21,62 @@ import Design
 /// editor's view is rebuilt from nothing by every workspace switch.
 public enum EditorRailTab: String, CaseIterable, Sendable {
     case files
+    /// The open PDF's pages, as thumbnails — offered only while a PDF is open (``shown(pdfIsOpen:)``).
+    case pages
     case outline
 
-    /// **"Text Files", not "Files".** The rail lists the text-like files in the folder and nothing
-    /// else — no images, no folders — and the tab is now the only place that says so: the header it
-    /// replaced read "Text files in Downloads" and the folder half of that sentence moved to the
-    /// line underneath.
+    /// **"Files", no longer "Text Files"**, because the tab lists PDFs too now, each kind under a
+    /// heading of its own (``EditorRail/sections(_:)``). The kind of file moved from the tab to
+    /// those headings; the tab names what the rail is showing, as Pages and Outline do.
     ///
-    /// **Measured before it was chosen, and the margin is thin.** With the widest title in both
-    /// halves — which is what the equal-halves layout actually has to fit — the bar measures
-    /// **159 · 169 · 196 · 207pt** across Small · Default · Large · Largest, against the 212pt the
-    /// rail leaves it. Five points of room at the top of the range, on a `fittingSize` reading that
-    /// overstates a symbol's ink by three to five, so the true margin is better than it looks and
-    /// still not comfortable. A longer word than "Text Files" needs re-measuring, not judgement:
+    /// **Words only, no glyph — measured, and chosen on 2026-10-16.** A third tab leaves each about
+    /// 67pt of the 212pt the rail gives the bar. With its glyph, "Outline" in all three segments
+    /// measured **208 · 220 · 251 · 267pt** across Small · Default · Large · Largest — over from
+    /// Default up, and "Pages" (202 · 233 · 243) over from Large. The words alone fit at every size:
+    /// the widest, "Outline" at Largest, takes 64pt of its 67. He was shown the truncated bar and
+    /// the alternatives and picked words only, on both the two- and the three-tab bar, so the bar
+    /// does not change its look when a PDF opens. A longer word needs re-measuring, not judgement:
     /// `EditorLayoutTests.theRailTabsFitTheRailAtEveryTextSize` fails and names the number.
     public var title: String {
         switch self {
-        case .files: return "Text Files"
+        case .files: return "Files"
+        case .pages: return "Pages"
         case .outline: return "Outline"
         }
     }
 
+    /// The tab's glyph — no longer drawn on the tab itself (``title`` says why), but still the
+    /// status line's sign for the outline: its heading item wears it, pointing at this tab.
     var symbol: String {
         switch self {
         case .files: return "doc.text"
+        case .pages: return "square.grid.2x2"
         case .outline: return "list.bullet.indent"
         }
     }
+
+    /// The tabs the rail offers: **Files · Pages · Outline while a PDF is open, Files · Outline
+    /// otherwise.** Pages has nothing to show for a text file, and a tab that is always there and
+    /// usually empty is a tab people learn to ignore.
+    ///
+    /// Outline stays for a PDF even when it has no bookmarks — it says so instead — so the count of
+    /// tabs, and where each one sits, depends on the kind of file and nothing else.
+    public static func shown(pdfIsOpen: Bool) -> [EditorRailTab] {
+        pdfIsOpen ? [.files, .pages, .outline] : [.files, .outline]
+    }
+
+    /// The tab to draw for a remembered one: **Pages falls back to Files when no PDF is open.**
+    ///
+    /// **A display filter, not a write-back** — `EditorMode.resolved`'s rule, for its reason. The
+    /// host keeps what was chosen; this only decides what is drawn. Writing `.files` back when a
+    /// text file opened would make one Markdown note cost the reader their place: read PDFs on
+    /// Pages, glance at a note, and the next PDF would open on Files.
+    public static func resolved(_ tab: EditorRailTab, pdfIsOpen: Bool) -> EditorRailTab {
+        shown(pdfIsOpen: pdfIsOpen).contains(tab) ? tab : .files
+    }
 }
 
-/// The rail's Text Files / Outline tabs.
+/// The rail's Files / Pages / Outline tabs.
 ///
 /// **Mirrors ``EditorModeBar``'s geometry, and is hand-drawn for the same reason** — the native
 /// segmented control renders neutral inside this window's glass and ignores `.tint`, so a selected
@@ -57,18 +84,18 @@ public enum EditorRailTab: String, CaseIterable, Sendable {
 ///
 /// The one difference is the width. The mode capsule is `.fixedSize()` inside a document column
 /// that can be any width, so it sheds its words when the column is narrow. This sits in a rail that
-/// is 232pt and cannot be anything else, so it spans that width with two equal halves and the words
-/// never shed — there is no width at which they would need to, which is what
-/// `theRailTabsFitTheRailAtEveryTextSize` pins.
+/// is 232pt and cannot be anything else, so it spans that width in equal segments — two, or three
+/// with a PDF open — and the words never shed. They carry no glyph, which is what lets three fit
+/// (``EditorRailTab/title``); `theRailTabsFitTheRailAtEveryTextSize` pins it.
 struct EditorRailTabBar: View {
 
     @Binding var tab: EditorRailTab
-    /// The segments to draw. **A seam, and it exists for one measurement.** The two halves are
-    /// equal, so what decides whether a word truncates is the WIDEST label in half the bar — not
-    /// the sum of the two, which is what an ideal-width reading of the real bar would report. A
-    /// test builds this with the widest title in both halves and measures that, which is the
-    /// layout's actual worst case rather than a replica of it.
-    var tabs: [EditorRailTab] = EditorRailTab.allCases
+    /// The segments to draw — ``EditorRailTab/shown(pdfIsOpen:)``, from the rail. **Also a seam for
+    /// one measurement.** The segments are equal, so what decides whether a word truncates is the
+    /// WIDEST label in one segment — not the sum, which is what an ideal-width reading of the real
+    /// bar would report. A test builds this with one title in every segment and measures that,
+    /// which is the layout's actual worst case rather than a replica of it.
+    var tabs: [EditorRailTab] = EditorRailTab.shown(pdfIsOpen: false)
     let accent: Color
     /// The label colour on the accent fill — deepened by the host so white text stays legible on
     /// every hue, the same value the mode capsule's selected segment uses.
@@ -81,7 +108,7 @@ struct EditorRailTabBar: View {
         HStack(spacing: 3) {
             ForEach(Array(tabs.enumerated()), id: \.offset) { segment($0.element) }
         }
-        // Frosted and Clear: one glass lens that glides between the halves (RD46).
+        // Frosted and Clear: one glass lens that glides between the segments (RD46).
         .selectionLensHost(Self.lensChannel, selected: tab, style: .fill(.capsule, color: accent))
         .padding(2)
         // Frosted and Clear: a glass track, like the bar's other controls (`ChromeGlass`).
@@ -95,23 +122,19 @@ struct EditorRailTabBar: View {
         return Button {
             tab = candidate
         } label: {
-            HStack(spacing: 4) {
-                CapsuleGlyph(symbol: candidate.symbol)
-                // **Semibold whether or not it is selected**, for the reason the mode capsule's
-                // labels are: weight changes width, and a segment that bolded only on selection
-                // would be a different width depending on which one was chosen — in a row of two
-                // equal halves, that moves the divider between them on every click.
-                Text(candidate.title)
-                    .scaledFont(.system(size: 10, weight: .semibold))
-                    .lineLimit(1)
-            }
+            // **Semibold whether or not it is selected**, for the reason the mode capsule's
+            // labels are: weight changes width, and a segment that bolded only on selection would
+            // be a different width depending on which one was chosen — in a row of equal
+            // segments, that moves the dividers between them on every click.
+            Text(candidate.title)
+                .scaledFont(.system(size: 10, weight: .semibold))
+                .lineLimit(1)
             .selectionLensLabelInk(isSelected: isSelected, onFill: onAccent, unselected: Color.secondary)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             // **After the padding and before the fill**, so the accent capsule covers the whole
-            // half rather than hugging the words: two segments of unequal ink drawn at their
-            // natural widths would put the seam between them off-centre and move it when the
-            // outline's heading count changed the word beside it.
+            // segment rather than hugging the words: segments of unequal ink drawn at their
+            // natural widths would put the seams between them off-centre.
             .frame(maxWidth: .infinity)
             .background {
                 if isSelected { SelectionLensTodayMarker { Capsule().fill(accent) } }

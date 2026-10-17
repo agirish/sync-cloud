@@ -278,12 +278,12 @@ struct EditorExpand: Equatable {
         sidebarPutAway = false
     }
 
-    /// What changed between two states, for the log: "the Text Files list, the file pane and the
+    /// What changed between two states, for the log: "the Files list, the file pane and the
     /// sidebar", or the subset that moved. The sidebar counts only through Expand's hold, which is
     /// the only way Expand moves it. Never localised — it is a log line, read back by sessions.
     static func moved(from before: EditorExpand, to after: EditorExpand) -> String {
         var names: [String] = []
-        if before.railHidden != after.railHidden { names.append("the Text Files list") }
+        if before.railHidden != after.railHidden { names.append("the Files list") }
         if before.paneFolded != after.paneFolded { names.append("the file pane") }
         if before.hidesSidebar != after.hidesSidebar { names.append("the sidebar") }
         switch names.count {

@@ -14,7 +14,7 @@ import Foundation
     /// is drawn on both tabs at the same place; and only when the host passes the act.
     @Test func theFoldButtonIsDrawnOnBothTabsAndOnlyWhenHandedAnAct() throws {
         let rail = try ChromeGlassWiringTests.source("EditorFileRailView.swift")
-        let filesOnly = try #require(rail.range(of: "if tab == .files {"), "the context row's files-only block moved")
+        let filesOnly = try #require(rail.range(of: "if shownTab == .files {"), "the context row's files-only block moved")
         let fold = try #require(rail.range(of: "if let onFold {"), "the rail draws no fold button")
         #expect(filesOnly.upperBound < fold.lowerBound, "the fold button is drawn before the files-only block")
         let between = String(rail[filesOnly.upperBound..<fold.lowerBound])
@@ -34,6 +34,6 @@ import Foundation
         #expect(workspace.contains("showTextFiles: folder.isEmpty ? nil : onShowTextFiles)"),
                 "the empty page's Show Text Files is not the host's act, or is offered with no folder")
         #expect(workspace.contains("Button(action: showTextFiles) {"), "the empty page's button does not run its act")
-        #expect(EditorWorkspaceView.showTextFilesTitle == "Show Text Files")
+        #expect(EditorWorkspaceView.showTextFilesTitle == "Show Files")
     }
 }

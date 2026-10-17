@@ -7113,3 +7113,29 @@ done
 |---|---|---|
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace at all (`EditorDocument` is v5) | CLOSED — does not apply |
 | `v5.x` | Edit, without `EditorPDFDocument` (cut at `v5.5` before this landed; measured `pdfModel=0`) | RECORDED — not owed (main only) |
+
+## Edit's rail lists PDFs, with Pages and a PDF's bookmarks — main only
+
+The rail's first tab is "Files" now, with a Text Files section and a PDFs section. While a PDF is
+open the rail has a Pages tab of thumbnails, drawn one page at a time through `PDFKitSerialAccess`,
+and Outline lists the PDF's bookmarks. The tabs carry words only, no glyphs, so three fit. A PDF
+over the 4 MiB text cap is not dimmed. Everything it builds on (`EditorRailTab`,
+`EditorPDFDocument`) exists only on `main`.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-5s railTab=%s pdfModel=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorRailTab.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-16, against origin, before this or 1a landed:
+# main  railTab=1 pdfModel=0
+# v4.x  railTab=0 pdfModel=0
+# v3.x  railTab=0 pdfModel=0
+# v2.x  railTab=0 pdfModel=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v4.x` / `v3.x` / `v2.x` | No Edit rail and no PDF model (both are v5) | CLOSED — does not apply |
+| `v5.x` | The Edit rail without PDFs, and no PDF model (measured `railTab=1 pdfModel=0`) | RECORDED — not owed (main only) |

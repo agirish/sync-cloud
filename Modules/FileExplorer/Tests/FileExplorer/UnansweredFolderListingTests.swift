@@ -59,7 +59,7 @@ import FileExplorerTestSupport
         }
         #expect(refresh.asked, "the provider was never asked")
         #expect(refresh.ranWhileWaiting, "the refresh held its thread while the provider was asked")
-        #expect(refresh.value.rows.map(\.name) == ["note.md"], "the answered folder was not listed")
+        #expect(refresh.value.rows.map(\.name) == ["note.md", "scan.pdf"], "the answered folder was not listed")
         #expect(disk.providerReads == 1, "the survey after the ask asked the provider again")
     }
 
@@ -71,7 +71,7 @@ import FileExplorerTestSupport
         let survey = await Self.offThePool {
             await EditorRail.surveySuspending(in: folder, showsHidden: false, fileManager: disk)
         }
-        #expect(survey.rows.map(\.name) == ["note.md"])
+        #expect(survey.rows.map(\.name) == ["note.md", "scan.pdf"])
         #expect(disk.providerReads == 1)
     }
 

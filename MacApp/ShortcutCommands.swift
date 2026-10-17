@@ -1091,7 +1091,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.reopenClosedTab, effectiveReopenClosedTab)   // File ▸ Reopen Closed Tab
             .focusedSceneValue(\.tabBarVisible, effectiveTabBar)              // ⇧⌘T
             .focusedSceneValue(\.folderSidebarVisible, effectiveFolderSidebar) // View ▸ Sidebar, ⌃⌘S
-            .focusedSceneValue(\.editorTextFilesVisible, effectiveEditorTextFiles) // View ▸ Text Files, ⌃⌘T
+            .focusedSceneValue(\.editorTextFilesVisible, effectiveEditorTextFiles) // View ▸ Files, ⌃⌘T
             .focusedSceneValue(\.statusBarVisible, effectiveStatusBar)         // View ▸ Status Bar
             .focusedSceneValue(\.organizeLens, effectiveOrganizeLens)         // View ▸ Organize ▸ …
             .focusedSceneValue(\.organizeVerbs, effectiveOrganizeVerbs)       // File ▸ Organize's verbs
@@ -2681,7 +2681,7 @@ struct ToggleEditorTextFilesCommand: View {
     @FocusedValue(\.editorTextFilesVisible) private var textFiles
 
     var body: some View {
-        Toggle("Text Files", isOn: textFiles ?? .constant(false))
+        Toggle("Files", isOn: textFiles ?? .constant(false))
             .keyboardShortcut(AppChord.editorTextFiles.key, modifiers: AppChord.editorTextFiles.modifiers)
             .disabled(textFiles == nil)
     }
