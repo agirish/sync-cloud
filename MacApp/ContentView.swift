@@ -4059,6 +4059,11 @@ struct ContentView: View {
             // edge stay exactly where they were. In Unified `paneCardIfNeeded` is a no-op, so the
             // pane stays one continuous surface and the two styles read differently — which is the
             // point of having both.
+            //
+            // Unified marks the header's edge with the hairline every workspace column's header
+            // carries there (`columnHeaderRule`) — Edit's document, the Organize lenses and the
+            // Differences toolbar all draw the same one on the same 83.5 line.
+            .columnHeaderRule(surfaceStyle)
             .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
             treeView(pane)
                 .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))

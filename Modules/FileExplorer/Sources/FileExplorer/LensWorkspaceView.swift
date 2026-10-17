@@ -1102,12 +1102,17 @@ public struct LensWorkspaceView: View {
                                     onStop: onStopDocumentSurvey)
                     // The source bar's own inset, so the strip lines up with the row below it
                     // rather than sitting on an inset of its own.
-                    .padding(.horizontal, LiquidGlass.cardInset + 12)
-                    .padding(.top, LiquidGlass.cardInset)
+                    .padding(.horizontal, sectionInset + 12)
+                    .padding(.top, stripGap)
             }
             if showSourcePicker { sourceBar }
             lensBody(rows: rows, counts: counts, scopeFolders: scopeFolders)
         }
+        // **One region in Unified, two cards in Cards** — the rule every workspace column follows
+        // (see `columnSectionCard`). The header card and the content card are this column's two
+        // sections; in Unified this frames them as one box, so the content starts flush under the
+        // header's hairline at the same 83.5 the file pane's list does.
+        .columnRegionFrame(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         // `onDismiss`, because the history sheet can Clear History. Without it the setup card went
         // on quoting "last run ~$0.18" from a record the user had just erased through this very
         // sheet — the one invalidation the cached spend needed and did not have. `SettingsView`
@@ -1429,11 +1434,28 @@ public struct LensWorkspaceView: View {
         // Line this strip up with the card content below it: a card sits `cardInset` in from the
         // region edge and pads its own contents by 12, so matching both puts the text on the same
         // vertical rule. Tracks `cardInset`, not `cardGutter` — the card's offset is the inset.
-        .padding(.horizontal, LiquidGlass.cardInset + 12)
-        .padding(.top, LiquidGlass.cardInset)
-        // Half a gutter, like everything else: the card below insets by the other half, so the
-        // strip-to-card gap comes to exactly `cardGutter` (a hard-coded 2 left it at 4.5).
-        .padding(.bottom, LiquidGlass.cardInset)
+        // In Unified there is no card to sit in from (`sectionInset` is 0).
+        .padding(.horizontal, sectionInset + 12)
+        .padding(.top, stripGap)
+        // Half a gutter in Cards, like everything else: the card below insets by the other half,
+        // so the strip-to-card gap comes to exactly `cardGutter` (a hard-coded 2 left it at 4.5).
+        // A whole one in Unified, where nothing below insets (`stripGap`).
+        .padding(.bottom, stripGap)
+    }
+
+    /// How far a section's edge sits in from the column's: `cardInset` in Cards, where each
+    /// section is a card that insets itself, and 0 in Unified, where the column is one region and
+    /// its sections run edge to edge inside it (`columnSectionCard`).
+    private var sectionInset: CGFloat {
+        surfaceStyle == .cards ? LiquidGlass.cardInset : 0
+    }
+
+    /// The air above and below the strips that sit between the header and the content. Half a
+    /// gutter in Cards, where the other half is the neighbouring card's inset; in Unified there is
+    /// no card inset to make up the rest, and the strip sits under the header's hairline instead,
+    /// so it takes the whole gutter.
+    private var stripGap: CGFloat {
+        surfaceStyle == .cards ? LiquidGlass.cardInset : LiquidGlass.cardGutter
     }
 
     /// Row 1's trailing controls: this lens's actions, in the order the deck draws them (the
@@ -3404,7 +3426,7 @@ public struct LensWorkspaceView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+        .columnSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         // The Restructure sheets anchor HERE, not inside the `.restructure` branch: a sheet
         // hangs off its anchor view, so anchored in the branch, switching lens (a pill, a
         // View ▸ Organize menu item — macOS menus stay live over a window-modal sheet) tore

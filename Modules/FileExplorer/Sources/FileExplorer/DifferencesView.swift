@@ -276,8 +276,9 @@ public struct DifferencesView: View {
         // render, which during a bulk sync means twice per copied file.
         let sections = groupedSections(sorted)
 
-        // spacing 0: each bottomSectionCard insets itself by half a gutter, so the gap between
-        // them is already `cardGutter`. A spacing here would add to it.
+        // spacing 0: in Cards each section card insets itself by half a gutter, so the gap
+        // between them is already `cardGutter`. A spacing here would add to it. In Unified the two
+        // are one region (`columnRegionFrame` below) with the table flush under the toolbar.
         return VStack(spacing: 0) {
             // Toolbar card: tabs · count · filter · actions · search.
             VStack(alignment: .leading, spacing: 10) {
@@ -306,7 +307,10 @@ public struct DifferencesView: View {
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .modifier(HeaderCardChrome(tint: glassHue.accentColor))
-            .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+            // The hairline marks the toolbar's edge against the table, so it goes with the table:
+            // collapsed, the toolbar is the whole region and the frame's own outline is its edge.
+            .columnHeaderRule(surfaceStyle, overContent: !collapsed)
+            .columnSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
 
             // Table card: review card / progress (during ops) sits above the differences table.
             // Dropped entirely when collapsed so the pane shrinks to just the header strip above.
@@ -319,9 +323,12 @@ public struct DifferencesView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+                .columnSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
             }
         }
+        // One region in Unified, two cards in Cards — the rule every workspace column follows
+        // (see `columnSectionCard`).
+        .columnRegionFrame(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         // The menu bar's three differences items (⇧⌘R Review, ⇧⌘V Verify, ⇧⌘F fold). Published
         // from body because their availability is this render's facts — the same
         // targets/sections the header's own buttons were built from. The rules live in

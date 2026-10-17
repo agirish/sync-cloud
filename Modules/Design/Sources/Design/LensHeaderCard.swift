@@ -36,8 +36,10 @@ public enum LensHeaderMetrics {
         padding + tabRow + rowGap + summaryRow + padding
     }
 
-    /// What the card occupies in its parent at rest, including the half-gutter it insets itself
-    /// by on each side (`bottomSectionCard`): 2.5 + 81 + 2.5 = 86.
+    /// What the card occupies in its parent at rest in Cards, including the half-gutter it insets
+    /// itself by on each side (`columnSectionCard`): 2.5 + 81 + 2.5 = 86. In Unified the card draws
+    /// no frame and occupies `restingHeight`; the column's `columnRegionFrame` supplies the same
+    /// 2.5 above it, so its bottom edge lands on 83.5 in both styles.
     public static var restingTotalHeight: CGFloat {
         restingHeight + 2 * LiquidGlass.cardInset
     }
@@ -218,6 +220,10 @@ public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing
         // where it would look like it had worked. Measured: 6,678 pixels of ink outside the column
         // with the clip on this line, 0 with it at the split
         // (`LensHeaderCardOverrunTests`).
-        .bottomSectionCard(surfaceStyle, level: level, hue: hue, tint: tint)
+        //
+        // The workspace column's header: its own card in Cards; in Unified, a hairline over the
+        // content the host's `columnRegionFrame` draws in the same region as this.
+        .columnHeaderRule(surfaceStyle)
+        .columnSectionCard(surfaceStyle, level: level, hue: hue, tint: tint)
     }
 }

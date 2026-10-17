@@ -1,4 +1,5 @@
 import AppKit
+import Design
 import SwiftUI
 import Sync
 import Testing
@@ -73,6 +74,11 @@ import FileExplorerTestSupport
     private func mount(grouped: Bool, width: CGFloat) -> (host: NSHostingView<AnyView>, window: NSWindow) {
         let store = ScratchDefaults("FoldAllToggleBindingTests")
         store.set(grouped, forKey: "differencesGroupByFolder")
+        // Cards, so the toolbar is its own top-level card — the shallow branch `focusRingSizes`
+        // reads as the header. In Unified the toolbar and the table are one region
+        // (`columnRegionFrame`), so no child of the host is header-sized and the walk finds
+        // nothing. The controls are the same in both styles; only the frame around them moves.
+        store.set(SurfaceStyle.cards.rawValue, forKey: LiquidGlass.surfaceStyleKey)
         let manager = FileSyncManager()
         manager.differences = differences()
         manager.hasScanned = true

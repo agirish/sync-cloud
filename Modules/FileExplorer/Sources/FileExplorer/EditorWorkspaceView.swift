@@ -595,31 +595,29 @@ public struct EditorWorkspaceView: View {
     /// card stands in the pane, so the two header cards share their top edge as well as their bottom;
     /// in `.unified` a band inside the region above the header, so the two regions' tops stay level
     /// as the pane's strip is flush inside its region.
-    @ViewBuilder
+    ///
+    /// The two styles go through the helpers every workspace column shares (`columnSectionCard`,
+    /// `columnRegionFrame`, `columnHeaderRule`), so this column cannot drift from the pane, the
+    /// Organize lenses and the Differences area beside it.
     private var documentColumn: some View {
         let stripSlot = paneShowsTabStrip ? PaneTabStripLadder.slotHeight(surfaceStyle) : 0
-        if surfaceStyle == .cards {
-            VStack(spacing: 0) {
-                headerCard
-                    .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
-                textCard
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
-            }
-            .padding(.top, stripSlot)
-        } else {
-            VStack(spacing: 0) {
-                Color.clear.frame(height: stripSlot)
-                // The rule the header always had, drawn OVER its bottom edge rather than under it,
-                // so it costs no height: the pane's list starts flush at the header's pinned edge
-                // and so must this column's text.
-                headerCard
-                    .overlay(alignment: .bottom) { Divider() }
-                textCard
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+        let cards = surfaceStyle == .cards
+        return VStack(spacing: 0) {
+            // Unified: the strip's band, inside the region. Cards: the gap above the header card,
+            // which is padding outside both cards (below).
+            Color.clear.frame(height: cards ? 0 : stripSlot)
+            // The rule is drawn OVER the header's bottom edge rather than under it, so it costs no
+            // height: the pane's list starts flush at the header's pinned edge and so must this
+            // column's text.
+            headerCard
+                .columnHeaderRule(surfaceStyle)
+                .columnSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+            textCard
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .columnSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         }
+        .padding(.top, cards ? stripSlot : 0)
+        .columnRegionFrame(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
     }
 
     /// The header, at the pane toolbar card's height. Internal so `EditorHeaderLocationTests` and

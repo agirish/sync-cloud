@@ -61,10 +61,13 @@ struct ActivePaneMark: ViewModifier {
             .overlay {
                 if isFocused, surfaceStyle == .unified {
                     RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+                        // On the column's own bounds, with no inset. `panesRegionFrame` has
+                        // already inset the region by `cardInset`, so the column's outer edges ARE
+                        // the region's outline and the ring replaces that hairline in place, the
+                        // way the Cards border replaces a card's. It carried a second `cardInset`
+                        // until 2026-10-17, which drew it a half-gutter inside the grey outline —
+                        // two lines along every outer edge of the focused pane.
                         .strokeBorder(LiquidGlass.activeBorder(accent), lineWidth: LiquidGlass.activeCardBorderWidth)
-                        // The half-gutter every card insets itself by, so the ring lands exactly
-                        // where a card's edge would be if this style had one.
-                        .padding(LiquidGlass.cardInset)
                         // Never a hit target: it lies over the tab strip and the list's edge, and a
                         // 2pt band that swallowed clicks would eat presses on both.
                         .allowsHitTesting(false)

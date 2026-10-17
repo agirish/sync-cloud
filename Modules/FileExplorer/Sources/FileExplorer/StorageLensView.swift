@@ -98,7 +98,9 @@ struct StorageLensView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+        // The lens column's content section — a card in Cards, flush under the shared header in
+        // Unified, where `LensWorkspaceView` frames the column as one region.
+        .columnSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
     }
 
     /// The section switcher, over the content it switches.

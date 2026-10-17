@@ -7175,3 +7175,38 @@ done
 |---|---|---|
 | `v5.x` | Both: the tick walks and rewrites the whole text, and `isDirty` uses `!=`. A pick is this one commit; `MarkdownEdits.swift`, `EditorDocument.swift` and `toggleTask` in `EditorWorkspaceView.swift` are as `v5.5` shipped them, so it should apply as it stands | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace, so no preview to tick in and no buffer to call dirty | CLOSED — does not apply |
+
+## One header-over-content rule for Unified and Cards; the Unified focus ring on the outline — main only
+
+Every workspace column with a header over content now follows one rule: its own card per section in
+Cards, one outlined region with the content flush under a header hairline in Unified
+(`columnSectionCard` / `columnRegionFrame` / `columnHeaderRule`). The Organize lenses (Storage
+included) and Compare's Differences area were two outlined boxes in Unified, their Cards shape, so
+a lens's content sat a gutter below the file list; the file pane gains the hairline Edit already
+drew. Separately, the Unified focus ring (`ActivePaneMark`) lost a second `cardInset` that drew it
+half a gutter inside the region's outline. Every line carries the two-box lens header and
+Differences; the ring's inset arrived with the focused-pane mark.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s lensHeader=%s ringInset=%s editUnifiedRegion=%s diffSections=%s\n' "$l" \
+ "$(git show origin/$l:Modules/Design/Sources/Design/LensHeaderCard.swift 2>/dev/null | grep -c 'bottomSectionCard(surfaceStyle')" \
+ "$(git show origin/$l:MacApp/ActivePaneMark.swift 2>/dev/null | grep -c 'padding(LiquidGlass.cardInset)')" \
+ "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift 2>/dev/null | grep -c 'overlay(alignment: .bottom) { Divider() }')" \
+ "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferencesView.swift 2>/dev/null | grep -c 'bottomSectionCard(surfaceStyle')"; done
+# measured 2026-10-17, against origin, before this landed:
+# main  lensHeader=1 ringInset=1 editUnifiedRegion=1 diffSections=2
+# v5.x  lensHeader=1 ringInset=1 editUnifiedRegion=1 diffSections=2
+# v4.x  lensHeader=1 ringInset=1 editUnifiedRegion=0 diffSections=2
+# v3.x  lensHeader=1 ringInset=0 editUnifiedRegion=0 diffSections=2
+# v2.x  lensHeader=1 ringInset=0 editUnifiedRegion=0 diffSections=2
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | All four: two-box lens header and Differences in Unified, the inset ring, Edit's one-region column | RECORDED — not owed (main only) |
+| `v4.x` | Two-box lens header and Differences, the inset ring; no Edit document column | RECORDED — not owed (main only) |
+| `v3.x` / `v2.x` | Two-box lens header and Differences; no focus ring, no Edit | RECORDED — not owed (main only) |
+
+**Pick notes.** `LensHeaderCardTests` moves its fixtures to `.cards` and gains the Unified test;
+`GlassLevelTests` gains the column tests. On `v4.x` and older, `EditorWorkspaceView` does not exist —
+drop that hunk; on `v3.x`/`v2.x` drop the `ActivePaneMark` hunk too.

@@ -766,8 +766,9 @@ public extension View {
 
     /// One section of the bottom workspace (the toolbar, or the table / Details) as a
     /// self-contained card: applies the tint wash, then frames it — a floating card for `.cards`,
-    /// or a clipped hairline-outlined region for `.unified`. Sections are stacked with a gap so
-    /// the toolbar reads separately from the data.
+    /// or a clipped hairline-outlined region for `.unified`. A header over content goes through
+    /// `columnSectionCard` / `columnRegionFrame` instead, which call this per section in Cards and
+    /// once per column in Unified.
     ///
     /// Like `surfaceCard` and `panesRegionFrame`, this insets itself by `cardInset` — half a
     /// gutter — so two stacked sections come to exactly one `cardGutter` between them and line up
@@ -808,6 +809,70 @@ public extension View {
                     cornerRadius: radius,
                     lightBorder: true, lightShadow: false, darkShadow: false))
                 .padding(LiquidGlass.cardInset)
+        }
+    }
+
+    // MARK: A workspace column — a header over its content
+    //
+    // **One rule for every column that has a header over content, in both styles**: the file pane
+    // (toolbar over list), Edit's document (header over text), every Organize lens (lens header
+    // over its content, Storage included) and Compare's Differences area (toolbar over table).
+    //
+    // - `.cards`: each section is its own floating card, and the gutter between them is the
+    //   boundary.
+    // - `.unified`: the column is ONE outlined region with its content flush under the header, and
+    //   a hairline (`columnHeaderRule`) is the boundary.
+    //
+    // It was not one rule before. The panes and Edit were one region in Unified, while the lenses
+    // and Differences stayed two outlined boxes with a gutter between them — exactly their Cards
+    // shape — so switching styles changed the left half of Organize and not the right, and a lens's
+    // content started one gutter below the file list beside it. The panes keep their own pair
+    // (`paneCardIfNeeded` / `panesRegionFrame`) because two panes share one region; every other
+    // column uses these three.
+
+    /// One section of a workspace column — its header, or the content under it: its own card in
+    /// `.cards`, nothing at all in `.unified`, where `columnRegionFrame` frames the whole column.
+    /// Pair the two on every column; either alone draws a column with no frame (Unified) or with a
+    /// card inside a card (Cards).
+    @ViewBuilder
+    func columnSectionCard(
+        _ style: SurfaceStyle,
+        level: GlassLevel,
+        hue: LiquidGlassHue = .blue,
+        tint: Double = 0
+    ) -> some View {
+        switch style {
+        case .cards: self.bottomSectionCard(.cards, level: level, hue: hue, tint: tint)
+        case .unified: self
+        }
+    }
+
+    /// The whole workspace column as one region in `.unified` — `bottomSectionCard`'s Unified frame,
+    /// so it insets by `cardInset` and its header still lands on `LiquidGlass.headerHeight` — and a
+    /// no-op in `.cards`, where each `columnSectionCard` is the frame.
+    @ViewBuilder
+    func columnRegionFrame(
+        _ style: SurfaceStyle,
+        level: GlassLevel,
+        hue: LiquidGlassHue = .blue,
+        tint: Double = 0
+    ) -> some View {
+        switch style {
+        case .cards: self
+        case .unified: self.bottomSectionCard(.unified, level: level, hue: hue, tint: tint)
+        }
+    }
+
+    /// The hairline under a column's header in `.unified`; nothing in `.cards`, where the gutter
+    /// between the two cards already draws the boundary. Drawn OVER the header's bottom edge, so it
+    /// costs no height and the content still starts at the header's pinned edge.
+    ///
+    /// `overContent: false` for a header that is momentarily the whole column (Differences folded
+    /// to its toolbar): the region's own outline is its bottom edge then, and a rule on top of it
+    /// would draw that edge twice.
+    func columnHeaderRule(_ style: SurfaceStyle, overContent: Bool = true) -> some View {
+        self.overlay(alignment: .bottom) {
+            if style == .unified, overContent { Divider() }
         }
     }
 }

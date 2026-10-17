@@ -42,7 +42,7 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             chips: chips,
             onRemoveChip: { _ in },
             accent: .blue,
-            surfaceStyle: .unified,
+            surfaceStyle: .cards,
             level: .frosted,
             title: { titleRow },
             actions: {
@@ -139,27 +139,32 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             searchPlaceholder: "kind:pdf, >5mb…",
             searchHelp: "Search duplicate groups",
             accent: .blue,
-            surfaceStyle: .unified,
+            surfaceStyle: .cards,
             level: .frosted,
             title: { Self.titleRow }
         )
         #expect(laidOutHeight(bare, width: 700) == 86.0)
     }
 
-    /// Cards mode adds a shadow and a hairline but must not change the height — the inset is the
-    /// same half-gutter in both shapes.
-    @Test(.machinePinned(.layoutMetrics)) func cardsShapeHoldsTheSameHeight() {
-        let cards = LensHeaderCard(
+    /// **Unified moves the frame to the column, not the line.** There the card draws no frame and
+    /// no inset of its own — the workspace column is one region (`columnRegionFrame`) with the
+    /// content flush under the header — so the card alone is its 81 visible points, and inside the
+    /// region it occupies the same 86 with its bottom edge on the same 83.5. Measured both ways,
+    /// because a card that kept its own inset in Unified would pass the first half and land 2.5pt
+    /// low inside the region.
+    @Test(.machinePinned(.layoutMetrics)) func unifiedLeavesTheFrameToTheColumnAndKeepsTheLine() {
+        let unified = LensHeaderCard(
             searchText: .constant(""),
             isSearchExpanded: .constant(false),
             searchPlaceholder: "kind:pdf, >5mb…",
             searchHelp: "Search duplicate groups",
             accent: .blue,
-            surfaceStyle: .cards,
+            surfaceStyle: .unified,
             level: .frosted,
             title: { Self.titleRow }
         )
-        #expect(laidOutHeight(cards, width: 700) == 86.0)
+        #expect(laidOutHeight(unified, width: 700) == LiquidGlass.headerHeight)
+        #expect(laidOutHeight(unified.columnRegionFrame(.unified, level: .frosted), width: 700) == 86.0)
     }
 
     // MARK: A lens that answers no query does not offer the control
@@ -177,7 +182,7 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             searchHelp: "Search duplicate groups",
             showsSearch: showsSearch,
             accent: .blue,
-            surfaceStyle: .unified,
+            surfaceStyle: .cards,
             level: .frosted,
             title: { Self.titleRow }
         )

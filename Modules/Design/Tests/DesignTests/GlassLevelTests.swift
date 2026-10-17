@@ -318,4 +318,57 @@ struct GlassLevelTests {
         // decomposition is what makes card↔card and card↔window-edge agree. Pre-fix this was 0.
         #expect(height - Self.subject.height * 2 == LiquidGlass.cardGutter * 2)
     }
+
+    // MARK: - A workspace column: one rule in both styles
+
+    /// A header section over a content section, stacked the way every workspace column stacks
+    /// them — the file pane aside, which has its own pair.
+    @MainActor
+    private func column(_ style: SurfaceStyle, level: GlassLevel) -> some View {
+        VStack(spacing: 0) {
+            bare.columnHeaderRule(style).columnSectionCard(style, level: level)
+            bare.columnSectionCard(style, level: level)
+        }
+        .columnRegionFrame(style, level: level)
+    }
+
+    @MainActor
+    @Test func aCardsColumnIsTwoCardsAGutterApart() {
+        // The bottom stack's own property, unchanged: two cards, their facing insets summing to
+        // one gutter, and the region adding nothing.
+        for level in GlassLevel.allCases {
+            let height = laidOutSize(column(.cards, level: level)).height
+            #expect(height == Self.subject.height * 2 + LiquidGlass.cardGutter * 2, "cards at \(level)")
+        }
+    }
+
+    @MainActor
+    @Test func aUnifiedColumnIsOneRegionWithTheContentFlushUnderTheHeader() {
+        // One region: the frame's two half-gutters and nothing between the sections. A column
+        // that still drew per-section boxes in Unified — the shape the Organize lenses and the
+        // Differences area had until 2026-10-17 — comes to two gutters here, and its content
+        // starts one gutter below the file list beside it.
+        for level in GlassLevel.allCases {
+            let height = laidOutSize(column(.unified, level: level)).height
+            #expect(height == Self.subject.height * 2 + LiquidGlass.cardGutter, "unified at \(level)")
+        }
+    }
+
+    @MainActor
+    @Test func theColumnHelpersAreEachOthersNoOps() {
+        // Each style draws exactly one of the two frames; the other must be inert, or a column
+        // would carry a card inside a region (Cards) or no frame at all (Unified).
+        #expect(laidOutSize(bare.columnSectionCard(.unified, level: .frosted)) == Self.subject)
+        #expect(laidOutSize(bare.columnRegionFrame(.cards, level: .frosted)) == Self.subject)
+        expectGrowsByOneGutter(bare.columnSectionCard(.cards, level: .frosted), "columnSectionCard(.cards)")
+        expectGrowsByOneGutter(bare.columnRegionFrame(.unified, level: .frosted), "columnRegionFrame(.unified)")
+    }
+
+    @MainActor
+    @Test func theHeaderRuleCostsNoHeight() {
+        // Drawn over the header's edge, so the content starts where it would without it.
+        for style in SurfaceStyle.allCases {
+            #expect(laidOutSize(bare.columnHeaderRule(style)) == Self.subject, "\(style)")
+        }
+    }
 }
