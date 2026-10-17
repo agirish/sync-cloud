@@ -85,7 +85,7 @@ import Foundation
         let profiles = base.appendingPathComponent("profiles")
         try FileManager.default.createDirectory(at: profiles.appendingPathComponent("t"),
                                                 withIntermediateDirectories: true)
-        let manager = FileSyncManager()
+        let manager = FileSyncManager(fileManager: ScratchTrash(in: base))
         manager.filingFolderProfile = FolderProfile(
             profileId: "t", root: root.path,
             folders: ["Health/Dental/2025": FolderProfileEntry(
@@ -184,9 +184,9 @@ import Foundation
         // as BulkSync's does.
         let undo = UndoManager()
         manager.undoManager = undo
-        // The temp volume may have no Trash, in which case the undo escalates to the
-        // permanent-delete confirmation — which a headless test answers yes, or the folder
-        // stays and this test measures the prompt instead of the undo.
+        // A trash that fails escalates to the permanent-delete confirmation — which a headless
+        // test answers yes, or the folder stays and this test measures the prompt instead of
+        // the undo.
         manager.permanentDeleteConfirmer = { _ in true }
 
         let outcome = await manager.applyScaffold(for: Self.finding())
@@ -214,5 +214,7 @@ import Foundation
             "one ⌘Z must take back the whole landing")
         #expect(!FileManager.default.fileExists(
             atPath: root.appendingPathComponent("Health/Dental/2025/Statements").path))
+        #expect(ScratchTrash(in: base).names == ["Claims", "Statements"],
+                "the undone folders left the tree but never reached the test's own Trash")
     }
 }

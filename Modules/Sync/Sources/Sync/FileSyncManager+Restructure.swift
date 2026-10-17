@@ -175,7 +175,7 @@ extension FileSyncManager {
             undo.beginUndoGrouping()
             for relative in outcome.created {
                 let absolute = (expandedRoot as NSString).appendingPathComponent(relative)
-                registerCreateFolderUndo(url: URL(fileURLWithPath: absolute))
+                registerCreateFolderUndo(url: URL(fileURLWithPath: absolute), fileManager: fm)
             }
             undo.endUndoGrouping()
             undo.setActionName("Set Up \((finding.subject as NSString).lastPathComponent)")

@@ -275,7 +275,7 @@ extension FileSyncManager {
             // `Forms/` before `Forms/` becomes `Federal Tax/` again.
             undo.beginUndoGrouping()
             for url in execution.createdURLs {
-                registerCreateFolderUndo(url: url)
+                registerCreateFolderUndo(url: url, fileManager: fm)
             }
             let actionName = "Reorganise \(RestructurePaths.familyLabel(manifest.family))"
             if !execution.renameItems.isEmpty {
