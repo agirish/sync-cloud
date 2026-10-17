@@ -253,7 +253,7 @@ Steps 5–6 only clean the bundle this install produced. Everything below is deb
     git gc                  # NOT --prune=now while other sessions are live (see below)
     ```
     `git gc --prune=now` immediately discards unreachable objects. That is fine when you are the only session, but with concurrent worktrees another session may have just written objects that are not referenced yet — a commit being built, a stash mid-write — and `--prune=now` can take them. Plain `git gc` keeps the default two-week grace period, which is the whole safety margin. Only reach for `--prune=now` when `git worktree list` shows nothing but the primary.
-    **`origin` holds four lines — `main`, `v4.x`, `v3.x`, `v2.x` — and scaffolding CAN reach it, so
+    **`origin` holds five lines — `main`, `v5.x`, `v4.x`, `v3.x`, `v2.x` — and scaffolding CAN reach it, so
     check rather than assume.** This step has been wrong about the count twice now, in the same
     direction each time: it once said origin had "only ever held `main`", and it then said three
     while `v4.x` had existed since the v5 line opened. Read the count from CLAUDE.md's branch table,
@@ -263,7 +263,7 @@ Steps 5–6 only clean the bundle this install produced. Everything below is deb
     `git branch -d roots` refusing with *"not yet merged to `refs/remotes/origin/roots`"*. A sweep
     told not to look found nothing for weeks.
     ```bash
-    git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x,v4.x}, nothing else
+    git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x,v4.x,v5.x}, nothing else
     ```
     A fifth branch is scaffolding per CLAUDE.md — with one exception that file names,
     `candidate-tap-deferral`, which parks a falsified experiment a doc cites by SHA. Either way **a
