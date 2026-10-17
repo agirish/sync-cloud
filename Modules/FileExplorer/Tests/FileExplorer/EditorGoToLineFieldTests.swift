@@ -49,8 +49,14 @@ import Design
         }
     }
 
-    private func popovers() -> [NSWindow] {
-        NSApp.windows.filter { String(describing: type(of: $0)).contains("Popover") && $0.isVisible }
+    /// Every popover up — each buried with the window it opened from, under everything on screen.
+    private func popovers(sourceLocation: SourceLocation = #_sourceLocation) -> [NSWindow] {
+        let open = NSApp.windows.filter { String(describing: type(of: $0)).contains("Popover") && $0.isVisible }
+        for popover in open {
+            #expect(BuriedWindow.isBuried(popover), "a popover opened above the buried window, at level \(popover.level.rawValue)",
+                    sourceLocation: sourceLocation)
+        }
+        return open
     }
 
     private func mount(_ model: Model, headings: EditorStatusHeadings? = nil) -> (NSWindow, NSView) {
@@ -60,7 +66,11 @@ import Design
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 40),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host
+        // Key and ordered in, because the popover presents only from a visible window — and buried,
+        // so no package run stands this status line on the user's desktop.
+        window.buryUnderEverything()
         window.makeKeyAndOrderFront(nil)
+        #expect(BuriedWindow.isBuried(window), "the fixture window is above the desktop, at level \(window.level.rawValue)")
         spin(window)
         return (window, host)
     }

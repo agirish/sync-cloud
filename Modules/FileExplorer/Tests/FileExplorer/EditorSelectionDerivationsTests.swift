@@ -58,7 +58,10 @@ import FileExplorerTestSupport
         host.frame = NSRect(x: 0, y: 0, width: 10, height: 10)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host
+        // Buried: a 10-point titled window still stands a title bar on the user's desktop.
+        window.buryUnderEverything()
         window.orderFront(nil)
+        #expect(BuriedWindow.isBuried(window), "the fixture window is above the desktop, at level \(window.level.rawValue)")
         window.layoutIfNeeded()
         return Rig(window: window, live: live, answers: answers, version: document.textVersion)
     }
@@ -223,7 +226,10 @@ import FileExplorerTestSupport
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 500)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host
+        // Buried: the strip is read from the host, never from the screen.
+        window.buryUnderEverything()
         window.makeKeyAndOrderFront(nil)
+        #expect(BuriedWindow.isBuried(window), "the workspace window is above the desktop, at level \(window.level.rawValue)")
         defer { window.orderOut(nil) }
         // Settled: the document's own counts land on their 150 ms debounce — a full floor of
         // passes, then the strip must hold still (the control: no selection, no change).

@@ -1021,8 +1021,12 @@ import EventsTestSupport
     /// intro is never marked seen.
     @Test func theIntroShowsWhenEditingIsTurnedOnWithTheBarShowing() async throws {
         let m = try Mounted("Salt the pasta.", mode: .preview, editing: false, introSeen: false)
+        // Ordered in — the intro is a popover, which presents only from a visible window — and
+        // buried, so the editor and its intro open under everything on the user's screen.
+        m.probe.window.buryUnderEverything()
         m.probe.window.orderFrontRegardless()
         defer { m.probe.window.orderOut(nil) }
+        #expect(BuriedWindow.isBuried(m.probe.window), "the editor is above the desktop, at level \(m.probe.window.level.rawValue)")
         await m.settle()
         #expect(m.preview == nil, "editing starts off")
         func popovers() -> [NSWindow] {
@@ -1033,6 +1037,9 @@ import EventsTestSupport
         await m.settle { m.preview != nil && popovers().count > before }
         #expect(m.preview != nil, "Preview did not become editable")
         #expect(popovers().count > before, "no intro popover opened")
+        for popover in popovers() {
+            #expect(BuriedWindow.isBuried(popover), "the intro opened above the desktop, at level \(popover.level.rawValue)")
+        }
         #expect(m.defaults.bool(forKey: EditorTextSettings.editsInPreviewIntroSeenKey))
         popovers().forEach { $0.orderOut(nil) }
     }
