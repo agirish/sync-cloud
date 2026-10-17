@@ -28,36 +28,29 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let src = root.appendingPathComponent("src.txt")
-        // The overwrite below routes the old destination through the real `trashItem`, which
-        // lands in the developer's actual Trash — one stray file per run, forever, that the
-        // temp-dir cleanup cannot reach. The run-unique name is what makes the sweep safe: only
-        // a file THIS run created can match it.
-        let marker = "cli-env-dst-\(UUID().uuidString)"
-        let dst = root.appendingPathComponent("\(marker).txt")
-        defer {
-            let trash = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".Trash")
-            if let entries = try? FileManager.default.contentsOfDirectory(
-                at: trash, includingPropertiesForKeys: nil) {
-                for entry in entries where entry.lastPathComponent.hasPrefix(marker) {
-                    try? FileManager.default.removeItem(at: entry)
-                }
-            }
-        }
+        let dst = root.appendingPathComponent("dst.txt")
+        // The overwrite below trashes the old destination as a `.rollback_<UUID>` backup. In the
+        // real Trash that was one stray file per run, under a name no cleanup here could match;
+        // this Trash is inside `root`.
+        let trash = ScratchTrash(in: root)
         try Data("new contents".utf8).write(to: src)
 
         let env = makeDefaultEnvironment()
 
         // A fresh copy replaced nothing: the summary must not promise a Trash recovery that
         // does not exist.
-        let fresh = try env.performFileSync(src, dst, .default)
+        let fresh = try env.performFileSync(src, dst, trash)
         #expect(!fresh, "a copy onto an empty destination reported a replacement")
         #expect(try String(contentsOf: dst, encoding: .utf8) == "new contents")
+        #expect(trash.names.isEmpty, "a copy onto an empty destination trashed something: \(trash.names)")
 
         // Overwriting an existing destination: the previous version goes to the Trash and the
         // seam says so — the fact the recoverable-from-Trash line rests on.
         try Data("old contents".utf8).write(to: dst)
-        let replaced = try env.performFileSync(src, dst, .default)
+        let replaced = try env.performFileSync(src, dst, trash)
         #expect(replaced, "an overwrite of an existing destination reported no replacement")
+        #expect(trash.names.count == 1 && trash.names.allSatisfy { $0.hasPrefix(".rollback_") },
+                "the replaced file's backup never reached the test's own Trash: \(trash.names)")
         #expect(try String(contentsOf: dst, encoding: .utf8) == "new contents",
                 "the destination does not hold the source's contents after the sync")
     }
