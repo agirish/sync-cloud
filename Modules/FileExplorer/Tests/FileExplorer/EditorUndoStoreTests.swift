@@ -159,6 +159,29 @@ import Foundation
         #expect(subject.current === managerA, "the revisited document was evicted anyway")
     }
 
+    /// **The file being opened is never the one evicted** (UND-7). Eviction runs on the way OUT of
+    /// a document, before the incoming one is activated — so with the incoming file the least
+    /// recently used, cycling through one more edited file than the limit dropped each file's
+    /// history at the very moment it was reopened. Limit 2: a, b and c edited in turn, then a again.
+    /// Mutation: evict `order.first` regardless of `opening` and a's stack is gone.
+    @Test func theFileBeingOpenedIsNeverEvicted() {
+        let subject = store(limit: 2)
+        subject.activate(path: "/n/a.md", text: "a")
+        let managerA = subject.current
+        edit(subject); subject.remember(text: "a", opening: "/n/b.md")
+        subject.activate(path: "/n/b.md", text: "b")
+        let managerB = subject.current
+        edit(subject); subject.remember(text: "b", opening: "/n/c.md")
+        subject.activate(path: "/n/c.md", text: "c")
+        edit(subject); subject.remember(text: "c", opening: "/n/a.md")
+        #expect(subject.evictedCount == 1, "the limit was not enforced at all")
+        subject.activate(path: "/n/a.md", text: "a")
+        #expect(subject.current === managerA, "the file being opened was evicted to make room")
+        edit(subject); subject.remember(text: "a", opening: "/n/b.md")
+        subject.activate(path: "/n/b.md", text: "b")
+        #expect(subject.current !== managerB, "b, the oldest that was not being opened, kept its history past the limit")
+    }
+
     @Test func everyStackIsDepthBounded() {
         let subject = store()
         subject.activate(path: "/n/a.md", text: "a")

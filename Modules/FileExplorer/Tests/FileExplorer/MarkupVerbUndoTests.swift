@@ -107,8 +107,9 @@ import AppKit
         spin()
     }
 
+    /// ⌘Z as AppKit sends it: `undo:` up the responder chain from the text view (UND-10).
     private func undo(_ rig: Rig, sourceLocation: SourceLocation = #_sourceLocation) {
-        rig.undo.undo()
+        _ = rig.window.firstResponder?.tryToPerform(EditorUndoCommands.undo, with: nil)
         spin()
         #expect(rig.buffer.text == rig.view.string, "⌘Z changed the screen and not the document",
                 sourceLocation: sourceLocation)

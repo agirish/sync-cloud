@@ -51,6 +51,7 @@ struct PreviewEditorView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = PreviewTextView.scrollableTextView()
         let view = scroll.documentView as! PreviewTextView
+        (scroll as? EditorDocumentScrollView)?.documentUndoManager = undoManager
         context.coordinator.attach(view)
         context.coordinator.watchScrolling(of: scroll)
         update(context.coordinator)
@@ -75,6 +76,7 @@ struct PreviewEditorView: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        (scroll as? EditorDocumentScrollView)?.documentUndoManager = undoManager
         update(context.coordinator)
         context.coordinator.take(follow: followRequest, scroll: scrollRequest)
         if findRequest != context.coordinator.lastFindRequest, let view = context.coordinator.textView {
@@ -489,7 +491,8 @@ final class PreviewTextView: NSTextView {
     static let inset = NSSize(width: 22, height: 18)
 
     override class func scrollableTextView() -> NSScrollView {
-        let scroll = NSScrollView()
+        // The document's stack for ⌘Z from Preview's find bar, as Source's (UND-3).
+        let scroll = EditorDocumentScrollView()
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         let view = PreviewTextView(usingTextLayoutManager: true)
@@ -533,6 +536,48 @@ final class PreviewTextView: NSTextView {
     /// registers "Typing" for marked text even with `allowsUndo` off, once it can find a manager
     /// (measured 2026-10-05) — against the display, where an undo would edit a rendering.
     override var undoManager: UndoManager? { isComposing ? nil : coordinator?.session.undoManager }
+
+    /// **⌘Z here is answered here, on the document's stack** — not left to the window, which
+    /// answers `undo:` for a text view and, for one with `allowsUndo` off, undoes its OWN stack
+    /// whatever ``undoManager`` says: measured 2026-10-16, a keystroke here and ⌘Z undid a stand-in
+    /// file operation and left the keystroke (UND-1). Answered here, it is the stack this view vends.
+    ///
+    /// **While a word is being composed, ⌘Z commits it and takes nothing back** (UND-8). Preview
+    /// registers nothing for marked text, so ⌘Z went past the composition to the document's last
+    /// step, and the redraw that followed threw the half-composed word away — measured: "Hello
+    /// world" with か being composed, ⌘Z, and the file read "Hello". The word is kept, committed
+    /// into the source as the input method's own commit would be; the next ⌘Z takes it back with
+    /// the typing it joined.
+    @objc func undo(_ sender: Any?) {
+        if hasMarkedText() {
+            unmarkText()
+            return
+        }
+        undoManager?.undo()
+    }
+
+    /// ⇧⌘Z, the same way — a composition is committed, and nothing is redone.
+    @objc func redo(_ sender: Any?) {
+        if hasMarkedText() {
+            unmarkText()
+            return
+        }
+        undoManager?.redo()
+    }
+
+    /// Edit ▸ Undo and Redo, titled and enabled from the document's stack — and enabled while a word
+    /// is composed, which they commit.
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        EditorUndoCommands.validate(item, on: undoManager, alsoWhen: hasMarkedText())
+            ?? super.validateUserInterfaceItem(item)
+    }
+
+    /// Takes the keyboard when nobody else holds it, as Source's view does (UND-1) — see
+    /// ``EditorUndoAnchor``.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        EditorUndoAnchorView.textViewArrived(in: window)
+    }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)

@@ -24,6 +24,37 @@ final class EditorTextView: NSTextView {
     /// the view's delegate relationship, not this view.
     weak var handler: EditorTextViewHandling?
 
+    /// **The factory's text view, in an ``EditorDocumentScrollView``** — so ⌘Z from the find bar
+    /// reaches the document's stack (UND-3). The text view is the factory's own, unchanged; only the
+    /// scroll view around it is ours, given every setting the factory gives its own (measured: the
+    /// vertical scroller and the two backgrounds are all it changes from a plain scroll view —
+    /// `aDocumentScrollViewIsTheFactorysPropertyForProperty` pins the list).
+    override class func scrollableTextView() -> NSScrollView {
+        let factory = factoryScrollableTextView()
+        let scroll = EditorDocumentScrollView(frame: factory.frame)
+        scroll.autoresizingMask = factory.autoresizingMask
+        scroll.borderType = factory.borderType
+        scroll.hasVerticalScroller = factory.hasVerticalScroller
+        scroll.hasHorizontalScroller = factory.hasHorizontalScroller
+        scroll.autohidesScrollers = factory.autohidesScrollers
+        scroll.drawsBackground = factory.drawsBackground
+        scroll.contentView.drawsBackground = factory.contentView.drawsBackground
+        let view = factory.documentView
+        factory.documentView = nil
+        scroll.documentView = view
+        return scroll
+    }
+
+    /// AppKit's own construction, scroll view and all — what the one above is measured against.
+    class func factoryScrollableTextView() -> NSScrollView { super.scrollableTextView() }
+
+    /// **A Source view a mode switch has just built takes the keyboard** when nobody else holds it
+    /// — the one it replaced had it and took it away (UND-1). See ``EditorUndoAnchor``.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        EditorUndoAnchorView.textViewArrived(in: window)
+    }
+
     override func paste(_ sender: Any?) {
         if handledPaste(from: .general) { return }
         super.paste(sender)

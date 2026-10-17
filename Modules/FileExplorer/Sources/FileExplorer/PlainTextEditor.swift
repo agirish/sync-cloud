@@ -800,6 +800,8 @@ struct PlainTextEditor: NSViewRepresentable {
         // **Marked, so a chord fired from outside can tell this text view from every other one.**
         // See `EditorDocumentSurface` for why `responder is NSTextView` is the wrong question.
         scroll.identifier = EditorDocumentSurface.identifier
+        // ⌘Z from the find bar is the document's (UND-3) — see `EditorDocumentScrollView`.
+        (scroll as? EditorDocumentScrollView)?.documentUndoManager = undoManager
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
@@ -933,6 +935,7 @@ struct PlainTextEditor: NSViewRepresentable {
         // the view it came from. What can still change under a mounted view is WHICH storage — a
         // file switch hands the buffer another document's — and that is an identity check.
         context.coordinator.undoManager = undoManager
+        (scroll as? EditorDocumentScrollView)?.documentUndoManager = undoManager
         // **The undo stack goes with the DOCUMENT**, and this is the one line standing between the
         // editor and a crash. `NSTextView`'s registrations name character RANGES in the buffer they
         // were made against; assigning `string` replaces the buffer and clears nothing, so a ⌘Z

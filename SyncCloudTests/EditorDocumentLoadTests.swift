@@ -74,6 +74,24 @@ import FileExplorer
         #expect(store.current.canUndo, "a's stack came back empty")
     }
 
+    /// **A load never evicts the file it is opening** (UND-7): `run` tells the store which path is
+    /// coming in. A limit of 2 and three edited files, a → b → c → a: before the fix the eviction
+    /// that made room for c's history took a's, on the way into a. Mutation: drop `opening: path`.
+    @Test func aLoadNeverEvictsTheFileItIsOpening() throws {
+        let paths = try ["a.md", "b.md", "c.md"].map { try file($0, String($0.prefix(1))) }
+        let document = EditorDocument()
+        let store = EditorUndoStore(limit: 2)
+        var stacks: [UndoManager] = []
+        for path in paths {
+            load(path, document, store)
+            stacks.append(store.current)
+            store.current.registerUndo(withTarget: document) { _ in }
+        }
+        load(paths[0], document, store)
+        #expect(store.current === stacks[0], "a's history was evicted on the way into a")
+        #expect(store.current.canUndo)
+    }
+
     /// **The incoming stack is checked against what ACTUALLY loaded**, so a file that changed while
     /// it was away does not get its old registrations back.
     ///
@@ -269,5 +287,28 @@ import FileExplorer
         #expect(document.text == "- [ ] one\n", "⌘Z did not reach the document")
         #expect(!document.isDirty, "an undo back to the file's text still reads as dirty")
     }
-}
 
+    // MARK: A word being composed (UND-5)
+
+    /// **Every route out of a document ends a composition before anything reads the buffer** — the
+    /// settle that precedes every load and close, and the quit's flush. The buffer leaves a
+    /// half-composed word out while the storage holds it, so a switch mid-composition flushed the
+    /// file without the word and kept a storage that had it: on return the screen showed the word
+    /// and the document did not, and the next keystroke wrote it. The commit itself is tested in
+    /// the package (`PlainTextEditorBridgeTests`); `ContentView` cannot be built, so its call sites
+    /// are read. Mutation: remove either `endComposition()`.
+    @Test func leavingADocumentEndsTheCompositionFirst() throws {
+        let settle = CodeText(try declarationBody(of: "func settleEditorDocument() -> Bool",
+                                                  in: EditorHeaderDoorsWiringTests.editor()))
+        let ends = try #require(settle.range(of: "editorDocument.buffer.source.endComposition()"),
+                                "leaving a document no longer ends the composition")
+        let asks = try #require(settle.range(of: "let withheld"))
+        #expect(ends.lowerBound < asks.lowerBound, "the composition is ended after the buffer was read")
+        let quit = CodeText(try declarationBody(of: "func applicationShouldTerminate(_ sender: NSApplication)",
+                                                in: EditorHeaderDoorsWiringTests.source("SyncCloudApp.swift")))
+        let quitEnds = try #require(quit.range(of: "Self.sharedEditorDocument?.buffer.source.endComposition()"),
+                                    "quitting no longer ends the composition before the flush")
+        let flush = try #require(quit.range(of: "EditorAutosave.attempt(document)"))
+        #expect(quitEnds.lowerBound < flush.lowerBound)
+    }
+}

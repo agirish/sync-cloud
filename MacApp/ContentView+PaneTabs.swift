@@ -667,8 +667,11 @@ extension ContentView {
             // reopening brings the typing back. The question stays anyway, because this is the
             // last moment the user is looking at the document they have not saved, and a prompt
             // here is what the platform does when a window with unsaved work is closed. Cancelling
-            // leaves both the tab and the window where they are.
-            guard settleEditorDocument() else {
+            // leaves both the tab and the window where they are. A "Don't Save" reloads the file,
+            // since the document stays open behind the window (UND-6).
+            guard EditorDocumentClose.settleForWindowClose(
+                document: editorDocument, settle: { settleEditorDocument() },
+                reload: { reloadOverTheBuffer(path: $0) }) else {
                 Logger.shared.info(
                     "User cancelled Close Tab on the \(PaneSideChoice.name(isLeft)) pane's last "
                     + "browse tab \(closing) — the editor has unsaved changes")

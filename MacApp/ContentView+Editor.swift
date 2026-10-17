@@ -478,6 +478,9 @@ extension ContentView {
     /// - Returns: `false` when the caller must do nothing at all.
     @discardableResult
     func settleEditorDocument() -> Bool {
+        // **A word being composed is committed first** (UND-5), so it is in the buffer for the
+        // question, the flush and the history below — never left in a storage put away without it.
+        editorDocument.buffer.source.endComposition()
         // **Two documents are asked about before the flush rather than flushed.** A blocked one,
         // because the flush would refuse again for the same reason and the alert is where the
         // choice lives. And one whose autosave switch is off, because flushing it on the way out is
@@ -1213,7 +1216,7 @@ extension ContentView {
     /// - Returns: `false` always — nothing was written, and callers whose contract is "did the save
     ///   happen" must not be told it did.
     @discardableResult
-    private func reloadOverTheBuffer(path: String) -> Bool {
+    func reloadOverTheBuffer(path: String) -> Bool {
         guard !path.isEmpty else { return false }
         Logger.shared.info("Editor reloaded \(path) from disk, discarding the buffer")
         // Clear the stop BEFORE the load: `loadIntoEditor` re-stamps the document, so the reason

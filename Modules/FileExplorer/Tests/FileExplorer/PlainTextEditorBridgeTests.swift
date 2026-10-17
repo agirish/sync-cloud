@@ -72,6 +72,37 @@ import AppKit
         #expect(rig.view.string == "one\n")
     }
 
+    /// **The editor's scroll view is the factory's, property for property** — only its class is
+    /// ours (`EditorDocumentScrollView`, so ⌘Z from the find bar reaches the document — UND-3).
+    /// Measured against AppKit's own construction of the same text view class in the same process,
+    /// scroll view and text view both, so a setting the factory starts giving its scroll view shows
+    /// up here.
+    @Test func aDocumentScrollViewIsTheFactorysPropertyForProperty() {
+        func describe(_ scroll: NSScrollView) -> [String] {
+            let view = scroll.documentView as? NSTextView
+            return ["frame \(scroll.frame)", "mask \(scroll.autoresizingMask.rawValue)",
+                    "border \(scroll.borderType.rawValue)", "scrollers \(scroll.hasVerticalScroller) \(scroll.hasHorizontalScroller)",
+                    "autohides \(scroll.autohidesScrollers)", "draws \(scroll.drawsBackground) \(scroll.contentView.drawsBackground)",
+                    "background \(scroll.backgroundColor)", "clip \(type(of: scroll.contentView))",
+                    "insets \(scroll.automaticallyAdjustsContentInsets) \(scroll.contentInsets)",
+                    "find \(scroll.findBarPosition.rawValue)", "lines \(scroll.verticalLineScroll) \(scroll.horizontalLineScroll)",
+                    "elastic \(scroll.verticalScrollElasticity.rawValue) \(scroll.horizontalScrollElasticity.rawValue)",
+                    "magnify \(scroll.allowsMagnification)", "rulers \(scroll.hasVerticalRuler) \(scroll.hasHorizontalRuler)",
+                    "copies \(scroll.contentView.copiesOnScroll)", "style \(scroll.scrollerStyle.rawValue)",
+                    "textKit2 \(view?.textLayoutManager != nil)", "viewFrame \(view?.frame ?? .zero)",
+                    "viewMask \(view?.autoresizingMask.rawValue ?? 0)", "sizes \(view?.minSize ?? .zero) \(view?.maxSize ?? .zero)",
+                    "resizable \(view?.isVerticallyResizable ?? false) \(view?.isHorizontallyResizable ?? false)",
+                    "tracks \(view?.textContainer?.widthTracksTextView ?? false)",
+                    "container \(view?.textContainer?.size ?? .zero)"]
+        }
+        let ours = EditorTextView.scrollableTextView()
+        #expect(ours is EditorDocumentScrollView)
+        #expect(ours.documentView is EditorTextView, "the factory's own text view is not the one in our scroll view")
+        let factory = describe(EditorTextView.factoryScrollableTextView())
+        let differences = zip(describe(ours), factory).filter { $0 != $1 }.map { "\($0.0) — factory \($0.1)" }
+        #expect(differences.isEmpty, "the editor's scroll view differs from the factory's: \(differences)")
+    }
+
     /// **The storage is styled exactly as `view.string = text` styled it** — run for run, with the
     /// same typing attributes — so a reader cannot tell the shared storage from the old private one.
     /// Measured against the old construction in the same process rather than against literals.
@@ -199,6 +230,26 @@ import AppKit
         rig.undo.undo()
         #expect(rig.view.string.hasPrefix("- [ ] a"), "fixture: ⌘Z did not take the tick back")
         #expect(rig.buffer.text == rig.view.string, "⌘Z mid-composition left the document behind the screen")
+    }
+
+    /// **Ending a composition commits the word into the document** (UND-5) — the first step of
+    /// every route out of a document, so the word is flushed as text and the storage is never put
+    /// away holding a character the buffer lacks. Mutation: `endComposition` returning `false` at once.
+    @Test func endingACompositionCommitsTheWord() {
+        let rig = hosted("hello\n")
+        defer { withExtendedLifetime(rig.window) {} }
+        rig.window.makeFirstResponder(rig.view)
+        rig.view.setSelectedRange(NSRange(location: 5, length: 0))
+        rig.view.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
+                               replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(rig.view.hasMarkedText(), "fixture: no composition in progress")
+        #expect(rig.buffer.text == "hello\n", "fixture: the half-composed word is already in the document")
+
+        #expect(rig.source.endComposition())
+        #expect(!rig.view.hasMarkedText(), "the composition is still up")
+        #expect(rig.view.string == "helloか\n", "the word was not kept as typed")
+        #expect(rig.buffer.text == rig.view.string, "the committed word did not reach the document")
+        #expect(!rig.source.endComposition(), "a second end found a composition")
     }
 
     /// **A tick lands on its checkbox while a word is being composed above it.** The published text

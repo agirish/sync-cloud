@@ -1264,6 +1264,15 @@ public struct EditorWorkspaceView: View {
     /// the clear was not mounted.
     private func body(for document: EditorDocument) -> some View {
         documentBody(for: document)
+            // **⌘Z reaches the document whenever nothing else has the keyboard** (UND-1, UND-2):
+            // after a mode switch, in read-only Preview, over a refusal. Only while a document is
+            // open — Edit with nothing open, and every other workspace, are left as they were.
+            .background {
+                if document.path != nil {
+                    EditorUndoAnchor(undoManager: undoManager, handle: textViewHandle)
+                        .frame(width: 0, height: 0)
+                }
+            }
             // **Cleared synchronously when the FILE changes, before the debounce.** The parse is
             // deliberately late — 150ms plus however long it takes — and `blocks` is only
             // reassigned at the end of it, so without this a second file's name sits above the

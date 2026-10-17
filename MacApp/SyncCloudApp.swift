@@ -1296,6 +1296,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         //
         // Withheld here, the buffer stays dirty, `hasUnsavedDocument` below sees it, and the guard
         // asks — which is the behaviour the switch exists to restore.
+        // A word being composed is committed first, so the flush and the question see it (UND-5).
+        Self.sharedEditorDocument?.buffer.source.endComposition()
         let mayFlush = Self.mayFlushOnQuit(path: Self.sharedEditorDocument?.path,
                                            policy: Self.sharedAutosavePolicy)
         if let document = Self.sharedEditorDocument, mayFlush {

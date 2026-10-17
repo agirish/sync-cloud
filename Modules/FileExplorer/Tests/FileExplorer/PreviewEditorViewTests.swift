@@ -56,6 +56,20 @@ import EventsTestSupport
     /// One turn of the run loop: what separates two keystrokes and closes the first one's undo group.
     private func spin() { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
 
+    /// ⌘Z as AppKit sends it: `undo:` up the responder chain from whatever has the keyboard — never
+    /// `undo.undo()`, which names the stack the test expects and so cannot see ⌘Z reaching another
+    /// (UND-10: in editable Preview it reached the window's, the file operations').
+    private func sendUndo(_ r: Rig) {
+        _ = r.window.firstResponder?.tryToPerform(EditorUndoCommands.undo, with: nil)
+        spin()
+    }
+
+    /// ⇧⌘Z, the same way.
+    private func sendRedo(_ r: Rig) {
+        _ = r.window.firstResponder?.tryToPerform(EditorUndoCommands.redo, with: nil)
+        spin()
+    }
+
     private func caret(after needle: String, in r: Rig) {
         let found = (r.display as NSString).range(of: needle)
         r.view.setSelectedRange(NSRange(location: NSMaxRange(found), length: 0))
@@ -84,10 +98,10 @@ import EventsTestSupport
         let r = rig("Hello")
         type(" ", in: r); type("w", in: r); type("o", in: r)
         #expect(r.source.text == "Hello wo")
-        r.undo.undo(); spin()
+        sendUndo(r)
         #expect(r.source.text == "Hello")
         #expect(r.display == "Hello")
-        r.undo.redo(); spin()
+        sendRedo(r)
         #expect(r.source.text == "Hello wo")
         #expect(r.display == "Hello wo")
     }
@@ -128,7 +142,7 @@ import EventsTestSupport
         caret(after: "one", in: r)
         type("?", in: r)
         #expect(r.source.text == "one? two!")
-        r.undo.undo(); spin()
+        sendUndo(r)
         #expect(r.source.text == "one two!")
     }
 
@@ -326,7 +340,7 @@ import EventsTestSupport
         caret(after: "one", in: r)
         type("!", in: r)
         #expect(r.source.text == "one!\n\ntwo\n")
-        r.undo.undo(); spin()
+        sendUndo(r)
         #expect(r.source.text == text)
         #expect(r.box.buffer.text == text)
     }
@@ -342,6 +356,52 @@ import EventsTestSupport
         type("!", in: r)
         #expect(r.undo.canUndo)
         #expect(r.undo.undoActionName == "Typing")
+    }
+
+    /// **⌘Z while a word is being composed commits the word and takes nothing back** (UND-8).
+    /// Preview registers nothing for marked text, so ⌘Z went past the composition to the run of
+    /// typing before it, and the redraw threw the half-composed word away: "Hello world" with か
+    /// being composed came back as "Hello". The word is committed, and the next ⌘Z takes it back
+    /// with the typing it joined. Mutation: drop the `hasMarkedText()` branch from `undo(_:)`.
+    @Test func undoWhileAWordIsComposedCommitsTheWord() {
+        let r = rig("Hello")
+        type(" world", in: r)
+        r.view.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
+                             replacementRange: NSRange(location: NSNotFound, length: 0)); spin()
+        #expect(r.view.hasMarkedText(), "fixture: no composition in progress")
+        #expect(r.source.text == "Hello world", "fixture: the half-composed word reached the file")
+        let item = NSMenuItem(title: "Undo", action: EditorUndoCommands.undo, keyEquivalent: "z")
+        #expect(r.view.validateUserInterfaceItem(item), "Edit ▸ Undo is greyed while a word is composed")
+
+        sendUndo(r)
+        #expect(!r.view.hasMarkedText(), "⌘Z left the composition up")
+        #expect(r.source.text == "Hello worldか", "⌘Z mid-composition dropped the word or undid the typing before it")
+        #expect(r.box.buffer.text == r.source.text)
+        sendUndo(r)
+        #expect(r.source.text == "Hello", "the next ⌘Z did not take back the typing and the word")
+    }
+
+    /// **⌘Z, sent as AppKit sends it, takes back typing in Preview — never a file operation**, and
+    /// Edit ▸ Undo names the typing (UND-1). The window answers `undo:` for a text view whose
+    /// `allowsUndo` is off with its OWN stack, the file operations', whatever the view's
+    /// `undoManager` says; the property above was right and ⌘Z still missed it.
+    /// Mutation: delete `PreviewTextView.undo(_:)`.
+    @Test func undoSentUpTheResponderChainTakesBackTheTyping() throws {
+        let r = rig("Hello")
+        final class Moves { var undone = 0 }
+        let moves = Moves()
+        let windowStack = try #require(r.window.undoManager)
+        windowStack.registerUndo(withTarget: moves) { $0.undone += 1 }
+        windowStack.setActionName("Move")
+        spin()
+        type("!", in: r)
+        let item = NSMenuItem(title: "Undo", action: EditorUndoCommands.undo, keyEquivalent: "z")
+        #expect(r.view.validateUserInterfaceItem(item))
+        #expect(item.title == "Undo Typing", "Edit ▸ Undo names \(item.title)")
+        sendUndo(r)
+        #expect(moves.undone == 0, "⌘Z in Preview undid a FILE OPERATION")
+        #expect(r.source.text == "Hello")
+        #expect(r.display == "Hello")
     }
 
     /// An undo arriving from outside — Source, the Edit menu — is followed: Preview re-renders, and
@@ -366,7 +426,7 @@ import EventsTestSupport
         #expect(r.source.text == "abか")
         #expect(r.display == "abか")
         #expect(!r.view.hasMarkedText())
-        r.undo.undo(); spin()
+        sendUndo(r)
         #expect(r.source.text == "ab")
         #expect(!r.undo.canUndo)   // the composition registered nothing of its own
     }
@@ -418,7 +478,7 @@ import EventsTestSupport
         r.coordinator.perform(RenderedEdit(range: NSRange(location: box, length: 1), action: .tickTask)); spin()
         #expect(r.source.text == "- [x] salt")
         #expect(r.undo.undoActionName == EditorWorkspaceView.taskActionName)
-        r.undo.undo(); spin()
+        sendUndo(r)
         #expect(r.source.text == "- [ ] salt")
     }
 
@@ -442,7 +502,7 @@ import EventsTestSupport
             r.view.mouseDown(with: event); spin()
         }
         #expect(r.source.text == "- [x] salt")
-        r.undo.undo(); spin()
+        sendUndo(r)
         #expect(r.source.text == "- [ ] salt")
         #expect(!r.undo.canUndo, "the double-click was two steps")
     }
@@ -619,7 +679,7 @@ import EventsTestSupport
         spin()
         #expect(r.source.text == "Salt the **pasta** well.")
         #expect(r.display == "Salt the pasta well.")
-        r.undo.undo(); spin()
+        sendUndo(r)
         #expect(r.source.text == "Salt the pasta well.")
     }
 
@@ -747,7 +807,7 @@ import EventsTestSupport
         type("x", in: r); type("y", in: r); type("z", in: r); type("w", in: r)
         #expect(r.source.text == "| a     | b   |\n| ----- | --- |\n| cxyzw | d   |")
         #expect(r.display == "a\tb\ncxyzw\td")
-        r.undo.undo(); spin()
+        sendUndo(r)
         #expect(r.source.text == table)
         #expect(!r.undo.canUndo)
     }
@@ -813,7 +873,7 @@ import EventsTestSupport
         other.registerUndo(withTarget: r.view) { _ in }
         spin()
         type("b", in: r)
-        r.undo.undo(); spin()
+        sendUndo(r)
         #expect(r.source.text == "x")
     }
 
@@ -824,7 +884,7 @@ import EventsTestSupport
         r.view.performMarkup(.bold); spin()
         type("b", in: r)
         #expect(r.source.text == "xa**b**")
-        r.undo.undo(); spin()
+        sendUndo(r)
         #expect(r.source.text == "xa")
     }
 

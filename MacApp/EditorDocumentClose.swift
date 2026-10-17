@@ -76,4 +76,23 @@ enum EditorDocumentClose {
         log("Editor closed \(path)")
         return true
     }
+
+    /// **Settling before the WINDOW closes — which leaves the document open** (UND-6): ⌘W on the
+    /// last browse tab. Returns whether the window may close.
+    ///
+    /// The document belongs to the app and outlives the window, so a "Don't Save" here used to
+    /// drop only the undo history (`settleEditorDocument` forgets it on a discard): reopening the
+    /// window brought back the typing the alert had just said was lost, with no ⌘Z to take it back.
+    /// A discard now reloads the file from disk, as Reload from Disk does — so the answer is kept.
+    ///
+    /// A settle that lets the window go leaves the document clean — written by the flush or by
+    /// Save — unless the typing was discarded, so "still dirty" is the discard, read off the
+    /// document rather than threaded through the question.
+    @MainActor
+    static func settleForWindowClose(document: EditorDocument, settle: () -> Bool,
+                                     reload: (String) -> Void) -> Bool {
+        guard settle() else { return false }
+        if document.isDirty, let path = document.path { reload(path) }
+        return true
+    }
 }

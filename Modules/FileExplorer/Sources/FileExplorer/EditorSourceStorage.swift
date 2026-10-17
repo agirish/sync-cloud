@@ -124,6 +124,34 @@ public final class EditorSourceStorage: NSObject {
         buffer?.publish(text)
     }
 
+    // MARK: Ending a composition (UND-5)
+
+    /// **Commits a word an input method is composing in this document's Source view** — called
+    /// before the document is settled, put away or closed, so the word reaches the buffer, the flush
+    /// and the disk as text, and the storage is never put away holding characters the buffer does
+    /// not.
+    ///
+    /// The buffer leaves a half-composed word out (``publishIfNeeded(markedRangeIsSettled:)``), and
+    /// the storage holds it. Parted from mid-composition — a click on another file in the rail, a
+    /// button that takes no focus — the storage was kept beside a fingerprint of the buffer WITHOUT
+    /// the word, handed back on return beside a buffer without it, and showed the word on screen
+    /// while the document did not have it; the next keystroke then wrote it to disk (measured:
+    /// "Xhelloか" on screen, "Xhello" in the document, "!Xhelloか" on disk after one key). The
+    /// input method was also left composing, and carried on into the next file.
+    ///
+    /// The word is kept as typed, which is what a click elsewhere does in any Mac text view; the
+    /// input method is told the composition is over.
+    ///
+    /// - Returns: whether a composition was ended.
+    @discardableResult
+    public func endComposition() -> Bool {
+        guard let view = textView, view.textStorage === textStorage, view.hasMarkedText() else { return false }
+        view.unmarkText()
+        view.inputContext?.discardMarkedText()
+        publishIfNeeded()
+        return true
+    }
+
     // MARK: Writing from outside the text view
 
     /// Replaces `range` with `string` **as one step ⌘Z can take back** — the one way to edit this

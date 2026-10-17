@@ -142,17 +142,29 @@ public final class EditorUndoStore: ObservableObject {
     /// the whole text storage for an empty history — up to 4 MiB of text, per file only read — and
     /// take an LRU slot from a file that was edited. ``activate(path:text:)`` builds a fresh pair
     /// for it from what loads, which is what it would have been handed anyway.
-    public func remember(text: String) {
+    ///
+    /// **A storage parted from mid-composition is not kept** (UND-5). Its characters include a word
+    /// the buffer never had, so `text` does not describe it: kept, it came back showing the word
+    /// beside a document without it. The composition is ended here — every route out ends it before
+    /// settling (`settleEditorDocument`), so this only catches one that did not — and the history
+    /// is dropped, which is the safe direction.
+    ///
+    /// - Parameter opening: the file about to be opened, **which eviction never takes** (UND-7).
+    ///   The eviction runs here, before ``activate(path:text:)``, so the least recently used entry
+    ///   was often exactly the one being reached for: edit nine files in turn, go back to the first,
+    ///   and its history was dropped at the moment it was wanted. The next oldest goes instead.
+    public func remember(text: String, opening: String? = nil) {
+        let wasComposing = source.endComposition()
         source.buffer = nil
         guard let path = activePath else { return }
-        guard current.canUndo || current.canRedo else {
+        guard !wasComposing, current.canUndo || current.canRedo else {
             stacks[path] = nil
             order.removeAll { $0 == path }
             return
         }
         stacks[path] = Entry(manager: current, source: source, fingerprint: Fingerprint(text))
         promote(path)
-        evictIfNeeded()
+        evictIfNeeded(sparing: opening)
     }
 
     /// **Takes the buffer's own storage as the open one, before the first load** — so the two start
@@ -243,9 +255,9 @@ public final class EditorUndoStore: ObservableObject {
         order.append(path)
     }
 
-    private func evictIfNeeded() {
-        while order.count > limit, let oldest = order.first {
-            order.removeFirst()
+    private func evictIfNeeded(sparing spared: String? = nil) {
+        while order.count > limit, let oldest = order.first(where: { $0 != spared }) {
+            order.removeAll { $0 == oldest }
             // **Emptied, not just dropped.** An `UndoManager` the text view still references would
             // otherwise keep every registration alive for as long as that reference lasts, which is
             // the memory this eviction exists to release.

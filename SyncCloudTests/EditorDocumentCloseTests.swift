@@ -204,4 +204,61 @@ import FileExplorer
         #expect(store.current === history && store.current.canUndo,
                 "reopening the file did not hand its history back")
     }
+
+    // MARK: Closing the WINDOW, which leaves the document open (UND-6)
+
+    /// **"Don't Save" before the window closes reloads the file.** The document outlives the
+    /// window, so a discard there used to leave the typing in the buffer — the alert had said it was
+    /// lost — and drop only its history: reopening the window brought the typing back with no ⌘Z
+    /// to take it back. The reload is the app's own (`reloadOverTheBuffer`, scanned below); here it
+    /// is the same forget-and-load. Mutation: drop `reload(path)` from `settleForWindowClose`.
+    @Test func discardingBeforeAWindowCloseReloadsTheFile() throws {
+        let (doc, path) = try document(named: "note.md")
+        let store = EditorUndoStore()
+        store.activate(path: path, text: doc.text)
+        doc.buffer.follow(store.source)
+        doc.text = "hello\ntyped\n"
+        try #require(doc.isDirty)
+        var reloaded: [String] = []
+        let closes = EditorDocumentClose.settleForWindowClose(
+            document: doc,
+            settle: { true },   // "Don't Save": nothing written, and the window may go
+            reload: { path in
+                reloaded.append(path)
+                store.forget(path)
+                EditorDocumentLoad.run(path: path, document: doc, undoStore: store, log: { _ in })
+            })
+        #expect(closes)
+        #expect(reloaded == [path])
+        #expect(doc.text == "hello\n", "the discarded typing is still in the document behind the window")
+        #expect(!doc.isDirty)
+    }
+
+    /// A settle that wrote the document, or was cancelled, reloads nothing — and Cancel keeps the
+    /// window.
+    @Test func aWindowCloseThatSavesOrCancelsReloadsNothing() throws {
+        let (doc, _) = try document(named: "note.md")
+        doc.text = "hello\ntyped\n"
+        var reloads = 0
+        #expect(!EditorDocumentClose.settleForWindowClose(document: doc, settle: { false },
+                                                           reload: { _ in reloads += 1 }))
+        let saved = EditorDocumentClose.settleForWindowClose(
+            document: doc,
+            settle: { (try? EditorFileStore.write(doc)).map { doc.markSaved(stamp: $0) } != nil },
+            reload: { _ in reloads += 1 })
+        #expect(saved)
+        #expect(reloads == 0)
+        #expect(doc.text == "hello\ntyped\n")
+    }
+
+    /// **The last tab's ⌘W hands the window-close settle the app's own reload.**
+    @Test func theLastTabsCloseReloadsOnADiscard() throws {
+        let tabs = try EditorHeaderDoorsWiringTests.source("ContentView+PaneTabs.swift")
+        let call = try CallArguments(of: "EditorDocumentClose.settleForWindowClose(", in: normalizedCode(tabs))
+        #expect(call.passes("settle", "{ settleEditorDocument() }"))
+        #expect(call.passes("reload", "{ reloadOverTheBuffer(path: $0) }"),
+                "a discard before the window closes no longer reloads the file")
+        #expect(!CodeText(tabs).contains("guard settleEditorDocument() else"),
+                "the last tab's close settles without the reload again")
+    }
 }

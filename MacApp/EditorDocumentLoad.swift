@@ -50,7 +50,8 @@ enum EditorDocumentLoad {
                     log: (String) -> Void) -> EditorFileStore.OpenResult {
         // The first load: the buffer and the store each started with a storage — one, from here on.
         undoStore.adopt(document.buffer.source)
-        undoStore.remember(text: document.text)
+        // `opening`: the file coming in is never the one evicted to make room (UND-7).
+        undoStore.remember(text: document.text, opening: path)
         undoStore.forgetMissingFiles()
         // One call, not open-then-hand-over: the encoding a file was read in travels with the text
         // it produced, which is what stops a save transcoding it. See `EditorFileStore.load`.

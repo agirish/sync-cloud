@@ -28,18 +28,19 @@ import FileExplorerTestSupport
         private let ownUndo = UndoManager()
         private(set) var mode: EditorMode
         let probe: ProbeRig<AnyView>
-        /// Edit in Preview off: these cases are about the READ-ONLY Preview, which mounts no text
-        /// view, and the setting is on by default (v5.5).
-        let defaults: ScratchDefaults = {
-            let defaults = ScratchDefaults("EditorUndoAcrossModesTests")
-            defaults.set(false, forKey: EditorTextSettings.editsInPreviewKey)
-            return defaults
-        }()
+        /// Edit in Preview OFF unless a case asks for it: most of these are about the READ-ONLY
+        /// Preview, which mounts no text view, and the setting is on by default (v5.5).
+        let defaults = ScratchDefaults("EditorUndoAcrossModesTests")
 
         /// The stack the text view is handed: the store's current one, or the rig's own.
         var undo: UndoManager { store?.current ?? ownUndo }
 
-        init(_ text: String, mode: EditorMode, store: EditorUndoStore? = nil) throws {
+        /// Whether Preview is the editable one, with a text view of its own.
+        let editsInPreview: Bool
+
+        init(_ text: String, mode: EditorMode, store: EditorUndoStore? = nil, editsInPreview: Bool = false) throws {
+            self.editsInPreview = editsInPreview
+            defaults.set(editsInPreview, forKey: EditorTextSettings.editsInPreviewKey)
             document = try TestTextFiles.document(named: "Undo.md", text: text)
             self.store = store
             self.mode = mode
@@ -54,8 +55,12 @@ import FileExplorerTestSupport
         /// Opens `path` the way the app does: settle the outgoing buffer by writing it (autosave's
         /// flush), then `EditorDocumentLoad.run`'s order — remember, load, activate, follow — and
         /// re-render. (The app's own copy of that order is pinned in the app target.)
-        func open(_ path: String) async throws {
+        ///
+        /// `endingComposition`: the settle's first step, which commits a word being composed
+        /// (UND-5). `false` stands for a route that skipped it, which the store must survive.
+        func open(_ path: String, endingComposition: Bool = true) async throws {
             let store = try #require(store, "a file switch needs the store")
+            if endingComposition { document.buffer.source.endComposition() }
             document.markSaved(stamp: try EditorFileStore.write(document))
             store.remember(text: document.text)
             EditorFileStore.load(path: path, into: document)
@@ -87,14 +92,14 @@ import FileExplorerTestSupport
         }
 
         /// Switches mode and waits for the workspace to settle on it — a NEW text view in Source and
-        /// Split (the rebuild is the whole point), none in Preview.
+        /// Split (the rebuild is the whole point), and in an editable Preview; none in a read-only one.
         func switchTo(_ mode: EditorMode) async throws {
             let before = textView
             self.mode = mode
             probe.host.rootView = Self.root(document, undo, mode, defaults)
             let settled = await LayoutPumpWait.pump(probe.window, upTo: 5) {
                 let now = textView
-                return mode == .preview ? now == nil : (now != nil && now !== before)
+                return mode == .preview && !editsInPreview ? now == nil : (now != nil && now !== before)
             }
             try #require(settled.held, "the workspace never settled on \(mode)")
         }
@@ -116,14 +121,75 @@ import FileExplorerTestSupport
             _ = await LayoutPumpWait.pump(probe.window, upTo: 2) { undo.groupingLevel == 0 }
         }
 
-        /// ⌘Z, then a settle: anything the undo set moving through SwiftUI gets its passes.
-        func undoAndSettle(expecting expected: String) async {
-            undo.undo()
+        // MARK: ⌘Z as AppKit sends it
+
+        /// A stand-in for what `FileSyncManager` registers on the WINDOW's stack — a move.
+        final class FileOperations { var undone = 0 }
+
+        /// Puts a stand-in file operation on the window's own undo stack, which in the app is the
+        /// file operations' (`ContentView`'s `.rewireUndoManager`), and lets its group close.
+        func registerFileOperation() async throws -> FileOperations {
+            let operations = FileOperations()
+            let manager = try #require(probe.window.undoManager)
+            manager.registerUndo(withTarget: operations) { $0.undone += 1 }
+            manager.setActionName("Move")
+            _ = await LayoutPumpWait.pump(probe.window, upTo: 2) { manager.groupingLevel == 0 }
+            return operations
+        }
+
+        /// Whatever has the keyboard now.
+        var firstResponder: NSResponder? { probe.window.firstResponder }
+
+        /// **⌘Z as AppKit sends it**: `undo:` up the responder chain from the first responder, so
+        /// what is undone is whatever AppKit would undo — never `undo.undo()`, which names the stack
+        /// the test expects and so cannot see ⌘Z reaching a different one.
+        func sendUndo() {
+            _ = probe.window.firstResponder?.tryToPerform(Selector(("undo:")), with: nil)
+        }
+
+        /// ⇧⌘Z, the same way.
+        func sendRedo() {
+            _ = probe.window.firstResponder?.tryToPerform(Selector(("redo:")), with: nil)
+        }
+
+        /// The Edit menu's Undo item as AppKit would draw it now: validated by the responder that
+        /// would receive `undo:`, which sets the title.
+        func undoTitle() -> String {
+            let item = NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+            var responder = probe.window.firstResponder
+            while let candidate = responder, !candidate.responds(to: Selector(("undo:"))) {
+                responder = candidate.nextResponder
+            }
+            if let validator = responder as? NSMenuItemValidation {
+                _ = validator.validateMenuItem(item)
+            } else if let validator = responder as? NSUserInterfaceValidations {
+                _ = validator.validateUserInterfaceItem(item)
+            }
+            return item.title
+        }
+
+        /// **⌘Z as AppKit sends it** (``sendUndo()``), then a settle — and both the screen and the
+        /// document checked against `expected` (UND-10). It was `undo.undo()`, which names the
+        /// stack the test expects, so a ⌘Z that reached a different stack — the file operations',
+        /// after every mode switch — passed; and a check of the document alone passes on TextKit 2
+        /// with the screen still showing the undone text. The screen is Source's text view; Preview
+        /// draws a rendering, so there the document is the check.
+        func undoAndSettle(expecting expected: String, sourceLocation: SourceLocation = #_sourceLocation) async {
+            // A switch hands the keyboard to the new text view a turn after it is built.
+            _ = await LayoutPumpWait.pump(probe.window, upTo: 2) { firstResponder !== probe.window }
+            sendUndo()
+            let showsSource = mode != .preview
             _ = await LayoutPumpWait.pump(probe.window, upTo: 2) {
-                textView?.string == expected && document.text == expected
+                document.text == expected && (!showsSource || textView?.string == expected)
             }
             print("[undo-modes] screen \((textView?.string ?? "-").debugDescription) · document "
                   + "\(document.text.debugDescription) · canUndo \(undo.canUndo) · canRedo \(undo.canRedo)")
+            #expect(document.text == expected, "⌘Z left the document at \(document.text.debugDescription)",
+                    sourceLocation: sourceLocation)
+            if showsSource {
+                #expect(textView?.string == expected,
+                        "⌘Z left the screen at \(String(reflecting: textView?.string))", sourceLocation: sourceLocation)
+            }
         }
     }
 
@@ -312,6 +378,196 @@ import FileExplorerTestSupport
     /// a run of typing coalesces while the caret stays where the last keystroke left it — so the
     /// question was whether the first keystroke in b extended a's typing action, in a's stack. Typed
     /// at the caret as a key would be, with no selection set in between.
+    // MARK: Where ⌘Z goes — the find bar (UND-3)
+
+    /// **⌘Z with the caret in the find bar takes back the document's edit, never a file
+    /// operation** — Source's bar and editable Preview's. The bar's field answers with a cell undo
+    /// manager that forwards, past the field's own typing, to the responders above it: it used to
+    /// reach the window's stack, the file operations', and undo a move while the Replace All it was
+    /// pressed for stayed. The Edit menu names the document's step too.
+    /// Mutation: `EditorDocumentScrollView.undoManager` returning `super.undoManager`.
+    @Test(arguments: [false, true])
+    func undoFromTheFindBarTakesBackTheDocumentsEdit(inPreview: Bool) async throws {
+        let rig = try Rig("Hello world\n", mode: inPreview ? .preview : .edit, editsInPreview: inPreview)
+        defer { withExtendedLifetime(rig) {} }
+        let operations = try await rig.registerFileOperation()
+        try await rig.type(" there", at: 5)
+        #expect(rig.document.text == "Hello there world\n", "fixture: the typing did not reach the document")
+        let view = try #require(rig.textView)
+        PlainTextEditor.showFindBar(in: view)
+        let bar = await LayoutPumpWait.pump(rig.probe.window, upTo: 2) { view.enclosingScrollView?.findBarView != nil }
+        try #require(bar.held, "fixture: the find bar never opened")
+        var fields: [NSTextField] = []
+        func walk(_ v: NSView) { if let f = v as? NSTextField { fields.append(f) }; v.subviews.forEach(walk) }
+        if let findBar = view.enclosingScrollView?.findBarView { walk(findBar) }
+        let field = try #require(fields.first, "fixture: the find bar has no field")
+        rig.probe.window.makeFirstResponder(field)
+        try #require(rig.firstResponder !== view, "fixture: the caret is not in the find bar")
+
+        #expect(rig.undoTitle() == rig.undo.undoMenuItemTitle,
+                "Edit ▸ Undo names \(rig.undoTitle()), not the document's step")
+        rig.sendUndo()
+        _ = await LayoutPumpWait.pump(rig.probe.window, upTo: 2) { rig.document.text == "Hello world\n" }
+        #expect(operations.undone == 0, "⌘Z in the find bar undid a FILE OPERATION")
+        #expect(rig.document.text == "Hello world\n", "⌘Z in the find bar left the document's edit")
+        if !inPreview {
+            #expect(view.string == "Hello world\n", "⌘Z in the find bar left the edit on screen")
+        }
+    }
+
+    // MARK: Where ⌘Z goes — nothing has the keyboard (UND-1, UND-2)
+
+    /// **⌘Z straight after a mode switch takes back the typing, never a file operation — and the
+    /// new text view has the keyboard.** Each mode builds its own text view, and the one that had
+    /// the keyboard went with the old arm, leaving the window as first responder: ⌘Z then undid the
+    /// window's own stack, the file operations', and the typing stayed. Through Split, a read-only
+    /// Preview round trip, and into an editable Preview, whose own text view takes the keyboard.
+    /// Mutation: `claimIfNobodyHasTheKeyboard` returning at once.
+    @Test(arguments: [([EditorMode.split], false), ([.preview, .edit], false), ([.preview], true)])
+    func undoStraightAfterAModeSwitchTakesBackTheTyping(_ path: [EditorMode], editsInPreview: Bool) async throws {
+        let rig = try Rig("Hello world\n", mode: .edit, editsInPreview: editsInPreview)
+        defer { withExtendedLifetime(rig) {} }
+        let operations = try await rig.registerFileOperation()
+        try await rig.type(" there", at: 5)
+        for mode in path { try await rig.switchTo(mode) }
+        let focused = await LayoutPumpWait.pump(rig.probe.window, upTo: 3) {
+            rig.textView != nil && rig.firstResponder === rig.textView
+        }
+        #expect(focused.held, "\(path): the new text view did not take the keyboard — it is with \(String(describing: rig.firstResponder.map { type(of: $0) }))")
+        #expect(rig.undoTitle() == rig.undo.undoMenuItemTitle, "\(path): Edit ▸ Undo names \(rig.undoTitle())")
+
+        rig.sendUndo()
+        _ = await LayoutPumpWait.pump(rig.probe.window, upTo: 2) { rig.document.text == "Hello world\n" }
+        #expect(operations.undone == 0, "\(path): ⌘Z after the switch undid a FILE OPERATION")
+        #expect(rig.document.text == "Hello world\n", "\(path): ⌘Z after the switch left the typing")
+        #expect(rig.textView?.string.contains("there") == false, "\(path): ⌘Z after the switch left the typing on screen")
+    }
+
+    /// **A box ticked in read-only Preview is taken back by ⌘Z there, and Edit ▸ Undo says so.**
+    /// Read-only Preview has no text view: the tick went on the document's stack while ⌘Z went to
+    /// the window's, the file operations'. The anchor beside the document holds the keyboard there
+    /// and answers with the document's stack; ⇧⌘Z ticks it again.
+    /// Mutation: delete `EditorUndoAnchorView.undo(_:)`, and the window answers ⌘Z with its own.
+    @Test func undoInReadOnlyPreviewTakesBackATick() async throws {
+        let rig = try Rig("- [ ] milk\n", mode: .edit)
+        defer { withExtendedLifetime(rig) {} }
+        let operations = try await rig.registerFileOperation()
+        rig.probe.window.makeFirstResponder(rig.textView)
+        try await rig.switchTo(.preview)
+        #expect(EditorWorkspaceView.toggleTask(onLine: 1, in: rig.document.buffer.source, undoManager: rig.undo))
+        await rig.endOfEvent()
+        #expect(rig.document.text == "- [x] milk\n")
+        _ = await LayoutPumpWait.pump(rig.probe.window, upTo: 3) { rig.firstResponder is EditorUndoAnchorView }
+        #expect(rig.firstResponder is EditorUndoAnchorView, "nothing beside the document took the keyboard in Preview")
+        #expect(rig.undoTitle() == "Undo \(EditorWorkspaceView.taskActionName)", "Edit ▸ Undo names \(rig.undoTitle())")
+
+        rig.sendUndo()
+        _ = await LayoutPumpWait.pump(rig.probe.window, upTo: 2) { rig.document.text == "- [ ] milk\n" }
+        #expect(operations.undone == 0, "⌘Z in Preview undid a FILE OPERATION")
+        #expect(rig.document.text == "- [ ] milk\n", "⌘Z in Preview did not take the tick back")
+        rig.sendRedo()
+        _ = await LayoutPumpWait.pump(rig.probe.window, upTo: 2) { rig.document.text == "- [x] milk\n" }
+        #expect(rig.document.text == "- [x] milk\n", "⇧⌘Z in Preview did not tick it again")
+    }
+
+    /// **A control with the keyboard keeps it, and ⌘Z there is what it always was** — the file pane
+    /// beside a document in Edit undoes the file operations'. Nothing moves the keyboard off a
+    /// view that has it. Mutation: claim whenever a text view exists, whoever holds the keyboard.
+    @Test func aControlWithTheKeyboardKeepsItAndTheFileOperationsStack() async throws {
+        let rig = try Rig("Hello world\n", mode: .edit)
+        defer { withExtendedLifetime(rig) {} }
+        let operations = try await rig.registerFileOperation()
+        try await rig.type(" there", at: 5)
+        let pane = Pane(frame: NSRect(x: 0, y: 0, width: 120, height: 120))
+        rig.probe.host.addSubview(pane)
+        rig.probe.window.makeFirstResponder(pane)
+        try #require(rig.firstResponder === pane, "fixture: the stand-in pane did not take the keyboard")
+        // A new text view arriving — a mode switch — is when the keyboard is handed out; the pane
+        // holds it, so it must stay there.
+        try await rig.switchTo(.split)
+        _ = await LayoutPumpWait.pump(rig.probe.window, upTo: 1) { false }
+        #expect(rig.firstResponder === pane, "the keyboard was taken from the file pane")
+        #expect(rig.undoTitle() == "Undo Move", "Edit ▸ Undo names \(rig.undoTitle()) with the file pane focused")
+        rig.sendUndo()
+        _ = await LayoutPumpWait.pump(rig.probe.window, upTo: 2) { operations.undone == 1 }
+        #expect(operations.undone == 1, "⌘Z in the file pane did not undo the file operation")
+        #expect(rig.document.text == "Hello there world\n", "⌘Z in the file pane reached the document")
+    }
+
+    /// A stand-in for the file pane: a view that takes the keyboard and answers no ⌘Z of its own.
+    final class Pane: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
+    /// **Edit with nothing open, and every other workspace, are as they were**: nothing is mounted
+    /// to take the keyboard, the window keeps it, and ⌘Z undoes the file operations'.
+    @Test func withNoDocumentOpenTheWindowKeepsTheFileOperationsStack() async throws {
+        let defaults = ScratchDefaults("EditorUndoAcrossModesTests-none")
+        for (name, root) in [("Edit, nothing open", AnyView(EditorWorkspaceView.fixture().defaultAppStorage(defaults))),
+                             ("another workspace", AnyView(Text("Browse")))] {
+            let probe = ProbeRig(AnyView(root.frame(width: 900, height: 400)), size: CGSize(width: 900, height: 400))
+            defer { withExtendedLifetime(probe) {} }
+            let operations = Rig.FileOperations()
+            let manager = try #require(probe.window.undoManager)
+            manager.registerUndo(withTarget: operations) { $0.undone += 1 }
+            manager.setActionName("Move")
+            _ = await LayoutPumpWait.pump(probe.window, upTo: 2) { manager.groupingLevel == 0 }
+            #expect(probe.window.firstResponder === probe.window, "\(name): something took the keyboard")
+            _ = probe.window.firstResponder?.tryToPerform(Selector(("undo:")), with: nil)
+            #expect(operations.undone == 1, "\(name): ⌘Z no longer undoes the file operation")
+        }
+    }
+
+    // MARK: A file switch mid-composition (UND-5)
+
+    /// **Switching file while a word is being composed commits the word first**, so it reaches the
+    /// document and the disk, and coming back shows exactly what the document holds — with the
+    /// history. The buffer leaves a half-composed word out while the storage holds it: the switch
+    /// flushed the file without the word and kept a storage that had it, so on return the screen
+    /// showed "Xhelloか" beside a document reading "Xhello", and the next keystroke wrote the word.
+    /// Mutation: `endComposition` returning `false` at once.
+    @Test func aFileSwitchMidCompositionCommitsTheWordFirst() async throws {
+        let rig = try Rig("hello\n", mode: .edit, store: EditorUndoStore())
+        defer { withExtendedLifetime(rig) {} }
+        let a = try #require(rig.document.path)
+        try await rig.type("X", at: 0)
+        let view = try #require(rig.textView)
+        view.setSelectedRange(NSRange(location: 6, length: 0))
+        view.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
+                           replacementRange: NSRange(location: NSNotFound, length: 0))
+        try #require(view.hasMarkedText(), "fixture: no composition in progress")
+        try #require(rig.document.text == "Xhello\n", "fixture: the half-composed word is already in the document")
+
+        try await rig.open(try TestTextFiles.write("other\n", named: "Other.md"))
+        #expect(rig.textView?.hasMarkedText() == false, "the composition went on into the next file")
+        #expect(try String(contentsOfFile: a, encoding: .utf8) == "Xhelloか\n", "the word did not reach the disk")
+        try await rig.open(a)
+        #expect(rig.textView?.string == "Xhelloか\n")
+        #expect(rig.document.text == rig.textView?.string, "the screen shows text the document does not hold")
+        await rig.undoAndSettle(expecting: "Xhello\n")
+    }
+
+    /// **A route that parts from a document mid-composition without settling first** still never
+    /// keeps a storage holding characters its fingerprint does not cover: the store ends the
+    /// composition and drops the history, so the file comes back fresh, screen and document alike.
+    /// Mutation: keep the entry when `remember` had to end a composition.
+    @Test func aStorageStillComposingIsNotKept() async throws {
+        let rig = try Rig("hello\n", mode: .edit, store: EditorUndoStore())
+        defer { withExtendedLifetime(rig) {} }
+        let a = try #require(rig.document.path)
+        try await rig.type("X", at: 0)
+        let view = try #require(rig.textView)
+        view.setSelectedRange(NSRange(location: 6, length: 0))
+        view.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
+                           replacementRange: NSRange(location: NSNotFound, length: 0))
+        let parted = rig.document.buffer.source
+        try await rig.open(try TestTextFiles.write("other\n", named: "Other.md"), endingComposition: false)
+        try await rig.open(a)
+        #expect(rig.document.buffer.source !== parted, "a storage parted from mid-composition was handed back")
+        #expect(rig.textView?.string == rig.document.text, "the screen shows text the document does not hold")
+        #expect(rig.document.text == (try String(contentsOfFile: a, encoding: .utf8)))
+    }
+
     @Test func typingStraightAfterAFileSwitchIsTheNewFilesOwnStep() async throws {
         let rig = try Rig("Hello world\n", mode: .edit, store: EditorUndoStore())
         defer { withExtendedLifetime(rig) {} }
