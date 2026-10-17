@@ -447,7 +447,7 @@ import FileExplorerTestSupport
         // Every title in every segment of the widest bar there is — the three a PDF brings — rather
         // than the longest title by character count: "Pages" is shorter than "Outline" and not
         // necessarily narrower in every font, and the measurement is cheap.
-        let widestBar = EditorRailTab.shown(pdfIsOpen: true)
+        let widestBar = EditorRailTab.shown(pdfIsOpen: true, pdfHasOutline: true)
         #expect(widestBar.count == 3, "the PDF bar is the widest case and has \(widestBar.count) tabs")
         for scale in scales {
             for title in EditorRailTab.allCases {

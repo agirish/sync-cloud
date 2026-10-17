@@ -103,6 +103,10 @@ enum EditorPDFOutline {
     }
 
     /// What the Outline tab says for a PDF with no rows — why there are none.
+    ///
+    /// **Out of sight since the tab became conditional** (asked 2026-10-17): a PDF shows Outline
+    /// only with ``EditorRailTab/minimumPDFBookmarks`` or more, so the list is never drawn empty.
+    /// Kept because the list needs a caption to hold and the phases still name the right reason.
     static func emptyCaption(phase: EditorPDFDocument.Phase) -> String {
         switch phase {
         case .open: return "This PDF has no bookmarks."

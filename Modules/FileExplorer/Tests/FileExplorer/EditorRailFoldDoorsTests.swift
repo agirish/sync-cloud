@@ -30,7 +30,7 @@ import Foundation
     /// withheld while no folder is chosen, when there is no list to show.
     @Test func theWorkspacePassesBothDoorsThrough() throws {
         let workspace = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
-        #expect(workspace.contains("onFold: onFoldRail)"), "the rail is not handed the host's fold act")
+        #expect(workspace.contains("onFold: onFoldRail,"), "the rail is not handed the host's fold act")
         #expect(workspace.contains("showTextFiles: folder.isEmpty ? nil : onShowTextFiles)"),
                 "the empty page's Show Text Files is not the host's act, or is offered with no folder")
         #expect(workspace.contains("Button(action: showTextFiles) {"), "the empty page's button does not run its act")

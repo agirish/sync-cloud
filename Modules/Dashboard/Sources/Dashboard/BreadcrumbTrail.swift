@@ -53,6 +53,15 @@ public enum BreadcrumbTrail {
         ]
     }
 
+    /// **The compact trail: every folder above the current one behind the ellipsis, the current one
+    /// spelled out** — what a pane too narrow for its whole trail shows (asked 2026-10-17, of Edit's
+    /// one-column pane, where the full trail came out as "C…6 › 2…0"). The name you are in is the
+    /// one worth reading; the rest are a click away in the menu, in order.
+    public static func compactItems(for crumbs: [Crumb]) -> [Item] {
+        guard let last = crumbs.last else { return [] }
+        return crumbs.count == 1 ? [.crumb(last)] : [.collapsed(Array(crumbs.dropLast())), .crumb(last)]
+    }
+
     /// Display name for a pane's root crumb: **the source's own name** — "iCloud", "OneDrive
     /// (EMP)", whatever the user renamed it to — falling back to the root folder's last component,
     /// and to `"Root"` for a path with no usable component.

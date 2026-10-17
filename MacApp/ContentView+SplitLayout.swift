@@ -438,43 +438,58 @@ extension ContentView {
     var railSpine: some View {
         let provider = settings.availableProviders.first(where: { $0.id == leftProviderId })
         let name = provider?.displayName ?? "Source"
-        let rungs = Self.spineRungs(workspace: selectedWorkspace, pdfIsOpen: editorPDF.path != nil)
+        let rungs = Self.spineRungs(workspace: selectedWorkspace, pdfIsOpen: editorPDF.path != nil,
+                                    pdfHasOutline: editorPDFHasOutline)
         let railRungs = rungs.compactMap(\.railTab)
         let showsRailRungs = !railRungs.isEmpty
         // One card, one 34pt strip, for every workspace that draws a spine — the list's buttons
         // are only ever added INSIDE it, so the card's geometry does not move for the others.
         VStack(spacing: 10) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { togglePanesForCurrentTab() }
-            } label: {
-                VStack(spacing: 10) {
-                    Image(systemName: "chevron.right")
-                        .scaledFont(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.secondary)
-                    Image(systemName: "cloud")
-                        .scaledFont(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(glassHue.accentColor)
-                    // The spacer is what makes the strip this button's target; with the list's
-                    // buttons below it stays out, or it pushes them to the strip's foot
-                    // (measured 2026-09-16: the rung drew at the bottom edge).
-                    if !showsRailRungs { Spacer(minLength: 0) }
+            if showsRailRungs {
+                // **Edit's pane button is one of the strip's columns** (asked 2026-10-17): the
+                // cloud alone, lit while the pane shows — the strip stays beside an open pane now —
+                // and a second click folds it, the list buttons' rule. No chevron: it is a toggle,
+                // not a way out in one direction.
+                let paneOpen = !editorPaneIsFolded
+                let title = EditorRailFold.paneRungTitle(paneOpen: paneOpen, source: name)
+                Button { runEditorPaneRung() } label: {
+                    Self.stripGlyph("cloud", lit: paneOpen, accent: glassHue.accentColor)
                 }
-                .padding(.top, 12)
-                .frame(width: PaneLogic.railSpineWidth)
-                // The whole strip is this button's target, as it always was — except while the
-                // list's buttons share the strip, when it takes its glyphs' height and no more.
-                .frame(maxHeight: showsRailRungs ? nil : .infinity)
-                .contentShape(Rectangle())
+                .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor, shape: .roundedRect(8)))
+                .help(title)
+                .accessibilityLabel(title)
+                .accessibilityAddTraits(paneOpen ? [.isButton, .isSelected] : .isButton)
+                .padding(.top, 6)
+            } else {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { togglePanesForCurrentTab() }
+                } label: {
+                    VStack(spacing: 10) {
+                        Image(systemName: "chevron.right")
+                            .scaledFont(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "cloud")
+                            .scaledFont(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(glassHue.accentColor)
+                        // The spacer is what makes the strip this button's target.
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.top, 12)
+                    .frame(width: PaneLogic.railSpineWidth)
+                    // The whole strip is this button's target, as it always was.
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor, shape: .roundedRect(8)))
+                .help("Show the \(name) pane to browse or re-scope")
+                .accessibilityLabel("Show the \(name) source pane")
             }
-            .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor, shape: .roundedRect(8)))
-            .help("Show the \(name) pane to browse or re-scope")
-            .accessibilityLabel("Show the \(name) source pane")
             // **The Files list's place when it is not on screen** (TE77): one button per tab,
             // under a rule, in the strip that is already there — folding the list never adds a
             // second strip beside this one. Gated on the workspace: the list is Edit's, but this
             // spine is drawn by every workspace with a collapsible pane, and a stray button in
-            // Organize would be the first thing anyone clicked. **Showing the list leaves the pane
-            // folded** (CHR-2): an open pane draws no list.
+            // Organize would be the first thing anyone clicked. **Showing the list folds an open pane**
+            // (asked 2026-10-17): the two are never on screen together.
             if showsRailRungs {
                 Divider()
                     .frame(width: 16)
@@ -483,14 +498,7 @@ extension ContentView {
                     let lit = EditorRailFold.rungIsLit(tab, railDrawn: drawn, currentTab: editorRailShownTab)
                     let title = EditorRailFold.rungTitle(tab, railDrawn: drawn, currentTab: editorRailShownTab)
                     Button { runEditorRailRung(tab) } label: {
-                        Image(systemName: Self.railRungSymbol(tab))
-                            .scaledFont(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(glassHue.accentColor)
-                            .frame(width: PaneLogic.railSpineWidth - 6, height: 28)
-                            .background(RoundedRectangle(cornerRadius: Radius.control)
-                                .fill(lit ? glassHue.accentColor.opacity(0.18) : .clear))
-                            .frame(width: PaneLogic.railSpineWidth, height: 30)
-                            .contentShape(Rectangle())
+                        Self.stripGlyph(Self.railRungSymbol(tab), lit: lit, accent: glassHue.accentColor)
                     }
                     .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor, shape: .roundedRect(8)))
                     .help(title)
@@ -508,6 +516,19 @@ extension ContentView {
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
     }
 
+    /// One strip button's face, the pane's and the list's alike, so the four read as one control:
+    /// the glyph, and the accent wash behind it while its column shows.
+    static func stripGlyph(_ symbol: String, lit: Bool, accent: Color) -> some View {
+        Image(systemName: symbol)
+            .scaledFont(.system(size: 14, weight: .semibold))
+            .foregroundStyle(accent)
+            .frame(width: PaneLogic.railSpineWidth - 6, height: 28)
+            .background(RoundedRectangle(cornerRadius: Radius.control)
+                .fill(lit ? accent.opacity(0.18) : .clear))
+            .frame(width: PaneLogic.railSpineWidth, height: 30)
+            .contentShape(Rectangle())
+    }
+
     /// The strip button's glyph — the rail tab's own, so the button and the tab it opens match.
     static func railRungSymbol(_ tab: EditorRailTab) -> String {
         switch tab {
@@ -519,7 +540,8 @@ extension ContentView {
 
     /// What the collapsed pane's spine offers, as a rule a test can hold.
     enum SpineRung: Equatable {
-        /// The chevron-and-cloud button that re-expands the source pane. Every spine has it.
+        /// The button that opens the source pane. Every spine has it: a chevron over the cloud, or in
+        /// Edit the cloud alone, lit while the pane shows (the strip stays beside it there).
         case sourcePane
         /// Edit's Files list, folded or put away by Expand, or lit while it shows that tab.
         case textFiles
@@ -542,11 +564,12 @@ extension ContentView {
     /// The spine's rungs, top to bottom. Pure, so `EditorRailSpineTests` can pin that the list's
     /// buttons are Edit's alone. Edit draws them whether the list is showing or not — lit for the
     /// tab on screen — so the strip does not grow and shrink as the list opens and folds (TE77).
-    /// **One rung per rail tab, so a PDF adds Pages** — `EditorRailTab.shown(pdfIsOpen:)` is the
-    /// rule for both, and the strip grows by that one button only when the rail's tabs do.
-    static func spineRungs(workspace: Workspace, pdfIsOpen: Bool = false) -> [SpineRung] {
+    /// **One rung per rail tab, so a PDF adds Pages, and drops Outline when it has no contents** —
+    /// `EditorRailTab.shown(pdfIsOpen:pdfHasOutline:)` is the rule for both, so the strip and the
+    /// rail's tabs never disagree.
+    static func spineRungs(workspace: Workspace, pdfIsOpen: Bool = false, pdfHasOutline: Bool = false) -> [SpineRung] {
         guard workspace == .editor else { return [.sourcePane] }
-        return [.sourcePane] + EditorRailTab.shown(pdfIsOpen: pdfIsOpen).map { tab -> SpineRung in
+        return [.sourcePane] + EditorRailTab.shown(pdfIsOpen: pdfIsOpen, pdfHasOutline: pdfHasOutline).map { tab -> SpineRung in
             switch tab {
             case .files: return .textFiles
             case .pages: return .pages

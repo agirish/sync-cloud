@@ -300,7 +300,7 @@ import FileExplorer
         let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
         // The construction's own argument list inside the builder, where it was the builder's text
         // up to the rail survey's `.task`.
-        let builder = try declarationBody(of: "func editorWorkspace(showsRail: Bool) -> some View {", in: editor)
+        let builder = try declarationBody(of: "func editorWorkspace(showsRail: Bool, railWidth: CGFloat = EditorLayoutMetrics.railWidth) -> some View {", in: editor)
         return try CallArguments(of: "EditorWorkspaceView(", in: builder)
     }
 

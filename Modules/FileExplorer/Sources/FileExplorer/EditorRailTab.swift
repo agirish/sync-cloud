@@ -59,20 +59,36 @@ public enum EditorRailTab: String, CaseIterable, Sendable {
     /// otherwise.** Pages has nothing to show for a text file, and a tab that is always there and
     /// usually empty is a tab people learn to ignore.
     ///
-    /// Outline stays for a PDF even when it has no bookmarks — it says so instead — so the count of
-    /// tabs, and where each one sits, depends on the kind of file and nothing else.
-    public static func shown(pdfIsOpen: Bool) -> [EditorRailTab] {
-        pdfIsOpen ? [.files, .pages, .outline] : [.files, .outline]
+    /// **A PDF keeps Outline only when it has a contents worth the tab** — `pdfHasOutline`, see
+    /// ``pdfOutlineIsWorthATab(_:)`` (asked 2026-10-17). It stayed for every PDF until then, saying
+    /// "no bookmarks" when there were none, so that the tabs depended on the kind of file alone;
+    /// in practice the PDFs people open here are statements and scans, whose outline is nothing or
+    /// one entry their generator wrote ("Page Identifiers"), and the tab was a promise they broke.
+    /// A text file always has it: headings are the reader's own, and a note gains them as it grows.
+    public static func shown(pdfIsOpen: Bool, pdfHasOutline: Bool) -> [EditorRailTab] {
+        guard pdfIsOpen else { return [.files, .outline] }
+        return pdfHasOutline ? [.files, .pages, .outline] : [.files, .pages]
     }
 
-    /// The tab to draw for a remembered one: **Pages falls back to Files when no PDF is open.**
+    /// The fewest bookmarks a PDF needs for its Outline tab. One is no contents: it names the whole
+    /// file, or is the generator's own label, and a one-row list sends you to one place.
+    public static let minimumPDFBookmarks = 2
+
+    /// Whether a PDF's bookmarks earn the Outline tab — every level counted, so a single chapter
+    /// with sections under it qualifies.
+    public static func pdfOutlineIsWorthATab(_ entries: [EditorPDFOutlineEntry]) -> Bool {
+        entries.count >= minimumPDFBookmarks
+    }
+
+    /// The tab to draw for a remembered one: **a tab that is not offered falls back to Files** —
+    /// Pages with no PDF open, Outline on a PDF without a contents.
     ///
     /// **A display filter, not a write-back** — `EditorMode.resolved`'s rule, for its reason. The
     /// host keeps what was chosen; this only decides what is drawn. Writing `.files` back when a
     /// text file opened would make one Markdown note cost the reader their place: read PDFs on
     /// Pages, glance at a note, and the next PDF would open on Files.
-    public static func resolved(_ tab: EditorRailTab, pdfIsOpen: Bool) -> EditorRailTab {
-        shown(pdfIsOpen: pdfIsOpen).contains(tab) ? tab : .files
+    public static func resolved(_ tab: EditorRailTab, pdfIsOpen: Bool, pdfHasOutline: Bool) -> EditorRailTab {
+        shown(pdfIsOpen: pdfIsOpen, pdfHasOutline: pdfHasOutline).contains(tab) ? tab : .files
     }
 }
 
@@ -95,7 +111,7 @@ struct EditorRailTabBar: View {
     /// WIDEST label in one segment — not the sum, which is what an ideal-width reading of the real
     /// bar would report. A test builds this with one title in every segment and measures that,
     /// which is the layout's actual worst case rather than a replica of it.
-    var tabs: [EditorRailTab] = EditorRailTab.shown(pdfIsOpen: false)
+    var tabs: [EditorRailTab] = EditorRailTab.shown(pdfIsOpen: false, pdfHasOutline: false)
     let accent: Color
     /// The label colour on the accent fill — deepened by the host so white text stays legible on
     /// every hue, the same value the mode capsule's selected segment uses.

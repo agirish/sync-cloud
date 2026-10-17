@@ -123,6 +123,9 @@ public struct PaneHeader: View {
     public var personOffer: ((String) -> Person?)?
     /// Accepts the offer: the find becomes a gather.
     public var onAcceptPerson: ((Person) -> Void)?
+    /// The breadcrumb falls back to its compact form when the whole trail does not fit — Edit's
+    /// one-column pane (asked 2026-10-17). See `PaneBreadcrumb.compactsWhenNarrow`.
+    public var compactsBreadcrumbWhenNarrow: Bool
     // No surface style here: the header's shape comes from its container, its material from the
     // glass level. This view only paints the tint, and it no longer reads the LEVEL back at all.
     //
@@ -176,6 +179,7 @@ public struct PaneHeader: View {
         sortOption: Binding<SortOption>,
         onNewTab: (() -> Void)? = nil,
         onCloseTab: (() -> Void)? = nil,
+        compactsBreadcrumbWhenNarrow: Bool = false,
         onCollapse: (() -> Void)? = nil,
         onRefresh: (() -> Void)? = nil,
         isRefreshing: Bool = false,
@@ -194,6 +198,7 @@ public struct PaneHeader: View {
         personOffer: ((String) -> Person?)? = nil,
         onAcceptPerson: ((Person) -> Void)? = nil
     ) {
+        self.compactsBreadcrumbWhenNarrow = compactsBreadcrumbWhenNarrow
         self.title = title
         self.provider = provider
         self.rootPath = rootPath
@@ -369,7 +374,8 @@ public struct PaneHeader: View {
                 relativePath: relativePath,
                 showHidden: showHiddenFiles,
                 onNavigate: onNavigate,
-                onNavigateBoth: onNavigateBoth
+                onNavigateBoth: onNavigateBoth,
+                compactsWhenNarrow: compactsBreadcrumbWhenNarrow
             )
         }
         .padding(.horizontal, 14)

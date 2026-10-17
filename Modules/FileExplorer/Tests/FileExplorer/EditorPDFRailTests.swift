@@ -127,17 +127,33 @@ import FileExplorerTestSupport
     // MARK: The tabs
 
     @Test func pagesIsOfferedOnlyWhileAPDFIsOpen() {
-        #expect(EditorRailTab.shown(pdfIsOpen: true) == [.files, .pages, .outline])
-        #expect(EditorRailTab.shown(pdfIsOpen: false) == [.files, .outline])
+        #expect(EditorRailTab.shown(pdfIsOpen: true, pdfHasOutline: true) == [.files, .pages, .outline])
+        #expect(EditorRailTab.shown(pdfIsOpen: false, pdfHasOutline: false) == [.files, .outline])
         #expect(EditorRailTab.files.title == "Files")
     }
 
+    /// **A PDF keeps Outline only with a contents worth the tab** (asked 2026-10-17): two
+    /// bookmarks or more, every level counted. A text file keeps it whatever the flag says.
+    /// Mutation: drop the threshold to 1 and the one-bookmark statement keeps its tab.
+    @Test func aPDFOffersOutlineOnlyWithTwoBookmarksOrMore() {
+        #expect(EditorRailTab.shown(pdfIsOpen: true, pdfHasOutline: false) == [.files, .pages])
+        #expect(EditorRailTab.shown(pdfIsOpen: false, pdfHasOutline: false).contains(.outline))
+        let one = [EditorPDFOutlineEntry(title: "Page Identifiers", depth: 0, pageIndex: 0)]
+        let two = one + [EditorPDFOutlineEntry(title: "Transactions", depth: 1, pageIndex: 1)]
+        #expect(!EditorRailTab.pdfOutlineIsWorthATab([]))
+        #expect(!EditorRailTab.pdfOutlineIsWorthATab(one), "a lone bookmark — a statement's — kept the tab")
+        #expect(EditorRailTab.pdfOutlineIsWorthATab(two), "a chapter with a section under it lost the tab")
+        // A remembered Outline falls back to Files on a PDF without one, and comes back on the next.
+        #expect(EditorRailTab.resolved(.outline, pdfIsOpen: true, pdfHasOutline: false) == .files)
+        #expect(EditorRailTab.resolved(.outline, pdfIsOpen: true, pdfHasOutline: true) == .outline)
+    }
+
     /// **Pages falls back to Files when text opens** — drawn, not written back, so the next PDF
-    /// opens on Pages again. Outline is offered for both kinds and stays.
+    /// opens on Pages again. Outline is offered for text files and stays.
     @Test func pagesFallsBackToFilesWhenTextOpens() async {
-        #expect(EditorRailTab.resolved(.pages, pdfIsOpen: false) == .files)
-        #expect(EditorRailTab.resolved(.pages, pdfIsOpen: true) == .pages)
-        #expect(EditorRailTab.resolved(.outline, pdfIsOpen: false) == .outline)
+        #expect(EditorRailTab.resolved(.pages, pdfIsOpen: false, pdfHasOutline: false) == .files)
+        #expect(EditorRailTab.resolved(.pages, pdfIsOpen: true, pdfHasOutline: false) == .pages)
+        #expect(EditorRailTab.resolved(.outline, pdfIsOpen: false, pdfHasOutline: false) == .outline)
 
         // On the rail itself: the same remembered `.pages`, with a PDF and without.
         let file = path("two.pdf")
@@ -543,15 +559,15 @@ import FileExplorerTestSupport
         #expect(EditorPDFOutline.currentIndex(page: 9, in: marks) == 3)
     }
 
-    /// **A PDF with no bookmarks keeps its Outline tab, and says so** — the tab count does not
-    /// change under the reader.
-    @Test func aPDFWithNoBookmarksSaysSo() async {
+    /// **A PDF with no bookmarks has no Outline tab** (asked 2026-10-17). The caption is still
+    /// right for the phase, though the tab rule keeps it out of sight.
+    @Test func aPDFWithNoBookmarksHasNoOutlineTab() async {
         let file = path("plain.pdf")
         PDFFixtures.write(file, pages: 2)
         let pdf = await opened(file)
         #expect(pdf.phase == .open && pdf.outline.isEmpty)
         #expect(EditorPDFOutline.emptyCaption(phase: pdf.phase) == "This PDF has no bookmarks.")
-        #expect(EditorRailTab.shown(pdfIsOpen: true).contains(.outline))
+        #expect(!EditorRailTab.shown(pdfIsOpen: true, pdfHasOutline: EditorRailTab.pdfOutlineIsWorthATab(pdf.outline)).contains(.outline))
     }
 
     /// **A PDF's outline keeps its place per file, in the one anchor map** — and the anchor goes

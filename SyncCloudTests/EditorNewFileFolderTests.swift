@@ -179,7 +179,7 @@ import Sync
         #expect(!create.contains("editorFolder"), "createTextFile reads the pane's folder, not the destination")
         #expect(create.contains("if refusal != nil, editorNewFilePane != .staysPut { followFolderInTabs(folder, keepsSource: editorNewFilePane == .followsOnItsSource) }"),
                 "a file made in Notes leaves the pane behind, drags it out of a comparison, or out of Organize's source")
-        let workspace = try Self.body("func editorWorkspace(showsRail: Bool)")
+        let workspace = try Self.body("func editorWorkspace(showsRail: Bool, railWidth: CGFloat")
         let call = try EditorHeaderDoorsWiringTests.call("EditorWorkspaceView(", in: workspace)
         #expect(call.passes("prefilledName", "{ EditorFileStore.availableUntitledName(in: newTextFileDestination.folder) }"))
         #expect(call.passes("refusal", "{ typed in EditorFileStore.refusal(forName: typed, in: newTextFileDestination.folder) }"))

@@ -338,6 +338,16 @@ struct ContentView: View {
     /// for everyone who had switched it off, which is the same reason the key survived the v4.2/v4.3
     /// hold rather than being deleted with the column.
     @AppStorage("browseSidebarVisible") var browseSidebarVisible: Bool = true
+    /// **Edit's own sidebar switch, off until shown** (asked 2026-10-17): Edit opens on the strip
+    /// and the text, and ⌃⌘S there no longer moves the sidebar in Browse, Compare or Organize —
+    /// which share `browseSidebarVisible` above. See `folderSidebarPreference`.
+    @AppStorage("editorSidebarVisible") var editorSidebarVisible: Bool = false
+    /// **Edit's side-column width, one for the pane and the list's three tabs** (asked
+    /// 2026-10-17): dragged at the open column's edge, so whichever is showing, the column is the
+    /// same width. Floor and default `EditorLayoutMetrics.railWidth`; see `editorColumnWidth(in:)`.
+    @AppStorage("editorColumnWidth") var editorColumnWidthRaw: Double = Double(EditorLayoutMetrics.railWidth)
+    /// The width at the start of a drag of that edge — `folderSidebarDragOrigin`'s reason.
+    @State var editorColumnDragOrigin: CGFloat?
     /// The sidebar's width, dragged by the user and clamped to
     /// `FolderSidebarView.minWidth ... .maxWidth`. Stored as a `Double` because `@AppStorage`
     /// has no `CGFloat` overload.
@@ -3989,12 +3999,17 @@ struct ContentView: View {
                 onCloseTab: syncManager.paneTabs(isLeft: isLeft).count > 1
                     ? { closeTab(id: syncManager.paneTabs(isLeft: isLeft).active.id, isLeft: isLeft) }
                     : nil,
+                // Edit's pane is one column wide by default: past what fits, the trail keeps the
+                // current folder's name and folds the rest into its ellipsis (asked 2026-10-17).
+                compactsBreadcrumbWhenNarrow: selectedWorkspace == .editor,
                 // Only the single-source rail collapses itself (back to the spine); the two
                 // comparison panes never collapse individually, and the full-window workspaces
                 // cannot — the pane IS the window there, so there is no spine to collapse into and
                 // nothing beside it that the space would go to. Asked of the layout, so a new
                 // full-window workspace does not have to remember to exclude itself.
-                onCollapse: contentLayout.hasCollapsibleRail
+                // **Not in Edit** (asked 2026-10-17): Edit's strip stays beside the open pane and its
+                // lit cloud folds it, so a ⇤ in the pane's bar would be a second control for one act.
+                onCollapse: contentLayout.hasCollapsibleRail && selectedWorkspace != .editor
                     ? { withAnimation(.easeInOut(duration: 0.2)) { togglePanesForCurrentTab() } }
                     : nil,
                 onRefresh: { forceRefreshAction() },
@@ -4465,6 +4480,7 @@ struct ContentView: View {
         // ON, or arriving at Browse, lands on whatever was last resolved: exactly the stale list a
         // person would read as "my pins are gone". The guard and these two are one change.
         .onChange(of: browseSidebarVisible) { _, _ in refreshFolderSidebarRows() }
+        .onChange(of: editorSidebarVisible) { _, _ in refreshFolderSidebarRows() }
         .onChange(of: selectedWorkspace) { _, _ in refreshFolderSidebarRows() }
         // **The third**, added when collapsing the panes joined the gate. The paragraph above got
         // this exactly right and I still missed it: every input to

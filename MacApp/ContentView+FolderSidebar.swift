@@ -54,7 +54,14 @@ extension ContentView {
             workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
             panesCollapsed: panesHiddenForCurrentTab,
             outlivesCollapse: selectedWorkspace.folderSidebarOutlivesPaneCollapse,
-            preference: browseSidebarVisible && !folderSidebarHeldByExpand)
+            preference: folderSidebarPreference(for: selectedWorkspace) && !folderSidebarHeldByExpand)
+    }
+
+    /// **Which switch a workspace's sidebar reads** — Edit its own, off until shown (asked
+    /// 2026-10-17); every other workspace the one they share. ⌃⌘S writes the same one it reads
+    /// (`setFolderSidebarVisible`), so showing it in Edit leaves the others as they were.
+    func folderSidebarPreference(for workspace: Workspace) -> Bool {
+        workspace == .editor ? editorSidebarVisible : browseSidebarVisible
     }
 
     /// Whether Expand is holding the sidebar off on the workspace on screen — Edit only.
@@ -70,7 +77,7 @@ extension ContentView {
             workspaceSupportsSidebar: Workspace.editor.supportsFolderSidebar,
             panesCollapsed: editorPaneIsFolded,
             outlivesCollapse: Workspace.editor.folderSidebarOutlivesPaneCollapse,
-            preference: browseSidebarVisible && !editorExpand.hidesSidebar)
+            preference: editorSidebarVisible && !editorExpand.hidesSidebar)
     }
 
     /// Whether the sidebar can be switched on here at all — the toolbar button and View ▸ Sidebar
@@ -91,7 +98,7 @@ extension ContentView {
             expand.sidebarShownByHand()
             editorExpand = expand
         }
-        browseSidebarVisible = visible
+        if selectedWorkspace == .editor { editorSidebarVisible = visible } else { browseSidebarVisible = visible }
     }
 
     /// The provider root the target pane is on, expanded.

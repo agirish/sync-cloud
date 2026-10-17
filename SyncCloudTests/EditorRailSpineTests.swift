@@ -1,5 +1,7 @@
 import Testing
+import Foundation
 import FileExplorer
+import Design
 @testable import SyncCloud
 
 /// **The spine's list buttons are Edit's alone, and each does what its lit state says** (TE77).
@@ -31,12 +33,15 @@ import FileExplorer
     @Test func editDrawsAButtonPerTabUnderThePaneRung() {
         let rungs = ContentView.spineRungs(workspace: .editor)
         #expect(rungs == [.sourcePane, .textFiles, .outline])
-        #expect(rungs.compactMap(\.railTab) == EditorRailTab.shown(pdfIsOpen: false),
+        #expect(rungs.compactMap(\.railTab) == EditorRailTab.shown(pdfIsOpen: false, pdfHasOutline: false),
                 "a rail tab has no button in the strip, or a button opens the wrong tab")
         // A PDF adds the Pages tab to the rail, and its button to the strip — the same rule.
-        let withPDF = ContentView.spineRungs(workspace: .editor, pdfIsOpen: true)
+        let withPDF = ContentView.spineRungs(workspace: .editor, pdfIsOpen: true, pdfHasOutline: true)
         #expect(withPDF == [.sourcePane, .textFiles, .pages, .outline])
-        #expect(withPDF.compactMap(\.railTab) == EditorRailTab.shown(pdfIsOpen: true))
+        #expect(withPDF.compactMap(\.railTab) == EditorRailTab.shown(pdfIsOpen: true, pdfHasOutline: true))
+        // …and a PDF without a contents drops Outline from both (asked 2026-10-17).
+        #expect(ContentView.spineRungs(workspace: .editor, pdfIsOpen: true, pdfHasOutline: false)
+                    == [.sourcePane, .textFiles, .pages])
         #expect(ContentView.spineRungs(workspace: .browse, pdfIsOpen: true) == [.sourcePane],
                 "a PDF open in Edit put a list button on another workspace's strip")
     }
@@ -109,5 +114,42 @@ import FileExplorer
                                   sidebarPutAway: false, paneFoldedByExpand: false)
         #expect(!expand.isOn)
         #expect(!TopPaneVisibility.editorRailIsDrawn(paneHidden: true, railHidden: expand.railHidden, railFolded: true))
+    }
+
+    // MARK: The pane as one of the strip's columns (asked 2026-10-17)
+
+    /// The cloud follows the list buttons' rule: lit means showing, and the lit one folds.
+    @Test func thePaneButtonOpensAFoldedPaneAndFoldsAnOpenOne() {
+        #expect(EditorRailFold.paneRungAct(paneOpen: false) == .openPane)
+        #expect(EditorRailFold.paneRungAct(paneOpen: true) == .foldPane)
+        #expect(EditorRailFold.paneRungTitle(paneOpen: true, source: "iCloud") == "Hide the iCloud pane")
+        #expect(EditorRailFold.paneRungTitle(paneOpen: false, source: "iCloud").hasPrefix("Show the iCloud pane"))
+    }
+
+    /// A list button beside an open pane shows the list: the list is not drawn there, so the rule
+    /// answers `.show` — and the host folds the pane on the way (`showEditorRail`).
+    @Test(arguments: EditorRailTab.allCases)
+    func aListButtonBesideAnOpenPaneShowsTheList(tab: EditorRailTab) {
+        #expect(EditorRailFold.rungAct(for: tab, railDrawn: false, currentTab: .files) == .show(tab))
+    }
+
+    /// **One width for the four columns, and one column for the pane by default.** The pane's slot
+    /// is the column's card plus the gutter a card's insets add, as the rail's own slot is; and at
+    /// the default width that card is under where Columns stops showing a second column, so the
+    /// pane shows one with ‹ to walk back. Mutation: raise `railWidth` past 280 and the second fails.
+    @Test func theOpenPaneIsTheListsWidthAndOneColumnWideByDefault() {
+        let slot: CGFloat = ContentView.editorColumnSlot(EditorLayoutMetrics.railWidth)
+        let railSlot: CGFloat = EditorLayoutMetrics.railWidth + LiquidGlass.cardGutter
+        #expect(abs(slot - railSlot) < 0.001, "the pane's slot is \(slot)pt, the list's \(railSlot)pt")
+        #expect(PaneViewMode.usesPushNavigation(paneWidth: EditorLayoutMetrics.railWidth))
+    }
+
+    /// **The shared width drags between the tabs' floor and the cap**, and never below the floor:
+    /// the list's three tabs are measured to fit at exactly `railWidth`.
+    @Test func theColumnWidthStaysBetweenTheTabsFloorAndTheCap() {
+        #expect(EditorLayoutMetrics.clampedRailWidth(100) == EditorLayoutMetrics.railWidth)
+        #expect(EditorLayoutMetrics.clampedRailWidth(300) == 300)
+        #expect(EditorLayoutMetrics.clampedRailWidth(9_000) == EditorLayoutMetrics.maxRailWidth)
+        #expect(EditorLayoutMetrics.maxRailWidth > EditorLayoutMetrics.railWidth)
     }
 }

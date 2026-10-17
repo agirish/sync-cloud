@@ -17,7 +17,7 @@ import FileExplorer
     /// sets `editorIsNaming`, which would open the row without taking focus. Mutations: `{
     /// editorIsNaming = true }`, `nil`, or `{}` in its place each fail.
     @Test func theHeaderPlusIsHandedTheNewFileChordItself() throws {
-        let body = try Self.memberBody("func editorWorkspace(showsRail: Bool)", in: Self.editor())
+        let body = try Self.memberBody("func editorWorkspace(showsRail: Bool, railWidth: CGFloat", in: Self.editor())
         #expect(try Self.call("EditorWorkspaceView(", in: body).passes("onNewTextFile", "shortcutNewTextFile"),
                 "the header's ＋ is not handed ⌘N's closure — it can drift from what the chord does")
     }
@@ -53,7 +53,7 @@ import FileExplorer
     /// asking `EditorVerbs.isOffered` instead, each fail one line.
     @Test func bothDoorsReachTheOneClose() throws {
         let source = try Self.editor()
-        let workspace = try Self.memberBody("func editorWorkspace(showsRail: Bool)", in: source)
+        let workspace = try Self.memberBody("func editorWorkspace(showsRail: Bool, railWidth: CGFloat", in: source)
         #expect(try Self.call("EditorWorkspaceView(", in: workspace).passes("onCloseDocument", "{ closeEditorDocument() }"),
                 "the header's × is not wired to closeEditorDocument")
         let menu = try Self.memberBody("var shortcutCloseDocument: (() -> Void)?", in: source)
@@ -148,7 +148,7 @@ import FileExplorer
 
     @Test func expandAndTextExpandRunTheOneToggleByTheOneRule() throws {
         let source = try Self.editor()
-        let workspace = try Self.memberBody("func editorWorkspace(showsRail: Bool)", in: source)
+        let workspace = try Self.memberBody("func editorWorkspace(showsRail: Bool, railWidth: CGFloat", in: source)
         #expect(try Self.call("EditorWorkspaceView(", in: workspace).passes("onToggleJustTheText", "{ toggleJustTheText() }"),
                 "the header's Expand is not handed toggleJustTheText")
         #expect(try Self.call("EditorWorkspaceView(", in: workspace).passes("railIsHidden", "editorIsExpanded"),
@@ -197,8 +197,9 @@ import FileExplorer
         #expect(spine.contains("rungIsLit(tab, railDrawn: drawn, currentTab: editorRailShownTab)")
                     && spine.contains("rungTitle(tab, railDrawn: drawn, currentTab: editorRailShownTab)"),
                 "the strip lights or names its buttons by the stored tab, not the drawn one")
-        #expect(spine.contains("Self.spineRungs(workspace: selectedWorkspace, pdfIsOpen: editorPDF.path != nil)"),
-                "the strip is not told a PDF is open, so it can never draw the Pages button")
+        #expect(spine.contains("Self.spineRungs(workspace: selectedWorkspace, pdfIsOpen: editorPDF.path != nil,")
+                    && spine.contains("pdfHasOutline: editorPDFHasOutline)"),
+                "the strip is not told a PDF is open, or whether it has a contents — its buttons and the rail's tabs disagree")
         #expect(try Self.memberBody("func runEditorRailRung(_ tab: EditorRailTab)", in: source)
                     .contains("currentTab: editorRailShownTab"),
                 "a strip click decides by the stored tab, not the drawn one")
@@ -214,9 +215,17 @@ import FileExplorer
         #expect(fold.contains("editorRailFolded = true") && !fold.contains("editorRailHidden"),
                 "the hand fold writes Expand's bit — folding would light Files")
         #expect(fold.contains(#"Logger.shared.info("[edit] Files list folded from \(door.rawValue)")"#), "folding is not logged")
-        // TE77's two view doors and TE81's menu item reach the host's acts.
-        #expect(try Self.call("EditorWorkspaceView(", in: workspace).passes("onFoldRail", "{ foldEditorRail(from: .foldButton) }"),
-                "the list's fold button is not handed foldEditorRail")
+        // The strip is the one place the columns open and fold from (asked 2026-10-17): the list
+        // is handed no fold button of its own, and the strip's cloud runs the pane's rule.
+        #expect(try Self.call("EditorWorkspaceView(", in: workspace).value("onFoldRail") == nil,
+                "the list draws its own fold button again — a second control beside the strip's")
+        #expect(spine.contains("Button { runEditorPaneRung() } label: {"), "the strip's cloud does not run runEditorPaneRung")
+        let paneRung = try Self.memberBody("func runEditorPaneRung()", in: source)
+        #expect(paneRung.contains("if !editorRailFolded { editorRailFolded = true }"),
+                "opening the pane does not take the list's place — folding it again would bring back a list nobody asked for")
+        #expect(paneRung.contains("togglePanesForCurrentTab()"), "the cloud moves the pane some way other than the one toggle")
+        #expect(rung.contains("if !editorPaneIsFolded {") && rung.contains("expand.paneFolded = true"),
+                "a list button beside an open pane does not fold the pane for the list")
         #expect(try Self.call("EditorWorkspaceView(", in: workspace)
                     .passes("onShowTextFiles", "(panesHiddenForCurrentTab && !showsRail) ? { showEditorRail(tab: .files, from: .emptyPage) } : nil"),
                 "the empty page's Show Text Files is not handed showEditorRail, or is offered beside an open pane")
@@ -224,8 +233,8 @@ import FileExplorer
                     .passes("editorTextFiles", "shortcutEditorTextFiles"),
                 "the chord publisher is not handed shortcutEditorTextFiles")
         let menuItem = try Self.memberBody("var shortcutEditorTextFiles: Binding<Bool>?", in: source)
-        #expect(menuItem.contains("selectedWorkspace == .editor && panesHiddenForCurrentTab"),
-                "View ▸ Text Files is offered outside Edit, or beside an open pane that is the list")
+        #expect(menuItem.contains("guard selectedWorkspace == .editor else { return nil }"),
+                "View ▸ Files is offered outside Edit, or withheld beside an open pane it can now fold")
         #expect(menuItem.contains("get: { editorRailIsDrawn }"), "View ▸ Text Files ticks on something other than the list as drawn")
         #expect(try Self.source("ShortcutCommands.swift").contains(#"Toggle("File List", isOn: textFiles ?? .constant(false))"#),
                 "View ▸ File List is titled otherwise — \"Files\" is Expand's button, which does more")

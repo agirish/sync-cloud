@@ -84,4 +84,16 @@ import Testing
         #expect(BreadcrumbTrail.rootDisplayName(forRootPath: "/") == "Root")
         #expect(BreadcrumbTrail.rootDisplayName(forRootPath: "") == "Root")
     }
+
+    // MARK: - compactItems(for:) — Edit's narrow pane (asked 2026-10-17)
+
+    /// Every folder above the current one goes behind the ellipsis, in order; the current one is
+    /// spelled out. At the root there is nothing; one level deep there is nothing to fold.
+    @Test func theCompactTrailFoldsEveryAncestorAndSpellsOutTheCurrentFolder() {
+        #expect(BreadcrumbTrail.compactItems(for: []).isEmpty)
+        let one = BreadcrumbTrail.crumbs(forRelativePath: "Documents")
+        #expect(BreadcrumbTrail.compactItems(for: one) == [.crumb(one[0])])
+        let deep = BreadcrumbTrail.crumbs(forRelativePath: "Documents/Finance/Chase/2020")
+        #expect(BreadcrumbTrail.compactItems(for: deep) == [.collapsed(Array(deep.prefix(3))), .crumb(deep[3])])
+    }
 }

@@ -14,6 +14,17 @@ public enum EditorLayoutMetrics {
     /// sidebar beside it is already resizable, and a third drag handle in the row would be the
     /// third thing to explain before anyone had opened a file.
     public static let railWidth: CGFloat = 232
+    /// **The widest the side column may be dragged** (asked 2026-10-17). Edit's list, and its file
+    /// pane, share one width the person drags; ``railWidth`` above is that width's floor and its
+    /// default — the floor because the list's three tabs are measured to fit at exactly that
+    /// (`theRailTabsFitTheRailAtEveryTextSize`), so nothing narrower is safe. 480 leaves a
+    /// paragraph beside it on the smallest window and two Columns columns inside the pane.
+    public static let maxRailWidth: CGFloat = 480
+
+    /// A dragged or stored side-column width, held inside ``railWidth``…``maxRailWidth``.
+    public static func clampedRailWidth(_ width: CGFloat) -> CGFloat {
+        min(max(width, railWidth), maxRailWidth)
+    }
     /// The narrowest the document column may become. Below this a line of prose stops being a line.
     public static let minDocumentWidth: CGFloat = 260
     /// What the editor half of the row needs in total, which is what the source pane is clamped
@@ -119,6 +130,9 @@ public struct EditorWorkspaceView: View {
     /// The empty page's Show Text Files button — the host passes it only while the list is folded
     /// or put away with the pane folded too, when nothing else on the page leads to a file.
     let onShowTextFiles: (() -> Void)?
+    /// The list's width — the side-column width the host's drag sets, at least
+    /// ``EditorLayoutMetrics/railWidth`` (asked 2026-10-17).
+    let railWidth: CGFloat
     /// The header's ＋ — **the host's ⌘N closure itself**, not a second copy of what it does.
     ///
     /// ⌘N sets `isNaming` AND bumps the focus counter this view only reads (``namingFocus``); a
@@ -380,7 +394,8 @@ public struct EditorWorkspaceView: View {
                 onImagesImported: ((EditorImageImport.Report) -> Void)? = nil,
                 onPreviewLengthHold: ((PreviewLengthHold) -> Void)? = nil,
                 onFoldRail: (() -> Void)? = nil,
-                onShowTextFiles: (() -> Void)? = nil) {
+                onShowTextFiles: (() -> Void)? = nil,
+                railWidth: CGFloat = EditorLayoutMetrics.railWidth) {
         self._railFilter = railFilter
         self._railFilterIsExpanded = railFilterIsExpanded
         self._railTab = railTab
@@ -400,6 +415,7 @@ public struct EditorWorkspaceView: View {
         self.onToggleJustTheText = onToggleJustTheText
         self.onFoldRail = onFoldRail
         self.onShowTextFiles = onShowTextFiles
+        self.railWidth = railWidth
         self.onNewTextFile = onNewTextFile
         self.onCloseDocument = onCloseDocument
         self.accent = accent
@@ -555,7 +571,8 @@ public struct EditorWorkspaceView: View {
                                onNewTextFile: onNewTextFile,
                                newFileFolderName: newFileFolderName,
                                rowActions: railRowActions,
-                               onFold: onFoldRail)
+                               onFold: onFoldRail,
+                               width: railWidth)
                 .frame(maxHeight: .infinity)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
             }

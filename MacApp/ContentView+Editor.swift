@@ -138,9 +138,25 @@ extension ContentView {
     /// the four doors leaves anything on screen that says which was used.
     enum EditorRailDoor: String {
         case strip = "the strip"
-        case foldButton = "the list's fold button"
         case menu = "View ▸ File List"
         case emptyPage = "the empty page"
+    }
+
+    /// **The strip's pane button** (asked 2026-10-17): the pane is one of the strip's columns, lit
+    /// while it shows, folded by a second click — `EditorRailFold.paneRungAct`. **Opening it takes
+    /// the list's place**: the list is folded with it, so folding the pane again leaves nothing
+    /// open, as the lit button promised, rather than bringing back a list the click never named.
+    /// Through `togglePanesForCurrentTab`, which ends Expand when it opens the pane (CHR-3).
+    func runEditorPaneRung() {
+        switch EditorRailFold.paneRungAct(paneOpen: !editorPaneIsFolded) {
+        case .openPane:
+            if !editorRailFolded { editorRailFolded = true }
+            withDesignAnimation(.easeInOut(duration: 0.2), reduceMotion: reduceMotion) { togglePanesForCurrentTab() }
+            Logger.shared.info("[edit] File pane shown from the strip")
+        case .foldPane:
+            withDesignAnimation(.easeInOut(duration: 0.2), reduceMotion: reduceMotion) { togglePanesForCurrentTab() }
+            Logger.shared.info("[edit] File pane folded from the strip")
+        }
     }
 
     /// **The Files list back on screen, on `tab`** (TE77). From the strip, the menu or the
@@ -149,6 +165,14 @@ extension ContentView {
     /// folded, because an open pane draws no list. Not `toggleJustTheText`, whose way out reopens
     /// a pane Expand folded.
     func showEditorRail(tab: EditorRailTab, from door: EditorRailDoor) {
+        // The pane and the list are never on screen together, and the strip stays beside an open
+        // pane (asked 2026-10-17): a list button pressed there folds the pane to show the list.
+        if !editorPaneIsFolded {
+            var expand = editorExpand
+            expand.paneFolded = true
+            withDesignAnimation(.easeInOut(duration: 0.2), reduceMotion: reduceMotion) { editorExpand = expand }
+            Logger.shared.info("[edit] File pane folded for the list from \(door.rawValue)")
+        }
         if editorRailHidden {
             let before = editorExpand
             var expand = before
@@ -176,7 +200,13 @@ extension ContentView {
     /// stored Pages survives a note opening, and a strip reading it would light no button while
     /// the rail showed Files.
     var editorRailShownTab: EditorRailTab {
-        EditorRailTab.resolved(editorRailTab, pdfIsOpen: editorPDF.path != nil)
+        EditorRailTab.resolved(editorRailTab, pdfIsOpen: editorPDF.path != nil, pdfHasOutline: editorPDFHasOutline)
+    }
+
+    /// Whether the open PDF's bookmarks earn the Outline tab and its strip button (asked
+    /// 2026-10-17) — `EditorRailTab.pdfOutlineIsWorthATab`, the rail's own rule.
+    var editorPDFHasOutline: Bool {
+        EditorRailTab.pdfOutlineIsWorthATab(editorPDF.outline)
     }
 
     /// A strip button's click — `EditorRailFold.rungAct` decides between showing the list on that
@@ -190,12 +220,13 @@ extension ContentView {
     }
 
     /// **View ▸ File List ⌃⌘T** (TE81) — not "Files", which is Expand's lit button and brings
-    /// back the pane and the sidebar too; this brings back the list alone: ticked while the list is on screen. `nil` — greyed —
-    /// outside Edit and while Edit's pane is open, where the pane is the file list and the list
-    /// would not be drawn whatever the item said. Under Expand it is offered and unticked, and
+    /// back the pane and the sidebar too; this brings back the list alone: ticked while the list is
+    /// on screen. `nil` — greyed — outside Edit. With the pane open it is unticked and ticking it
+    /// folds the pane for the list, as the strip's buttons do (asked 2026-10-17). Under Expand it
+    /// is offered and unticked, and
     /// ticking it ends Expand as the strip's button does.
     var shortcutEditorTextFiles: Binding<Bool>? {
-        guard selectedWorkspace == .editor && panesHiddenForCurrentTab else { return nil }
+        guard selectedWorkspace == .editor else { return nil }
         return Binding(
             get: { editorRailIsDrawn },
             set: { show in
@@ -333,9 +364,9 @@ extension ContentView {
     /// which reads the folder the folded pane is on. Its width comes from `lensSidebarWidth`, which
     /// reserves more than the collapsed row needs — `theCollapsedEditRowFitsTheLensClamp`.
     ///
-    /// Clamped like `singleSourceLayout`, against the editor's own minimum rather than a lens
-    /// panel's — and against the rail-less minimum, `EditorLayoutMetrics.minDocumentOnlyWidth`,
-    /// because in this arm the rail is not there to reserve room for.
+    /// **The open-pane arm is no longer a dragged split** (asked 2026-10-17): the strip stays beside
+    /// the pane and the pane is the rail's fixed width, so the document takes the rest. It shared
+    /// `tidyRailFraction` with Organize until then; Organize keeps it.
     @ViewBuilder
     func editorLayout(collapsed: Bool, geo: GeometryProxy) -> some View {
         let totalWidth = geo.size.width
@@ -346,6 +377,7 @@ extension ContentView {
             : 0
         let sidebarSlot = folderSidebarIsShowing
             ? sidebarWidth + PaneLogic.sidebarOverhead(gutter: LiquidGlass.cardGutter) : 0
+        let column = editorColumnWidth(in: totalWidth - sidebarSlot)
         if collapsed {
             HStack(spacing: 0) {
                 if folderSidebarIsShowing {
@@ -356,54 +388,92 @@ extension ContentView {
                 // **No region frame here.** The workspace draws its own two cards — the rail and
                 // the document — and wrapping them in a third would put a card inside a card, which
                 // `bottomSectionCard` stacks into a doubled inset and a squared-off corner.
-                editorWorkspace(showsRail: editorRailIsDrawn)
+                editorWorkspace(showsRail: editorRailIsDrawn, railWidth: column)
                     .frame(maxWidth: .infinity)
                     .clipped()
+                    // The list's edge, where the open pane's edge is in the other arm: one handle,
+                    // one width, whichever column shows.
+                    .overlay(alignment: .leading) {
+                        if editorRailIsDrawn { editorColumnResizeHandle(displayedWidth: column, slot: Self.editorColumnSlot(column)) }
+                    }
             }
             .frame(width: totalWidth, height: geo.size.height)
         } else {
-            let splitWidth = totalWidth - sidebarSlot
-            let lower = PaneLogic.minRailWidth / max(splitWidth, 1)
-            let upper = 1 - EditorLayoutMetrics.minDocumentOnlyWidth / max(splitWidth, 1)
-            // Both minimums cannot always be honoured — the same bind the lens row is in, and the
-            // same answer: pin to the rail's minimum rather than letting the clamp invert.
-            let fraction = (lower <= upper)
-                ? PaneLogic.clampedFraction(railDragFraction ?? railFraction, lower: lower, upper: upper)
-                : lower
-            let row = PaneLogic.lensRow(totalWidth: totalWidth, sidebarWidth: sidebarWidth,
-                                        showsSidebar: folderSidebarIsShowing,
-                                        gutter: LiquidGlass.cardGutter, fraction: fraction)
+            // **The strip stays, and the pane is the list's width** (asked 2026-10-17). The strip
+            // is where every column opens and folds, so it does not leave when the pane opens; and
+            // the pane takes the rail's slot — the column's card plus the one gutter its insets
+            // add, as the rail's own card does — so the pane, Files, Pages and Outline are all one
+            // width, dragged at one edge. At the 232pt default the pane is under
+            // `PaneViewMode.pushNavigationBelowWidth`, so Columns shows one column with ‹ to walk
+            // back; dragged wider, it shows two.
             HStack(spacing: 0) {
                 if folderSidebarIsShowing {
                     folderSidebar(width: sidebarWidth)
                     folderSidebarResizeHandle(displayedWidth: sidebarWidth)
                 }
-                paneColumn(isLeft: true)
-                    .panesRegionFrame(surfaceStyle, level: glassLevel)
-                    .frame(width: row.railWidth)
-                // The pane is the file list here, so the rail is withheld whatever the bit says.
-                editorWorkspace(showsRail: false)
-                    .frame(width: row.workspaceWidth)
-                    .clipped()
-                    // With the strip's own curve, so the header card moves down beside the pane's
-                    // toolbar card as the strip slides in, rather than a frame after it.
-                    .designAnimation(.easeOut(duration: 0.18), value: editorPaneShowsTabStrip)
+                railSpine
+                HStack(spacing: 0) {
+                    paneColumn(isLeft: true)
+                        .panesRegionFrame(surfaceStyle, level: glassLevel)
+                        .frame(width: Self.editorColumnSlot(column))
+                    // The pane is the file list here, so the rail is withheld whatever the bit says.
+                    editorWorkspace(showsRail: false, railWidth: column)
+                        .frame(maxWidth: .infinity)
+                        .clipped()
+                        // With the strip's own curve, so the header card moves down beside the pane's
+                        // toolbar card as the strip slides in, rather than a frame after it.
+                        .designAnimation(.easeOut(duration: 0.18), value: editorPaneShowsTabStrip)
+                }
+                .overlay(alignment: .leading) {
+                    editorColumnResizeHandle(displayedWidth: column, slot: Self.editorColumnSlot(column))
+                }
             }
             .frame(width: totalWidth, height: geo.size.height)
-            .overlay(alignment: .leading) {
-                railResizeHandle(splitWidth: row.splitWidth, sidebarSlot: row.sidebarSlot,
-                                 lower: lower, upper: upper)
-                    .offset(x: row.railHandleOffset)
-            }
-            .coordinateSpace(.named(Self.railRowSpace))
         }
+    }
+
+    /// A side column's slot in Edit: its card width plus the one gutter a card's insets add — the
+    /// rail's arithmetic, so the pane and the list draw at one width.
+    static func editorColumnSlot(_ column: CGFloat) -> CGFloat { column + LiquidGlass.cardGutter }
+
+    /// **The side column's width as drawn**: the stored one, inside
+    /// `EditorLayoutMetrics.clampedRailWidth`, and narrowed further when the row cannot also hold
+    /// the strip and the document's floor — never below the rail's floor, which the tabs need.
+    /// `rowWidth` is the row after the sidebar.
+    func editorColumnWidth(in rowWidth: CGFloat) -> CGFloat {
+        let stored = EditorLayoutMetrics.clampedRailWidth(CGFloat(editorColumnWidthRaw))
+        let room = rowWidth - PaneLogic.railSpineWidth - LiquidGlass.cardGutter
+            - EditorLayoutMetrics.minDocumentOnlyWidth - LiquidGlass.cardGutter
+        return max(EditorLayoutMetrics.railWidth, min(stored, room))
+    }
+
+    /// **The open column's edge, dragged** (asked 2026-10-17) — one handle for the pane and the
+    /// list, writing the one width they share. Laid over the boundary rather than in the row, so
+    /// it costs the layout nothing: the two cards' insets already make the gutter it sits in.
+    func editorColumnResizeHandle(displayedWidth: CGFloat, slot: CGFloat) -> some View {
+        ResizeHandle(
+            axis: .horizontal,
+            thickness: 10,
+            minimumDistance: 1,
+            coordinateSpace: .global,
+            onDrag: { value in
+                // From the width at the start of the drag, as the sidebar's handle does: adding
+                // each frame's translation to an already-moved width runs away from the pointer.
+                let base = editorColumnDragOrigin ?? displayedWidth
+                if editorColumnDragOrigin == nil { editorColumnDragOrigin = base }
+                editorColumnWidthRaw = Double(EditorLayoutMetrics.clampedRailWidth(base + value.translation.width))
+            },
+            onCommit: { editorColumnDragOrigin = nil }
+        )
+        .frame(width: 10)
+        .offset(x: slot - 5)
     }
 
     /// - Parameter showsRail: whether the file rail is drawn — decided by the arm, see
     ///   ``editorLayout(collapsed:geo:)``. The survey `.task` below runs regardless: the ⌘N refusal
     ///   and the prefilled name read `editorFolder`, not the survey, but the survey is cheap and
     ///   the rail returns often.
-    func editorWorkspace(showsRail: Bool) -> some View {
+    func editorWorkspace(showsRail: Bool, railWidth: CGFloat = EditorLayoutMetrics.railWidth) -> some View {
         EditorWorkspaceView(
             document: editorDocument,
             autosavePolicy: editorAutosavePolicy,
@@ -472,11 +542,13 @@ extension ContentView {
             newFileFolderName: editorNewFileFolderName,
             onImagesImported: { noteEditorImages($0) },
             onPreviewLengthHold: { hold in if editorPreviewLengthHold != hold { editorPreviewLengthHold = hold } },
-            // TE77: the list's own fold button, and the empty page's way to it while it is folded
-            // or put away — offered only with the pane folded, since an open pane IS the list.
-            onFoldRail: { foldEditorRail(from: .foldButton) },
+            // No `onFoldRail`: the strip is the one place the columns open and fold from (asked
+            // 2026-10-17), so the list draws no fold button of its own, as the pane draws no ⇤.
+            // The empty page's way to the list while it is folded or put away — offered only with
+            // the pane folded, since an open pane IS the list.
             onShowTextFiles: (panesHiddenForCurrentTab && !showsRail)
-                ? { showEditorRail(tab: .files, from: .emptyPage) } : nil)
+                ? { showEditorRail(tab: .files, from: .emptyPage) } : nil,
+            railWidth: railWidth)
         // The rail is re-listed on arrival and whenever the folder or the hidden-files preference
         // moves — `.task(id:)` restarts on either.
         .task(id: EditorRailKey(folder: editorFolder, showsHidden: syncManager.showHiddenFiles)) {

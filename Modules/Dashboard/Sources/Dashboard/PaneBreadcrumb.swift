@@ -123,6 +123,11 @@ struct PaneBreadcrumb: View {
     let showHidden: Bool
     let onNavigate: (String) -> Void
     let onNavigateBoth: (String) -> Void
+    /// **Falls back to the compact trail when the whole one does not fit** — `BreadcrumbTrail
+    /// .compactItems`. Off for every pane but Edit's (asked 2026-10-17): Edit's pane is one column
+    /// wide by default, where every crumb truncated to a letter and a half; the others keep the
+    /// trail they have always drawn.
+    var compactsWhenNarrow: Bool = false
 
     /// When on, a plain crumb click drives *both* panes — the sticky form of ⌥-click. Read-only
     /// here: the seam capsule owns the writing, and both breadcrumbs observe the same key.
@@ -138,7 +143,20 @@ struct PaneBreadcrumb: View {
 
     var body: some View {
         let crumbs = BreadcrumbTrail.crumbs(forRelativePath: relativePath)
-        let items = BreadcrumbTrail.displayItems(for: crumbs)
+        if compactsWhenNarrow {
+            // The whole trail at its ideal width if the row holds it; otherwise the compact one.
+            // `ViewThatFits` measures each at its ideal width, before any name truncates, so a
+            // trail that would only fit by cutting names to "C…6" does not count as fitting.
+            ViewThatFits(in: .horizontal) {
+                trail(crumbs: crumbs, items: BreadcrumbTrail.displayItems(for: crumbs))
+                trail(crumbs: crumbs, items: BreadcrumbTrail.compactItems(for: crumbs))
+            }
+        } else {
+            trail(crumbs: crumbs, items: BreadcrumbTrail.displayItems(for: crumbs))
+        }
+    }
+
+    private func trail(crumbs: [BreadcrumbTrail.Crumb], items: [BreadcrumbTrail.Item]) -> some View {
         HStack(spacing: 3) {
             rootCrumb(isCurrent: crumbs.isEmpty)
 
@@ -153,6 +171,8 @@ struct PaneBreadcrumb: View {
                         isCurrent: crumb == crumbs.last,
                         helpPath: crumb.relativePath
                     )
+                    // The current folder keeps its name before the source chip gives up its own.
+                    .layoutPriority(crumb == crumbs.last ? 1 : 0)
                 case .collapsed(let hidden):
                     Menu {
                         ForEach(hidden) { crumb in

@@ -123,14 +123,18 @@ struct EditorFileRailView: View {
     /// The fold button's tooltip and VoiceOver label.
     static let foldTitle = "Fold the list into the strip"
 
-    /// The rail's width. See ``EditorLayoutMetrics/railWidth``.
-    static var width: CGFloat { EditorLayoutMetrics.railWidth }
+    /// The rail's width: the side-column width the host's drag sets, at least
+    /// ``EditorLayoutMetrics/railWidth``, which is the default for every site that does not drag.
+    var width: CGFloat = EditorLayoutMetrics.railWidth
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The tab drawn: the one chosen, unless that is Pages with no PDF open — see
-    /// ``EditorRailTab/resolved(_:pdfIsOpen:)``.
-    var shownTab: EditorRailTab { EditorRailTab.resolved(tab, pdfIsOpen: pdf != nil) }
+    /// The tab drawn: the one chosen, unless it is not offered — Pages with no PDF open, Outline
+    /// on a PDF without a contents. See ``EditorRailTab/resolved(_:pdfIsOpen:pdfHasOutline:)``.
+    var shownTab: EditorRailTab { EditorRailTab.resolved(tab, pdfIsOpen: pdf != nil, pdfHasOutline: pdfHasOutline) }
+
+    /// Whether the open PDF's bookmarks earn the Outline tab (asked 2026-10-17).
+    private var pdfHasOutline: Bool { EditorRailTab.pdfOutlineIsWorthATab(pdf?.outline ?? []) }
 
     /// The tab bar's selection: it READS the drawn tab and WRITES the chosen one, so a click on
     /// Files while a remembered Pages is shown as Files is still a write — and the lens sits on what
@@ -147,7 +151,7 @@ struct EditorFileRailView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             EditorRailTabBar(tab: tabBarSelection,
-                             tabs: EditorRailTab.shown(pdfIsOpen: pdf != nil),
+                             tabs: EditorRailTab.shown(pdfIsOpen: pdf != nil, pdfHasOutline: pdfHasOutline),
                              accent: accent, onAccent: onAccent)
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
@@ -163,7 +167,7 @@ struct EditorFileRailView: View {
             }
             Spacer(minLength: 0)
         }
-        .frame(width: Self.width)
+        .frame(width: width)
         // **`initial: true`, and that is the whole ⌘N-from-another-workspace path.** The editor's
         // view does not exist while another workspace is on screen, so ⌘N sets `isNaming` and
         // *then* this view is constructed — already open. Without `initial:` the change never

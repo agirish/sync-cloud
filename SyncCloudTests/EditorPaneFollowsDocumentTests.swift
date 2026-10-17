@@ -391,7 +391,7 @@ import FileExplorer
 
     /// Each door: the rail's click, every hand-off, ⌘N, Reveal in Browse, the header's location.
     @Test func everyEntryPointOwesTheSelection() throws {
-        let workspace = try Self.body("func editorWorkspace(showsRail: Bool) -> some View {")
+        let workspace = try Self.body("func editorWorkspace(showsRail: Bool, railWidth: CGFloat = EditorLayoutMetrics.railWidth) -> some View {")
         #expect(try Self.call("EditorWorkspaceView(", in: workspace)
                     .passes("onOpen", "{ entry in openInEditor(path: entry.path, selectsInPane: true) }"),
                 "a rail click no longer selects the file in the pane")

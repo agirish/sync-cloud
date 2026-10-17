@@ -23,9 +23,10 @@ enum EditorRailFold {
         case switchTo(EditorRailTab)
     }
 
-    /// One rule for both buttons. `railDrawn` is the list as drawn — folded by hand, put away by
-    /// Expand, or yielding to an open pane all read as not drawn, and the strip is only on screen
-    /// while the pane is folded, so in practice "not drawn" means one of the first two.
+    /// One rule for every list button. `railDrawn` is the list as drawn — folded by hand, put away
+    /// by Expand, or yielding to an open pane all read as not drawn. **The strip is beside an open
+    /// pane too** (asked 2026-10-17), so "not drawn" can mean the pane is showing; `.show` then
+    /// folds the pane on its way, because the pane and the list are never on screen together.
     static func rungAct(for tab: EditorRailTab, railDrawn: Bool, currentTab: EditorRailTab) -> RungAct {
         guard railDrawn else { return .show(tab) }
         return currentTab == tab ? .fold : .switchTo(tab)
@@ -43,6 +44,25 @@ enum EditorRailFold {
         case .fold: return "Hide the \(noun(tab))"
         case .show, .switchTo: return "Show the \(noun(tab))"
         }
+    }
+
+    // MARK: - The pane's button
+
+    /// What the pane's button does (asked 2026-10-17): **the pane is one of the strip's columns**,
+    /// lit while it shows, and the lit button folds it — the list buttons' rule, so the strip has
+    /// one. Opening it takes the list's place; see `ContentView.runEditorPaneRung`.
+    enum PaneRungAct: Equatable {
+        case openPane
+        case foldPane
+    }
+
+    static func paneRungAct(paneOpen: Bool) -> PaneRungAct {
+        paneOpen ? .foldPane : .openPane
+    }
+
+    /// The pane button's tooltip and VoiceOver label — its next act, as the list buttons' are.
+    static func paneRungTitle(paneOpen: Bool, source: String) -> String {
+        paneOpen ? "Hide the \(source) pane" : "Show the \(source) pane to browse folders"
     }
 
     /// What a strip button names: the tab's half of the list.

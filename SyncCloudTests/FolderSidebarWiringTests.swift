@@ -160,7 +160,7 @@ import Foundation
     /// which is what a wrong one would also say.
     @Test func eachGateInputIsAlsoATrigger() throws {
         let code = try Self.appSource()
-        for input in ["browseSidebarVisible", "selectedWorkspace", "panesHiddenForCurrentTab",
+        for input in ["browseSidebarVisible", "editorSidebarVisible", "selectedWorkspace", "panesHiddenForCurrentTab",
                       "folderSidebarHeldByExpand"] {
             #expect(code.contains(".onChange(of: \(input)) { _, _ in refreshFolderSidebarRows() }"),
                     "\(input) decides whether the sidebar is showing but does not refresh it — anything that changed while it was hidden stays dropped")
@@ -189,7 +189,9 @@ import Foundation
                 .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift"), encoding: .utf8))
         #expect(sidebar.contains("workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar"))
         #expect(sidebar.contains("panesCollapsed: panesHiddenForCurrentTab"))
-        #expect(sidebar.contains("preference: browseSidebarVisible && !folderSidebarHeldByExpand"))
+        #expect(sidebar.contains("preference: folderSidebarPreference(for: selectedWorkspace) && !folderSidebarHeldByExpand"))
+        // Edit reads its own switch, off until shown (asked 2026-10-17); the rest share one.
+        #expect(sidebar.contains("workspace == .editor ? editorSidebarVisible : browseSidebarVisible"))
         #expect(sidebar.contains("outlivesCollapse: selectedWorkspace.folderSidebarOutlivesPaneCollapse"))
     }
 }
