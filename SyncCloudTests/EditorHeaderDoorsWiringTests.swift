@@ -227,6 +227,8 @@ import FileExplorer
         #expect(menuItem.contains("selectedWorkspace == .editor && panesHiddenForCurrentTab"),
                 "View ▸ Text Files is offered outside Edit, or beside an open pane that is the list")
         #expect(menuItem.contains("get: { editorRailIsDrawn }"), "View ▸ Text Files ticks on something other than the list as drawn")
+        #expect(try Self.source("ShortcutCommands.swift").contains(#"Toggle("File List", isOn: textFiles ?? .constant(false))"#),
+                "View ▸ File List is titled otherwise — \"Files\" is Expand's button, which does more")
         let app = try Self.source("SyncCloudApp.swift")
         #expect(app.contains("ColumnCommands()"), "View ▸ Text Files is not in the View menu")
         #expect(!rung.contains("expand.leave()"), "the rung leaves Expand the header's way, reopening the pane")

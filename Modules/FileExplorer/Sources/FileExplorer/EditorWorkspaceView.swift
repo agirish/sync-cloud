@@ -1143,7 +1143,7 @@ public struct EditorWorkspaceView: View {
     }
 
     /// The empty page's button while the list is folded (TE77).
-    static let showTextFilesTitle = "Show Files"
+    static let showTextFilesTitle = "Show File List"
 
     /// What the empty page's header says in place of a file name.
     static let emptyTitle = "No document open"

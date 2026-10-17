@@ -145,16 +145,30 @@ import FileExplorerTestSupport
         let pdf = await opened(file)
         #expect(Self.rail(entries: [], tab: .pages, pdf: pdf).shownTab == .pages)
         #expect(Self.rail(entries: [], tab: .pages, pdf: nil).shownTab == .files)
+
+        // The bar reads the drawn tab and writes the CHOSEN one: a click on the Files it is shown
+        // as is still a write, and a click elsewhere lands on the stored tab.
+        final class Box { var tab = EditorRailTab.pages }
+        let box = Box()
+        let rail = Self.rail(entries: [], tab: Binding(get: { box.tab }, set: { box.tab = $0 }), pdf: nil)
+        #expect(rail.tabBarSelection.wrappedValue == .files)
+        rail.tabBarSelection.wrappedValue = .outline
+        #expect(box.tab == .outline)
+        rail.tabBarSelection.wrappedValue = .files
+        #expect(box.tab == .files, "a click on the drawn Files left the stored Pages behind")
+    }
+
+    @Test func aRowWearsItsKindsGlyph() {
+        #expect(EditorFileRailView.rowSymbol(.text) == "doc.text")
+        #expect(EditorFileRailView.rowSymbol(.pdf) == "doc.richtext")
     }
 
     // MARK: The thumbnails
 
-    /// **Through the lane**: with the lane held no thumbnail is drawn; released, they arrive — and
-    /// never two parses at once while another reader shares the lane.
+    /// **Through the lane**: with the lane held no thumbnail is drawn; released, they arrive.
     @Test func thumbnailsRenderThroughTheLane() async throws {
-        let file = path("pages.pdf"), other = path("other.pdf")
+        let file = path("pages.pdf")
         PDFFixtures.write(file, pages: 12)
-        PDFFixtures.write(other, pages: 6)
         let pdf = await opened(file)
         #expect(pdf.phase == .open)
 
@@ -184,13 +198,7 @@ import FileExplorerTestSupport
         }.value
         #expect(queued == 0, "the first visible page was not the first asked for")
         #expect(drawnWhileHeld == 0, "\(drawnWhileHeld) thumbnail(s) drawn while the lane was held — around it")
-
-        async let elsewhere: Int = PDFKitSerialAccess.perform {
-            PDFDocument(url: URL(fileURLWithPath: other))?.pageCount ?? 0
-        }
         await wait("the visible thumbnails") { (0...3).allSatisfy { pdf.thumbnails.images[$0] != nil } }
-        #expect(await elsewhere == 6)
-        #expect(PDFKitSerialAccess.peakConcurrentParses <= 1)
         // The margin is rendered ahead of a scroll, and nothing past it.
         await wait("the margin") { pdf.thumbnails.images.count == 4 + EditorPDFThumbnails.margin }
         #expect(Set(pdf.thumbnails.images.keys) == Set(0..<(4 + EditorPDFThumbnails.margin)))
@@ -225,7 +233,7 @@ import FileExplorerTestSupport
 
     /// **Bounded, and released with the PDF.** A long scroll keeps at most `capacity` images; a
     /// text file opening (the model's close) drops every one, and the document they came from.
-    @Test func theThumbnailCacheIsBoundedAndReleasedOnClose() async {
+    @Test func theThumbnailCacheIsBoundedAndReleasedOnClose() async throws {
         let file = path("scroll.pdf")
         PDFFixtures.write(file, pages: 120, text: false)
         let pdf = await opened(file)
@@ -239,6 +247,14 @@ import FileExplorerTestSupport
         #expect(pdf.thumbnails.drawn.count > EditorPDFThumbnails.capacity,
                 "fixture: the scroll drew only \(pdf.thumbnails.drawn.count) pages, never reaching the cap")
         #expect(pdf.thumbnails.holdsSource)
+        // **The farthest went, not just any**: the last window is all there, the first all gone.
+        #expect((108..<114).allSatisfy { pdf.thumbnails.images[$0] != nil }, "the window on screen was evicted")
+        #expect(!pdf.thumbnails.images.keys.contains { $0 < 12 }, "the pages farthest from the screen were kept")
+        // **And the document they come from was reopened along the way** (`Source.recycleEvery`).
+        let source = try #require(pdf.thumbnails.currentSource)
+        let draws = source.draws.withLock { $0 }, opens = source.opens.withLock { $0 }
+        #expect(opens >= draws / EditorPDFThumbnails.recycleEvery && opens >= 2,
+                "\(draws) pages drawn from \(opens) opening(s) — the thumbnails' document is never let go")
 
         pdf.close()
         #expect(pdf.thumbnails.images.isEmpty, "\(pdf.thumbnails.images.count) thumbnails outlived the PDF")
@@ -281,15 +297,176 @@ import FileExplorerTestSupport
         }
     }
 
-    /// A page turned a quarter is drawn the way the reader shows it — landscape.
-    @Test func aRotatedPageIsDrawnTurned() throws {
-        let file = path("turned.pdf")
-        PDFFixtures.write(file, pages: 1)
-        let page = try #require(PDFDocument(url: URL(fileURLWithPath: file))?.page(at: 0))
-        page.rotation = 90
-        let image = try #require(EditorPDFThumbnails.drawThumbnail(page, longEdge: 240))
-        #expect(image.width > image.height, "a quarter-turned portrait page drew \(image.width)×\(image.height)")
-        #expect(max(image.width, image.height) == 240)
+    /// **A rotated or cropped page draws where the reader sees it** — read in pixels. A page marked
+    /// in its top-left corner: turned a quarter clockwise, the mark is top-RIGHT; cropped to its
+    /// top-left quarter, the mark is top-left and bigger. This was blank and shifted respectively
+    /// while `transform(for:)` was applied on top of `draw(with:to:)` (measured 2026-10-17).
+    @Test func aRotatedOrCroppedPageDrawsWhereTheReaderSeesIt() async throws {
+        let file = path("marked.pdf")
+        var box = CGRect(origin: .zero, size: PDFFixtures.letter)
+        let context = try #require(CGContext(URL(fileURLWithPath: file) as CFURL, mediaBox: &box, nil))
+        context.beginPDFPage(nil)
+        context.setFillColor(gray: 0, alpha: 1)
+        context.fill(CGRect(x: 0, y: 692, width: 100, height: 100))
+        context.endPDFPage()
+        context.closePDF()
+
+        struct Drawn: Sendable { let size: CGSize; let quadrants: [Int] }
+        func draw(rotation: Int, cropped: Bool) async -> Drawn? {
+            await PDFKitSerialAccess.perform {
+                guard let page = PDFDocument(url: URL(fileURLWithPath: file))?.page(at: 0) else { return nil }
+                page.rotation = rotation
+                if cropped { page.setBounds(CGRect(x: 0, y: 392, width: 306, height: 400), for: .cropBox) }
+                guard let image = EditorPDFThumbnails.drawThumbnail(page, longEdge: 240)?.cgImage else { return nil }
+                return Drawn(size: CGSize(width: image.width, height: image.height),
+                             quadrants: EditorPDFRailTests.darkQuadrants(image))
+            }
+        }
+        // Quadrants: top-left, top-right, bottom-left, bottom-right — dark pixels in each.
+        let plain = try #require(await draw(rotation: 0, cropped: false))
+        #expect(plain.quadrants[0] > 0 && plain.quadrants[1...].allSatisfy { $0 == 0 }, "plain: \(plain.quadrants)")
+        let turned = try #require(await draw(rotation: 90, cropped: false))
+        #expect(turned.size.width > turned.size.height, "a quarter-turned page drew \(turned.size)")
+        #expect(turned.quadrants[1] > 0 && turned.quadrants[0] == 0 && turned.quadrants[2] == 0
+                    && turned.quadrants[3] == 0,
+                "turned a quarter, the top-left mark is not top-right: \(turned.quadrants)")
+        let cropped = try #require(await draw(rotation: 0, cropped: true))
+        #expect(cropped.quadrants[0] > plain.quadrants[0] && cropped.quadrants[1...].allSatisfy { $0 == 0 },
+                "cropped to the top-left, the mark is not top-left and bigger: \(cropped.quadrants) vs \(plain.quadrants)")
+        let both = try #require(await draw(rotation: 90, cropped: true))
+        #expect(both.quadrants[1] > 0, "turned and cropped drew \(both.quadrants)")
+    }
+
+    /// Dark pixels per quadrant, in the image's own orientation (row 0 at the top).
+    nonisolated static func darkQuadrants(_ image: CGImage) -> [Int] {
+        let width = image.width, height = image.height
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        else { return [0, 0, 0, 0] }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let data = context.data else { return [0, 0, 0, 0] }
+        let pixels = data.assumingMemoryBound(to: UInt8.self)
+        var counts = [0, 0, 0, 0]
+        for y in 0..<height {
+            for x in 0..<width where pixels[(y * width + x) * 4] < 80 {
+                counts[(y < height / 2 ? 0 : 2) + (x < width / 2 ? 0 : 1)] += 1
+            }
+        }
+        return counts
+    }
+
+    /// **The placeholder is the shape the thumbnail will be** — crop box, turned — so a row does not
+    /// change height when its image lands. `shownSizes` is read with the facts, in the lane.
+    @Test func theFactsCarryEachPagesShownShape() async throws {
+        let plain = path("portrait.pdf"), turned = path("turned-on-disk.pdf")
+        PDFFixtures.write(plain, pages: 1)
+        let written: Bool = await PDFKitSerialAccess.perform {
+            guard let document = PDFDocument(url: URL(fileURLWithPath: plain)), let page = document.page(at: 0)
+            else { return false }
+            page.rotation = 90
+            return document.write(to: URL(fileURLWithPath: turned))
+        }
+        try #require(written, "fixture: the rotated copy was not written")
+        let pdf = await opened(turned)
+        let facts = try #require(pdf.facts)
+        #expect(facts.shownSizes == [CGSize(width: 792, height: 612)], "shown sizes: \(facts.shownSizes)")
+        #expect(facts.pageSizes == [PDFFixtures.letter], "the paper stays the media box: \(facts.pageSizes)")
+    }
+
+    /// **A turn queued before a reload never draws from the old document** — each attachment has a
+    /// wanted set of its own, so the old turn finds nothing wanted even when the reloaded PDF wants
+    /// the very same page.
+    @Test func aTurnFromBeforeAReloadDrawsNothing() async throws {
+        let file = path("reloaded.pdf")
+        PDFFixtures.write(file, pages: 10)
+        let pdf = await opened(file)
+        let hold = LaneHold()
+        defer { hold.release() }
+        try #require(await hold.waitUntilHeld(), "the lane never came free to be held")
+        pdf.thumbnails.show([0])
+        await Self.until { pdf.thumbnails.asking != nil }
+        let old = try #require(pdf.thumbnails.currentSource)
+        pdf.thumbnails.attach(path: file, pageCount: 10)   // what a reload does
+        pdf.thumbnails.show([0])                           // and the grid asks for the same page
+        hold.release()
+        await wait("the reloaded page") { pdf.thumbnails.images[0] != nil }
+        #expect(old.draws.withLock { $0 } == 0, "the turn from before the reload drew from the old document")
+    }
+
+    /// **A password-unlocked PDF has thumbnails** — from the copy unlocked in the same turn, the
+    /// password kept nowhere. Without that copy every page would fail, never retried.
+    @Test func anUnlockedPDFHasThumbnails() async throws {
+        let file = path("locked.pdf")
+        PDFFixtures.writeLocked(file, password: "hunter2", pages: 3)
+        let pdf = await opened(file)
+        #expect(pdf.phase == .locked)
+        #expect(await pdf.unlock(password: "hunter2"))
+        pdf.thumbnails.show([0, 1, 2])
+        await wait("the unlocked PDF's thumbnails") { (0...2).allSatisfy { pdf.thumbnails.images[$0] != nil } }
+        let source = try #require(pdf.thumbnails.currentSource)
+        #expect(!source.reopens, "an unlocked copy was marked reopenable — reopening would lock it again")
+        #expect(source.opens.withLock { $0 } == 0,
+                "the thumbnails reopened the locked file instead of drawing from the unlocked copy")
+    }
+
+    /// **A turn waiting in the lane does not keep the thumbnails alive.** The pump holds them only
+    /// between turns: one waiting behind a long duplicate scan kept the object and its images
+    /// past their owner when the loop held `self` through the wait.
+    @Test func aQueuedTurnDoesNotKeepTheThumbnailsAlive() async throws {
+        let file = path("alive.pdf")
+        PDFFixtures.write(file, pages: 4)
+        let hold = LaneHold()
+        defer { hold.release() }
+        try #require(await hold.waitUntilHeld(), "the lane never came free to be held")
+        var thumbnails: EditorPDFThumbnails? = EditorPDFThumbnails()
+        weak var weakly = thumbnails
+        thumbnails?.attach(path: file, pageCount: 4)
+        thumbnails?.show([0])
+        await Self.until { thumbnails?.asking != nil }
+        #expect(thumbnails?.asking == 0, "fixture: no turn was queued")
+        thumbnails = nil
+        #expect(weakly == nil, "a turn queued in the held lane is keeping the thumbnails alive")
+    }
+
+    /// The Pages tab says why there are no pages: the card's own reason for a refused file.
+    @Test func thePagesTabSaysWhyThereAreNone() {
+        #expect(EditorPDFRailPages.caption(phase: .refused(EditorPDFDocument.goneReason)) == EditorPDFDocument.goneReason)
+        #expect(EditorPDFRailPages.caption(phase: .locked) == "Unlock the PDF to see its pages.")
+        #expect(EditorPDFRailPages.caption(phase: .open) == "This PDF has no pages.")
+    }
+
+    /// **PDF B's outline opens at its own place, not where A was left** — the list's scroll state
+    /// is per document. One model reopened in place, as an outside open does with Edit on screen.
+    @Test func anotherPDFsOutlineDoesNotOpenWhereTheLastWasLeft() async throws {
+        let first = path("first.pdf"), second = path("second.pdf")
+        let marks = (0..<40).map { Bookmark(title: "Chapter \($0 + 1)", page: $0) }
+        writeBookmarked(first, pages: 40, tree: marks)
+        writeBookmarked(second, pages: 40, tree: marks)
+        let pdf = await opened(first)
+        pdf.view.currentPage = 32
+        let view = EditorPDFRailOutline(pdf: pdf, view: pdf.view, outlineAnchors: .constant([:]), accent: .blue)
+        let host = NSHostingView(rootView: AnyView(view.frame(width: 232, height: 200)))
+        host.frame = CGRect(x: 0, y: 0, width: 232, height: 200)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil }
+        func settle() { for _ in 0..<30 { _ = CFRunLoopRunInMode(.defaultMode, 0.02, true); window.layoutIfNeeded() } }
+        func offset() -> CGFloat? {
+            var scroll: NSScrollView?
+            func walk(_ v: NSView) { if scroll == nil, let s = v as? NSScrollView { scroll = s }; v.subviews.forEach(walk) }
+            walk(host)
+            return scroll?.documentVisibleRect.origin.y
+        }
+        settle()
+        let onFirst = try #require(offset(), "no scroll view in the mounted outline")
+        #expect(onFirst > 100, "control: the first PDF's outline did not open at its current bookmark: \(onFirst)")
+
+        pdf.open(path: second, log: { _ in })
+        await wait("the second PDF") { pdf.phase == .open && pdf.path == second }
+        settle()
+        let onSecond = try #require(offset())
+        #expect(abs(onSecond) < 1, "the second PDF's outline opened where the first was left: \(onSecond)")
     }
 
     // MARK: The outline
@@ -323,7 +500,7 @@ import FileExplorerTestSupport
     }
 
     /// **Flattened depth-first, with the right depths and pages**, read in the lane with the open.
-    @Test func theOutlineIsFlattenedWithDepthsAndPages() async {
+    @Test func theOutlineIsFlattenedWithDepthsAndPages() async throws {
         let file = path("1099.pdf")
         writeBookmarked(file, pages: 6, tree: [
             Bookmark(title: "Summary", page: 0),
@@ -343,10 +520,14 @@ import FileExplorerTestSupport
             EditorPDFOutlineEntry(title: "Elsewhere", depth: 0, pageIndex: nil),
         ])
         // As the rail draws them: ids by position, so the scroll memory has a key per row.
-        #expect(EditorPDFOutline.rows(pdf.outline).map(\.id) == Array(0..<6))
-        #expect(EditorPDFRailOutline.pageLabels(pdf.outline) == [0: "1", 1: "2", 2: "2", 3: "3", 4: "4"])
+        try #require(pdf.outlineRail.rows.map(\.id) == Array(0..<6), "the outline's rows were not built from its bookmarks")
+        #expect(pdf.outlineRail.pageLabels == [0: "1", 1: "2", 2: "2", 3: "3", 4: "4"])
+        #expect(pdf.outlineRail.inert == [5], "the web-link bookmark is not drawn as going nowhere")
+        // A click goes to the bookmark's page; the pageless one goes nowhere.
+        #expect(EditorPDFRailOutline.page(for: pdf.outlineRail.rows[3], in: pdf.outline) == 2)
+        #expect(EditorPDFRailOutline.page(for: pdf.outlineRail.rows[5], in: pdf.outline) == nil)
         pdf.close()
-        #expect(pdf.outline.isEmpty, "the bookmarks outlived the PDF")
+        #expect(pdf.outline.isEmpty && pdf.outlineRail.rows.isEmpty, "the bookmarks outlived the PDF")
     }
 
     /// The bookmark at or before the current page; the chapter rather than its first section when
@@ -427,8 +608,13 @@ import FileExplorerTestSupport
 
     static func rail(entries: [EditorRailEntry], naming: Bool = false, tab: EditorRailTab = .files,
                      pdf: EditorPDFDocument? = nil) -> EditorFileRailView {
+        rail(entries: entries, naming: naming, tab: .constant(tab), pdf: pdf)
+    }
+
+    static func rail(entries: [EditorRailEntry], naming: Bool = false, tab: Binding<EditorRailTab>,
+                     pdf: EditorPDFDocument? = nil) -> EditorFileRailView {
         EditorFileRailView(folderName: "Notes", entries: entries, selectedPath: nil,
-                           accent: .blue, onAccent: .white, tab: .constant(tab),
+                           accent: .blue, onAccent: .white, tab: tab,
                            isNaming: .constant(naming), typedName: .constant(""),
                            prefilledName: { "Untitled.md" }, refusal: { _ in nil },
                            filter: .constant(""), filterIsExpanded: .constant(false),

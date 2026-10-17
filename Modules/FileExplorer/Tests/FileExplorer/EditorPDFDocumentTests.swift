@@ -322,10 +322,9 @@ enum PDFFixtures {
     /// ran together — the first CI run with Edit's reader on main (2026-10-17).
     @Test func theReaderNeverCountsOnThePreviewsSkipCounter() throws {
         let source = try ChromeGlassWiringTests.source("EditorPDFDocument.swift")
+        // Absence only: that the reader still counts its own is held by the `== 1` test above.
         #expect(!source.contains("PDFOpenTicket.noteSkipped("),
                 "Edit's reader counts its withdrawn opens on the column preview's process-wide counter")
-        #expect(source.contains("if case .skipped = read { skippedOpens &+= 1 }"),
-                "the reader no longer counts its own skipped opens")
     }
 
     /// **A load that comes back after the PDF was closed is dropped** — latest request wins, and a

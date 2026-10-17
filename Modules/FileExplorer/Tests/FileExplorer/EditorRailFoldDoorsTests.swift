@@ -34,6 +34,12 @@ import Foundation
         #expect(workspace.contains("showTextFiles: folder.isEmpty ? nil : onShowTextFiles)"),
                 "the empty page's Show Text Files is not the host's act, or is offered with no folder")
         #expect(workspace.contains("Button(action: showTextFiles) {"), "the empty page's button does not run its act")
-        #expect(EditorWorkspaceView.showTextFilesTitle == "Show Files")
+        #expect(EditorWorkspaceView.showTextFilesTitle == "Show File List")
+        // **Not "Files"**: that is Expand's lit button, which brings back the pane and the sidebar
+        // too. Two buttons on one screen named for one word did different things (review 10-17).
+        #expect(EditorWorkspaceView.showTextFilesTitle != EditorWorkspaceView.expandTitle(railIsHidden: true))
+        // The open document's row is lit whether it is text or a PDF.
+        #expect(workspace.contains("selectedPath: pdf?.path ?? document.path,"),
+                "the rail highlights the text document's path only — an open PDF's row is not lit")
     }
 }

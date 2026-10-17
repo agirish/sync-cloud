@@ -58,6 +58,28 @@ enum EditorPDFOutline {
             .joined(separator: " ")
     }
 
+    /// **What the Outline tab draws from the bookmarks, worked out once per load** — not on every
+    /// page turn, which redraws the tab: a manual with thousands of bookmarks walked them four
+    /// times per turn when this was computed in the view.
+    struct Rail: Equatable {
+        let rows: [MarkdownOutlineEntry]
+        /// Each bookmark's page number, one-based, by row id.
+        let pageLabels: [Int: String]
+        /// Rows with no page in this file.
+        let inert: Set<Int>
+
+        init(_ entries: [EditorPDFOutlineEntry]) {
+            rows = EditorPDFOutline.rows(entries)
+            var labels: [Int: String] = [:]
+            var none: Set<Int> = []
+            for (index, entry) in entries.enumerated() {
+                if let page = entry.pageIndex { labels[index] = String(page + 1) } else { none.insert(index) }
+            }
+            pageLabels = labels
+            inert = none
+        }
+    }
+
     /// The bookmarks as the rail's outline rows draw them — the Markdown outline's row type, so the
     /// Outline tab's list, its scroll memory and its opening scroll serve both kinds of file. The
     /// row's id is its position in the list (`line`), which is what the scroll memory keys on.
@@ -137,21 +159,38 @@ public final class EditorPDFThumbnails: ObservableObject {
 
     /// The document thumbnails are drawn from, created on the main actor and then touched only
     /// inside the lane — the box is how it crosses there.
+    ///
+    /// **Reopened every ``recycleEvery`` pages drawn.** A `PDFDocument` keeps what it decoded for
+    /// every page it has drawn, so one document drawing a whole scan grows with it: measured
+    /// 2026-10-17 on a 31 MB, 300-page scan, **56 MB** after all 300 pages from one document, and
+    /// a flat **~25 MB** reopened every 48. The images are capped; this caps the document. A copy
+    /// unlocked with a password cannot be reopened — the password is kept nowhere — so that one is
+    /// kept, and pays the growth until the PDF closes.
     final class Source: @unchecked Sendable {
         let path: String
         /// Opened in the lane on the first render — or handed in already unlocked.
         var document: PDFDocument?
         var opened = false
+        /// Whether ``document`` can be opened again from ``path`` — not a password-unlocked copy.
+        let reopens: Bool
+        /// Pages drawn from ``document`` since it was opened. Lane only.
+        var drawnSinceOpen = 0
         /// Pages begun, counted inside the render itself — test instrumentation readable from any
         /// thread, so a test holding the lane can ask "did anything draw around it?" without
         /// waiting on the main actor while it holds.
         let draws = OSAllocatedUnfairLock(initialState: 0)
+        /// Times ``document`` was opened from ``path``. Test instrumentation, as ``draws`` is.
+        let opens = OSAllocatedUnfairLock(initialState: 0)
         init(path: String, unlocked: PDFDocument? = nil) {
             self.path = path
             self.document = unlocked
             self.opened = unlocked != nil
+            self.reopens = unlocked == nil
         }
     }
+
+    /// Pages drawn before the thumbnails' document is let go and reopened — see ``Source``.
+    nonisolated static let recycleEvery = 48
 
     /// The pages wanted now, readable from inside the lane — so a turn that comes up for a page
     /// scrolled away since can skip itself before it draws anything.
@@ -172,7 +211,10 @@ public final class EditorPDFThumbnails: ObservableObject {
 
     private var source: Source?
     private var pageCount = 0
-    private let wanted = Wanted()
+    /// **One per attachment, never shared across them.** A turn still queued from the PDF before a
+    /// reload holds the set it was given; if that were the live one, the new PDF's pages would make
+    /// the old turn wanted again and it would draw from the old document for nothing.
+    private var wanted = Wanted()
     /// The wanted pages in the order they are asked for: the visible ones from the top, then the
     /// margin pages nearest first.
     private var queue: [Int] = []
@@ -216,7 +258,9 @@ public final class EditorPDFThumbnails: ObservableObject {
         queue = []
         failed = []
         window = nil
+        // Emptied, so a turn already queued from before skips itself; then replaced (see `wanted`).
         wanted.set([])
+        wanted = Wanted()
         asking = nil
         if !images.isEmpty { images = [:] }
         drawn = []
@@ -266,30 +310,43 @@ public final class EditorPDFThumbnails: ObservableObject {
         guard pump == nil, source != nil, nextPage() != nil else { return }
         let generation = self.generation
         pump = Task { [weak self] in
-            while let self, generation == self.generation, let page = self.nextPage(),
-                  let source = self.source {
-                self.asking = page
-                let result = await Self.render(page: page, source: source, wanted: self.wanted)
-                guard generation == self.generation else { return }
-                self.asking = nil
-                switch result {
-                case .image(let image):
-                    self.drawn.append(page)
-                    // Kept only if still near; drawn either way, so counted either way.
-                    if self.wanted.contains(page) {
-                        self.images[page] = image
-                        self.evict()
-                    }
-                case .failed:
-                    self.drawn.append(page)
-                    self.failed.insert(page)
-                case .skipped:
-                    self.skippedTurns += 1
-                    // Not wanted any more, so not next either — `queue` was replaced.
-                }
+            // **`self` is held only between turns, never across one.** A turn can wait behind a
+            // duplicate scan for minutes, and a strong reference held through that wait would keep
+            // this object and its images alive past the model that owns them.
+            while let ask = self?.nextAsk(generation) {
+                let result = await Self.render(page: ask.page, source: ask.source, wanted: ask.wanted)
+                guard let self, generation == self.generation else { return }
+                self.land(result, page: ask.page)
             }
             guard let self, generation == self.generation else { return }
             self.pump = nil
+        }
+    }
+
+    /// The next turn to ask for in `generation`, or `nil` when there is none — and marks it asked.
+    private func nextAsk(_ generation: Int) -> (page: Int, source: Source, wanted: Wanted)? {
+        guard generation == self.generation, let page = nextPage(), let source else { return nil }
+        asking = page
+        return (page, source, wanted)
+    }
+
+    /// What one turn brought back, applied.
+    private func land(_ result: Render, page: Int) {
+        asking = nil
+        switch result {
+        case .image(let image):
+            drawn.append(page)
+            // Kept only if still near; drawn either way, so counted either way.
+            if wanted.contains(page) {
+                images[page] = image
+                evict()
+            }
+        case .failed:
+            drawn.append(page)
+            failed.insert(page)
+        case .skipped:
+            skippedTurns += 1
+            // Not wanted any more, so not next either — `queue` was replaced.
         }
     }
 
@@ -298,10 +355,17 @@ public final class EditorPDFThumbnails: ObservableObject {
         await PDFKitSerialAccess.perform {
             guard wanted.contains(page) else { return .skipped }
             source.draws.withLock { $0 += 1 }
+            if source.reopens, source.drawnSinceOpen >= recycleEvery {
+                source.document = nil
+                source.opened = false
+            }
             if !source.opened {
                 source.opened = true
+                source.drawnSinceOpen = 0
                 source.document = PDFDocument(url: URL(fileURLWithPath: source.path))
+                source.opens.withLock { $0 += 1 }
             }
+            source.drawnSinceOpen += 1
             guard let document = source.document, !document.isLocked,
                   let pdfPage = document.page(at: page),
                   let image = drawThumbnail(pdfPage, longEdge: longEdge)
@@ -310,17 +374,26 @@ public final class EditorPDFThumbnails: ObservableObject {
         }
     }
 
+    /// A page's shape as the reader sees it: its crop box, turned by its rotation.
+    nonisolated static func shownSize(of page: PDFPage) -> CGSize {
+        let box = page.bounds(for: .cropBox)
+        return (page.rotation / 90) % 2 != 0 ? CGSize(width: box.height, height: box.width) : box.size
+    }
+
     /// One page as the reader sees it, at `longEdge`: the crop box, turned by the page's rotation.
     ///
     /// `PagePairRaster.render`'s drawing — a bitmap context, a white ground, the page drawn into
     /// it — with the two things a thumbnail must match the page view on and a compare raster need
-    /// not: the box PDFKit displays (`cropBox`, the `PDFView` default) and the page's rotation, which
-    /// `transform(for:)` applies along with the box's origin. Called inside the lane only.
+    /// not: the box PDFKit displays (`cropBox`, the `PDFView` default) and the page's rotation.
+    ///
+    /// **`draw(with:to:)` applies both itself** — the rotation and the box's origin. This first
+    /// shipped with `transform(for:)` concatenated before it as well, and measured 2026-10-17 with
+    /// a page marked in one corner, that applied them TWICE: a quarter-turned page drew blank and a
+    /// cropped one drew shifted. `aRotatedOrCroppedPageDrawsWhereTheReaderSeesIt` reads pixels.
+    /// Called inside the lane only.
     nonisolated static func drawThumbnail(_ page: PDFPage, longEdge: CGFloat) -> SendableImage? {
-        let box = page.bounds(for: .cropBox)
-        guard box.width > 1, box.height > 1 else { return nil }
-        let quarterTurned = (page.rotation / 90) % 2 != 0
-        let shown = quarterTurned ? CGSize(width: box.height, height: box.width) : box.size
+        let shown = shownSize(of: page)
+        guard shown.width > 1, shown.height > 1 else { return nil }
         let scale = longEdge / max(shown.width, shown.height)
         let size = CGSize(width: (shown.width * scale).rounded(), height: (shown.height * scale).rounded())
         guard size.width >= 1, size.height >= 1,
@@ -332,7 +405,6 @@ public final class EditorPDFThumbnails: ObservableObject {
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         context.fill(CGRect(origin: .zero, size: size))
         context.scaleBy(x: scale, y: scale)
-        context.concatenate(page.transform(for: .cropBox))
         page.draw(with: .cropBox, to: context)
         return context.makeImage().map(SendableImage.init)
     }

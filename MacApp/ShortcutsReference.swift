@@ -147,7 +147,7 @@ enum ShortcutsReference {
             Item(keys: "⇧⌘ N", action: "New folder in the focused pane's current folder"),
             // **⌃⌘T joins the sidebar's row** (TE81), for ⌃⌘E's reason in Edit below: a row of its
             // own does not fit this window. The two are the window's two side columns' switches.
-            Item(keys: "⌃⌘ S / ⌃⌘ T", action: "Show or hide sidebar / files"),
+            Item(keys: "⌃⌘ S / ⌃⌘ T", action: "Show or hide sidebar / file list"),
             Item(keys: "⇧⌘ .", action: "Show or hide hidden files"),
             Item(keys: "⇧⌘ P", action: "Show or hide the file preview"),
             Item(keys: "⌘ ⌫", action: "Delete the selected items, after confirming"),

@@ -132,11 +132,21 @@ struct EditorFileRailView: View {
     /// ``EditorRailTab/resolved(_:pdfIsOpen:)``.
     var shownTab: EditorRailTab { EditorRailTab.resolved(tab, pdfIsOpen: pdf != nil) }
 
+    /// The tab bar's selection: it READS the drawn tab and WRITES the chosen one, so a click on
+    /// Files while a remembered Pages is shown as Files is still a write — and the lens sits on what
+    /// is drawn, not on a tab that is not there.
+    var tabBarSelection: Binding<EditorRailTab> {
+        Binding(get: { shownTab }, set: { tab = $0 })
+    }
+
+    /// A file row's glyph, by what opens it.
+    static func rowSymbol(_ kind: EditorRailEntry.Kind) -> String {
+        kind == .pdf ? "doc.richtext" : "doc.text"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // The bar reads the drawn tab and writes the chosen one, so a click on Files while a
-            // remembered Pages is filtered out is a change — and the lens sits on what is drawn.
-            EditorRailTabBar(tab: Binding(get: { shownTab }, set: { tab = $0 }),
+            EditorRailTabBar(tab: tabBarSelection,
                              tabs: EditorRailTab.shown(pdfIsOpen: pdf != nil),
                              accent: accent, onAccent: onAccent)
                 .padding(.horizontal, 10)
@@ -190,7 +200,7 @@ struct EditorFileRailView: View {
     /// clicked. It says something worth saying on both sides, so it says it on both sides.
     private var contextRow: some View {
         HStack(spacing: 5) {
-            Image(systemName: shownTab == .files ? "folder" : "doc.text")
+            Image(systemName: shownTab == .files ? "folder" : (pdf == nil ? "doc.text" : "doc.richtext"))
                 .scaledFont(.system(size: 10))
                 .foregroundStyle(.tertiary)
             Text(contextName)
@@ -365,6 +375,8 @@ struct EditorFileRailView: View {
                                   emptyCaption: Self.outlineEmptyCaption(hasDocument: selectedPath != nil),
                                   outlineAnchors: $outlineAnchors, accent: accent,
                                   onSelect: onSelectHeading)
+                // One list per document — see `EditorRailOutlineList`'s `topRow`.
+                .id(selectedPath)
         }
     }
 
@@ -376,7 +388,7 @@ struct EditorFileRailView: View {
     static func outlineEmptyCaption(hasDocument: Bool) -> String {
         hasDocument
             ? "No headings in this document. A line starting with # makes one."
-            : "Open a text file to see its headings."
+            : "Open a note or a PDF to see its outline."
     }
 
     /// The step each outline level is drawn in by. Half the preview's, because the rail is 232pt
@@ -485,7 +497,7 @@ struct EditorFileRailView: View {
                     .frame(width: Self.dotColumnWidth, alignment: .leading)
                     .accessibilityHidden(dot == nil)
                     .accessibilityLabel("Unsaved")
-                Image(systemName: entry.kind == .pdf ? "doc.richtext" : "doc.text")
+                Image(systemName: Self.rowSymbol(entry.kind))
                     .scaledFont(.system(size: 11))
                 Text(entry.name)
                     .scaledFont(.system(size: 12, weight: isSelected ? .semibold : .regular))

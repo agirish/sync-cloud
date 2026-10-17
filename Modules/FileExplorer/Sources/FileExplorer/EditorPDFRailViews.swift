@@ -13,29 +13,26 @@ struct EditorPDFRailOutline: View {
 
     var body: some View {
         let bookmarks = pdf.outline
-        EditorRailOutlineList(rows: EditorPDFOutline.rows(bookmarks),
+        let rail = pdf.outlineRail
+        EditorRailOutlineList(rows: rail.rows,
                               currentIndex: EditorPDFOutline.currentIndex(page: view.currentPage,
                                                                           in: bookmarks),
                               path: pdf.path,
                               emptyCaption: EditorPDFOutline.emptyCaption(phase: pdf.phase),
                               outlineAnchors: $outlineAnchors, accent: accent,
                               onSelect: { row in
-                                  guard bookmarks.indices.contains(row.id),
-                                        let page = bookmarks[row.id].pageIndex else { return }
-                                  view.requestPage(page)
+                                  if let page = Self.page(for: row, in: bookmarks) { view.requestPage(page) }
                               },
                               noun: .bookmark,
-                              trailing: Self.pageLabels(bookmarks),
-                              inert: Set(bookmarks.indices.filter { bookmarks[$0].pageIndex == nil }))
+                              trailing: rail.pageLabels,
+                              inert: rail.inert)
+            // One list per PDF — see `EditorRailOutlineList`'s `topRow`.
+            .id(pdf.path)
     }
 
-    /// Each bookmark's page number, one-based, by row id.
-    static func pageLabels(_ bookmarks: [EditorPDFOutlineEntry]) -> [Int: String] {
-        var labels: [Int: String] = [:]
-        for (index, entry) in bookmarks.enumerated() {
-            if let page = entry.pageIndex { labels[index] = String(page + 1) }
-        }
-        return labels
+    /// The page a clicked row goes to, or `nil` for a row that goes nowhere.
+    static func page(for row: MarkdownOutlineEntry, in bookmarks: [EditorPDFOutlineEntry]) -> Int? {
+        bookmarks.indices.contains(row.id) ? bookmarks[row.id].pageIndex : nil
     }
 }
 
@@ -65,8 +62,11 @@ struct EditorPDFRailPages: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(0..<facts.pageCount, id: \.self) { index in
-                            cell(index, size: facts.pageSizes.indices.contains(index)
-                                    ? facts.pageSizes[index] : CGSize(width: 612, height: 792))
+                            // The shape the image will have — crop box, turned — so a row does not
+                            // change height when its thumbnail lands, which moved the grid under
+                            // the reader and threw the opening scroll off the current page.
+                            cell(index, size: facts.shownSizes.indices.contains(index)
+                                    ? facts.shownSizes[index] : CGSize(width: 612, height: 792))
                                 .id(index)
                                 .onAppear { visible.insert(index); thumbnails.show(visible) }
                                 .onDisappear { visible.remove(index); thumbnails.show(visible) }
@@ -96,12 +96,14 @@ struct EditorPDFRailPages: View {
         }
     }
 
-    /// What the tab says when there are no pages to draw.
+    /// What the tab says when there are no pages to draw — for a refused file, the card's own
+    /// reason, so the rail and the card say the same thing about it.
     static func caption(phase: EditorPDFDocument.Phase) -> String {
         switch phase {
         case .loading: return "Reading the PDF…"
         case .locked: return "Unlock the PDF to see its pages."
-        case .open, .refused: return "There are no pages to show for this file."
+        case .refused(let reason): return reason
+        case .open: return "This PDF has no pages."
         }
     }
 
@@ -123,9 +125,13 @@ struct EditorPDFRailPages: View {
                     .monospacedDigit()
                     .foregroundStyle(isCurrent ? .primary : .secondary)
             }
-            .contentShape(Rectangle())
+            .padding(4)
+            .contentShape(EditorFileRailView.rowOutline)
         }
-        .buttonStyle(.plain)
+        // The rail's own row wash, as every other row here wears — a bare `.plain` was the one
+        // control in the rail that gave no sign it could be clicked.
+        .buttonStyle(.hoverAffordance(.row, tint: accent, shape: EditorFileRailView.rowShape))
+        .help("Go to page \(index + 1)")
         .accessibilityLabel("Page \(index + 1)")
         .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
     }

@@ -34,6 +34,10 @@ struct EditorRailOutlineList: View {
     }
 
     /// The outline's top row, as `.scrollPosition(id:)` reports and accepts it.
+    ///
+    /// **Per document — both call sites give the list `.id(path)`.** Kept across a change of file,
+    /// a top row from the last one survived into the next, and with a PDF's row ids running 0…n−1
+    /// it almost always named a row there too: PDF B opened scrolled to where A was left.
     @State private var topRow: Int?
     /// The section's height, as the scroll view reports it — the one input that decides how
     /// many rows are on screen, and so whether the current row would be past the fold.

@@ -139,7 +139,7 @@ extension ContentView {
     enum EditorRailDoor: String {
         case strip = "the strip"
         case foldButton = "the list's fold button"
-        case menu = "View ▸ Files"
+        case menu = "View ▸ File List"
         case emptyPage = "the empty page"
     }
 
@@ -189,7 +189,8 @@ extension ContentView {
         }
     }
 
-    /// **View ▸ Files ⌃⌘T** (TE81): ticked while the list is on screen. `nil` — greyed —
+    /// **View ▸ File List ⌃⌘T** (TE81) — not "Files", which is Expand's lit button and brings
+    /// back the pane and the sidebar too; this brings back the list alone: ticked while the list is on screen. `nil` — greyed —
     /// outside Edit and while Edit's pane is open, where the pane is the file list and the list
     /// would not be drawn whatever the item said. Under Expand it is offered and unticked, and
     /// ticking it ends Expand as the strip's button does.

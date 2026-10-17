@@ -56,7 +56,11 @@ public final class EditorPDFDocument: ObservableObject {
     @Published private(set) var document: PDFDocument?
     /// The PDF's bookmarks, flattened for the rail's Outline tab — read in the same lane turn as
     /// ``facts``. Empty until it has opened, and for a file with none.
-    @Published public private(set) var outline: [EditorPDFOutlineEntry] = []
+    @Published public private(set) var outline: [EditorPDFOutlineEntry] = [] {
+        didSet { if outline != oldValue { outlineRail = EditorPDFOutline.Rail(outline) } }
+    }
+    /// ``outline`` as the rail draws it, rebuilt only when the bookmarks change.
+    private(set) var outlineRail = EditorPDFOutline.Rail([])
 
     /// Where the reader is, and how the page is sized — see ``EditorPDFViewState``.
     public let view = EditorPDFViewState()
@@ -432,6 +436,10 @@ public struct EditorPDFFacts: Equatable, Sendable {
     public var fileSize: String?
     /// Whether any of the first pages has text to select — a scan has none.
     public var hasText: Bool
+    /// Each page as the reader SEES it — its crop box, turned by its rotation — which is the shape
+    /// the page view draws and a thumbnail is drawn in (``EditorPDFThumbnails/shownSize(of:)``).
+    /// ``pageSizes`` stays the media box, the paper the status line names. Empty when not read.
+    public var shownSizes: [CGSize] = []
 
     /// How many pages are asked for text. A 300-page scan is not walked end to end to say "Image
     /// only": if the first few have no text layer, the rest of a scan will not either.
@@ -440,14 +448,17 @@ public struct EditorPDFFacts: Equatable, Sendable {
     /// Called inside the lane only.
     nonisolated static func read(_ document: PDFDocument, path: String) -> EditorPDFFacts {
         let count = document.pageCount
-        let sizes = (0..<count).map { document.page(at: $0)?.bounds(for: .mediaBox).size ?? .zero }
+        let pages = (0..<count).map { document.page(at: $0) }
+        let sizes = pages.map { $0?.bounds(for: .mediaBox).size ?? .zero }
+        let shown = pages.map { $0.map(EditorPDFThumbnails.shownSize(of:)) ?? .zero }
         let hasText = (0..<min(count, textProbePages)).contains { index in
             guard let text = document.page(at: index)?.string else { return false }
             return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         let size = EditorFileStore.stamp(ofPath: path).map { FileSyncManager.formatBytes($0.size) }
         return EditorPDFFacts(pageCount: count, pageSizes: sizes, majorVersion: document.majorVersion,
-                              minorVersion: document.minorVersion, fileSize: size, hasText: hasText)
+                              minorVersion: document.minorVersion, fileSize: size, hasText: hasText,
+                              shownSizes: shown)
     }
 
     /// "Letter · 8.5 × 11 in" for the page at `index`, or `nil` past the end.
