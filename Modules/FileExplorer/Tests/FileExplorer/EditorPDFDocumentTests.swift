@@ -306,13 +306,26 @@ enum PDFFixtures {
         let hold = LaneHold()
         defer { hold.release() }
         try #require(await hold.waitUntilHeld())
-        let skippedBefore = PDFOpenTicket.skippedOpens
+        let skippedBefore = pdf.skippedOpens
         pdf.open(path: passed, log: { _ in })
         pdf.open(path: stopped, log: { _ in })
         hold.release()
         await wait("both opens to come back") { pdf.loadsReturned >= 2 }
-        #expect(PDFOpenTicket.skippedOpens - skippedBefore >= 1, "the passed-over PDF was parsed anyway")
+        // Exactly one: the count is this model's own, so nothing running alongside can add to it.
+        #expect(pdf.skippedOpens - skippedBefore == 1, "the passed-over PDF was parsed anyway, or more than one open was withdrawn")
         #expect(pdf.path == stopped && pdf.facts?.pageCount == 1)
+    }
+
+    /// **The reader counts its skips on itself, never on the column preview's counter.**
+    /// `PDFPreviewMountedTests` asserts that counter does not move across a held lane; this suite
+    /// withdraws opens on purpose, so counting there turned the preview's test red whenever the two
+    /// ran together — the first CI run with Edit's reader on main (2026-10-17).
+    @Test func theReaderNeverCountsOnThePreviewsSkipCounter() throws {
+        let source = try ChromeGlassWiringTests.source("EditorPDFDocument.swift")
+        #expect(!source.contains("PDFOpenTicket.noteSkipped("),
+                "Edit's reader counts its withdrawn opens on the column preview's process-wide counter")
+        #expect(source.contains("if case .skipped = read { skippedOpens &+= 1 }"),
+                "the reader no longer counts its own skipped opens")
     }
 
     /// **A load that comes back after the PDF was closed is dropped** — latest request wins, and a

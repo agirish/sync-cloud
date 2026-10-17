@@ -250,7 +250,9 @@ import FileExplorerTestSupport
     @Test func theMountedGridAsksForItsPagesAndAgainAfterAReload() async throws {
         let file = path("mounted.pdf")
         PDFFixtures.write(file, pages: 40)
-        let pdf = EditorPDFDocument(settle: .milliseconds(10), isCloudOnly: { _ in false })
+        // A watch that never settles inside the test: the rewrite below is looked at once, by
+        // hand. A live watch looked a second time, re-queuing the reload and withdrawing the first.
+        let pdf = EditorPDFDocument(settle: .seconds(3600), isCloudOnly: { _ in false })
         pdf.open(path: file, log: { _ in })
         await wait("the open") { pdf.phase == .open }
 

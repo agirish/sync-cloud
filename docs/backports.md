@@ -7095,15 +7095,16 @@ Edit, the preview column's button, a click in Edit's pane and the inspector offe
 can reach the PDF. The parse, the unlock and the facts go through `PDFKitSerialAccess`.
 
 ```sh
-for l in main v4.x v3.x v2.x; do
+for l in main v5.x v4.x v3.x v2.x; do
   printf '%-5s editorDocument=%s editableText=%s pdfModel=%s lane=%s\n' "$l" \
     "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorDocument.swift | wc -l | tr -d ' ')" \
     "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PairContentKind.swift 2>/dev/null | grep -c 'enum EditableText')" \
     "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift | wc -l | tr -d ' ')" \
     "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/PDFKitSerialAccess.swift | wc -l | tr -d ' ')"
 done
-# measured 2026-10-16, against origin, before this landed:
+# measured 2026-10-17, against origin, before this landed:
 # main  editorDocument=1 editableText=1 pdfModel=0 lane=1
+# v5.x  editorDocument=1 editableText=1 pdfModel=0 lane=1
 # v4.x  editorDocument=0 editableText=0 pdfModel=0 lane=1
 # v3.x  editorDocument=0 editableText=0 pdfModel=0 lane=0
 # v2.x  editorDocument=0 editableText=0 pdfModel=0 lane=0
@@ -7111,8 +7112,13 @@ done
 
 | Line | Carries | Status |
 |---|---|---|
+| `v5.x` | Edit, `EditableText`, the lane and `PDFOpenTicket` — and the defect: a PDF from Open With ▸ Other… opens read-only as garbled text | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace at all (`EditorDocument` is v5) | CLOSED — does not apply |
-| `v5.x` | Edit, without `EditorPDFDocument` (cut at `v5.5` before this landed; measured `pdfModel=0`) | RECORDED — not owed (main only) |
+
+**`v5.x` pick notes.** One self-contained commit; every prerequisite is on the line (`PDFOpenTicket`
+came with v5.5's preview review). Expect the same wiring pins to move (`editorOpenPath`,
+`EditorOpenRoute.load`, `opensInEdit`), and `PDFKitSerialAccess`'s doc paragraph to need merging
+with whatever that line's copy says about File ▸ Print.
 
 ## Edit's rail lists PDFs, with Pages and a PDF's bookmarks — main only
 

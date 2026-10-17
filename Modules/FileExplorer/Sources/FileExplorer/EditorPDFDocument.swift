@@ -89,6 +89,8 @@ public final class EditorPDFDocument: ObservableObject {
     /// Every lane read that has come back, applied or dropped — so a test can wait for a load it
     /// expects to be DROPPED, which tells `onLoaded` nothing.
     private(set) var loadsReturned = 0
+    /// Opens this model withdrew before their turn, which the lane then skipped unparsed.
+    private(set) var skippedOpens = 0
 
     public init(settle: Duration = .milliseconds(250),
                 isCloudOnly: @escaping (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }) {
@@ -203,6 +205,7 @@ public final class EditorPDFDocument: ObservableObject {
             let read = await Self.read(path, ticket: ticket)
             guard let self else { return }
             loadsReturned &+= 1
+            if case .skipped = read { skippedOpens &+= 1 }
             guard generation == self.generation, self.path == path else { return }
             self.stamp = before
             switch read {
@@ -246,10 +249,9 @@ public final class EditorPDFDocument: ObservableObject {
     /// The lane's half of a load: open, and if it opened, read what the status line needs.
     nonisolated static func read(_ path: String, ticket: PDFOpenTicket = PDFOpenTicket()) async -> Read {
         await PDFKitSerialAccess.perform {
-            guard ticket.isWanted else {
-                PDFOpenTicket.noteSkipped()
-                return .skipped
-            }
+            // Counted by the model that withdrew it (``skippedOpens``), not on the column
+            // preview's process-wide `PDFOpenTicket.skippedOpens` — see that counter's doc.
+            guard ticket.isWanted else { return .skipped }
             guard let document = PDFDocument(url: URL(fileURLWithPath: path)) else { return .unreadable }
             if document.isLocked { return .locked(SendableDocument(document)) }
             return .open(SendableDocument(document), EditorPDFFacts.read(document, path: path),

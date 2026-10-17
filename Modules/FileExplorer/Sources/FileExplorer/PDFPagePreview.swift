@@ -315,9 +315,16 @@ final class PDFOpenTicket: Sendable {
 
     private static let skips = OSAllocatedUnfairLock(initialState: 0)
 
-    /// How many opens the lane has skipped because they were withdrawn first, for the life of the
-    /// process. Test instrumentation, like `PDFKitSerialAccess.peakConcurrentParses`: a skipped
-    /// parse has no other outside signature. Never reset, for that counter's reason.
+    /// How many of the COLUMN PREVIEW's opens the lane has skipped because they were withdrawn
+    /// first, for the life of the process. Test instrumentation, like
+    /// `PDFKitSerialAccess.peakConcurrentParses`: a skipped parse has no other outside signature.
+    /// Never reset, for that counter's reason.
+    ///
+    /// **The preview's alone.** `PDFPreviewMountedTests` asserts it does NOT move across a held
+    /// lane, so any other reader counting here breaks that test whenever it runs alongside. Edit's
+    /// reader did, from 1a until 2026-10-17, and its tests withdraw opens on purpose: the first CI
+    /// run with it on main went red on exactly that assertion. A new reader that withdraws opens
+    /// counts them on itself, as `EditorPDFDocument.skippedOpens` does.
     static var skippedOpens: Int { skips.withLock { $0 } }
     static func noteSkipped() { skips.withLock { $0 += 1 } }
 }

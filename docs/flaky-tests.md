@@ -710,6 +710,24 @@ known to be reachable two ways:
 **See.** `d282ac6` — *Isolate DifferencesView test mounts in per-mount scratch defaults*;
 `Modules/FileExplorer/Tests/FileExplorer/CloudOnlyBadgeCacheTests.swift` for the shape of the note.
 
+
+**Two instances on the PDFKit lane, both fixed 2026-10-17.** Each was red only in a full package
+run and green under `--filter`, which the signature above predicts. **Before blaming load, rerun
+the package with `--skip <the suite you just added>`.** That one run told them apart; "it passes
+alone" did not.
+
+- **A process-wide counter asserted UNCHANGED.** `PDFPreviewMountedTests.aReRenderDuringTheLoadDoesNotOpenTheDocumentAgain`
+  expects `PDFOpenTicket.skippedOpens` not to move across a held lane. Edit's PDF reader counted
+  its own withdrawn opens there too, and `EditorPDFDocumentTests` withdraws them on purpose, so the
+  first CI run with the reader on `main` went red on that line. Fix: `EditorPDFDocument.skippedOpens`
+  counts the reader's own. **A counter something asserts does not move belongs to one reader.**
+- **A lane hold that waits on the main actor.** `EditorPDFRailTests` held `PDFKitSerialAccess`'s
+  lane and then slept or polled on the main actor. A full run crowds the main actor, so each hold
+  stretched to seconds, and other suites' 30 s `LaneHold.waitUntilHeld` budgets ran out:
+  `PDFPreviewMountedTests` and `DocumentPrintingTests`, three reds per run. With `--skip
+  EditorPDFRailTests` the run went green. Fix: release the hold as soon as the queued turn is
+  observable, from a detached task, and read lane-side counts through a lock. **Never wait on
+  the main actor while holding the lane.**
 ### 4. Leaked defaults suites
 
 **Symptom.** Accumulating `<SuiteName>-<UUID>.plist` files in `~/Library/Preferences`, and
