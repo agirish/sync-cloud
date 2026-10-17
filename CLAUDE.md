@@ -1,13 +1,14 @@
 # SyncCloud — working agreement
 
-## Four release lines: `main` is v5, `v4.x`, `v3.x` and `v2.x` are maintenance
+## Five release lines: `main` is v6, `v5.x`, `v4.x`, `v3.x` and `v2.x` are maintenance
 
-Four long-lived branches, and only four. Every shipped major keeps a maintenance line, cut from
+Five long-lived branches, and only five. Every shipped major keeps a maintenance line, cut from
 that major's last tag when the next major opens on `main`:
 
 | Branch | Carries | Marker at tip | Breaking changes |
 |---|---|---|---|
-| `main` | the **v5 line** — where the next release is built | `5.5` / `505` | **allowed** |
+| `main` | the **v6 line** — where the next release is built | `6.0-dev` / `600` | **allowed** |
+| `v5.x` | maintenance for the shipped **5.x series** (cut at `v5.5`, 2026-10-17) | `5.6-dev` / `506` | **never** |
 | `v4.x` | maintenance for the shipped **4.x series** (cut at `v4.6`, 2026-08-28) | `4.7-dev` / `407` | **never** |
 | `v3.x` | maintenance for the shipped **3.x series** (cut at `v3.1`, 2026-08-11) | `3.2-dev` / `302` | **never** |
 | `v2.x` | maintenance for the shipped **2.x series** (cut at `v2.8`, 2026-08-01) | `2.10-dev` / `210` | **never** |
@@ -18,10 +19,10 @@ oldest-line-first rule; do not re-derive that rule from the shape of the table, 
 the question per batch.
 
 **Record the gap anyway, in [`docs/backports.md`](docs/backports.md).** Those rows are now a
-*record* of what `main` carries that `v4.x`, `v3.x` and `v2.x` do not — what a future audit needs if
+*record* of what `main` carries that `v5.x`, `v4.x`, `v3.x` and `v2.x` do not — what a future audit needs if
 the direction ever changes — not a to-do list. Write down both directions: "checked and not owed"
 saves the next audit as much time as "owed", and the per-file pick notes are the expensive half to
-reconstruct. The file is carried on all four lines, so a maintainer on a maintenance line can read
+reconstruct. The file is carried on all five lines, so a maintainer on a maintenance line can read
 it without going through `main`. Largest known gap: **`v3.x` has none of the `DeleteOutcome`
 family**, so it cannot tell a trashed item from a permanently deleted one and offers ⌘Z for removals
 it cannot take back.
@@ -30,16 +31,16 @@ it cannot take back.
 `.github/workflows/tests.yml` in the same commit that pushes the branch** — and re-bump its tip
 marker in that same commit (see **Cutting a release**, step 5).
 
-**Never merge one line into another.** All four stay linear; move commits with `git cherry-pick`.
+**Never merge one line into another.** All five stay linear; move commits with `git cherry-pick`.
 If a pick is ever authorised again, **verify it landed by CONTENT, not by `git branch -r --contains`**
 — a cherry-pick has a new SHA, so `--contains` answers about the wrong commit.
 
-**`origin` carries the four lines and nothing else — and that is a thing to CHECK, not assume.**
+**`origin` carries the five lines and nothing else — and that is a thing to CHECK, not assume.**
 A stray `roots` branch sat there unnoticed until 2026-08-27 because nothing here ever looked. One
-command, and it prints exactly four lines when the remote is clean:
+command, and it prints exactly five lines when the remote is clean:
 
 ```sh
-git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x,v4.x}, nothing else
+git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x,v4.x,v5.x}, nothing else
 ```
 
 A fifth is scaffolding and can go — but **deleting a remote branch is outward-facing, so establish
@@ -49,7 +50,7 @@ lacks), and a local branch at the same SHA means the commits outlive the remote 
 
 Releases are cut as **tags on the line that owns them** — `v2.9` from `v2.x`, `v5.0` from `main`.
 Tags mark history and are never branched from, except once when a new maintenance line is cut from a
-major's last tag; these four branches are the only ones that persist.
+major's last tag; these five branches are the only ones that persist.
 
 **One branch is a deliberate exception, written here so nobody tidies it away:
 `candidate-tap-deferral` (`dba29645`).** It parks a single unlanded 2026-08-04 commit — a tap-gesture
@@ -235,7 +236,7 @@ left all three lines' tables reading `4.1-dev` / `401`, and the table is what a 
 # main's row is read from the WORKING TREE — that is the copy you are about to land, and during a
 # cut it is the only one that is right. The maintenance rows come from origin, the only place they
 # exist. Reading origin on BOTH sides reports "clean" all through a local bump, which is useless.
-for l in main v4.x v3.x v2.x; do
+for l in main v5.x v4.x v3.x v2.x; do
   if [ "$l" = main ]; then m=$(grep -o '"[0-9.]*-dev"' project.yml | tr -d '"')
   else m=$(git show origin/$l:project.yml | grep -o '"[0-9.]*-dev"' | tr -d '"'); fi
   r=$(grep "^| \`$l\`" CLAUDE.md | grep -o '`[0-9.]*-dev`' | tr -d '`')
@@ -419,5 +420,5 @@ behavior changes are costly.
 
 **Before blaming a commit for a red suite, read [`docs/flaky-tests.md`](docs/flaky-tests.md).** It
 carries the known flake mechanisms with the tell for each, and it is the difference between fixing a
-regression and re-diagnosing a machine. It is carried on all four lines, but **the numbering is
+regression and re-diagnosing a machine. It is carried on all five lines, but **the numbering is
 per-line and the counts differ** — cite a mechanism by its title, never by its number.
