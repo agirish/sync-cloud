@@ -408,6 +408,30 @@ import Testing
         #expect(EditorVerbs.hasTextView(in: .preview, previewEditing: true))
     }
 
+    /// **The Markup items — and so their chords — are greyed in a file that is not Markdown**
+    /// (FMT-18): ⌘B wrote `****` into a `.yaml`. Every term of the rule flipped alone, and the
+    /// call site reads it. Mutation: drop `isMarkdown` from the rule and the second line fails.
+    @Test func markupIsGreyedOutsideMarkdown() throws {
+        #expect(EditorVerbs.canMarkUp(isReadOnly: false, isMarkdown: true, hasTextView: true))
+        #expect(!EditorVerbs.canMarkUp(isReadOnly: false, isMarkdown: false, hasTextView: true))
+        #expect(!EditorVerbs.canMarkUp(isReadOnly: true, isMarkdown: true, hasTextView: true))
+        #expect(!EditorVerbs.canMarkUp(isReadOnly: false, isMarkdown: true, hasTextView: false))
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/ContentView+Editor.swift")
+        let flat = sourceCodeOnly(try String(contentsOf: url, encoding: .utf8))
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        #expect(flat.contains("canMarkUp: EditorVerbs.canMarkUp(isReadOnly: editorDocument.isReadOnly, isMarkdown: isMarkdown,"),
+                "the menu's Markup items are not greyed by the rule")
+        // Help says so, as it says where else the items grey.
+        let help = try #require(HelpBook.topic(id: "editor-workspace"))
+        let said = help.article.blocks.contains { block in
+            if case .bullets(let items) = block { return items.contains { $0.contains("greyed for a file that is not Markdown") } }
+            return false
+        }
+        #expect(said, "Help does not say the Markup items grey outside Markdown")
+    }
+
     /// The call-site half: `shortcutEditorVerbs` resolves through the rule rather than spelling a
     /// workspace test of its own, and feeds the drawn mode to the text-view gate.
     @Test func theEditorVerbsAreResolvedThroughTheRule() throws {

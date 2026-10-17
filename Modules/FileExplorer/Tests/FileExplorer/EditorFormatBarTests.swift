@@ -300,20 +300,27 @@ import EventsTestSupport
             // A caret inside the word is NOT lit: Bold there would add a second pair. Selecting the
             // word (a double-click does) is what lights it — the verbs' own rule.
             ("4. Finish with **ple‸nty** of parmesan.", [.numberedList]),
-            // The verbs' rule again, kept: Italic over `**loud**` selected whole takes one star off
-            // each side, so it lights with Bold. `aLitButtonsPressTakesItOffAndADarkOnesPutsItOn`
-            // holds the two together.
-            ("say ⟦**loud**⟧ now", [.bold, .italic]),
+            // Bold alone (FMT-4): `**loud**` selected whole is not italic, and Italic over it adds a
+            // third star rather than taking bold's two away — so Italic stays dark. This line read
+            // [.bold, .italic] while Italic demoted the bold.
+            ("say ⟦**loud**⟧ now", [.bold]),
+            ("say ⟦***loud***⟧ now", [.bold, .italic]),   // bold-italic: both come off
+            ("say ***⟦loud⟧*** now", [.bold, .italic]),
             ("an *⟦aside⟧* here", [.italic]),
             ("a **⟦bold⟧** word", [.bold]),                  // not Italic: the neighbour guard
             ("~~⟦gone⟧~~", [.strikethrough]),
             ("run `⟦ls⟧` first", [.inlineCode]),
             ("⟦# Title⟧", [.heading(1)]),
             ("## Ing‸redients", [.heading(2)]),
+            ("Ti‸tle\n=====", [.heading(1)]),                // setext (FMT-13)
             ("- [ ] milk‸", [.taskItem]),                    // not Bulleted List: a task is not a bullet
             ("- ⟦milk⟧", [.bulletList]),
             ("> ⟦quoted⟧", [.blockQuote]),
-            ("> - ⟦both⟧", [.blockQuote]),                   // a quote nests; the list is under it
+            // A quote nests, and the list under it is read past its `> ` (FMT-7): Bullets lights
+            // too, and its press takes the dash off inside the quote. This read [.blockQuote]
+            // while Bullets on it wrote `- > - both`.
+            ("> - ⟦both⟧", [.blockQuote, .bulletList]),
+            ("  - ⟦nested⟧", [.bulletList]),
             ("⟦plain text⟧", []),
             ("‸", []),                                       // a blank line lights nothing
             ("a ⟦[link](url)⟧ here", []),
@@ -335,10 +342,19 @@ import EventsTestSupport
     /// on. "Off" for an inline verb is a shorter buffer; for a line verb, no touched line still
     /// carries the verb's own marker. This is the property the lit state exists to have, checked
     /// against `MarkdownEdits.apply` rather than against a copy of its rules.
+    ///
+    /// **And a lit inline press takes off ITS formatting, and only its** (FMT-22): the rendering
+    /// keeps its words, the verb's own styled characters drop, and every other style's count stays.
+    /// "A shorter buffer" alone let Italic demote `**loud**` to `*loud*` (FMT-4) and invert two
+    /// italic spans (FMT-5) and still pass — both are shorter. The buffers now hold the shapes the
+    /// review found broken: a bold word for Italic, two spans, bold-italic, a nested and a quoted
+    /// list, a quoted heading, a bare task box, a setext heading and a comment in code.
     @Test func aLitButtonsPressTakesItOffAndADarkOnesPutsItOn() {
         let buffers = ["**bold**", "say **loud** now", "*it*", "a **b** c", "~~x~~", "`c`", "# One",
                        "## Two", "### Three", "#### Four", "- item", "- [ ] task", "- [x] done",
-                       "1. first", "> q", "> - q", "plain", "two\nlines", "# H\nbody", "- a\n- b"]
+                       "1. first", "> q", "> - q", "plain", "two\nlines", "# H\nbody", "- a\n- b",
+                       "*a* and *b*", "***x***", "x ``y`` z", "- a\n  - b", "> # T", "- [ ]",
+                       "Title\n=====", "```\n# c\n```", "- long\n  more"]
         let toggles: [MarkupVerb] = [.bold, .italic, .strikethrough, .inlineCode, .heading(1),
                                      .heading(2), .heading(3), .bulletList, .numberedList, .taskItem,
                                      .blockQuote]
@@ -373,12 +389,28 @@ import EventsTestSupport
                             ns.substring(to: range.location).filter { $0 == "\n" }.count
                         }
                         let after = edit.text.components(separatedBy: "\n")
+                        // Read past each line's quote markers and indentation, as the verbs do (FMT-7).
                         tookOff = !touched.contains { index in
-                            index < after.count
-                                && after[index].range(of: prefix.appliedPattern, options: .regularExpression) != nil
+                            guard index < after.count else { return false }
+                            let line = after[index]
+                            let rest = (line as NSString).substring(from: MarkdownEdits.containerLength(line, for: prefix))
+                            return rest.range(of: prefix.appliedPattern, options: .regularExpression) != nil
                         }
                     } else {
                         tookOff = (edit.text as NSString).length < ns.length
+                        if lit, selection.length > 0 {
+                            let was = Self.styledCharacters(text), now = Self.styledCharacters(edit.text)
+                            #expect(now.plain == was.plain,
+                                    "\(verb.title) over “\(text)” \(selection) changed the words: “\(edit.text)”")
+                            for style in Self.inlineStyles {
+                                let before = was.counts[style] ?? 0, after = now.counts[style] ?? 0
+                                if style == verb {
+                                    #expect(after < before, "\(verb.title) over “\(text)” \(selection) lit, but its press left its style on: “\(edit.text)”")
+                                } else {
+                                    #expect(after == before, "\(verb.title) over “\(text)” \(selection) changed \(style.title) too: “\(edit.text)”")
+                                }
+                            }
+                        }
                     }
                     #expect(lit == tookOff,
                             "\(verb.title) over “\(text)” \(selection): lit \(lit), but the press \(tookOff ? "takes it off" : "puts it on")")
@@ -390,6 +422,31 @@ import EventsTestSupport
         let lightable = Set(MarkupVerb.menuOrder.compactMap { $0 }.filter(EditorFormatBar.canLight))
         #expect(lightable.subtracting(everLit).isEmpty,
                 "never lit in the sweep: \(lightable.subtracting(everLit).map(\.title)) — drawn as toggles for nothing")
+    }
+
+    static let inlineStyles: [MarkupVerb] = [.bold, .italic, .strikethrough, .inlineCode]
+
+    /// A buffer's rendered words, and how many of their characters each inline style holds.
+    static func styledCharacters(_ text: String) -> (plain: String, counts: [MarkupVerb: Int]) {
+        var plain = ""
+        var counts: [MarkupVerb: Int] = [:]
+        for block in MarkdownBlocks.blocks(from: text) {
+            let runs: [MarkdownRun]
+            switch block.kind {
+            case .paragraph(let line), .heading(_, let line), .listItem(_, let line): runs = line.runs
+            default: runs = []
+            }
+            for run in runs {
+                plain += run.text
+                let n = run.text.count
+                if run.isBold { counts[.bold, default: 0] += n }
+                if run.isItalic { counts[.italic, default: 0] += n }
+                if run.isStruck { counts[.strikethrough, default: 0] += n }
+                if run.isCode { counts[.inlineCode, default: 0] += n }
+            }
+            plain += "\n"
+        }
+        return (plain, counts)
     }
 
     /// **The whole way from a caret to a lit button, in a mounted workspace** — the text view's
@@ -1032,6 +1089,47 @@ import EventsTestSupport
                 "the right-click menu is not told the caret is in a table")
     }
 
+    /// **An inline mark or a link across a table's cells is greyed and refused; inside one cell it
+    /// works** (FMT-1). A triple-clicked header row wrapped in Bold became three cells over a
+    /// delimiter row that no longer was one, and the table read as paragraphs; the bar kept Bold
+    /// offered, because the marks "only wrap words inside a cell". The right-click menu greys them
+    /// by the same rule.
+    ///
+    /// Mutation: drop the `crossesCells` term from `breaksTable`, and every refusal fails; drop it
+    /// from `isOffered`, and the bar's lines do.
+    @Test func anInlineMarkAcrossTableCellsIsGreyedAndRefused() {
+        let text = Self.tableText
+        let start = Self.offset(of: "| Day")
+        let triple = NSRange(location: start, length: Self.offset(of: "|-----") - start)
+        let row = NSRange(location: start, length: ("| Day | Where |" as NSString).length)
+        let acrossPipe = NSRange(location: Self.offset(of: "Day"),
+                                 length: Self.offset(of: "Where") + 5 - Self.offset(of: "Day"))
+        let intoProse = NSRange(location: Self.offset(of: "Gion"), length: Self.offset(of: "After") + 2 - Self.offset(of: "Gion"))
+        let marks: [MarkupVerb] = [.bold, .italic, .strikethrough, .inlineCode, .link]
+        for selection in [triple, row, acrossPipe, intoProse] {
+            let state = MarkupFormatState.of(text, selection: selection)
+            #expect(state.crossesCells, "\(selection) is not read as crossing cells")
+            for verb in marks {
+                let offered = EditorFormatBar.isOffered(verb, in: state)
+                #expect(!offered, "\(verb.title) is offered across cells at \(selection)")
+                let written = MarkdownEdits.apply(verb, to: text, selection: selection)
+                #expect(written == nil, "\(verb.title) across cells wrote \(String(describing: written?.text))")
+            }
+        }
+        // Inside one cell: offered, and the table is still a table.
+        let gion = NSRange(location: Self.offset(of: "Gion"), length: 4)
+        let inCell = MarkupFormatState.of(text, selection: gion)
+        #expect(!inCell.crossesCells && EditorFormatBar.isOffered(.bold, in: inCell))
+        let bold = MarkdownEdits.apply(.bold, to: text, selection: gion)?.text ?? ""
+        let tables = MarkdownBlocks.blocks(from: bold).filter { if case .table = $0.kind { return true }; return false }.count
+        #expect(bold.contains("**Gion**") && tables == 1, "Bold in a cell wrote \(bold)")
+        // The right-click menu greys the marks by the same rule.
+        let menu = PlainTextEditor.Coordinator.markupMenu(target: nil, action: #selector(NSText.copy(_:)),
+                                                          tables: [], inTable: true, crossesCells: true)
+        let live = menu.items.filter { !$0.isSeparatorItem && $0.submenu == nil && $0.isEnabled }.map(\.title)
+        #expect(!marks.contains { live.contains($0.title) }, "the right-click menu offers \(live) across cells")
+    }
+
     /// **The Table button makes a table from the selected lines when they split into cells, else
     /// inserts one** (decision AB) — and says which in its tooltip; it is the run's first section
     /// in a folded Insert. Mutation: always insert, and the first line fails.
@@ -1046,6 +1144,37 @@ import EventsTestSupport
         let button = try Self.slice(bar, from: "private func tableButton(worded: Bool)", to: "\n    }\n")
         #expect(button.contains("let verb = Self.tableVerb(in: state)") && button.contains("Button { onVerb(verb) }")
                 && button.contains(".help(verb.title)"), "the Table button does not press, or name, the verb it chose")
+    }
+
+    /// **A folded menu offers each Table item only where that item acts** (FMT-16). The Table
+    /// button is live when either of its two would act, because it picks between them; a folded or
+    /// merged menu lists them as two items, and "Insert Table" was live wherever only Make Table
+    /// from Selection was, its press refused — while the right-click menu greyed it.
+    ///
+    /// Mutation: have `item(_:)` ask `isOffered` again, and the source line fails; make
+    /// `isItemOffered` fall through to `isOffered` for table verbs, and the state lines fail.
+    @Test func aFoldedMenuOffersEachTableItemOnlyWhereItActs() throws {
+        let onlyFromSelection = MarkupFormatState(lit: [], heading: .body, tables: [.fromSelection])
+        #expect(EditorFormatBar.isOffered(EditorFormatBar.tableMenuStandIn, in: onlyFromSelection),
+                "the Table button greys where it can make a table from the selection")
+        let insertOffered = EditorFormatBar.isItemOffered(.table(.insert), in: onlyFromSelection)
+        #expect(!insertOffered, "a folded Insert Table is live where only Make Table from Selection acts")
+        let fromOffered = EditorFormatBar.isItemOffered(.table(.fromSelection), in: onlyFromSelection)
+        #expect(fromOffered)
+        let onlyInsert = MarkupFormatState(lit: [], heading: .body, tables: [.insert])
+        let fromWithInsertOnly = EditorFormatBar.isItemOffered(.table(.fromSelection), in: onlyInsert)
+        #expect(!fromWithInsertOnly)
+        // Every other verb is offered as the button for it is.
+        for verb in MarkupVerb.menuOrder.compactMap({ $0 }) where !verb.isTable {
+            for state in [onlyFromSelection, Self.inTable] {
+                #expect(EditorFormatBar.isItemOffered(verb, in: state) == EditorFormatBar.isOffered(verb, in: state))
+            }
+        }
+        // And the folded items really ask it.
+        let bar = try Self.source("EditorFormatBar.swift")
+        let item = try Self.slice(bar, from: "private func item(_ verb: MarkupVerb)", to: "\n    }\n")
+        #expect(item.components(separatedBy: ".disabled(!Self.isItemOffered(verb, in: state))").count - 1 == 2,
+                "a folded menu's item is not greyed by its own rule")
     }
 
     /// **The Body menu draws each style as it looks** (TE74, decision AC): a popover of Heading 1,

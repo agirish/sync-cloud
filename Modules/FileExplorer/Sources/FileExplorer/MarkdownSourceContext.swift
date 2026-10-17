@@ -438,6 +438,177 @@ enum MarkdownSourceContext {
         return text
     }
 
+    // MARK: - What a line verb may rewrite (FMT-6)
+
+    /// What one line a Markup line verb covers is, as the preview's parser reads it.
+    enum LineRole: Equatable, Sendable {
+        /// Words a verb rewrites.
+        case text
+        /// Nothing on it but spaces and tabs.
+        case blank
+        /// The front matter, code — fenced or indented, its fences included — raw HTML, or a
+        /// divider: Markdown that is not prose, which a line verb must leave byte for byte.
+        case literal
+        /// An indented line that carries on a list item opened above it — its words, or a
+        /// paragraph of it — which a list verb leaves to the item (FMT-7).
+        case continuation
+        /// The words of a setext heading — `Title` over `=====` — at `level`, with the content
+        /// range of its underline's line (FMT-13).
+        case setext(level: Int, underline: NSRange)
+        /// A setext heading's underline: part of its heading, not a line of its own.
+        case underline
+        /// A row of a table — words to a line verb, which the table's own rule guards (TE76), but
+        /// not prose an inline verb may wrap across (FMT-10).
+        case tableRow
+    }
+
+    /// **The role of each of `lines`** — ranges into `ns`, as `MarkdownEdits.lineRanges` gives them.
+    ///
+    /// Line verbs rewrote every non-blank line they covered, whatever it was (FMT-6): Body over a
+    /// section stripped the `# ` from a shell comment in its code block, and ⌘A then Numbered List
+    /// turned the front matter into list items and a divider into an empty one. The parser says
+    /// which lines are prose; only the buffer down to the line after the last one is parsed, and
+    /// not at all when nothing on or above the lines could make one of them anything but prose.
+    static func roles(of lines: [NSRange], in ns: NSString) -> [LineRole] {
+        func blank(_ range: NSRange) -> Bool {
+            ns.substring(with: range).allSatisfy { $0 == " " || $0 == "\t" }
+        }
+        let plain = lines.map { blank($0) ? LineRole.blank : .text }
+        guard let first = lines.first, let last = lines.last else { return [] }
+        let body = MarkdownFrontMatter.bodyStart(in: ns)
+        let lastLine = MarkdownSourceLines.line(containing: last.location, in: ns)
+        let end = MarkdownSourceLines.line(after: lastLine, in: ns).map { NSMaxRange($0.content) }
+            ?? NSMaxRange(lastLine.content)
+        guard needsParse(from: first.location, to: end, in: ns, bodyOffset: body.offset) else { return plain }
+
+        var bytes = Array(ns.substring(with: NSRange(location: body.offset, length: max(0, end - body.offset))).utf8)
+        return bytes.withUnsafeMutableBufferPointer { buffer -> [LineRole] in
+            guard let root = parse(buffer) else { return plain }
+            defer { cmark_node_free(root) }
+            var number = 1
+            var cursor = body.offset
+            return zip(lines, plain).map { range, role -> LineRole in
+                guard range.location >= body.offset else { return .literal }
+                number += terminators(in: NSRange(location: cursor, length: range.location - cursor), of: ns)
+                cursor = range.location
+                let chain = chain(holding: number, in: root)
+                let types = chain.map(cmark_node_get_type)
+                if types.contains(CMARK_NODE_CODE_BLOCK) || types.contains(CMARK_NODE_HTML_BLOCK)
+                    || types.contains(CMARK_NODE_THEMATIC_BREAK) { return .literal }
+                if role == .text, chain.contains(where: { String(cString: cmark_node_get_type_string($0)) == "table" }) {
+                    return .tableRow
+                }
+                // A setext heading: one line of words over its underline (FMT-13). A heading whose
+                // words run over several lines is left as words.
+                if role == .text, let heading = chain.last(where: { cmark_node_get_type($0) == CMARK_NODE_HEADING }) {
+                    let text = ns.substring(with: range)
+                    let start = Int(cmark_node_get_start_line(heading))
+                    if !isATX(text) {
+                        if start == number,
+                           let next = MarkdownSourceLines.line(after: MarkdownSourceLines.line(containing: range.location, in: ns), in: ns),
+                           isUnderline(ns.substring(with: next.content)) {
+                            return .setext(level: Int(cmark_node_get_heading_level(heading)), underline: next.content)
+                        }
+                        if start < number, isUnderline(text) { return .underline }
+                    }
+                }
+                // Inside an item that opened above, and indented past its quote markers: the item's.
+                // A lazy line — not indented — is left as words, which Bullets completes a list with.
+                if role == .text, let item = chain.last(where: { cmark_node_get_type($0) == CMARK_NODE_ITEM }),
+                   Int(cmark_node_get_start_line(item)) != number, isIndented(ns.substring(with: range)) {
+                    return .continuation
+                }
+                return role
+            }
+        }
+    }
+
+    /// `line` with its quote markers, and up to three spaces after them, read past.
+    private static func blockText(_ line: String) -> Substring {
+        var rest = Substring(line)
+        while true {
+            let lead = rest.prefix { $0 == " " }
+            guard lead.count <= 3, rest.dropFirst(lead.count).first == ">" else { break }
+            rest = rest.dropFirst(lead.count + 1)
+            if let next = rest.first, next == " " || next == "\t" { rest = rest.dropFirst() }
+        }
+        let lead = rest.prefix { $0 == " " }
+        return lead.count <= 3 ? rest.dropFirst(lead.count) : rest
+    }
+
+    /// Whether `line` opens with an ATX heading's marker — one to six `#` and a space, or nothing.
+    private static func isATX(_ line: String) -> Bool {
+        let text = blockText(line)
+        let hashes = text.prefix { $0 == "#" }.count
+        guard (1...6).contains(hashes) else { return false }
+        let after = text.dropFirst(hashes).first
+        return after == nil || after == " " || after == "\t"
+    }
+
+    /// Whether `line` is a setext underline: a run of `=` or of `-`, and nothing after it but spaces.
+    private static func isUnderline(_ line: String) -> Bool {
+        let text = blockText(line)
+        guard let mark = text.first, mark == "=" || mark == "-" else { return false }
+        let run = text.prefix { $0 == mark }
+        return text.dropFirst(run.count).allSatisfy { $0 == " " || $0 == "\t" }
+    }
+
+    /// Whether `line`, its quote markers read past, starts with a space or a tab.
+    private static func isIndented(_ line: String) -> Bool {
+        var rest = Substring(line)
+        while true {
+            let lead = rest.prefix { $0 == " " }
+            guard lead.count <= 3, rest.dropFirst(lead.count).first == ">" else { break }
+            rest = rest.dropFirst(lead.count + 1)
+            if let next = rest.first, next == " " || next == "\t" { rest = rest.dropFirst() }
+        }
+        return rest.first == " " || rest.first == "\t"
+    }
+
+    /// Whether anything from the top of `ns` to `end` could make a line in `start…end` other than
+    /// prose: front matter, a fence or raw HTML anywhere above, or a line that is not plain words —
+    /// indented, or opening with a marker, a divider's or an underline's character.
+    private static func needsParse(from start: Int, to end: Int, in ns: NSString, bodyOffset: Int) -> Bool {
+        if bodyOffset > 0 { return true }
+        let above = NSRange(location: 0, length: end)
+        for marker in ["```", "~~~", "<"] where ns.range(of: marker, options: .literal, range: above).location != NSNotFound {
+            return true
+        }
+        // A table row need not open with its pipe.
+        let window = NSRange(location: start, length: end - start)
+        if ns.range(of: "|", options: .literal, range: window).location != NSNotFound { return true }
+        var line = MarkdownSourceLines.line(containing: start, in: ns)
+        if let previous = MarkdownSourceLines.line(before: line, in: ns) { line = previous }
+        while line.content.location <= end {
+            let text = ns.substring(with: line.content)
+            if let lead = text.first, " \t-*_=+>#|".contains(lead) { return true }
+            if text.prefix(while: \.isNumber).count > 0,
+               let after = text.dropFirst(text.prefix(while: \.isNumber).count).first, after == "." || after == ")" {
+                return true
+            }
+            guard let next = MarkdownSourceLines.line(after: line, in: ns) else { break }
+            line = next
+        }
+        return false
+    }
+
+    /// How many line ends the parser counts in `range` — `\n`, `\r\n` or a lone `\r`.
+    private static func terminators(in range: NSRange, of ns: NSString) -> Int {
+        var count = 0
+        var index = range.location
+        while index < NSMaxRange(range) {
+            let character = ns.character(at: index)
+            if character == 0x0A {
+                count += 1
+            } else if character == 0x0D {
+                count += 1
+                if index + 1 < ns.length, ns.character(at: index + 1) == 0x0A { index += 1 }
+            }
+            index += 1
+        }
+        return count
+    }
+
     // MARK: - The parse
 
     /// **The preview's parser, configured as the preview configures it** — swift-markdown 0.8's

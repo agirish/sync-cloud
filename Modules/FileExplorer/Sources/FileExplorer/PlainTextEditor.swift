@@ -361,7 +361,9 @@ struct PlainTextEditor: NSViewRepresentable {
             let ns = view.string as NSString
             let markup = Self.markupMenu(target: self, action: #selector(applyMarkup(_:)),
                                          tables: MarkdownTables.available(in: ns, selection: view.selectedRange()),
-                                         inTable: MarkdownTables.touches(ns, view.selectedRange()))
+                                         inTable: MarkdownTables.touches(ns, view.selectedRange()),
+                                         crossesCells: MarkdownEdits.crossesCells(ns, view.selectedRange()),
+                                         enabled: isMarkdownDocument)
             let host = NSMenuItem(title: "Markup", action: nil, keyEquivalent: "")
             host.submenu = markup
             menu.insertItem(host, at: 0)
@@ -497,8 +499,16 @@ struct PlainTextEditor: NSViewRepresentable {
         /// **And with `inTable`, the verbs that would break a table are greyed** (TE76), as the
         /// format bar greys them — ``MarkupVerb/breaksTables``, refused there by the verbs
         /// themselves. So the Markup submenu enables its items by hand too.
+        ///
+        /// **`enabled: false` greys every item** — a file that is not Markdown (FMT-18), where the
+        /// verbs would write `**` and `- ` into a `.txt`, a `.yaml` or a `.json`. The submenu stays,
+        /// so the right-click menu reads the same in every file and says, by its grey, that the
+        /// verbs do not apply here.
+        ///
+        /// **And with `crossesCells`, the marks and Link are greyed** (FMT-1): the selection runs
+        /// across a table's cells, where wrapping it would break the table.
         static func markupMenu(target: AnyObject?, action: Selector, tables: Set<TableVerb>? = nil,
-                               inTable: Bool = false) -> NSMenu {
+                               inTable: Bool = false, crossesCells: Bool = false, enabled: Bool = true) -> NSMenu {
             let markup = NSMenu(title: "Markup")
             markup.autoenablesItems = false
             let table = NSMenu(title: MarkupVerb.tableMenuTitle)
@@ -522,19 +532,27 @@ struct PlainTextEditor: NSViewRepresentable {
                     } else if MarkupVerb.tableSections.dropFirst().contains(where: { $0.first == verb }) {
                         table.addItem(.separator())
                     }
-                    item.isEnabled = tables?.contains(op) ?? true
+                    item.isEnabled = enabled && (tables?.contains(op) ?? true)
                     table.addItem(item)
                 } else {
-                    item.isEnabled = !(inTable && verb.breaksTables)
+                    item.isEnabled = enabled && !(inTable && verb.breaksTables) && !(crossesCells && verb.wrapsWords)
                     markup.addItem(item)
                 }
             }
             return markup
         }
 
+        /// **Whether the open file is Markdown, read off its path** (FMT-18) — what decides that the
+        /// Markup verbs apply to it at all. The path, not ``editsMarkdown``: that flag is the
+        /// typing features', assigned on each update pass and `false` until the first, while a
+        /// coordinator always knows its document. No path, no document to refuse for.
+        var isMarkdownDocument: Bool {
+            documentID.map { PairContentKind.isMarkdown(path: $0) } ?? true
+        }
+
         /// Applies a verb to the view's own selection, as an edit the view can undo.
         @objc func applyMarkup(_ sender: NSMenuItem) {
-            guard let view = textView,
+            guard let view = textView, isMarkdownDocument,
                   MarkupVerb.menuOrder.indices.contains(sender.tag),
                   let verb = MarkupVerb.menuOrder[sender.tag] else { return }
             PlainTextEditor.apply(verb, to: view)
@@ -615,8 +633,16 @@ struct PlainTextEditor: NSViewRepresentable {
             }
         }
         let text = view.string
-        guard let edit = MarkdownEdits.apply(verb, to: text, selection: view.selectedRange()) else { return false }
+        let selected = view.selectedRange()
+        guard let edit = MarkdownEdits.apply(verb, to: text, selection: selected) else { return false }
         let change = MarkdownEdits.minimalReplacement(from: text, to: edit.text)
+        // **⌘Z gives back the selection the verb was pressed over, and ⌘⇧Z the one it left**
+        // (UND-9). The view's own undo of a replacement leaves a bare caret, so undoing a verb
+        // dropped the very selection the next verb was meant for. Registered either side of the
+        // edit, in its group: the undo replays them last-first, so the one registered BEFORE the
+        // edit runs after the text is back, and the one registered AFTER runs last on redo.
+        let undo = view.undoManager
+        if let undo { registerSelection(of: view, undoTo: selected, redoTo: nil, in: undo) }
         // **`insertText(_:replacementRange:)`, which is the path typing takes.** It registers
         // the undo, applies the view's own typing attributes to what it inserts, and posts the
         // change notification that pushes the new buffer back into the document — three things
@@ -630,7 +656,23 @@ struct PlainTextEditor: NSViewRepresentable {
         view.insertText(change.text, replacementRange: change.range)
         view.breakUndoCoalescing()
         view.setSelectedRange(edit.selection)
+        if let undo { registerSelection(of: view, undoTo: nil, redoTo: edit.selection, in: undo) }
         return true
+    }
+
+    /// One half of a verb's selection in its undo step: on undo it selects `undoTo`, if any, and
+    /// files its mirror image for redo, which selects `redoTo` — so the pair keeps answering
+    /// however many times the step is undone and redone. A range the text no longer holds is left
+    /// alone rather than set.
+    private static func registerSelection(of view: NSTextView, undoTo: NSRange?, redoTo: NSRange?,
+                                          in undo: UndoManager) {
+        undo.registerUndo(withTarget: view) { [weak undo] view in
+            if let undoTo, NSMaxRange(undoTo) <= (view.string as NSString).length {
+                view.setSelectedRange(undoTo)
+            }
+            guard let undo else { return }
+            registerSelection(of: view, undoTo: redoTo, redoTo: undoTo, in: undo)
+        }
     }
 
     /// Opens the find bar over the text view, **with its Replace row showing**.

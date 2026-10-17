@@ -2,6 +2,7 @@ import Testing
 import AppKit
 import Design
 @testable import FileExplorer
+import EventsTestSupport
 
 /// The menu bar's half of the editor (roadmap RD1), as seen from this module: which verbs carry a
 /// chord, whether the context menu draws the same one, and where the caret has to be for a verb
@@ -192,6 +193,54 @@ import Design
         view.setSelectedRange(NSRange(location: 4, length: 3))
         #expect(!EditorDocumentSurface.applyMarkup(.bold, in: window))
         #expect(view.string == "one two three\n")
+    }
+
+    /// **In a file that is not Markdown the verbs do nothing, and say so** (FMT-18). ⌘B, the Markup
+    /// menu and the right-click submenu wrote `****`, `- ` and tables into `.txt`, `.yaml` and
+    /// `.json` files. The menu bar greys its items there (`EditorVerbs.canMarkUp`, in the app); the
+    /// right-click submenu is drawn greyed; and the surface refuses, so no door slips through —
+    /// ⌘I asks `markupTextView` and opens the inspector instead. The same view under a `.md`
+    /// coordinator is the control: everything works.
+    ///
+    /// Mutation: have `isMarkdownDocument` answer `true` always, and every refusal line fails.
+    @Test func aVerbDoesNothingInAFileThatIsNotMarkdown() async throws {
+        let log = LogCapture()
+        for (path, isMarkdown) in [("/scratch/notes.txt", false), ("/scratch/config.yaml", false),
+                                   ("/scratch/notes.md", true)] {
+            let (_, view, window) = hosted()
+            let coordinator = PlainTextEditor.Coordinator(source: EditorSourceStorage(text: view.string),
+                                                          undoManager: UndoManager(), documentID: path,
+                                                          onSelectionChange: { _ in })
+            coordinator.textView = view
+            view.delegate = coordinator
+            window.makeFirstResponder(view)
+            view.setSelectedRange(NSRange(location: 4, length: 3))
+
+            let accepted = EditorDocumentSurface.markupTextView(in: window) != nil
+            #expect(accepted == isMarkdown, "\(path): ⌘I would mean \(accepted ? "Italic" : "the inspector")")
+            #expect(EditorDocumentSurface.applyMarkup(.bold, in: window), "\(path): the caret was not found")
+            let written = view.string
+            #expect(written == (isMarkdown ? "one **two** three\n" : "one two three\n"), "\(path): Bold wrote \(written)")
+
+            let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [],
+                                                        timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                                        eventNumber: 0, clickCount: 1, pressure: 1))
+            let menu = try #require(coordinator.textView(view, menu: NSMenu(), for: event, at: 0))
+            let markup = try #require(menu.items.first { $0.title == "Markup" }?.submenu,
+                                      "\(path): the right-click menu has no Markup submenu")
+            func verbItems(_ menu: NSMenu) -> [NSMenuItem] {
+                menu.items.filter { !$0.isSeparatorItem }.flatMap { $0.submenu.map(verbItems) ?? [$0] }
+            }
+            let live = verbItems(markup).filter(\.isEnabled).map(\.title)
+            if isMarkdown {
+                #expect(live.contains("Bold") && live.contains("Bulleted List"))
+            } else {
+                #expect(live.isEmpty, "\(path): the right-click Markup items \(live) are live")
+            }
+            withExtendedLifetime(coordinator) {}
+        }
+        #expect(await log.holds(containing: "Markup ▸ Bold did nothing: the open file is not Markdown"),
+                "a refused verb said nothing")
     }
 
     @Test func noWindowMeansNoVerb() {

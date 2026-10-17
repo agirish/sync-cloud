@@ -1051,6 +1051,19 @@ enum PreviewEditTranslator {
         return NSRange(location: start, length: end - start)
     }
 
+    /// **The source selection Preview reports for a rendered one** (FMT-14) — the one a verb would
+    /// act on: as ``sourceSelection(for:in:)`` maps it, else with a triple-click's trailing block
+    /// break left out, else — over several blocks — from the first selected character's place to
+    /// the last's. A triple-click selects a paragraph AND the break after it, which maps to no
+    /// single block, so it was never reported: the format bar kept the last caret's lit state, dark
+    /// over a bold paragraph whose Bold press then took the bold off.
+    static func reportedSelection(for range: NSRange, in p: MarkdownProjection) -> NSRange? {
+        if let exact = sourceSelection(for: range, in: p) { return exact }
+        let trimmed = withoutTrailingBlockBreak(range, in: p)
+        if trimmed != range, let mapped = sourceSelection(for: trimmed, in: p) { return mapped }
+        return acrossBlocks(range, in: p)
+    }
+
     /// A rendered selection as a source selection, for the verbs (§3.6): its start where the first
     /// selected character is, its end after the last — so a selection of exactly a bold word maps to
     /// the word between its asterisks, which is what makes ⌘B there take the bold off.

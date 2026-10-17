@@ -898,7 +898,8 @@ extension ContentView {
                     if editorAutosavePolicy.toggle(path) { runAutosave() }
                 }
                 : nil,
-            canMarkUp: !editorDocument.isReadOnly && EditorVerbs.hasTextView(in: drawn, previewEditing: previewEditing),
+            canMarkUp: EditorVerbs.canMarkUp(isReadOnly: editorDocument.isReadOnly, isMarkdown: isMarkdown,
+                                             hasTextView: EditorVerbs.hasTextView(in: drawn, previewEditing: previewEditing)),
             canFind: EditorVerbs.hasTextView(in: drawn, previewEditing: previewEditing),
             // Source and Split only — the status line's own rule, so the item and "Line, Col" are
             // live together (TE61). The counter opens the workspace's field.

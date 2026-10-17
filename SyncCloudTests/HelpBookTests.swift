@@ -296,6 +296,23 @@ import Testing
         }
     }
 
+    /// **Help names the Markup verbs that only add** (FMT-19). It said every verb "takes itself off
+    /// if you choose it again", and four never do: Link… wraps the selection in another link, Code
+    /// Block in another fence, Divider adds another line, and the Table items make or change a
+    /// table. Mutation: put the old sentence back and both lines fail.
+    @Test func markupHelpNamesTheVerbsThatOnlyAdd() throws {
+        let topic = try #require(HelpBook.topic(id: "editor-workspace"))
+        let text = Self.copy(of: topic).joined(separator: " ")
+        let named = text.contains("Link…, Code Block, Divider and the Table items only ever add")
+        #expect(named, "Edit's article does not name the Markup verbs that only add")
+        let overclaims = text.contains("takes itself off if you choose it again")
+        #expect(!overclaims, "Edit's article says every Markup verb takes itself off")
+        for verb in [MarkupVerb.link, .codeBlock, .horizontalRule] {
+            let titled = text.contains(verb.title)
+            #expect(titled, "Edit's article does not name \(verb.title)")
+        }
+    }
+
     /// The small numbers Help spells out. Above six the copy should be using digits, and this
     /// falls back to them rather than pretending it knows the word.
     private static func spelled(_ n: Int) -> String {

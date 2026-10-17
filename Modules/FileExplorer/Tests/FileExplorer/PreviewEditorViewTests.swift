@@ -299,6 +299,63 @@ import EventsTestSupport
         #expect(reported.count == 1, "the same request was taken twice")
     }
 
+    /// **A triple-clicked paragraph, or a run over several blocks, is reported to the format bar**
+    /// (FMT-14). A triple-click selects the paragraph AND the break after it, which maps to no one
+    /// block, so nothing was reported: the bar kept the last caret's state — dark over a bold
+    /// paragraph whose Bold press took the bold off. It is reported as a verb maps it.
+    ///
+    /// Mutation: have the session map with `sourceSelection` alone again, and nothing is reported.
+    @Test func aTripleClickedParagraphIsReportedToTheBar() throws {
+        let r = rig("**para**\n\nNext.")
+        var reported: [NSRange] = []
+        r.coordinator.onSourceSelection = { reported.append($0) }
+        let blocks = r.coordinator.session.projection.blocks
+        let triple = NSRange(location: blocks[0].rendered.location,
+                             length: blocks[1].rendered.location - blocks[0].rendered.location)
+        r.view.setSelectedRange(triple); spin()
+        let paragraph = try #require(reported.last, "a triple-clicked paragraph was not reported")
+        #expect(paragraph == NSRange(location: 2, length: 4), "reported \(paragraph), not the bold word")
+        let lit = MarkupFormatState.of(r.source.text, selection: paragraph).lit
+        #expect(lit.contains(.bold), "the bar's state over it lights \(lit.map(\.title))")
+        // Over two blocks: from the first selected character's place to the last's.
+        reported = []
+        r.view.setSelectedRange(NSRange(location: 1, length: blocks[1].rendered.location + 2 - 1)); spin()
+        let across = try #require(reported.last, "a run over two blocks was not reported")
+        #expect(across == NSRange(location: 3, length: 9), "reported \(across)")
+    }
+
+    /// **A style set for what is typed next is reported, and lit on the bar** (FMT-15). ⌘B with a
+    /// bare caret writes nothing in Preview — it sets Bold for the next character — and the bar
+    /// never showed it: Bold stayed dark, and a second press to check turned it off unseen. The
+    /// workspace lights what Preview reports while the bar acts on Preview.
+    ///
+    /// Mutation: drop `reportPending()` from `apply`, and the first report never comes.
+    @Test func aPendingStyleIsReportedForTheBarToLight() throws {
+        let r = rig("Salt the pasta.")
+        var pending: [Set<MarkupVerb>] = []
+        r.coordinator.onPendingStyles = { pending.append($0) }
+        caret(after: "pasta", in: r)
+        r.view.performMarkup(.bold); spin()
+        #expect(r.source.text == "Salt the pasta.", "a pending style wrote something")
+        #expect(pending.last == [.bold], "Bold pending was reported as \(String(describing: pending.last))")
+        r.view.performMarkup(.inlineCode); spin()
+        #expect(pending.last == [.bold, .inlineCode])
+        r.view.performMarkup(.bold); spin()
+        #expect(pending.last == [.inlineCode], "Bold pressed again is still reported pending")
+        // The caret moving on drops them.
+        caret(after: "Salt", in: r)
+        #expect(pending.last == [], "a moved caret kept \(String(describing: pending.last)) pending")
+        // The bar lights what is pending, over the selection's own state.
+        let state = MarkupFormatState.none.lighting([.italic])
+        #expect(state.lit == [.italic])
+        let workspace = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/EditorWorkspaceView.swift"), encoding: .utf8)
+        #expect(workspace.contains("onPendingStyles: { previewPending = $0 }")
+                && workspace.contains("EditorFormatBar(state: formatState.lighting(barActsOnPreview ? previewPending : [])"),
+                "the workspace does not light Preview's pending styles on the bar")
+    }
+
     // MARK: Saying why (review V9)
 
     /// **A Markup verb Preview refuses says so in the log**, as Source's refusals do (review V9):

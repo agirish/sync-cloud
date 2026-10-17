@@ -194,8 +194,9 @@ struct EditorVerbs {
     /// header withholds the switch (a refusal, a read-only decode), by the same rule.
     let autosave: AutosaveSwitch?
     /// Whether the Markup verbs may write. False on a read-only document, where the context menu
-    /// withholds its Markup submenu too — and false in Preview, where no text view is on screen
-    /// for a verb to reach, so every Markup item would be a chord that does nothing.
+    /// withholds its Markup submenu too — false in Preview, where no text view is on screen for a
+    /// verb to reach, so every Markup item would be a chord that does nothing — and false in a file
+    /// that is not Markdown (``canMarkUp(isReadOnly:isMarkdown:hasTextView:)``).
     let canMarkUp: Bool
     /// Whether Find Next and Use Selection for Find have a text view to act on. False in Preview
     /// for the reason `canMarkUp` is: the preview is a rendering, and there is no find bar over it.
@@ -222,6 +223,13 @@ struct EditorVerbs {
     /// `theEditorVerbsAreResolvedThroughTheRule` pins the call site.
     static func isOffered(workspace: Workspace, hasDocument: Bool, isRefused: Bool) -> Bool {
         workspace == .editor && hasDocument && !isRefused
+    }
+
+    /// **Whether the Markup items, and so their chords, are live** — a writable Markdown file with a
+    /// text view on screen. Not Markdown: the verbs would write `**` and `- ` into a `.txt`, a
+    /// `.yaml` or a `.json`, so the menu greys there and ⌘B never fires (FMT-18).
+    static func canMarkUp(isReadOnly: Bool, isMarkdown: Bool, hasTextView: Bool) -> Bool {
+        !isReadOnly && isMarkdown && hasTextView
     }
 
     /// What the verbs that need a TEXT VIEW may do in a given mode: everything but Preview draws
@@ -289,7 +297,8 @@ enum InspectorOrItalic {
     /// `NSApp.keyWindow`.
     @MainActor
     static func choose(in window: NSWindow?) -> Choice {
-        EditorDocumentSurface.caretTextView(in: window) != nil ? .italic : .inspector
+        // In a file that is not Markdown, Italic does not apply (FMT-18), so the key is the inspector's.
+        EditorDocumentSurface.markupTextView(in: window) != nil ? .italic : .inspector
     }
 
     /// Whether a menu action was reached by its key equivalent rather than a click.

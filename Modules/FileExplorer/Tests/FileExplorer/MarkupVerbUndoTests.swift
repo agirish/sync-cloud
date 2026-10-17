@@ -137,6 +137,46 @@ import AppKit
         #expect(!rig.undo.canUndo, "something else was recorded with the typing")
     }
 
+    /// **⌘Z gives back the selection the verb was pressed over, and ⌘⇧Z the one it left** (UND-9).
+    /// The view's own undo of a replacement leaves a bare caret, so undoing Bold dropped the very
+    /// words the reader meant to press something else on. A word and a caret, through every
+    /// door, undone, redone and undone again — and no step of its own for the selection.
+    ///
+    /// Mutation: drop either `registerSelection` call from `PlainTextEditor.apply` and the undo or
+    /// the redo selection fails.
+    @Test(arguments: Door.allCases)
+    func undoingAVerbGivesBackItsSelection(_ door: Door) {
+        for (text, selection, verb, applied, after) in [
+            ("one two three", NSRange(location: 4, length: 3), MarkupVerb.bold,
+             "one **two** three", NSRange(location: 6, length: 3)),
+            ("Title", NSRange(location: 5, length: 0), MarkupVerb.heading(1),
+             "# Title", NSRange(location: 7, length: 0)),
+        ] {
+            let rig = rig(text)
+            defer { withExtendedLifetime(rig.window) {} }
+            rig.view.setSelectedRange(selection)
+            spin()
+            apply(verb, through: door, in: rig)
+            #expect(rig.view.string == applied)
+            let left = rig.view.selectedRange()
+            #expect(left == after, "\(verb.title) left \(left)")
+
+            undo(rig)
+            #expect(rig.view.string == text)
+            let undone = rig.view.selectedRange()
+            #expect(undone == selection, "⌘Z after \(verb.title) selected \(undone), not the \(selection) it was pressed over")
+            rig.undo.redo()
+            spin()
+            #expect(rig.view.string == applied)
+            let redone = rig.view.selectedRange()
+            #expect(redone == after, "⌘⇧Z after \(verb.title) selected \(redone)")
+            undo(rig)
+            let again = rig.view.selectedRange()
+            #expect(again == selection, "a second ⌘Z after \(verb.title) selected \(again)")
+            #expect(!rig.undo.canUndo, "the selection was recorded as a step of its own")
+        }
+    }
+
     /// **The other boundary: typing straight on from the END of what a verb inserted.** A rule
     /// leaves the caret after its own `---` line, so the next keystroke lands exactly where the
     /// insertion stopped — the one place typing would extend the verb's step rather than start one.

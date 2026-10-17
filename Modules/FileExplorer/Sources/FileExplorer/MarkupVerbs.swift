@@ -76,6 +76,16 @@ public enum MarkupVerb: Hashable, Sendable {
         }
     }
 
+    /// **Whether this verb wraps words in delimiters** — the inline marks and Link, which work
+    /// inside one table cell and break the table when they cross into another (FMT-1).
+    public var wrapsWords: Bool {
+        switch self {
+        case .bold, .italic, .strikethrough, .inlineCode, .link: return true
+        case .heading, .bulletList, .numberedList, .taskItem, .blockQuote, .codeBlock, .horizontalRule, .table:
+            return false
+        }
+    }
+
     /// Whether this is one of the Table submenu's items.
     public var isTable: Bool {
         if case .table = self { return true }
@@ -157,7 +167,9 @@ public enum TableVerb: Hashable, Sendable, CaseIterable {
     /// when they draw, so they stay enabled and a press that has nothing to do says so.
     public var refusal: String {
         switch self {
-        case .insert: return "the caret is in a table, and a table cannot hold one"
+        // Either end: Insert Table goes after the line the selection ends on (FMT-16 — this said
+        // "the caret is in a table" to a press whose caret was in the prose above one).
+        case .insert: return "the selection starts or ends in a table, and a table cannot hold one"
         case .fromSelection: return "the selected lines hold no tabs or commas to split into cells"
         case .addRowAbove: return "the caret is not in a table's body — nothing goes above the header"
         case .deleteRow: return "the caret is not in a table's body — the header cannot be deleted"
@@ -191,8 +203,9 @@ extension MarkdownEdits {
         switch verb {
         case .bold, .italic, .strikethrough, .inlineCode:
             guard let mark = inlineDelimiter(for: verb) else { return nil }
-            return wrap(text, selection, with: mark.delimiter, guardingAgainst: mark.neighbour,
-                        nests: mark.nests)
+            let runs = inlineRuns(selection, in: ns)
+            guard !runs.isEmpty else { return nil }
+            return wrapRuns(text, runs, with: mark)
         case .link: return link(text, selection)
         case .heading, .bulletList, .numberedList, .taskItem, .blockQuote:
             guard let prefix = linePrefix(for: verb) else { return nil }
@@ -219,7 +232,20 @@ extension MarkdownEdits {
     }
 
     static func breaksTable(_ verb: MarkupVerb, _ ns: NSString, _ selection: NSRange) -> Bool {
-        verb.breaksTables && MarkdownTables.touches(ns, selection)
+        (verb.breaksTables && MarkdownTables.touches(ns, selection))
+            || (verb.wrapsWords && crossesCells(ns, selection))
+    }
+
+    /// **Whether a selection in a table runs across its cells** (FMT-1) — over a pipe, or over a
+    /// line break into another row or out of the table — where an inline mark or a link would break
+    /// it. A triple-clicked row wrapped in Bold became `**| Day | Where |\n**|-----|…`: three cells
+    /// in the header over a delimiter row that no longer was one, and the table read as paragraphs.
+    /// The marks were offered there because they "only wrap words inside a cell"; inside one they
+    /// still do.
+    static func crossesCells(_ ns: NSString, _ selection: NSRange) -> Bool {
+        guard selection.length > 0, isValid(selection, in: ns), MarkdownTables.touches(ns, selection) else { return false }
+        let selected = ns.substring(with: selection)
+        return selected.contains(where: \.isNewline) || MarkdownTables.hasUnescapedPipe(selected)
     }
 
     /// **Whether pressing `verb` now would TAKE its formatting off** — the format bar's lit state
@@ -240,26 +266,28 @@ extension MarkdownEdits {
     static func isApplied(_ verb: MarkupVerb, in text: String, selection: NSRange) -> Bool {
         let ns = text as NSString
         guard isValid(selection, in: ns) else { return false }
-        return isApplied(verb, ns, selection, lines: lineRanges(covering: selection, in: ns))
+        return isApplied(verb, ns, selection, survey: LineSurvey(covering: selection, in: ns))
     }
 
     /// The core of ``isApplied(_:in:selection:)``, over a buffer already bridged and the lines the
-    /// selection touches already found — so ``MarkupFormatState`` can ask every verb about one
-    /// selection and walk its lines ONCE. On a selection of a few lines that is nothing; on ⌘A in a
-    /// long note it is one walk instead of a dozen. `selection` must be in range.
+    /// selection touches already surveyed — so ``MarkupFormatState`` can ask every verb about one
+    /// selection and walk (and parse) its lines ONCE. On a selection of a few lines that is
+    /// nothing; on ⌘A in a long note it is one walk instead of a dozen. `selection` must be in range.
     static func isApplied(_ verb: MarkupVerb, _ ns: NSString, _ selection: NSRange,
-                          lines: [NSRange]) -> Bool {
+                          survey: LineSurvey) -> Bool {
         switch verb {
         case .bold, .italic, .strikethrough, .inlineCode:
             guard let mark = inlineDelimiter(for: verb) else { return false }
-            return wrapState(ns, selection, delimiter: mark.delimiter,
-                             guardingAgainst: mark.neighbour, nests: mark.nests) != nil
+            let runs = inlineRuns(selection, in: ns, survey: survey)
+            return !runs.isEmpty && runs.allSatisfy {
+                wrapState(ns, $0, delimiter: mark.delimiter, guardingAgainst: mark.neighbour, nests: mark.nests) != nil
+            }
         case .heading(let level) where level <= 0:
             return false
         case .heading, .bulletList, .numberedList, .taskItem, .blockQuote:
             guard let prefix = linePrefix(for: verb) else { return false }
-            let written = lines.contains { !isBlank(ns.substring(with: $0)) }
-            return written && everyLineHas(prefix, lines, in: ns)
+            let written = survey.written(for: prefix)
+            return !written.isEmpty && everyLineHas(prefix, written, in: ns, survey: survey)
         case .link, .codeBlock, .horizontalRule, .table:
             // Inserts, or a submenu — never a toggle that is on. Where the caret is IN a table is
             // `MarkupFormatState.tables`, which the bar's Table button and capsule read.
@@ -290,24 +318,84 @@ extension MarkdownEdits {
     static func headingLevel(in text: String, selection: NSRange) -> HeadingLevel {
         let ns = text as NSString
         guard isValid(selection, in: ns) else { return .body }
-        return headingLevel(ns, selection, lines: lineRanges(covering: selection, in: ns))
+        return headingLevel(ns, selection, survey: LineSurvey(covering: selection, in: ns))
     }
 
-    /// The core of ``headingLevel(in:selection:)`` — see ``isApplied(_:_:_:lines:)`` for why the
-    /// lines are handed in.
-    static func headingLevel(_ ns: NSString, _ selection: NSRange, lines: [NSRange]) -> HeadingLevel {
-        for level in 1...3 where isApplied(.heading(level), ns, selection, lines: lines) {
+    /// The core of ``headingLevel(in:selection:)`` — see ``isApplied(_:_:_:survey:)`` for why the
+    /// survey is handed in.
+    static func headingLevel(_ ns: NSString, _ selection: NSRange, survey: LineSurvey) -> HeadingLevel {
+        for level in 1...3 where isApplied(.heading(level), ns, selection, survey: survey) {
             return .level(level)
         }
         var headings = false
         var body = false
-        for range in lines {
-            let line = ns.substring(with: range)
-            guard !isBlank(line) else { continue }
+        for range in survey.written(for: .heading(1)) {
+            if survey.setext(range) != nil { headings = true; if body { return .mixed }; continue }
+            let full = ns.substring(with: range)
+            let line = (full as NSString).substring(from: containerLength(full, for: .heading(1)))
             if firstMatch(LinePrefix.heading(1).pattern, in: line) != nil { headings = true } else { body = true }
             if headings && body { return .mixed }
         }
         return headings ? .otherHeading : .body
+    }
+
+    /// **The lines a line verb covers, and what each one is** (FMT-6) — found once per selection,
+    /// so the format bar asks every verb about one walk and one parse.
+    struct LineSurvey: Equatable, Sendable {
+        var lines: [NSRange]
+        var roles: [MarkdownSourceContext.LineRole]
+        /// The setext headings among the lines, by their words' start (FMT-13).
+        private var setexts: [Int: Setext] = [:]
+
+        /// A setext heading's level and its underline's line.
+        struct Setext: Equatable, Sendable {
+            var level: Int
+            var underline: NSRange
+        }
+
+        init(covering selection: NSRange, in ns: NSString) {
+            lines = MarkdownEdits.lineRanges(covering: selection, in: ns)
+            roles = MarkdownSourceContext.roles(of: lines, in: ns)
+            for (line, role) in zip(lines, roles) {
+                if case .setext(let level, let underline) = role {
+                    setexts[line.location] = Setext(level: level, underline: underline)
+                }
+            }
+        }
+
+        /// The setext heading `line` is the words of, if it is one.
+        func setext(_ line: NSRange) -> Setext? { setexts[line.location] }
+
+        /// The lines `prefix` rewrites: words — never a blank line, and never code, front matter,
+        /// raw HTML or a divider, which are left byte for byte and decide nothing. **For a list
+        /// verb, not the indented lines that carry an item on either** (FMT-7): `  continued` under
+        /// `- long item` is the item's own words, and Bullets made it an item of its own,
+        /// `-   continued`.
+        ///
+        /// **A setext heading is its words' line** (FMT-13), its underline going with it — except
+        /// for Quote, which quotes the underline as a line of its own, so the heading stays one
+        /// inside the quote.
+        func written(for prefix: LinePrefix) -> [NSRange] {
+            var written: [NSRange] = []
+            let quotes: Bool
+            if case .quote = prefix { quotes = true } else { quotes = false }
+            for (line, role) in zip(lines, roles) {
+                switch role {
+                case .text, .tableRow: written.append(line)
+                case .continuation: if !prefix.isList { written.append(line) }
+                case .setext(_, let underline):
+                    written.append(line)
+                    if quotes, !lines.contains(underline) { written.append(underline) }
+                case .underline: if quotes { written.append(line) }
+                case .blank, .literal: break
+                }
+            }
+            return written
+        }
+
+        /// Blank lines and nothing else — where a verb STARTS an item. A blank line in a code
+        /// block is code's.
+        var isBlankOnly: Bool { !roles.isEmpty && roles.allSatisfy { $0 == .blank } }
     }
 
     /// Whether `selection` lies in `ns` — the guard every entry point here starts with.
@@ -350,6 +438,113 @@ extension MarkdownEdits {
 
     // MARK: Inline
 
+    /// **What an inline verb wraps: the selection's words, line by line** (FMT-10). The spaces and
+    /// line breaks at its ends are left out — a triple-click takes the line break, and
+    /// `**first line\n**` is no bold — and a selection over several lines is cut at each break,
+    /// because emphasis cannot cross a paragraph and `**one\n\ntwo**` is two literal pairs. Each
+    /// line's run starts past its quote, list or heading marker, so `- one` selected whole becomes
+    /// `- **one**`, not `**- one**`, which is no list item. Across several lines, code, front
+    /// matter, raw HTML, dividers and table rows are skipped: their characters are not prose.
+    ///
+    /// A selection that is all spaces is left as it is, and so is a bare caret.
+    static func inlineRuns(_ selection: NSRange, in ns: NSString, survey known: LineSurvey? = nil) -> [NSRange] {
+        guard selection.length > 0 else { return [selection] }
+        let words = trimmed(selection, in: ns, characters: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\n\r")))
+        guard words.length > 0 else { return [selection] }
+        // Cut at the parser's line breaks — `\n`, `\r\n`, `\r` — and not at U+2028 or U+2029,
+        // which NSString breaks lines at and Markdown reads as characters of the line.
+        var runs: [NSRange] = []
+        var line = MarkdownSourceLines.line(containing: words.location, in: ns)
+        while true {
+            let piece = NSIntersectionRange(line.content, words)
+            if piece.length > 0 {
+                let text = ns.substring(with: NSRange(location: line.content.location,
+                                                      length: NSMaxRange(piece) - line.content.location))
+                let markerEnd = line.content.location + markerLength(of: text)
+                var run = piece
+                if run.location < markerEnd {
+                    run = NSRange(location: markerEnd, length: max(0, NSMaxRange(run) - markerEnd))
+                }
+                run = trimmed(run, in: ns, characters: .whitespaces)
+                if run.length > 0 { runs.append(run) }
+            }
+            guard line.end < NSMaxRange(words), let next = MarkdownSourceLines.line(after: line, in: ns) else { break }
+            line = next
+        }
+        if runs.count > 1 {
+            let survey = known ?? LineSurvey(covering: selection, in: ns)
+            let prose = Set(zip(survey.lines, survey.roles).compactMap { line, role -> Int? in
+                switch role {
+                case .text, .continuation, .setext: return line.location
+                case .blank, .literal, .underline, .tableRow: return nil
+                }
+            })
+            // None at all when every line is code, a table or the like: nothing for a mark to wrap.
+            return runs.filter { run in
+                prose.contains(ns.lineRange(for: NSRange(location: run.location, length: 0)).location)
+            }
+        }
+        return runs.isEmpty ? [selection] : runs
+    }
+
+    /// `range` without the `characters` at either end.
+    private static func trimmed(_ range: NSRange, in ns: NSString, characters: CharacterSet) -> NSRange {
+        var start = range.location, end = NSMaxRange(range)
+        while start < end, let scalar = UnicodeScalar(ns.character(at: start)), characters.contains(scalar) { start += 1 }
+        while end > start, let scalar = UnicodeScalar(ns.character(at: end - 1)), characters.contains(scalar) { end -= 1 }
+        return NSRange(location: start, length: end - start)
+    }
+
+    /// How far into `line` its block markers run: quote markers and indentation, then a task's,
+    /// a bullet's, a number's or a heading's marker.
+    private static func markerLength(of line: String) -> Int {
+        let container = containerLength(line, for: .bullet)
+        let rest = (line as NSString).substring(from: container)
+        for prefix in [LinePrefix.task, .bullet, .numbered, .heading(1)] {
+            if let match = firstMatch(prefix.pattern, in: rest) { return container + match.length }
+        }
+        return container
+    }
+
+    /// **The inline verb over each run** (FMT-10): every run already wrapped comes off; otherwise
+    /// the ones that are not get a pair — the line verbs' "every one" rule, so a mixed selection is
+    /// finished rather than turned inside out. One run is ``wrap(_:_:with:guardingAgainst:nests:)``
+    /// exactly. Several are made left to right, and the selection runs from the first run to the
+    /// last — their delimiters included where they are wrapped, so the selection reads as wrapped
+    /// and the next press of the same verb takes every pair off again.
+    static func wrapRuns(_ text: String, _ runs: [NSRange],
+                         with mark: (delimiter: String, neighbour: String?, nests: Bool)) -> MarkupEdit {
+        if runs.count == 1 {
+            return wrap(text, runs[0], with: mark.delimiter, guardingAgainst: mark.neighbour, nests: mark.nests)
+        }
+        let ns = text as NSString
+        let states = runs.map { wrapState(ns, $0, delimiter: mark.delimiter, guardingAgainst: mark.neighbour, nests: mark.nests) }
+        let unwrapping = states.allSatisfy { $0 != nil }
+        var current = text
+        var shift = 0
+        var covered: [NSRange] = []
+        for (run, state) in zip(runs, states) {
+            let here = NSRange(location: run.location + shift, length: run.length)
+            if !unwrapping, let state {
+                // Already wrapped: left as it is, its pair inside the selection.
+                switch state {
+                case .inside: covered.append(here)
+                case .outside(let open, let close):
+                    covered.append(NSRange(location: here.location - open, length: open + here.length + close))
+                }
+                continue
+            }
+            let edit = wrap(current, here, with: mark.delimiter, guardingAgainst: mark.neighbour, nests: mark.nests)
+            let added = (edit.text as NSString).length - (current as NSString).length
+            shift += added
+            current = edit.text
+            covered.append(unwrapping ? edit.selection : NSRange(location: here.location, length: here.length + added))
+        }
+        let start = covered.first?.location ?? 0
+        let end = covered.last.map(NSMaxRange) ?? start
+        return MarkupEdit(text: current, selection: NSRange(location: start, length: max(0, end - start)))
+    }
+
     /// Wraps the selection, or unwraps it when it is already wrapped.
     ///
     /// - Parameter guardingAgainst: a character that must NOT sit just outside the delimiters for
@@ -359,35 +554,57 @@ extension MarkdownEdits {
     static func wrap(_ text: String, _ selection: NSRange, with delimiter: String,
                      guardingAgainst neighbour: String? = nil, nests: Bool = true) -> MarkupEdit {
         let ns = text as NSString
-        let width = (delimiter as NSString).length
         let selected = ns.substring(with: selection)
 
         switch wrapState(ns, selection, delimiter: delimiter, guardingAgainst: neighbour, nests: nests) {
-        case .inside:
+        case .inside(let open, let close):
             // Wrapped inside the selection: `**bold**` selected whole.
             let inner = (selected as NSString).substring(
-                with: NSRange(location: width, length: (selected as NSString).length - width * 2))
+                with: NSRange(location: open, length: (selected as NSString).length - open - close))
             return MarkupEdit(text: ns.replacingCharacters(in: selection, with: inner),
                               selection: NSRange(location: selection.location,
                                                  length: (inner as NSString).length))
-        case .outside:
+        case .outside(let open, let close):
             // Wrapped just outside it: `bold` selected between the asterisks.
-            let outer = NSRange(location: selection.location - width, length: width * 2 + selection.length)
+            let outer = NSRange(location: selection.location - open, length: open + selection.length + close)
             return MarkupEdit(text: ns.replacingCharacters(in: outer, with: selected),
                               selection: NSRange(location: outer.location, length: selection.length))
         case nil:
             // Otherwise wrap it. An empty selection becomes an empty pair with the caret inside,
             // which is what somebody who pressed Bold before typing the word meant.
-            let wrapped = delimiter + selected + delimiter
+            let (opening, closing) = delimiter == "`" ? codeDelimiters(around: selected) : (delimiter, delimiter)
+            let wrapped = opening + selected + closing
             return MarkupEdit(text: ns.replacingCharacters(in: selection, with: wrapped),
-                              selection: NSRange(location: selection.location + width,
+                              selection: NSRange(location: selection.location + (opening as NSString).length,
                                                  length: selection.length))
         }
     }
 
     /// Where an inline verb's delimiters already are, if they are — which is what makes a press
-    /// take them off rather than add a second pair.
-    enum WrapState { case inside, outside }
+    /// take them off rather than add a second pair — and how many characters they take at the
+    /// start and at the end: a code span's run of backticks can be any length, with a space inside
+    /// it (FMT-20).
+    enum WrapState: Equatable {
+        /// The selection's own ends: `**bold**` selected whole.
+        case inside(open: Int, close: Int)
+        /// Just outside it: `bold` selected between the asterisks.
+        case outside(open: Int, close: Int)
+    }
+
+    /// **What Inline Code wraps `selected` in** (FMT-20): one backtick, or — when the text holds
+    /// backticks of its own — a run one longer than its longest, with a space inside it where the
+    /// text starts or ends with one. A single backtick around `` use `a` here `` closed at the
+    /// first backtick inside and left three runs, code, plain and code.
+    static func codeDelimiters(around selected: String) -> (String, String) {
+        var longest = 0, run = 0
+        for character in selected {
+            run = character == "`" ? run + 1 : 0
+            longest = max(longest, run)
+        }
+        let fence = String(repeating: "`", count: longest + 1)
+        let pad = selected.hasPrefix("`") || selected.hasSuffix("`") ? " " : ""
+        return (fence + pad, pad + fence)
+    }
 
     /// **The "already applied" half of ``wrap(_:_:with:guardingAgainst:)``, on its own.** One test,
     /// asked by the verb (to decide between wrapping and unwrapping) and by the format bar (to
@@ -402,20 +619,23 @@ extension MarkdownEdits {
     /// span.** `**Warning** read the **docs**` selected whole starts and ends with `**`, and was taken
     /// for one bold span: Bold "took it off" by deleting the outer pairs, leaving
     /// `Warning** read the **docs` — the two bold words plain and the words between them bold, the
-    /// formatting turned inside out. The same for `` `a` and `b` `` and for `~~`. Only Italic's
-    /// delimiter may legitimately recur inside one span (`*a **b** c*` is italic text holding a bold
-    /// word), so only Italic keeps the old reading; for the rest such a run is "not wrapped", and the
-    /// press adds a pair instead of destroying two. `MarkupWrapEquivalenceTests` holds every other
-    /// case to the old answer.
+    /// formatting turned inside out. The same for `` `a` and `b` `` and for `~~`. For the rest such
+    /// a run is "not wrapped", and the press adds a pair instead of destroying two.
+    /// `MarkupWrapEquivalenceTests` holds every other case to the old answer.
+    ///
+    /// **Italic is read by its runs of stars instead** — ``italicState(_:_:)`` — because its
+    /// delimiter is also half of Bold's: `neighbour` and `nests` say nothing for it.
     static func wrapState(_ ns: NSString, _ selection: NSRange, delimiter: String,
                           guardingAgainst neighbour: String? = nil,
                           nests: Bool = true) -> WrapState? {
+        if delimiter == "*" { return italicState(ns, selection) }
+        if delimiter == "`" { return codeState(ns, selection) }
         let width = (delimiter as NSString).length
         let selected = ns.substring(with: selection)
         let length = (selected as NSString).length
         if length >= width * 2, selected.hasPrefix(delimiter), selected.hasSuffix(delimiter) {
             let inner = (selected as NSString).substring(with: NSRange(location: width, length: length - width * 2))
-            if nests || !inner.contains(delimiter) { return .inside }
+            if nests || !inner.contains(delimiter) { return .inside(open: width, close: width) }
         }
         let before = NSRange(location: selection.location - width, length: width)
         let after = NSRange(location: NSMaxRange(selection), length: width)
@@ -423,9 +643,144 @@ extension MarkdownEdits {
            ns.substring(with: before) == delimiter, ns.substring(with: after) == delimiter,
            !isNeighboured(ns, before: before, after: after, by: neighbour),
            nests || !selected.contains(delimiter) {
-            return .outside
+            return .outside(open: width, close: width)
         }
         return nil
+    }
+
+    /// **A code span, read as CommonMark reads one** (FMT-20): a run of backticks opens it and the
+    /// next run of the SAME length closes it, whatever lies between; one space inside each run is
+    /// padding when the code both starts and ends with one. Selected whole, the span is `.inside`;
+    /// its code selected — padding or not — is `.outside`. One backtick on each side was all this
+    /// knew, so a span written with two (`` ``y`` ``) lost one per press and stayed code; a span
+    /// Code had written around backticks could not be taken off; and the words BETWEEN two spans
+    /// (`` `a` and `b` `` with ` and ` selected) were read as the code of one.
+    private static func codeState(_ ns: NSString, _ selection: NSRange) -> WrapState? {
+        let tick: unichar = 0x60
+        func run(at index: Int, limit: Int) -> Int {
+            var end = index
+            while end < limit, ns.character(at: end) == tick { end += 1 }
+            return end - index
+        }
+        // A caret between an empty pair — what a press over nothing wrote — is in that pair.
+        if selection.length == 0, selection.location > 0, selection.location < ns.length,
+           ns.character(at: selection.location - 1) == tick, ns.character(at: selection.location) == tick,
+           (selection.location < 2 || ns.character(at: selection.location - 2) != tick),
+           (selection.location + 1 >= ns.length || ns.character(at: selection.location + 1) != tick) {
+            return .outside(open: 1, close: 1)
+        }
+        let lines = ns.lineRange(for: selection)
+        let limit = NSMaxRange(lines)
+        var index = lines.location
+        while index < limit {
+            guard ns.character(at: index) == tick else { index += 1; continue }
+            let length = run(at: index, limit: limit)
+            // The next run of exactly this length closes it; any other run is part of the code.
+            var probe = index + length
+            var close: Int?
+            while probe < limit {
+                guard ns.character(at: probe) == tick else { probe += 1; continue }
+                let other = run(at: probe, limit: limit)
+                if other == length { close = probe; break }
+                probe += other
+            }
+            guard let close else { index += length; continue }
+            let span = NSRange(location: index, length: close + length - index)
+            if span == selection {
+                let pad = padding(ns, index + length, close)
+                return .inside(open: length + pad, close: length + pad)
+            }
+            let code = NSRange(location: index + length, length: close - index - length)
+            let pad = padding(ns, code.location, NSMaxRange(code))
+            let padded = NSRange(location: code.location + pad, length: code.length - 2 * pad)
+            if selection == code || selection == padded {
+                return .outside(open: selection.location - index, close: NSMaxRange(span) - NSMaxRange(selection))
+            }
+            index = NSMaxRange(span)
+        }
+        return nil
+    }
+
+    /// 1 when the code between `start` and `end` is padded — a space at each end and something
+    /// else between — and 0 otherwise.
+    private static func padding(_ ns: NSString, _ start: Int, _ end: Int) -> Int {
+        guard end - start >= 3, ns.character(at: start) == 0x20, ns.character(at: end - 1) == 0x20 else { return 0 }
+        let inner = ns.substring(with: NSRange(location: start + 1, length: end - start - 2))
+        return inner.allSatisfy({ $0 == " " }) ? 0 : 1
+    }
+
+    /// **Italic, read by the length of each run of stars** (FMT-4, FMT-11). A `*` is also half of
+    /// `**`, so one star beside the selection says nothing until its whole run is counted: a run of
+    /// one or three is italic (`*x*`, `***x***`), a run of two is bold alone (`**x**`).
+    ///
+    /// The neighbour guard this replaces asked only "is there one more star", and got both ends
+    /// wrong. Italic on `**loud**` selected whole found a star at each end and took them off —
+    /// bold demoted to italic, and the button lit as if the word were italic. Pressed on `bold`
+    /// inside `***bold***` it saw the extra star, refused, and added an eighth, so the second press
+    /// of Italic on a bold word never came back to the bytes it started from.
+    ///
+    /// `.inside`: the selection starts and ends with stars, each run odd counting the stars just
+    /// outside it — the press takes the selection's first and last star. `.outside`: the selection
+    /// holds no star at either end and an odd run sits against each — the press takes the star on
+    /// each side. A run of two gets a third, which is bold-italic, and a third press takes it back.
+    private static func italicState(_ ns: NSString, _ selection: NSRange) -> WrapState? {
+        let start = selection.location, end = NSMaxRange(selection)
+        let lead = starRun(ns, from: start, forward: true, limit: end)
+        let trail = starRun(ns, from: end, forward: false, limit: start)
+        let before = starRun(ns, from: start, forward: false, limit: 0)
+        let after = starRun(ns, from: end, forward: true, limit: ns.length)
+        if lead > 0, trail > 0 {
+            // All stars, or one run read from both ends: not a span with words in it.
+            guard lead + trail < selection.length,
+                  (lead + before) % 2 == 1, (trail + after) % 2 == 1,
+                  !holdsLoneStar(ns, NSRange(location: start + 1, length: selection.length - 2))
+            else { return nil }
+            return .inside(open: 1, close: 1)
+        }
+        guard lead == 0, trail == 0, before % 2 == 1, after % 2 == 1,
+              !holdsLoneStar(ns, selection) else { return nil }
+        // A bare caret inside ONE run of stars (`*|***`) splits nothing: only an even split is a pair.
+        guard selection.length > 0 || before == after else { return nil }
+        return .outside(open: 1, close: 1)
+    }
+
+    /// **Whether `range` holds a run of stars of odd length** — an italic opening or closing of
+    /// its own, so what lies between the outer stars is two spans, not one (FMT-5). Bold's pairs
+    /// inside are fine: `*a **b** c*` is one italic span holding a bold word. `*Warning* read the
+    /// *docs*` selected whole is not, and taking its outer stars off turned it inside out —
+    /// `Warning* read the *docs`, every italic gone — the defect Bold, Strikethrough and Code were
+    /// mended of in TE52.
+    private static func holdsLoneStar(_ ns: NSString, _ range: NSRange) -> Bool {
+        var index = range.location
+        let end = NSMaxRange(range)
+        while index < end {
+            guard ns.character(at: index) == 0x2A else { index += 1; continue }
+            var runEnd = index
+            while runEnd < end, ns.character(at: runEnd) == 0x2A { runEnd += 1 }
+            var run = runEnd - index
+            // `\*` is a literal star, not part of any run.
+            if index > 0, ns.character(at: index - 1) == 0x5C { run -= 1 }
+            if run % 2 == 1 { return true }
+            index = runEnd
+        }
+        return false
+    }
+
+    /// How many unescaped `*` run from `from` — forward through `from…`, or backward through
+    /// `…from-1` — stopping at `limit`. A star after a backslash is a literal, not a delimiter.
+    private static func starRun(_ ns: NSString, from: Int, forward: Bool, limit: Int) -> Int {
+        let star: unichar = 0x2A, backslash: unichar = 0x5C
+        var count = 0
+        if forward {
+            var index = from
+            while index < limit, ns.character(at: index) == star { count += 1; index += 1 }
+            if count > 0, from > 0, ns.character(at: from - 1) == backslash { count -= 1 }
+        } else {
+            var index = from - 1
+            while index >= limit, index >= 0, ns.character(at: index) == star { count += 1; index -= 1 }
+            if count > 0, index >= 0, ns.character(at: index) == backslash { count -= 1 }
+        }
+        return count
     }
 
     private static func isNeighboured(_ ns: NSString, before: NSRange, after: NSRange,
@@ -471,15 +826,31 @@ extension MarkdownEdits {
         case task
         case quote
 
+        var isQuote: Bool {
+            if case .quote = self { return true }
+            return false
+        }
+
+        /// Bulleted, Numbered or Task — the verbs a list item's carried-on lines belong to.
+        var isList: Bool {
+            switch self {
+            case .bullet, .numbered, .task: return true
+            case .heading, .quote: return false
+            }
+        }
+
         /// What already-applied looks like.
         var pattern: String {
             switch self {
             case .heading: return "^#{1,6}[ \t]+"
             // **Not a task**, which also opens with a bullet: pressing Bulleted List on a checklist
             // should make it a plain list, not strip the dash and leave the boxes behind.
-            case .bullet: return "^[-*+][ \t]+(?!\\[[ xX]\\][ \t])"
+            case .bullet: return "^[-*+][ \t]+(?!\\[[ xX]\\](?:[ \t]|$))"
             case .numbered: return "^[0-9]+[.)][ \t]+"
-            case .task: return "^[-*+][ \t]+\\[[ xX]\\][ \t]+"
+            // **A box with nothing after it is a task too** (FMT-21): `- [ ]` with its trailing
+            // space trimmed was read as a bullet whose text is `[ ]`, and Tasks on it wrote a
+            // second box — `- [ ] [ ]`.
+            case .task: return "^[-*+][ \t]+\\[[ xX]\\](?:[ \t]+|$)"
             case .quote: return "^>[ \t]?"
             }
         }
@@ -536,7 +907,8 @@ extension MarkdownEdits {
     /// the first press finishes the job and the second undoes it.
     static func prefixLines(_ text: String, _ selection: NSRange, _ prefix: LinePrefix) -> MarkupEdit? {
         let ns = text as NSString
-        let lines = lineRanges(covering: selection, in: ns)
+        let survey = LineSurvey(covering: selection, in: ns)
+        let lines = survey.lines
         guard !lines.isEmpty else { return nil }
 
         // **On blank lines alone the verb STARTS one** — a caret on an empty line, or an empty
@@ -544,71 +916,142 @@ extension MarkdownEdits {
         // and the caret goes after it. Reported 2026-10-05 ("Bullets, Numbered, Tasks don't seem
         // to work … not on blank lines"): the blank-line rule below left nothing to change, so the
         // press did nothing, where every editor starts the item.
-        if lines.allSatisfy({ isBlank(ns.substring(with: $0)) }) {
+        if survey.isBlankOnly {
             return startingLines(ns, selection, lines, prefix)
         }
+        // **Only words are rewritten** (FMT-6): code, front matter, raw HTML and dividers are left
+        // as they are, and decide nothing about whether the verb adds or removes. Over nothing
+        // else — a caret in a code block — the verb does nothing.
+        let written = survey.written(for: prefix)
+        guard !written.isEmpty else { return nil }
 
         // Body is a removal with nothing to put back, so it is never a toggle.
         let isRemoval: Bool
         if case .heading(let level) = prefix, level <= 0 {
             isRemoval = true
         } else {
-            isRemoval = everyLineHas(prefix, lines, in: ns)
+            isRemoval = everyLineHas(prefix, written, in: ns, survey: survey)
         }
 
-        // **The covered lines are rewritten once, into the range that covers them.**
-        //
-        // This used to rebuild the *whole* buffer per selected line —
-        // `result = result.replacingCharacters(in:with:)` inside the loop — which is O(n) per line
-        // and therefore O(n · lines) for the verb. Selecting a 500-line section of a 200 KB note to
-        // quote it copied 100 MB. Nothing outside the covered range can change (every edit is a
-        // line prefix), so the rewrite is assembled from the lines and spliced in once, and the
-        // buffer is copied exactly twice: the pieces out, and the result in.
-        let covered = NSRange(location: lines[0].location,
-                              length: NSMaxRange(lines[lines.count - 1]) - lines[0].location)
-        var rebuilt = ""
-        var delta = 0
-        var numbered = 0
-        var cursor = covered.location
-        for range in lines {
-            // The terminator (and any gap) between this line and the last, kept verbatim.
-            if range.location > cursor {
-                rebuilt += ns.substring(with: NSRange(location: cursor,
-                                                      length: range.location - cursor))
+        // **Each line's change is its marker, and nothing else** — the characters a marker
+        // occupies at the line's start, replaced by the marker the verb writes (or by nothing).
+        // Kept as edits rather than rewritten lines so the selection can be carried through them
+        // (FMT-8) and the buffer is still spliced once.
+        var edits: [LineEdit] = []
+        // **Counted per level** (FMT-7): a nested item numbers from 1 under its parent, and the
+        // count of a level goes when a shallower line comes back to the one above it.
+        var counts: [String: Int] = [:]
+        var lastLineAfter = ""
+        // A blank line inside a selection keeps its blankness: prefixing it would put a lone `- `
+        // between two paragraphs.
+        for range in written {
+            let line = ns.substring(with: range) as NSString
+            // **The marker goes after the line's container** — its quote markers and indentation
+            // (FMT-7) — so `> Title` becomes `> ## Title`, not `## > Title`, and `  - b` keeps its
+            // nesting rather than gaining a second marker, `-   - b`.
+            let start = containerLength(line as String, for: prefix)
+            let container = line.substring(to: start)
+            let rest = line.substring(from: start)
+            counts = counts.filter { $0.key.count <= container.count }
+            let number = counts[container, default: 0]
+            counts[container] = number + 1
+            let marker = isRemoval ? "" : prefix.text(at: number)
+            let rewritten = isRemoval ? stripping(prefix, from: rest)
+                                      : applying(prefix, to: rest, at: number)
+            lastLineAfter = container + rewritten
+            // `stripping` and `applying` only take a marker off the front and put one there, so
+            // what follows the new marker is the line's own tail.
+            let kept = (rewritten as NSString).length - (marker as NSString).length
+            let replaced = NSRange(location: range.location + start, length: (rest as NSString).length - kept)
+            if ns.substring(with: replaced) != marker { edits.append(LineEdit(range: replaced, text: marker)) }
+            // **A setext heading's underline goes when its words take a marker or lose their
+            // heading** (FMT-13): `## Title` over a stray `=====` paragraph was what Heading 2 left.
+            // Quote keeps it, quoted with the words.
+            if let setext = survey.setext(range), !prefix.isQuote {
+                let underline = NSRange(location: NSMaxRange(range),
+                                        length: NSMaxRange(setext.underline) - NSMaxRange(range))
+                edits.append(LineEdit(range: underline, text: ""))
             }
-            cursor = NSMaxRange(range)
-            let line = ns.substring(with: range)
-            // A blank line inside a selection keeps its blankness: prefixing it would put a lone
-            // `- ` between two paragraphs.
-            guard !line.trimmingCharacters(in: .whitespaces).isEmpty else {
-                rebuilt += line
+        }
+        guard !edits.isEmpty else { return nil }
+        // **The inverse of a started item** (FMT-3): a bare marker that comes off between two
+        // blank lines takes the room it was given with it, so a second press gives back the bytes
+        // the first one started from.
+        if isRemoval, let only = written.first, written.count == 1, isBlank(lastLineAfter) {
+            let line = MarkdownSourceLines.line(containing: only.location, in: ns)
+            if line.content == only, line.terminatorLength > 0,
+               let above = MarkdownSourceLines.line(before: line, in: ns), isBlank(ns.substring(with: above.content)),
+               let below = MarkdownSourceLines.line(after: line, in: ns), isBlank(ns.substring(with: below.content)) {
+                let gone = NSRange(location: NSMaxRange(above.content), length: line.end - NSMaxRange(above.content))
+                let collapse = [LineEdit(range: gone, text: "")]
+                return MarkupEdit(text: spliced(collapse, into: ns), selection: mapped(selection, through: collapse))
+            }
+        }
+        return MarkupEdit(text: spliced(edits, into: ns), selection: mapped(selection, through: edits))
+    }
+
+    /// One line's change: the characters at `range` become `text`. Line verbs produce these in
+    /// order, none overlapping.
+    struct LineEdit: Equatable {
+        var range: NSRange
+        var text: String
+    }
+
+    /// **The buffer with `edits` made, spliced once** — never the whole buffer rebuilt per line,
+    /// which was O(n · lines): quoting a 500-line section of a 200 KB note copied 100 MB.
+    static func spliced(_ edits: [LineEdit], into ns: NSString) -> String {
+        guard let first = edits.first, let last = edits.last else { return ns as String }
+        let covered = NSRange(location: first.range.location, length: NSMaxRange(last.range) - first.range.location)
+        var rebuilt = ""
+        var cursor = covered.location
+        for edit in edits {
+            if edit.range.location > cursor {
+                rebuilt += ns.substring(with: NSRange(location: cursor, length: edit.range.location - cursor))
+            }
+            rebuilt += edit.text
+            cursor = NSMaxRange(edit.range)
+        }
+        return ns.replacingCharacters(in: covered, with: rebuilt)
+    }
+
+    /// **Where `position` is once `edits` are made: beside the same character** (FMT-8). Past an
+    /// edit, it moves by what the edit added or took; inside the characters an edit replaced — a
+    /// marker that came off or changed — it goes to the end of what replaced them, the start of
+    /// the line's words. A selection keeps the words it held, not the index: Bullets on `one`
+    /// selected used to leave `- one` selected, marker and all, and Bold then wrote `**- one**`,
+    /// which is no list item; taking a marker off left the selection a character short, on `e`.
+    static func mapped(_ position: Int, through edits: [LineEdit]) -> Int {
+        var shift = 0
+        for edit in edits {
+            let added = (edit.text as NSString).length
+            if position >= NSMaxRange(edit.range) {
+                shift += added - edit.range.length
                 continue
             }
-            let rewritten = isRemoval ? stripping(prefix, from: line)
-                                      : applying(prefix, to: line, at: numbered)
-            numbered += 1
-            rebuilt += rewritten
-            delta += (rewritten as NSString).length - range.length
+            if position >= edit.range.location { return edit.range.location + shift + added }
+            break
         }
-        guard (rebuilt as NSString).length != covered.length
-                || rebuilt != ns.substring(with: covered) else { return nil }
-        let result = ns.replacingCharacters(in: covered, with: rebuilt)
-        // A bare caret on one line stays with the character it was beside — after a marker that
-        // went on, at the line's start when a bare marker came off — rather than keeping its
-        // index, which left "- f|oo" after Bullets on "foo|", and put the caret on the NEXT line
-        // after taking a bare "- " off. A selection keeps the whole run selected, as before.
-        if selection.length == 0, lines.count == 1 {
-            return MarkupEdit(text: result,
-                              selection: NSRange(location: max(lines[0].location, selection.location + delta), length: 0))
-        }
-        return MarkupEdit(text: result, selection: selectionAfter(selection, delta: delta, in: result))
+        return position + shift
+    }
+
+    /// A selection carried through `edits` — each end by ``mapped(_:through:)``.
+    static func mapped(_ selection: NSRange, through edits: [LineEdit]) -> NSRange {
+        let start = mapped(selection.location, through: edits)
+        let end = max(start, mapped(NSMaxRange(selection), through: edits))
+        return NSRange(location: start, length: end - start)
     }
 
     /// **A list, heading or quote started on blank lines** — the case ``prefixLines(_:_:_:)``
     /// hands here: each covered line becomes the bare marker (a line of spaces loses them, since
     /// nothing is on it to indent), numbered on from a numbered item directly above, so a "3." is
-    /// the next one under "2.". A caret lands after its marker; a selection keeps the run. Body has
-    /// nothing to put on a blank line and answers `nil`.
+    /// the next one under "2.". A caret lands after its marker; a selection holds the markers' run.
+    /// Body has nothing to put on a blank line and answers `nil`.
+    ///
+    /// **A list or quote keeps a blank line between it and a paragraph either side** (FMT-3). On
+    /// the one blank line between two paragraphs the marker took that line's place, and so stood
+    /// against both: `Para.` over a bare `- ` read as a setext heading, `1. ` as words of the
+    /// paragraph, and once the item was typed the paragraph below ran on into it as a lazy line.
+    /// A heading needs no room — it is one line, and nothing runs into it.
     static func startingLines(_ ns: NSString, _ selection: NSRange, _ lines: [NSRange],
                               _ prefix: LinePrefix) -> MarkupEdit? {
         if case .heading(let level) = prefix, level <= 0 { return nil }
@@ -624,13 +1067,36 @@ extension MarkdownEdits {
             cursor = NSMaxRange(range)
             rebuilt += prefix.text(at: first + index)
         }
-        let result = ns.replacingCharacters(in: covered, with: rebuilt)
+        let roomy = prefix.isList || prefix.isQuote
+        let firstLine = MarkdownSourceLines.line(containing: covered.location, in: ns)
+        let lastLine = MarkdownSourceLines.line(containing: NSMaxRange(covered), in: ns)
+        let lead = roomy && (MarkdownSourceLines.line(before: firstLine, in: ns).map { isParagraphText($0.content, in: ns) } ?? false)
+            ? "\n" : ""
+        let trail = roomy && (MarkdownSourceLines.line(after: lastLine, in: ns).map { isParagraphText($0.content, in: ns) } ?? false)
+            ? "\n" : ""
+        let result = ns.replacingCharacters(in: covered, with: lead + rebuilt + trail)
+        let start = covered.location + (lead as NSString).length
         if selection.length == 0, lines.count == 1 {
             let marker = (prefix.text(at: first) as NSString).length
-            return MarkupEdit(text: result, selection: NSRange(location: covered.location + marker, length: 0))
+            return MarkupEdit(text: result, selection: NSRange(location: start + marker, length: 0))
         }
-        let delta = (rebuilt as NSString).length - covered.length
-        return MarkupEdit(text: result, selection: selectionAfter(selection, delta: delta, in: result))
+        return MarkupEdit(text: result, selection: NSRange(location: start, length: (rebuilt as NSString).length))
+    }
+
+    /// **Whether `line` is a paragraph's words** — what a list or quote must not be written against
+    /// (FMT-3): not blank, and not opening with a list, heading or quote marker, a fence, a table's
+    /// pipe, raw HTML, or a divider's or an underline's run.
+    static func isParagraphText(_ line: NSRange, in ns: NSString) -> Bool {
+        let text = ns.substring(with: line)
+        guard !isBlank(text) else { return false }
+        let rest = (text as NSString).substring(from: containerLength(text, for: .bullet))
+        guard (text as NSString).length == (rest as NSString).length || !text.contains(">") else { return false }
+        for prefix in [LinePrefix.bullet, .numbered, .task, .heading(1), .quote]
+            where firstMatch(prefix.pattern, in: rest) != nil { return false }
+        if let lead = rest.first, "|`~<".contains(lead) { return false }
+        let marks = rest.filter { $0 != " " && $0 != "\t" }
+        if let mark = marks.first, "-*_=".contains(mark), marks.allSatisfy({ $0 == mark }) { return false }
+        return true
     }
 
     /// The number a numbered list started on `line` takes up from: the number of a numbered item on
@@ -649,11 +1115,29 @@ extension MarkdownEdits {
     ///
     /// **Level-exact for headings, by way of ``LinePrefix/appliedPattern``** — the bug that note
     /// records was exactly these two questions sharing one answer.
-    static func everyLineHas(_ prefix: LinePrefix, _ lines: [NSRange], in ns: NSString) -> Bool {
+    static func everyLineHas(_ prefix: LinePrefix, _ lines: [NSRange], in ns: NSString,
+                             survey: LineSurvey? = nil) -> Bool {
         lines.allSatisfy { range in
+            // A setext heading has its level's marker without writing one (FMT-13).
+            if !prefix.isQuote, let setext = survey?.setext(range) {
+                if case .heading(let level) = prefix { return level == setext.level }
+                return false
+            }
             let line = ns.substring(with: range)
-            return isBlank(line) || firstMatch(prefix.appliedPattern, in: line) != nil
+            let rest = (line as NSString).substring(from: containerLength(line, for: prefix))
+            return isBlank(line) || firstMatch(prefix.appliedPattern, in: rest) != nil
         }
+    }
+
+    /// **What stands in front of a line's own marker: its quote markers and its indentation**
+    /// (FMT-7), which a list or heading verb reads past and writes after. The patterns were
+    /// anchored at column 0, so a nested item, a quoted one or a quoted heading was read as no
+    /// marker at all: Bullets over `- a` and `  - b` wrote `-   - b`, Heading 2 on `> Title` wrote
+    /// `## > Title`. Quote is the exception — it nests in front of everything, so it reads from
+    /// column 0 — and answers 0.
+    static func containerLength(_ line: String, for prefix: LinePrefix) -> Int {
+        if case .quote = prefix { return 0 }
+        return firstMatch("^(?:[ \t]{0,3}>[ \t]?)*[ \t]*", in: line)?.length ?? 0
     }
 
     /// Internal rather than private, so `MarkupPrefixLinesEquivalenceTests` can run the OLD
@@ -701,11 +1185,28 @@ extension MarkdownEdits {
         let start = lines.first?.location ?? selection.location
         let end = lines.last.map { NSMaxRange($0) } ?? NSMaxRange(selection)
         let body = ns.substring(with: NSRange(location: start, length: end - start))
-        let fenced = "```\n" + body + "\n```"
+        let marker = String(repeating: "`", count: fenceLength(around: body))
+        let fenced = marker + "\n" + body + "\n" + marker
         let replaced = NSRange(location: start, length: end - start)
         return MarkupEdit(text: ns.replacingCharacters(in: replaced, with: fenced),
                           // Inside the fence, on the code — not on the fence line nobody edits.
-                          selection: NSRange(location: start + 4, length: (body as NSString).length))
+                          selection: NSRange(location: start + (marker as NSString).length + 1,
+                                             length: (body as NSString).length))
+    }
+
+    /// **How many backticks the fence needs to hold `body`** (FMT-9): three, or one more than the
+    /// longest run of them opening any of its lines — the only lines that could close it. Code
+    /// Block around a note that already showed a fenced example wrote ```` ``` ```` around it, and
+    /// the example's own first fence closed the new block there: the rest fell out as a paragraph
+    /// and an empty block.
+    static func fenceLength(around body: String) -> Int {
+        var longest = 0
+        for line in body.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            let indent = line.prefix { $0 == " " }
+            guard indent.count <= 3 else { continue }
+            longest = max(longest, line.dropFirst(indent.count).prefix { $0 == "`" }.count)
+        }
+        return max(3, longest + 1)
     }
 
     /// A thematic break on its own line, below the line the caret is on.

@@ -19,6 +19,9 @@ struct PreviewEditorView: NSViewRepresentable {
     var onRefusal: ((PreviewRefusal, Int) -> Void)?
     /// The selection, mapped into the source — for Line and Column, and for Show in Source.
     var onSourceSelection: ((NSRange) -> Void)?
+    /// The styles ⌘B, ⌘I and friends set for what is typed next, as the verbs that set them — what
+    /// the format bar lights for them (FMT-15).
+    var onPendingStyles: ((Set<MarkupVerb>) -> Void)?
     /// A `#fragment` link, ⌘-clicked.
     var onFollowAnchor: ((String) -> Void)?
     /// Where the format bar finds the text it formats — this view, while it is on screen.
@@ -114,6 +117,7 @@ struct PreviewEditorView: NSViewRepresentable {
         }
         coordinator.onRefusal = onRefusal
         coordinator.onSourceSelection = onSourceSelection
+        coordinator.onPendingStyles = onPendingStyles
         coordinator.onFollowAnchor = onFollowAnchor
         coordinator.onVisibleLineChange = onVisibleLineChange
     }
@@ -124,6 +128,9 @@ struct PreviewEditorView: NSViewRepresentable {
         weak var textView: PreviewTextView?
         var onRefusal: ((PreviewRefusal, Int) -> Void)?
         var onSourceSelection: ((NSRange) -> Void)?
+        var onPendingStyles: ((Set<MarkupVerb>) -> Void)?
+        /// What ``onPendingStyles`` was last told, so an unchanged set is not said again.
+        private var reportedPending: PreviewPendingStyle = []
         var onFollowAnchor: ((String) -> Void)?
         /// Set while this coordinator moves the selection itself, so the move is not taken for the
         /// person's.
@@ -272,6 +279,28 @@ struct PreviewEditorView: NSViewRepresentable {
 
         func apply(_ result: PreviewEditSession.Result) {
             if case .select(let range) = result { select(range) }
+            reportPending()
+        }
+
+        /// **Tells the format bar which styles wait for the next character** (FMT-15). ⌘B with
+        /// nothing selected writes nothing in Preview — it sets Bold for what is typed next — and
+        /// the bar never showed it: Bold stayed dark, and a second press to check turned it off
+        /// unseen. Reported whenever it may have changed, and only when it did.
+        func reportPending() {
+            let pending = session.context.pending
+            guard pending != reportedPending else { return }
+            reportedPending = pending
+            onPendingStyles?(Self.verbs(for: pending))
+        }
+
+        /// The verbs that set `pending`.
+        static func verbs(for pending: PreviewPendingStyle) -> Set<MarkupVerb> {
+            var verbs: Set<MarkupVerb> = []
+            if pending.contains(.bold) { verbs.insert(.bold) }
+            if pending.contains(.italic) { verbs.insert(.italic) }
+            if pending.contains(.strikethrough) { verbs.insert(.strikethrough) }
+            if pending.contains(.code) { verbs.insert(.inlineCode) }
+            return verbs
         }
 
         func select(_ range: NSRange) {
@@ -357,6 +386,7 @@ struct PreviewEditorView: NSViewRepresentable {
             guard !isSelecting, let view = textView, !view.hasMarkedText(), !view.isComposing else { return }
             session.selectionMoved(to: view.selectedRange())
             reportSelection()
+            reportPending()
         }
 
         /// **The text's right-click menu, as Source's**: AppKit's own items, with the Markup verbs and
@@ -368,7 +398,8 @@ struct PreviewEditorView: NSViewRepresentable {
             let markup = PlainTextEditor.Coordinator.markupMenu(
                 target: self, action: #selector(applyMarkupItem(_:)),
                 tables: MarkdownTables.available(in: ns, selection: selection),
-                inTable: MarkdownTables.touches(ns, selection))
+                inTable: MarkdownTables.touches(ns, selection),
+                crossesCells: MarkdownEdits.crossesCells(ns, selection))
             let host = NSMenuItem(title: "Markup", action: nil, keyEquivalent: "")
             host.submenu = markup
             let shows = UserDefaults.standard.object(forKey: EditorTextSettings.showsFormatBarKey) as? Bool

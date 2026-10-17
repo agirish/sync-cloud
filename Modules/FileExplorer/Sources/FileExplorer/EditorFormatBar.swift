@@ -20,22 +20,35 @@ struct MarkupFormatState: Equatable, Sendable {
     /// Whether either end of the selection is in a table — where the verbs that rewrite whole lines
     /// would break it, and so are greyed (TE76, ``MarkdownTables/touches(_:_:)``).
     var touchesTable = false
+    /// Whether the selection runs across a table's cells — where the inline marks and Link would
+    /// break it, and so are greyed too (FMT-1, ``MarkdownEdits/crossesCells(_:_:)``).
+    var crossesCells = false
 
     static let none = MarkupFormatState(lit: [], heading: .body)
 
-    /// Every verb asked about one selection, over ONE bridge of the buffer and ONE walk of the
+    /// Every verb asked about one selection, over ONE bridge of the buffer and ONE survey of the
     /// lines the selection touches — the verbs' own tests, handed what they would each have found.
     static func of(_ text: String, selection: NSRange) -> MarkupFormatState {
         let ns = text as NSString
         guard MarkdownEdits.isValid(selection, in: ns) else { return .none }
-        let lines = MarkdownEdits.lineRanges(covering: selection, in: ns)
+        let survey = MarkdownEdits.LineSurvey(covering: selection, in: ns)
         return MarkupFormatState(
             lit: Set(MarkupVerb.menuOrder.compactMap { $0 }.filter {
-                MarkdownEdits.isApplied($0, ns, selection, lines: lines)
+                MarkdownEdits.isApplied($0, ns, selection, survey: survey)
             }),
-            heading: MarkdownEdits.headingLevel(ns, selection, lines: lines),
+            heading: MarkdownEdits.headingLevel(ns, selection, survey: survey),
             tables: MarkdownTables.available(in: ns, selection: selection),
-            touchesTable: MarkdownTables.touches(ns, selection))
+            touchesTable: MarkdownTables.touches(ns, selection),
+            crossesCells: MarkdownEdits.crossesCells(ns, selection))
+    }
+
+    /// This state with `verbs` lit as well — editable Preview's pending styles, which a caret there
+    /// sets for what is typed next and the selection cannot show (FMT-15).
+    func lighting(_ verbs: Set<MarkupVerb>) -> MarkupFormatState {
+        guard !verbs.isEmpty else { return self }
+        var lit = self
+        lit.lit.formUnion(verbs)
+        return lit
     }
 
     /// Whether the selection starts in a table — when the Table capsule is drawn (TE73).
@@ -334,7 +347,18 @@ struct EditorFormatBar: View, Equatable {
             return state.tables.contains(.insert) || state.tables.contains(.fromSelection)
         }
         if case .table(let op) = verb { return state.tables.contains(op) }
-        return !(verb.breaksTables && state.touchesTable)
+        return !(verb.breaksTables && state.touchesTable) && !(verb.wrapsWords && state.crossesCells)
+    }
+
+    /// **Whether a MENU item would do something** — ``isOffered(_:in:)`` but for the Table button's
+    /// own rule, which belongs to the button alone (FMT-16). The button makes a table from the
+    /// selection when it can and inserts one otherwise, so it is live when either would; a folded
+    /// menu lists the two as items of their own, and each must be live only where IT would act.
+    /// "Insert Table" was enabled in the folded and merged menus wherever Make Table from Selection
+    /// alone applied, and its press then refused — while the right-click menu greyed the same item.
+    static func isItemOffered(_ verb: MarkupVerb, in state: MarkupFormatState) -> Bool {
+        if case .table(let op) = verb { return state.tables.contains(op) }
+        return isOffered(verb, in: state)
     }
 
     /// What the Body menu's label reads.
@@ -367,8 +391,8 @@ struct EditorFormatBar: View, Equatable {
     /// refused), in Source or Split, with View ▸ Format Bar on — or in Preview while it is
     /// editable (`previewEditing`, TE67), where the verbs go through Preview's translation. A read-only
     /// Preview has no text view to act on;
-    /// plain text has no Markdown for the verbs to write (the Markup menu still offers them there,
-    /// but a strip of formatting buttons above a `.txt` would claim the file has formatting); a
+    /// plain text has no Markdown for the verbs to write (and the Markup menu, its chords and the
+    /// right-click submenu are greyed there too — FMT-18); a
     /// read-only file withholds the verbs everywhere, its Markup menu and context menu included.
     ///
     /// The UNRESOLVED mode, resolved here: `EditorMode.resolved` narrows any mode to Source on a
@@ -789,10 +813,10 @@ struct EditorFormatBar: View, Equatable {
     private func item(_ verb: MarkupVerb) -> some View {
         if Self.canLight(verb) {
             Toggle(verb.title, isOn: Binding(get: { state.lit.contains(verb) }, set: { _ in onVerb(verb) }))
-                .disabled(!Self.isOffered(verb, in: state))
+                .disabled(!Self.isItemOffered(verb, in: state))
         } else {
             Button(verb.title) { onVerb(verb) }
-                .disabled(!Self.isOffered(verb, in: state))
+                .disabled(!Self.isItemOffered(verb, in: state))
         }
     }
 }

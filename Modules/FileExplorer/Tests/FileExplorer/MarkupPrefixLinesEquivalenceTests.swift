@@ -110,16 +110,27 @@ import Foundation
             }
             for (name, prefix) in Self.prefixes {
                 for selection in selections {
-                    // Two departures on purpose (2026-10-05), each pinned in `MarkupVerbTests`: on
-                    // blank lines alone the verb now starts an item, and a bare caret on one line
-                    // stays with its text. So those are left out, and a caret compares text only.
+                    // Departures on purpose, each pinned in `MarkupVerbTests`: on blank lines alone
+                    // the verb starts an item (2026-10-05) — left out — and the selection stays on
+                    // the words it held rather than keeping its index (a bare caret since
+                    // 2026-10-05, every selection since FMT-8) — so the TEXT is compared, and the
+                    // selection is held to its own test.
                     let touched = MarkdownEdits.lineRanges(covering: selection, in: ns)
                     if touched.allSatisfy({ ns.substring(with: $0).trimmingCharacters(in: .whitespaces).isEmpty }) {
                         continue
                     }
+                    // FMT-7: a list or heading verb reads past a line's quote markers and
+                    // indentation, where the old loop read from column 0 — `> quoted` became
+                    // `# > quoted`. Lines with anything in front of their words are left out;
+                    // `MarkupVerbTests.listAndHeadingVerbsReadPastQuotesAndIndentation` holds them.
+                    if touched.contains(where: { range in
+                        let line = ns.substring(with: range)
+                        return !line.trimmingCharacters(in: .whitespaces).isEmpty
+                            && MarkdownEdits.containerLength(line, for: prefix) > 0
+                    }) { continue }
                     var old = Self.oldPrefixLines(text, selection, prefix)
                     let new = MarkdownEdits.prefixLines(text, selection, prefix)
-                    if selection.length == 0, touched.count == 1, let n = new { old?.selection = n.selection }
+                    if let n = new { old?.selection = n.selection }
                     compared += 1
                     if new != nil { changed += 1 }
                     let report = "\(name) over \(text.debugDescription) at \(selection):"

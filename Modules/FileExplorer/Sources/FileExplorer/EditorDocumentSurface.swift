@@ -57,6 +57,23 @@ public enum EditorDocumentSurface {
         return view
     }
 
+    /// **The document's text view when the caret is in it AND the file takes Markup** — what ⌘I
+    /// asks before it means Italic rather than the inspector (FMT-18): in a `.txt` the key opens
+    /// the inspector, as it does everywhere the verbs do not apply.
+    @MainActor
+    public static func markupTextView(in window: NSWindow?) -> NSTextView? {
+        guard let view = caretTextView(in: window), acceptsMarkup(view) else { return nil }
+        return view
+    }
+
+    /// Whether `view`'s document is one the Markup verbs write into: a Markdown file. Editable
+    /// Preview is Markdown by construction; a text view this app did not build says nothing, and
+    /// is taken at its word.
+    @MainActor
+    static func acceptsMarkup(_ view: NSTextView) -> Bool {
+        (view.delegate as? PlainTextEditor.Coordinator)?.isMarkdownDocument ?? true
+    }
+
     /// Opens the find bar over the document, if the caret is in it.
     ///
     /// - Returns: `false` when the caret is elsewhere, so the caller can fall through to whatever
@@ -102,6 +119,12 @@ public enum EditorDocumentSurface {
     @discardableResult
     public static func applyMarkup(_ verb: MarkupVerb, in window: NSWindow?) -> Bool {
         guard let view = caretTextView(in: window), view.isEditable else { return false }
+        // **Not in a file that is not Markdown** (FMT-18): ⌘B wrote `****` into a `.yaml`. The
+        // menu bar greys the items there; this is the rule under every door, ⌘I's included.
+        guard acceptsMarkup(view) else {
+            Logger.shared.info("Markup ▸ \(verb.title) did nothing: the open file is not Markdown")
+            return true
+        }
         // Editable Preview (TE67): the verb is translated into the source like any edit there.
         if let preview = view as? PreviewTextView {
             preview.performMarkup(verb)
@@ -111,7 +134,10 @@ public enum EditorDocumentSurface {
         // the caret is when they draw, so the ones that would break a table stay enabled there.
         let breaks = MarkdownEdits.breaksTable(verb, in: view.string, selection: view.selectedRange())
         if !PlainTextEditor.apply(verb, to: view) {
-            if breaks {
+            if breaks, verb.wrapsWords {
+                // FMT-1 — the format bar greys these too; across cells a mark breaks the table.
+                Logger.shared.info("Markup ▸ \(verb.title) did nothing: the selection runs across a table's cells, and a mark wraps words inside one")
+            } else if breaks {
                 // TE76 — the format bar greys these; a press from the menu bar says why instead.
                 Logger.shared.info("Markup ▸ \(verb.title) did nothing: the selection is in a table, and it would take the table's lines out of it")
             } else if case .table(let op) = verb {

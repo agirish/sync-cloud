@@ -466,7 +466,10 @@ final class PreviewEditSession {
         }
     }
 
-    /// The selection in the source, for the status line's Line and Column and for Show in Source.
+    /// The selection in the source, for the status line's Line and Column and for Show in Source —
+    /// and for the format bar, which lights and greys by it (FMT-14): mapped as a verb would map
+    /// it, so a triple-clicked paragraph or a run over several blocks is reported rather than left
+    /// standing as the last caret's (``PreviewEditTranslator/reportedSelection(for:in:)``).
     ///
     /// Measured past what is in the display only: a caret after held spaces is where they will be
     /// written — the end of their line, not the next block, whose Line and Column the status line
@@ -478,7 +481,7 @@ final class PreviewEditSession {
             let end = Self.collapsed(NSMaxRange(range), past: overlay)
             range = NSRange(location: start, length: end - start)
         }
-        return PreviewEditTranslator.sourceSelection(for: range, in: projection)
+        return PreviewEditTranslator.reportedSelection(for: range, in: projection)
     }
 
     /// Display offset `offset` with `overlay` taken out: inside it or after it moves back by as

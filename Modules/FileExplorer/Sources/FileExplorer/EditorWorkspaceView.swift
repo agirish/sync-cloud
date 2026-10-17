@@ -284,6 +284,9 @@ public struct EditorWorkspaceView: View {
     @State private var goToLineShown = false
     /// What the format bar shows lit — see ``MarkupFormatState``.
     @State private var formatState: MarkupFormatState = .none
+    /// Editable Preview's pending styles, as verbs — lit on the bar while Preview has the caret
+    /// (FMT-15). Preview reports them as they change.
+    @State private var previewPending: Set<MarkupVerb> = []
     /// The text view, for the format bar's buttons — see ``EditorTextViewHandle``.
     @State private var textViewHandle = EditorTextViewHandle()
     /// View ▸ Format Bar. Read here like the glass settings above: a preference, not state.
@@ -1305,6 +1308,7 @@ public struct EditorWorkspaceView: View {
                 liveSelection.set(rangeCount: 1)
                 selectionFacts = nil
                 formatState = .none
+                previewPending = []
                 // …nor the last file's refusal hint, whose link would act on this one.
                 statusHint = nil
                 goToLineShown = false
@@ -1318,6 +1322,8 @@ public struct EditorWorkspaceView: View {
             .onChange(of: resolvedMode) { _, drawn in
                 // Out of Split, its Preview half is gone. (Into it, the new half has registered.)
                 if drawn != .split { textViewHandle.leaveSplit() }
+                // A new Preview starts with nothing pending; Source has no pending styles at all.
+                previewPending = []
                 liveSelection.set(length: 0)
                 liveSelection.set(rangeCount: 1)
                 selectionFacts = nil
@@ -1620,6 +1626,7 @@ public struct EditorWorkspaceView: View {
                                           liveSelection.set(length: selection.length)
                                           document.caretAnchors.remember(selection.location, for: document.path)
                                       },
+                                      onPendingStyles: { previewPending = $0 },
                                       onFollowAnchor: followAnchor,
                                       textViewHandle: textViewHandle,
                                       isSplitHalf: inSplit,
@@ -1722,7 +1729,8 @@ public struct EditorWorkspaceView: View {
 
     /// The format bar, over Source or over an editable Preview — whichever text view the handle holds.
     private var formatBar: some View {
-        EditorFormatBar(state: formatState, accent: accent, showsLabels: formatBarShowsLabels,
+        EditorFormatBar(state: formatState.lighting(barActsOnPreview ? previewPending : []), accent: accent,
+                        showsLabels: formatBarShowsLabels,
                         onVerb: { verb in textViewHandle.applyMarkup(verb) })
             .equatable()
             // On the bar itself, so a right-click on the text keeps the text view's menu.
@@ -1733,6 +1741,12 @@ public struct EditorWorkspaceView: View {
             .padding(.horizontal, Self.formatBarInset)
             .padding(.top, Self.formatBarInset)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Whether the bar acts on editable Preview now — Preview alone, or Split's Preview half while
+    /// the caret was last there — and so lights Preview's pending styles (FMT-15).
+    private var barActsOnPreview: Bool {
+        editsInPreview && (resolvedMode == .preview || textViewHandle.targetsSplitPreview)
     }
 
     /// The format bar's inset from the text card's edges — the bar is a strip IN the card, and the
