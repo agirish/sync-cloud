@@ -135,9 +135,103 @@
 
 <div class="timeline">
 
+  <!-- v5.5 -->
+  <article class="rel">
+    <div class="rel-head"><span class="v">v5.5</span><span class="tag latest">Latest</span></div>
+    <p class="lede"><b>Edit becomes a place to write Markdown.</b> A format bar puts the Markup verbs on buttons, tables come without typing pipes, lists carry on, pictures drop in, and a note&#8217;s Preview can be typed in &#8212; experimental, and on unless you turn it off. Edit notices when its file changes elsewhere, writes plain LF line breaks, and <code>&#8984;Z</code> there undoes your typing, never a file operation. <b>Compare is faster after a switch</b> and right about iCloud&#8217;s linked folders and anything reached through a link, and a cloud folder that never answers no longer stalls it. In Frosted and Clear, <b>the glass moves</b>.</p>
+    <div class="grp">
+      <h3>Edit gets a format bar, tables, and lists that carry on</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9998;</span><span><b>A format bar above the text.</b> In a Markdown note, Source — and Split's Source half — now has a bar of the Markup verbs, a capsule to each group: the <b>Body</b> menu, which names the style the caret is in and shows each style as it looks; <b>B</b>, <b>I</b> and <b>S</b>; the lists; Code, Code Block and Quote; and Link, Table and Divider. A button is lit when pressing it would take that formatting off. Where there is room each button carries a word beside its icon; a narrower window drops the words, then folds the groups one by one, and keeps Bold, Italic and Strikethrough to the last. Right-click the bar for <b>Icon and Text</b>, <b>Icon Only</b> or <b>Hide Format Bar</b>. <b>View ▸ Format Bar</b> turns it back on, as does the same item on the text's own right-click menu.</span></li>
+        <li><span class="ic">&#9998;</span><span><b>Tables without typing pipes.</b> Markup has a <b>Table</b> submenu, and the bar a Table button: Insert Table, Make Table from Selection (tab- or comma-separated lines), add and delete rows and columns, and <b>Format Table</b>, which lines the columns up. With the caret in a table, a Table capsule appears on the bar. An edit keeps a table's style: one written lined up stays lined up, and one typed by hand changes only in the row or column you touched, so a synced file shows a one-line change.</span></li>
+        <li><span class="ic">&#9998;</span><span><b>Lists carry on.</b> Return at the end of a list item starts the next one — the same bullet, the next number, or an empty box after a task — and one <code>⌘Z</code> takes back the Return and the marker together. Return on an empty item ends the list. Tab and ⇧Tab move an item in and out a level. <b>Text ▸ Continue Lists</b> turns this off. Return and Tab follow the same rules in Preview, and ⇧Return or ⌃Return writes a plain line break.</span></li>
+        <li><span class="ic">&#9998;</span><span><b>Bullets, Numbered, Tasks, the headings and Quote work on a blank line.</b> On an empty line or in an empty note they did nothing; they now start the item, with the caret after its marker, and a numbered item carries on from the one above. Pressed again, the marker comes off.</span></li>
+        <li><span class="ic">&#9998;</span><span><b>Paste an address over words to link them.</b> Pasting one <code>http</code> or <code>https</code> address over selected words makes <code>[words](address)</code>. Every other paste is unchanged.</span></li>
+        <li><span class="ic">&#9998;</span><span><b>Drop a picture into a note.</b> An image dropped from Finder, or pasted, is copied into an <code>Images</code> folder beside the note as <code>&lt;note&gt;-1.png</code> and so on, and linked on a line of its own. An existing file is never replaced, and <code>⌘Z</code> takes the link back but leaves the copy. JPEG, HEIC, GIF and WebP pictures keep their format, and a drop or paste whose pictures total more than 25 MB is refused before anything is copied.</span></li>
+        <li><span class="ic">&#9998;</span><span><b>Horizontal Rule is now Divider</b>, in the Markup menu, the bar and the right-click menu.</span></li>
+        <li><span class="ic">&#9998;</span><span><b>Each Markup verb is its own undo step.</b> A verb used straight after typing was undone together with the typing: type "foo", choose Bold, and one <code>⌘Z</code> took both back. Now it takes back the verb.</span></li>
+        <li><span class="ic">&#9998;</span><span><b>The Markup verbs write only where they belong.</b> A line verb leaves code blocks, front matter and dividers alone and finds nested, indented and quoted markers; Italic over bold keeps the bold; an inline style never takes in a line break or a trailing space; and undoing a verb gives back its selection. Markup is greyed in files that are not Markdown.</span></li>
+        <li><span class="ic">&#9998;</span><span><b>Bold, Strikethrough and Inline Code no longer turn two spans inside out.</b> Over a selection reaching from one bold word into another, Bold read the two as one span and turned them inside out; it now adds a pair.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Type in Preview — experimental</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9998;</span><span><b>A Markdown note's Preview can be typed in.</b> Fix a word, add a sentence, press Return for a new paragraph or list item, tick a box, change a table cell: each change is written to the Markdown as you type, and <code>⌘Z</code> undoes it, a run of typing at a time, as in Source. The format bar, the Markup menu and <code>⌘F</code> work there too. In Split both halves can be typed in, and scrolling either one moves the other.</span></li>
+        <li><span class="ic">&#9998;</span><span><b>It is on unless you turn it off</b> — with <b>Edit</b> in the top-right corner of Preview, or <b>Text ▸ Edit in Preview (Experimental)</b>. It is marked experimental, and the first time a Preview becomes editable a note says what that means.</span></li>
+        <li><span class="ic">&#9998;</span><span><b>It never guesses.</b> A change Preview cannot make faithfully — joining two paragraphs, say — is not made: the file is left as it was, and the line under the document says <i>That change needs Source.</i>, with <b>Show in Source</b> beside it. Markdown files only, and a note longer than 256 KB stays read-only in Preview.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Edit around the document</h3>
+      <ul class="flist">
+        <li><span class="ic">&#128221;</span><span><b>Expand gives the document the window.</b> "Just the text" was a ≡ that read as "justify", with no menu item or key. It is now <b>Expand</b>, a button of its own at the end of the header, and <b>Text ▸ Expand</b> (<code>⌃⌘E</code>). It folds the file pane, the Text Files list and the sidebar, and leaving puts back exactly what was showing.</span></li>
+        <li><span class="ic">&#128221;</span><span><b>The sidebar works beside a folded pane.</b> In Edit the sidebar (<code>⌃⌘S</code>) existed only while the file pane was open, and the pane starts folded, so the switch was greyed most of the time. It now stays, and a click in it still re-points the Text Files list.</span></li>
+        <li><span class="ic">&#128221;</span><span><b>The status line names the heading you are in.</b> In a Markdown note with headings it starts "in <i>Heading</i> ▾", and its menu lists every heading to jump to.</span></li>
+        <li><span class="ic">&#128221;</span><span><b>It counts the selection</b> — "12 of 78 words", "64 characters selected" — and <b>goes to a line</b>: click "Line, Col", or <b>Text ▸ Go to Line…</b> (<code>⌃⌘L</code>), and type a line or <code>line:column</code>.</span></li>
+        <li><span class="ic">&#128221;</span><span><b>Readable Line Length.</b> <b>Text ▸ Readable Line Length</b> keeps wrapped text in a centred column as wide as Preview's, so a wide window no longer runs a paragraph 150 characters across. Off by default; also on the text's right-click menu, beside Wrap Lines.</span></li>
+        <li><span class="ic">&#128221;</span><span><b>Edit notices when its file changes elsewhere.</b> It learned only at the next save, so a note showed stale text, and one moved away was written back at its old path. Now, with nothing unsaved, the new version loads quietly and the caret stays put. With unsaved typing, a banner offers <b>Compare</b>, <b>Keep Mine</b> and <b>Use the Disk's</b>, and holds autosave until you choose. A moved or renamed file is followed, and a deleted one keeps its text, with <b>Save Again</b> to write it back.</span></li>
+        <li><span class="ic">&#128221;</span><span><b>Edit writes plain LF line breaks only.</b> In a file with Windows (CRLF) or old-Mac (CR) line breaks, Return, the list and block verbs, and a multi-line paste wrote LF breaks in among the old ones, and the status line read "Mixed". Now the first edit converts the whole file to LF, inside that edit's undo step, so one <code>⌘Z</code> gives back the file exactly as it was opened. A file you only read is never touched.</span></li>
+        <li><span class="ic">&#128221;</span><span><b><code>⌘Z</code> in Edit undoes your typing, never a file operation.</b> In the find field, or right after switching between Source, Split and Preview, <code>⌘Z</code> could undo your last file move, copy or rename instead. Now, whenever the document, Preview or the find bar was the last thing used, <code>⌘Z</code> takes back text; file operations are undone from the file pane.</span></li>
+        <li><span class="ic">&#128221;</span><span><b><code>⌘Z</code> is saved.</b> An undo put the old text back on screen while the document — and so autosave and the unsaved dot — kept the undone version. After switching between Source, Split and Preview, <code>⌘Z</code> could also undo a view that was no longer showing and use up the step. Both are fixed, and a box ticked in Preview can be undone.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Opening files into Edit</h3>
+      <ul class="flist">
+        <li><span class="ic">&#128196;</span><span><b>SyncCloud is in Finder's Open With for text files.</b> A file opened that way, dropped on the Dock icon or passed to <code>open -a</code> lands in Edit, fetched first if it is still in the cloud. SyncCloud is offered, never made the default. Opening several files at once opens the first and gives each other folder a tab, its files selected. A launch from Finder opens in Expand.</span></li>
+        <li><span class="ic">&#128196;</span><span><b>The file pane follows the file you open, by tab.</b> Opening a file from <code>⌘O</code>, the Info inspector, a duplicate or the palette switches to the tab already showing its folder, or opens a new tab there, on whichever source holds it — instead of re-rooting the tab you were in. From Compare and Organize it moves only within the pane's own source, so your comparison and Organize's results stay put.</span></li>
+        <li><span class="ic">&#128196;</span><span><b><code>⌘N</code> makes its file in Notes when the pane's folder is no place for one.</b> On a whole-disk source it offered the top of the disk or <code>/Applications</code>, and with no folder open it was greyed. A system folder, the top of the home folder, a Trash, a folder you cannot write to, or none, now sends the new file to <code>~/Documents/Notes</code>, made if it is missing.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Compare: faster after a switch, and right about linked folders</h3>
+      <ul class="flist">
+        <li><span class="ic">⚡</span><span><b>Compare after a switch reuses what a pane already read.</b> Switching a pane's source or tab emptied every cached folder walk, so the next Compare read both folders from disk: Home against Dropbox's Documents took 4–6 seconds instead of under 2. The other pane's walk is now kept, and the scan's status dates the comparison by the walks it read rather than by when it ran.</span></li>
+        <li><span class="ic">⚡</span><span><b>The differences come out faster.</b> Every file present on one side only got a full row built, then most were folded into their folder's row. Now only the rows that survive are built: on a Home scan of about 200,000 entries against 13,766, that step went from about 1.06 s to 0.35 s.</span></li>
+        <li><span class="ic">⚡</span><span><b>iCloud Drive's Documents and Desktop compare as what they hold.</b> With a pane on iCloud Drive ▸ Documents, the scan read the link instead of the folder, found nothing, and reported every item on the other side as "Folder missing on left" — 15 such rows on every iCloud-against-Dropbox launch. At the iCloud Drive container itself, rows could offer to copy into a path spelled <code>&lt;other side&gt;/Users/…</code>. Both read through the link now.</span></li>
+        <li><span class="ic">⚡</span><span><b>Folders reached through a link behave like any other.</b> Below a folder symlink, under a root reached through one (such as <code>/var</code>), and above iCloud's linked Documents: <b>Compare only this folder</b> and <b>Open</b> no longer refuse with "Can't Focus Folder"; <b>Columns</b> opens the next column instead of showing it empty; a file saved there from Edit, <code>⌘N</code> or Export as PDF now refreshes the pane and Compare; and a Compare of Home against a mirror no longer offers to copy the mirror's folder back into the iCloud container, through the link, onto <code>~/Documents</code>.</span></li>
+        <li><span class="ic">⚡</span><span><b>A cloud folder that never answers no longer stalls Compare — or anything else.</b> With OneDrive not running, its Trash folders block anything that lists them, so a Compare of Home never finished, and each Refresh left another stuck reader behind. Such a folder is now given 5 seconds, then marked unexplored, and Compare runs without it — reporting nothing under it as missing. The same limit now covers every other place that lists a folder: the destination picker, undoing a rename or move, merging folders, Look for Names, Edit's Text Files list and the sidebar's folder sizes.</span></li>
+        <li><span class="ic">⚡</span><span><b>Rows stay inside their folder's row.</b> Compare folds everything inside a folder missing on one side into that folder's row. A name beginning with an accent mark, or a folder and a file whose names differ only by an invisible trailing space, let rows escape: copying one could make a second folder beside the first, and bulk sync could handle it twice.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>The panes: one busy indicator, and columns at their own width</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9776;</span><span><b>A pane reading its folder shows one busy indicator</b>, a labelled chip in its bottom-right corner, instead of up to three spinners at once — one in the middle, one in the corner, and one in every empty column. A column spins only while it alone is waiting for its listing.</span></li>
+        <li><span class="ic">&#9776;</span><span><b>Compare no longer flashes "Scanning" on a quick rescan.</b> Most rescans take well under half a second, and each flashed the scanning card, the count and the Stop button. They now appear only once a scan has run for three quarters of a second.</span></li>
+        <li><span class="ic">&#9776;</span><span><b>A Columns pane at rest shows its column at its own width</b>, with empty space after it, as Finder does. It used to span the whole pane and then snap back on the first click, resizing the column under the pointer. The empty space has the column's right-click menu.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Organize acts only on the folder its profile was built from</h3>
+      <ul class="flist">
+        <li><span class="ic">⚙︎</span><span><b>Refresh what's learned reads the profile's own folder.</b> It read whatever folder the focused pane showed. With the left pane on Home, one click would have rebuilt your <code>~/Documents</code> filing memory from your whole home folder. It now always surveys the profile's folder, and refuses a profile that records none or a folder that has been emptied.</span></li>
+        <li><span class="ic">⚙︎</span><span><b>The first document survey and Restructure do the same.</b> Started with the pane elsewhere, the survey spent hours on the wrong tree; Restructure, given a profile without a recorded folder, acted under your home folder. Both now refuse rather than guess.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Glass that moves</h3>
+      <ul class="flist">
+        <li><span class="ic">🎨</span><span><b>In Frosted and Clear, the marker that shows your choice is a lens of glass that glides between choices</b> — in segmented controls, tab strips, the Settings rail, the destination picker and the other places that mark one choice among several. On light glass the chosen label is black, where white all but vanished. Solid is unchanged.</span></li>
+        <li><span class="ic">🎨</span><span><b>Bar and toolbar buttons get glass capsules</b>, as Finder's do: the pane bar, the breadcrumb, the tab strip, the Compare, Organize and Edit headers, close buttons, the Activity Log and Sync History.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Smaller fixes</h3>
+      <ul class="flist">
+        <li><span class="ic">✓</span><span><b><code>⌘K</code> can no longer send the app into a spin.</b> Once, the app sat at full CPU for seven minutes after <code>⌘K</code>: an AppKit password-field check, which SyncCloud has no use for, was walking every focusable view in the window. That check is now switched off.</span></li>
+        <li><span class="ic">✓</span><span><b>The tab chip's iCloud mark is drawn at its proper size.</b> When a pane's tabs folded into one chip, the iCloud mark could draw as a large blue cloud across the top of the pane.</span></li>
+        <li><span class="ic">✓</span><span><b>PDF previews in Columns open in the background.</b> Each selected PDF was opened on the app's main thread, so stepping through a folder of them waited on every one; now the window stays responsive while the page loads. A damaged, empty or locked PDF shows its icon and says why, where the pane was blank.</span></li>
+        <li><span class="ic">✓</span><span><b>Closing a document mid-search can no longer crash the app.</b> Closing it while Find was still looking for its first match left AppKit's find highlight asking a freed text view to redraw.</span></li>
+      </ul>
+    </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v5.4...v5.5">v5.4...v5.5</a></p>
+  </article>
+
   <!-- v5.4 -->
   <article class="rel">
-    <div class="rel-head"><span class="v">v5.4</span><span class="tag latest">Latest</span></div>
+    <div class="rel-head"><span class="v">v5.4</span><span class="tag">Guided setup</span></div>
     <p class="lede"><b>Setup that shows its reading, and six ways into Edit.</b> Setting up becomes a guided sheet of ten screens that reads your folder before it asks about you, and shows you what it made of that folder before the profile is written. Edit can now be reached from six places, <code>&#8984;O</code> among them &#8212; the File menu, a file&#8217;s right-click menu, the preview, the Info inspector, Compare&#8217;s differences and Duplicates&#8217; copies &#8212; shows one list of files instead of two, and can close a document at last. A folder that already exists at the destination can be <b>merged</b> rather than replaced, and <b>Cancel stops the copy it is in</b>, however large. Columns gives names the whole row, sizes one column at a time and keeps your place across workspaces; and on macOS 27 the arrow keys answer after a click.</p>
     <div class="grp">
       <h3>The keyboard reaches the file panes</h3>
