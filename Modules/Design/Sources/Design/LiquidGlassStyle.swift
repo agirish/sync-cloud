@@ -407,9 +407,9 @@ public extension LiquidGlass {
 /// That case is now `GlassLevel.solid`; `LiquidGlass.migrateLegacyAppearance` moves stored values
 /// across.
 public enum SurfaceStyle: String, CaseIterable, Identifiable {
-    /// The panes and the bottom workspace read as one continuous surface.
+    /// Everything under the toolbar is one outlined region, its areas divided by hairlines.
     case unified
-    /// Each pane and the bottom workspace float as separate cards on the background.
+    /// Each area floats as its own card on the background, a gutter apart.
     case cards
 
     public var id: String { rawValue }
@@ -425,9 +425,9 @@ public enum SurfaceStyle: String, CaseIterable, Identifiable {
     public var detail: String {
         switch self {
         case .unified:
-            return "The panes and the Differences area read as one continuous surface."
+            return "Everything in the window reads as one surface, divided by hairlines."
         case .cards:
-            return "Each pane and the Differences area float as separate cards on the background."
+            return "Each area of the window floats as its own card on the background."
         }
     }
 }
@@ -448,6 +448,14 @@ public enum LiquidGlass {
     /// to exactly `cardGutter`, and the content root supplies the matching half at the window edge.
     /// Don't reintroduce per-container padding: that's what broke it.
     public static let cardGutter: CGFloat = 5
+
+    /// The gutter two neighbouring areas leave between them in `style`: `cardGutter` in `.cards`,
+    /// none in `.unified`, where they sit flush in one region and meet at a hairline. For layout
+    /// arithmetic that reserves room for a gap (the sidebar's slot, say) — reserving a Cards gutter
+    /// in Unified leaves a blank strip of exactly that width.
+    public static func gutter(_ style: SurfaceStyle) -> CGFloat {
+        style == .cards ? cardGutter : 0
+    }
 
     /// The width and strength of the accent border marking the active pane.
     ///
@@ -736,16 +744,31 @@ public extension View {
         if style == .cards { self.surfaceCard(level, accentBorder: accentBorder) } else { self }
     }
 
-    /// Frames the whole panes region (both flush panes) so the top of the window reads as a
-    /// bounded container — matching the clipped, hairline-outlined sections of the bottom
-    /// workspace (`bottomSectionCard`). Applies to `.unified` only; in `.cards` each pane is
-    /// already its own floating card (`paneCardIfNeeded`), so this is a no-op.
+    // MARK: Unified is one box
+    //
+    // **In `.unified` everything under the toolbar is ONE outlined region** — the sidebar, the
+    // panes, the lens panel, Differences, Edit's strip, rail and document, the Info inspector — and
+    // the areas inside it meet at a hairline (`unifiedSeam`), not a gutter. `.cards` is the
+    // opposite answer: every area floats as its own card, a gutter apart.
+    //
+    // It used to be one region per AREA: the panes were one box, but the sidebar beside them, the
+    // lens panel, the Differences table and each of Edit's three columns were boxes of their own
+    // with a gutter between, which is Cards drawn with hairlines instead of shadows. Edit showed it
+    // worst — three boxes in a row in the style named for being one surface.
+    //
+    // So in `.unified` the section frames below draw nothing and inset nothing (the tint wash and
+    // a clip are all that is left of them), and `windowRegionFrame`, applied once round the whole
+    // content, is the only outline.
+
+    /// The one outlined region `.unified` draws, round everything under the toolbar; a no-op in
+    /// `.cards`, where each area is its own card.
     ///
-    /// The level supplies the fill: `.solid` needs an opaque base here (the panes' own
+    /// The level supplies the fill: `.solid` needs an opaque base here (the sections' own
     /// `contentSurface` only paints the tint wash), while glass levels let the window background
-    /// through, which is what "unified" means.
+    /// through, which is what "unified" means. Insets itself by `cardInset`, the window-edge half of
+    /// a gutter, so it sits exactly where a card's edge sits in `.cards`.
     @ViewBuilder
-    func panesRegionFrame(_ style: SurfaceStyle, level: GlassLevel) -> some View {
+    func windowRegionFrame(_ style: SurfaceStyle, level: GlassLevel) -> some View {
         let radius = LiquidGlass.cardCornerRadius
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         switch style {
@@ -764,16 +787,48 @@ public extension View {
         }
     }
 
+    /// The hairline where two areas meet inside `.unified`'s one region, drawn over this view's
+    /// `edge`; nothing in `.cards`, where the gutter between two cards is the boundary. Costs no
+    /// room: it sits on the edge rather than beside it.
+    func unifiedSeam(_ style: SurfaceStyle, edge: Edge) -> some View {
+        let alignment: Alignment = switch edge {
+        case .top: .top
+        case .bottom: .bottom
+        case .leading: .leading
+        case .trailing: .trailing
+        }
+        return self.overlay(alignment: alignment) {
+            if style == .unified {
+                switch edge {
+                case .top, .bottom: Divider()
+                // An HStack is what turns a `Divider` vertical.
+                case .leading, .trailing: HStack(spacing: 0) { Divider() }
+                }
+            }
+        }
+    }
+
+    /// The panes (both flush panes, in Compare) as one area: nothing in either style. In `.cards`
+    /// each pane is its own floating card (`paneCardIfNeeded`); in `.unified` the panes sit inside
+    /// `windowRegionFrame` with everything else, clipped to their own bounds.
+    @ViewBuilder
+    func panesRegionFrame(_ style: SurfaceStyle, level: GlassLevel) -> some View {
+        switch style {
+        case .cards: self
+        case .unified: self.clipped()
+        }
+    }
+
     /// One section of the bottom workspace (the toolbar, or the table / Details) as a
-    /// self-contained card: applies the tint wash, then frames it — a floating card for `.cards`,
-    /// or a clipped hairline-outlined region for `.unified`. A header over content goes through
-    /// `columnSectionCard` / `columnRegionFrame` instead, which call this per section in Cards and
-    /// once per column in Unified.
+    /// self-contained card: applies the tint wash, then frames it — a floating card for `.cards`;
+    /// in `.unified` just the wash, clipped, since `windowRegionFrame` is the only frame there. A
+    /// header over content goes through `columnSectionCard` / `columnRegionFrame` instead, which
+    /// call this per section in Cards and once per column in Unified.
     ///
-    /// Like `surfaceCard` and `panesRegionFrame`, this insets itself by `cardInset` — half a
-    /// gutter — so two stacked sections come to exactly one `cardGutter` between them and line up
-    /// with the pane cards at the window edge. Callers stack these at `spacing: 0` and add no
-    /// padding of their own.
+    /// In `.cards` this insets itself by `cardInset` — half a gutter — so two stacked sections come
+    /// to exactly one `cardGutter` between them and line up with the pane cards at the window edge.
+    /// Callers stack these at `spacing: 0` and add no padding of their own. In `.unified` it insets
+    /// nothing: neighbours sit flush and meet at a `unifiedSeam`.
     ///
     /// Every section takes the level verbatim, toolbars included — a toolbar's *card* is as clear
     /// as the table's. Its buttons get their own material via `chromeButtonStyle` instead, so the
@@ -787,28 +842,21 @@ public extension View {
     ) -> some View {
         let radius = LiquidGlass.cardCornerRadius
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        let filled = self
-            .contentSurface(hue: hue, tint: tint)
-            .clipShape(shape)
         switch style {
         case .cards:
             let explicit = level.needsExplicitChrome
-            filled.glassSurface(level, cornerRadius: radius)
+            self.contentSurface(hue: hue, tint: tint)
+                .clipShape(shape)
+                .glassSurface(level, cornerRadius: radius)
                 // `lightBorder: true`, as in `surfaceCard` and for the same reason.
                 .modifier(DarkBoldCardChrome(
                     cornerRadius: radius,
                     lightBorder: true, lightShadow: explicit, darkShadow: true))
                 .padding(LiquidGlass.cardInset)
         case .unified:
-            // Unified blends into the window glass, so only `.solid` contributes a fill here.
-            let based = level == .solid
-                ? AnyView(filled.glassSurface(.solid, cornerRadius: radius))
-                : AnyView(filled)
-            based
-                .modifier(DarkBoldCardChrome(
-                    cornerRadius: radius,
-                    lightBorder: true, lightShadow: false, darkShadow: false))
-                .padding(LiquidGlass.cardInset)
+            // No fill, outline or inset: `windowRegionFrame` supplies all three, once.
+            self.contentSurface(hue: hue, tint: tint)
+                .clipped()
         }
     }
 
@@ -820,8 +868,8 @@ public extension View {
     //
     // - `.cards`: each section is its own floating card, and the gutter between them is the
     //   boundary.
-    // - `.unified`: the column is ONE outlined region with its content flush under the header, and
-    //   a hairline (`columnHeaderRule`) is the boundary.
+    // - `.unified`: the column is one area of the window's one region (`windowRegionFrame`), its
+    //   content flush under the header, and a hairline (`columnHeaderRule`) is the boundary.
     //
     // It was not one rule before. The panes and Edit were one region in Unified, while the lenses
     // and Differences stayed two outlined boxes with a gutter between them — exactly their Cards
@@ -847,9 +895,9 @@ public extension View {
         }
     }
 
-    /// The whole workspace column as one region in `.unified` — `bottomSectionCard`'s Unified frame,
-    /// so it insets by `cardInset` and its header still lands on `LiquidGlass.headerHeight` — and a
-    /// no-op in `.cards`, where each `columnSectionCard` is the frame.
+    /// The whole workspace column as one area in `.unified` — `bottomSectionCard`'s Unified shape,
+    /// the tint wash and a clip, with `windowRegionFrame` outside it as the outline — and a no-op in
+    /// `.cards`, where each `columnSectionCard` is the frame.
     @ViewBuilder
     func columnRegionFrame(
         _ style: SurfaceStyle,
@@ -868,8 +916,8 @@ public extension View {
     /// costs no height and the content still starts at the header's pinned edge.
     ///
     /// `overContent: false` for a header that is momentarily the whole column (Differences folded
-    /// to its toolbar): the region's own outline is its bottom edge then, and a rule on top of it
-    /// would draw that edge twice.
+    /// to its toolbar): the window region's outline is its bottom edge then, and a rule on top of
+    /// it would draw that edge twice.
     func columnHeaderRule(_ style: SurfaceStyle, overContent: Bool = true) -> some View {
         self.overlay(alignment: .bottom) {
             if style == .unified, overContent { Divider() }

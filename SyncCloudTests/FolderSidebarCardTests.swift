@@ -132,14 +132,18 @@ import Foundation
 
     // MARK: - Geometry
 
-    /// The card supplies its own half-gutter, so the column occupies `width + cardGutter` — one
-    /// full gutter to the pane card beside it, which insets itself by the other half. This is the
-    /// arithmetic that makes the seam a gap rather than a butt joint.
+    /// In Cards the card supplies its own half-gutter, so the column occupies `width + cardGutter`
+    /// — one full gutter to the pane card beside it, which insets itself by the other half. This is
+    /// the arithmetic that makes the seam a gap rather than a butt joint. In Unified the column is
+    /// one area of the window's one region and occupies exactly its width, flush against the pane
+    /// at a hairline — which is what `LiquidGlass.gutter(style)` tells the sidebar's slot to reserve.
     @Test @MainActor func theCardAddsExactlyOneGutter() {
         let bare = Color.clear.frame(width: FolderSidebarView.defaultWidth, height: 200)
-        let carded = bare.bottomSectionCard(.unified, level: .frosted, hue: .blue, tint: 0)
-        let size = NSHostingView(rootView: AnyView(carded)).fittingSize
-        #expect(size.width == FolderSidebarView.defaultWidth + LiquidGlass.cardGutter,
-                "the sidebar card's gutter is \(size.width - FolderSidebarView.defaultWidth), not \(LiquidGlass.cardGutter)")
+        for style in SurfaceStyle.allCases {
+            let carded = bare.bottomSectionCard(style, level: .frosted, hue: .blue, tint: 0)
+            let size = NSHostingView(rootView: AnyView(carded)).fittingSize
+            #expect(size.width == FolderSidebarView.defaultWidth + LiquidGlass.gutter(style),
+                    "\(style): the sidebar's gutter is \(size.width - FolderSidebarView.defaultWidth), not \(LiquidGlass.gutter(style))")
+        }
     }
 }

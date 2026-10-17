@@ -103,13 +103,17 @@ import FileExplorerTestSupport
     /// `minWorkspaceWidth` is defined as `railWidth + minDocumentWidth + 2 * cardGutter`, so
     /// asserting that equality is the definition typed twice — it cannot fail. What can fail is the
     /// claim underneath it: that `bottomSectionCard` insets its content by half a gutter on each
-    /// side, which is where the `2 *` comes from. That is a fact about a Design component this file
-    /// does not own, and if it ever changes, the workspace floor silently starts promising a
-    /// document column it then shaves points off.
+    /// side in Cards, which is where the `2 *` comes from. That is a fact about a Design component
+    /// this file does not own, and if it ever changes, the workspace floor silently starts promising
+    /// a document column it then shaves points off. Cards is the costly style and the floor is
+    /// budgeted for it; in Unified the two sit flush and cost nothing, which the floor also covers.
     @Test func aCardCostsExactlyTheGutterTheWorkspaceMinimumBudgetsForIt() {
         let bare = size(Color.clear.frame(width: 200, height: 40))
         let carded = size(Color.clear.frame(width: 200, height: 40)
+            .bottomSectionCard(.cards, level: .frosted, hue: .graphite, tint: 0))
+        let flush = size(Color.clear.frame(width: 200, height: 40)
             .bottomSectionCard(.unified, level: .frosted, hue: .graphite, tint: 0))
+        #expect(flush == bare, "a Unified section costs \(flush.width - bare.width)pt; it should sit flush")
 
         #expect(abs((carded.width - bare.width) - LiquidGlass.cardGutter) < 0.51,
                 "a card costs \(carded.width - bare.width)pt of width, not the \(LiquidGlass.cardGutter)pt `minWorkspaceWidth` budgets two of")
@@ -751,8 +755,9 @@ import FileExplorerTestSupport
     }
 
     /// **Without the rail the document is wider by the rail and its card**, measured on the text
-    /// view AppKit actually mounted. The difference is `railWidth + cardGutter`: the rail's width
-    /// plus the one gutter its card cost — the number `minDocumentOnlyWidth` is built from.
+    /// view AppKit actually mounted. The difference is `railWidth + gutter`: the rail's width plus
+    /// the gutter its card cost — one in Cards, the number `minDocumentOnlyWidth` is built from, and
+    /// none in the fixture's default Unified, where the rail sits flush beside the document.
     @Test func withoutTheRailTheDocumentTakesItsWidth() throws {
         let doc = try document(named: "note.txt")
         let withRail = try #require(first(NSTextView.self, in: mounted(workspace(doc, showsRail: true))),
@@ -760,7 +765,7 @@ import FileExplorerTestSupport
         let without = try #require(first(NSTextView.self, in: mounted(workspace(doc, showsRail: false))),
                                    "no text view mounted without the rail")
         let gained = without.frame.width - withRail.frame.width
-        let expected = EditorLayoutMetrics.railWidth + LiquidGlass.cardGutter
+        let expected = EditorLayoutMetrics.railWidth + LiquidGlass.gutter(.unified)
         #expect(abs(gained - expected) < 1,
                 "the document gained \(gained)pt without the rail; the rail and its card are \(expected)pt")
         // And it is the LEFT edge that moved: the rail was on the left, so the text starts where

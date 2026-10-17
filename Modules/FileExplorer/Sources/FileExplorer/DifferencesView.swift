@@ -278,7 +278,7 @@ public struct DifferencesView: View {
 
         // spacing 0: in Cards each section card insets itself by half a gutter, so the gap
         // between them is already `cardGutter`. A spacing here would add to it. In Unified the two
-        // are one region (`columnRegionFrame` below) with the table flush under the toolbar.
+        // are one area (`columnRegionFrame` below) with the table flush under the toolbar.
         return VStack(spacing: 0) {
             // Toolbar card: tabs · count · filter · actions · search.
             VStack(alignment: .leading, spacing: 10) {
@@ -326,7 +326,7 @@ public struct DifferencesView: View {
                 .columnSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
             }
         }
-        // One region in Unified, two cards in Cards — the rule every workspace column follows
+        // One area in Unified, two cards in Cards — the rule every workspace column follows
         // (see `columnSectionCard`).
         .columnRegionFrame(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         // The menu bar's three differences items (⇧⌘R Review, ⇧⌘V Verify, ⇧⌘F fold). Published

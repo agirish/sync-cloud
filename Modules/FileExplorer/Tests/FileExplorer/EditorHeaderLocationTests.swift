@@ -317,8 +317,9 @@ import FileExplorerTestSupport
     /// **Where the text card starts: under the header card, by the pane's own arithmetic.** In
     /// `.cards` that is two card insets and one header — header card's top inset, the header, its
     /// bottom inset — plus the text card's own top inset: the list card's top beside it. In
-    /// `.unified` it is one region inset and the header, flush, as the pane's list is. At every
-    /// text size, with and without the rail beside it.
+    /// `.unified` it is the header alone, the text flush under it as the pane's list is — the
+    /// window's one region supplies the inset above both, and is not in this fixture. At every text
+    /// size, with and without the rail beside it.
     ///
     /// The cross-view half — this number against the REAL pane toolbar card's — is
     /// `EditHeaderMatchesPaneHeaderTests` in the Dashboard package, which can see both views.
@@ -341,7 +342,7 @@ import FileExplorerTestSupport
                 #expect(abs(cards - (3 * inset + LiquidGlass.headerHeight)) < 0.51,
                         "cards at \(scale), rail \(showsRail): the text starts at \(cards)")
                 let unified = try textTop(doc, style: .unified, scale: scale, showsRail: showsRail)
-                #expect(abs(unified - (inset + LiquidGlass.headerHeight)) < 0.51,
+                #expect(abs(unified - LiquidGlass.headerHeight) < 0.51,
                         "unified at \(scale), rail \(showsRail): the text starts at \(unified)")
                 let cardsBar = try textTop(doc, style: .cards, scale: scale, showsRail: showsRail, formatBar: true)
                 #expect(abs(cardsBar - cards - (EditorWorkspaceView.formatBarInset + bar)) < 0.51,

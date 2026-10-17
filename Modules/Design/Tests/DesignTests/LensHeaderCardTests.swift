@@ -146,12 +146,12 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         #expect(laidOutHeight(bare, width: 700) == 86.0)
     }
 
-    /// **Unified moves the frame to the column, not the line.** There the card draws no frame and
-    /// no inset of its own — the workspace column is one region (`columnRegionFrame`) with the
-    /// content flush under the header — so the card alone is its 81 visible points, and inside the
-    /// region it occupies the same 86 with its bottom edge on the same 83.5. Measured both ways,
-    /// because a card that kept its own inset in Unified would pass the first half and land 2.5pt
-    /// low inside the region.
+    /// **Unified moves the frame to the window, not the line.** There the card draws no frame and
+    /// no inset of its own, and neither does its column (`columnRegionFrame`) — the window's one
+    /// region (`windowRegionFrame`) is the only frame — so the card alone is its 81 visible points,
+    /// and inside the column and the region it occupies the same 86 with its bottom edge on the
+    /// same 83.5. Measured both ways, because a card or a column that kept its own inset in Unified
+    /// would pass the first half and land 2.5pt low inside the region.
     @Test(.machinePinned(.layoutMetrics)) func unifiedLeavesTheFrameToTheColumnAndKeepsTheLine() {
         let unified = LensHeaderCard(
             searchText: .constant(""),
@@ -164,7 +164,8 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             title: { Self.titleRow }
         )
         #expect(laidOutHeight(unified, width: 700) == LiquidGlass.headerHeight)
-        #expect(laidOutHeight(unified.columnRegionFrame(.unified, level: .frosted), width: 700) == 86.0)
+        #expect(laidOutHeight(unified.columnRegionFrame(.unified, level: .frosted)
+            .windowRegionFrame(.unified, level: .frosted), width: 700) == 86.0)
     }
 
     // MARK: A lens that answers no query does not offer the control

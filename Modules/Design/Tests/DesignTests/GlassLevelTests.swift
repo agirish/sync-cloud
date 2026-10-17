@@ -271,22 +271,59 @@ struct GlassLevelTests {
         }
     }
 
+    // MARK: - Unified is one box
+
     @MainActor
-    @Test func bottomSectionCardInsetsItselfInUnified() {
-        // Unified frames its panes region with `panesRegionFrame`, which does inset — so without
-        // this the bottom stack sat 2.5 wider per side than the panes above it.
+    @Test func theWindowRegionIsUnifiedsOnlyInset() {
+        // The one outline Unified draws, round everything under the toolbar, takes the window-edge
+        // half of a gutter on every side — where a card's edge sits in Cards — and Cards has no
+        // such region at all.
         for level in GlassLevel.allCases {
             expectGrowsByOneGutter(
-                bare.bottomSectionCard(.unified, level: level), "bottomSectionCard(.unified) at \(level)")
+                bare.windowRegionFrame(.unified, level: level), "windowRegionFrame(.unified) at \(level)")
+        }
+        #expect(laidOutSize(bare.windowRegionFrame(.cards, level: .frosted)) == Self.subject)
+    }
+
+    @MainActor
+    @Test func unifiedSectionsInsetNothing() {
+        // Inside the window's one region, areas sit flush and meet at a hairline. An inset here is
+        // a gutter between two areas, which is a box per area — Edit's strip, rail and document were
+        // three of them until 2026-10-17.
+        for level in GlassLevel.allCases {
+            #expect(laidOutSize(bare.bottomSectionCard(.unified, level: level)) == Self.subject,
+                    "bottomSectionCard(.unified) at \(level)")
+            #expect(laidOutSize(bare.panesRegionFrame(.unified, level: level)) == Self.subject,
+                    "panesRegionFrame(.unified) at \(level)")
         }
     }
 
     @MainActor
-    @Test func panesRegionFrameInsetsItselfInUnified() {
-        for level in GlassLevel.allCases {
-            expectGrowsByOneGutter(
-                bare.panesRegionFrame(.unified, level: level), "panesRegionFrame(.unified) at \(level)")
+    @Test func twoUnifiedAreasSideBySideTouch() {
+        // The end-to-end property: two neighbours, as the sidebar and the pane or Edit's rail and
+        // document are laid, come to exactly their own widths — no gutter between, none outside.
+        let row = HStack(spacing: 0) {
+            bare.bottomSectionCard(.unified, level: .solid).unifiedSeam(.unified, edge: .trailing)
+            bare.panesRegionFrame(.unified, level: .solid)
         }
+        #expect(laidOutSize(row) == CGSize(width: Self.subject.width * 2, height: Self.subject.height))
+    }
+
+    @MainActor
+    @Test func theSeamCostsNoRoom() {
+        for style in SurfaceStyle.allCases {
+            for edge in [Edge.top, .bottom, .leading, .trailing] {
+                #expect(laidOutSize(bare.unifiedSeam(style, edge: edge)) == Self.subject, "\(style) \(edge)")
+            }
+        }
+    }
+
+    @MainActor
+    @Test func theGutterIsCardsOnly() {
+        // Layout arithmetic that reserves room for a gap reads this; a Cards gutter reserved in
+        // Unified would be a blank strip beside the sidebar.
+        #expect(LiquidGlass.gutter(.cards) == LiquidGlass.cardGutter)
+        #expect(LiquidGlass.gutter(.unified) == 0)
     }
 
     @MainActor
@@ -343,25 +380,26 @@ struct GlassLevelTests {
     }
 
     @MainActor
-    @Test func aUnifiedColumnIsOneRegionWithTheContentFlushUnderTheHeader() {
-        // One region: the frame's two half-gutters and nothing between the sections. A column
-        // that still drew per-section boxes in Unified — the shape the Organize lenses and the
-        // Differences area had until 2026-10-17 — comes to two gutters here, and its content
-        // starts one gutter below the file list beside it.
+    @Test func aUnifiedColumnIsOneAreaWithTheContentFlushUnderTheHeader() {
+        // Nothing between the sections and nothing round them — the window's one region is the
+        // frame. A column that still drew per-section boxes in Unified — the shape the Organize
+        // lenses and the Differences area had until 2026-10-17 — comes to two gutters here, and its
+        // content starts one gutter below the file list beside it.
         for level in GlassLevel.allCases {
             let height = laidOutSize(column(.unified, level: level)).height
-            #expect(height == Self.subject.height * 2 + LiquidGlass.cardGutter, "unified at \(level)")
+            #expect(height == Self.subject.height * 2, "unified at \(level)")
         }
     }
 
     @MainActor
     @Test func theColumnHelpersAreEachOthersNoOps() {
-        // Each style draws exactly one of the two frames; the other must be inert, or a column
-        // would carry a card inside a region (Cards) or no frame at all (Unified).
+        // In Cards the section helper is the frame and the region helper must be inert, or a
+        // column would carry a card inside a card. In Unified neither insets: the window's one
+        // region frames every column.
         #expect(laidOutSize(bare.columnSectionCard(.unified, level: .frosted)) == Self.subject)
         #expect(laidOutSize(bare.columnRegionFrame(.cards, level: .frosted)) == Self.subject)
+        #expect(laidOutSize(bare.columnRegionFrame(.unified, level: .frosted)) == Self.subject)
         expectGrowsByOneGutter(bare.columnSectionCard(.cards, level: .frosted), "columnSectionCard(.cards)")
-        expectGrowsByOneGutter(bare.columnRegionFrame(.unified, level: .frosted), "columnRegionFrame(.unified)")
     }
 
     @MainActor

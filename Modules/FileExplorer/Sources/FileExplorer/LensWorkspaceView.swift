@@ -1110,8 +1110,8 @@ public struct LensWorkspaceView: View {
         }
         // **One region in Unified, two cards in Cards** — the rule every workspace column follows
         // (see `columnSectionCard`). The header card and the content card are this column's two
-        // sections; in Unified this frames them as one box, so the content starts flush under the
-        // header's hairline at the same 83.5 the file pane's list does.
+        // sections; in Unified they are one area of the window's one region, so the content starts
+        // flush under the header's hairline at the same 83.5 the file pane's list does.
         .columnRegionFrame(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         // `onDismiss`, because the history sheet can Clear History. Without it the setup card went
         // on quoting "last run ~$0.18" from a record the user had just erased through this very
@@ -1444,7 +1444,7 @@ public struct LensWorkspaceView: View {
     }
 
     /// How far a section's edge sits in from the column's: `cardInset` in Cards, where each
-    /// section is a card that insets itself, and 0 in Unified, where the column is one region and
+    /// section is a card that insets itself, and 0 in Unified, where the column is one area and
     /// its sections run edge to edge inside it (`columnSectionCard`).
     private var sectionInset: CGFloat {
         surfaceStyle == .cards ? LiquidGlass.cardInset : 0

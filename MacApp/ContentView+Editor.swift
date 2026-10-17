@@ -373,10 +373,10 @@ extension ContentView {
         let sidebarWidth = folderSidebarIsShowing
             ? PaneLogic.lensSidebarWidth(stored: browseSidebarWidth, totalWidth: totalWidth,
                                          minSidebar: FolderSidebarView.minWidth,
-                                         gutter: LiquidGlass.cardGutter)
+                                         gutter: LiquidGlass.gutter(surfaceStyle))
             : 0
         let sidebarSlot = folderSidebarIsShowing
-            ? sidebarWidth + PaneLogic.sidebarOverhead(gutter: LiquidGlass.cardGutter) : 0
+            ? sidebarWidth + PaneLogic.sidebarOverhead(gutter: LiquidGlass.gutter(surfaceStyle)) : 0
         let column = editorColumnWidth(in: totalWidth - sidebarSlot)
         if collapsed {
             HStack(spacing: 0) {
@@ -385,24 +385,28 @@ extension ContentView {
                     folderSidebarResizeHandle(displayedWidth: sidebarWidth)
                 }
                 railSpine
-                // **No region frame here.** The workspace draws its own two cards — the rail and
-                // the document — and wrapping them in a third would put a card inside a card, which
-                // `bottomSectionCard` stacks into a doubled inset and a squared-off corner.
+                // **No region frame here.** The workspace draws its own two cards in Cards — the
+                // rail and the document — and wrapping them in a third would put a card inside a
+                // card, which `bottomSectionCard` stacks into a doubled inset and a squared-off
+                // corner. In Unified the window's one region already frames them.
                 editorWorkspace(showsRail: editorRailIsDrawn, railWidth: column)
                     .frame(maxWidth: .infinity)
                     .clipped()
                     // The list's edge, where the open pane's edge is in the other arm: one handle,
                     // one width, whichever column shows.
                     .overlay(alignment: .leading) {
-                        if editorRailIsDrawn { editorColumnResizeHandle(displayedWidth: column, slot: Self.editorColumnSlot(column)) }
+                        if editorRailIsDrawn {
+                            editorColumnResizeHandle(displayedWidth: column,
+                                                     slot: Self.editorColumnSlot(column, style: surfaceStyle))
+                        }
                     }
             }
             .frame(width: totalWidth, height: geo.size.height)
         } else {
             // **The strip stays, and the pane is the list's width** (asked 2026-10-17). The strip
             // is where every column opens and folds, so it does not leave when the pane opens; and
-            // the pane takes the rail's slot — the column's card plus the one gutter its insets
-            // add, as the rail's own card does — so the pane, Files, Pages and Outline are all one
+            // the pane takes the rail's slot — the column plus the gutter its card adds in Cards
+            // (none in Unified), as the rail's own does — so the pane, Files, Pages and Outline are all one
             // width, dragged at one edge. At the 232pt default the pane is under
             // `PaneViewMode.pushNavigationBelowWidth`, so Columns shows one column with ‹ to walk
             // back; dragged wider, it shows two.
@@ -415,7 +419,8 @@ extension ContentView {
                 HStack(spacing: 0) {
                     paneColumn(isLeft: true)
                         .panesRegionFrame(surfaceStyle, level: glassLevel)
-                        .frame(width: Self.editorColumnSlot(column))
+                        .frame(width: Self.editorColumnSlot(column, style: surfaceStyle))
+                        .unifiedSeam(surfaceStyle, edge: .trailing)
                     // The pane is the file list here, so the rail is withheld whatever the bit says.
                     editorWorkspace(showsRail: false, railWidth: column)
                         .frame(maxWidth: .infinity)
@@ -425,16 +430,20 @@ extension ContentView {
                         .designAnimation(.easeOut(duration: 0.18), value: editorPaneShowsTabStrip)
                 }
                 .overlay(alignment: .leading) {
-                    editorColumnResizeHandle(displayedWidth: column, slot: Self.editorColumnSlot(column))
+                    editorColumnResizeHandle(displayedWidth: column,
+                                             slot: Self.editorColumnSlot(column, style: surfaceStyle))
                 }
             }
             .frame(width: totalWidth, height: geo.size.height)
         }
     }
 
-    /// A side column's slot in Edit: its card width plus the one gutter a card's insets add — the
-    /// rail's arithmetic, so the pane and the list draw at one width.
-    static func editorColumnSlot(_ column: CGFloat) -> CGFloat { column + LiquidGlass.cardGutter }
+    /// A side column's slot in Edit: its width plus the gutter its card's insets add in Cards, and
+    /// nothing in Unified, where it sits flush — the rail's arithmetic, so the pane and the list
+    /// draw at one width in either style.
+    static func editorColumnSlot(_ column: CGFloat, style: SurfaceStyle) -> CGFloat {
+        column + LiquidGlass.gutter(style)
+    }
 
     /// **The side column's width as drawn**: the stored one, inside
     /// `EditorLayoutMetrics.clampedRailWidth`, and narrowed further when the row cannot also hold
@@ -442,14 +451,15 @@ extension ContentView {
     /// `rowWidth` is the row after the sidebar.
     func editorColumnWidth(in rowWidth: CGFloat) -> CGFloat {
         let stored = EditorLayoutMetrics.clampedRailWidth(CGFloat(editorColumnWidthRaw))
-        let room = rowWidth - PaneLogic.railSpineWidth - LiquidGlass.cardGutter
-            - EditorLayoutMetrics.minDocumentOnlyWidth - LiquidGlass.cardGutter
+        let room = rowWidth - PaneLogic.railSpineWidth - LiquidGlass.gutter(surfaceStyle)
+            - EditorLayoutMetrics.minDocumentOnlyWidth - LiquidGlass.gutter(surfaceStyle)
         return max(EditorLayoutMetrics.railWidth, min(stored, room))
     }
 
     /// **The open column's edge, dragged** (asked 2026-10-17) — one handle for the pane and the
     /// list, writing the one width they share. Laid over the boundary rather than in the row, so
-    /// it costs the layout nothing: the two cards' insets already make the gutter it sits in.
+    /// it costs the layout nothing: it sits in the gutter the two cards' insets make in Cards, and
+    /// on the hairline between them in Unified.
     func editorColumnResizeHandle(displayedWidth: CGFloat, slot: CGFloat) -> some View {
         ResizeHandle(
             axis: .horizontal,

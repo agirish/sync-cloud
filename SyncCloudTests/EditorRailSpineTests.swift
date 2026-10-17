@@ -134,13 +134,15 @@ import Design
     }
 
     /// **One width for the four columns, and one column for the pane by default.** The pane's slot
-    /// is the column's card plus the gutter a card's insets add, as the rail's own slot is; and at
+    /// is the column plus the gutter its card's insets add (none in Unified), as the rail's own slot is; and at
     /// the default width that card is under where Columns stops showing a second column, so the
     /// pane shows one with ‹ to walk back. Mutation: raise `railWidth` past 280 and the second fails.
     @Test func theOpenPaneIsTheListsWidthAndOneColumnWideByDefault() {
-        let slot: CGFloat = ContentView.editorColumnSlot(EditorLayoutMetrics.railWidth)
-        let railSlot: CGFloat = EditorLayoutMetrics.railWidth + LiquidGlass.cardGutter
-        #expect(abs(slot - railSlot) < 0.001, "the pane's slot is \(slot)pt, the list's \(railSlot)pt")
+        for style in SurfaceStyle.allCases {
+            let slot: CGFloat = ContentView.editorColumnSlot(EditorLayoutMetrics.railWidth, style: style)
+            let railSlot: CGFloat = EditorLayoutMetrics.railWidth + LiquidGlass.gutter(style)
+            #expect(abs(slot - railSlot) < 0.001, "\(style): the pane's slot is \(slot)pt, the list's \(railSlot)pt")
+        }
         #expect(PaneViewMode.usesPushNavigation(paneWidth: EditorLayoutMetrics.railWidth))
     }
 

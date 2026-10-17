@@ -25,7 +25,7 @@ import Design
 /// **So the two surface styles are marked by different mechanisms, because they have different
 /// objects to mark.** In `.cards` the border comes from `paneCardIfNeeded(accentBorder:)` on each
 /// of the column's three cards, and this modifier draws nothing. In `.unified` there are no pane
-/// cards at all — the whole panes region is one frame — so the column's own bounds are the only
+/// cards at all — the whole window is one region — so the column's own bounds are the only
 /// edge there is, and this rings them.
 ///
 /// **Decoration, never layout**, and that is a hard constraint rather than a preference. Both of
@@ -60,11 +60,15 @@ struct ActivePaneMark: ViewModifier {
         content
             .overlay {
                 if isFocused, surfaceStyle == .unified {
-                    RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
-                        // On the column's own bounds, with no inset. `panesRegionFrame` has
-                        // already inset the region by `cardInset`, so the column's outer edges ARE
-                        // the region's outline and the ring replaces that hairline in place, the
-                        // way the Cards border replaces a card's. It carried a second `cardInset`
+                    // **Square, not a card's rounded rectangle.** The pane is an area of the
+                    // window's one region, not a card, and its corners mostly sit against the
+                    // sidebar, the other pane or Differences; a rounded ring drew a card back into
+                    // the style that has none. At a window corner the region's own clip rounds it.
+                    Rectangle()
+                        // On the column's own bounds, with no inset. The window's one region
+                        // (`windowRegionFrame`) has already inset itself by `cardInset`, so the
+                        // column's outer edges ARE its outline, and the ring replaces that hairline
+                        // in place, the way the Cards border replaces a card's. It carried a second `cardInset`
                         // until 2026-10-17, which drew it a half-gutter inside the grey outline —
                         // two lines along every outer edge of the focused pane.
                         .strokeBorder(LiquidGlass.activeBorder(accent), lineWidth: LiquidGlass.activeCardBorderWidth)

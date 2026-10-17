@@ -7210,3 +7210,41 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s lensHeader=%s ringInset=%s ed
 **Pick notes.** `LensHeaderCardTests` moves its fixtures to `.cards` and gains the Unified test;
 `GlassLevelTests` gains the column tests. On `v4.x` and older, `EditorWorkspaceView` does not exist —
 drop that hunk; on `v3.x`/`v2.x` drop the `ActivePaneMark` hunk too.
+
+## Unified is one box: one outline under the toolbar, hairlines between areas — main only
+
+Unified now draws ONE outlined region round everything under the toolbar (`windowRegionFrame`, on
+`mainContentView`), and the areas inside it — sidebar, panes, Organize's panel, Differences, Edit's
+strip, rail and document, the Info inspector — sit flush and meet at a hairline (`unifiedSeam`).
+Before, Unified drew a box per area with a gutter between, so Edit showed three boxes in a row and
+Organize, Compare and any workspace with the sidebar open showed two or more. In Unified,
+`bottomSectionCard` and `panesRegionFrame` now draw no outline and inset nothing, layout
+arithmetic reserves `LiquidGlass.gutter(style)` (0 in Unified) instead of `cardGutter`, and the
+Compare focus ring is square. Cards is unchanged. Every line carries the box-per-area shape.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s sidebarCard=%s spineCard=%s inspectorCard=%s panesRegion=%s windowRegion=%s\n' "$l" \
+ "$(git show origin/$l:MacApp/ContentView+FolderSidebar.swift 2>/dev/null | grep -c 'bottomSectionCard(surfaceStyle')" \
+ "$(git show origin/$l:MacApp/ContentView+SplitLayout.swift 2>/dev/null | grep -c 'bottomSectionCard(surfaceStyle')" \
+ "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'bottomSectionCard(surfaceStyle')" \
+ "$(git grep -c 'panesRegionFrame(surfaceStyle' origin/$l -- MacApp 2>/dev/null | awk -F: '{s+=$NF} END {print s+0}')" \
+ "$(git grep -c 'windowRegionFrame' origin/$l -- MacApp Modules 2>/dev/null | awk -F: '{s+=$NF} END {print s+0}')"; done
+# measured 2026-10-17, against origin, before this landed:
+# main  sidebarCard=1 spineCard=1 inspectorCard=5 panesRegion=4 windowRegion=0
+# v5.x  sidebarCard=1 spineCard=1 inspectorCard=5 panesRegion=4 windowRegion=0
+# v4.x  sidebarCard=1 spineCard=1 inspectorCard=5 panesRegion=3 windowRegion=0
+# v3.x  sidebarCard=0 spineCard=1 inspectorCard=3 panesRegion=2 windowRegion=0
+# v2.x  sidebarCard=0 spineCard=1 inspectorCard=3 panesRegion=2 windowRegion=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Box per area in Unified: sidebar, spine, inspector, bottom sections, Edit's rail and document | RECORDED — not owed (main only) |
+| `v4.x` | The same, without Edit's document column (three `panesRegionFrame` sites, not four) | RECORDED — not owed (main only) |
+| `v3.x` / `v2.x` | Box per area for the spine, inspector and bottom sections; no folder sidebar card, no Edit | RECORDED — not owed (main only) |
+
+**Pick notes.** Needs the previous section's column helpers (`columnSectionCard` /
+`columnRegionFrame`) first; nowhere but `main` has them. `GlassLevelTests` swaps the Unified
+inset tests for the one-box tests; `LensHeaderCardTests` measures inside `windowRegionFrame`. On
+`v4.x` and older drop the `EditorWorkspaceView` and `ContentView+Editor` hunks; on `v3.x`/`v2.x`
+also the folder-sidebar seam and the `ActivePaneMark` hunk.

@@ -527,19 +527,20 @@ public struct EditorWorkspaceView: View {
         return folderName
     }
 
-    /// **Two cards, not one region with a rule down it.**
+    /// **Two cards in Cards; in Unified, two areas of the window's one region with a rule down it.**
     ///
     /// The rail and the document are two different things — a list of what you could open, and the
-    /// thing you have open — and every other pair of neighbours in this window says so by being two
-    /// cards with a gutter between them. Drawn flat inside a single region, they were the only
-    /// surfaces in the app sitting directly on the window's glass while the sidebar and the source
-    /// pane beside them floated.
+    /// thing you have open — and every pair of neighbours in this window says so the same way: two
+    /// cards with a gutter between them in Cards, a hairline between them in Unified
+    /// (`unifiedSeam`). Drawn flat in Cards, they were the only surfaces in the app sitting directly
+    /// on the window's glass while the sidebar and the source pane beside them floated; drawn as two
+    /// boxes in Unified, they read as Cards in the style named for being one surface.
     ///
-    /// `spacing: 0` and no padding here: `bottomSectionCard` insets itself by `cardInset`, half a
-    /// gutter, so two adjacent cards come to exactly one `cardGutter` between them and line up with
-    /// the pane cards at the window edge. The `Divider` went with the change — a rule down the
-    /// middle of a gutter is a third edge between two that are already there, the same reason the
-    /// sidebar's seam is a clear strip rather than a `Divider`.
+    /// `spacing: 0` and no padding here: in Cards `bottomSectionCard` insets itself by `cardInset`,
+    /// half a gutter, so two adjacent cards come to exactly one `cardGutter` between them and line
+    /// up with the pane cards at the window edge; in Unified it insets nothing and the two sit flush.
+    /// No `Divider` in Cards — a rule down the middle of a gutter is a third edge between two that
+    /// are already there, the same reason the sidebar's seam is a clear strip there.
     public var body: some View {
         HStack(spacing: 0) {
             // Conditional on `showsRail` rather than hidden by opacity or width: an absent rail
@@ -575,6 +576,7 @@ public struct EditorWorkspaceView: View {
                                width: railWidth)
                 .frame(maxHeight: .infinity)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+                .unifiedSeam(surfaceStyle, edge: .trailing)
             }
             documentColumn
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -597,9 +599,9 @@ public struct EditorWorkspaceView: View {
     ///
     /// **Per surface style, because the pane is.** In `.cards` the pane's header and list are two
     /// cards with a gutter between them (`paneCardIfNeeded`), so this column is two cards. In
-    /// `.unified` the pane is ONE region with its list flush under its header (`panesRegionFrame`),
-    /// so this column is one region with its text flush under the header — two cards here would put
-    /// a gutter where the pane has none, and the text would start one gutter below the list.
+    /// `.unified` the pane's list is flush under its header with a hairline between, so this
+    /// column's text is flush under its header the same way — two cards here would put a gutter
+    /// where the pane has none, and the text would start one gutter below the list.
     ///
     /// **No document, the same two cards.** The empty page keeps its header card, at the same pinned
     /// height, so nothing jumps when a file opens or closes — see ``emptyHeaderContent`` for what it

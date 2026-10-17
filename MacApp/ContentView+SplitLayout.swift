@@ -102,7 +102,9 @@ extension ContentView {
                 let collapsed = bottomPaneIsCollapsed
                 let minTop: CGFloat = 220
                 let minBottom: CGFloat = 150
-                let dividerHeight: CGFloat = collapsed ? 0 : 1
+                // Folded, Cards needs no strip — the cards' gutter is the boundary — but Unified
+                // keeps it: it is the hairline between the panes and the folded toolbar.
+                let dividerHeight: CGFloat = collapsed && surfaceStyle == .cards ? 0 : 1
                 let panesHeight = PaneLogic.verticalPanesHeight(totalHeight: totalHeight, dividerHeight: dividerHeight)
                 // fraction = the bottom pane's share; clamp so neither section drops below its min.
                 let minFraction = PaneLogic.verticalMinFraction(panesHeight: panesHeight, minBottom: minBottom)
@@ -123,12 +125,12 @@ extension ContentView {
                     ? PaneLogic.compareSidebarWidth(stored: browseSidebarWidth,
                                                     totalWidth: geo.size.width,
                                                     minSidebar: FolderSidebarView.minWidth,
-                                                    gutter: LiquidGlass.cardGutter)
+                                                    gutter: LiquidGlass.gutter(surfaceStyle))
                     : 0
                 // The seam strip is in this slot too — see `PaneLogic.LensRow.sidebarSlot` for the
                 // 1pt overflow that leaving it out costs.
                 let sidebarSlot = folderSidebarIsShowing
-                    ? sidebarWidth + PaneLogic.sidebarOverhead(gutter: LiquidGlass.cardGutter) : 0
+                    ? sidebarWidth + PaneLogic.sidebarOverhead(gutter: LiquidGlass.gutter(surfaceStyle)) : 0
                 HStack(spacing: 0) {
                     if folderSidebarIsShowing {
                         folderSidebar(width: sidebarWidth)
@@ -138,10 +140,9 @@ extension ContentView {
                         panesSplit
                             .panesRegionFrame(surfaceStyle, level: glassLevel)
                             .frame(maxHeight: .infinity)
-                        verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction, maxFraction: maxFraction)
+                        verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction,
+                                              maxFraction: maxFraction, isActive: !collapsed)
                             .frame(height: dividerHeight)
-                            .opacity(collapsed ? 0 : 1)
-                            .allowsHitTesting(!collapsed)
                         bottomPaneView
                             // nil height when collapsed → the bottom pane hugs its header strip; a fixed
                             // fraction height when expanded. Same modifier either way, so identity holds.
@@ -193,7 +194,7 @@ extension ContentView {
             let sidebarWidth = folderSidebarIsShowing
                 ? PaneLogic.lensSidebarWidth(stored: browseSidebarWidth, totalWidth: totalWidth,
                                              minSidebar: FolderSidebarView.minWidth,
-                                             gutter: LiquidGlass.cardGutter)
+                                             gutter: LiquidGlass.gutter(surfaceStyle))
                 : 0
             // **`splitWidth`, never a shadowed `totalWidth`.** The fractions and the two minimums
             // are measured against the room the rail and the workspace actually divide, while the
@@ -201,7 +202,7 @@ extension ContentView {
             // first version of this shadowed `totalWidth`, the reduced value reached the row's own
             // `.frame(width:)`, and the sidebar rendered outside the window. See `PaneLogic.LensRow`.
             let splitWidth = totalWidth - (folderSidebarIsShowing
-                ? sidebarWidth + PaneLogic.sidebarOverhead(gutter: LiquidGlass.cardGutter) : 0)
+                ? sidebarWidth + PaneLogic.sidebarOverhead(gutter: LiquidGlass.gutter(surfaceStyle)) : 0)
             let minRail = PaneLogic.minRailWidth
             let minWorkspace = PaneLogic.minLensWorkspaceWidth
             let lower = minRail / max(splitWidth, 1)
@@ -212,7 +213,7 @@ extension ContentView {
                 : lower
             let row = PaneLogic.lensRow(totalWidth: totalWidth, sidebarWidth: sidebarWidth,
                                         showsSidebar: folderSidebarIsShowing,
-                                        gutter: LiquidGlass.cardGutter, fraction: fraction)
+                                        gutter: LiquidGlass.gutter(surfaceStyle), fraction: fraction)
             HStack(spacing: 0) {
                 // Leading, exactly as in `browseLayout` — the remembered folders belong to the
                 // pane's source, and here that pane is the rail. Organize's scope and Storage's
@@ -228,6 +229,7 @@ extension ContentView {
                 paneColumn(isLeft: true)
                     .panesRegionFrame(surfaceStyle, level: glassLevel)
                     .frame(width: row.railWidth)
+                    .unifiedSeam(surfaceStyle, edge: .trailing)
                 // **The workspace may not paint on the pane beside it.** A `LensHeaderCard` whose
                 // row 2 holds `.fixedSize()` prose and a control does not shrink to the width it is
                 // offered — its own `.frame(maxWidth: .infinity)` reports the LARGER of the proposal
@@ -311,12 +313,11 @@ extension ContentView {
             VStack(spacing: 0) {
                 // **The pane and its status bar are one region.**
                 //
-                // The bar is a foot on the column, not a sibling of it, and in `.unified` that
-                // distinction is visible: `panesRegionFrame` clips and insets by `cardInset` there,
-                // so a bar outside it would sit flush to the window edge under a pane that is
-                // inset — and outside the hairline that is drawing the region's own outline. In
-                // `.cards` the modifier is a no-op and each child insets itself, so wrapping
-                // changes nothing and the bar keeps the card it gives itself.
+                // The bar is a foot on the column, not a sibling of it: in `.unified` it is inside
+                // the pane's area, so a gather opening below draws its hairline under the bar rather
+                // than between the bar and the list it describes. In `.cards` the modifier is a
+                // no-op and each child insets itself, so wrapping changes nothing and the bar keeps
+                // the card it gives itself.
                 //
                 // **Under the pane, above the gather.** The bar describes the pane's tree, so it
                 // belongs to the column rather than to whatever a search has stacked below it —
@@ -344,10 +345,8 @@ extension ContentView {
                 .panesRegionFrame(surfaceStyle, level: glassLevel)
                 .frame(maxHeight: .infinity)
                 verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction,
-                                      maxFraction: maxFraction)
+                                      maxFraction: maxFraction, isActive: hasGather)
                     .frame(height: dividerHeight)
-                    .opacity(hasGather ? 1 : 0)
-                    .allowsHitTesting(hasGather)
                 if let scope = personScope {
                     personGatherSection(scope)
                         .frame(height: panesHeight * fraction)
@@ -405,6 +404,9 @@ extension ContentView {
     @ViewBuilder
     func folderSidebarResizeHandle(displayedWidth: CGFloat) -> some View {
         Color.clear.frame(width: PaneLogic.sidebarSeamWidth)
+            // Clear in Cards, where the two cards' insets draw the gap; the hairline itself in
+            // Unified, where the sidebar and what follows it sit flush in one region.
+            .unifiedSeam(surfaceStyle, edge: .leading)
             .overlay {
                 // `ResizeHandle`, not a hand-rolled gesture: this was the one seam in the window
                 // that wrote its own, and it paid for it twice — an `NSCursor.push()`/`pop()` pair
@@ -512,8 +514,10 @@ extension ContentView {
         .frame(maxHeight: .infinity)
         // A slim card, not a docked `.bar` strip: the bar fill stayed opaque at Clear and sat
         // flush against the root padding while every neighbor floated — the spine joins the gap
-        // model instead (5pt to the window edge and to the workspace card beside it).
+        // model instead (5pt to the window edge and to the workspace card beside it). In Unified
+        // it is a strip of the one region, with a hairline where the workspace starts.
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+        .unifiedSeam(surfaceStyle, edge: .trailing)
     }
 
     /// One strip button's face, the pane's and the list's alike, so the four read as one control:
@@ -611,9 +615,15 @@ extension ContentView {
     /// Like the vertical one, it tracks the cursor's absolute y in a fixed coordinate space and
     /// persists only on release.
     @ViewBuilder
-    private func verticalResizeDivider(panesHeight: CGFloat, minFraction: Double, maxFraction: Double) -> some View {
+    ///
+    /// `isActive: false` keeps the strip (and, in Unified, its hairline) but takes the drag away —
+    /// Compare's folded Differences, where there is nothing left to resize.
+    private func verticalResizeDivider(panesHeight: CGFloat, minFraction: Double, maxFraction: Double,
+                                       isActive: Bool) -> some View {
         Rectangle()
             .fill(Color.clear)
+            // Clear in Cards, where the cards' gutter is the boundary; the hairline in Unified.
+            .unifiedSeam(surfaceStyle, edge: .top)
             .overlay {
                 ResizeHandle(
                     axis: .vertical,
@@ -628,6 +638,8 @@ extension ContentView {
                         verticalDragFraction = nil
                     }
                 )
+                .opacity(isActive ? 1 : 0)
+                .allowsHitTesting(isActive)
             }
     }
 }

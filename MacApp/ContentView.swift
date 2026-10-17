@@ -4282,9 +4282,9 @@ struct ContentView: View {
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
     }
 
-    /// The draggable seam between the panes and the Info inspector: a 1pt clear strip in the
-    /// HStack flow with a 10pt-wide hit target straddling it — the pane splits' idiom, minus
-    /// their visible divider, since the card gap already draws the separation here.
+    /// The draggable seam between the panes and the Info inspector: a 1pt strip in the HStack flow
+    /// with a 10pt-wide hit target straddling it — clear in Cards, where the card gap already draws
+    /// the separation, and the hairline itself in Unified, where the two sit flush in one region.
     /// `inspectorWidth` is held constant through the gesture (written only on release), so it's
     /// the stable base for `PaneLogic.inspectorDragWidth`.
     ///
@@ -4295,10 +4295,11 @@ struct ContentView: View {
     /// translation is the cursor's real delta, independent of the handle's position, so the resize
     /// stays smooth instead of stuttering.
     private var inspectorResizeHandle: some View {
-        // A clear 1pt strip, not a visible Divider: the inspector is a floating card now, so the
-        // seam is the gap between cards — same construction as the panes↔workspace boundary
-        // (2.5 + 1 + 2.5). Only the hit target remains.
+        // In Cards a clear 1pt strip, not a visible Divider: the inspector is a floating card, so
+        // the seam is the gap between cards (2.5 + 1 + 2.5) and only the hit target remains. In
+        // Unified the strip IS the hairline between the two.
         Color.clear.frame(width: 1)
+            .unifiedSeam(surfaceStyle, edge: .leading)
             .overlay {
                 ResizeHandle(
                     axis: .horizontal,
@@ -4328,6 +4329,10 @@ struct ContentView: View {
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
+            // **Unified is one box**: the only outline under the toolbar, round every workspace's
+            // content and the inspector beside it, which meet inside at hairlines. A no-op in
+            // Cards, where each area is its own card. See `windowRegionFrame`.
+            .windowRegionFrame(surfaceStyle, level: glassLevel)
             // **The pick-mode bar TAKES SPACE, and it belongs at the BOTTOM.** Two corrections,
             // both from seeing it run.
             //
@@ -5098,12 +5103,14 @@ struct ContentView: View {
         if selectedWorkspace == .compare, let review = duplicateReview, reviewCoordinator.duplicateReviewActive(review) {
             reviewCoordinator.duplicateReviewBanner(review)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+                .unifiedSeam(surfaceStyle, edge: .bottom)
         }
         // **A count that is a floor has to say so.** Above the table rather than beside the count,
         // because the fact is about every row that is NOT there — see `PartialComparison`.
         if selectedWorkspace == .compare, let message = partialComparisonMessage {
             partialComparisonBanner(message)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+                .unifiedSeam(surfaceStyle, edge: .bottom)
         }
         // **A person gather takes the slot from whatever was in it**, in every workspace. It is
         // an answer about the whole source rather than about one lens, so showing it beside a lens
