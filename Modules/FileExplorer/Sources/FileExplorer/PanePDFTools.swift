@@ -312,15 +312,15 @@ struct EditorPDFBatchBannerView: View {
 }
 
 /// The banner's backing at the window's foot — Edit's row draws on the card's own surface; here it
-/// floats over the panes, so it carries its own.
+/// floats over the panes, so it carries its own, at the scale's floating-card radius.
 struct PanePDFToolCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
         content
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.separator))
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(.separator))
             .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
             .frame(maxWidth: 640)
             .padding(.horizontal, 24)
