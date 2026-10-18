@@ -334,7 +334,7 @@ import FileExplorer
     /// workspace and nothing else.
     @Test func revealInBrowseMovesThePaneAndTheWorkspaceAndNotTheDocument() throws {
         let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
-        let text = try declarationBody(of: "func revealInBrowse(_ path: String, from door: EditorRevealInBrowse.Door) {",
+        let text = try declarationBody(of: "func revealInBrowse(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = [],",
                                        in: editor)
         let body = CodeText(text)
         let reveal = try CallArguments(of: "EditorRevealInBrowse.reveal(", in: text)

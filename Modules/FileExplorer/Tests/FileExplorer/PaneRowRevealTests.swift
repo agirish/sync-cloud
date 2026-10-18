@@ -49,10 +49,11 @@ import Sync
             }
         }
 
-        /// The host's act: the selection written, and a fresh reveal asked for it.
-        func reveal(_ path: String) {
+        /// The host's act: the selection written, and a fresh reveal asked for it — for `path`
+        /// alone, or for the several rows a PDF batch's Reveal selects with it.
+        func reveal(_ path: String, selecting rows: Set<String>? = nil) {
             token &+= 1
-            reveal = PaneRowReveal(path: path, token: token)
+            reveal = PaneRowReveal(path: path, token: token, selection: rows)
         }
     }
 
@@ -227,6 +228,21 @@ import Sync
         #expect(FileTreeView.revealsRow(nil, selection: ["/r/a.md"]) == nil)
     }
 
+    /// **A reveal of several rows** — a PDF batch's copies — is answered while those rows are the
+    /// whole selection, and goes to its first; not to the first alone, nor to a set past it.
+    @Test func aRevealOfSeveralRowsIsAnsweredOnlyWhileTheyAreTheSelection() {
+        let rows: Set<String> = ["/r/a.pdf", "/r/b.pdf", "/r/c.pdf"]
+        let reveal = PaneRowReveal(path: "/r/a.pdf", token: 1, selection: rows)
+        #expect(FileTreeView.revealsRow(reveal, selection: rows) == "/r/a.pdf")
+        #expect(FileTreeView.revealsRow(reveal, selection: ["/r/a.pdf"]) == nil)
+        #expect(FileTreeView.revealsRow(reveal, selection: rows.union(["/r/d.pdf"])) == nil)
+        #expect(FileTreeView.revealsRow(reveal, selection: []) == nil)
+        #expect(PaneRowReveal(path: "/r/a.pdf", token: 1).selection == ["/r/a.pdf"],
+                "a reveal built without a selection no longer speaks for its row alone")
+        #expect(reveal != PaneRowReveal(path: "/r/a.pdf", token: 1),
+                "the selection is not in the reveal's equality — the pane's gate would miss a change to it")
+    }
+
     /// The pane's gate lets the reveal through: a new token is a change even for the same path.
     @Test func aRepeatedRevealOfTheSamePathIsANewRequest() {
         #expect(PaneRowReveal(path: "/r/a.md", token: 1) != PaneRowReveal(path: "/r/a.md", token: 2))
@@ -259,6 +275,29 @@ import Sync
         // …and the host is told it was answered, once — which is what lets it retire the request.
         #expect(mounted.box.answered == [mounted.box.reveal].compactMap { $0 },
                 "the pane reported \(mounted.box.answered.count) answers for one reveal")
+    }
+
+    /// **Several rows selected on the user's behalf** — a PDF batch's copies, 140 to 143 of 150 —
+    /// are brought into view at the first, the row the reveal names. The control is the one-row
+    /// test's: selected, not revealed, they stay below the fold.
+    @Test func theTreeBringsTheFirstOfSeveralRevealedRowsIntoView() async throws {
+        let mounted = Self.mount(.tree)
+        let window = mounted.window
+        let listed = await LayoutPumpWait.pump(window, upTo: 10) {
+            Self.table(listing: Self.rowCount, in: window) != nil
+        }
+        try #require(listed.held, "the tree never listed its \(Self.rowCount) rows")
+        let rows = Set((Self.targetIndex...Self.targetIndex + 3).map { "\(Self.root)/\(Self.name($0))" })
+        mounted.box.selection = rows
+        let byItself = await Self.everHolds(window) { Self.rowIsVisible(window, index: Self.targetIndex) }
+        #expect(!byItself, "selecting the rows alone scrolled them into view — the reveal below would prove nothing")
+
+        mounted.box.reveal(Self.target(depth: 0), selecting: rows)
+        let revealed = await LayoutPumpWait.pump(window, upTo: 10) {
+            Self.rowIsVisible(window, index: Self.targetIndex)
+        }
+        #expect(revealed.held, "the first revealed row is still below the fold (\(revealed.pumps) pumps)")
+        #expect(mounted.box.answered == [mounted.box.reveal].compactMap { $0 })
     }
 
     /// **Never fight the user.** A request for a row the user has since moved off is not answered
@@ -384,6 +423,28 @@ import Sync
         }
         #expect(revealed.held,
                 "column visible \(Self.deepestColumnIsVisible(window)), row visible \(Self.rowIsVisible(window, index: Self.targetIndex)) after \(revealed.pumps) pumps")
+    }
+
+    /// The Columns half of ``theTreeBringsTheFirstOfSeveralRevealedRowsIntoView``: several rows
+    /// selected in the deepest column, revealed at the first.
+    @Test func theColumnBringsTheFirstOfSeveralRevealedRowsIntoView() async throws {
+        let mounted = Self.mount(.columns)
+        let window = mounted.window
+        let listed = await LayoutPumpWait.pump(window, upTo: 10) {
+            Self.table(listing: Self.rowCount, in: window) != nil
+        }
+        try #require(listed.held, "the column never listed its \(Self.rowCount) rows")
+        let rows = Set((Self.targetIndex...Self.targetIndex + 3).map { "\(Self.root)/\(Self.name($0))" })
+        mounted.box.selection = rows
+        let byItself = await Self.everHolds(window) { Self.rowIsVisible(window, index: Self.targetIndex) }
+        #expect(!byItself, "selecting the rows alone scrolled them into view — the reveal below would prove nothing")
+
+        mounted.box.reveal(Self.target(depth: 0), selecting: rows)
+        let revealed = await LayoutPumpWait.pump(window, upTo: 10) {
+            Self.rowIsVisible(window, index: Self.targetIndex)
+        }
+        #expect(revealed.held, "the first revealed row is still below the fold (\(revealed.pumps) pumps)")
+        #expect(mounted.box.answered == [mounted.box.reveal].compactMap { $0 })
     }
 
     @Test func theColumnsIgnoreARevealForARowThatIsNotTheSelection() async throws {

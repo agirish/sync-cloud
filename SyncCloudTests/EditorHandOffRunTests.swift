@@ -389,7 +389,7 @@ import FileExplorer
             selection: manager.selectedLeftPaths,
             selectingOpens: workspace == .editor)
         #expect(decision == .select(file), "Browse did not select the revealed file: \(decision)")
-        guard case .select(let path) = decision else { return }
+        guard case .select(let path, _) = decision else { return }
         PaneLogic.payOwedSelection(path, state: manager, markPaid: { _ in }, markRightCleared: {})
         #expect(manager.selectedLeftPaths == [file])
         #expect(manager.selectedRightPaths.isEmpty, "the app left selections in both panes")
@@ -470,7 +470,7 @@ import FileExplorer
     /// and the real debt — and each door passes its own name.
     @Test func theAppRevealsThroughBrowsesModeAndNamesTheDoor() throws {
         let body = try EditorNewFilePaneWiringTests.body(
-            of: "func revealInBrowse(_ path: String, from door: EditorRevealInBrowse.Door) {",
+            of: "func revealInBrowse(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = [],",
             in: "ContentView+Editor.swift")
         #expect(body.contains("EditorRevealInBrowse.reveal("), "the app no longer runs the tested act")
         let reveal = try CallArguments(of: "EditorRevealInBrowse.reveal(", in: body.normalized)
@@ -478,7 +478,7 @@ import FileExplorer
                 "Reveal in Browse asks some other workspace's view mode")
         #expect(reveal.unlabeled == ["path"] && reveal.passes("from", "door"))
         #expect(reveal.passes("showBrowse", "{ selectedWorkspace = .browse }"), "the act does not switch to Browse")
-        #expect(reveal.passes("owe", "{ owePaneSelection($0) }"), "the act owes nothing — Browse lands with no selection")
+        #expect(reveal.passes("owe", "{ owePaneSelection($0, with: companions, replacing: replaces) }"), "the act owes nothing — Browse lands with no selection")
         #expect(!body.contains("focusOn(") && !body.contains("focusPane("), "Reveal re-roots again")
         #expect(try EditorRailRowMenuWiringTests.workspaceConstruction()
                     .passes("onRevealInBrowse", "{ path in revealInBrowse(path, from: .header) }"))

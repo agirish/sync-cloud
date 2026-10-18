@@ -27,6 +27,7 @@ import FileExplorer
     private func decide(owed: Debt?? = nil, openDocument: String?? = nil,
                         workspace: Workspace = .editor, paneFolder: String? = nil,
                         paneIsCurrent: Bool = true, isListed: Bool = true,
+                        companionsListed: Set<String> = [],
                         selection: Set<String> = [],
                         selectingOpens: Bool = true)
     -> ContentView.OwedPaneSelection {
@@ -36,6 +37,7 @@ import FileExplorer
             workspace: workspace,
             paneFolder: paneFolder ?? Self.folder,
             paneIsCurrent: paneIsCurrent, isListed: isListed,
+            companionsListed: companionsListed,
             selection: selection,
             selectingOpens: selectingOpens)
     }
@@ -115,6 +117,92 @@ import FileExplorer
         let reveal = Debt(path: Self.other, document: Self.file, workspace: .editor)
         #expect(decide(owed: .some(reveal), selectingOpens: false) == .select(Self.other))
         #expect(decide(owed: .some(reveal), selectingOpens: true) == .drop(.wouldOpenAnotherFile))
+    }
+
+    // MARK: A PDF batch's copies
+
+    /// A batch over three PDFs in Finance, run from Browse's left pane with the three selected:
+    /// the copies it wrote beside them, and the debt its banner's Reveal in Browse owes.
+    static let sources: [String] = ["a", "b", "c"].map { "\(folder)/\($0).pdf" }
+    static let copies: [String] = ["a", "b", "c"].map { "\(folder)/\($0) (rotated).pdf" }
+    static let batch = Debt(path: copies[0], document: file, workspace: .browse,
+                            companions: Array(copies.dropFirst()), replaces: Set(sources))
+
+    /// **Every copy is selected, and the first is the row the pane goes to** — paid where a
+    /// selection opens nothing (Browse), and only once the first copy is listed. A companion the
+    /// pane does not list (deleted since the banner) is left out rather than holding the rest up.
+    @Test func aBatchsRevealSelectsEveryListedCopy() {
+        let listed = Set(Self.copies.dropFirst())
+        #expect(decide(owed: .some(Self.batch), workspace: .browse, companionsListed: listed,
+                       selectingOpens: false)
+                == .select(Self.copies[0], with: Array(Self.copies.dropFirst())))
+        #expect(decide(owed: .some(Self.batch), workspace: .browse, companionsListed: [Self.copies[2]],
+                       selectingOpens: false)
+                == .select(Self.copies[0], with: [Self.copies[2]]))
+        #expect(decide(owed: .some(Self.batch), workspace: .browse, isListed: false, companionsListed: listed,
+                       selectingOpens: false) == .wait,
+                "the batch's debt paid before the first copy — the row the pane goes to — was listed")
+        // Every other guard is the one-row rule's: the pane in another folder drops it too.
+        #expect(decide(owed: .some(Self.batch), workspace: .browse, paneFolder: "/Users/me/Documents",
+                       companionsListed: listed, selectingOpens: false) == .drop(.anotherFolder))
+    }
+
+    /// **The set the batch was run on is what its Reveal answers**, so it is replaced — and that
+    /// set only. Before, the sources' multi-selection dropped the debt: Reveal after a batch run
+    /// from the left pane selected nothing at all. A set the user made since is still theirs.
+    @Test func aBatchsRevealReplacesOnlyTheSetItWasRunOn() {
+        let listed = Set(Self.copies.dropFirst())
+        func decide(_ selection: Set<String>, owed: Debt = Self.batch) -> ContentView.OwedPaneSelection {
+            self.decide(owed: .some(owed), workspace: .browse, companionsListed: listed,
+                        selection: selection, selectingOpens: false)
+        }
+        let all = ContentView.OwedPaneSelection.select(Self.copies[0], with: Array(Self.copies.dropFirst()))
+        #expect(decide(Set(Self.sources)) == all, "the batch's own sources blocked its Reveal")
+        #expect(decide(Set(Self.sources.prefix(2))) == all)
+        #expect(decide(Set(Self.copies)) == all, "the copies, already selected, blocked their own Reveal")
+        #expect(decide(Set(Self.sources + [Self.other])) == .drop(.multiSelection),
+                "a set reaching past the batch's files was replaced — it is the user's")
+        #expect(decide([Self.other, "/Users/me/Documents/Finance/Third.md"]) == .drop(.multiSelection))
+        // The control: the same debt with nothing to replace is the one-row rule, and drops.
+        var bare = Self.batch
+        bare.replaces = []
+        #expect(decide(Set(Self.sources), owed: bare) == .drop(.multiSelection))
+    }
+
+    /// The copies beside the first — the first copy's folder only, in the batch's order, once
+    /// each. A batch over files from two folders writes copies in both, and the pane shows one.
+    @Test func theCompanionsAreTheCopiesInTheFirstCopysFolder() {
+        let elsewhere = "/Users/me/Documents/Tax/d (rotated).pdf"
+        let nested = "\(Self.folder)/IN/e (rotated).pdf"
+        #expect(EditorRevealInBrowse.companions(of: [Self.copies[0], elsewhere, Self.copies[2], nested, Self.copies[1]])
+                == [Self.copies[2], Self.copies[1]])
+        #expect(EditorRevealInBrowse.companions(of: [Self.copies[0], Self.copies[0], Self.copies[1], Self.copies[1]])
+                == [Self.copies[1]], "a path was owed twice, or the first owed as its own companion")
+        #expect(EditorRevealInBrowse.companions(of: [Self.copies[0]]).isEmpty)
+        #expect(EditorRevealInBrowse.companions(of: []).isEmpty)
+    }
+
+    /// **The one-row debt and reveal are what they were**: a debt with no companions IS the old
+    /// debt, and a reveal built without a selection speaks for its row alone.
+    @Test func aSingleRowDebtAndRevealAreTheOneRowRule() {
+        let debt = Debt(path: Self.file, document: Self.file, workspace: .editor)
+        #expect(debt.rows == [Self.file] && debt.companions.isEmpty && debt.replaces.isEmpty)
+        #expect(PaneRowReveal(path: Self.file, token: 1).selection == [Self.file])
+        #expect(decide() == .select(Self.file, with: []))
+    }
+
+    /// The batch's debt survives only the copies themselves (and an emptied selection); its
+    /// reveal stands only while the copies are the whole selection — not the first alone.
+    @Test func theCopiesRetireTheirDebtAndRevealAsOneSelection() {
+        #expect(ContentView.debtSurvives(Self.batch, selection: []))
+        #expect(ContentView.debtSurvives(Self.batch, selection: Set(Self.copies)))
+        #expect(!ContentView.debtSurvives(Self.batch, selection: [Self.copies[0]]))
+        #expect(!ContentView.debtSurvives(Self.batch, selection: [Self.other]))
+        let reveal = PaneRowReveal(path: Self.copies[0], token: 1, selection: Set(Self.copies))
+        #expect(ContentView.revealSurvives(reveal, selection: Set(Self.copies)))
+        #expect(!ContentView.revealSurvives(reveal, selection: [Self.copies[0]]))
+        #expect(!ContentView.revealSurvives(reveal, selection: Set(Self.copies + [Self.other])))
+        #expect(!ContentView.revealSurvives(reveal, selection: []))
     }
 
     // MARK: Never fight the user
@@ -205,7 +293,7 @@ import FileExplorer
             openDocument: document.path, workspace: .editor,
             paneFolder: dir.path, paneIsCurrent: true, isListed: true, selection: [],
             selectingOpens: true)
-        guard case .select(let owed) = decision else {
+        guard case .select(let owed, _) = decision else {
             Issue.record("the debt did not come due: \(decision)")
             return
         }
@@ -294,6 +382,18 @@ import FileExplorer
             #expect(state.lastSelectionSurface == nil)
         }
 
+        // A batch's copies, in the one write: every row selected, the marker on the first.
+        let batch = State()
+        batch.selectedLeftPaths = ["/c/a.pdf", "/c/b.pdf"]
+        batch.selectedRightPaths = ["/c/x.md"]
+        var batchCleared = 0
+        PaneLogic.payOwedSelection("/c/a (rotated).pdf", with: ["/c/b (rotated).pdf"], state: batch,
+                                   markPaid: { batch.paid = $0 }, markRightCleared: { batchCleared += 1 })
+        #expect(batch.selectedLeftPaths == ["/c/a (rotated).pdf", "/c/b (rotated).pdf"],
+                "the payment selected \(batch.selectedLeftPaths), not the batch's copies")
+        #expect(batch.paidWhenLeftWasWritten == .some("/c/a (rotated).pdf"))
+        #expect(batch.selectedRightPaths.isEmpty && batchCleared == 1)
+
         let again = State()
         again.selectedLeftPaths = ["/c/a.md"]
         again.paidWhenLeftWasWritten = nil
@@ -370,7 +470,7 @@ import FileExplorer
 
     /// The door itself: the debt carries the document it was recorded against, and is tried now.
     @Test func oweRecordsTheDocumentAndTriesAtOnce() throws {
-        let body = try Self.body("func owePaneSelection(_ path: String) {")
+        let body = try Self.body("func owePaneSelection(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = []) {")
         let record = try #require(body.range(of: "editorPaneSelectionOwed = PaneSelectionDebt("),
                                   "the open-document debt is no longer what is recorded")
         let debt = try Self.call("PaneSelectionDebt(", in: body)
@@ -379,6 +479,8 @@ import FileExplorer
                 "the debt no longer records the open document")
         #expect(debt.passes("workspace", "selectedWorkspace"),
                 "the debt no longer records the workspace it was owed in — it would pay in another")
+        #expect(debt.passes("companions", "companions") && debt.passes("replaces", "replaces"),
+                "the debt drops a PDF batch's copies or the set it was run on — its Reveal selects one copy, or none")
         let settle = try #require(body.range(of: "settleOwedPaneSelection()"),
                                   "the debt is not tried at once — a rail click would wait for a publish that never comes")
         #expect(record.lowerBound < settle.lowerBound)
@@ -407,12 +509,12 @@ import FileExplorer
         #expect(handOff.contains("if outcome != .cancelled { owePaneSelection(path) }"),
                 "a hand-off no longer selects the file — or selects it after a Cancel")
 
-        let reveal = try Self.body("func revealInBrowse(_ path: String, from door: EditorRevealInBrowse.Door) {")
+        let reveal = try Self.body("func revealInBrowse(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = [],")
         // The order — switch, then owe — is `EditorRevealInBrowse.reveal`'s, and is measured by
         // `EditorHandOffRunTests.revealInBrowseFromEditLandsWithTheFileSelected`.
         let act = try Self.call("EditorRevealInBrowse.reveal(", in: reveal)
         #expect(act.passes("showBrowse", "{ selectedWorkspace = .browse }"))
-        #expect(act.passes("owe", "{ owePaneSelection($0) }"),
+        #expect(act.passes("owe", "{ owePaneSelection($0, with: companions, replacing: replaces) }"),
                 "Reveal in Browse no longer lands with the file selected")
 
         let created = try Self.body("func showCreatedFileInPane(_ path: String) {")
@@ -447,6 +549,7 @@ import FileExplorer
                                ("paneFolder", "editorFolder"),
                                ("paneIsCurrent", "paneTreeIsCurrent"),
                                ("isListed", "!syncManager.leftNodes(for: [owed.path]).isEmpty"),
+                               ("companionsListed", "Set(syncManager.leftNodes(for: Set(owed.companions)).map(\\.id))"),
                                ("selection", "syncManager.selectedLeftPaths"),
                                ("selectingOpens", "selectedWorkspace == .editor && !panesHiddenForCurrentTab")] {
             #expect(rule.passes(label, value),
@@ -459,13 +562,13 @@ import FileExplorer
                 "the app's clear of the right pane is not marked — it would retire a Get Info target")
         #expect(!body.contains("selectedRightPaths"),
                 "the right pane's selection is read again — it may not block or drop the debt (2026-09-26)")
-        #expect(body.contains("PaneLogic.payOwedSelection(path, state: syncManager,"),
+        #expect(body.contains("PaneLogic.payOwedSelection(path, with: companions, state: syncManager,"),
                 "the selection is not written as the app's own write")
         #expect(!body.contains("paneSelectionBinding"),
                 "the app's write goes through the click's setter — a Compare-with pick would resolve on it")
-        #expect(body.contains("paneRowReveal = PaneRowReveal(path: path, token: paneRowRevealToken)"),
-                "the selected row is not revealed")
-        #expect(body.contains("Logger.shared.info(\"[pane-follow] Selected \\(path) in the left pane\")"),
+        #expect(body.contains("paneRowReveal = PaneRowReveal(path: path, token: paneRowRevealToken, selection: Set(companions).union([path]))"),
+                "the selected rows are not revealed — or the reveal speaks for another selection than the one written")
+        #expect(body.contains("Logger.shared.info(\"[pane-follow] Selected \\(path) in the left pane\""),
                 "a selection on the user's behalf is not logged at info")
         #expect(body.contains("Logger.shared.info(\"[pane-follow] Not selecting \\(owed.path) in the left pane: \\(reason.sentence)\")"),
                 "a dropped debt is not logged at info, with its reason")

@@ -582,7 +582,7 @@ public struct FileTreeView: View, Equatable {
     // MARK: - Revealing a row the host selected
 
     /// The row a host's reveal may scroll to, or `nil` — **only while that row is the pane's whole
-    /// selection.**
+    /// selection** (for a reveal of several rows, while those rows are: `PaneRowReveal.selection`).
     ///
     /// That condition is what keeps the reveal from fighting the user. The host asks for a reveal
     /// at the moment it selects a row on the user's behalf, and the request outlives the moment —
@@ -595,7 +595,7 @@ public struct FileTreeView: View, Equatable {
     /// Static so `PaneRowRevealTests` can pin the rule without a mounted pane; `PaneColumnsView`
     /// asks the same one.
     static func revealsRow(_ reveal: PaneRowReveal?, selection: Set<String>) -> String? {
-        guard let reveal, selection == [reveal.path] else { return nil }
+        guard let reveal, selection == reveal.selection else { return nil }
         return reveal.path
     }
 

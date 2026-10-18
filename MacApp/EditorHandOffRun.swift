@@ -305,6 +305,19 @@ enum EditorRevealInBrowse {
         }
     }
 
+    /// **The copies a batch's Reveal selects beside the first** — those in the first copy's folder,
+    /// in the batch's order, each once. The pane is moved to that folder and shows no other, so a
+    /// copy written elsewhere (a batch over files from several folders) cannot be selected with it.
+    static func companions(of copies: [String]) -> [String] {
+        guard let first = copies.first else { return [] }
+        let folder = PaneBrowsePath.normalized((first as NSString).deletingLastPathComponent)
+        var seen: Set<String> = [first]
+        return copies.dropFirst().filter {
+            PaneBrowsePath.normalized(($0 as NSString).deletingLastPathComponent) == folder
+                && seen.insert($0).inserted
+        }
+    }
+
     /// **The whole act, in its order**: the pane moved as Browse draws it (`movePane`), then the
     /// switch to Browse, then the owed selection (TE47).
     ///

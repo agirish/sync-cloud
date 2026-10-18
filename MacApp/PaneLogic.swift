@@ -443,12 +443,17 @@ enum PaneLogic {
     /// it does not retire a Get Info target the way a click in the right pane does. Nothing
     /// touches the selection sequencer: a click's deferred clear still queued behind this is newer
     /// intent than the app's, and is left to win.
+    ///
+    /// `companions` are selected with `path` in the one write — a PDF batch's other copies in its
+    /// folder, which its Reveal in Browse owes; empty for every other door. The marker still names
+    /// `path`: several rows open nothing (`paneSelectionOpens`), and it is consumed by the change.
     @MainActor
-    static func payOwedSelection(_ path: String, state: PaneSelectionState,
+    static func payOwedSelection(_ path: String, with companions: [String] = [], state: PaneSelectionState,
                                  markPaid: (String) -> Void, markRightCleared: () -> Void) {
-        if state.selectedLeftPaths != [path] {
+        let rows = Set(companions).union([path])
+        if state.selectedLeftPaths != rows {
             markPaid(path)
-            state.selectedLeftPaths = [path]
+            state.selectedLeftPaths = rows
         }
         if !state.selectedRightPaths.isEmpty {
             markRightCleared()

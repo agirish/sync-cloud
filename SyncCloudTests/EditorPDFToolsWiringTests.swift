@@ -58,4 +58,18 @@ import FileExplorer
         #expect(editor.contains("open: { path in openInEditor(path: path, selectsInPane: true) },"))
         #expect(editor.contains("reveal: { path in revealInBrowse(path, from: .pdfToolBanner) })"))
     }
+
+    /// **A pane-launched batch's Reveal selects every copy beside the first** (TE47's debt with
+    /// companions) and may replace the set the batch was run on — a one-file run replaces nothing,
+    /// so its Reveal is the one-row rule exactly.
+    @Test func thePanesBatchRevealOwesEveryCopyBesideTheFirst() throws {
+        let editor = try EditorDiskWatchWiringTests.editor()
+        let body = CodeText(try declarationBody(of: "func startPanePDFTool(_ request: PDFToolRequest, paths: [String]) {",
+                                                in: editor))
+        #expect(body.contains("""
+            revealInBrowse(first, with: EditorRevealInBrowse.companions(of: copies),
+                           replacing: paths.count > 1 ? Set(paths) : [], from: .pdfToolBanner)
+            """), "a batch's Reveal no longer owes its copies, or replaces something other than its own files")
+        #expect(body.contains("guard let first = copies.first else { return }"))
+    }
 }

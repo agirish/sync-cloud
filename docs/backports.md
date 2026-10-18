@@ -7400,6 +7400,13 @@ done
 | `v5.x` | No `EditorPDFTools` (`pdfTools=0`), so nothing for the submenu to run | RECORDED — not owed (main only) |
 | `v4.x` / `v3.x` / `v2.x` | No Edit PDF model or tools at all | CLOSED — does not apply |
 
+**Follow-up, 2026-10-18: the batch banner's Reveal in Browse selects every copy in the first
+copy's folder**, not the first alone, and may replace the selection the batch was run on (which
+dropped the debt before, so Reveal selected nothing). It widens TE47's debt
+(`PaneSelectionDebt.companions` / `replaces`) and `PaneRowReveal.selection`. `v5.x` has TE47
+(`PaneSelectionDebt` is there) but no batch to owe several rows, so nothing there needs the wider
+debt: **CHECKED — not owed**. The older lines have neither.
+
 ---
 
 ## The PDF reader's layouts, zoom menu, and ⌘+ ⌘− ⌘0 on a focused PDF (Phase 5a) — main only

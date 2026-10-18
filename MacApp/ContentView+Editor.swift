@@ -610,11 +610,14 @@ extension ContentView {
                 rereadPanesAfterEditorWrite(path, writer: "\(writer) wrote")
             },
             open: { path in handOffToEditor(path) },
-            // A batch's copies can sit in several folders, and the pane follows one folder and
-            // selects one row (TE47): it goes to the first copy, which is the first file's.
-            reveal: { paths in
-                guard let first = paths.first else { return }
-                revealInBrowse(first, from: .pdfToolBanner)
+            // A batch's copies can sit in several folders, and the pane shows one: it goes to the
+            // first copy's, which is the first file's, and selects every copy there (TE47's debt,
+            // with companions). The set the batch was run on is what Reveal answers, so it may
+            // replace that multi-selection; one file's run replaces nothing, as before.
+            reveal: { copies in
+                guard let first = copies.first else { return }
+                revealInBrowse(first, with: EditorRevealInBrowse.companions(of: copies),
+                               replacing: paths.count > 1 ? Set(paths) : [], from: .pdfToolBanner)
             })
         panePDFTools.start(request, paths: paths, writer: writer)
     }
@@ -1079,13 +1082,17 @@ extension ContentView {
     /// switch, then the owed selection (TE47) — owed after the switch, so the debt is Browse's and
     /// the rule reads Browse's pane, where a selection opens nothing — so it lands with the file
     /// selected, in view. The order lives in `EditorRevealInBrowse.reveal`, where it is tested.
-    func revealInBrowse(_ path: String, from door: EditorRevealInBrowse.Door) {
+    ///
+    /// `companions` and `replaces` are a PDF batch's — its other copies beside `path`, and the set
+    /// it was run on (see ``PaneSelectionDebt``). Every other door passes neither.
+    func revealInBrowse(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = [],
+                        from door: EditorRevealInBrowse.Door) {
         EditorRevealInBrowse.reveal(
             path, from: door, syncManager: syncManager,
             sourceRoot: (settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath,
             drawsColumns: viewMode(in: .browse, isLeft: true) == .columns,
             showBrowse: { selectedWorkspace = .browse },
-            owe: { owePaneSelection($0) },
+            owe: { owePaneSelection($0, with: companions, replacing: replaces) },
             log: { Logger.shared.info($0) })
     }
 
@@ -1892,10 +1899,21 @@ extension ContentView {
     /// document (the rail menu's Reveal in Browse on another row) can be told apart from one whose
     /// document has moved on. The workspace is part of it for the same reason: a debt is owed to
     /// the moment it was recorded in, and a workspace switch ends that moment.
+    ///
+    /// **One row, except for one door.** A PDF batch's Reveal in Browse owes every copy that sits
+    /// in the first copy's folder: `path` is the first, the row the pane scrolls to, and
+    /// `companions` the rest, selected with it. It may also replace the multi-selection the batch
+    /// was run on (`replaces`) — that set is what the banner's Reveal answers, not other work of
+    /// the user's. Both are empty for every other door, and the rule is then the one-row rule.
     struct PaneSelectionDebt: Equatable {
         let path: String
         let document: String?
         let workspace: Workspace
+        var companions: [String] = []
+        var replaces: Set<String> = []
+
+        /// Every row the payment selects.
+        var rows: Set<String> { Set(companions).union([path]) }
     }
 
     /// What to do with an owed pane selection, as a rule — see ``owedPaneSelection(owed:openDocument:workspace:paneFolder:paneIsCurrent:isListed:selection:selectingOpens:)``.
@@ -1904,8 +1922,8 @@ extension ContentView {
         case nothing
         /// Not listed yet: keep it owed and ask again on the next publish.
         case wait
-        /// Listed: select it, and the debt is paid.
-        case select(String)
+        /// Listed: select it — with those of its companions the pane lists — and the debt is paid.
+        case select(String, with: [String] = [])
         /// No longer wanted: forget it without selecting anything — and say why in the log.
         case drop(DropReason)
     }
@@ -1957,19 +1975,23 @@ extension ContentView {
     ///   opens nothing — but if Edit's pane is what is showing when it comes due, the selection
     ///   would open that file.
     /// - The LEFT pane holds a multi-selection: dropped. Several rows selected there are the
-    ///   user's; the rule replaces a single selection or none, never a set.
+    ///   user's; the rule replaces a single selection or none, never a set — save the set a PDF
+    ///   batch was run on, or the copies themselves, which its Reveal is answering (`replaces`).
     /// - The RIGHT pane's selection does not enter into it — one file or several. The payment
     ///   clears it, exactly as a click in the left pane would: the app never keeps selections in
     ///   both panes (his decision, 2026-09-26; see `PaneLogic.payOwedSelection`).
     /// - The pane's tree is not yet the folder it shows (`paneIsCurrent`), or does not list the
     ///   file yet: wait. A re-root publishes the new folder's tree after the move, and a path can
-    ///   be listed, nested, in the OLD tree meanwhile; ⌘N's file is listed by the re-read.
+    ///   be listed, nested, in the OLD tree meanwhile; ⌘N's file is listed by the re-read. A batch's
+    ///   companions do not hold the payment up: one the pane does not list (deleted since the
+    ///   banner) is left out (`companionsListed`), and the rest are selected.
     ///
     /// Selecting the open document cannot open it a second time: the write is marked as the app's
     /// own (`paidSelection`), and `openInEditor`'s guard returns for the document besides.
     static func owedPaneSelection(owed: PaneSelectionDebt?, openDocument: String?,
                                   workspace: Workspace,
                                   paneFolder: String, paneIsCurrent: Bool, isListed: Bool,
+                                  companionsListed: Set<String> = [],
                                   selection: Set<String>,
                                   selectingOpens: Bool) -> OwedPaneSelection {
         guard let owed else { return .nothing }
@@ -1978,8 +2000,10 @@ extension ContentView {
         guard PaneBrowsePath.normalized((owed.path as NSString).deletingLastPathComponent)
                 == PaneBrowsePath.normalized(paneFolder) else { return .drop(.anotherFolder) }
         guard owed.path == openDocument || !selectingOpens else { return .drop(.wouldOpenAnotherFile) }
-        guard selection.count <= 1 else { return .drop(.multiSelection) }
-        return paneIsCurrent && isListed ? .select(owed.path) : .wait
+        guard selection.count <= 1 || selection.isSubset(of: owed.replaces.union(owed.rows))
+        else { return .drop(.multiSelection) }
+        guard paneIsCurrent && isListed else { return .wait }
+        return .select(owed.path, with: owed.companions.filter { companionsListed.contains($0) })
     }
 
     /// **The one door onto the rule**: record that the left pane owes `path` a selection, and try
@@ -1987,10 +2011,12 @@ extension ContentView {
     /// hand-off, ⌘N, Reveal in Browse, the header's "in <folder>".
     ///
     /// The workspace recorded is the one on screen NOW, so a door that switches workspace must
-    /// switch first (Reveal in Browse, every hand-off into Edit).
-    func owePaneSelection(_ path: String) {
+    /// switch first (Reveal in Browse, every hand-off into Edit). `companions` and `replaces` are
+    /// a PDF batch's (see ``PaneSelectionDebt``); every other door passes neither.
+    func owePaneSelection(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = []) {
         editorPaneSelectionOwed = PaneSelectionDebt(path: path, document: editorOpenPath,
-                                                    workspace: selectedWorkspace)
+                                                    workspace: selectedWorkspace,
+                                                    companions: companions, replaces: replaces)
         settleOwedPaneSelection()
         if editorPaneSelectionOwed != nil {
             Logger.shared.debug("[pane-follow] \(path) is owed a selection; waiting for the left pane to list it")
@@ -2020,6 +2046,7 @@ extension ContentView {
             paneFolder: editorFolder,
             paneIsCurrent: paneTreeIsCurrent,
             isListed: !syncManager.leftNodes(for: [owed.path]).isEmpty,
+            companionsListed: Set(syncManager.leftNodes(for: Set(owed.companions)).map(\.id)),
             selection: syncManager.selectedLeftPaths,
             selectingOpens: selectedWorkspace == .editor && !panesHiddenForCurrentTab)
         switch decision {
@@ -2028,14 +2055,16 @@ extension ContentView {
         case .drop(let reason):
             editorPaneSelectionOwed = nil
             Logger.shared.info("[pane-follow] Not selecting \(owed.path) in the left pane: \(reason.sentence)")
-        case .select(let path):
+        case .select(let path, let companions):
             editorPaneSelectionOwed = nil
-            PaneLogic.payOwedSelection(path, state: syncManager,
+            PaneLogic.payOwedSelection(path, with: companions, state: syncManager,
                                        markPaid: { editorPaneSelectionPaid = $0 },
                                        markRightCleared: { editorPaneRightClearPaid = true })
-            Logger.shared.info("[pane-follow] Selected \(path) in the left pane")
+            Logger.shared.info("[pane-follow] Selected \(path) in the left pane"
+                               + (companions.isEmpty ? "" : ", with \(companions.count) more beside it"))
             paneRowRevealToken &+= 1
-            paneRowReveal = PaneRowReveal(path: path, token: paneRowRevealToken)
+            paneRowReveal = PaneRowReveal(path: path, token: paneRowRevealToken,
+                                          selection: Set(companions).union([path]))
         }
     }
 
@@ -2091,14 +2120,15 @@ extension ContentView {
     }
 
     /// A debt survives a selection change that selects nothing — navigation and pruning empty the
-    /// selection, and are not the user choosing something else — or selects the owed row itself.
+    /// selection, and are not the user choosing something else — or selects the owed rows
+    /// themselves (one row, or a batch's copies).
     static func debtSurvives(_ owed: PaneSelectionDebt, selection: Set<String>) -> Bool {
-        selection.isEmpty || selection == [owed.path]
+        selection.isEmpty || selection == owed.rows
     }
 
-    /// A reveal survives only while its row is the whole selection — the pane's own condition for
+    /// A reveal survives only while its rows are the whole selection — the pane's own condition for
     /// acting on it (`FileTreeView.revealsRow`), so a remount never scrolls to a row nobody selected.
     static func revealSurvives(_ reveal: PaneRowReveal, selection: Set<String>) -> Bool {
-        selection == [reveal.path]
+        selection == reveal.selection
     }
 }
