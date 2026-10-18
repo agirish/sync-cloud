@@ -118,9 +118,18 @@ public enum EditorPDFTool: Equatable, Sendable {
         }
     }
 
-    /// Whether the tool rebuilds the pages into a FRESH document — which carries no encryption
-    /// dictionary, so a restricted original's restrictions are not in the copy. Rotate and Delete
-    /// change the loaded document in place; Protect adds encryption of its own.
+    /// **Whether the copy's bytes are serialized from a FRESH document rather than the loaded one**
+    /// — the question being whether a restricted original's encryption dictionary survives. It is
+    /// not "copies pages", which is the form question ``formLoss`` answers; the two differ.
+    ///
+    /// - Extract and Reorder copy pages into a new `PDFDocument`; Compress draws them into a new
+    ///   `CGPDFContext`; Remove Password rebuilds on purpose. None carries the original's encryption.
+    /// - Rotate and Delete mutate the LOADED document and serialize it, and PDFKit carries its
+    ///   encryption across (the toolkit's `removePasswordData` notes the same of an unlocked file).
+    ///   Both are refused on a restricted file in any case (`permissionsForbidEditing`).
+    /// - Protect writes encryption of its own.
+    /// - Clean Metadata copies into a fresh document only for a file with no form — and it is never
+    ///   offered on an encrypted file (`metadataEncrypted`), so its answer here is never read.
     var rebuildsDocument: Bool {
         switch self {
         case .extract, .reorder, .compress, .cleanMetadata, .removePassword: return true

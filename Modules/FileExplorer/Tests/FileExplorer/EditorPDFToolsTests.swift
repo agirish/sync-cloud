@@ -923,13 +923,31 @@ extension PDFFixtures {
 
     /// **A copy of a restricted file says it is not restricted** — the rebuilding tools write a fresh
     /// document, and that is the reader's to know.
-    @Test func aCopyOfARestrictedFileSaysItIsNotRestricted() async {
+    @Test func aCopyOfARestrictedFileSaysItIsNotRestricted() async throws {
         let file = path("Statement.pdf")
         PDFFixtures.writeRestricted(file)
         let tools = tools(file, encryption: .restrictedOnly)
-        guard case .wrote = await tools.run(.extract([0])) else { Issue.record("extract did not write"); return }
+        guard case .wrote(let copy) = await tools.run(.extract([0])) else { Issue.record("extract did not write"); return }
         #expect(tools.banner?.message.hasSuffix("The copy has no editing restrictions") == true,
                 "\(tools.banner?.message ?? "")")
+        // And the sentence is true of the file — said, and so, for each tool that can reach it.
+        #expect(PDFToolkit.encryptionState(of: URL(fileURLWithPath: copy)) == PDFEncryptionState.none)
+        guard case .wrote(let reordered) = await tools.run(.reorder([2, 0, 1])) else { Issue.record("reorder"); return }
+        #expect(PDFToolkit.encryptionState(of: URL(fileURLWithPath: reordered)) == PDFEncryptionState.none)
+
+        // Compress needs a scan to gain anything — a restricted one, made the way Restrict editing makes it.
+        let scan = path("RestrictedScan.pdf"), plainScan = path("plain-scan.pdf")
+        PDFFixtures.writeScan(plainScan, pages: 2)
+        let wrote = PDFDocument(url: URL(fileURLWithPath: plainScan))?.write(
+            to: URL(fileURLWithPath: scan),
+            withOptions: [.ownerPasswordOption: "owner-only",
+                          .accessPermissionsOption: NSNumber(value: PDFPermissionPreset.openAndPrintOnly)])
+        try #require(wrote == true && PDFToolkit.encryptionState(of: URL(fileURLWithPath: scan)) == .restrictedOnly,
+                     "fixture: the scan is not restricted")
+        let compress = await self.tools(scan, encryption: .restrictedOnly).run(.compress(.quality(0.35)))
+        guard case .wrote(let compressed) = compress else { Issue.record("compress: \(compress)"); return }
+        #expect(PDFToolkit.encryptionState(of: URL(fileURLWithPath: compressed)) == PDFEncryptionState.none,
+                "Compress's copy kept the restrictions its banner says it dropped")
     }
 
     /// **A name near the volume's limit still gets a copy** — the base is shortened, a whole
