@@ -677,11 +677,14 @@ public struct EditorWorkspaceView: View {
             if let pdf {
                 // Under the header, over the pages — where the text find bar sits over the text.
                 EditorPDFFindBar(find: pdf.find, accent: accent)
+                if pdf.phase == .open {
+                    EditorPDFFillSignBar(fill: pdf.fill, tools: pdf.tools, accent: accent)
+                }
                 EditorPDFBody(pdf: pdf, accent: accent, quickLook: railRowActions.quickLook)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if let facts = pdf.facts, pdf.phase == .open {
                     Divider()
-                    EditorPDFStatusLine(state: pdf.view, facts: facts)
+                    EditorPDFStatusLine(state: pdf.view, facts: facts, fill: pdf.fill)
                 }
             } else {
                 textBody

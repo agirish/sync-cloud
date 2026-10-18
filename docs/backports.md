@@ -7484,3 +7484,32 @@ done
 |---|---|---|
 | `v5.x` | No pane PDF Tools and no File ▸ PDF Tools (`0 0`), so nothing to reach | RECORDED — not owed (main only) |
 | `v4.x` / `v3.x` / `v2.x` | No Edit PDF tools at all | CLOSED — does not apply |
+
+---
+
+## Fill & Sign in the PDF reader (Phase 5b) — main only
+
+A Fill & Sign button in Edit's PDF header turns on a toolbar of Text, Date, ✓ ✗ •, Signature and
+Initials, placed on the pages over the reader and moved, resized and undone there
+(`EditorPDFFillSign`, `EditorPDFFillOverlay`). Saved signatures live in this Mac's defaults under
+`editorPDFSavedSignatures`. Save Filled Copy is a new `EditorPDFTool.fillAndSign` case, run through
+`EditorPDFTools.run` into pdf-toolkit 0.1.1's `fillAndSignData`, writing "Name (signed).pdf" or
+"(filled).pdf" beside the original. Unsaved items join `EditorPDFTools.mayLeave()`. The button sheds
+its word on the header's narrow rungs (`Rung.wordsFillAndSign`). All of it stands on
+`EditorPDFDocument` and `EditorPDFTools`, which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s pdfModel=%s fillSign=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSign.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-18, against origin, before this landed:
+# main  pdfModel=1 fillSign=0
+# v5.x, v4.x, v3.x, v2.x — pdfModel=0 fillSign=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | No PDF reader in Edit (`pdfModel=0`), so no header or tools for Fill & Sign to join | CLOSED — does not apply |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace that opens PDFs at all | CLOSED — does not apply |

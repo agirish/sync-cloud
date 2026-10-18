@@ -1,0 +1,795 @@
+import AppKit
+import Combine
+import Events
+import PDFToolkitCore
+import Sync
+
+/// **A page as the reader sees it, and the arithmetic between that and the page's own space.**
+///
+/// Fill & Sign's items live in **display space**: the page's crop box turned by its rotation, y up,
+/// origin at the displayed page's bottom-left corner — upright, the way the reader placed them. The
+/// toolkit takes rects in PAGE space (``FillSignItem/rect``) and maps text back into display space
+/// itself (`PDFToolkit.displayRect`), so text keeps the rect it was placed with; a drawn signature
+/// is mapped point by point through the page's transform, so its strokes are turned here first and
+/// it comes out upright on a turned page rather than lying on its side.
+public struct EditorPDFPageBox: Equatable, Sendable {
+    public var cropBox: CGRect
+    /// 0, 90, 180 or 270 — `PDFPage.rotation`, clockwise.
+    public var rotation: Int
+
+    public init(cropBox: CGRect, rotation: Int) {
+        self.cropBox = cropBox
+        self.rotation = ((rotation % 360) + 360) % 360
+    }
+
+    /// The page as drawn: the crop box, its sides swapped for a quarter turn.
+    public var displaySize: CGSize {
+        rotation == 90 || rotation == 270 ? CGSize(width: cropBox.height, height: cropBox.width) : cropBox.size
+    }
+
+    public var displayBounds: CGRect { CGRect(origin: .zero, size: displaySize) }
+
+    /// Page space → display space — the toolkit's `displayRect` for a bare point.
+    public func displayPoint(page p: CGPoint) -> CGPoint {
+        let c = cropBox
+        switch rotation {
+        case 90: return CGPoint(x: p.y - c.minY, y: c.maxX - p.x)
+        case 180: return CGPoint(x: c.maxX - p.x, y: c.maxY - p.y)
+        case 270: return CGPoint(x: c.maxY - p.y, y: p.x - c.minX)
+        default: return CGPoint(x: p.x - c.minX, y: p.y - c.minY)
+        }
+    }
+
+    /// Display space → page space: ``displayPoint(page:)`` undone.
+    public func pagePoint(display d: CGPoint) -> CGPoint {
+        let c = cropBox
+        switch rotation {
+        case 90: return CGPoint(x: c.maxX - d.y, y: d.x + c.minY)
+        case 180: return CGPoint(x: c.maxX - d.x, y: c.maxY - d.y)
+        case 270: return CGPoint(x: d.y + c.minX, y: c.maxY - d.x)
+        default: return CGPoint(x: d.x + c.minX, y: d.y + c.minY)
+        }
+    }
+
+    public func pageRect(display r: CGRect) -> CGRect {
+        Self.spanning(pagePoint(display: CGPoint(x: r.minX, y: r.minY)), pagePoint(display: CGPoint(x: r.maxX, y: r.maxY)))
+    }
+
+    public func displayRect(page r: CGRect) -> CGRect {
+        Self.spanning(displayPoint(page: CGPoint(x: r.minX, y: r.minY)), displayPoint(page: CGPoint(x: r.maxX, y: r.maxY)))
+    }
+
+    private static func spanning(_ a: CGPoint, _ b: CGPoint) -> CGRect {
+        CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
+    }
+
+    /// **Strokes normalized to `display` (0…1, y down) as the toolkit wants them**: normalized to
+    /// the same rect in page space. On an unturned page the two are the same numbers.
+    func pageStrokes(_ strokes: [[CGPoint]], in display: CGRect) -> [[CGPoint]] {
+        let page = pageRect(display: display)
+        guard page.width > 0, page.height > 0 else { return strokes }
+        return strokes.map { stroke in
+            stroke.map { n in
+                let p = pagePoint(display: CGPoint(x: display.minX + n.x * display.width,
+                                                   y: display.maxY - n.y * display.height))
+                return CGPoint(x: (p.x - page.minX) / page.width, y: (page.maxY - p.y) / page.height)
+            }
+        }
+    }
+}
+
+/// The two inks the toolbar offers (mockup 17): a dark blue, as a pen signs, and near-black.
+public enum EditorPDFFillColor: String, CaseIterable, Codable, Sendable {
+    case blue
+    case black
+
+    public var components: (red: CGFloat, green: CGFloat, blue: CGFloat) {
+        switch self {
+        case .blue: return (26 / 255, 61 / 255, 143 / 255)
+        case .black: return (17 / 255, 17 / 255, 17 / 255)
+        }
+    }
+
+    public var nsColor: NSColor {
+        let c = components
+        return NSColor(srgbRed: c.red, green: c.green, blue: c.blue, alpha: 1)
+    }
+
+    public var title: String {
+        switch self {
+        case .blue: return "Blue ink"
+        case .black: return "Black ink"
+        }
+    }
+}
+
+/// **A signature or a set of initials** — drawn with the pointer or typed in a script face. Saved
+/// ones are kept on this Mac only (``EditorPDFSignatureStore``), as pen strokes or the typed words.
+public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
+    public enum Kind: String, Codable, Sendable, Identifiable {
+        case signature
+        case initials
+
+        public var id: String { rawValue }
+        public var title: String { self == .signature ? "Signature" : "Initials" }
+    }
+
+    public enum Look: Hashable, Codable, Sendable {
+        /// Pen strokes normalized to the ink's own box — 0…1, y down — and that box's width over
+        /// its height, so it is placed at the shape it was drawn.
+        case drawn(strokes: [[CGPoint]], aspect: CGFloat)
+        /// Words drawn in the toolkit's script face (`FillSignText.isScript`).
+        case typed(String)
+    }
+
+    public var id: UUID
+    public var kind: Kind
+    public var look: Look
+
+    public init(id: UUID = UUID(), kind: Kind, look: Look) {
+        self.id = id
+        self.kind = kind
+        self.look = look
+    }
+
+    /// **Strokes from the pad, in its own points (y down), fitted to their own box** — `nil` when
+    /// nothing was drawn. A flat stroke (a dash, an underline) keeps a box at least a fifth as tall
+    /// as it is wide, so it is not placed a hair high.
+    public static func drawn(_ strokes: [[CGPoint]], kind: Kind) -> EditorPDFSignature? {
+        let points = strokes.flatMap { $0 }
+        guard let first = points.first else { return nil }
+        var box = points.dropFirst().reduce(CGRect(origin: first, size: .zero)) { $0.union(CGRect(origin: $1, size: .zero)) }
+        let width = max(box.width, 1)
+        let height = max(box.height, width / 5, 1)
+        box = CGRect(x: box.midX - width / 2, y: box.midY - height / 2, width: width, height: height)
+        let normalized = strokes.filter { !$0.isEmpty }.map { stroke in
+            stroke.map { CGPoint(x: ($0.x - box.minX) / box.width, y: ($0.y - box.minY) / box.height) }
+        }
+        return EditorPDFSignature(kind: kind, look: .drawn(strokes: normalized, aspect: width / height))
+    }
+}
+
+/// One thing placed on a page with Fill & Sign — not written anywhere until Save Filled Copy.
+public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
+    public enum Content: Equatable, Sendable {
+        /// Typed text, a date, or a mark — all drawn as text, which is all the toolkit's text is.
+        case text(String)
+        case signature(EditorPDFSignature)
+    }
+
+    public let id: UUID
+    /// Zero-based.
+    public var page: Int
+    /// In the page's display space — ``EditorPDFPageBox``.
+    public var rect: CGRect
+    public var content: Content
+    /// Text's point size, and a typed signature's. A drawn signature is sized by its rect.
+    public var fontSize: CGFloat
+    public var color: EditorPDFFillColor
+
+    public init(id: UUID = UUID(), page: Int, rect: CGRect, content: Content, fontSize: CGFloat,
+                color: EditorPDFFillColor) {
+        self.id = id
+        self.page = page
+        self.rect = rect
+        self.content = content
+        self.fontSize = fontSize
+        self.color = color
+    }
+
+    /// The words this item draws, and whether in the script face — `nil` for a drawn signature.
+    public var words: (string: String, script: Bool)? {
+        switch content {
+        case .text(let string): return (string, false)
+        case .signature(let signature):
+            if case .typed(let string) = signature.look { return (string, true) }
+            return nil
+        }
+    }
+
+    public var isSignature: Bool {
+        if case .signature = content { return true }
+        return false
+    }
+
+    public var hasInk: Bool {
+        switch content {
+        case .text(let string): return !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .signature(let signature):
+            switch signature.look {
+            case .typed(let string): return !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            case .drawn(let strokes, _): return strokes.contains { !$0.isEmpty }
+            }
+        }
+    }
+
+    /// **What the toolkit draws for this item**, on a page turned as `box` says.
+    public func toolkitItem(on box: EditorPDFPageBox) -> FillSignItem {
+        let ink = color.components
+        let pageRect = box.pageRect(display: rect)
+        let content: FillSignItem.Content
+        switch self.content {
+        case .text(let string):
+            content = .text(FillSignText(string: string, fontSize: fontSize, red: ink.red, green: ink.green,
+                                         blue: ink.blue))
+        case .signature(let signature):
+            switch signature.look {
+            case .typed(let string):
+                content = .text(FillSignText(string: string, fontSize: fontSize, red: ink.red, green: ink.green,
+                                             blue: ink.blue, isScript: true))
+            case .drawn(let strokes, _):
+                content = .signature(FillSignSignature(strokes: box.pageStrokes(strokes, in: rect), red: ink.red,
+                                                       green: ink.green, blue: ink.blue,
+                                                       penWidthFraction: FillSignSignature.defaultPenWidthFraction))
+            }
+        }
+        return FillSignItem(id: id, pageIndex: page, rect: pageRect, content: content)
+    }
+
+    /// **The box words of `fontSize` need** in the face the toolkit draws them with — its
+    /// `scriptOrSystemFont`. The toolkit word-wraps inside the rect and draws only what fits, so a
+    /// box too small drops the end of the words (`wordsPlacedAtTheirMeasuredBoxComeOutWhole`).
+    /// Measured 2026-10-18, the exact measured box already comes out whole; the room over it is for
+    /// the screen — the typing field's own insets, and the selection ring kept off the glyphs.
+    public static func size(of string: String, fontSize: CGFloat, script: Bool) -> CGSize {
+        let font = PDFToolkit.scriptOrSystemFont(size: max(4, fontSize), script: script)
+        let measured = NSAttributedString(string: string.isEmpty ? "M" : string, attributes: [.font: font]).size()
+        return CGSize(width: ceil(measured.width + fontSize * 0.3 + 2), height: ceil(measured.height + 1))
+    }
+}
+
+/// What the next click on a page places.
+public enum EditorPDFFillTool: Equatable, Sendable {
+    case text
+    case date
+    case mark(EditorPDFFillMark)
+    case signature(EditorPDFSignature)
+
+    /// What the status line says while this is chosen.
+    public var hint: String {
+        switch self {
+        case .text: return "Text · click on the page to type"
+        case .date: return "Date · click to place today’s date"
+        case .mark(let mark): return "\(mark.rawValue) · click to place the mark"
+        case .signature(let signature): return "\(signature.kind.title) · click to place it"
+        }
+    }
+}
+
+/// ✓ ✗ • — drawn as text, as the toolkit draws every word (mockup 17).
+public enum EditorPDFFillMark: String, CaseIterable, Sendable {
+    case check = "✓"
+    case cross = "✗"
+    case dot = "•"
+
+    public var title: String {
+        switch self {
+        case .check: return "Check mark"
+        case .cross: return "Cross"
+        case .dot: return "Dot"
+        }
+    }
+}
+
+/// **Saved signatures and initials — on this Mac, and only here.** Kept in the app's own defaults
+/// as pen strokes or typed words; never synced, never logged.
+@MainActor
+public final class EditorPDFSignatureStore: ObservableObject {
+    public static let key = "editorPDFSavedSignatures"
+    /// The most of each kind kept; adding past it lets the oldest go.
+    static let limit = 6
+
+    @Published public private(set) var saved: [EditorPDFSignature]
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        saved = defaults.data(forKey: Self.key)
+            .flatMap { try? JSONDecoder().decode([EditorPDFSignature].self, from: $0) } ?? []
+    }
+
+    public func saved(_ kind: EditorPDFSignature.Kind) -> [EditorPDFSignature] { saved.filter { $0.kind == kind } }
+
+    /// Newest first.
+    public func add(_ signature: EditorPDFSignature) {
+        var next = [signature] + saved.filter { $0.id != signature.id }
+        let overflow = next.filter { $0.kind == signature.kind }.dropFirst(Self.limit).map(\.id)
+        next.removeAll { overflow.contains($0.id) }
+        write(next)
+    }
+
+    public func delete(_ id: UUID) { write(saved.filter { $0.id != id }) }
+
+    private func write(_ signatures: [EditorPDFSignature]) {
+        saved = signatures
+        if let data = try? JSONEncoder().encode(signatures) { defaults.set(data, forKey: Self.key) }
+    }
+}
+
+/// **Fill & Sign: the items placed on the open PDF, and the toolbar's state** (mockups 17 and 18).
+/// A sibling of ``EditorPDFTools`` on ``EditorPDFDocument``, observed by the toolbar, the header's
+/// button, the status line and the page view's overlay.
+///
+/// **Nothing is written until Save Filled Copy**, which is a tool run like any other —
+/// ``EditorPDFTool/fillAndSign(_:)`` through ``EditorPDFTools/run(_:bannerFailures:)`` — so the copy
+/// is named, written and reported by the one rule every tool follows, and the open file stays
+/// exactly as it was. Placing, moving and deleting are undone with ⌘Z on this object's own stack
+/// (``undoManager``), never the window's, which holds the file operations'.
+@MainActor
+public final class EditorPDFFillSign: ObservableObject {
+
+    /// Whether the toolbar is up.
+    @Published public private(set) var isOn = false
+    @Published public private(set) var items: [EditorPDFFillItem] = []
+    @Published public var selection: UUID?
+    /// What the next click places, or `nil`.
+    @Published public var armed: EditorPDFFillTool?
+    /// The item whose words are being typed, or `nil`.
+    @Published public private(set) var editing: UUID?
+    /// The Add Signature sheet, for signatures or for initials.
+    @Published public var addingSignature: EditorPDFSignature.Kind?
+    /// What the next item is drawn in, and what A− / A+ and the inks last chose.
+    @Published public private(set) var color: EditorPDFFillColor = .blue
+    @Published public private(set) var fontSize: CGFloat = EditorPDFFillSign.defaultFontSize
+    /// Why Fill & Sign is off for this file, or `nil` — said when its button is pressed.
+    @Published public private(set) var refusal: String?
+
+    public let store: EditorPDFSignatureStore
+    /// Placing, moving, deleting — undone with ⌘Z while the pages have the keyboard.
+    public let undoManager = UndoManager()
+    /// The run that writes the copy. Set by the document.
+    weak var tools: EditorPDFTools?
+
+    private(set) var path: String?
+    /// Each page's crop box and rotation, read in the lane with the facts.
+    private(set) var boxes: [EditorPDFPageBox] = []
+    /// The items before a drag or a typing session began — what its one undo step restores.
+    private var gestureBefore: [EditorPDFFillItem]?
+    private var editBefore: [EditorPDFFillItem]?
+
+    var today: () -> Date = Date.init
+    /// Today in the Mac's short date format — "17/10/2026" here, "10/17/26" in the US.
+    var formatDate: (Date) -> String = { DateFormatter.localizedString(from: $0, dateStyle: .short, timeStyle: .none) }
+    /// Puts a refusal to the reader — an alert in the app, recorded in a test.
+    var presentRefusal: @MainActor (String) -> Void = { EditorPDFFillSign.alertRefusal($0) }
+    /// Asks what to do with unsaved items — an alert in the app, a canned answer in a test.
+    var askLeaving: @MainActor (_ name: String, _ count: Int) -> LeaveAnswer = { EditorPDFFillSign.alertLeaving(name: $0, count: $1) }
+
+    public enum LeaveAnswer: Sendable { case save, discard, cancel }
+
+    static let defaultFontSize: CGFloat = 12
+    static let fontSizes: [CGFloat] = [6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 72]
+    /// A drawn signature's width when placed, and initials', in page points.
+    static let signatureWidth: CGFloat = 150
+    static let initialsWidth: CGFloat = 54
+    /// A typed signature's point size when placed, and typed initials'.
+    static let signatureFontSize: CGFloat = 28
+    static let initialsFontSize: CGFloat = 20
+
+    public init(store: EditorPDFSignatureStore) {
+        self.store = store
+        // **One step per change, grouped here** rather than by the run loop's event: a placement and
+        // the drag that follows it in one pass — a test's, or a synthesized event's — were one step.
+        undoManager.groupsByEvent = false
+    }
+
+    // MARK: The file
+
+    /// `allowsFilling` is the file's own permissions — read in the lane with the facts.
+    func attach(path: String, boxes: [EditorPDFPageBox], encryption: PDFEncryptionState, allowsFilling: Bool) {
+        if self.path == path, boxes != self.boxes, !items.isEmpty {
+            // **A reload whose pages are no longer the ones the items were placed on.** A file that
+            // changed but kept every page as it was keeps its items.
+            Logger.shared.info("Edit dropped \(Self.count(items.count)) placed with Fill & Sign on "
+                               + "\(EditorPDFTools.logName(path)) — the file changed on disk")
+            clear()
+            tools?.banner = EditorPDFToolBanner(message: "The file changed on disk, so the items you placed were dropped.",
+                                                kind: .note)
+        } else if self.path != path {
+            clear()
+            isOn = false
+        }
+        self.path = path
+        self.boxes = boxes
+        refusal = Self.refusal(encryption: encryption, allowsFilling: allowsFilling)
+        if refusal != nil { isOn = false }
+    }
+
+    func detach() {
+        if let path, !items.isEmpty {
+            Logger.shared.info("Edit discarded \(Self.count(items.count)) placed with Fill & Sign on "
+                               + "\(EditorPDFTools.logName(path)) — the file was closed")
+        }
+        clear()
+        isOn = false
+        path = nil
+        boxes = []
+        refusal = nil
+    }
+
+    private func clear() {
+        items = []
+        selection = nil
+        editing = nil
+        armed = nil
+        addingSignature = nil
+        gestureBefore = nil
+        editBefore = nil
+        undoManager.removeAllActions()
+    }
+
+    static let restrictedTitle = "This PDF doesn’t allow filling"
+    static let restrictedReason = "Its owner restricted editing, so Fill & Sign is off for it. Tools ▸ Remove Password… "
+        + "can write an unrestricted copy if you know the password."
+
+    /// A file locked to open is opened by URL in the lane, where unlocking the reader's copy does
+    /// not reach — so it is refused for the tools' reason. One whose owner forbade both comments
+    /// and form filling is refused for its owner's.
+    static func refusal(encryption: PDFEncryptionState, allowsFilling: Bool) -> String? {
+        if encryption == .lockedToOpen { return EditorPDFTools.lockedReason }
+        return allowsFilling ? nil : restrictedReason
+    }
+
+    // MARK: On and off
+
+    /// The header's button. On arms Text (mockup 17); off with unsaved items asks first.
+    public func toggle() {
+        if isOn {
+            guard mayLeave() else { return }
+            clear()
+            isOn = false
+            return
+        }
+        if let refusal {
+            presentRefusal(refusal)
+            return
+        }
+        guard path != nil, !boxes.isEmpty else { return }
+        isOn = true
+        armed = .text
+    }
+
+    /// Esc: stops typing, then lets go of the selection, then of the tool.
+    @discardableResult
+    public func escape() -> Bool {
+        if editing != nil { endEditing(); return true }
+        if selection != nil { selection = nil; return true }
+        if armed != nil { armed = nil; return true }
+        return false
+    }
+
+    // MARK: Counting
+
+    /// The items that would draw something — what Save Filled Copy writes and the header counts.
+    public var unsaved: [EditorPDFFillItem] { items.filter(\.hasInk) }
+    public var hasUnsavedItems: Bool { !unsaved.isEmpty }
+
+    /// "4 items not saved" — the header's second row while Fill & Sign is on.
+    public var unsavedCaption: String? {
+        let n = unsaved.count
+        return n == 0 ? nil : "\(Self.count(n)) not saved"
+    }
+
+    nonisolated static func count(_ n: Int) -> String { n == 1 ? "1 item" : "\(n) items" }
+
+    /// The status line's words while the toolbar is up: what a click does, then what is placed.
+    public var statusSegments: [String] {
+        var out = [armed?.hint ?? (selection != nil ? "Drag to move · Delete removes it" : "Choose what to place")]
+        let placed = unsaved
+        if !placed.isEmpty {
+            let signatures = placed.filter(\.isSignature).count
+            out.append(Self.count(placed.count) + (signatures == 0 ? "" : signatures == 1 ? ", 1 signature" : ", \(signatures) signatures"))
+        }
+        return out
+    }
+
+    // MARK: Placing
+
+    public func box(_ page: Int) -> EditorPDFPageBox? { boxes.indices.contains(page) ? boxes[page] : nil }
+
+    /// **The armed tool's item, at `point` in the display space of `page`.** Text starts at the
+    /// click, the way a caret lands, and is typed straight away; a mark or a signature is centred
+    /// on it. Text, dates and marks stay chosen for the next click; a signature is placed once.
+    @discardableResult
+    public func place(at point: CGPoint, page: Int) -> UUID? {
+        guard isOn, let armed, let box = box(page) else { return nil }
+        endEditing()
+        let content: EditorPDFFillItem.Content
+        var size: CGFloat = fontSize
+        let name: String
+        switch armed {
+        case .text:
+            content = .text("")
+            name = "Place Text"
+        case .date:
+            content = .text(formatDate(today()))
+            name = "Place Date"
+        case .mark(let mark):
+            content = .text(mark.rawValue)
+            name = "Place Mark"
+        case .signature(let signature):
+            content = .signature(signature)
+            if case .typed = signature.look {
+                size = signature.kind == .signature ? Self.signatureFontSize : Self.initialsFontSize
+            }
+            name = "Place \(signature.kind.title)"
+        }
+        var item = EditorPDFFillItem(page: page, rect: .zero, content: content, fontSize: size, color: color)
+        let extent = Self.extent(of: item)
+        let origin: CGPoint
+        if case .text = armed {
+            origin = CGPoint(x: point.x - 2, y: point.y - extent.height / 2)
+        } else {
+            origin = CGPoint(x: point.x - extent.width / 2, y: point.y - extent.height / 2)
+        }
+        item.rect = FillSignGeometry.clamped(CGRect(origin: origin, size: extent), in: box.displayBounds)
+        if case .text = armed {
+            // Placed for typing: its undo step is taken when the typing ends, and an item left
+            // empty goes as though it was never placed.
+            editBefore = items
+            items.append(item)
+            editing = item.id
+        } else {
+            change(name) { $0.append(item) }
+            if case .signature = armed { self.armed = nil }
+        }
+        selection = item.id
+        return item.id
+    }
+
+    /// The size an item takes: its words' box, or a drawn signature at its placing width.
+    static func extent(of item: EditorPDFFillItem) -> CGSize {
+        if let words = item.words { return EditorPDFFillItem.size(of: words.string, fontSize: item.fontSize, script: words.script) }
+        guard case .signature(let signature) = item.content, case .drawn(_, let aspect) = signature.look else {
+            return item.rect.size
+        }
+        let width = signature.kind == .signature ? signatureWidth : initialsWidth
+        return CGSize(width: width, height: width / max(aspect, 0.2))
+    }
+
+    // MARK: Typing
+
+    /// Starts typing into a placed text item — a double-click.
+    public func beginEditing(_ id: UUID) {
+        guard let item = items.first(where: { $0.id == id }), case .text = item.content else { return }
+        endEditing()
+        editBefore = items
+        editing = id
+        selection = id
+    }
+
+    /// The words as typed, every keystroke — the box grows with them. No undo step per key: the
+    /// whole session is one, taken by ``endEditing()``.
+    public func type(_ string: String, into id: UUID) {
+        guard let index = items.firstIndex(where: { $0.id == id }), case .text = items[index].content else { return }
+        items[index].content = .text(string)
+        resizeToWords(index)
+    }
+
+    /// Ends the typing: one undo step for it, and an item left empty is removed.
+    public func endEditing() {
+        guard let id = editing else { return }
+        editing = nil
+        if let index = items.firstIndex(where: { $0.id == id }), !items[index].hasInk {
+            items.remove(at: index)
+            if selection == id { selection = nil }
+        }
+        guard let before = editBefore else { return }
+        editBefore = nil
+        let wasNew = !before.contains { $0.id == id }
+        if items != before { register(before, wasNew ? "Place Text" : items.contains { $0.id == id } ? "Typing" : "Delete") }
+    }
+
+    // MARK: Changing what is placed
+
+    public func select(_ id: UUID?) {
+        if editing != nil, editing != id { endEditing() }
+        selection = id
+    }
+
+    public func deleteSelection() {
+        guard let id = selection else { return }
+        if editing == id { editing = nil; editBefore = nil }
+        change("Delete") { $0.removeAll { $0.id == id } }
+        selection = nil
+    }
+
+    /// The start of a drag — what its one undo step goes back to.
+    public func beginGesture() {
+        endEditing()
+        gestureBefore = items
+    }
+
+    /// Moves an item to `rect`, kept on its page — every step of a drag, without undo steps.
+    public func moveLive(_ id: UUID, to rect: CGRect) {
+        guard let index = items.firstIndex(where: { $0.id == id }), let box = box(items[index].page) else { return }
+        items[index].rect = FillSignGeometry.clamped(rect, in: box.displayBounds)
+    }
+
+    /// **Resizes from the corner handle** — the far corner dragged to `corner`, the other one held.
+    /// Words take the point size that fills the new height; a drawn signature keeps its shape.
+    public func resizeLive(_ id: UUID, anchor: CGPoint, corner: CGPoint) {
+        guard let index = items.firstIndex(where: { $0.id == id }), let box = box(items[index].page) else { return }
+        let dragged = FillSignGeometry.resizedRect(anchor: anchor, corner: corner, minimumSide: FillSignGeometry.minimumSidePt)
+        var item = items[index]
+        if let words = item.words {
+            let unit = EditorPDFFillItem.size(of: words.string, fontSize: 10, script: words.script).height / 10
+            item.fontSize = min(max(dragged.height / max(unit, 0.1), Self.fontSizes[0]), Self.fontSizes.last!)
+            let size = EditorPDFFillItem.size(of: words.string, fontSize: item.fontSize, script: words.script)
+            // Held by the top-left corner, where the words start.
+            item.rect = CGRect(x: item.rect.minX, y: item.rect.maxY - size.height, width: size.width, height: size.height)
+        } else {
+            let aspect = item.rect.height > 0 ? item.rect.width / item.rect.height : 1
+            let width = max(dragged.width, dragged.height * aspect)
+            item.rect = CGRect(x: item.rect.minX, y: item.rect.maxY - width / aspect, width: width, height: width / aspect)
+        }
+        item.rect = FillSignGeometry.clamped(item.rect, in: box.displayBounds)
+        items[index] = item
+    }
+
+    /// The end of a drag: one undo step for all of it, or none when nothing moved.
+    public func endGesture(_ name: String) {
+        guard let before = gestureBefore else { return }
+        gestureBefore = nil
+        if items != before { register(before, name) }
+    }
+
+    /// The arrow keys: a point at a time, ten with ⇧.
+    public func nudge(dx: CGFloat, dy: CGFloat) {
+        guard let id = selection, let item = items.first(where: { $0.id == id }), let box = box(item.page) else { return }
+        change("Move") { items in
+            guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+            items[index].rect = FillSignGeometry.clamped(item.rect.offsetBy(dx: dx, dy: dy), in: box.displayBounds)
+        }
+    }
+
+    /// A− and A+: the selected item's words a step smaller or bigger — and the next item's.
+    public func stepFontSize(bigger: Bool) {
+        let current = selected.flatMap { $0.words != nil ? $0.fontSize : nil } ?? fontSize
+        let next = bigger ? Self.fontSizes.first { $0 > current + 0.01 } : Self.fontSizes.last { $0 < current - 0.01 }
+        guard let next else { return }
+        if let id = selection, selected?.words != nil {
+            change(bigger ? "Bigger Text" : "Smaller Text") { items in
+                guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+                items[index].fontSize = next
+                Self.resizeToWords(&items[index], in: box(items[index].page))
+            }
+            if selected?.isSignature == false { fontSize = next }
+        } else {
+            fontSize = next
+        }
+    }
+
+    public func canStepFontSize(bigger: Bool) -> Bool {
+        let current = selected.flatMap { $0.words != nil ? $0.fontSize : nil } ?? fontSize
+        return bigger ? current < Self.fontSizes.last! - 0.01 : current > Self.fontSizes[0] + 0.01
+    }
+
+    /// An ink: the selected item's, and the next item's.
+    public func setColor(_ color: EditorPDFFillColor) {
+        self.color = color
+        guard let id = selection else { return }
+        change("Ink") { items in
+            guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+            items[index].color = color
+        }
+    }
+
+    public var selected: EditorPDFFillItem? { selection.flatMap { id in items.first { $0.id == id } } }
+
+    private func resizeToWords(_ index: Int) {
+        Self.resizeToWords(&items[index], in: box(items[index].page))
+    }
+
+    /// Fits a text item's box to its words, held by its top-left corner.
+    static func resizeToWords(_ item: inout EditorPDFFillItem, in box: EditorPDFPageBox?) {
+        guard let words = item.words else { return }
+        let size = EditorPDFFillItem.size(of: words.string, fontSize: item.fontSize, script: words.script)
+        var rect = CGRect(x: item.rect.minX, y: item.rect.maxY - size.height, width: size.width, height: size.height)
+        if let box { rect = FillSignGeometry.clamped(rect, in: box.displayBounds) }
+        item.rect = rect
+    }
+
+    // MARK: Undo
+
+    private func change(_ name: String, _ body: (inout [EditorPDFFillItem]) -> Void) {
+        let before = items
+        body(&items)
+        if items != before { register(before, name) }
+    }
+
+    private func register(_ before: [EditorPDFFillItem], _ name: String) {
+        undoManager.beginUndoGrouping()
+        defer { undoManager.endUndoGrouping() }
+        undoManager.registerUndo(withTarget: self) { fill in
+            let after = fill.items
+            fill.editing = nil
+            fill.editBefore = nil
+            fill.items = before
+            if let selection = fill.selection, !before.contains(where: { $0.id == selection }) { fill.selection = nil }
+            fill.register(after, name)
+        }
+        undoManager.setActionName(name)
+    }
+
+    // MARK: Saving
+
+    /// **Save Filled Copy**: the items, as the toolkit draws them, through the tools' one run. On a
+    /// copy written, the items go and the toolbar goes down; the copy is the banner's to open.
+    @discardableResult
+    public func save() async -> EditorPDFToolOutcome {
+        endEditing()
+        guard let tools else { return .failed("No PDF is open.") }
+        let placed = unsaved
+        let toolkit = placed.compactMap { item in box(item.page).map { item.toolkitItem(on: $0) } }
+        let path = self.path
+        let outcome = await tools.run(.fillAndSign(toolkit))
+        if case .wrote = outcome, self.path == path {
+            clear()
+            isOn = false
+        }
+        return outcome
+    }
+
+    /// Discard: every item goes, and the toolbar stays for another go.
+    public func discard() {
+        endEditing()
+        change("Discard") { $0.removeAll() }
+        selection = nil
+    }
+
+    // MARK: Leaving
+
+    /// **Asks before unsaved items are lost** — closing the PDF, opening another file, leaving
+    /// Edit or quitting (``EditorPDFTools/mayLeave()`` asks this). Save Filled Copy starts the
+    /// save and STAYS: the leave is a question the save cannot answer in time, and leaving while it
+    /// runs would cancel it. The banner then says where the copy went, and the next leave goes.
+    public func mayLeave() -> Bool {
+        endEditing()
+        guard hasUnsavedItems, let path else { return true }
+        let answer = askLeaving((path as NSString).lastPathComponent, unsaved.count)
+        Logger.shared.info("Edit asked before leaving \(EditorPDFTools.logName(path)) with \(Self.count(unsaved.count)) "
+                           + "placed with Fill & Sign — " + {
+                               switch answer {
+                               case .save: return "the reader chose to save a filled copy"
+                               case .discard: return "the reader chose to discard them"
+                               case .cancel: return "the reader stayed"
+                               }
+                           }())
+        switch answer {
+        case .discard: return true
+        case .cancel: return false
+        case .save:
+            Task { await save() }
+            return false
+        }
+    }
+
+    static func alertRefusal(_ reason: String) {
+        let alert = NSAlert()
+        alert.messageText = reason == restrictedReason ? restrictedTitle : "Fill & Sign isn’t available for this PDF"
+        alert.informativeText = reason
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    static func leaveQuestion(name: String, count: Int) -> (title: String, detail: String) {
+        ("Save the filled copy of “\(name)”?",
+         "\(count == 1 ? "1 item you placed isn’t" : "\(count) items you placed aren’t") saved. The original file hasn’t been changed.")
+    }
+
+    static func alertLeaving(name: String, count: Int) -> LeaveAnswer {
+        let question = leaveQuestion(name: name, count: count)
+        let alert = NSAlert()
+        alert.messageText = question.title
+        alert.informativeText = question.detail
+        alert.addButton(withTitle: "Save Filled Copy")
+        alert.addButton(withTitle: "Discard Items")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return .save
+        case .alertSecondButtonReturn: return .discard
+        default: return .cancel
+        }
+    }
+}

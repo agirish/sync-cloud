@@ -82,6 +82,27 @@ import Design
         #expect(received === reader, "the reader branch fired without the reader to act on")
     }
 
+    /// **A view inside the reader is the reader's** — Fill & Sign's overlay, which holds the
+    /// keyboard while its toolbar is up — so ⌘C there copies the page's selection, not the pane's
+    /// file. A view outside any reader is not one.
+    @Test func aViewInsideAReaderTakesTheReadersHalf() {
+        let reader = PDFView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let inside = NSView(frame: reader.bounds)
+        reader.addSubview(inside)
+        var received: PDFView?, ran = ""
+        TextEditingChord.route(responder: inside,
+                               editorAction: { _ in ran = "editor" },
+                               readerAction: { received = $0; ran = "reader" },
+                               fileAction: { ran = "file" })
+        #expect(ran == "reader" && received === reader)
+        ran = ""
+        TextEditingChord.route(responder: NSView(frame: .zero),
+                               editorAction: { _ in ran = "editor" },
+                               readerAction: { _ in ran = "reader" },
+                               fileAction: { ran = "file" })
+        #expect(ran == "file")
+    }
+
     /// **Without a reader half — Cut, Paste, ⌘⌫ and the rest — a reader keeps the file action**,
     /// exactly as before it had one.
     @Test func aReaderKeepsTheFileActionWhereTheItemOffersNoReaderHalf() {

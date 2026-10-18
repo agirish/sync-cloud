@@ -4,22 +4,26 @@ import SwiftUI
 import Design
 import Sync
 
-/// The PDF header's own controls, at the end of the name row: Find, the page field, the zoom and
-/// the layout (mockups 15 and 16).
+/// The PDF header's own controls, at the end of the name row: Find, the page field, the zoom, the
+/// layout and Fill & Sign (mockups 15, 16 and 17).
 ///
 /// **Its own view, observing the view state alone**, so a page turn re-renders this and the status
 /// line and nothing else in the header — see ``EditorPDFDocument``'s split.
 ///
 /// **Fit Page, Fit Width and Actual Size live in the zoom's menu**, where the Page / Width / Actual
-/// capsule used to sit beside it: the room it gave back is where Fill & Sign goes (Phase 5b).
+/// capsule used to sit beside it: the room it gave back is where Fill & Sign went (Phase 5b).
 struct EditorPDFHeaderControls: View {
     @ObservedObject var state: EditorPDFViewState
     /// Not observed: the Find button only acts on it.
     let find: EditorPDFFind
     let pageCount: Int
+    /// Fill & Sign's button — its own view, observing Fill & Sign alone.
+    let fill: EditorPDFFillSign
     let accent: Color
     /// How many words the controls draw — the header's row picks it (``EditorPDFHeader``).
     var rung: Rung = .worded
+    /// Off only for the width test, which measures the row without the button to find its share.
+    var showsFillAndSign = true
     @State private var typedPage = ""
     @FocusState private var pageFieldFocused: Bool
     /// Where the zoom's and the layout's menus open from.
@@ -30,7 +34,9 @@ struct EditorPDFHeaderControls: View {
     /// 2026-10-17): "of 64" first — the status line says it too — then the zoom's label, which
     /// becomes a glyph with the fit or the percentage kept in its tooltip and on the status line,
     /// then − and +, leaving the zoom one glyph that opens its menu (Zoom In and Zoom Out are
-    /// there, and on ⌘+ and ⌘−). Fill & Sign (Phase 5b) sheds its word too.
+    /// there, and on ⌘+ and ⌘−). **Fill & Sign sheds its word with the zoom's** — the rung where the
+    /// header turns to glyphs — so the decided order is kept, and the narrow rungs carry its 18pt
+    /// glyph alone.
     ///
     /// The last rung is what the narrowest column gets, and `EditorPDFHeaderWidthTests` holds it
     /// to the column at the smallest window with room left for the name.
@@ -43,6 +49,7 @@ struct EditorPDFHeaderControls: View {
         var showsPageCount: Bool { self == .worded }
         var wordsTheZoom: Bool { self == .worded || self == .noPageCount }
         var showsZoomSteps: Bool { self != .zoomMenuOnly }
+        var wordsFillAndSign: Bool { wordsTheZoom }
     }
 
     var body: some View {
@@ -52,6 +59,9 @@ struct EditorPDFHeaderControls: View {
                 pageField
                 zoom
                 layoutButton
+                if showsFillAndSign {
+                    EditorPDFFillSignButton(fill: fill, accent: accent, worded: rung.wordsFillAndSign)
+                }
             }
         }
     }
@@ -301,7 +311,7 @@ struct EditorPDFBody: View {
                 .controlSize(.small)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .open:
-            EditorPDFReader(document: pdf.document, state: pdf.view, find: pdf.find)
+            EditorPDFReader(document: pdf.document, state: pdf.view, find: pdf.find, fill: pdf.fill)
         case .locked:
             EditorPDFUnlockView(pdf: pdf, accent: accent)
         case .refused(let reason):
@@ -417,11 +427,14 @@ struct EditorPDFUnlockView: View {
 struct EditorPDFStatusLine: View {
     @ObservedObject var state: EditorPDFViewState
     let facts: EditorPDFFacts
+    /// While Fill & Sign is up, what a click does and what is placed come second (mockup 17).
+    @ObservedObject var fill: EditorPDFFillSign
 
     var body: some View {
         let segments = EditorPDFStatusLine.segments(facts: facts, pages: state.visiblePages,
                                                     layout: state.layout, coverSeparately: state.coverSeparately,
-                                                    zoom: EditorPDFZoom.label(fit: state.fit, scale: state.scale))
+                                                    zoom: EditorPDFZoom.label(fit: state.fit, scale: state.scale),
+                                                    filling: fill.isOn ? fill.statusSegments : [])
         ViewThatFits(in: .horizontal) {
             row(segments)
             row(Array(segments.prefix(2)))
@@ -445,13 +458,15 @@ struct EditorPDFStatusLine: View {
     /// The line's segments, most worth keeping first — the order a narrow column drops them in:
     /// where the reader is ("Pages 6–7 of 64" in a spread), the layout, the zoom (mockup 15 — and
     /// where it is still said once the header's zoom has shed its word), then the paper of the
-    /// first page on screen and the file's facts.
+    /// first page on screen and the file's facts. While Fill & Sign is up, its words (`filling`)
+    /// come straight after the page — what a click does is worth more than the layout.
     static func segments(facts: EditorPDFFacts, pages: ClosedRange<Int>, layout: EditorPDFLayout = .continuous,
-                         coverSeparately: Bool = false, zoom: String? = nil) -> [String] {
+                         coverSeparately: Bool = false, zoom: String? = nil, filling: [String] = []) -> [String] {
         let last = max(facts.pageCount - 1, 0)
         let first = min(pages.lowerBound, last), through = min(pages.upperBound, last)
         var out = [first == through ? "Page \(first + 1) of \(facts.pageCount)"
                                     : "Pages \(first + 1)–\(through + 1) of \(facts.pageCount)"]
+        out += filling
         out.append(layout.caption(coverSeparately: coverSeparately))
         if let zoom { out.append(zoom) }
         if let paper = facts.paperCaption(page: first) { out.append(paper) }
@@ -521,7 +536,7 @@ struct EditorPDFHeader<Trailing: View>: View {
             Spacer(minLength: 0)
             if pdf.phase == .open {
                 EditorPDFHeaderControls(state: pdf.view, find: pdf.find, pageCount: pdf.facts?.pageCount ?? 0,
-                                        accent: accent, rung: rung)
+                                        fill: pdf.fill, accent: accent, rung: rung)
             }
             // Locked too: Remove Password is the one tool a file locked to open can take.
             if pdf.phase == .open || pdf.phase == .locked {
@@ -545,13 +560,16 @@ struct EditorPDFHeader<Trailing: View>: View {
             Color.clear.frame(width: EditorWorkspaceView.dotColumnWidth, height: 1)
             Text("PDF").layoutPriority(1).lineLimit(1)
             Text("·").foregroundStyle(.tertiary)
-            Text(EditorPDFHeader.readOnlyTag)
-                .scaledFont(.system(size: 9, weight: .semibold))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .overlay(Capsule().strokeBorder(.tertiary))
-                .fixedSize()
-                .help("PDFs open read-only in Edit — nothing here writes to the file")
+            // "4 items not saved" in the tag's place while Fill & Sign holds some (mockup 17).
+            EditorPDFFillCaption(fill: pdf.fill) {
+                Text(EditorPDFHeader.readOnlyTag)
+                    .scaledFont(.system(size: 9, weight: .semibold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .overlay(Capsule().strokeBorder(.tertiary))
+                    .fixedSize()
+                    .help("PDFs open read-only in Edit — nothing here writes to the file")
+            }
             Spacer(minLength: 8)
         }
         .scaledFont(.system(size: 10))

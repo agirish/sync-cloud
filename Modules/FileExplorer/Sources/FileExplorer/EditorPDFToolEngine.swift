@@ -75,6 +75,8 @@ public enum EditorPDFTool: Equatable, Sendable {
     case cleanMetadata(PDFMetadataFields)
     case protect(restrictEditing: Bool, password: EditorPDFSecret)
     case removePassword(EditorPDFSecret)
+    /// What Fill & Sign placed, as the toolkit draws it — ``EditorPDFFillSign/save()``.
+    case fillAndSign([FillSignItem])
 
     public var title: String {
         switch self {
@@ -86,6 +88,7 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .cleanMetadata: return "Clean Metadata"
         case .protect: return "Protect"
         case .removePassword: return "Remove Password"
+        case .fillAndSign: return "Fill & Sign"
         }
     }
 
@@ -101,18 +104,22 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .cleanMetadata: return "metadata cleaned"
         case .protect: return "protected"
         case .removePassword: return "unlocked"
+        // "(signed)" when it carries a signature or initials, drawn or typed; "(filled)" for text,
+        // dates and marks alone (decided with the 5b mockups).
+        case .fillAndSign(let items): return items.contains(where: Self.isSigned) ? "signed" : "filled"
         }
     }
 
     /// **How this tool damages a form — pdf-utils' choice per tool, copied rather than re-derived.**
-    /// Its tool views pass `.formFlattened` for Compress and `.formOrphaned` for Extract, Reorder and
+    /// Its tool views pass `.formFlattened` for Compress and Fill & Sign (`FillSignToolView`, which
+    /// redraws every page into a fresh context), and `.formOrphaned` for Extract, Reorder and
     /// Remove password (which rebuilds pages into a fresh document); Rotate and Delete mutate the
     /// document in place, Add password serializes it in place, and Metadata keeps a form-bearing
     /// file on its in-place path — so none of those warns. None of these tools drops bookmarks, so
     /// `checksBookmarks` is false for all of them, as it is there.
     var formLoss: OutputFidelityWarning.Loss? {
         switch self {
-        case .compress: return .formFlattened
+        case .compress, .fillAndSign: return .formFlattened
         case .extract, .reorder, .removePassword: return .formOrphaned
         case .rotate, .deletePages, .cleanMetadata, .protect: return nil
         }
@@ -123,7 +130,8 @@ public enum EditorPDFTool: Equatable, Sendable {
     /// not "copies pages", which is the form question ``formLoss`` answers; the two differ.
     ///
     /// - Extract and Reorder copy pages into a new `PDFDocument`; Compress draws them into a new
-    ///   `CGPDFContext`; Remove Password rebuilds on purpose. None carries the original's encryption.
+    ///   `CGPDFContext`, and so does Fill & Sign; Remove Password rebuilds on purpose. None carries
+    ///   the original's encryption.
     /// - Rotate and Delete mutate the LOADED document and serialize it, and PDFKit carries its
     ///   encryption across (the toolkit's `removePasswordData` notes the same of an unlocked file).
     ///   Both are refused on a restricted file in any case (`permissionsForbidEditing`).
@@ -132,7 +140,7 @@ public enum EditorPDFTool: Equatable, Sendable {
     ///   offered on an encrypted file (`metadataEncrypted`), so its answer here is never read.
     var rebuildsDocument: Bool {
         switch self {
-        case .extract, .reorder, .compress, .cleanMetadata, .removePassword: return true
+        case .extract, .reorder, .compress, .cleanMetadata, .removePassword, .fillAndSign: return true
         case .rotate, .deletePages, .protect: return false
         }
     }
@@ -151,6 +159,20 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .cleanMetadata(let fields): return fields.isCleared ? "clean metadata (all cleared)" : "clean metadata"
         case .protect(let restrict, _): return restrict ? "protect (restrict editing)" : "protect (lock to open)"
         case .removePassword: return "remove password"
+        case .fillAndSign(let items):
+            // Counts only — the words and the strokes are the reader's, and never logged.
+            let signatures = items.filter(Self.isSigned).count
+            return "fill and sign (\(EditorPDFFillSign.count(items.count))"
+                + (signatures == 0 ? ")" : signatures == 1 ? ", 1 signature)" : ", \(signatures) signatures)")
+        }
+    }
+
+    /// A drawn signature, or words in the script face — a typed signature or initials. The Text
+    /// tool never draws in the script face.
+    static func isSigned(_ item: FillSignItem) -> Bool {
+        switch item.content {
+        case .signature: return true
+        case .text(let text): return text.isScript
         }
     }
 }
@@ -324,6 +346,8 @@ enum EditorPDFToolEngine {
                 options: .addPassword(restrictEditing: restrict, password: password.reveal())))
         case .removePassword(let password):
             return .bytes(try PDFToolkit.removePasswordData(inputURL: input, password: password.reveal()))
+        case .fillAndSign(let items):
+            return .bytes(try PDFToolkit.fillAndSignData(inputURL: input, items: items))
         }
     }
 
@@ -394,6 +418,10 @@ enum EditorPDFToolEngine {
         case .extract(let pages):
             if pages.isEmpty { return PDFOperationError.noPagesSelected.errorDescription }
             return outOfRange(pages, pageCount: pageCount)
+        case .fillAndSign(let items):
+            // The toolkit throws both; said here first so the lane never runs for them.
+            guard items.contains(where: \.hasInk) else { return PDFOperationError.noFillSignItems.errorDescription }
+            return outOfRange(items.map(\.pageIndex), pageCount: pageCount)
         case .compress, .cleanMetadata, .protect, .removePassword:
             return nil
         }

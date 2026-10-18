@@ -191,6 +191,9 @@ public final class EditorPDFTools: ObservableObject {
 
     /// Set by the app; a no-op otherwise, so a test can run a tool without a window.
     public var host = EditorPDFToolHost()
+    /// Fill & Sign's unsaved items are work a leave can lose too — asked about in ``mayLeave()``,
+    /// which every route out of the PDF already asks.
+    weak var fill: EditorPDFFillSign?
     /// Who a run's log lines say ran the tool — "Edit" for the reader's own tools; a run from a
     /// pane's menu names its workspace instead (``PanePDFTools``).
     var writer = "Edit"
@@ -330,8 +333,9 @@ public final class EditorPDFTools: ObservableObject {
     /// Back to the file's own order.
     public func resetArrangement() { arrangement = nil }
 
-    /// Whether leaving the file would lose something: a pending order, or a run still in flight.
-    public var hasWorkToLose: Bool { arrangement != nil || running != nil }
+    /// Whether leaving the file would lose something: a pending order, a run still in flight, or
+    /// items placed with Fill & Sign and not saved.
+    public var hasWorkToLose: Bool { arrangement != nil || running != nil || fill?.hasUnsavedItems == true }
 
     /// **Asks before a pending reorder — or a run in flight — is lost** to opening another file,
     /// closing this one or quitting. True when there is nothing to lose or the reader said to go.
@@ -341,6 +345,8 @@ public final class EditorPDFTools: ObservableObject {
     /// answer (⌘N's file could not be made, a later quit question was answered Wait) keeps both.
     public func mayLeave() -> Bool {
         guard hasWorkToLose, let path else { return true }
+        // Placed items alone are Fill & Sign's own question, which can save them as well as drop them.
+        if arrangement == nil, running == nil, let fill { return fill.mayLeave() }
         let go = confirmDiscardingArrangement()
         Logger.shared.info("Edit asked before leaving \(Self.logName(path)) with "
                            + (running != nil ? "a tool running" : "a new page order not saved")
@@ -545,21 +551,25 @@ public final class EditorPDFTools: ObservableObject {
     }
 
     /// The leave question, in the words of what would be lost.
-    static func leaveQuestion(running: String?, hasArrangement: Bool) -> (title: String, detail: String, go: String) {
+    static func leaveQuestion(running: String?, hasArrangement: Bool,
+                              placedItems: Int = 0) -> (title: String, detail: String, go: String) {
+        let placed = placedItems == 0 ? ""
+            : " The \(placedItems == 1 ? "item" : "\(placedItems) items") placed with Fill & Sign \(placedItems == 1 ? "is" : "are") discarded too."
         if let running {
             return ("Stop \(running)?",
                     "\(running) is still running on this PDF. Leaving stops it, and nothing is written."
-                        + (hasArrangement ? " The new page order is discarded too." : "")
+                        + (hasArrangement ? " The new page order is discarded too." : "") + placed
                         + " The original file is unchanged either way.",
                     "Stop and Leave")
         }
         return ("Discard the new page order?",
-                "The pages were reordered but no copy was saved. The original file is unchanged either way.",
+                "The pages were reordered but no copy was saved." + placed + " The original file is unchanged either way.",
                 "Discard")
     }
 
     func confirmDiscardWithAlert() -> Bool {
-        let question = Self.leaveQuestion(running: running?.tool, hasArrangement: arrangement != nil)
+        let question = Self.leaveQuestion(running: running?.tool, hasArrangement: arrangement != nil,
+                                          placedItems: fill?.unsaved.count ?? 0)
         let alert = NSAlert()
         alert.messageText = question.title
         alert.informativeText = question.detail

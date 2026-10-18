@@ -112,9 +112,11 @@ struct EditorPDFReader: View {
     let document: PDFDocument?
     let state: EditorPDFViewState
     @ObservedObject var find: EditorPDFFind
+    /// Not observed: the overlay watches it itself, so a drag redraws the overlay and nothing else.
+    var fill: EditorPDFFillSign?
 
     var body: some View {
-        EditorPDFPageView(document: document, state: state, highlights: find.highlights,
+        EditorPDFPageView(document: document, state: state, highlights: find.highlights, fill: fill,
                           onEscape: { [find] in
                               guard find.isShown else { return false }
                               find.hide()

@@ -50,7 +50,30 @@ final class ReaderPDFView: PDFView {
         clearInheritedBackground()
         watchPageTurns()
         refit()
-        if overlay.superview != nil { installOverlay() }
+        if overlay.superview != nil || fillOverlay.superview != nil { installOverlay() }
+    }
+
+    // MARK: Fill & Sign
+
+    /// Fill & Sign's items, drawn and handled over the pages — see ``EditorPDFFillOverlay``.
+    let fillOverlay = EditorPDFFillOverlay()
+
+    var fillSign: EditorPDFFillSign? {
+        get { fillOverlay.fill }
+        set {
+            guard newValue !== fillOverlay.fill else { return }
+            fillOverlay.reader = self
+            fillOverlay.fill = newValue
+            if newValue != nil || fillOverlay.superview != nil { installOverlay() }
+        }
+    }
+
+    /// **While Fill & Sign is up, the keyboard goes to its overlay** whenever it would come here —
+    /// the overlay answers ⌘Z with Fill & Sign's own stack, and hands every other key back.
+    func handKeyboardToFill() {
+        guard fillOverlay.isActive, fillOverlay.superview === self, let window,
+              window.firstResponder === self else { return }
+        window.makeFirstResponder(fillOverlay)
     }
 
     // MARK: Find's highlights
@@ -73,12 +96,19 @@ final class ReaderPDFView: PDFView {
     /// top on every layout: PDFKit adds views of its own when a document arrives.
     private func installOverlay() {
         overlay.reader = self
-        if subviews.last !== overlay {
-            overlay.removeFromSuperview()
-            addSubview(overlay, positioned: .above, relativeTo: nil)
+        fillOverlay.reader = self
+        // The find's highlights, then Fill & Sign's items over them — both kept on top of
+        // whatever PDFKit has added since. No Fill & Sign attached, no layer for it.
+        let layers: [NSView] = fillOverlay.fill == nil ? [overlay] : [overlay, fillOverlay]
+        if fillOverlay.fill == nil { fillOverlay.removeFromSuperview() }
+        if Array(subviews.suffix(layers.count)) != layers {
+            layers.forEach { $0.removeFromSuperview() }
+            layers.forEach { addSubview($0, positioned: .above, relativeTo: nil) }
         }
-        overlay.frame = bounds
-        overlay.autoresizingMask = [.width, .height]
+        for layer in [overlay, fillOverlay] as [NSView] {
+            layer.frame = bounds
+            layer.autoresizingMask = [.width, .height]
+        }
         if let clip = subviews.lazy.compactMap({ $0 as? NSScrollView }).first?.contentView, clip !== watchedClip {
             if let watchedClip {
                 NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: watchedClip)
@@ -97,10 +127,12 @@ final class ReaderPDFView: PDFView {
             }
         }
         overlay.needsDisplay = true
+        fillOverlay.needsDisplay = true
     }
 
     @objc private func pagesMoved(_ note: Notification) {
         if !overlay.highlights.isEmpty { overlay.needsDisplay = true }
+        if fillOverlay.isActive { fillOverlay.refresh() }
     }
 
     /// Applies ``fit`` when the size — or, one spread at a time, the spread — has moved since it
@@ -200,7 +232,10 @@ final class ReaderPDFView: PDFView {
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         // The window names its new first responder only once this returns.
-        DispatchQueue.main.async { [weak self] in self?.updateFocus() }
+        DispatchQueue.main.async { [weak self] in
+            self?.handKeyboardToFill()
+            self?.updateFocus()
+        }
         return became
     }
 
@@ -309,6 +344,8 @@ struct EditorPDFPageView: NSViewRepresentable {
     @ObservedObject var state: EditorPDFViewState
     /// The find's matches, drawn over the pages.
     var highlights: EditorPDFHighlights = .none
+    /// Fill & Sign, drawn and handled over the pages.
+    var fill: EditorPDFFillSign?
     /// Esc in the pages: `true` when it closed something.
     var onEscape: (() -> Bool)?
 
@@ -414,6 +451,7 @@ struct EditorPDFPageView: NSViewRepresentable {
         }
         view.onEscape = onEscape
         view.highlights = highlights
+        view.fillSign = fill
     }
 
     /// **A new layout keeps the reader where they were**: the page they were on is gone to again
@@ -466,6 +504,7 @@ struct EditorPDFPageView: NSViewRepresentable {
         view.onFocusChange = nil
         view.onEscape = nil
         view.highlights = .none
+        view.fillSign = nil
         // The model owns the document and releases it on close; the view lets go of it now.
         view.document = nil
     }

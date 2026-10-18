@@ -52,11 +52,24 @@ enum TextEditingChord {
                       fileAction: () -> Void) {
         if belongsToTextEditor(responder), let editor = responder as? NSTextView {
             editorAction(editor)
-        } else if let readerAction, let reader = responder as? PDFView {
+        } else if let readerAction, let reader = enclosingReader(of: responder) {
             readerAction(reader)
         } else {
             fileAction()
         }
+    }
+
+    /// The reader `responder` is, or is inside — **Fill & Sign's overlay holds the keyboard over
+    /// the pages while its toolbar is up**, and is a view inside the reader, not one; matched only
+    /// as itself, ⌘C there copied the pane's selected file again. A field editor never reaches
+    /// this: the caret's branch above takes it first.
+    static func enclosingReader(of responder: NSResponder?) -> PDFView? {
+        var view = responder as? NSView
+        while let current = view {
+            if let reader = current as? PDFView { return reader }
+            view = current.superview
+        }
+        return nil
     }
 
     /// The live form: reads the key window's first responder for you.

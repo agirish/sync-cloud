@@ -74,6 +74,9 @@ public final class EditorPDFDocument: ObservableObject {
     /// The PDF tools — selection, a pending reorder, a run — see ``EditorPDFTools``. Attached with
     /// the file and detached on every close, like ``thumbnails``.
     public let tools = EditorPDFTools()
+    /// Fill & Sign — the items placed on the pages and not yet saved — see ``EditorPDFFillSign``.
+    /// Attached and detached with ``tools``, which writes its copy.
+    public let fill: EditorPDFFillSign
 
     /// A locked document waiting for its password. Held apart from ``document`` so the page view
     /// never gets a document it cannot draw.
@@ -113,7 +116,10 @@ public final class EditorPDFDocument: ObservableObject {
         let view = EditorPDFViewState(defaults: defaults)
         self.view = view
         find = EditorPDFFind(view: view)
+        fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
         find.log = { [weak self] in self?.log($0) }
+        fill.tools = tools
+        tools.fill = fill
     }
 
     public var name: String { path.map { ($0 as NSString).lastPathComponent } ?? "" }
@@ -166,6 +172,7 @@ public final class EditorPDFDocument: ObservableObject {
         thumbnails.detach()
         find.detach()
         tools.detach()
+        fill.detach()
         stamp = nil
         path = nil
         phase = .loading
@@ -209,6 +216,8 @@ public final class EditorPDFDocument: ObservableObject {
         // The file on disk is still locked: unlocking it here unlocks the reader's copy, not the
         // file every tool opens by URL — so the tools keep offering only Remove Password.
         tools.update(pageCount: facts.pageCount)
+        // Still locked on disk, so Fill & Sign keeps the tools' refusal — but knows the pages.
+        fill.attach(path: path, boxes: facts.boxes, encryption: .lockedToOpen, allowsFilling: facts.allowsFilling)
         phase = .open
         log("Editor unlocked \(path) (PDF, \(Self.pages(facts.pageCount)))")
         onLoaded?(.open)
@@ -250,6 +259,7 @@ public final class EditorPDFDocument: ObservableObject {
                 thumbnails.detach()
                 find.detach()
                 tools.detach()
+                fill.detach()
                 finish(.refused(Self.unreadableReason), path: path)
             case .locked(let held):
                 document = nil
@@ -258,6 +268,7 @@ public final class EditorPDFDocument: ObservableObject {
                 thumbnails.detach()
                 find.detach()
                 tools.attach(path: path, pageCount: 0, encryption: .lockedToOpen)
+                fill.attach(path: path, boxes: [], encryption: .lockedToOpen, allowsFilling: true)
                 locked = held.document
                 finish(.locked, path: path)
             case .open(let held, let facts, let outline, let encryption):
@@ -269,6 +280,7 @@ public final class EditorPDFDocument: ObservableObject {
                 thumbnails.attach(path: path, pageCount: facts.pageCount)
                 find.attach(path: path, pageCount: facts.pageCount, hasText: facts.hasText)
                 tools.attach(path: path, pageCount: facts.pageCount, encryption: encryption)
+                fill.attach(path: path, boxes: facts.boxes, encryption: encryption, allowsFilling: facts.allowsFilling)
                 if let page { view.requestPage(min(page, max(facts.pageCount - 1, 0))) }
                 finish(.open, path: path, reloaded: page != nil)
             }
@@ -370,6 +382,7 @@ public final class EditorPDFDocument: ObservableObject {
             thumbnails.detach()
             find.detach()
             tools.detach()
+            fill.detach()
             stamp = nil
             finish(.refused(Self.goneReason), path: path)
             return
@@ -570,6 +583,11 @@ public struct EditorPDFFacts: Equatable, Sendable {
     /// the page view draws and a thumbnail is drawn in (``EditorPDFThumbnails/shownSize(of:)``).
     /// ``pageSizes`` stays the media box, the paper the status line names. Empty when not read.
     public var shownSizes: [CGSize] = []
+    /// Each page's crop box and rotation — where Fill & Sign's items are placed (``EditorPDFPageBox``).
+    public var boxes: [EditorPDFPageBox] = []
+    /// Whether the file's owner lets it be written on — comments or form filling allowed. Only an
+    /// owner-restricted file says no.
+    public var allowsFilling = true
 
     /// How many pages are asked for text. A 300-page scan is not walked end to end to say "Image
     /// only": if the first few have no text layer, the rest of a scan will not either.
@@ -581,6 +599,10 @@ public struct EditorPDFFacts: Equatable, Sendable {
         let pages = (0..<count).map { document.page(at: $0) }
         let sizes = pages.map { $0?.bounds(for: .mediaBox).size ?? .zero }
         let shown = pages.map { $0.map(EditorPDFThumbnails.shownSize(of:)) ?? .zero }
+        let boxes = pages.map { page in
+            page.map { EditorPDFPageBox(cropBox: $0.bounds(for: .cropBox), rotation: $0.rotation) }
+                ?? EditorPDFPageBox(cropBox: .zero, rotation: 0)
+        }
         let hasText = (0..<min(count, textProbePages)).contains { index in
             guard let text = document.page(at: index)?.string else { return false }
             return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -588,7 +610,8 @@ public struct EditorPDFFacts: Equatable, Sendable {
         let size = EditorFileStore.stamp(ofPath: path).map { FileSyncManager.formatBytes($0.size) }
         return EditorPDFFacts(pageCount: count, pageSizes: sizes, majorVersion: document.majorVersion,
                               minorVersion: document.minorVersion, fileSize: size, hasText: hasText,
-                              shownSizes: shown)
+                              shownSizes: shown, boxes: boxes,
+                              allowsFilling: document.allowsCommenting || document.allowsFormFieldEntry)
     }
 
     /// "Letter · 8.5 × 11 in" for the page at `index`, or `nil` past the end.
