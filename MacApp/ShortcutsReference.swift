@@ -100,8 +100,10 @@ enum ShortcutsReference {
             // this is the one place a reader is told the chord has two.
             Item(keys: "⌘ I", action: "Show or hide the Info inspector — in Edit's text, Italic"),
             Item(keys: "⌘ L", action: "Open the Activity Log"),
-            // The slider's own stops, from the keyboard — never a size Settings cannot reach.
-            Item(keys: "⌘ + / ⌘ − / ⌘ 0", action: "Bigger / smaller / default text size, on Settings' steps"),
+            // The slider's own stops, from the keyboard — never a size Settings cannot reach. The
+            // same keys zoom a PDF whose pages have the keyboard (`PDFZoomVerbs`), so the row names
+            // both meanings, as ⌘I's does.
+            Item(keys: "⌘ + / ⌘ − / ⌘ 0", action: "Bigger / smaller / default text size, or zoom a focused PDF"),
             Item(keys: "⌘ ,", action: "Open Settings"),
             Item(keys: "⌘ /", action: "Show this shortcuts reference"),
             Item(keys: "⌘ ?", action: "Open SyncCloud Help"),

@@ -103,11 +103,14 @@ public final class EditorPDFDocument: ObservableObject {
     /// Opens this model withdrew before their turn, which the lane then skipped unparsed.
     private(set) var skippedOpens = 0
 
+    /// `defaults` is where the reader's layout is remembered (``EditorPDFSettings``) — the shared
+    /// domain in the app, a scratch one in a test.
     public init(settle: Duration = .milliseconds(250),
-                isCloudOnly: @escaping (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }) {
+                isCloudOnly: @escaping (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
+                defaults: UserDefaults = .standard) {
         self.settle = settle
         self.isCloudOnly = isCloudOnly
-        let view = EditorPDFViewState()
+        let view = EditorPDFViewState(defaults: defaults)
         self.view = view
         find = EditorPDFFind(view: view)
         find.log = { [weak self] in self?.log($0) }
@@ -197,6 +200,7 @@ public final class EditorPDFDocument: ObservableObject {
         self.locked = nil
         document = held.document
         self.facts = facts
+        view.pageCount = facts.pageCount
         outline = unlocked.outline
         thumbnails.attach(path: path, pageCount: facts.pageCount,
                           unlocked: unlocked.thumbnailSource?.document)
@@ -260,6 +264,7 @@ public final class EditorPDFDocument: ObservableObject {
                 locked = nil
                 document = held.document
                 self.facts = facts
+                view.pageCount = facts.pageCount
                 self.outline = outline
                 thumbnails.attach(path: path, pageCount: facts.pageCount)
                 find.attach(path: path, pageCount: facts.pageCount, hasText: facts.hasText)
@@ -380,12 +385,32 @@ public final class EditorPDFDocument: ObservableObject {
 /// on every scroll, observed only by the PDF card. See ``EditorPDFDocument``.
 @MainActor
 public final class EditorPDFViewState: ObservableObject {
-    /// The page under the reader's eye, zero-based — reported by the view.
+    /// The page under the reader's eye, zero-based — reported by the view. In a two-page layout,
+    /// one page of the spread on screen; ``visiblePages`` is the spread.
     @Published public internal(set) var currentPage = 0
+    /// How many pages the open document has — set with the document, for ``visiblePages``.
+    @Published public internal(set) var pageCount = 0
     /// The scale the view is drawing at — reported by the view.
     @Published public internal(set) var scale: CGFloat = 1
     /// How the page is sized. `nil` once the reader has zoomed by hand, until a fit is picked again.
     @Published public var fit: EditorPDFFit? = .page
+    /// How the pages are laid out — remembered across launches under
+    /// ``EditorPDFSettings/layoutKey``.
+    @Published public var layout: EditorPDFLayout {
+        didSet { if layout != oldValue { defaults.set(layout.rawValue, forKey: EditorPDFSettings.layoutKey) } }
+    }
+    /// Whether a two-page layout shows the first page on its own — remembered under
+    /// ``EditorPDFSettings/coverSeparatelyKey``. Kept while a single-page layout is chosen, so
+    /// going back to two pages finds it as it was.
+    @Published public var coverSeparately: Bool {
+        didSet {
+            if coverSeparately != oldValue { defaults.set(coverSeparately, forKey: EditorPDFSettings.coverSeparatelyKey) }
+        }
+    }
+    /// **Whether the pages have the keyboard** — the page view first responder (or inside it) in
+    /// the key window. Reported by the view; what puts ⌘+ ⌘− ⌘0 on the PDF's zoom rather than the
+    /// app's text size.
+    @Published public internal(set) var hasFocus = false
     /// A page the view is asked to show — a count, so asking twice for one page is two asks.
     @Published public private(set) var pageRequest: EditorPDFRequest<Int>?
     /// A scale the view is asked to take — the zoom buttons.
@@ -399,6 +424,23 @@ public final class EditorPDFViewState: ObservableObject {
     /// Asks the page view to take the keyboard — the find bar going away hands it back.
     @Published private(set) var focusRequest = 0
     private var token = 0
+    private let defaults: UserDefaults
+
+    /// Reads the remembered layout from `defaults` — the shared domain in the app, a scratch one
+    /// in a test.
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        layout = EditorPDFSettings.layout(in: defaults)
+        coverSeparately = EditorPDFSettings.coverSeparately(in: defaults)
+    }
+
+    /// **The pages on screen together, zero-based** — the current page alone in a single-page
+    /// layout, its spread in a two-page one: what the page field, the status line and the Pages tab
+    /// say the reader is on.
+    public var visiblePages: ClosedRange<Int> {
+        EditorPDFLayout.spread(containing: currentPage, pageCount: pageCount, twoUp: layout.isTwoUp,
+                               coverSeparately: coverSeparately)
+    }
 
     /// **The reader's own selection, as text**, for ⌘E. Selection text the reader already made on
     /// the main thread, read there; no extraction.
@@ -406,8 +448,6 @@ public final class EditorPDFViewState: ObservableObject {
 
     func requestFocus() { focusRequest &+= 1 }
 
-    /// The zoom buttons' steps: Preview's, roughly — a quarter up, back down by the same.
-    static let zoomStep: CGFloat = 1.25
     static let minScale: CGFloat = 0.1
     static let maxScale: CGFloat = 8
 
@@ -423,15 +463,27 @@ public final class EditorPDFViewState: ObservableObject {
         revealRequest = EditorPDFRequest(value: EditorPDFReveal(pageIndex: index, rect: rect), token: token)
     }
 
+    /// − and +, and ⌘− ⌘+ while the pages have the keyboard: the next stop on the ladder
+    /// (``EditorPDFZoom/step(from:in:)``). Nothing past either end.
     public func zoom(in zoomingIn: Bool) {
-        let next = zoomingIn ? scale * Self.zoomStep : scale / Self.zoomStep
+        guard let next = EditorPDFZoom.step(from: scale, in: zoomingIn) else { return }
+        zoom(to: next)
+    }
+
+    /// Whether − or + has a stop to go to.
+    public func canZoom(in zoomingIn: Bool) -> Bool { EditorPDFZoom.step(from: scale, in: zoomingIn) != nil }
+
+    /// A preset from the zoom menu: that scale, held until a fit is picked — a resize leaves it.
+    public func zoom(to value: CGFloat) {
         token &+= 1
         fit = nil
-        scaleRequest = EditorPDFRequest(value: min(max(next, Self.minScale), Self.maxScale), token: token)
+        scale = min(max(value, Self.minScale), Self.maxScale)
+        scaleRequest = EditorPDFRequest(value: scale, token: token)
     }
 
     func reset() {
         currentPage = 0
+        pageCount = 0
         scale = 1
         fit = .page
         pageRequest = nil
@@ -452,36 +504,49 @@ public struct EditorPDFRequest<Value: Equatable>: Equatable {
     public var token: Int
 }
 
-/// Page / Width / Actual — where Source / Preview / Split sit for Markdown.
+/// Fit Page, Fit Width and Actual Size — the zoom menu's fits (mockup 15). Page and Width refit as
+/// the window is resized; a preset or a pinch is a scale, held as it is.
 public enum EditorPDFFit: String, CaseIterable, Sendable {
-    /// The whole page, both dimensions inside the view — `PDFPageFit`, the preview's own rule.
+    /// The whole spread, both dimensions inside the view — `PDFPageFit`, the preview's own rule.
     case page
-    /// The page's width across the view; the height scrolls.
+    /// The spread's width across the view; the height scrolls.
     case width
     /// 100%: one PDF point to one screen point.
     case actual
 
     public var title: String {
         switch self {
-        case .page: return "Page"
-        case .width: return "Width"
-        case .actual: return "Actual"
+        case .page: return "Fit Page"
+        case .width: return "Fit Width"
+        case .actual: return "Actual Size"
         }
     }
 
-    /// The scale this fit asks for, for a page of `pageSize` in a view of `viewSize`.
+    /// The scale this fit asks for, for a spread of `spreadSize` in a view of `viewSize`.
+    ///
+    /// **A spread is what is on screen side by side** — one page in a single-page layout, so the
+    /// numbers there are what they were before there were layouts; two pages and the gap between
+    /// them in a two-page one (``spreadSize(_:gap:)``), so Fit Width puts the PAIR across the view.
     ///
     /// `.page` is `PDFPageFit.scale`, capped at 1 as the preview's is, so a small page is not blown
     /// up past its size. `.width` is not capped — fitting the width of a narrow receipt is what the
     /// reader asked for — and keeps the page-break margins PDFKit draws either side.
-    static func scale(_ fit: EditorPDFFit, pageSize: CGSize, viewSize: CGSize, margin: CGFloat) -> CGFloat {
+    static func scale(_ fit: EditorPDFFit, spreadSize: CGSize, viewSize: CGSize, margin: CGFloat) -> CGFloat {
         switch fit {
-        case .page: return PDFPageFit.scale(pageSize: pageSize, viewSize: viewSize)
+        case .page: return PDFPageFit.scale(pageSize: spreadSize, viewSize: viewSize)
         case .actual: return 1
         case .width:
-            guard pageSize.width > 0, viewSize.width > 2 * margin else { return 1 }
-            return (viewSize.width - 2 * margin) / pageSize.width
+            guard spreadSize.width > 0, viewSize.width > 2 * margin else { return 1 }
+            return (viewSize.width - 2 * margin) / spreadSize.width
         }
+    }
+
+    /// The size of pages drawn side by side with `gap` between each two: their widths and the gaps
+    /// added, the tallest one's height.
+    static func spreadSize(_ pages: [CGSize], gap: CGFloat) -> CGSize {
+        guard !pages.isEmpty else { return .zero }
+        return CGSize(width: pages.reduce(0) { $0 + $1.width } + gap * CGFloat(pages.count - 1),
+                      height: pages.map(\.height).max() ?? 0)
     }
 }
 

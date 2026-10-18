@@ -103,6 +103,7 @@ enum PDFFixtures {
         #expect(pdf.document != nil)
         let facts = try? #require(pdf.facts)
         #expect(facts?.pageCount == 3)
+        #expect(pdf.view.pageCount == 3, "the view state cannot say what spread the reader is on")
         #expect(facts?.paperCaption(page: 0) == "Letter · 8.5 × 11 in")
         #expect(facts?.hasText == true)
         #expect(facts?.fileSize != nil)
@@ -451,8 +452,8 @@ enum PDFFixtures {
     @Test func theStatusLineSaysPagePaperSizeVersionAndText() {
         let facts = EditorPDFFacts(pageCount: 3, pageSizes: Array(repeating: PDFFixtures.letter, count: 3),
                                    majorVersion: 1, minorVersion: 7, fileSize: "184 KB", hasText: true)
-        #expect(EditorPDFStatusLine.segments(facts: facts, page: 1)
-                == ["Page 2 of 3", "Letter · 8.5 × 11 in", "184 KB", "PDF 1.7", "Text selectable"])
+        #expect(EditorPDFStatusLine.segments(facts: facts, pages: 1...1)
+                == ["Page 2 of 3", "Continuous", "Letter · 8.5 × 11 in", "184 KB", "PDF 1.7", "Text selectable"])
     }
 
     @Test func zoomingLeavesTheFitAndStepsTheScale() {

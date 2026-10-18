@@ -2,30 +2,53 @@ import AppKit
 import PDFKit
 import SwiftUI
 
-/// Edit's page view: the column preview's `FitPagePDFView`, grown the reader's controls — Page,
-/// Width and Actual, zoom, and ⌥← / ⌥→ for pages.
+/// Edit's page view: the column preview's `FitPagePDFView`, grown the reader's controls — the
+/// layouts, Fit Page / Fit Width / Actual Size and the zoom, and ⌥← / ⌥→ for pages.
 ///
 /// **Refitted on a size change, not on every layout pass**, for `FitPagePDFView`'s reason: a pass
 /// runs for a scroll or a first-responder change, and re-imposing the fit on each one would undo a
 /// zoom the reader had just made. Resize the window and the page fits again; zoom, and it stays
 /// zoomed until a fit is picked. With no fit (`nil`, after a zoom) nothing is refitted at all.
+///
+/// **In a layout that shows one spread at a time, a new spread refits too** — Single Page and Two
+/// Pages draw only what is on screen, so a cover shown on its own is fitted alone and the 2–3 after
+/// it is fitted as a pair. The continuous layouts keep the size-only rule: there the spreads scroll
+/// past, and refitting each one would change the scale under the reader mid-scroll.
 final class ReaderPDFView: PDFView {
     /// The fit to hold, or `nil` once the reader has zoomed by hand.
     var fit: EditorPDFFit? = .page {
-        didSet { if fit != oldValue { fittedSize = nil; needsLayout = true } }
+        didSet { if fit != oldValue { fittedKey = nil; needsLayout = true } }
     }
-    private var fittedSize: CGSize?
+    /// What the fit was last applied for: the view's size, and — in a one-spread-at-a-time layout —
+    /// the spread's.
+    private var fittedKey: FitKey?
+    private struct FitKey: Equatable {
+        var viewSize: CGSize
+        var spreadSize: CGSize?
+    }
+    /// The scale the fit last set. A scale change away from it that the fit did not make is the
+    /// reader's own — a pinch — and lets the fit go (``EditorPDFPageView/Coordinator``).
+    private(set) var fittedScale: CGFloat?
+    private(set) var isApplyingFit = false
 
-    /// Refit on the next layout even if the size has not changed — for a new document, whose page
-    /// is a different question from the view's.
-    func invalidateFit() { fittedSize = nil }
+    /// Refit on the next layout even if the size has not changed — for a new document, or a new
+    /// layout, whose spread is a different question from the view's.
+    func invalidateFit() { fittedKey = nil }
 
     /// The page-break margin PDFKit leaves either side of a page, which a width fit keeps clear.
     var sideMargin: CGFloat { displaysPageBreaks ? max(pageBreakMargins.left, pageBreakMargins.right) : 0 }
 
+    /// **The gap between the two pages of a spread**, in page space: one page's right margin and
+    /// the next one's left. Measured 2026-10-17 on macOS 27 — 8pt at scale 1 in Two Pages,
+    /// Continuous, and 7pt in Two Pages; both scale with the zoom, as page space does.
+    var spreadGap: CGFloat { displaysPageBreaks ? pageBreakMargins.left + pageBreakMargins.right : 0 }
+
+    var layoutMode: EditorPDFLayout { EditorPDFLayout(displayMode) }
+
     override func layout() {
         super.layout()
         clearInheritedBackground()
+        watchPageTurns()
         refit()
         if overlay.superview != nil { installOverlay() }
     }
@@ -80,14 +103,111 @@ final class ReaderPDFView: PDFView {
         if !overlay.highlights.isEmpty { overlay.needsDisplay = true }
     }
 
-    /// Applies ``fit`` when the size has moved since it was last applied.
+    /// Applies ``fit`` when the size — or, one spread at a time, the spread — has moved since it
+    /// was last applied.
     func refit() {
-        guard let fit, bounds.size != fittedSize, bounds.width > 0, bounds.height > 0,
-              let page = currentPage ?? document?.page(at: 0)
-        else { return }
-        fittedSize = bounds.size
-        let pageSize = page.bounds(for: displayBox).size
-        scaleFactor = EditorPDFFit.scale(fit, pageSize: pageSize, viewSize: bounds.size, margin: sideMargin)
+        guard let fit, bounds.width > 0, bounds.height > 0, let document, document.pageCount > 0 else { return }
+        let anchor = currentPage.map { document.index(for: $0) } ?? 0
+        let pages = Self.fittedSpread(around: anchor, pageCount: document.pageCount, layout: layoutMode,
+                                      coverSeparately: displaysAsBook)
+        let spread = EditorPDFFit.spreadSize(pages.compactMap { document.page(at: $0)?.bounds(for: displayBox).size },
+                                             gap: spreadGap)
+        let key = FitKey(viewSize: bounds.size, spreadSize: layoutMode.isContinuous ? nil : spread)
+        guard key != fittedKey else { return }
+        fittedKey = key
+        let scale = EditorPDFFit.scale(fit, spreadSize: spread, viewSize: bounds.size, margin: sideMargin)
+        fittedScale = scale
+        isApplyingFit = true
+        scaleFactor = scale
+        isApplyingFit = false
+    }
+
+    /// **The pages a fit is measured on**: the spread around `page` — except in Two Pages,
+    /// Continuous, where every row is drawn two pages wide whatever is on screen, so a page standing
+    /// alone (the cover, or a last odd page) is fitted as the pair beside it would be. Fitting it
+    /// alone there would draw the next row wider than the view.
+    static func fittedSpread(around page: Int, pageCount: Int, layout: EditorPDFLayout,
+                             coverSeparately: Bool) -> ClosedRange<Int> {
+        func spread(_ page: Int) -> ClosedRange<Int> {
+            EditorPDFLayout.spread(containing: page, pageCount: pageCount, twoUp: layout.isTwoUp,
+                                   coverSeparately: coverSeparately)
+        }
+        let here = spread(page)
+        guard layout == .twoPagesContinuous, here.count == 1 else { return here }
+        for neighbour in [here.upperBound + 1, here.lowerBound - 1] where (0..<pageCount).contains(neighbour) {
+            let pair = spread(neighbour)
+            if pair.count == 2 { return pair }
+        }
+        return here
+    }
+
+    /// One spread at a time, a page turn can bring a spread of another size: lay out again, and
+    /// ``refit()`` decides whether it changed.
+    private var watchesPageTurns = false
+    private func watchPageTurns() {
+        guard !watchesPageTurns else { return }
+        watchesPageTurns = true
+        NotificationCenter.default.addObserver(self, selector: #selector(pageTurned(_:)), name: .PDFViewPageChanged, object: self)
+    }
+
+    @objc private func pageTurned(_ note: Notification) {
+        if fit != nil, !layoutMode.isContinuous { needsLayout = true }
+    }
+
+    // MARK: Focus
+
+    /// Told when ``holdsFocus`` changes — the page view hands it to `EditorPDFViewState.hasFocus`.
+    var onFocusChange: ((Bool) -> Void)?
+    /// **Whether the pages have the keyboard**: this view, or a view inside it, first responder in
+    /// the key window. Watched rather than worked out from `becomeFirstResponder` alone, because
+    /// a click in the pages can hand first responder to PDFKit's own view inside this one, and
+    /// the window going to the background takes the keyboard without either view hearing of it.
+    private(set) var holdsFocus = false
+    private var responderWatch: NSKeyValueObservation?
+    private var keyWatches: [NSObjectProtocol] = []
+
+    static func holdsFocus(firstResponder: NSResponder?, isKeyWindow: Bool, in reader: NSView) -> Bool {
+        guard isKeyWindow, let view = firstResponder as? NSView else { return false }
+        return view === reader || view.isDescendant(of: reader)
+    }
+
+    func updateFocus() {
+        let now = Self.holdsFocus(firstResponder: window?.firstResponder, isKeyWindow: window?.isKeyWindow == true,
+                                  in: self)
+        guard now != holdsFocus else { return }
+        holdsFocus = now
+        onFocusChange?(now)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        responderWatch = nil
+        keyWatches.forEach(NotificationCenter.default.removeObserver)
+        keyWatches = []
+        if let window {
+            responderWatch = window.observe(\.firstResponder) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.updateFocus() }
+            }
+            keyWatches = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.updateFocus() }
+                }
+            }
+        }
+        updateFocus()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        // The window names its new first responder only once this returns.
+        DispatchQueue.main.async { [weak self] in self?.updateFocus() }
+        return became
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        DispatchQueue.main.async { [weak self] in self?.updateFocus() }
+        return resigned
     }
 
     /// Esc in the pages — the find bar's, when it is up (``EditorPDFReader``). `true` when it
@@ -96,7 +216,8 @@ final class ReaderPDFView: PDFView {
     static let escapeKeyCode: UInt16 = 53
 
     /// ⌥← and ⌥→ turn a page, as Edit's keys rather than the panes': with Edit on screen the
-    /// reader has the workspace to itself. Esc closes the find bar from the pages too, as it does
+    /// reader has the workspace to itself. In a two-page layout PDFKit's own previous and next
+    /// turn the whole spread (`theOptionArrowsTurnAWholeSpread`). Esc closes the find bar from the pages too, as it does
     /// from its field — a press with nothing to close goes on as before.
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -209,6 +330,14 @@ struct EditorPDFPageView: NSViewRepresentable {
         @MainActor @objc func scaleChanged(_ note: Notification) {
             guard let view else { return }
             if abs(state.scale - view.scaleFactor) > 0.0001 { state.scale = view.scaleFactor }
+            if Self.letsTheFitGo(fit: state.fit, view: view) { state.fit = nil }
+        }
+
+        /// **A scale the fit did not set is the reader's own** — a pinch — and the fit lets go, so
+        /// the label says 137% rather than Fit Page, and a resize does not snap the page back.
+        @MainActor static func letsTheFitGo(fit: EditorPDFFit?, view: ReaderPDFView) -> Bool {
+            guard fit != nil, !view.isApplyingFit, let fitted = view.fittedScale else { return false }
+            return abs(view.scaleFactor - fitted) > 0.0001
         }
     }
 
@@ -217,7 +346,8 @@ struct EditorPDFPageView: NSViewRepresentable {
     func makeNSView(context: Context) -> ReaderPDFView {
         let view = ReaderPDFView()
         view.autoScales = false
-        view.displayMode = .singlePageContinuous
+        view.displayMode = state.layout.displayMode
+        view.displaysAsBook = state.layout.displaysAsBook(coverSeparately: state.coverSeparately)
         view.displaysPageBreaks = true
         view.displayDirection = .vertical
         view.minScaleFactor = EditorPDFViewState.minScale
@@ -226,6 +356,10 @@ struct EditorPDFPageView: NSViewRepresentable {
         context.coordinator.view = view
         context.coordinator.focusToken = state.focusRequest
         state.reader = view
+        view.onFocusChange = { [weak state, weak view] focused in
+            guard let state, let view, state.reader === view else { return }
+            if state.hasFocus != focused { state.hasFocus = focused }
+        }
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.pageChanged(_:)),
                                                name: .PDFViewPageChanged, object: view)
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.scaleChanged(_:)),
@@ -239,6 +373,7 @@ struct EditorPDFPageView: NSViewRepresentable {
     }
 
     private func update(_ view: ReaderPDFView, coordinator: Coordinator) {
+        Self.applyLayout(state.layout, coverSeparately: state.coverSeparately, to: view)
         if view.document !== document {
             view.document = document
             view.invalidateFit()
@@ -281,6 +416,22 @@ struct EditorPDFPageView: NSViewRepresentable {
         view.highlights = highlights
     }
 
+    /// **A new layout keeps the reader where they were**: the page they were on is gone to again
+    /// once the pages are laid out the new way, and the fit is measured afresh — a spread is not a
+    /// page.
+    static func applyLayout(_ layout: EditorPDFLayout, coverSeparately: Bool, to view: ReaderPDFView) {
+        let book = layout.displaysAsBook(coverSeparately: coverSeparately)
+        guard view.displayMode != layout.displayMode || view.displaysAsBook != book else { return }
+        let page = view.currentPage
+        view.displayMode = layout.displayMode
+        view.displaysAsBook = book
+        view.invalidateFit()
+        view.needsLayout = true
+        guard view.document != nil else { return }
+        view.layoutDocumentView()
+        if let page { view.go(to: page) }
+    }
+
     /// Whether a page ask scrolls to the page's top: not when a match on that same page is to be
     /// revealed in the same pass, which goes to the page itself.
     static func goesToPageTop(page: Int, reveal: EditorPDFReveal?) -> Bool {
@@ -308,7 +459,11 @@ struct EditorPDFPageView: NSViewRepresentable {
 
     static func dismantleNSView(_ view: ReaderPDFView, coordinator: Coordinator) {
         NotificationCenter.default.removeObserver(coordinator)
-        if coordinator.state.reader === view { coordinator.state.reader = nil }
+        if coordinator.state.reader === view {
+            coordinator.state.reader = nil
+            coordinator.state.hasFocus = false
+        }
+        view.onFocusChange = nil
         view.onEscape = nil
         view.highlights = .none
         // The model owns the document and releases it on close; the view lets go of it now.

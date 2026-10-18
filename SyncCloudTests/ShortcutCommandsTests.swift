@@ -63,6 +63,7 @@ import Foundation
                                      autosave: EditorVerbs.AutosaveSwitch(isOn: true, toggle: {}),
                                      canMarkUp: true, canFind: true, goToLine: {}),
             pdfFind: PDFFindVerbs(isSearchable: true, show: {}, step: { _ in }, useSelection: { true }),
+            pdfZoom: PDFZoomVerbs(zoom: { _ in }, actualSize: {}),
             editorExpand: EditorExpandSwitch(isOn: false, toggle: {}),
             suspended: suspended
         )
@@ -209,6 +210,8 @@ import Foundation
         // changes the document the pick may be about.
         #expect(publisher.effectiveEditorVerbs == nil)
         #expect(publisher.effectivePDFFind == nil)
+        // ⌘+ ⌘− ⌘0 on a PDF: under a pick they go back to the text size, as with nothing focused.
+        #expect(publisher.effectivePDFZoom == nil)
         // Text ▸ Expand: folding the pane under a pick hides the folder the pick describes.
         #expect(publisher.effectiveEditorExpand == nil)
     }
@@ -253,6 +256,7 @@ import Foundation
         #expect(publisher.effectiveCompareTwoFiles != nil)
         #expect(publisher.effectiveEditorVerbs != nil)
         #expect(publisher.effectivePDFFind != nil)
+        #expect(publisher.effectivePDFZoom != nil)
         #expect(publisher.effectiveEditorExpand != nil)
     }
 

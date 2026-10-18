@@ -194,6 +194,10 @@ struct ContentView: View {
     /// anything. This only stops a second background write being dispatched over the first, which
     /// would be two `F_FULLFSYNC`s against one file for one document's worth of text.
     @State var editorIsWritingInBackground = false
+    /// Whether the PDF reader's pages have the keyboard — `EditorPDFViewState.hasFocus`, copied
+    /// here by `onReceive` so ⌘+ ⌘− ⌘0 can follow it (`shortcutPDFZoom`). Copied rather than read
+    /// through the view state, which this window must not observe: it moves on every scroll.
+    @State var editorPDFReaderFocused = false
     /// Whether the launch refresh was asked for and could not start, because a pane named a source
     /// `enabledProviders` had not published yet. Cleared by the arrival that completes it.
     @State private var launchRefreshPending = false
@@ -4449,6 +4453,7 @@ struct ContentView: View {
         // too now; it was the last one published on its own, and so the last one the picker's
         // suspension did not reach.
         .modifier(shortcutValuePublisher)
+        .onReceive(editorPDF.view.$hasFocus.removeDuplicates()) { editorPDFReaderFocused = $0 }
         // Feed the pane header's quick-jump "Recent" list: every folder either pane focuses — by
         // drilling in, a crumb, back/forward, or a scan — is recorded against its provider root.
         .onChange(of: syncManager.leftRelativePath) { _, rel in

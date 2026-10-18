@@ -159,9 +159,11 @@ struct EditorPDFRailPages: View {
     }
 
     private func cell(_ index: Int, size: CGSize) -> some View {
+        // Both pages of a spread, in a two-page layout.
+        let isCurrent = view.visiblePages.contains(index)
         let isSelected = tools.selection.pages.contains(index)
         let button = Button { tap(index) } label: {
-            cellLabel(index, size: size, isCurrent: index == view.currentPage, isSelected: isSelected)
+            cellLabel(index, size: size, isCurrent: isCurrent, isSelected: isSelected)
         }
         // The rail's own row wash, as every other row here wears — a bare `.plain` was the one
         // control in the rail that gave no sign it could be clicked.
@@ -220,7 +222,7 @@ struct EditorPDFRailPages: View {
             .accessibilityLabel("Page \(index + 1)")
             // Selected is the selection; the reader's place is said as a value, so the two read apart.
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-            .accessibilityValue(index == view.currentPage ? "Current page" : "")
+            .accessibilityValue(view.visiblePages.contains(index) ? "Current page" : "")
             // The reorder a drag makes, for VoiceOver — the same pending order, saved the same way.
             .accessibilityAction(named: "Move Earlier") { tools.step(index, by: -1) }
             .accessibilityAction(named: "Move Later") { tools.step(index, by: 1) }

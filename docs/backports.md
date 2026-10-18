@@ -7399,3 +7399,31 @@ done
 |---|---|---|
 | `v5.x` | No `EditorPDFTools` (`pdfTools=0`), so nothing for the submenu to run | RECORDED — not owed (main only) |
 | `v4.x` / `v3.x` / `v2.x` | No Edit PDF model or tools at all | CLOSED — does not apply |
+
+---
+
+## The PDF reader's layouts, zoom menu, and ⌘+ ⌘− ⌘0 on a focused PDF (Phase 5a) — main only
+
+Edit's PDF reader gains Single Page, Continuous, Two Pages and Two Pages, Continuous, with Cover
+Page Separately, remembered under `editorPDFLayout` / `editorPDFCoverSeparately`; Fit Page and Fit
+Width measure the spread; the page field, status line and Pages tab show the spread. Page / Width /
+Actual folds into a zoom menu (presets 50–400%, − and + on that ladder), and the header sheds words
+as the column narrows. While the pages have the keyboard, View ▸ Text Size's three items become
+Zoom In / Zoom Out / Actual Size on the same chords (`PDFZoomVerbs`, `TextSizeMenuRoute`). All of it
+stands on `EditorPDFDocument`, which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s pdfModel=%s layout=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFLayout.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-17, against origin, before this landed:
+# main  pdfModel=1 layout=0
+# v5.x, v4.x, v3.x, v2.x — pdfModel=0 layout=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | No PDF reader in Edit (`pdfModel=0`); View ▸ Text Size as it was, which is right there | CLOSED — does not apply |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace that opens PDFs at all | CLOSED — does not apply |

@@ -1143,6 +1143,13 @@ extension ContentView {
                             useSelection: { pdf.find.useSelection(pdf.view.selectedText()) })
     }
 
+    /// ⌘+, ⌘− and ⌘0 on the open PDF's zoom — `nil` unless Edit is on screen with a PDF open in
+    /// it AND its pages have the keyboard (`PDFZoomVerbs.isOffered`). Without it the same keys are
+    /// View ▸ Text Size, as everywhere else.
+    var shortcutPDFZoom: PDFZoomVerbs? {
+        PDFZoomVerbs.resolve(workspace: selectedWorkspace, pdf: editorPDF, readerHasFocus: editorPDFReaderFocused)
+    }
+
     /// Text ▸ Expand ⌃⌘E — the header button's bit and act, offered where the header draws the
     /// button (`EditorExpandSwitch.isOffered`). The act is `toggleJustTheText`, the one the button
     /// calls, so the item and the button cannot fold different things.

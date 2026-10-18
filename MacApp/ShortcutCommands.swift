@@ -267,6 +267,88 @@ struct PDFFindVerbs {
     }
 }
 
+/// **⌘+, ⌘− and ⌘0 for a PDF whose pages have the keyboard** — the reader's Zoom In, Zoom Out and
+/// Actual Size (Phase 5a, decided 2026-10-17).
+///
+/// **The same chords as View ▸ Text Size, not new ones.** Those items read this value and, while it
+/// is published, act on the PDF and are titled for it (``TextSizeMenuRoute``); the moment the pane
+/// or the sidebar takes the keyboard it is `nil` again and they change the app's text size, as
+/// they do from every other window.
+struct PDFZoomVerbs {
+    /// The ladder's next stop up (`true`) or down — nothing past either end.
+    let zoom: (_ in: Bool) -> Void
+    let actualSize: () -> Void
+
+    /// **Edit, the PDF open, and its pages first responder in the key window.** A PDF merely being
+    /// open is ``PDFFindVerbs``' rule — ⌘F means the PDF wherever the keyboard is — and is not
+    /// enough here: ⌘+ is the whole app's text size until the reader is the one being read.
+    static func isOffered(workspace: Workspace, hasPDF: Bool, phase: EditorPDFDocument.Phase,
+                          readerHasFocus: Bool) -> Bool {
+        PDFFindVerbs.isOffered(workspace: workspace, hasPDF: hasPDF, phase: phase) && readerHasFocus
+    }
+
+    /// The verbs for `pdf`, or `nil` where ``isOffered(workspace:hasPDF:phase:readerHasFocus:)``
+    /// says no — the reader's own ladder and Actual Size, the zoom menu's.
+    @MainActor
+    static func resolve(workspace: Workspace, pdf: EditorPDFDocument, readerHasFocus: Bool) -> PDFZoomVerbs? {
+        guard isOffered(workspace: workspace, hasPDF: pdf.path != nil, phase: pdf.phase,
+                        readerHasFocus: readerHasFocus) else { return nil }
+        let view = pdf.view
+        return PDFZoomVerbs(zoom: { view.zoom(in: $0) }, actualSize: { view.fit = .actual })
+    }
+}
+
+/// **Where View ▸ Text Size's three items go, and what they are called** — out of the items so a
+/// test can hold the rule, as ``FindMenuRoute`` is.
+enum TextSizeMenuRoute {
+    enum Verb: CaseIterable { case bigger, smaller, defaultSize }
+
+    static func title(_ verb: Verb, pdfZoom: PDFZoomVerbs?) -> String {
+        switch (verb, pdfZoom != nil) {
+        case (.bigger, false): return "Bigger"
+        case (.smaller, false): return "Smaller"
+        case (.defaultSize, false): return "Default Size"
+        case (.bigger, true): return "Zoom In"
+        case (.smaller, true): return "Zoom Out"
+        case (.defaultSize, true): return "Actual Size"
+        }
+    }
+
+    /// The submenu's own title: "Zoom" while the items zoom a PDF.
+    static func submenuTitle(pdfZoom: PDFZoomVerbs?) -> String { pdfZoom == nil ? "Text Size" : "Zoom" }
+
+    /// Live unless the text size is at that end — or, for the PDF, always: its ends are the zoom
+    /// ladder's, which the reader's own − and + grey, and the item acting on nothing there is
+    /// cheaper than re-rendering the menu bar on every zoom.
+    static func isEnabled(_ verb: Verb, pdfZoom: PDFZoomVerbs?, size: FontSize) -> Bool {
+        if pdfZoom != nil { return true }
+        switch verb {
+        case .bigger: return size.bigger != nil
+        case .smaller: return size.smaller != nil
+        case .defaultSize: return size != FontSize.medium
+        }
+    }
+
+    /// Runs `verb`: on the PDF when there is one to zoom, else returns the text size to store —
+    /// `nil` when the text size is not to change.
+    @MainActor
+    static func perform(_ verb: Verb, pdfZoom: PDFZoomVerbs?, size: FontSize) -> FontSize? {
+        if let pdfZoom {
+            switch verb {
+            case .bigger: pdfZoom.zoom(true)
+            case .smaller: pdfZoom.zoom(false)
+            case .defaultSize: pdfZoom.actualSize()
+            }
+            return nil
+        }
+        switch verb {
+        case .bigger: return size.bigger
+        case .smaller: return size.smaller
+        case .defaultSize: return FontSize.medium
+        }
+    }
+}
+
 /// **Where Edit ▸ Find… and Text ▸ Find Next / Find Previous / Use Selection for Find go** — one
 /// rule each, out of the menu items so a test can hold them (the items are views that only a
 /// running menu bar builds).
@@ -486,6 +568,10 @@ private struct EditorVerbsKey: FocusedValueKey {
 
 private struct PDFFindKey: FocusedValueKey {
     typealias Value = PDFFindVerbs
+}
+
+private struct PDFZoomKey: FocusedValueKey {
+    typealias Value = PDFZoomVerbs
 }
 
 private struct EditorExpandKey: FocusedValueKey {
@@ -943,6 +1029,13 @@ extension FocusedValues {
         set { self[PDFFindKey.self] = newValue }
     }
 
+    /// ⌘+ ⌘− ⌘0 on a PDF — `nil` unless Edit is the workspace, a PDF is open and its pages have
+    /// the keyboard; see ``PDFZoomVerbs``.
+    var pdfZoom: PDFZoomVerbs? {
+        get { self[PDFZoomKey.self] }
+        set { self[PDFZoomKey.self] = newValue }
+    }
+
     /// Text ▸ Expand — `nil` wherever the header draws no Expand button; see `EditorExpandSwitch`.
     var editorExpand: EditorExpandSwitch? {
         get { self[EditorExpandKey.self] }
@@ -1091,6 +1184,9 @@ struct ShortcutValuePublisher: ViewModifier {
     /// ⌘F, ⌘G, ⇧⌘G and ⌘E over a PDF open in Edit. Suspended with the rest: the bar would take
     /// the keyboard from the destination pick.
     let pdfFind: PDFFindVerbs?
+    /// ⌘+ ⌘− ⌘0 on a PDF whose pages have the keyboard. Suspended with the rest — the pages
+    /// cannot be the keyboard's under the pick — so the keys go back to the text size there.
+    let pdfZoom: PDFZoomVerbs?
     /// Text ▸ Expand. Suspended with the rest: folding the pane under a destination pick would hide
     /// the folder the pick is describing.
     let editorExpand: EditorExpandSwitch?
@@ -1147,6 +1243,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveCompareTwoFiles: (() -> Void)? { suspended ? nil : compareTwoFiles }
     var effectiveEditorVerbs: EditorVerbs? { suspended ? nil : editorVerbs }
     var effectivePDFFind: PDFFindVerbs? { suspended ? nil : pdfFind }
+    var effectivePDFZoom: PDFZoomVerbs? { suspended ? nil : pdfZoom }
     var effectiveEditorExpand: EditorExpandSwitch? { suspended ? nil : editorExpand }
 
     /// ⌘W's published value, which is the one that does NOT go silent — see ``CloseTabAction``.
@@ -1195,6 +1292,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.paneRowVerbs, effectivePaneRowVerbs)         // File ▸ the row menu's verbs
             .focusedSceneValue(\.editorVerbs, effectiveEditorVerbs)           // Text ▸ / Markup ▸
             .focusedSceneValue(\.pdfFind, effectivePDFFind)                   // ⌘F ⌘G ⇧⌘G ⌘E over a PDF
+            .focusedSceneValue(\.pdfZoom, effectivePDFZoom)                   // ⌘+ ⌘− ⌘0 in a focused PDF
             .focusedSceneValue(\.editorExpand, effectiveEditorExpand)         // Text ▸ Expand, ⌃⌘E
     }
 }
@@ -1237,6 +1335,7 @@ extension ContentView {
             compareTwoFiles: shortcutCompareTwoFiles,
             editorVerbs: shortcutEditorVerbs,
             pdfFind: shortcutPDFFind,
+            pdfZoom: shortcutPDFZoom,
             editorExpand: shortcutEditorExpand,
             // Suspended by the palette too, on the destination picker's own argument: it is a
             // full-window overlay whose scrim blocks the mouse from every control these chords
@@ -2739,16 +2838,23 @@ struct MarkupVerbCommands: View {
 /// cannot — which is what keeps it inside the range the Settings rail's version line was measured
 /// against. At either end the item greys, and Default Size greys at the default.
 ///
-/// **`@AppStorage` here, no focused value**: this is a preference every window reads through
+/// **The size is `@AppStorage`, not a focused value**: it is a preference every window reads through
 /// `appFontSizeFromSettings`, not a fact about the main window, so the items work from the
 /// Activity Log and the ⌘/ reference too — and, like ⌘, (Settings), stay live under the destination
 /// picker, which is an ambient panel's convention rather than an oversight.
+///
+/// **While a PDF's pages have the keyboard they zoom it instead** (Phase 5a): the submenu reads
+/// Zoom, its items Zoom In / Zoom Out / Actual Size, on the same three chords — see
+/// ``PDFZoomVerbs`` and ``TextSizeMenuRoute``. The focused value is the main window's, so every
+/// other window still gets the text size.
 struct TextSizeMenuCommand: View {
+    @FocusedValue(\.pdfZoom) private var pdfZoom
+
     var body: some View {
         Divider()
         // A submenu, because three items about one setting read as a group and the View menu is
         // already long.
-        Menu("Text Size") {
+        Menu(TextSizeMenuRoute.submenuTitle(pdfZoom: pdfZoom)) {
             TextSizeCommands()
         }
     }
@@ -2756,20 +2862,23 @@ struct TextSizeMenuCommand: View {
 
 struct TextSizeCommands: View {
     @AppStorage(FontSize.defaultsKey) private var percent: Int = FontSize.medium.percent
+    @FocusedValue(\.pdfZoom) private var pdfZoom
 
     private var size: FontSize { FontSize(percent: percent) }
 
     var body: some View {
-        Button("Bigger") { if let next = size.bigger { percent = next.percent } }
-            .keyboardShortcut(AppChord.textBigger.key, modifiers: AppChord.textBigger.modifiers)
-            .disabled(size.bigger == nil)
-        Button("Smaller") { if let next = size.smaller { percent = next.percent } }
-            .keyboardShortcut(AppChord.textSmaller.key, modifiers: AppChord.textSmaller.modifiers)
-            .disabled(size.smaller == nil)
+        item(.bigger, AppChord.textBigger)
+        item(.smaller, AppChord.textSmaller)
         Divider()
-        Button("Default Size") { percent = FontSize.medium.percent }
-            .keyboardShortcut(AppChord.textDefaultSize.key, modifiers: AppChord.textDefaultSize.modifiers)
-            .disabled(size == FontSize.medium)
+        item(.defaultSize, AppChord.textDefaultSize)
+    }
+
+    private func item(_ verb: TextSizeMenuRoute.Verb, _ chord: AppChord) -> some View {
+        Button(TextSizeMenuRoute.title(verb, pdfZoom: pdfZoom)) {
+            if let next = TextSizeMenuRoute.perform(verb, pdfZoom: pdfZoom, size: size) { percent = next.percent }
+        }
+        .keyboardShortcut(chord.key, modifiers: chord.modifiers)
+        .disabled(!TextSizeMenuRoute.isEnabled(verb, pdfZoom: pdfZoom, size: size))
     }
 }
 

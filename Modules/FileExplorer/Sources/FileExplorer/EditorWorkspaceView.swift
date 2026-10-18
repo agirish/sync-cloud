@@ -738,7 +738,7 @@ public struct EditorWorkspaceView: View {
     /// tallest child — the mode capsule on one, the switch on the other — and both of those change
     /// with the text size. Asserting that a Markdown header and a plain-text header come out the
     /// same means measuring them, and measuring them means being able to build one.
-    private var header: some View {
+    var header: some View {
         EditorDocumentHeader {
             if let pdf {
                 EditorPDFHeader(pdf: pdf, accent: accent, onAccent: onAccent,
@@ -1214,7 +1214,7 @@ public struct EditorWorkspaceView: View {
     /// capsule because it is not about the folder or the text. The same 18pt row height either way,
     /// so the header's two rows, and with them the pinned header height, do not move; the word
     /// only ever widens it.
-    private func expandButton(worded: Bool) -> some View {
+    func expandButton(worded: Bool) -> some View {
         Button(action: onToggleJustTheText) {
             Group {
                 if worded {
