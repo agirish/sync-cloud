@@ -96,15 +96,15 @@ struct EditorFileRailView: View {
     /// ⌘N does first: take a pane on a folder that is no place for a new file to Notes. `nil` greys
     /// it. No default, for the reason ``rowActions`` has none.
     let onNewTextFile: (() -> Void)?
+    /// Where ⌘N will make its file when that is not the folder on the line above — see
+    /// ``EditorWorkspaceView/newFileFolderName``.
+    var newFileFolderName: String? = nil
     /// The folder line's menu: up to the top of the source and down into the folders inside — see
     /// ``EditorFolderTrail``. `nil` draws the plain line.
     let folderTrail: EditorFolderTrail?
     /// Sends the LEFT pane to a pane target the menu offers; the rail follows, since it lists the
     /// pane's folder. `nil` draws the plain line. No default, for the reason ``rowActions`` has none.
     let onGoToFolder: ((String) -> Void)?
-    /// Where ⌘N will make its file when that is not the folder on the line above — see
-    /// ``EditorWorkspaceView/newFileFolderName``.
-    var newFileFolderName: String? = nil
     /// What each file row's context menu does — see ``EditorRailRowMenu``. Every act takes the
     /// ROW's path, which is not necessarily the open document's.
     ///

@@ -578,9 +578,9 @@ public struct EditorWorkspaceView: View {
                                onOpen: onOpen,
                                onCreate: onCreate,
                                onNewTextFile: onNewTextFile,
+                               newFileFolderName: newFileFolderName,
                                folderTrail: folderTrail,
                                onGoToFolder: onGoToFolder,
-                               newFileFolderName: newFileFolderName,
                                rowActions: railRowActions,
                                onFold: onFoldRail,
                                width: railWidth)
