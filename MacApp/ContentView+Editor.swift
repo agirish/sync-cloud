@@ -328,6 +328,17 @@ extension ContentView {
             otherSources: editorOtherSources)
     }
 
+    /// The rail's folder menu: up from `editorFolder` to the top of the left pane's source, and down
+    /// into the folders the rail's survey found inside it — see `EditorHeaderLocation.folderTrail`.
+    var editorFolderTrail: EditorFolderTrail? {
+        EditorHeaderLocation.folderTrail(
+            paneFolder: editorFolder,
+            sourceRoot: (settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath,
+            providerName: settings.availableProviders.first { $0.id == leftProviderId }?.displayName,
+            subfolders: editorRailSurvey.folders,
+            otherSources: editorOtherSources)
+    }
+
     /// What a press on that location does — see `EditorLocationDoors`, which is handed neither the
     /// pane's visibility nor the document, so no door can expand the pane or touch the file.
     var editorLocationDoors: EditorLocationDoors {
@@ -552,6 +563,10 @@ extension ContentView {
             newFileFolderName: editorNewFileFolderName,
             onImagesImported: { noteEditorImages($0) },
             onPreviewLengthHold: { hold in if editorPreviewLengthHold != hold { editorPreviewLengthHold = hold } },
+            // The folder line's menu moves the LEFT pane, by the header crumbs' route; the rail
+            // follows, since it lists that pane's folder.
+            folderTrail: editorFolderTrail,
+            onGoToFolder: { target in editorLocationDoors.goTo(target, from: "Edit rail folder menu") },
             // No `onFoldRail`: the strip is the one place the columns open and fold from (asked
             // 2026-10-17), so the list draws no fold button of its own, as the pane draws no ⇤.
             // The empty page's way to the list while it is folded or put away — offered only with

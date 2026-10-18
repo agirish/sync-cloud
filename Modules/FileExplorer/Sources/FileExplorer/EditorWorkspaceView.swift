@@ -110,6 +110,9 @@ public struct EditorWorkspaceView: View {
     /// folder that is no place for a new file (the host's `EditorNewFileFolder`). Named by the ＋'s
     /// tooltips and the naming rows instead of `folderName`; `nil` names `folderName`, as before.
     var newFileFolderName: String?
+    /// The rail's folder menu and what a pick in it does — see ``EditorFileRailView/folderTrail``.
+    let folderTrail: EditorFolderTrail?
+    let onGoToFolder: ((String) -> Void)?
     /// Whether the file rail is drawn beside the document at all.
     ///
     /// **Decided by the host, not here** — `TopPaneVisibility.editorRailIsDrawn` is the rule, and
@@ -393,6 +396,9 @@ public struct EditorWorkspaceView: View {
                 newFileFolderName: String? = nil,
                 onImagesImported: ((EditorImageImport.Report) -> Void)? = nil,
                 onPreviewLengthHold: ((PreviewLengthHold) -> Void)? = nil,
+                // No defaults: a folder line whose menu silently went nowhere is the failure.
+                folderTrail: EditorFolderTrail?,
+                onGoToFolder: ((String) -> Void)?,
                 onFoldRail: (() -> Void)? = nil,
                 onShowTextFiles: (() -> Void)? = nil,
                 railWidth: CGFloat = EditorLayoutMetrics.railWidth) {
@@ -446,6 +452,8 @@ public struct EditorWorkspaceView: View {
         self.newFileFolderName = newFileFolderName
         self.onImagesImported = onImagesImported
         self.onPreviewLengthHold = onPreviewLengthHold
+        self.folderTrail = folderTrail
+        self.onGoToFolder = onGoToFolder
     }
 
     /// **The Expand button's word (TE48): its NEXT act, not its state** — the way the spine's
@@ -570,6 +578,8 @@ public struct EditorWorkspaceView: View {
                                onOpen: onOpen,
                                onCreate: onCreate,
                                onNewTextFile: onNewTextFile,
+                               folderTrail: folderTrail,
+                               onGoToFolder: onGoToFolder,
                                newFileFolderName: newFileFolderName,
                                rowActions: railRowActions,
                                onFold: onFoldRail,

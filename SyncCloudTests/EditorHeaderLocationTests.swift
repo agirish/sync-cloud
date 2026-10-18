@@ -226,6 +226,65 @@ import FileExplorer
         ])
     }
 
+    // MARK: The rail's folder menu
+
+    /// **The rail's folder menu speaks the location's words**: every level from the source down,
+    /// each with the combined path its crumb goes to, the folder's own named and not offered — and
+    /// the folder's own target, which a subfolder's is built from. Through iCloud Drive's linked
+    /// `Documents`, so the folder is placed as the pane lists it.
+    @Test func theRailsTrailIsTheLocationsLevelsPlusTheFoldersOwnTarget() throws {
+        let trail = try #require(EditorHeaderLocation.folderTrail(
+            paneFolder: "/home/Documents/Family/Anuraag", sourceRoot: "/c", providerName: "iCloud",
+            subfolders: ["Receipts"], links: ["/c": ["Documents": "/home/Documents"]]))
+        #expect(trail.levels == [
+            .init(name: "iCloud", target: ""),
+            .init(name: "Documents", target: "Documents"),
+            .init(name: "Family", target: "Documents/Family"),
+            .init(name: "Anuraag", target: nil),
+        ])
+        #expect(trail.currentTarget == "Documents/Family/Anuraag")
+        #expect(trail.subfolders == ["Receipts"])
+    }
+
+    /// At the top of the source the folder's target is `""`, so its subfolders go by bare name.
+    @Test func atTheTopOfTheSourceTheFoldersTargetIsEmpty() throws {
+        let trail = try #require(EditorHeaderLocation.folderTrail(
+            paneFolder: "/c", sourceRoot: "/c", providerName: "iCloud", subfolders: [], links: [:]))
+        #expect(trail.levels == [.init(name: "iCloud", target: nil)])
+        #expect(trail.currentTarget == "")
+    }
+
+    /// Outside the pane's source nothing is a door — not a level, and not a subfolder either.
+    @Test func outsideTheSourceTheTrailHasNoTargets() throws {
+        let trail = try #require(EditorHeaderLocation.folderTrail(
+            paneFolder: "/Volumes/Backup/Scratch", sourceRoot: "/Users/me/Cloud", providerName: "iCloud",
+            subfolders: ["Inside"], links: [:]))
+        #expect(trail.levels == [.init(name: "Scratch", target: nil)])
+        #expect(trail.currentTarget == nil)
+        #expect(EditorHeaderLocation.folderTrail(paneFolder: "", sourceRoot: "/c", providerName: nil,
+                                                 subfolders: [], links: [:]) == nil)
+    }
+
+    /// **A pick in the menu takes the header crumb's route** — a browse move in Columns, a re-root
+    /// in Tree — and its log line names where it came from.
+    @Test func aPickInTheRailsMenuMovesThePaneByTheCrumbsRoute() {
+        var logged: [String] = []
+        let columns = FileSyncManager()
+        EditorLocationDoors(syncManager: columns, drawsColumns: true,
+                            log: { logged.append($0) }, selectInPane: { _ in })
+            .goTo("Documents/Family", from: "Edit rail folder menu")
+        #expect(columns.combinedRelativePath(isLeft: true) == "Documents/Family")
+        let tree = FileSyncManager()
+        EditorLocationDoors(syncManager: tree, drawsColumns: false,
+                            log: { logged.append($0) }, selectInPane: { _ in })
+            .goTo("Documents", from: "Edit rail folder menu")
+        #expect(tree.leftRelativePath == "Documents")
+        #expect(logged == [
+            "Edit rail folder menu: left pane browsed to Documents/Family",
+            "Edit rail folder menu: left pane re-rooted at Documents — Compare's left side is scoped there now, and this session's ignored paths were cleared",
+        ])
+    }
+
     /// A location with nowhere to go selects nothing and moves nothing — and says so, as does the
     /// same door pressed with no document open (its closure is built during a render and can fire
     /// after a close).
@@ -348,5 +407,29 @@ import FileExplorer
         let navigate = try CallArguments(of: "syncManager.navigatePane(", in: body.normalized)
         #expect(navigate.passes("isLeft", "true") && navigate.passes("toCombinedPath", "target"),
                 "a crumb no longer takes the pane breadcrumb's own route")
+    }
+
+    /// **The rail's folder menu, wired to the real pane** — the same review lesson: the workspace is
+    /// handed the live trail, built from `editorFolder` and the survey's own folders, and a pick goes
+    /// through the doors' `goTo`, which is the crumbs' route. Mutations: `onGoToFolder: nil`, or a
+    /// trail built from another folder, each fail.
+    @Test func theRailsFolderMenuIsWiredToTheRealPane() throws {
+        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        let code = sourceCodeOnly(editor)
+        let workspace = try CallArguments(of: "EditorWorkspaceView(", in: code)
+        #expect(workspace.passes("folderTrail", "editorFolderTrail"),
+                "the rail is not handed the folder's trail")
+        #expect(workspace.passes("onGoToFolder",
+                                 "{ target in editorLocationDoors.goTo(target, from: \"Edit rail folder menu\") }"),
+                "a pick in the rail's folder menu does not move the pane by the crumbs' route")
+        let trail = try CallArguments(
+            of: "EditorHeaderLocation.folderTrail(",
+            in: try declarationBody(of: "var editorFolderTrail: EditorFolderTrail? {", in: editor))
+        #expect(trail.passes("paneFolder", "editorFolder"),
+                "the menu is not about the folder the rail lists")
+        #expect(trail.passes("subfolders", "editorRailSurvey.folders"),
+                "the menu's subfolders are not the rail survey's")
+        #expect(trail.passes("otherSources", "editorOtherSources"),
+                "the menu does not know the user's other sources, as the header's location does")
     }
 }

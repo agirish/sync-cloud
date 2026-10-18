@@ -37,7 +37,7 @@ import Design
             outline: outline(rows), currentOutlineIndex: current,
             outlineAnchors: Binding(get: { store.anchors }, set: { store.anchors = $0 }),
             onOpen: { _ in }, onCreate: { _ in true },
-            onNewTextFile: nil,
+            onNewTextFile: nil, folderTrail: nil, onGoToFolder: nil,
             rowActions: EditorRailRowActions(revealInBrowse: { _ in }, getInfo: { _ in },
                                              quickLook: { _ in }))
         let host = NSHostingView(rootView: AnyView(rail))

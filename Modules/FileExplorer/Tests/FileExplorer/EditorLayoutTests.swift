@@ -47,7 +47,7 @@ import FileExplorerTestSupport
             outlineAnchors: .constant([:]),
             onOpen: { _ in },
             onCreate: { _ in true },
-            onNewTextFile: nil,
+            onNewTextFile: nil, folderTrail: nil, onGoToFolder: nil,
             rowActions: EditorRailRowActions(revealInBrowse: { _ in }, getInfo: { _ in },
                                              quickLook: { _ in }))
     }

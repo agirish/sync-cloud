@@ -109,6 +109,23 @@ enum EditorHeaderLocation {
             .first
     }
 
+    /// **The rail's folder menu** (``EditorFolderTrail``): the location's levels for the pane's
+    /// folder — the same words, the same targets, the folder's own level named and not offered —
+    /// plus the folder's own target, which a subfolder's is built from. `nil` with no folder.
+    static func folderTrail(paneFolder: String, sourceRoot: String, providerName: String?,
+                            subfolders: [String],
+                            otherSources: [(name: String, root: String)] = [],
+                            links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
+    -> EditorFolderTrail? {
+        guard let location = location(documentPath: nil, paneFolder: paneFolder, sourceRoot: sourceRoot,
+                                      providerName: providerName, paneIsOpen: true,
+                                      otherSources: otherSources, links: links) else { return nil }
+        // The same root test `location` made: a folder it gave doors is one this answers for.
+        let here = sourceRoot.isEmpty ? nil
+            : PaneLogic.relativePath(of: paneFolder, under: sourceRoot, links: links)
+        return EditorFolderTrail(levels: location.segments, currentTarget: here, subfolders: subfolders)
+    }
+
     /// **What the ＋, the naming row and the rail call the folder a new file goes in** — the pane
     /// breadcrumb's word for it, which is the location's own last word with no document open.
     /// `lastPathComponent` said "com~apple~CloudDocs" at the top of iCloud Drive, a name the pane
@@ -150,6 +167,19 @@ struct EditorLocationDoors {
     /// it, through the setter a click uses, and brought into view.
     let selectInPane: (String) -> Void
 
+    /// Sends the left pane to `target`, a combined pane path, and logs it under `origin` — a header
+    /// crumb, or a pick in the rail's folder menu.
+    ///
+    /// **The pane breadcrumb's own route**, so a header crumb, the rail's menu and the pane's crumb
+    /// for the same folder do the same thing: a browse move inside the pane's scope, a re-root above
+    /// it. The pane may be collapsed; it moves anyway, and the rail — which lists the pane's
+    /// folder — follows it.
+    func goTo(_ target: String, from origin: String) {
+        let before = PaneMove.State(of: syncManager)
+        syncManager.navigatePane(isLeft: true, toCombinedPath: target, drawsColumns: drawsColumns)
+        log("\(origin): \(PaneMove.describe(from: before, to: .init(of: syncManager), target: target))")
+    }
+
     /// - Parameters:
     ///   - documentPath: the open document, read at press time — the closure the header holds was
     ///     built during a render, and the document can have changed since.
@@ -158,13 +188,7 @@ struct EditorLocationDoors {
               location: EditorDocumentLocation?) {
         switch door {
         case .goTo(let target):
-            // **The pane breadcrumb's own route**, so a header crumb and the pane's crumb for the
-            // same folder do the same thing: a browse move inside the pane's scope, a re-root above
-            // it. The pane may be collapsed; it moves anyway, and the rail — which lists the pane's
-            // folder — follows it.
-            let before = PaneMove.State(of: syncManager)
-            syncManager.navigatePane(isLeft: true, toCombinedPath: target, drawsColumns: drawsColumns)
-            log("Edit header crumb: \(PaneMove.describe(from: before, to: .init(of: syncManager), target: target))")
+            goTo(target, from: "Edit header crumb")
         case .showInPane:
             // The folder's target is re-read from the live location rather than trusted from the
             // press: a door drawn for one document must not select a file in another's folder.

@@ -96,6 +96,12 @@ struct EditorFileRailView: View {
     /// ⌘N does first: take a pane on a folder that is no place for a new file to Notes. `nil` greys
     /// it. No default, for the reason ``rowActions`` has none.
     let onNewTextFile: (() -> Void)?
+    /// The folder line's menu: up to the top of the source and down into the folders inside — see
+    /// ``EditorFolderTrail``. `nil` draws the plain line.
+    let folderTrail: EditorFolderTrail?
+    /// Sends the LEFT pane to a pane target the menu offers; the rail follows, since it lists the
+    /// pane's folder. `nil` draws the plain line. No default, for the reason ``rowActions`` has none.
+    let onGoToFolder: ((String) -> Void)?
     /// Where ⌘N will make its file when that is not the folder on the line above — see
     /// ``EditorWorkspaceView/newFileFolderName``.
     var newFileFolderName: String? = nil
@@ -208,14 +214,21 @@ struct EditorFileRailView: View {
     /// clicked. It says something worth saying on both sides, so it says it on both sides.
     private var contextRow: some View {
         HStack(spacing: 5) {
-            Image(systemName: shownTab == .files ? "folder" : (pdf == nil ? "doc.text" : "doc.richtext"))
-                .scaledFont(.system(size: 10))
-                .foregroundStyle(.tertiary)
-            Text(contextName)
-                .scaledFont(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            if shownTab == .files {
+                // The folder's name is also the way out of it: a menu up the tree and down into
+                // the folders inside, which moves the pane — see ``EditorFolderTrail``.
+                EditorRailFolderMenu(name: contextName, trail: folderTrail, accent: accent,
+                                     onGoTo: onGoToFolder)
+            } else {
+                Image(systemName: pdf == nil ? "doc.text" : "doc.richtext")
+                    .scaledFont(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                Text(contextName)
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
             Spacer(minLength: 0)
             if shownTab == .files {
                 // Frosted and Clear: Filter and ＋ share one glass capsule, as Finder groups related

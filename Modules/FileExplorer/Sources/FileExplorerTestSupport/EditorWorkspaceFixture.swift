@@ -73,6 +73,8 @@ extension EditorWorkspaceView {
             onCloseDocument: {},
             paneShowsTabStrip: paneShowsTabStrip,
             folderDisplayName: folderDisplayName,
-            newFileFolderName: newFileFolderName)
+            newFileFolderName: newFileFolderName,
+            folderTrail: nil,
+            onGoToFolder: nil)
     }
 }

@@ -1139,7 +1139,8 @@ import EventsTestSupport
                 onRevealInBrowse: { _ in }, location: nil, onLocationDoor: { _ in },
                 railRowActions: EditorRailRowActions(revealInBrowse: { _ in }, getInfo: { _ in }, quickLook: { _ in }),
                 onToggleJustTheText: {}, onNewTextFile: {}, onCloseDocument: {},
-                onPreviewLengthHold: { [weak self] in self?.holds.append($0) })
+                onPreviewLengthHold: { [weak self] in self?.holds.append($0) },
+                folderTrail: nil, onGoToFolder: nil)
         }
 
         func switchTo(_ mode: EditorMode) async {

@@ -635,7 +635,7 @@ import FileExplorerTestSupport
                            prefilledName: { "Untitled.md" }, refusal: { _ in nil },
                            filter: .constant(""), filterIsExpanded: .constant(false),
                            outlineAnchors: .constant([:]), pdf: pdf,
-                           onOpen: { _ in }, onCreate: { _ in true }, onNewTextFile: nil,
+                           onOpen: { _ in }, onCreate: { _ in true }, onNewTextFile: nil, folderTrail: nil, onGoToFolder: nil,
                            rowActions: EditorRailRowActions(revealInBrowse: { _ in }, getInfo: { _ in },
                                                             quickLook: { _ in }))
     }

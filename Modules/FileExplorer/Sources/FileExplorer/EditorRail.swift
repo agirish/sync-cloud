@@ -101,9 +101,17 @@ public enum EditorRail {
         /// the call site.
         public var otherFileCount: Int?
 
-        public init(rows: [EditorRailEntry], otherFileCount: Int?) {
+        /// The folders directly inside, by name, in Finder's order — what the folder line's menu
+        /// offers to step down into (``EditorFolderTrail``). **Read off the listing's own word**,
+        /// `hasDirectoryPath`, so a survey run after every autosave pays no `stat` for it; plus the
+        /// folders a source root links in from outside (iCloud Drive's `Desktop` and `Documents`),
+        /// which list as links and which the pane shows as folders.
+        public var folders: [String]
+
+        public init(rows: [EditorRailEntry], otherFileCount: Int?, folders: [String] = []) {
             self.rows = rows
             self.otherFileCount = otherFileCount
+            self.folders = folders
         }
     }
 
@@ -113,9 +121,9 @@ public enum EditorRail {
     /// in"; a recursive list would answer a different question and would walk a tree on every
     /// selection change in the sidebar.
     ///
-    /// Directories are skipped rather than listed — the sidebar is how you change folder, and a
-    /// folder row here would be a second, weaker way to do it that lands somewhere the sidebar does
-    /// not agree with.
+    /// Directories are not rows — a folder row here would be a second, weaker way to change folder
+    /// that lands somewhere the pane does not agree with. They are offered instead by the folder
+    /// line's menu, which moves the pane itself (``Survey/folders``).
     public static func entries(in folder: String,
                         showsHidden: Bool,
                         fileManager: FileManaging = FileManager.default,
@@ -151,13 +159,21 @@ public enum EditorRail {
                        fileManager: FileManaging = FileManager.default,
                        isCloudOnly: (String) -> Bool = {
                            MaterializationStatus.isCloudOnly(atPath: $0)
-                       }) -> Survey {
+                       },
+                       links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> Survey {
         // Unreadable, or no folder at all: "there are no other files in it" is a claim, and there
         // is nothing here to base one on. `nil` says that; `0` would assert it.
         guard !folder.isEmpty else { return Survey(rows: [], otherFileCount: nil) }
         let listing = fileManager.listing(of: URL(fileURLWithPath: folder))
         guard listing.outcome != .unreadable else { return Survey(rows: [], otherFileCount: nil) }
         let names = listing.urls.map(\.lastPathComponent)
+        let linked = PathBoundary.linkedFolders(atRoot: folder, in: links)
+        // The pane's own rule for hidden — a leading dot — so the menu offers what the pane lists.
+        let folders = listing.urls
+            .filter { $0.hasDirectoryPath || linked[$0.lastPathComponent] != nil }
+            .map(\.lastPathComponent)
+            .filter { showsHidden || !$0.hasPrefix(".") }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         var rows: [EditorRailEntry] = []
         for name in names {
             guard showsHidden || !name.hasPrefix(".") else { continue }
@@ -188,7 +204,7 @@ public enum EditorRail {
         // Localized standard order, so "note 2" sorts before "note 10" and the rail reads the way
         // Finder does rather than the way ASCII does.
         let sorted = rows.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        guard sorted.isEmpty else { return Survey(rows: sorted, otherFileCount: nil) }
+        guard sorted.isEmpty else { return Survey(rows: sorted, otherFileCount: nil, folders: folders) }
 
         var others = 0
         for name in names {
@@ -202,7 +218,7 @@ public enum EditorRail {
                   !isDirectory.boolValue else { continue }
             others += 1
         }
-        return Survey(rows: [], otherFileCount: others)
+        return Survey(rows: [], otherFileCount: others, folders: folders)
     }
 
     /// ``survey(in:showsHidden:fileManager:isCloudOnly:)`` for a caller that can suspend — the
