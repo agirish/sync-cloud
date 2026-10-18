@@ -73,6 +73,7 @@ import Foundation
         // Text ▸ Expand (TE48): the modes' ⌃⌘, on a letter — and not ⌘E, which is the find bar's.
         #expect(AppChord.editorExpand.display == "⌃⌘E")
         #expect(AppChord.findNext.display == "⌘G")
+        #expect(AppChord.findPrevious.display == "⇧⌘G")
         #expect(AppChord.useSelectionForFind.display == "⌘E")
         // Text ▸ Go to Line… (TE61): the modes' ⌃⌘ again, on L — not ⌘L (the activity log) and not
         // ⇧⌘L (Markup ▸ Link).

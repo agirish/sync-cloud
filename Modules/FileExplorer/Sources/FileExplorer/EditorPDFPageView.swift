@@ -27,6 +27,48 @@ final class ReaderPDFView: PDFView {
         super.layout()
         clearInheritedBackground()
         refit()
+        if overlay.superview != nil { installOverlay() }
+    }
+
+    // MARK: Find's highlights
+
+    /// The find's matches, drawn over the pages — see ``EditorPDFFindOverlay``.
+    var highlights: EditorPDFHighlights {
+        get { overlay.highlights }
+        set {
+            guard newValue != overlay.highlights else { return }
+            overlay.highlights = newValue
+            if !newValue.isEmpty || overlay.superview != nil { installOverlay() }
+        }
+    }
+
+    private let overlay = EditorPDFFindOverlay()
+    private weak var watchedClip: NSClipView?
+
+    /// Puts the overlay on top, the size of the view, and redraws it as the pages scroll. Kept on
+    /// top on every layout: PDFKit adds views of its own when a document arrives.
+    private func installOverlay() {
+        overlay.reader = self
+        if subviews.last !== overlay {
+            overlay.removeFromSuperview()
+            addSubview(overlay, positioned: .above, relativeTo: nil)
+        }
+        overlay.frame = bounds
+        overlay.autoresizingMask = [.width, .height]
+        if let clip = subviews.lazy.compactMap({ $0 as? NSScrollView }).first?.contentView, clip !== watchedClip {
+            if let watchedClip {
+                NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: watchedClip)
+            }
+            watchedClip = clip
+            clip.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(self, selector: #selector(pagesMoved(_:)),
+                                                   name: NSView.boundsDidChangeNotification, object: clip)
+        }
+        overlay.needsDisplay = true
+    }
+
+    @objc private func pagesMoved(_ note: Notification) {
+        if !overlay.highlights.isEmpty { overlay.needsDisplay = true }
     }
 
     /// Applies ``fit`` when the size has moved since it was last applied.
@@ -66,6 +108,45 @@ final class ReaderPDFView: PDFView {
     }
 }
 
+/// **The find's matches over the reader's pages, from geometry alone.**
+///
+/// The rects arrive from the lane in page space (``EditorPDFFind``) and are mapped here with
+/// `PDFView.convert(_:from:)` — no `PDFSelection` is built on the reader's document, which would be
+/// text work on the main thread. Every match is tinted; the current one more strongly. It takes no
+/// clicks: they go through to the pages.
+final class EditorPDFFindOverlay: NSView {
+    weak var reader: PDFView?
+    var highlights = EditorPDFHighlights.none {
+        didSet { if highlights != oldValue { needsDisplay = true } }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Where `rect`, in page space on `page`, falls in this view.
+    func place(_ rect: CGRect, on page: PDFPage) -> CGRect? {
+        guard let reader else { return nil }
+        return convert(reader.convert(rect, from: page), from: reader)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard !highlights.isEmpty, let reader, let document = reader.document else { return }
+        let base = NSColor.findHighlightColor
+        for page in reader.visiblePages {
+            let index = document.index(for: page)
+            guard let found = highlights.pages[index] else { continue }
+            for (ordinal, rects) in found.enumerated() {
+                let isCurrent = highlights.current?.page == index && highlights.current?.ordinal == ordinal
+                base.withAlphaComponent(isCurrent ? 0.6 : 0.28).setFill()
+                for rect in rects {
+                    guard let placed = place(rect.insetBy(dx: -1, dy: -1), on: page),
+                          placed.intersects(dirtyRect) else { continue }
+                    NSBezierPath(roundedRect: placed, xRadius: 2, yRadius: 2).fill()
+                }
+            }
+        }
+    }
+}
+
 /// The open PDF's pages, in Edit's document card.
 ///
 /// **The document arrives already parsed**, through `PDFKitSerialAccess`, from ``EditorPDFDocument``
@@ -74,12 +155,15 @@ final class ReaderPDFView: PDFView {
 struct EditorPDFPageView: NSViewRepresentable {
     let document: PDFDocument?
     @ObservedObject var state: EditorPDFViewState
+    /// The find's matches, drawn over the pages.
+    var highlights: EditorPDFHighlights = .none
 
     final class Coordinator: NSObject {
         let state: EditorPDFViewState
         weak var view: ReaderPDFView?
         var pageToken: Int?
         var scaleToken: Int?
+        var revealToken: Int?
         init(state: EditorPDFViewState) { self.state = state }
 
         @MainActor @objc func pageChanged(_ note: Notification) {
@@ -106,6 +190,7 @@ struct EditorPDFPageView: NSViewRepresentable {
         view.maxScaleFactor = EditorPDFViewState.maxScale
         view.clearInheritedBackground()
         context.coordinator.view = view
+        state.selectedText = { [weak view] in view?.currentSelection?.string }
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.pageChanged(_:)),
                                                name: .PDFViewPageChanged, object: view)
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.scaleChanged(_:)),
@@ -139,6 +224,13 @@ struct EditorPDFPageView: NSViewRepresentable {
             coordinator.pageToken = request.token
             view.go(to: page)
         }
+        if let request = state.revealRequest, request.token != coordinator.revealToken,
+           let document, let page = document.page(at: request.value.pageIndex) {
+            coordinator.revealToken = request.token
+            // A margin round the match, so it is not drawn hard against the edge it scrolled to.
+            view.go(to: request.value.rect.insetBy(dx: -24, dy: -48), on: page)
+        }
+        view.highlights = highlights
     }
 
     /// **The pages take the keyboard only when nothing else has it**, so ⌥← / ⌥→ and Space work
@@ -155,6 +247,8 @@ struct EditorPDFPageView: NSViewRepresentable {
 
     static func dismantleNSView(_ view: ReaderPDFView, coordinator: Coordinator) {
         NotificationCenter.default.removeObserver(coordinator)
+        coordinator.state.selectedText = { nil }
+        view.highlights = .none
         // The model owns the document and releases it on close; the view lets go of it now.
         view.document = nil
     }

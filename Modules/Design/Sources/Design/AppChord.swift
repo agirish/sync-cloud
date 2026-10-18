@@ -144,9 +144,14 @@ public extension AppChord {
     /// the field editor never claims it. Beside ⌃⌘S, the sidebar's: the two columns' switches.
     static let editorTextFiles = AppChord("t", [.control, .command])
 
-    /// Text ▸ Find Next / Use Selection for Find — the find bar's own two verbs, which AppKit
-    /// binds to nothing until a menu item names them. ⌘G and ⌘E, the platform's own.
+    /// Text ▸ Find Next / Find Previous / Use Selection for Find — the find bar's own verbs, which
+    /// AppKit binds to nothing until a menu item names them. ⌘G, ⇧⌘G and ⌘E, the platform's own.
+    ///
+    /// **⇧⌘G was free, and checked rather than assumed** — added with the PDF reader's find, which
+    /// steps both ways: ⇧⌘ letters in use are N, P, C, F, T, X, K and L, and AppKit's
+    /// `StandardKeyBinding.dict` binds no ⌘ letter, so the field editor never claims it.
     static let findNext = AppChord("g", .command)
+    static let findPrevious = AppChord("g", [.shift, .command])
     static let useSelectionForFind = AppChord("e", .command)
 
     /// Markup ▸ the five inline verbs that take a chord. Headings and lists stay menu-only.
@@ -398,7 +403,7 @@ public extension AppChord {
         copyToLeft, copyToRight, moveToLeft, moveToRight,
         textBigger, textSmaller, textDefaultSize,
         editorSourceMode, editorPreviewMode, editorSplitMode, editorExpand,
-        findNext, useSelectionForFind, goToLine, editorTextFiles,
+        findNext, findPrevious, useSelectionForFind, goToLine, editorTextFiles,
         // `italic` is `infoInspector`, already listed above — see its note.
         bold, strikethrough, inlineCode, link,
     ]

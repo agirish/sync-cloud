@@ -205,7 +205,9 @@ enum ShortcutsReference {
             // fit this window, and going to a line is the third way to a place in the text. "Use the
             // selection for find" lost three words to it: kept, the action wrapped and the reference
             // measured 749pt, which `theReferenceFitsItsWindowWithoutScrolling` refused.
-            Item(keys: "⌘ G / ⌘ E / ⌃⌘ L", action: "Find next / use selection / go to line"),
+            // **⇧⌘G joins it** with the PDF reader's find, which steps both ways — and the text
+            // find bar too, which never had a way back.
+            Item(keys: "⌘ G / ⇧⌘ G / ⌘ E / ⌃⌘ L", action: "Find next / previous / use selection / go to line"),
             Item(keys: "Right-click", action: "Headings, lists and the rest of Markup — also Wrap Lines and spelling"),
         ]),
         Group(title: "Tabs", items: [
@@ -365,7 +367,11 @@ struct ShortcutsReferenceView: View {
     /// above the document, File ▸ Close Document, Open in Edit in Compare's differences and
     /// Duplicates' copies — carry no chord of their own and went to Help, not to rows here. The
     /// next row that has to go in will need about a row's worth, ~36pt, on this number.
-    static let windowSize = CGSize(width: 1240, height: 740)
+    ///
+    /// **740 → 760 when ⇧⌘G arrived** with the PDF reader's find (2026-10-17). Not a row: it joined
+    /// the find row, whose keys then wrapped to a second line beside a one-line action, and the
+    /// content measured **749pt**. 760 leaves 11pt, still 40pt below the 800pt a 13" display allows.
+    static let windowSize = CGSize(width: 1240, height: 760)
 
     var body: some View {
         ScrollView {

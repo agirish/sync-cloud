@@ -46,7 +46,7 @@ import Testing
     @Test func theTextMenuIsInTheRoadmapsOrder() throws {
         let text = Self.titles(try Self.menu("Text"))
         #expect(text == ["Source", "Preview", "Split", "Expand", "Edit in Preview (Experimental)",
-                         "Find Next", "Use Selection for Find", "Go to Line…",
+                         "Find Next", "Find Previous", "Use Selection for Find", "Go to Line…",
                          "Wrap Lines", "Readable Line Length", "Check Spelling While Typing", "Continue Lists",
                          "Autosave This File"],
                 "the Text menu reads \(text)")

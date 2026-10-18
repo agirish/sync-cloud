@@ -1,0 +1,389 @@
+import AppKit
+import os
+import PDFKit
+import SwiftUI
+import Sync
+import Testing
+@testable import FileExplorer
+
+/// PDFs with chosen text, a line per string — so a phrase can be split across two lines the way a
+/// typeset page splits it.
+enum PDFTextFixtures {
+    static func write(_ path: String, pages: [[String]]) {
+        var box = CGRect(origin: .zero, size: PDFFixtures.letter)
+        let context = CGContext(URL(fileURLWithPath: path) as CFURL, mediaBox: &box, nil)!
+        for lines in pages {
+            context.beginPDFPage(nil)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            for (index, line) in lines.enumerated() {
+                (line as NSString).draw(at: NSPoint(x: 72, y: box.height - 120 - CGFloat(index) * 30),
+                                        withAttributes: [.font: NSFont.systemFont(ofSize: 18)])
+            }
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+        }
+        context.closePDF()
+    }
+}
+
+/// **The matching rules, without a PDF.**
+@Suite struct EditorPDFTextMatchTests {
+
+    private func matched(_ query: String, in text: String) -> [String] {
+        EditorPDFTextMatch.ranges(of: query, in: text).map { (text as NSString).substring(with: $0) }
+    }
+
+    /// **A phrase broken across a line still matches**, and the match covers the break — so its
+    /// selection spans both lines on the page.
+    @Test func aPhraseMatchesAcrossALineBreak() {
+        #expect(matched("quarterly report", in: "See the quarterly\nreport below.") == ["quarterly\nreport"])
+        #expect(matched("quarterly report", in: "the quarterly \r\n  report") == ["quarterly \r\n  report"])
+        // Runs of spaces in the QUERY are one space too.
+        #expect(matched("quarterly   report", in: "quarterly report") == ["quarterly report"])
+    }
+
+    @Test func matchingIsCaseAndDiacriticInsensitive() {
+        #expect(matched("CAFÉ", in: "the cafe and the Café") == ["cafe", "Café"])
+        #expect(matched("resume", in: "Résumé, RESUME") == ["Résumé", "RESUME"])
+    }
+
+    /// The `ﬁ` ligature a typeset PDF stores is found by a typed "fi".
+    @Test func aLigatureMatchesItsLetters() {
+        #expect(matched("final", in: "the \u{FB01}nal figure") == ["\u{FB01}nal"])
+    }
+
+    @Test func matchesDoNotOverlapAndANothingQueryFindsNothing() {
+        #expect(matched("aa", in: "aaaa") == ["aa", "aa"])
+        #expect(matched("  \n ", in: "a b").isEmpty)
+        #expect(matched("x", in: "").isEmpty)
+    }
+
+    /// **From the page on screen, wrapping** — the order turns are asked for.
+    @Test func pagesAreSearchedFromTheCurrentOneAndWrap() {
+        #expect(EditorPDFFind.order(start: 3, count: 5) == [3, 4, 0, 1, 2])
+        #expect(EditorPDFFind.order(start: 0, count: 3) == [0, 1, 2])
+        #expect(EditorPDFFind.order(start: 9, count: 3) == [2, 0, 1], "a start past the end clamps")
+        #expect(EditorPDFFind.order(start: 0, count: 0).isEmpty)
+    }
+
+    @Test func theCounterSaysWhereItIsAndWhetherItIsDone() {
+        func caption(_ phase: EditorPDFFind.Phase, _ count: Int, _ current: Int?, waiting: Bool = false,
+                     query: String = "tax") -> String {
+            EditorPDFFind.caption(phase: phase, query: query, count: count, current: current, isWaiting: waiting)
+        }
+        #expect(caption(.searching, 9, 2) == "3 of 9 so far")
+        #expect(caption(.done, 9, 2) == "3 of 9")
+        #expect(caption(.searching, 0, nil) == "Searching…")
+        #expect(caption(.done, 0, nil) == "Not found")
+        #expect(caption(.searching, 9, 2, waiting: true) == "3 of 9 so far · Waiting for other PDF work…")
+        #expect(caption(.done, 9, 2, waiting: true) == "3 of 9", "a finished search waits on nothing")
+        #expect(caption(.noText, 0, nil) == "This PDF has no text to search")
+        #expect(caption(.idle, 0, nil) == "")
+        #expect(caption(.searching, 0, nil, query: "  ") == "")
+    }
+}
+
+/// **Find inside an open PDF** — `EditorPDFFind`, searched a page per lane turn from a document of
+/// its own. Serialized for `EditorPDFDocumentTests`' reason; the turns that must be held are held
+/// on a lane of the test's own (`EditorPDFRailTests.HeldLane`), and the one test that holds the
+/// process's lane does it from a detached task.
+@MainActor
+@Suite(.serialized) final class EditorPDFFindTests {
+
+    let folder = NSTemporaryDirectory() + "editor-pdf-find-" + UUID().uuidString
+    typealias HeldLane = EditorPDFRailTests.HeldLane
+
+    init() throws {
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+    }
+
+    deinit { try? FileManager.default.removeItem(atPath: folder) }
+
+    private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
+
+    /// Waits until `done` holds — bounded in turns, a labeled failure rather than a hang.
+    @discardableResult
+    private func wait(_ label: String, turns: Int = 4000, until done: () -> Bool) async -> Bool {
+        for _ in 0..<turns {
+            if done() { return true }
+            await PDFKitSerialAccess.perform {}
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        Issue.record("timed out waiting for \(label)")
+        return false
+    }
+
+    /// A five-page PDF with "needle" once on every page.
+    private func needles(_ name: String = "needles.pdf", pages: Int = 5) -> String {
+        let file = path(name)
+        PDFTextFixtures.write(file, pages: (0..<pages).map { ["Page \($0 + 1) has a needle in it."] })
+        return file
+    }
+
+    private func find(_ file: String, pages: Int, lane: EditorPDFLane = .pdfKit,
+                      view: EditorPDFViewState = EditorPDFViewState()) -> EditorPDFFind {
+        let find = EditorPDFFind(view: view, lane: lane)
+        find.attach(path: file, pageCount: pages, hasText: true)
+        return find
+    }
+
+    private func opened(_ file: String) async -> EditorPDFDocument {
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        pdf.open(path: file, log: { _ in })
+        await wait("the PDF to open") { pdf.phase != .loading }
+        return pdf
+    }
+
+    // MARK: The search
+
+    /// **Turns start at the page on screen and wrap**, and the first match shown is that page's.
+    @Test func theSearchStartsAtTheCurrentPageAndWraps() async {
+        let view = EditorPDFViewState()
+        view.currentPage = 3
+        let find = find(needles(), pages: 5, view: view)
+        find.show()
+        find.search("needle")
+        await wait("the search") { find.phase == .done }
+        #expect(find.landed == [3, 4, 0, 1, 2])
+        #expect(find.matches.map(\.pageIndex) == [0, 1, 2, 3, 4], "matches are not kept in document order")
+        #expect(find.currentIndex.map { find.matches[$0].pageIndex } == 3,
+                "the first match shown is not the current page's")
+        #expect(view.pageRequest?.value == 3, "the first match's page was not asked for")
+        #expect(view.revealRequest?.value.pageIndex == 3, "the first match was not scrolled into sight")
+        #expect(find.caption == "4 of 5")
+    }
+
+    /// **⌘G and ⇧⌘G wrap**, and each step asks for its match's page.
+    @Test func steppingWrapsBothWays() async {
+        let view = EditorPDFViewState()
+        let find = find(needles(), pages: 5, view: view)
+        find.show()
+        find.search("needle")
+        await wait("the search") { find.phase == .done }
+        #expect(find.currentIndex == 0)
+        find.step(forward: false)
+        #expect(find.currentIndex == 4)
+        #expect(view.pageRequest?.value == 4)
+        find.step(forward: true)
+        #expect(find.currentIndex == 0)
+        find.step(forward: true)
+        #expect(find.currentIndex == 1)
+        #expect(view.pageRequest?.value == 1)
+    }
+
+    /// **A phrase broken across two lines on a real page is found, as one match on two lines.**
+    @Test func aPhraseBrokenAcrossLinesIsFoundOnThePage() async {
+        let file = path("broken.pdf")
+        PDFTextFixtures.write(file, pages: [["The annual", "statement is enclosed."]])
+        let find = find(file, pages: 1)
+        find.show()
+        find.search("annual statement")
+        await wait("the search") { find.phase == .done }
+        #expect(find.matches.count == 1, "the phrase across the break was not found")
+        #expect(find.matches.first?.rects.count == 2, "the match is not drawn on both lines")
+    }
+
+    /// **A changed query withdraws the turn already queued**: held behind the lane, the first
+    /// search's page turn comes up after the second has started, and must skip without reading.
+    @Test func aChangedQueryWithdrawsItsQueuedPages() async {
+        let lane = HeldLane()
+        defer { lane.release() }
+        let find = find(needles(pages: 20), pages: 20, lane: lane.lane)
+        find.show()
+        lane.hold()
+        find.search("needle")
+        let stale = find.currentTicket
+        await wait("the first turn to queue") { find.asking != nil }
+        find.search("Page")
+        let live = find.currentTicket
+        lane.release()
+        await wait("the second search") { find.phase == .done }
+        #expect(stale.bodies.withLock { $0 } == 0, "a withdrawn search's page turn ran its body")
+        #expect(find.skippedTurns == 0, "the stale turn landed on the live search")
+        #expect(live.bodies.withLock { $0 } == 20)
+        #expect(find.matches.count == 20)
+        #expect(PDFKitSerialAccess.peakConcurrentParses <= 1)
+    }
+
+    /// **Esc and Done clear what was drawn.**
+    @Test func hidingClearsTheHighlights() async {
+        let find = find(needles(pages: 3), pages: 3)
+        find.show()
+        find.search("needle")
+        await wait("the search") { find.phase == .done }
+        #expect(find.highlights.pages.count == 3)
+        #expect(find.highlights.current?.page == 0)
+        find.hide()
+        #expect(find.highlights == .none, "Esc left highlights drawn")
+        #expect(find.matches.isEmpty && !find.isShown && find.phase == .idle)
+        // Shown again, the kept query is searched again.
+        find.show()
+        await wait("the search again") { find.phase == .done }
+        #expect(find.matches.count == 3)
+    }
+
+    /// **Hiding withdraws the turn already queued**, as a changed query does.
+    @Test func hidingWithdrawsItsQueuedPages() async {
+        let lane = HeldLane()
+        defer { lane.release() }
+        let find = find(needles(pages: 10), pages: 10, lane: lane.lane)
+        find.show()
+        lane.hold()
+        find.search("needle")
+        let stale = find.currentTicket
+        await wait("the first turn to queue") { find.asking != nil }
+        find.hide()
+        lane.release()
+        #expect(!stale.isWanted)
+        // The lane is FIFO: a turn queued behind the stale one has run once this one has.
+        await lane.lane.perform { () -> Int in 0 }
+        #expect(stale.bodies.withLock { $0 } == 0, "a turn queued before Esc read its page")
+        #expect(find.matches.isEmpty)
+    }
+
+    /// **A turn that waits on the lane says so** — and stops saying it once it runs.
+    @Test func aTurnThatWaitsSaysSo() async {
+        let lane = HeldLane()
+        defer { lane.release() }
+        let find = find(needles(pages: 3), pages: 3, lane: lane.lane)
+        find.show()
+        lane.hold()
+        find.search("needle")
+        try? await Task.sleep(for: .milliseconds(600))
+        #expect(find.isWaiting, "a turn held 600 ms behind other work does not say it is waiting")
+        #expect(find.caption.contains(EditorPDFFind.waitingCaption))
+        lane.release()
+        await wait("the search") { find.phase == .done }
+        #expect(!find.isWaiting)
+    }
+
+    /// **⌘E takes the reader's selection; nothing selected changes nothing.**
+    @Test func useSelectionTakesTheSelectionAsTheQuery() async {
+        let find = find(needles(pages: 2), pages: 2)
+        #expect(!find.useSelection(nil))
+        #expect(!find.useSelection("  \n"))
+        #expect(!find.isShown, "an empty selection opened the bar")
+        #expect(find.useSelection("  needle \n"))
+        #expect(find.isShown && find.query == "needle")
+        await wait("the search") { find.phase == .done }
+        #expect(find.matches.count == 2)
+    }
+
+    // MARK: The lane and the reader's document
+
+    /// **A page turn runs inside `PDFKitSerialAccess`**: with the process's lane held, nothing is
+    /// read; released, the page is.
+    @Test func aFindPageRunsThroughTheLane() async throws {
+        let file = needles("lane.pdf", pages: 1)
+        let source = EditorPDFFind.Source(path: file)
+        let ticket = EditorPDFFind.Ticket()
+        let (readWhileHeld, found) = await Task.detached { () -> (Int, Int) in
+            let hold = LaneHold()
+            guard await hold.waitUntilHeld() else { hold.release(); return (-1, 0) }
+            let turn = Task.detached { await EditorPDFFind.searchPage(0, query: "needle", source: source, ticket: ticket) }
+            try? await Task.sleep(for: .milliseconds(200))
+            let read = ticket.bodies.withLock { $0 }
+            hold.release()
+            if case .page(_, let matches) = await turn.value { return (read, matches.count) }
+            return (read, 0)
+        }.value
+        try #require(readWhileHeld >= 0, "the lane never came free to be held")
+        #expect(readWhileHeld == 0, "a page was read while the lane was held — around it")
+        #expect(found == 1)
+        #expect(PDFKitSerialAccess.peakConcurrentParses <= 1)
+    }
+
+    /// **No text is ever read from the reader's document** — the search reads its own, and the
+    /// reader's is never handed to it, opened or unlocked.
+    @Test func theReadersDocumentIsNeverSearched() async throws {
+        let pdf = await opened(needles("reader.pdf", pages: 3))
+        let reader = try #require(pdf.document)
+        pdf.find.show()
+        pdf.find.search("needle")
+        await wait("the search") { pdf.find.phase == .done }
+        let read = try #require(pdf.find.currentSource).readDocuments.withLock { $0 }
+        #expect(!read.isEmpty, "the search read nothing — this check would be vacuous")
+        #expect(!read.contains(ObjectIdentifier(reader)), "the search read text from the reader's document")
+        #expect(pdf.find.matches.count == 3)
+
+        // Unlocked: the find's copy is made in the unlock's turn, and is not the reader's either.
+        let locked = path("locked.pdf")
+        PDFFixtures.writeLocked(locked, password: "pw", pages: 2)
+        let secret = await opened(locked)
+        #expect(secret.phase == .locked)
+        secret.find.show()
+        #expect(secret.find.phase == .idle && secret.find.currentSource == nil, "a locked PDF offers a search")
+        #expect(await secret.unlock(password: "pw"))
+        let unlockedReader = try #require(secret.document)
+        let copy = try #require(secret.find.currentSource?.document, "the unlock handed the find no copy")
+        #expect(copy !== unlockedReader, "the find was handed the reader's own document")
+        secret.find.search("Page")
+        await wait("the unlocked search") { secret.find.phase == .done }
+        #expect(secret.find.matches.count == 2)
+        let readUnlocked = try #require(secret.find.currentSource).readDocuments.withLock { $0 }
+        #expect(!readUnlocked.contains(ObjectIdentifier(unlockedReader)))
+    }
+
+    /// **An image-only PDF says so and never queues a page.**
+    @Test func anImageOnlyPDFHasNothingToSearch() async throws {
+        let file = path("scan.pdf")
+        PDFFixtures.write(file, pages: 4, text: false)
+        let pdf = await opened(file)
+        #expect(pdf.facts?.hasText == false, "the premise: the facts call it image only")
+        pdf.find.show()
+        pdf.find.search("anything")
+        #expect(pdf.find.phase == .noText)
+        #expect(pdf.find.caption == EditorPDFFind.noTextCaption)
+        #expect(!pdf.find.isSearchable)
+        await PDFKitSerialAccess.perform {}
+        #expect(pdf.find.asking == nil && pdf.find.searchedPages == 0)
+        #expect(pdf.find.currentTicket.bodies.withLock { $0 } == 0, "an image-only PDF queued a page")
+        #expect(try #require(pdf.find.currentSource).readDocuments.withLock { $0 }.isEmpty)
+    }
+
+    /// **Closing the PDF withdraws the search and lets its document go**; the query is kept.
+    @Test func closingWithdrawsTheSearchAndReleasesItsDocument() async throws {
+        let pdf = await opened(needles("close.pdf", pages: 40))
+        pdf.find.show()
+        pdf.find.search("needle")
+        await wait("a match") { !pdf.find.matches.isEmpty }
+        let ticket = pdf.find.currentTicket
+        pdf.close()
+        #expect(!ticket.isWanted, "closing left the search's turns wanted")
+        #expect(pdf.find.currentSource == nil, "closing kept the search's document")
+        #expect(!pdf.find.isShown && pdf.find.matches.isEmpty && pdf.find.phase == .idle)
+        #expect(pdf.find.query == "needle", "the query should be kept for the next ⌘F")
+    }
+
+    // MARK: Drawing
+
+    /// **The highlights are drawn by an overlay on top of the pages, from geometry**: setting them
+    /// installs it above PDFKit's own views and maps a page rect through `convert(_:from:)`.
+    @Test func theOverlaySitsOnTopAndMapsPageRects() throws {
+        let file = needles("overlay.pdf", pages: 2)
+        let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
+        let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
+        reader.document = document
+        reader.layoutDocumentView()
+        let rect = CGRect(x: 72, y: 600, width: 100, height: 20)
+        reader.highlights = EditorPDFHighlights(pages: [0: [[rect]]], current: (0, 0))
+        reader.layout()
+        let overlay = try #require(reader.subviews.last as? EditorPDFFindOverlay, "the overlay is not on top")
+        let page = try #require(document.page(at: 0))
+        let placed = try #require(overlay.place(rect, on: page))
+        #expect(placed == overlay.convert(reader.convert(rect, from: page), from: reader))
+        #expect(overlay.hitTest(NSPoint(x: placed.midX, y: placed.midY)) == nil, "the overlay takes clicks")
+        reader.highlights = .none
+        #expect(overlay.highlights.isEmpty)
+    }
+
+    /// **Esc is wired to hide**, from the bar's own field — a key a hosted field cannot be sent.
+    @Test func escInTheFieldHidesTheBar() throws {
+        let source = try ChromeGlassWiringTests.source("EditorPDFFindBar.swift")
+        #expect(source.contains(".onExitCommand { find.hide() }"), "Esc in the PDF find field no longer hides the bar")
+        #expect(source.contains("Button(\"Done\") { find.hide() }"))
+        let card = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
+        #expect(card.contains("EditorPDFFindBar(find: pdf.find, accent: accent)"), "the bar is not mounted under the header")
+    }
+}

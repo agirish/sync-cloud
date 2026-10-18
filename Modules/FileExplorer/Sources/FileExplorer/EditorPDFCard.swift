@@ -11,6 +11,8 @@ import Sync
 /// line and nothing else in the header — see ``EditorPDFDocument``'s split.
 struct EditorPDFHeaderControls: View {
     @ObservedObject var state: EditorPDFViewState
+    /// Not observed: the Find button only acts on it.
+    let find: EditorPDFFind
     let pageCount: Int
     let accent: Color
     let onAccent: Color
@@ -20,11 +22,24 @@ struct EditorPDFHeaderControls: View {
     var body: some View {
         HStack(spacing: 6) {
             if pageCount > 0 {
+                findButton
                 pageField
                 zoom
             }
             EditorPDFFitBar(fit: $state.fit, accent: accent, onAccent: onAccent)
         }
+    }
+
+    /// Find — the text header's magnifying glass, for the PDF's own find bar (⌘F).
+    private var findButton: some View {
+        Button { find.show() } label: {
+            Image(systemName: "magnifyingglass")
+                .scaledFont(.system(size: 11, weight: .semibold))
+                .frame(width: 18, height: 18)
+        }
+        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        .accessibilityLabel("Find in this PDF")
+        .help("Find in this PDF")
     }
 
     /// "2 of 3", the number a field: type a page and Return.
@@ -162,7 +177,7 @@ struct EditorPDFBody: View {
                 .controlSize(.small)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .open:
-            EditorPDFPageView(document: pdf.document, state: pdf.view)
+            EditorPDFReader(document: pdf.document, state: pdf.view, find: pdf.find)
         case .locked:
             EditorPDFUnlockView(pdf: pdf, accent: accent)
         case .refused(let reason):
@@ -313,8 +328,8 @@ struct EditorPDFStatusLine: View {
 
 /// **The header for a PDF** — mockup 4: the same two rows in the same places as a text file's, with
 /// "PDF" and a Read only tag where the kind and the Autosave switch sit, and the page controls
-/// where the mode capsule sits. **No ＋ / Find capsule, no format bar, no Go to Line, no save word**:
-/// nothing here writes, and PDF find is a later phase.
+/// where the mode capsule sits. **No ＋, no format bar, no Go to Line, no save word**: nothing here
+/// writes. Find opens the PDF's own find bar (``EditorPDFFindBar``), not the text one.
 ///
 /// The Expand button is the workspace's own view, handed in. The × is drawn here with the text
 /// header's modifiers and its accessibility label, calling the same host close.
@@ -347,7 +362,7 @@ struct EditorPDFHeader<Trailing: View>: View {
                     }
                 Spacer(minLength: 0)
                 if pdf.phase == .open {
-                    EditorPDFHeaderControls(state: pdf.view, pageCount: pdf.facts?.pageCount ?? 0,
+                    EditorPDFHeaderControls(state: pdf.view, find: pdf.find, pageCount: pdf.facts?.pageCount ?? 0,
                                             accent: accent, onAccent: onAccent)
                 }
                 trailing

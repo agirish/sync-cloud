@@ -1084,6 +1084,21 @@ extension ContentView {
             goToLine: EditorWorkspaceView.offersGoToLine(drawn) ? { editorGoToLineRequest &+= 1 } : nil)
     }
 
+    /// ⌘F, ⌘G, ⇧⌘G and ⌘E over the open PDF — `nil` unless Edit is on screen with a PDF open in it
+    /// (`PDFFindVerbs.isOffered`). Beside ``shortcutEditorVerbs``, which stays `nil` while a PDF is
+    /// open: the text document is empty then.
+    ///
+    /// Reads the facts, not the find's own state, so a match landing re-renders nothing here.
+    var shortcutPDFFind: PDFFindVerbs? {
+        guard PDFFindVerbs.isOffered(workspace: selectedWorkspace, hasPDF: editorPDF.path != nil,
+                                     phase: editorPDF.phase) else { return nil }
+        let pdf = editorPDF
+        return PDFFindVerbs(isSearchable: pdf.facts?.hasText == true,
+                            show: { pdf.find.show() },
+                            step: { pdf.find.step(forward: $0) },
+                            useSelection: { pdf.find.useSelection(pdf.view.selectedText()) })
+    }
+
     /// Text ▸ Expand ⌃⌘E — the header button's bit and act, offered where the header draws the
     /// button (`EditorExpandSwitch.isOffered`). The act is `toggleJustTheText`, the one the button
     /// calls, so the item and the button cannot fold different things.

@@ -665,6 +665,8 @@ public struct EditorWorkspaceView: View {
                     .padding(.top, 6)
             }
             if let pdf {
+                // Under the header, over the pages — where the text find bar sits over the text.
+                EditorPDFFindBar(find: pdf.find, accent: accent)
                 EditorPDFBody(pdf: pdf, accent: accent, quickLook: railRowActions.quickLook)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if let facts = pdf.facts, pdf.phase == .open {

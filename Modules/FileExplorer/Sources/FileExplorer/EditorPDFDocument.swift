@@ -63,10 +63,13 @@ public final class EditorPDFDocument: ObservableObject {
     private(set) var outlineRail = EditorPDFOutline.Rail([])
 
     /// Where the reader is, and how the page is sized — see ``EditorPDFViewState``.
-    public let view = EditorPDFViewState()
+    public let view: EditorPDFViewState
     /// The rail's Pages tab — see ``EditorPDFThumbnails``. Attached when the PDF opens, detached
     /// on every close, so a long scan's thumbnails never outlive it.
     public let thumbnails = EditorPDFThumbnails()
+    /// Find inside the PDF — see ``EditorPDFFind``. Attached and detached with the thumbnails, so
+    /// its document never outlives the PDF either.
+    public let find: EditorPDFFind
 
     /// A locked document waiting for its password. Held apart from ``document`` so the page view
     /// never gets a document it cannot draw.
@@ -100,6 +103,9 @@ public final class EditorPDFDocument: ObservableObject {
                 isCloudOnly: @escaping (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }) {
         self.settle = settle
         self.isCloudOnly = isCloudOnly
+        let view = EditorPDFViewState()
+        self.view = view
+        find = EditorPDFFind(view: view)
     }
 
     public var name: String { path.map { ($0 as NSString).lastPathComponent } ?? "" }
@@ -150,6 +156,7 @@ public final class EditorPDFDocument: ObservableObject {
         facts = nil
         outline = []
         thumbnails.detach()
+        find.detach()
         stamp = nil
         path = nil
         phase = .loading
@@ -165,13 +172,15 @@ public final class EditorPDFDocument: ObservableObject {
         let held = SendableDocument(locked)
         let unlocked = await PDFKitSerialAccess.perform { () -> Unlocked? in
             guard held.document.unlock(withPassword: password) else { return nil }
-            // The thumbnails' own copy, unlocked in this same turn — the password is not kept
-            // for a later one (``EditorPDFThumbnails``).
-            let copy = PDFDocument(url: URL(fileURLWithPath: path))
-                .flatMap { $0.unlock(withPassword: password) ? SendableDocument($0) : nil }
+            // The thumbnails' and the find's own copies, unlocked in this same turn — the password
+            // is not kept for a later one (``EditorPDFThumbnails``, ``EditorPDFFind``).
+            func copy() -> SendableDocument? {
+                PDFDocument(url: URL(fileURLWithPath: path))
+                    .flatMap { $0.unlock(withPassword: password) ? SendableDocument($0) : nil }
+            }
             return Unlocked(facts: EditorPDFFacts.read(held.document, path: path),
                             outline: EditorPDFOutline.flatten(held.document),
-                            thumbnailSource: copy)
+                            thumbnailSource: copy(), findSource: copy())
         }
         guard generation == self.generation, self.path == path else { return false }
         guard let unlocked else {
@@ -185,6 +194,8 @@ public final class EditorPDFDocument: ObservableObject {
         outline = unlocked.outline
         thumbnails.attach(path: path, pageCount: facts.pageCount,
                           unlocked: unlocked.thumbnailSource?.document)
+        find.attach(path: path, pageCount: facts.pageCount, hasText: facts.hasText,
+                    unlocked: unlocked.findSource?.document)
         phase = .open
         log("Editor unlocked \(path) (PDF, \(Self.pages(facts.pageCount)))")
         onLoaded?(.open)
@@ -196,6 +207,7 @@ public final class EditorPDFDocument: ObservableObject {
         var facts: EditorPDFFacts
         var outline: [EditorPDFOutlineEntry]
         var thumbnailSource: SendableDocument?
+        var findSource: SendableDocument?
     }
 
     private func load(_ path: String, keepingPage page: Int?) {
@@ -223,12 +235,14 @@ public final class EditorPDFDocument: ObservableObject {
                 facts = nil
                 outline = []
                 thumbnails.detach()
+                find.detach()
                 finish(.refused(Self.unreadableReason), path: path)
             case .locked(let held):
                 document = nil
                 facts = nil
                 outline = []
                 thumbnails.detach()
+                find.detach()
                 locked = held.document
                 finish(.locked, path: path)
             case .open(let held, let facts, let outline):
@@ -237,6 +251,7 @@ public final class EditorPDFDocument: ObservableObject {
                 self.facts = facts
                 self.outline = outline
                 thumbnails.attach(path: path, pageCount: facts.pageCount)
+                find.attach(path: path, pageCount: facts.pageCount, hasText: facts.hasText)
                 if let page { view.requestPage(min(page, max(facts.pageCount - 1, 0))) }
                 finish(.open, path: path, reloaded: page != nil)
             }
@@ -333,6 +348,7 @@ public final class EditorPDFDocument: ObservableObject {
             facts = nil
             outline = []
             thumbnails.detach()
+            find.detach()
             stamp = nil
             finish(.refused(Self.goneReason), path: path)
             return
@@ -358,6 +374,11 @@ public final class EditorPDFViewState: ObservableObject {
     @Published public private(set) var pageRequest: EditorPDFRequest<Int>?
     /// A scale the view is asked to take — the zoom buttons.
     @Published public private(set) var scaleRequest: EditorPDFRequest<CGFloat>?
+    /// A place on a page the view is asked to scroll into sight — the find's current match.
+    @Published public private(set) var revealRequest: EditorPDFRequest<EditorPDFReveal>?
+    /// **The reader's own selection, as text** — set by the page view while it is mounted, for ⌘E.
+    /// Selection text the reader already made on the main thread, read there; no extraction.
+    public internal(set) var selectedText: () -> String? = { nil }
     private var token = 0
 
     /// The zoom buttons' steps: Preview's, roughly — a quarter up, back down by the same.
@@ -368,6 +389,13 @@ public final class EditorPDFViewState: ObservableObject {
     public func requestPage(_ index: Int) {
         token &+= 1
         pageRequest = EditorPDFRequest(value: index, token: token)
+    }
+
+    /// Scrolls `rect`, in page space, into sight on page `index`. Asked after ``requestPage(_:)``
+    /// for the same page, which the view handles first.
+    public func reveal(_ rect: CGRect, onPage index: Int) {
+        token &+= 1
+        revealRequest = EditorPDFRequest(value: EditorPDFReveal(pageIndex: index, rect: rect), token: token)
     }
 
     public func zoom(in zoomingIn: Bool) {
@@ -383,7 +411,14 @@ public final class EditorPDFViewState: ObservableObject {
         fit = .page
         pageRequest = nil
         scaleRequest = nil
+        revealRequest = nil
     }
+}
+
+/// A rect on a page, in page space, to scroll into sight.
+public struct EditorPDFReveal: Equatable, Sendable {
+    public var pageIndex: Int
+    public var rect: CGRect
 }
 
 /// One ask of the page view, with a token so the same value asked twice is asked twice.

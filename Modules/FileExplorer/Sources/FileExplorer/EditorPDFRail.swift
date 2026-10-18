@@ -164,6 +164,31 @@ public enum EditorPDFPagesLayout: String, CaseIterable, Sendable {
     }
 }
 
+// MARK: - The lane, as a value
+
+/// **The turn-taker the reader's own lane work goes through — the thumbnails and the find — as a
+/// value, so a test need not hold the process's lane.** Holding `PDFKitSerialAccess` to make a turn
+/// wait blocks every PDF suite in the package, and a hold that then waits on the main actor — which
+/// any test of a `@MainActor` pump must — lasts as long as the main actor is crowded: measured on CI
+/// 2026-10-17, three such holds in the thumbnails' tests made a print test's 10 s budget run out
+/// twice, on a run twice its usual length. Only `thumbnailsRenderThroughTheLane` and
+/// `aFindPageRunsThroughTheLane` use the real lane, each holding it from a detached task.
+///
+/// **Type-erased to a `Void` turn**, so one seam serves turns that bring back different things:
+/// ``perform(_:)`` carries the result out in a box.
+struct EditorPDFLane: Sendable {
+    let run: @Sendable (@escaping @Sendable () -> Void) async -> Void
+
+    static let pdfKit = EditorPDFLane { body in await PDFKitSerialAccess.perform(body) }
+
+    func perform<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
+        let box = OSAllocatedUnfairLock<T?>(initialState: nil)
+        await run { let value = body(); box.withLock { $0 = value } }
+        guard let value = box.withLock({ $0 }) else { preconditionFailure("a lane turn returned without running") }
+        return value
+    }
+}
+
 // MARK: - The thumbnails
 
 /// **The Pages tab's thumbnails — rendered in the PDFKit lane, a page at a time, only for the pages
@@ -322,19 +347,10 @@ public final class EditorPDFThumbnails: ObservableObject {
     var currentSource: Source? { source }
 
     /// Where a turn runs. **Always the process-wide PDFKit lane in the app** (``Lane/pdfKit``); a
-    /// test hands in a private one it can hold — see ``Lane``.
+    /// test hands in a private one it can hold — see ``EditorPDFLane``.
     private let lane: Lane
 
-    /// **The turn-taker, as a value, so a test need not hold the process's lane.** Holding
-    /// `PDFKitSerialAccess` to make a turn wait blocks every PDF suite in the package, and a hold
-    /// that then waits on the main actor — which any test of this `@MainActor` pump must — lasts
-    /// as long as the main actor is crowded: measured on CI 2026-10-17, three such holds here made
-    /// a print test's 10 s budget run out twice, on a run twice its usual length. Only
-    /// `thumbnailsRenderThroughTheLane` uses the real lane, and it holds it from a detached task.
-    struct Lane: Sendable {
-        let perform: @Sendable (@escaping @Sendable () -> Render) async -> Render
-        static let pdfKit = Lane { body in await PDFKitSerialAccess.perform(body) }
-    }
+    typealias Lane = EditorPDFLane
 
     public init() { lane = .pdfKit }
 

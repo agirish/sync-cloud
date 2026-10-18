@@ -7279,3 +7279,36 @@ done
 | `v5.x` | The gap, and everything the fix stands on: the strip, `slotHeight`, `editorPaneShowsTabStrip`. A pick is this one commit; the rename touches `ContentView+Editor.swift` and the Edit wiring test as well | RECORDED — owed, not picked (no backporting) |
 | `v4.x` | The lens header and a tab strip, but no `slotHeight` — that came with Edit's own fix, which `v4.x` has no document column to need. A pick would have to bring the helper too | RECORDED — owed, needs `slotHeight` first |
 | `v3.x` / `v2.x` | No lens workspace and no tab strip | CLOSED — does not apply |
+
+---
+
+## Find inside a PDF open in Edit, and ⇧⌘G — main only
+
+⌘F with a PDF open in Edit opens a find bar of the app's own under the header (the header's
+magnifying glass too); ⌘G and the new ⇧⌘G step through matches, ⌘E searches the reader's
+selection, Esc clears. The search reads a `PDFDocument` of its own, one page per
+`PDFKitSerialAccess` turn from the page on screen, wrapping, each turn behind a withdrawable ticket;
+matches come back as page-space rects and are drawn over the reader from geometry alone. The
+thumbnails' lane seam became the shared `EditorPDFLane`. ⇧⌘G is new for the text find bar as well.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s pdfModel=%s findNext=%s findPrevious=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/Design/Sources/Design/AppChord.swift 2>/dev/null | grep -c 'static let findNext')" \
+    "$(git show origin/$l:Modules/Design/Sources/Design/AppChord.swift 2>/dev/null | grep -c 'static let findPrevious')"
+done
+# measured 2026-10-17, against origin, before this landed:
+# main  pdfModel=1 findNext=1 findPrevious=0
+# v5.x  pdfModel=0 findNext=1 findPrevious=0
+# v4.x, v3.x, v2.x — pdfModel=0 findNext=0 findPrevious=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | No PDF reader to search; the text find bar with ⌘G but no ⇧⌘G | RECORDED — not owed (main only) |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace and no find verbs | CLOSED — does not apply |
+
+**Pick notes, should ⇧⌘G alone ever go to `v5.x`.** `AppChord.findPrevious` + its registry line,
+`FindPreviousCommand` with the text branch of `FindMenuRoute.step`, the Text menu line, the ⌘/
+reference row and `windowSize` (740 → 760, re-measure there), and the `TextMarkupMenuTests` order pin.

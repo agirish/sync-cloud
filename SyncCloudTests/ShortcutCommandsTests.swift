@@ -62,6 +62,7 @@ import Foundation
             editorVerbs: EditorVerbs(mode: .edit, canPreview: true, setMode: { _ in },
                                      autosave: EditorVerbs.AutosaveSwitch(isOn: true, toggle: {}),
                                      canMarkUp: true, canFind: true, goToLine: {}),
+            pdfFind: PDFFindVerbs(isSearchable: true, show: {}, step: { _ in }, useSelection: { true }),
             editorExpand: EditorExpandSwitch(isOn: false, toggle: {}),
             suspended: suspended
         )
@@ -207,6 +208,7 @@ import Foundation
         // The Text and Markup menus: a mode switch or an autosave toggle under a destination pick
         // changes the document the pick may be about.
         #expect(publisher.effectiveEditorVerbs == nil)
+        #expect(publisher.effectivePDFFind == nil)
         // Text ▸ Expand: folding the pane under a pick hides the folder the pick describes.
         #expect(publisher.effectiveEditorExpand == nil)
     }
@@ -250,6 +252,7 @@ import Foundation
         #expect(publisher.effectivePaneRowVerbs != nil)
         #expect(publisher.effectiveCompareTwoFiles != nil)
         #expect(publisher.effectiveEditorVerbs != nil)
+        #expect(publisher.effectivePDFFind != nil)
         #expect(publisher.effectiveEditorExpand != nil)
     }
 

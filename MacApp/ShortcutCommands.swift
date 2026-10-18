@@ -243,6 +243,89 @@ struct EditorVerbs {
     }
 }
 
+/// **The find verbs for a PDF open in Edit** — ⌘F, ⌘G, ⇧⌘G and ⌘E, aimed at the PDF reader's own
+/// find bar (`EditorPDFFind`).
+///
+/// **Beside ``EditorVerbs``, not inside it.** Those are a text document's verbs and are `nil` while
+/// a PDF is open — the text document is empty then, by design (`EditorPDFDocument`) — and making
+/// them pretend a document is open would light Markup and the modes over a PDF. These carry only
+/// what a PDF's find needs.
+struct PDFFindVerbs {
+    /// Whether the PDF has text to search — its facts' "Text selectable". An image-only PDF still
+    /// opens the bar, which says why there is nothing to find; it has nothing to step through.
+    let isSearchable: Bool
+    let show: () -> Void
+    let step: (_ forward: Bool) -> Void
+    /// Uses the reader's selection as the query. False when nothing is selected.
+    let useSelection: () -> Bool
+
+    /// **Edit must be the workspace and the PDF OPEN** — not loading, refused, or locked: a locked
+    /// PDF offers no find, and ⌘F there goes to the pane search as it would with nothing open.
+    /// `theFindVerbsAreResolvedThroughTheRule` pins the call site.
+    static func isOffered(workspace: Workspace, hasPDF: Bool, phase: EditorPDFDocument.Phase) -> Bool {
+        workspace == .editor && hasPDF && phase == .open
+    }
+}
+
+/// **Where Edit ▸ Find… and Text ▸ Find Next / Find Previous / Use Selection for Find go** — one
+/// rule each, out of the menu items so a test can hold them (the items are views that only a
+/// running menu bar builds).
+enum FindMenuRoute {
+    enum Destination: Equatable { case pdf, document, pane, nowhere }
+
+    /// ⌘F: the open PDF's find bar; else the text document's, if the caret is in it; else the pane
+    /// search. A PDF and a text document are never open together (`EditorOpenRoute`), so the first
+    /// two never compete.
+    @MainActor
+    @discardableResult
+    static func find(pdf: PDFFindVerbs?, showDocumentFind: () -> Bool,
+                     beginPaneSearch: (() -> Void)?) -> Destination {
+        if let pdf {
+            pdf.show()
+            return .pdf
+        }
+        if showDocumentFind() { return .document }
+        guard let beginPaneSearch else { return .nowhere }
+        beginPaneSearch()
+        return .pane
+    }
+
+    static func findIsEnabled(pdf: PDFFindVerbs?, beginPaneSearch: (() -> Void)?) -> Bool {
+        pdf != nil || beginPaneSearch != nil
+    }
+
+    /// ⌘G, ⇧⌘G and ⌘E: live over a text view, or over a PDF with text to search.
+    static func stepsAreEnabled(verbs: EditorVerbs?, pdf: PDFFindVerbs?) -> Bool {
+        verbs?.canFind == true || pdf?.isSearchable == true
+    }
+
+    /// ⌘G and ⇧⌘G: the PDF's next or previous match; else the text find bar's.
+    @MainActor
+    static func step(forward: Bool, pdf: PDFFindVerbs?, performDocumentFind: (NSTextFinder.Action) -> Bool) {
+        if let pdf {
+            pdf.step(forward)
+            return
+        }
+        if !performDocumentFind(forward ? .nextMatch : .previousMatch) {
+            Logger.shared.info("Find \(forward ? "Next" : "Previous") ignored: the caret is not in the document")
+        }
+    }
+
+    /// ⌘E: the PDF reader's selection; else the text view's.
+    @MainActor
+    static func useSelection(pdf: PDFFindVerbs?, performDocumentFind: (NSTextFinder.Action) -> Bool) {
+        if let pdf {
+            if !pdf.useSelection() {
+                Logger.shared.info("Use Selection for Find ignored: nothing is selected in the PDF")
+            }
+            return
+        }
+        if !performDocumentFind(.setSearchString) {
+            Logger.shared.info("Use Selection for Find ignored: the caret is not in the document")
+        }
+    }
+}
+
 /// Which mode a menu request may set, as a pure rule.
 ///
 /// `EditorMode.resolved(_:isMarkdown:)` already says what a file can DRAW; this asks the
@@ -399,6 +482,10 @@ private struct PaneRowVerbsKey: FocusedValueKey {
 
 private struct EditorVerbsKey: FocusedValueKey {
     typealias Value = EditorVerbs
+}
+
+private struct PDFFindKey: FocusedValueKey {
+    typealias Value = PDFFindVerbs
 }
 
 private struct EditorExpandKey: FocusedValueKey {
@@ -850,6 +937,12 @@ extension FocusedValues {
         set { self[EditorVerbsKey.self] = newValue }
     }
 
+    /// ⌘F, ⌘G, ⇧⌘G and ⌘E over a PDF — `nil` unless Edit is the workspace and a PDF is open.
+    var pdfFind: PDFFindVerbs? {
+        get { self[PDFFindKey.self] }
+        set { self[PDFFindKey.self] = newValue }
+    }
+
     /// Text ▸ Expand — `nil` wherever the header draws no Expand button; see `EditorExpandSwitch`.
     var editorExpand: EditorExpandSwitch? {
         get { self[EditorExpandKey.self] }
@@ -995,6 +1088,9 @@ struct ShortcutValuePublisher: ViewModifier {
     /// because a mode switch or an autosave toggle under a destination pick changes the document
     /// the pick may be about.
     let editorVerbs: EditorVerbs?
+    /// ⌘F, ⌘G, ⇧⌘G and ⌘E over a PDF open in Edit. Suspended with the rest: the bar would take
+    /// the keyboard from the destination pick.
+    let pdfFind: PDFFindVerbs?
     /// Text ▸ Expand. Suspended with the rest: folding the pane under a destination pick would hide
     /// the folder the pick is describing.
     let editorExpand: EditorExpandSwitch?
@@ -1050,6 +1146,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectivePaneRowVerbs: PaneRowVerbs? { suspended ? nil : paneRowVerbs }
     var effectiveCompareTwoFiles: (() -> Void)? { suspended ? nil : compareTwoFiles }
     var effectiveEditorVerbs: EditorVerbs? { suspended ? nil : editorVerbs }
+    var effectivePDFFind: PDFFindVerbs? { suspended ? nil : pdfFind }
     var effectiveEditorExpand: EditorExpandSwitch? { suspended ? nil : editorExpand }
 
     /// ⌘W's published value, which is the one that does NOT go silent — see ``CloseTabAction``.
@@ -1097,6 +1194,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.organizeVerbs, effectiveOrganizeVerbs)       // File ▸ Organize's verbs
             .focusedSceneValue(\.paneRowVerbs, effectivePaneRowVerbs)         // File ▸ the row menu's verbs
             .focusedSceneValue(\.editorVerbs, effectiveEditorVerbs)           // Text ▸ / Markup ▸
+            .focusedSceneValue(\.pdfFind, effectivePDFFind)                   // ⌘F ⌘G ⇧⌘G ⌘E over a PDF
             .focusedSceneValue(\.editorExpand, effectiveEditorExpand)         // Text ▸ Expand, ⌃⌘E
     }
 }
@@ -1138,6 +1236,7 @@ extension ContentView {
             paneRowVerbs: shortcutPaneRowVerbs,
             compareTwoFiles: shortcutCompareTwoFiles,
             editorVerbs: shortcutEditorVerbs,
+            pdfFind: shortcutPDFFind,
             editorExpand: shortcutEditorExpand,
             // Suspended by the palette too, on the destination picker's own argument: it is a
             // full-window overlay whose scrim blocks the mouse from every control these chords
@@ -2420,24 +2519,44 @@ struct EditorExpandCommand: View {
     }
 }
 
-/// Text ▸ Find Next ⌘G and Use Selection for Find ⌘E — the find bar's own two verbs.
+/// Text ▸ Find Next ⌘G, Find Previous ⇧⌘G and Use Selection for Find ⌘E — the find bar's own verbs.
 ///
 /// **Registered because nothing else answers them.** AppKit's text views act on these through menu
 /// items whose action is `performTextFinderAction:`; this app replaces the standard Edit menu, so
 /// until now ⌘G in the editor did nothing. Routed on `EditorDocumentSurface.performFind`, which
 /// takes the walk-up test — Find Next from inside the Find field is the ordinary way to step — and
 /// refuses outside the editor, so ⌘G in a pane searches nothing.
+///
+/// **A PDF open in Edit takes them first** (`FindMenuRoute`): its reader has a find bar of its own,
+/// and no text view for `performFind` to reach.
 struct FindNextCommand: View {
     @FocusedValue(\.editorVerbs) private var verbs
+    @FocusedValue(\.pdfFind) private var pdfFind
 
     var body: some View {
         Button("Find Next") {
-            if !EditorDocumentSurface.performFind(.nextMatch, in: NSApp.keyWindow) {
-                Logger.shared.info("Find Next ignored: the caret is not in the document")
+            FindMenuRoute.step(forward: true, pdf: pdfFind) {
+                EditorDocumentSurface.performFind($0, in: NSApp.keyWindow)
             }
         }
         .keyboardShortcut(AppChord.findNext.key, modifiers: AppChord.findNext.modifiers)
-        .disabled(verbs?.canFind != true)
+        .disabled(!FindMenuRoute.stepsAreEnabled(verbs: verbs, pdf: pdfFind))
+    }
+}
+
+/// Text ▸ Find Previous ⇧⌘G — Find Next's way back, for the text find bar and the PDF's alike.
+struct FindPreviousCommand: View {
+    @FocusedValue(\.editorVerbs) private var verbs
+    @FocusedValue(\.pdfFind) private var pdfFind
+
+    var body: some View {
+        Button("Find Previous") {
+            FindMenuRoute.step(forward: false, pdf: pdfFind) {
+                EditorDocumentSurface.performFind($0, in: NSApp.keyWindow)
+            }
+        }
+        .keyboardShortcut(AppChord.findPrevious.key, modifiers: AppChord.findPrevious.modifiers)
+        .disabled(!FindMenuRoute.stepsAreEnabled(verbs: verbs, pdf: pdfFind))
     }
 }
 
@@ -2458,15 +2577,16 @@ struct GoToLineCommand: View {
 
 struct UseSelectionForFindCommand: View {
     @FocusedValue(\.editorVerbs) private var verbs
+    @FocusedValue(\.pdfFind) private var pdfFind
 
     var body: some View {
         Button("Use Selection for Find") {
-            if !EditorDocumentSurface.performFind(.setSearchString, in: NSApp.keyWindow) {
-                Logger.shared.info("Use Selection for Find ignored: the caret is not in the document")
+            FindMenuRoute.useSelection(pdf: pdfFind) {
+                EditorDocumentSurface.performFind($0, in: NSApp.keyWindow)
             }
         }
         .keyboardShortcut(AppChord.useSelectionForFind.key, modifiers: AppChord.useSelectionForFind.modifiers)
-        .disabled(verbs?.canFind != true)
+        .disabled(!FindMenuRoute.stepsAreEnabled(verbs: verbs, pdf: pdfFind))
     }
 }
 
@@ -2843,6 +2963,7 @@ struct EditorMenus: Commands {
             EditInPreviewCommand()       // TE67 — no chord, ticked
             Divider()
             FindNextCommand()            // ⌘G
+            FindPreviousCommand()        // ⇧⌘G
             UseSelectionForFindCommand() // ⌘E
             GoToLineCommand()            // ⌃⌘L — the other way to a place in the text (TE61)
             Divider()
