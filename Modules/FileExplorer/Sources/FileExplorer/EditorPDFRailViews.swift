@@ -62,6 +62,10 @@ struct EditorPDFRailPages: View {
     var railWidth: CGFloat = EditorLayoutMetrics.railWidth
 
     @State private var visible: Set<Int> = []
+    /// The grid takes keys once a page is clicked: Esc clears the selection, ⌘A selects every page,
+    /// Delete asks to leave the selection out of a copy. A focus of its own, so these keys never
+    /// reach the grid while a field anywhere else is being typed in.
+    @FocusState private var gridFocused: Bool
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: EditorPDFPagesLayout.columnGap, alignment: .top),
@@ -89,6 +93,25 @@ struct EditorPDFRailPages: View {
                     }
                     .padding(.horizontal, EditorPDFPagesLayout.sidePadding)
                     .padding(.vertical, 6)
+                }
+                .focusable()
+                .focusEffectDisabled()
+                .focused($gridFocused)
+                .onKeyPress(.escape) {
+                    guard !tools.selection.pages.isEmpty else { return .ignored }
+                    tools.clearSelection()
+                    return .handled
+                }
+                .onKeyPress(characters: ["a"], phases: .down) { press in
+                    guard press.modifiers == .command else { return .ignored }
+                    tools.selectAll()
+                    return .handled
+                }
+                .onKeyPress(keys: [.delete, .deleteForward]) { _ in
+                    let pages = tools.order.filter(tools.selection.pages.contains)
+                    guard !pages.isEmpty, tools.offersPageTools, tools.running == nil else { return .ignored }
+                    tools.sheet = .pages(.delete, prefill: EditorPDFPageMenu.rangeText(pages))
+                    return .handled
                 }
                 .onAppear { proxy.scrollTo(view.currentPage, anchor: .center) }
                 // A switch of layout puts every cell somewhere new; the reader's page stays in view.
@@ -136,55 +159,79 @@ struct EditorPDFRailPages: View {
     }
 
     private func cell(_ index: Int, size: CGSize) -> some View {
-        let isCurrent = index == view.currentPage
         let isSelected = tools.selection.pages.contains(index)
-        return Button {
-            let click = EditorPDFPageSelection.click(for: NSEvent.modifierFlags)
-            tools.click(index, click)
-            // Only a plain click goes to the page; ⌘ and ⇧ are about the selection.
-            if click == .plain { view.requestPage(index) }
-        } label: {
-            VStack(spacing: 4) {
-                page(index, size: size)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 2)
-                            .strokeBorder(isCurrent ? accent : Color.primary.opacity(0.15),
-                                          lineWidth: isCurrent ? 3 : 0.5)
-                            .padding(isCurrent ? -4 : 0)
-                    }
-                // The ORIGINAL number, also while the pages are reordered — it is what the reader
-                // dragged, and the new order is written only on Save.
-                Text(String(index + 1))
-                    .scaledFont(.system(size: 10, weight: isCurrent || isSelected ? .semibold : .regular))
-                    .monospacedDigit()
-                    .foregroundStyle(isSelected ? AnyShapeStyle(accent) : isCurrent ? AnyShapeStyle(.primary)
-                                                                               : AnyShapeStyle(.secondary))
-            }
-            .padding(EditorPDFPagesLayout.cellInset)
-            .background {
-                if isSelected { RoundedRectangle(cornerRadius: 7).fill(accent.opacity(0.18)) }
-            }
-            .contentShape(EditorFileRailView.rowOutline)
+        let button = Button { tap(index) } label: {
+            cellLabel(index, size: size, isCurrent: index == view.currentPage, isSelected: isSelected)
         }
         // The rail's own row wash, as every other row here wears — a bare `.plain` was the one
         // control in the rail that gave no sign it could be clicked.
-        .buttonStyle(.hoverAffordance(.row, tint: accent, shape: EditorFileRailView.rowShape))
-        .contextMenu {
-            EditorPDFPageMenu(tools: tools, pages: tools.selection.target(for: index, order: tools.order))
+        //
+        // `.filled` while selected, as the Text Files rows are: the cell already carries its wash,
+        // and a second one under the pointer doubled it.
+        .buttonStyle(.hoverAffordance(isSelected ? .filled : .row, tint: accent, shape: EditorFileRailView.rowShape))
+        return withPageActions(button, index: index, size: size, isSelected: isSelected)
+    }
+
+    private func tap(_ index: Int) {
+        let click = EditorPDFPageSelection.click(for: NSEvent.modifierFlags)
+        tools.click(index, click)
+        gridFocused = true
+        // Only a plain click goes to the page; ⌘ and ⇧ are about the selection.
+        if click == .plain { view.requestPage(index) }
+    }
+
+    private func cellLabel(_ index: Int, size: CGSize, isCurrent: Bool, isSelected: Bool) -> some View {
+        let ink: AnyShapeStyle = isSelected ? AnyShapeStyle(accent)
+            : isCurrent ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
+        return VStack(spacing: 4) {
+            page(index, size: size)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 2)
+                        .strokeBorder(isCurrent ? accent : Color.primary.opacity(0.15),
+                                      lineWidth: isCurrent ? 3 : 0.5)
+                        .padding(isCurrent ? -4 : 0)
+                }
+            // The ORIGINAL number, also while the pages are reordered — it is what the reader
+            // dragged, and the new order is written only on Save.
+            Text(String(index + 1))
+                .scaledFont(.system(size: 10, weight: isCurrent || isSelected ? .semibold : .regular))
+                .monospacedDigit()
+                .foregroundStyle(ink)
         }
-        .draggable(EditorPDFPageDrag.payload(token: tools.dragToken, page: index)) {
-            page(index, size: size).frame(width: 60)
+        .padding(EditorPDFPagesLayout.cellInset)
+        .background {
+            // The row's own outline, so the wash is the hover affordance's shape exactly.
+            if isSelected { EditorFileRailView.rowOutline.fill(accent.opacity(0.18)) }
         }
-        .dropDestination(for: String.self) { items, _ in
-            guard tools.acceptsReorder,
-                  let dragged = items.compactMap({ EditorPDFPageDrag.page(in: $0, token: tools.dragToken) }).first
-            else { return false }
-            tools.move(tools.selection.target(for: dragged, order: tools.order), onto: index)
-            return true
-        }
-        .help("Go to page \(index + 1)")
-        .accessibilityLabel("Page \(index + 1)")
-        .accessibilityAddTraits(isCurrent || isSelected ? [.isButton, .isSelected] : .isButton)
+        .contentShape(EditorFileRailView.rowOutline)
+    }
+
+    /// The cell's menu, its drag and drop, and what VoiceOver hears and can do.
+    private func withPageActions(_ cell: some View, index: Int, size: CGSize, isSelected: Bool) -> some View {
+        cell
+            .contextMenu {
+                EditorPDFPageMenu(tools: tools, pages: tools.selection.target(for: index, order: tools.order))
+            }
+            .draggable(EditorPDFPageDrag.payload(token: tools.dragToken, page: index)) {
+                page(index, size: size).frame(width: 60)
+            }
+            .dropDestination(for: String.self) { items, _ in drop(items, onto: index) }
+            .help("Go to page \(index + 1)")
+            .accessibilityLabel("Page \(index + 1)")
+            // Selected is the selection; the reader's place is said as a value, so the two read apart.
+            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityValue(index == view.currentPage ? "Current page" : "")
+            // The reorder a drag makes, for VoiceOver — the same pending order, saved the same way.
+            .accessibilityAction(named: "Move Earlier") { tools.step(index, by: -1) }
+            .accessibilityAction(named: "Move Later") { tools.step(index, by: 1) }
+    }
+
+    private func drop(_ items: [String], onto index: Int) -> Bool {
+        guard tools.acceptsReorder,
+              let dragged = items.compactMap({ EditorPDFPageDrag.page(in: $0, token: tools.dragToken) }).first
+        else { return false }
+        tools.move(tools.selection.target(for: dragged, order: tools.order), onto: index)
+        return true
     }
 
     /// The page's image, or a blank sheet of its shape until the image arrives. Pages stay white in
@@ -255,19 +302,9 @@ struct EditorPDFPageMenu: View {
         pages.count == 1 ? "\(verb) Page \(pages[0] + 1)…" : "\(verb) \(pages.count) Pages…"
     }
 
-    /// "2-4, 7" for the field, one-based and in the order given — ``EditorPDFCopyName/pageList``'s
-    /// runs, with a hyphen the parser reads.
-    static func rangeText(_ pages: [Int]) -> String {
-        guard !pages.isEmpty else { return "" }
-        var runs: [String] = []
-        var start = pages[0], end = pages[0]
-        func close() { runs.append(start == end ? "\(start + 1)" : "\(start + 1)-\(end + 1)") }
-        for page in pages.dropFirst() {
-            if page == end + 1 { end = page } else { close(); start = page; end = page }
-        }
-        close()
-        return runs.joined(separator: ", ")
-    }
+    /// "2-4, 7" for the field, one-based and in the order given — the copy name's runs, with a
+    /// hyphen the parser reads.
+    static func rangeText(_ pages: [Int]) -> String { EditorPDFCopyName.runs(pages, dash: "-") }
 }
 
 /// **The pending reorder's bar**, above the pages: nothing is written until Save.

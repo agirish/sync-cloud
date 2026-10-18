@@ -32,11 +32,32 @@ public enum EditorPDFCompression: Equatable, Sendable {
         ("Smallest File", "Some quality loss", 0.35),
     ]
 
-    /// A typed megabyte figure as bytes, inside pdf-utils' bounds (0.1 MB to 500 MB) — clamped
-    /// BEFORE it becomes an `Int`, which traps on a figure past `Int.max`.
+    /// A typed megabyte figure as bytes, floored at pdf-utils' 0.1 MB and clamped BEFORE it becomes
+    /// an `Int`, which traps on a figure past `Int.max`.
+    ///
+    /// **The ceiling is a terabyte, not pdf-utils' 500 MB**: the target is also what "already under
+    /// it" is measured against, and a 600 MB scan with "1000" typed was clamped to 500 MB and
+    /// rasterized at every rung instead of being told it already fits.
     public static func bytes(megabytes: Double) -> Int {
-        let clamped = megabytes.isFinite ? min(max(megabytes, 0.1), 500) : 0.1
+        let clamped = megabytes.isFinite ? min(max(megabytes, 0.1), 1_000_000) : 0.1
         return Int((clamped * 1_000_000).rounded())
+    }
+
+    /// A typed figure — "1.5", "2,5", "1,000", " 2 " — or `nil` for one that is not a positive
+    /// number. A comma is a decimal point only where it can be one: alone, with at most two digits
+    /// after it. "1,000" is a thousand, not one.
+    public static func megabytes(_ typed: String) -> Double? {
+        var text = typed.trimmingCharacters(in: .whitespaces)
+        if text.contains(".") {
+            text = text.replacingOccurrences(of: ",", with: "")
+        } else if let comma = text.firstIndex(of: ","), text.filter({ $0 == "," }).count == 1,
+                  text.distance(from: comma, to: text.endIndex) <= 3 {
+            text.replaceSubrange(comma...comma, with: ".")
+        } else {
+            text = text.replacingOccurrences(of: ",", with: "")
+        }
+        guard let value = Double(text), value.isFinite, value > 0 else { return nil }
+        return value
     }
 }
 
@@ -97,6 +118,16 @@ public enum EditorPDFTool: Equatable, Sendable {
         }
     }
 
+    /// Whether the tool rebuilds the pages into a FRESH document — which carries no encryption
+    /// dictionary, so a restricted original's restrictions are not in the copy. Rotate and Delete
+    /// change the loaded document in place; Protect adds encryption of its own.
+    var rebuildsDocument: Bool {
+        switch self {
+        case .extract, .reorder, .compress, .cleanMetadata, .removePassword: return true
+        case .rotate, .deletePages, .protect: return false
+        }
+    }
+
     /// What the log line says was done — **never a password**, which is why the two password tools
     /// name only their style.
     var logDetail: String {
@@ -131,18 +162,28 @@ enum EditorPDFCopyName {
     /// One-based, ascending runs collapsed with an en dash, the order kept: [2,3,4,0] → "pages 3–5, 1".
     static func pageList(_ pages: [Int]) -> String {
         guard !pages.isEmpty else { return "no pages" }
+        return (pages.count == 1 ? "page " : "pages ") + runs(pages, dash: "–")
+    }
+
+    /// "3–5, 1" — one-based runs, in the order given. One loop for the copy's name (an en dash) and
+    /// the page field's prefill (a hyphen, which `PageRangeParser` reads).
+    static func runs(_ pages: [Int], dash: String) -> String {
+        guard let first = pages.first else { return "" }
         var runs: [String] = []
-        var start = pages[0], end = pages[0]
-        func close() { runs.append(start == end ? "\(start + 1)" : "\(start + 1)–\(end + 1)") }
+        var start = first, end = first
+        func close() { runs.append(start == end ? "\(start + 1)" : "\(start + 1)\(dash)\(end + 1)") }
         for page in pages.dropFirst() {
             if page == end + 1 { end = page } else { close(); start = page; end = page }
         }
         close()
-        return (pages.count == 1 ? "page " : "pages ") + runs.joined(separator: ", ")
+        return runs.joined(separator: ", ")
     }
 
+    /// Quarter turns as 0…3 — one rule for the refusal, the log and the toolkit's own arithmetic.
+    static func quarterTurns(_ turns: Int) -> Int { ((turns % 4) + 4) % 4 }
+
     static func degrees(_ quarterTurns: Int) -> String {
-        switch ((quarterTurns % 4) + 4) % 4 {
+        switch Self.quarterTurns(quarterTurns) {
         case 1: return "90° right"
         case 2: return "180°"
         case 3: return "90° left"
@@ -150,11 +191,28 @@ enum EditorPDFCopyName {
         }
     }
 
-    /// `<base> (<suffix>).pdf` beside `original`.
+    /// The longest name a copy takes: the volume's 255, less room for the keep-both rule's " 99".
+    ///
+    /// **Counted in UTF-16 units of the DECOMPOSED name, because that is the name this writer sends.**
+    /// The volume's limit is 255 UTF-16 units of the name as written — measured 2026-10-17 on APFS:
+    /// 255 "é" written as they are succeed and 256 fail; 100 CJK characters (300 UTF-8 bytes)
+    /// succeed. But the path reaches `createNew` through `URL(fileURLWithPath:).path`
+    /// (`FileSyncManager.generateUniqueURL`), and that DECOMPOSES it — each "é" becomes e plus its
+    /// accent, two units — so through this path 127 "é" write and 128 fail. Counting the name as
+    /// typed would pass a name the write then refuses with ENAMETOOLONG.
+    static let longestName = 255 - 3
+
+    static func nameLength(_ name: String) -> Int { name.decomposedStringWithCanonicalMapping.utf16.count }
+
+    /// `<base> (<suffix>).pdf` beside `original` — the base shortened, a whole character at a time,
+    /// when the name would pass ``longestName``: an original whose name was already near the limit
+    /// otherwise had no copy at all, since every name the keep-both rule tried was too long.
     static func firstChoice(for original: String, suffix: String) -> String {
         let folder = (original as NSString).deletingLastPathComponent
-        let base = ((original as NSString).lastPathComponent as NSString).deletingPathExtension
-        return (folder as NSString).appendingPathComponent("\(base) (\(suffix)).pdf")
+        var base = ((original as NSString).lastPathComponent as NSString).deletingPathExtension
+        let tail = " (\(suffix)).pdf"
+        while !base.isEmpty, nameLength(base + tail) > longestName { base.removeLast() }
+        return (folder as NSString).appendingPathComponent(base + tail)
     }
 }
 
@@ -288,7 +346,7 @@ enum EditorPDFToolEngine {
         case .rotate(let pages, let turns):
             if pages.isEmpty { return PDFOperationError.noPagesSelected.errorDescription }
             // An empty turn hands the file back unchanged — a copy identical to its original.
-            if ((turns % 4) + 4) % 4 == 0 { return "A full turn leaves every page as it is." }
+            if EditorPDFCopyName.quarterTurns(turns) == 0 { return "A full turn leaves every page as it is." }
             return outOfRange(pages, pageCount: pageCount)
         case .deletePages(let pages):
             if pages.isEmpty { return PDFOperationError.noPagesSelected.errorDescription }

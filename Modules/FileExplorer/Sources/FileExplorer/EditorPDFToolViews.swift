@@ -8,7 +8,13 @@ import Sync
 /// writes a new copy next to the original; the open file stays as it is, and stays read-only.
 ///
 /// It also presents the tools' sheets, whichever surface asked for one: the Pages tab's menu sets
-/// ``EditorPDFTools/sheet`` too, and this is the one view that is always mounted while a PDF is.
+/// ``EditorPDFTools/sheet`` too. This view is mounted whenever a sheet can be asked for — a PDF
+/// that is open or locked — and in the other phases (loading, refused) ``EditorPDFTools/detach()``
+/// has already cleared any sheet, so none is left without a presenter.
+///
+/// **The format bar's glyph-menu recipe** (`EditorFormatBar`): `.menuStyle(.button)` with the
+/// glyph hover affordance, so it washes and tints like the header's other glyphs — the AppKit
+/// pop-up chrome of a borderless menu would grow a row whose height the header pins.
 struct EditorPDFToolsMenu: View {
     @ObservedObject var tools: EditorPDFTools
     let accent: Color
@@ -17,17 +23,12 @@ struct EditorPDFToolsMenu: View {
         Menu {
             EditorPDFToolsMenuItems(tools: tools)
         } label: {
-            Group {
-                if tools.running != nil {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Image(systemName: "wrench.and.screwdriver")
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                }
-            }
-            .frame(width: 18, height: 18)
+            Image(systemName: "wrench.and.screwdriver")
+                .scaledFont(.system(size: 11, weight: .semibold))
+                .frame(width: 18, height: 18)
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
         .menuIndicator(.hidden)
         .fixedSize()
         .help("PDF tools — each writes a new copy and leaves this file as it is")
@@ -38,83 +39,192 @@ struct EditorPDFToolsMenu: View {
     }
 }
 
-/// The menu's items, a view of their own so a test can host them.
+/// One line of the Tools menu, as data — what it says, whether it can be chosen, what it does — so
+/// a test can read the menu without opening it (a hosted `Menu`'s body never runs offscreen).
+struct EditorPDFToolsMenuEntry: Equatable {
+    enum Action: Equatable {
+        case run(EditorPDFTool)
+        case sheet(EditorPDFToolSheet)
+        /// A line that only explains — why the others are greyed out.
+        case none
+    }
+    var title: String
+    var enabled: Bool
+    var action: Action
+    /// The submenu this line sits in, or `nil` at the top.
+    var submenu: String?
+    /// A divider before this line.
+    var dividerBefore = false
+
+    /// The header menu, for the file the tools are attached to. With a selection, its own rotate
+    /// lines come first, and Extract and Delete are filled in with it — the Pages tab's menu,
+    /// reachable without right-clicking.
+    @MainActor
+    static func entries(_ tools: EditorPDFTools) -> [EditorPDFToolsMenuEntry] {
+        let idle = tools.running == nil
+        let pages = tools.offersPageTools && idle
+        let selected = tools.order.filter(tools.selection.pages.contains)
+        var out: [EditorPDFToolsMenuEntry] = []
+        if let reason = tools.disabledReason {
+            out.append(.init(title: reason, enabled: false, action: .none))
+        }
+        func rotations(_ target: [Int], in submenu: String) {
+            for (title, turns) in [("Rotate Left", -1), ("Rotate Right", 1), ("Rotate 180°", 2)] {
+                out.append(.init(title: title, enabled: pages,
+                                 action: .run(.rotate(pages: target, quarterTurns: turns)), submenu: submenu))
+            }
+        }
+        if !selected.isEmpty {
+            rotations(selected, in: selected.count == 1 ? "Rotate Page \(selected[0] + 1)"
+                                                       : "Rotate \(selected.count) Selected Pages")
+        }
+        rotations(Array(0..<tools.pageCount), in: "Rotate All Pages")
+        let prefill = EditorPDFPageMenu.rangeText(selected)
+        out.append(.init(title: "Extract Pages…", enabled: pages, action: .sheet(.pages(.extract, prefill: prefill)),
+                         dividerBefore: true))
+        out.append(.init(title: "Delete Pages…", enabled: pages && tools.pageCount > 1,
+                         action: .sheet(.pages(.delete, prefill: prefill))))
+        out.append(.init(title: "Compress…", enabled: pages, action: .sheet(.compress), dividerBefore: true))
+        // A restricted file says why Clean Metadata is off in the item itself — a menu row does not
+        // wrap, so the reason is kept short.
+        out.append(.init(title: tools.encryption == .restrictedOnly ? EditorPDFTools.metadataEncryptedReason
+                                                                     : "Clean Metadata…",
+                         enabled: tools.offersMetadata && idle, action: .sheet(.metadata)))
+        if tools.offersRemovePassword {
+            out.append(.init(title: "Remove Password…", enabled: idle, action: .sheet(.removePassword),
+                             dividerBefore: true))
+        } else {
+            out.append(.init(title: "Protect with Password…", enabled: tools.offersProtect && idle,
+                             action: .sheet(.protect), dividerBefore: true))
+        }
+        return out
+    }
+}
+
+/// The menu's items, drawn from ``EditorPDFToolsMenuEntry/entries(_:)``.
 struct EditorPDFToolsMenuItems: View {
     @ObservedObject var tools: EditorPDFTools
 
     var body: some View {
-        if let reason = tools.disabledReason {
-            Text(reason)
-            Divider()
-        }
-        let all = Array(0..<tools.pageCount)
-        Group {
-            Menu("Rotate All Pages") {
-                Button("Rotate Left") { run(.rotate(pages: all, quarterTurns: -1)) }
-                Button("Rotate Right") { run(.rotate(pages: all, quarterTurns: 1)) }
-                Button("Rotate 180°") { run(.rotate(pages: all, quarterTurns: 2)) }
+        let groups = Self.groups(EditorPDFToolsMenuEntry.entries(tools))
+        ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+            if let submenu = group.submenu {
+                Menu(submenu) {
+                    ForEach(Array(group.items.enumerated()), id: \.offset) { _, entry in item(entry) }
+                }
+                .disabled(!group.items.contains(where: \.enabled))
+            } else {
+                ForEach(Array(group.items.enumerated()), id: \.offset) { _, entry in
+                    if entry.dividerBefore { Divider() }
+                    item(entry)
+                }
             }
-            Button("Extract Pages…") {
-                tools.sheet = .pages(.extract, prefill: EditorPDFPageMenu.rangeText(tools.order.filter(tools.selection.pages.contains)))
-            }
-            Divider()
-            Button("Compress…") { tools.sheet = .compress }
-        }
-        .disabled(!tools.offersPageTools || tools.running != nil)
-        Button("Clean Metadata…") { tools.sheet = .metadata }
-            .disabled(!tools.offersMetadata || tools.running != nil)
-        Divider()
-        if tools.offersRemovePassword {
-            Button("Remove Password…") { tools.sheet = .removePassword }
-                .disabled(tools.running != nil)
-        } else {
-            Button("Protect with Password…") { tools.sheet = .protect }
-                .disabled(!tools.offersProtect || tools.running != nil)
-        }
-        if tools.encryption == .restrictedOnly {
-            Text(EditorPDFTools.metadataEncryptedReason)
         }
     }
 
-    private func run(_ tool: EditorPDFTool) {
-        Task { await tools.run(tool) }
+    /// Top-level lines and submenus, in the order the entries first name them.
+    static func groups(_ entries: [EditorPDFToolsMenuEntry])
+        -> [(submenu: String?, items: [EditorPDFToolsMenuEntry])] {
+        entries.reduce(into: []) { groups, entry in
+            if let submenu = entry.submenu, let at = groups.firstIndex(where: { $0.submenu == submenu }) {
+                groups[at].items.append(entry)
+            } else {
+                groups.append((entry.submenu, [entry]))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func item(_ entry: EditorPDFToolsMenuEntry) -> some View {
+        switch entry.action {
+        case .none:
+            Text(entry.title)
+        case .run(let tool):
+            Button(entry.title) { Task { await tools.run(tool) } }.disabled(!entry.enabled)
+        case .sheet(let sheet):
+            Button(entry.title) { tools.sheet = sheet }.disabled(!entry.enabled)
+        }
     }
 }
 
-/// **What the last run said**, across the top of the PDF card: the copy's name with Open and Reveal
-/// in Browse, or why nothing was written.
+/// **What the tools are doing or did**, across the top of the PDF card: a run in flight with
+/// Cancel — for the runs no sheet is showing, Rotate and Save Reordered Copy among them — or the
+/// last run's word, with Open and Reveal in Browse for a copy. ``EditorDiskBannerView``'s shape:
+/// the sentence wraps rather than truncates, and the buttons go under it in a narrow column.
 struct EditorPDFToolBannerView: View {
     @ObservedObject var tools: EditorPDFTools
     let accent: Color
 
     var body: some View {
-        if let banner = tools.banner {
-            HStack(spacing: 8) {
-                Image(systemName: Self.symbol(banner.kind))
-                    .foregroundStyle(banner.kind == .failure ? AnyShapeStyle(.red) : AnyShapeStyle(accent))
-                Text(banner.message)
-                    .scaledFont(.system(size: 11))
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                Spacer(minLength: 4)
+        if let running = tools.running, tools.sheet == nil {
+            strip(symbol: nil, tint: accent, message: Self.runningMessage(running, progress: tools.progress)) {
+                Button("Cancel") { tools.cancelRun() }
+                    .controlSize(.small)
+                    .help("Stop — nothing is written")
+            }
+        } else if let banner = tools.banner {
+            strip(symbol: Self.symbol(banner.kind), tint: banner.kind == .failure ? .red : accent,
+                  message: banner.message) {
                 if case .wrote(let path) = banner.kind {
-                    Button("Open") { tools.host.open(path) }
-                    Button("Reveal in Browse") { tools.host.reveal(path) }
+                    Button("Open") { tools.follow(path) { tools.host.open($0) } }
+                        .controlSize(.small)
+                        .help("Open the copy in Edit")
+                    Button("Reveal in Browse") { tools.follow(path) { tools.host.reveal($0) } }
+                        .controlSize(.small)
+                        .help("Show the copy in Browse")
                 }
                 Button {
                     tools.banner = nil
                 } label: {
-                    Image(systemName: "xmark").scaledFont(.system(size: 9, weight: .semibold))
+                    Image(systemName: "xmark")
+                        .scaledFont(.system(size: 9, weight: .semibold))
+                        .frame(width: 16, height: 16)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.hoverAffordance(.glyph, tint: accent))
                 .accessibilityLabel("Dismiss")
+                .help("Dismiss")
             }
-            .controlSize(.small)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(.quaternary.opacity(0.5))
         }
+    }
+
+    private func strip<Buttons: View>(symbol: String?, tint: Color, message: String,
+                                      @ViewBuilder buttons: () -> Buttons) -> some View {
+        let sentence = HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if let symbol {
+                Image(systemName: symbol)
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(tint)
+                    .accessibilityHidden(true)
+            } else {
+                ProgressView().controlSize(.mini)
+            }
+            Text(message)
+                .scaledFont(.system(size: 11, weight: .medium))
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
+        let row = HStack(spacing: 6) { buttons() }.fixedSize()
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 8) {
+                sentence
+                Spacer(minLength: 8)
+                row
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                sentence
+                row
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.opacity(0.12))
+        .accessibilityElement(children: .contain)
+    }
+
+    static func runningMessage(_ running: EditorPDFTools.Running, progress: EditorPDFTools.Progress?) -> String {
+        guard let progress, progress.total > 0 else { return "\(running.tool) — waiting for the PDF reader…" }
+        return "\(running.tool) — page \(progress.page) of \(progress.total)"
     }
 
     static func symbol(_ kind: EditorPDFToolBanner.Kind) -> String {
@@ -123,5 +233,19 @@ struct EditorPDFToolBannerView: View {
         case .note: return "info.circle"
         case .failure: return "exclamationmark.triangle.fill"
         }
+    }
+}
+
+extension EditorPDFTools {
+    /// The banner's door to a copy, or — when it is no longer there (trashed, moved) — a banner
+    /// saying so instead of a door that silently does nothing.
+    func follow(_ path: String, _ door: (String) -> Void) {
+        guard FileManager.default.fileExists(atPath: path) else {
+            banner = EditorPDFToolBanner(
+                message: "“\((path as NSString).lastPathComponent)” is no longer there — it was moved or deleted.",
+                kind: .note)
+            return
+        }
+        door(path)
     }
 }

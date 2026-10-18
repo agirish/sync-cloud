@@ -664,10 +664,12 @@ extension ContentView {
     ///
     /// - Returns: `false` when the caller must do nothing at all.
     @discardableResult
-    func settleEditorDocument() -> Bool {
-        // **A PDF's pending reorder is the one thing a PDF can lose** — dragged in the Pages tab and
-        // not yet saved as a copy. Asked here because every route out of the document asks this.
-        guard editorPDF.tools.confirmLeaving() else { return false }
+    func settleEditorDocument(asksAboutPDFWork: Bool = true) -> Bool {
+        // **What a PDF can lose: a pending reorder, or a tool still running** — asked here because
+        // every route out of the document asks this. Asked only: the order and the run go when the
+        // PDF really closes, so a route that fails after the answer (⌘N's file could not be made)
+        // keeps both. Not for a window close, which the PDF outlives — nothing of it is at risk.
+        if asksAboutPDFWork { guard editorPDF.tools.mayLeave() else { return false } }
         // **A word being composed is committed first** (UND-5), so it is in the buffer for the
         // question, the flush and the history below — never left in a storage put away without it.
         editorDocument.buffer.source.endComposition()
@@ -1012,7 +1014,7 @@ extension ContentView {
     func closeEditorDocument() {
         // A PDF has nothing to settle but a pending reorder; its own close releases its pages.
         if editorPDF.path != nil {
-            guard editorPDF.tools.confirmLeaving() else { return }
+            guard editorPDF.tools.mayLeave() else { return }
             EditorOpenRoute.closePDF(editorPDF,
                                      paneSelection: { syncManager.selectedLeftPaths },
                                      setPaneSelection: { syncManager.selectedLeftPaths = $0 },

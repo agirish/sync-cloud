@@ -28,7 +28,8 @@ struct EditorPDFToolSheetView: View {
             }
         }
         .padding(20)
-        .frame(width: 400)
+        // A floor, not a fixed width: at the Large text size the radio rows and captions need more.
+        .frame(minWidth: 400, idealWidth: 420)
         .tint(accent)
     }
 }
@@ -109,7 +110,9 @@ struct EditorPDFPageRangeSheet: View {
                     .textFieldStyle(.roundedBorder)
                 Text(parsed.caption)
                     .scaledFont(.system(size: 11))
-                    .foregroundStyle(parsed.pages == nil ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                    // Blank is not an error yet — it is where an empty selection starts.
+                    .foregroundStyle(parsed.pages == nil && !parsed.isBlank ? AnyShapeStyle(.red)
+                                                                            : AnyShapeStyle(.secondary))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -125,20 +128,29 @@ struct EditorPDFPageRangeSheet: View {
     /// The pages typed, or why not — Extract keeps the order typed and allows a page twice, Delete
     /// does not care about order. Blank is refused for both: blank-means-all would make Delete
     /// "delete everything" and Extract a plain copy.
-    static func parse(_ text: String, action: EditorPDFPageAction, pageCount: Int) -> (pages: [Int]?, caption: String) {
+    ///
+    /// **An en dash is read as a hyphen**: the copy's name and this sheet's own caption say "3–5", and
+    /// pasting that back used to fail — `PageRangeParser` reads only "-".
+    static func parse(_ text: String, action: EditorPDFPageAction,
+                      pageCount: Int) -> (pages: [Int]?, caption: String, isBlank: Bool) {
+        let typed = text.replacingOccurrences(of: "–", with: "-").replacingOccurrences(of: "—", with: "-")
+        if typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return (nil, action == .extract ? "Type the pages to keep, in the order you want them — e.g. 3-5, 1."
+                                            : "Type the pages to leave out — e.g. 1, 4-6.", true)
+        }
         do {
-            let pages = try PageRangeParser.parse(text, pageCount: pageCount, emptyMeansAllPages: false,
+            let pages = try PageRangeParser.parse(typed, pageCount: pageCount, emptyMeansAllPages: false,
                                                   preserveOrder: action == .extract)
             if action == .delete, Set(pages).count >= pageCount {
-                return (nil, PDFOperationError.cannotRemoveEveryPage.errorDescription ?? "")
+                return (nil, PDFOperationError.cannotRemoveEveryPage.errorDescription ?? "", false)
             }
             let tool: EditorPDFTool = action == .extract ? .extract(pages) : .deletePages(pages)
             let detail = action == .extract
                 ? "Keeps \(EditorPDFCopyName.pageList(pages)), in this order"
                 : "Leaves out \(EditorPDFCopyName.pageList(pages.sorted()))"
-            return (pages, "\(detail) — as “… (\(tool.suffix)).pdf”.")
+            return (pages, "\(detail) — as “… (\(tool.suffix)).pdf”.", false)
         } catch {
-            return (nil, (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            return (nil, (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, false)
         }
     }
 }
@@ -152,11 +164,14 @@ struct EditorPDFCompressSheet: View {
     /// or focus loss, so a click on Compress could run at the number the field held before.
     @State private var typedMegabytes = "2"
     @State private var failure: String?
+    /// Read once when the sheet opens — the body redraws on every page of progress.
+    @State private var size: Int?
+    /// The window's hue, for the segmented picker — `accentedSegments` takes the hue itself.
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     var body: some View {
-        let size = tools.path.flatMap { EditorFileStore.stamp(ofPath: $0)?.size }
         EditorPDFToolSheetFrame(tools: tools, title: "Compress", action: "Compress",
-                                canRun: !byTarget || Self.megabytes(typedMegabytes) != nil,
+                                canRun: !byTarget || EditorPDFCompression.megabytes(typedMegabytes) != nil,
                                 failure: failure, run: go) {
             VStack(alignment: .leading, spacing: 10) {
                 Picker("", selection: $byTarget) {
@@ -165,6 +180,7 @@ struct EditorPDFCompressSheet: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
                 if byTarget {
                     HStack(spacing: 6) {
                         Text("Under")
@@ -196,20 +212,14 @@ struct EditorPDFCompressSheet: View {
                 }
             }
         }
-    }
-
-    /// A typed figure — "1.5", "1,5", " 2 " — or `nil` for one that is not a positive number.
-    static func megabytes(_ typed: String) -> Double? {
-        let text = typed.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
-        guard let value = Double(text), value.isFinite, value > 0 else { return nil }
-        return value
+        .task { size = tools.path.flatMap { EditorFileStore.stamp(ofPath: $0)?.size } }
     }
 
     private func go() {
         failure = nil
         let compression: EditorPDFCompression
         if byTarget {
-            guard let megabytes = Self.megabytes(typedMegabytes) else { return }
+            guard let megabytes = EditorPDFCompression.megabytes(typedMegabytes) else { return }
             compression = .target(bytes: EditorPDFCompression.bytes(megabytes: megabytes))
         } else {
             compression = .quality(quality)
@@ -283,12 +293,7 @@ struct EditorPDFMetadataSheet: View {
 
     private func read() async {
         guard let path = tools.path else { return }
-        let url = URL(fileURLWithPath: path)
-        let read = await PDFKitSerialAccess.perform { () -> Result<ReadFields, any Error> in
-            Result { ReadFields(fields: try PDFToolkit.readMetadata(inputURL: url),
-                                hasForm: PDFToolkit.hasInteractiveForm(at: url)) }
-        }
-        switch read {
+        switch await Self.read(path: path) {
         case .success(let read):
             fields = read.fields
             hasForm = read.hasForm
@@ -297,7 +302,16 @@ struct EditorPDFMetadataSheet: View {
         }
     }
 
-    private struct ReadFields: Sendable {
+    /// What the file says, and whether it has a form — one lane turn, by URL.
+    static func read(path: String) async -> Result<ReadFields, any Error> {
+        let url = URL(fileURLWithPath: EditorFileStore.resolved(path))
+        return await PDFKitSerialAccess.perform {
+            Result { ReadFields(fields: try PDFToolkit.readMetadata(inputURL: url),
+                                hasForm: PDFToolkit.hasInteractiveForm(at: url)) }
+        }
+    }
+
+    struct ReadFields: Sendable {
         var fields: PDFMetadataFields
         var hasForm: Bool
     }
@@ -317,6 +331,8 @@ struct EditorPDFProtectSheet: View {
     @State private var password = ""
     @State private var confirmation = ""
     @State private var failure: String?
+    /// The window's hue, for the segmented picker — `accentedSegments` takes the hue itself.
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     var body: some View {
         let strength = PasswordStrengthEstimator.estimate(password)
@@ -330,6 +346,7 @@ struct EditorPDFProtectSheet: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
                 Text(restrictEditing
                      ? "The copy opens without a password; copying, editing and changing pages need it. Readers honor this — it doesn’t encrypt what the pages say."
                      : "The copy needs this password to open. SyncCloud doesn’t keep it — without it, the copy can’t be opened.")
@@ -397,6 +414,11 @@ struct EditorPDFRemovePasswordSheet: View {
                     SecureField("Password", text: $password)
                         .textFieldStyle(.roundedBorder)
                     Text("The copy opens without a password. SyncCloud uses this one only to write it.")
+                        .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    // A locked file's form cannot be seen without the password, so the warning the
+                    // other rebuilding tools give only when there IS a form is said here always.
+                    Text("If this PDF has fillable form fields, they stop working in the copy.")
                         .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {

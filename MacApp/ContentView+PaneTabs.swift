@@ -671,7 +671,8 @@ extension ContentView {
             // leaves both the tab and the window where they are. A "Don't Save" reloads the file,
             // since the document stays open behind the window (UND-6).
             guard EditorDocumentClose.settleForWindowClose(
-                document: editorDocument, settle: { settleEditorDocument() },
+                // The PDF outlives the window, so its pending order is not asked about here.
+                document: editorDocument, settle: { settleEditorDocument(asksAboutPDFWork: false) },
                 reload: { reloadOverTheBuffer(path: $0) }) else {
                 Logger.shared.info(
                     "User cancelled Close Tab on the \(PaneSideChoice.name(isLeft)) pane's last "

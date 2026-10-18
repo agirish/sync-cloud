@@ -111,6 +111,12 @@ public struct EditorPDFPageSelection: Equatable, Sendable {
         anchor = nil
     }
 
+    /// ⌘A in the Pages tab.
+    public mutating func selectAll(_ order: [Int]) {
+        pages = Set(order)
+        anchor = order.first
+    }
+
     /// The pages a menu on `page` acts on: the selection when the page is in it, else that page.
     public func target(for page: Int, order: [Int]) -> [Int] {
         guard pages.contains(page) else { return [page] }
@@ -131,6 +137,15 @@ public enum EditorPDFArrangement {
         guard let inRest = rest.firstIndex(of: target) else { return order }
         rest.insert(contentsOf: moved, at: first < targetAt ? inRest + 1 : inRest)
         return rest
+    }
+
+    /// `page` one place earlier (`step` −1) or later (+1) — VoiceOver's way to reorder, where a
+    /// drag is not. Unchanged at either end.
+    public static func stepping(_ page: Int, by step: Int, in order: [Int]) -> [Int] {
+        guard let at = order.firstIndex(of: page), order.indices.contains(at + step) else { return order }
+        var next = order
+        next.swapAt(at, at + step)
+        return next
     }
 }
 
@@ -174,11 +189,18 @@ public final class EditorPDFTools: ObservableObject {
 
     /// Set by the app; a no-op otherwise, so a test can run a tool without a window.
     public var host = EditorPDFToolHost()
+    /// Whether the file is only in the cloud now — evicted since it opened. The toolkit opens it
+    /// by URL in the lane, and a dataless file downloads synchronously on whatever thread asks,
+    /// which is the lane every duplicate scan waits on; so a run refuses it, as the open does.
+    var isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
+    /// Called IN THE LANE before each of Compress's pages, with the run's cancel flag — the tests'
+    /// way to cancel between two pages without racing the main actor. `nil` in the app.
+    var laneProgressHook: (@Sendable (Int, Int, CancelFlag) -> Void)?
     /// Asks whether to go ahead despite `warning` — a native alert in the app, a canned answer in a
     /// test. `toolTitle` is the tool's own title, which `detailLines` names.
     var confirm: @MainActor (OutputFidelityWarning, String) -> Bool = { EditorPDFTools.confirmWithAlert($0, toolTitle: $1) }
-    /// Asks whether a pending reorder may be dropped — see ``confirmLeaving()``.
-    var confirmDiscardingArrangement: @MainActor () -> Bool = { EditorPDFTools.confirmDiscardWithAlert() }
+    /// Asks whether a pending reorder or a run in flight may be lost — see ``mayLeave()``.
+    lazy var confirmDiscardingArrangement: @MainActor () -> Bool = { [unowned self] in self.confirmDiscardWithAlert() }
 
     private var cancelFlag: CancelFlag?
     private var generation = 0
@@ -190,18 +212,20 @@ public final class EditorPDFTools: ObservableObject {
     // MARK: The file
 
     func attach(path: String, pageCount: Int, encryption: PDFEncryptionState) {
-        if self.path != path || self.pageCount != pageCount {
-            // The same file, changed on disk under a pending order: the order named pages that
-            // are no longer there, so it goes — and says so rather than vanishing.
-            let dropped = self.path == path && arrangement != nil
-            selection.clear()
-            arrangement = nil
-            if dropped {
+        if self.path == path {
+            // **A reload: the file changed on disk.** A pending order went with it whatever the
+            // page count — the pages it named may now say something else — and says so. The
+            // selection survives while the count does, as the reader's place does.
+            if arrangement != nil {
+                arrangement = nil
+                Logger.shared.info("Edit dropped the new page order of \(Self.logName(path)) — the file changed on disk")
                 banner = EditorPDFToolBanner(message: "The file changed on disk, so the new page order was dropped.",
                                              kind: .note)
             }
-        }
-        if self.path != path {
+            if self.pageCount != pageCount { selection.clear() }
+        } else {
+            selection.clear()
+            arrangement = nil
             banner = nil
             dragToken = UUID()
         }
@@ -219,6 +243,16 @@ public final class EditorPDFTools: ObservableObject {
     }
 
     func detach() {
+        if let path {
+            // Asked about first where it can be (``mayLeave()``); said here either way, since a
+            // close from elsewhere — the file deleted, an external open — asks nobody.
+            if let running {
+                Logger.shared.info("Edit cancelled \(running.tool.lowercased()) of \(Self.logName(path)) — the file was closed")
+            }
+            if arrangement != nil {
+                Logger.shared.info("Edit discarded the new page order of \(Self.logName(path)) — the file was closed")
+            }
+        }
         generation &+= 1
         cancelFlag?.cancel()
         path = nil
@@ -239,8 +273,7 @@ public final class EditorPDFTools: ObservableObject {
     public static let lockedReason = "Remove the password first. That writes an unlocked copy."
     /// Why Clean Metadata is not offered on any encrypted file — the toolkit refuses
     /// (`metadataEncrypted`), so it is said up front instead.
-    public static let metadataEncryptedReason =
-        "This PDF is password-protected, so its metadata can’t be cleaned. Remove the password first."
+    public static let metadataEncryptedReason = "Password-protected — remove the password to clean metadata"
 
     /// Whether the page tools, Compress and Protect may run. Restricted-only files are let through:
     /// rebuilding tools work on them, and the in-place ones say why not in the toolkit's words.
@@ -273,6 +306,15 @@ public final class EditorPDFTools: ObservableObject {
 
     public func clearSelection() { selection.clear() }
 
+    public func selectAll() { selection.selectAll(order) }
+
+    /// `page` one place earlier or later in the pending order — the accessibility actions' reorder.
+    public func step(_ page: Int, by step: Int) {
+        guard acceptsReorder else { return }
+        let next = EditorPDFArrangement.stepping(page, by: step, in: order)
+        arrangement = next == Array(0..<pageCount) ? nil : next
+    }
+
     /// `pages` dropped onto `target` in the Pages tab — a pending order, written nowhere.
     public func move(_ pages: [Int], onto target: Int) {
         guard acceptsReorder else { return }
@@ -283,13 +325,22 @@ public final class EditorPDFTools: ObservableObject {
     /// Back to the file's own order.
     public func resetArrangement() { arrangement = nil }
 
-    /// **Asks before a pending reorder is dropped** by opening another file or closing this one.
-    /// True when there is nothing to lose or the reader said to drop it.
-    public func confirmLeaving() -> Bool {
-        guard arrangement != nil else { return true }
-        guard confirmDiscardingArrangement() else { return false }
-        arrangement = nil
-        return true
+    /// Whether leaving the file would lose something: a pending order, or a run still in flight.
+    public var hasWorkToLose: Bool { arrangement != nil || running != nil }
+
+    /// **Asks before a pending reorder — or a run in flight — is lost** to opening another file,
+    /// closing this one or quitting. True when there is nothing to lose or the reader said to go.
+    ///
+    /// **It only asks; it drops nothing.** The order and the run go when the file really closes
+    /// (``detach()``), which every leave that happens calls — so a leave that fails after the
+    /// answer (⌘N's file could not be made, a later quit question was answered Wait) keeps both.
+    public func mayLeave() -> Bool {
+        guard hasWorkToLose, let path else { return true }
+        let go = confirmDiscardingArrangement()
+        Logger.shared.info("Edit asked before leaving \(Self.logName(path)) with "
+                           + (running != nil ? "a tool running" : "a new page order not saved")
+                           + (go ? " — the reader chose to leave" : " — the reader stayed"))
+        return go
     }
 
     // MARK: Running
@@ -312,10 +363,14 @@ public final class EditorPDFTools: ObservableObject {
     /// own failure in place, where the field that caused it is.
     @discardableResult
     public func run(_ tool: EditorPDFTool, bannerFailures: Bool = true) async -> EditorPDFToolOutcome {
-        guard let path else { return .nothingWritten("No PDF is open.") }
+        guard let path else { return .failed("No PDF is open.") }
+        let logName = Self.logName(path)
+        // A failure, not "nothing written": a sheet must stay up with this said in it, not close.
         guard running == nil else {
-            banner = EditorPDFToolBanner(message: "Another tool is still running.", kind: .note)
-            return .nothingWritten("Another tool is still running.")
+            let busy = "Another tool is still running — try again when it has finished."
+            Logger.shared.info("Edit refused \(tool.logDetail) of \(logName) — \(running?.tool ?? "another tool") is running")
+            if bannerFailures { banner = EditorPDFToolBanner(message: busy, kind: .failure) }
+            return .failed(busy)
         }
         let generation = self.generation
         // **The file itself, through any symlink**: the toolkit reads the source's size with
@@ -325,19 +380,25 @@ public final class EditorPDFTools: ObservableObject {
         let input = URL(fileURLWithPath: EditorFileStore.resolved(path))
         let name = (path as NSString).lastPathComponent
 
+        // The sizes the success banner quotes, known once the bytes are in hand.
+        var sizes: (before: Int?, after: Int)?
+
         func end(_ outcome: EditorPDFToolOutcome) -> EditorPDFToolOutcome {
-            // Another file is open now: what this run says is about one that is not on screen.
+            // Another file is open now: what this run says is about one that is not on screen —
+            // and ``detach()`` has already logged that it went.
             guard generation == self.generation else { return outcome }
             running = nil
             cancelFlag = nil
             switch outcome {
             case .wrote(let copy):
                 let copyName = (copy as NSString).lastPathComponent
-                banner = EditorPDFToolBanner(message: wroteMessage(copyName, tool: tool, source: path, copy: copy),
-                                             kind: .wrote(copy))
+                banner = EditorPDFToolBanner(
+                    message: wroteMessage(copyName, tool: tool, before: sizes?.before, after: sizes?.after),
+                    kind: .wrote(copy))
             case .nothingWritten(let message):
                 banner = EditorPDFToolBanner(message: message, kind: .note)
             case .cancelled:
+                Logger.shared.info("Edit cancelled \(tool.title.lowercased()) of \(logName) — nothing written")
                 banner = EditorPDFToolBanner(message: "\(tool.title) cancelled — nothing was written.", kind: .note)
             case .failed(let message):
                 if bannerFailures { banner = EditorPDFToolBanner(message: message, kind: .failure) }
@@ -347,9 +408,17 @@ public final class EditorPDFTools: ObservableObject {
             return outcome
         }
 
-        if let refusal = EditorPDFToolEngine.refusal(tool, pageCount: pageCount) { return end(.failed(refusal)) }
+        if isCloudOnly(path) {
+            Logger.shared.info("Edit refused \(tool.logDetail) of \(logName) — not downloaded")
+            return end(.failed(EditorPDFDocument.notDownloadedReason))
+        }
+        if let refusal = EditorPDFToolEngine.refusal(tool, pageCount: pageCount) {
+            Logger.shared.info("Edit refused \(tool.logDetail) of \(logName) — \(refusal)")
+            return end(.failed(refusal))
+        }
         if case .compress(.target(let bytes)) = tool, let size = EditorFileStore.stamp(ofPath: path)?.size,
            size <= bytes {
+            Logger.shared.info("Edit wrote nothing for \(tool.logDetail) of \(logName) — already under the target")
             return end(.nothingWritten("“\(name)” is already \(FileSyncManager.formatBytes(size)), under the "
                                        + "\(FileSyncManager.formatBytes(bytes)) target — nothing was written."))
         }
@@ -360,14 +429,19 @@ public final class EditorPDFTools: ObservableObject {
         cancelFlag = flag
         if let warning = await EditorPDFToolEngine.fidelityWarning(for: tool, input: input) {
             guard generation == self.generation, !flag.isCancelled else { return end(.cancelled) }
-            guard confirm(warning, tool.title) else { return end(.declined) }
+            guard confirm(warning, tool.title) else {
+                Logger.shared.info("Edit did not \(tool.logDetail) of \(logName) — declined: \(warning.confirmationTitle)")
+                return end(.declined)
+            }
         }
         guard generation == self.generation else { return end(.cancelled) }
 
         let before = EditorFileStore.stamp(ofPath: path)
+        let hook = laneProgressHook
         let result = await EditorPDFToolEngine.run(
             tool, input: input,
             progress: { [weak self] page, total in
+                hook?(page, total, flag)
                 Task { @MainActor in
                     // Counted and kept even when it lands after the run has ended — the lane
                     // can finish before the main actor reads its first report.
@@ -381,21 +455,19 @@ public final class EditorPDFTools: ObservableObject {
         guard generation == self.generation else { return end(.cancelled) }
         // **Cancel holds for every tool, not only Compress's page loop** — pressed while the run
         // waited for the lane, or after Compress's last page, it still means "write nothing".
-        if flag.isCancelled, case .success = result {
-            Logger.shared.info("Edit cancelled \(tool.title.lowercased()) of \(name) — nothing written")
-            return end(.cancelled)
-        }
+        if flag.isCancelled, case .success = result { return end(.cancelled) }
 
         switch result {
         case .failure(let error) where error is CancellationError:
-            Logger.shared.info("Edit cancelled \(tool.title.lowercased()) of \(name) — nothing written")
             return end(.cancelled)
         case .failure(let error):
+            // `.info`, not `.warning`: these are the toolkit's refusals — a wrong password, a
+            // restricted file, an empty page range — answers about the file, not faults in the app.
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            Logger.shared.info("Edit could not \(tool.logDetail) of \(name) — \(message)")
+            Logger.shared.info("Edit could not \(tool.logDetail) of \(logName) — \(message)")
             return end(.failed(message))
         case .success(.noGain):
-            Logger.shared.info("Edit wrote nothing for \(tool.logDetail) of \(name) — no smaller than the original")
+            Logger.shared.info("Edit wrote nothing for \(tool.logDetail) of \(logName) — no smaller than the original")
             return end(.nothingWritten(Self.noGainMessage(tool)))
         case .success(.bytes(let data)):
             let suffix = tool.suffix
@@ -405,12 +477,13 @@ public final class EditorPDFTools: ObservableObject {
             switch written {
             case .failure(let error):
                 let message = "Couldn’t write the copy of “\(name)” — \(error.localizedDescription)"
-                Logger.shared.warning("Edit could not write \(tool.logDetail) of \(name): \(error.localizedDescription)")
+                Logger.shared.warning("Edit could not write \(tool.logDetail) of \(logName): \(error.localizedDescription)")
                 return end(.failed(message))
             case .success(let copy):
-                let sizes = Self.sizes(before: before?.size, after: data.count)
-                Logger.shared.info("Edit wrote \((copy as NSString).lastPathComponent) from \(name) — "
-                                   + tool.logDetail + (sizes.map { ", \($0)" } ?? ""))
+                sizes = (before?.size, data.count)
+                let quoted = Self.sizes(before: before?.size, after: data.count)
+                Logger.shared.info("Edit wrote \((copy as NSString).lastPathComponent) from \(logName) — "
+                                   + tool.logDetail + (quoted.map { ", \($0)" } ?? ""))
                 host.didWrite(copy)
                 return end(.wrote(copy))
             }
@@ -418,17 +491,27 @@ public final class EditorPDFTools: ObservableObject {
     }
 
     /// The banner's sentence for a copy that landed — sizes for Compress, and for a size target the
-    /// reader missed, by how much.
-    private func wroteMessage(_ copyName: String, tool: EditorPDFTool, source: String, copy: String) -> String {
-        guard case .compress(let compression) = tool else { return "Wrote “\(copyName)”" }
-        let before = EditorFileStore.stamp(ofPath: source)?.size
-        let after = EditorFileStore.stamp(ofPath: copy)?.size
-        let sizes = Self.sizes(before: before, after: after).map { " — \($0)" } ?? ""
-        if case .target(let bytes) = compression, let after, after > bytes {
-            return "Wrote “\(copyName)”\(sizes). No setting reached \(FileSyncManager.formatBytes(bytes)); "
-                + "this is the smallest it got."
+    /// reader missed, by how much; and for a restricted original, that the copy is not restricted.
+    private func wroteMessage(_ copyName: String, tool: EditorPDFTool, before: Int?, after: Int?) -> String {
+        var message = "Wrote “\(copyName)”"
+        if case .compress(let compression) = tool {
+            message += Self.sizes(before: before, after: after).map { " — \($0)" } ?? ""
+            if case .target(let bytes) = compression, let after, after > bytes {
+                message += ". No setting reached \(FileSyncManager.formatBytes(bytes)); this is the smallest it got"
+            }
         }
-        return "Wrote “\(copyName)”\(sizes)"
+        // The rebuilding tools write a fresh document, which carries no encryption dictionary: the
+        // original's editing restrictions do not survive into the copy, and that is said.
+        if encryption == .restrictedOnly, tool.rebuildsDocument {
+            message += ". The copy has no editing restrictions"
+        }
+        return message
+    }
+
+    /// `"Invoice.pdf in /Users/…/Finance"` — the log's name for a file, which two same-named PDFs in
+    /// different folders do not share.
+    static func logName(_ path: String) -> String {
+        "\((path as NSString).lastPathComponent) in \((path as NSString).deletingLastPathComponent)"
     }
 
     static func sizes(before: Int?, after: Int?) -> String? {
@@ -456,11 +539,26 @@ public final class EditorPDFTools: ObservableObject {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    static func confirmDiscardWithAlert() -> Bool {
+    /// The leave question, in the words of what would be lost.
+    static func leaveQuestion(running: String?, hasArrangement: Bool) -> (title: String, detail: String, go: String) {
+        if let running {
+            return ("Stop \(running)?",
+                    "\(running) is still running on this PDF. Leaving stops it, and nothing is written."
+                        + (hasArrangement ? " The new page order is discarded too." : "")
+                        + " The original file is unchanged either way.",
+                    "Stop and Leave")
+        }
+        return ("Discard the new page order?",
+                "The pages were reordered but no copy was saved. The original file is unchanged either way.",
+                "Discard")
+    }
+
+    func confirmDiscardWithAlert() -> Bool {
+        let question = Self.leaveQuestion(running: running?.tool, hasArrangement: arrangement != nil)
         let alert = NSAlert()
-        alert.messageText = "Discard the new page order?"
-        alert.informativeText = "The pages were reordered but no copy was saved. The original file is unchanged either way."
-        alert.addButton(withTitle: "Discard")
+        alert.messageText = question.title
+        alert.informativeText = question.detail
+        alert.addButton(withTitle: question.go)
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
     }

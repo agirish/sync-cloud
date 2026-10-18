@@ -255,7 +255,8 @@ import FileExplorer
     @Test func theLastTabsCloseReloadsOnADiscard() throws {
         let tabs = try EditorHeaderDoorsWiringTests.source("ContentView+PaneTabs.swift")
         let call = try CallArguments(of: "EditorDocumentClose.settleForWindowClose(", in: normalizedCode(tabs))
-        #expect(call.passes("settle", "{ settleEditorDocument() }"))
+        // The PDF outlives the window, so the last tab's close does not ask about its pending work.
+        #expect(call.passes("settle", "{ settleEditorDocument(asksAboutPDFWork: false) }"))
         #expect(call.passes("reload", "{ reloadOverTheBuffer(path: $0) }"),
                 "a discard before the window closes no longer reloads the file")
         #expect(!CodeText(tabs).contains("guard settleEditorDocument() else"),

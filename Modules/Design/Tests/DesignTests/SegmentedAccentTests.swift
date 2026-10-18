@@ -194,7 +194,9 @@ import Testing
         // 8 since setup's Structure screen gained "Your folders / Where loose files would go" —
         // and setup's Appearance screen re-uses the light/dark picker that was already counted.
         // 9 since Readability gained "Column widths" (Each column / All columns), under Row spacing.
-        #expect(sites == 9, "expected 9 segmented pickers in the app, found \(sites)")
+        // 11 since Edit's PDF tools: Compress's "By strength / To a size" and Protect's "Lock to
+        // open / Restrict editing".
+        #expect(sites == 11, "expected 11 segmented pickers in the app, found \(sites)")
     }
 
     /// Every Swift file the SHIPPING app is built from: each module's `Sources`, plus `MacApp`.
