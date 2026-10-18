@@ -220,6 +220,17 @@ public protocol FileActionDelegate: Sendable {
 
     /// Closes the pane's active tab.
     func handleCloseTab()
+
+    /// Whether this host can run the PDF tools on a row's files. Gated like the doors above: a
+    /// conformer with no window behind it — every test stub — draws no PDF Tools submenu rather
+    /// than one whose items do nothing.
+    var canRunPDFTools: Bool { get }
+
+    /// Runs one of Edit's whole-file PDF tools from a row's menu — on one PDF, or on several for
+    /// Rotate All Pages, Compress and Clean Metadata. Every tool writes a NEW copy next to each
+    /// original and never touches the original. The window reads each file again in the PDFKit
+    /// lane before anything runs; the menu's answer is only what it offered.
+    func handlePDFTool(_ request: PDFToolRequest, paths: [String])
 }
 
 extension FileActionDelegate {
@@ -296,4 +307,8 @@ extension FileActionDelegate {
     public func handleNewTab(at path: String) {}
     public var canCloseTab: Bool { false }
     public func handleCloseTab() {}
+
+    /// Same default, same reason, and declared as requirements above for the same one.
+    public var canRunPDFTools: Bool { false }
+    public func handlePDFTool(_ request: PDFToolRequest, paths: [String]) {}
 }

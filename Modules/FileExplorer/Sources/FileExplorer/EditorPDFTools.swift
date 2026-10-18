@@ -28,6 +28,8 @@ public struct EditorPDFToolBanner: Equatable, Identifiable, Sendable {
     public enum Kind: Equatable, Sendable {
         /// A copy was written at this path — the banner offers Open and Reveal in Browse.
         case wrote(String)
+        /// A batch from a pane's menu wrote these copies — its banner offers Reveal in Browse.
+        case wroteSeveral([String])
         /// Nothing went wrong and nothing was written — "already about as small as this gets".
         case note
         case failure
@@ -189,6 +191,9 @@ public final class EditorPDFTools: ObservableObject {
 
     /// Set by the app; a no-op otherwise, so a test can run a tool without a window.
     public var host = EditorPDFToolHost()
+    /// Who a run's log lines say ran the tool — "Edit" for the reader's own tools; a run from a
+    /// pane's menu names its workspace instead (``PanePDFTools``).
+    var writer = "Edit"
     /// Whether the file is only in the cloud now — evicted since it opened. The toolkit opens it
     /// by URL in the lane, and a dataless file downloads synchronously on whatever thread asks,
     /// which is the lane every duplicate scan waits on; so a run refuses it, as the open does.
@@ -368,7 +373,7 @@ public final class EditorPDFTools: ObservableObject {
         // A failure, not "nothing written": a sheet must stay up with this said in it, not close.
         guard running == nil else {
             let busy = "Another tool is still running — try again when it has finished."
-            Logger.shared.info("Edit refused \(tool.logDetail) of \(logName) — \(running?.tool ?? "another tool") is running")
+            Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — \(running?.tool ?? "another tool") is running")
             if bannerFailures { banner = EditorPDFToolBanner(message: busy, kind: .failure) }
             return .failed(busy)
         }
@@ -398,7 +403,7 @@ public final class EditorPDFTools: ObservableObject {
             case .nothingWritten(let message):
                 banner = EditorPDFToolBanner(message: message, kind: .note)
             case .cancelled:
-                Logger.shared.info("Edit cancelled \(tool.title.lowercased()) of \(logName) — nothing written")
+                Logger.shared.info("\(writer) cancelled \(tool.title.lowercased()) of \(logName) — nothing written")
                 banner = EditorPDFToolBanner(message: "\(tool.title) cancelled — nothing was written.", kind: .note)
             case .failed(let message):
                 if bannerFailures { banner = EditorPDFToolBanner(message: message, kind: .failure) }
@@ -409,16 +414,16 @@ public final class EditorPDFTools: ObservableObject {
         }
 
         if isCloudOnly(path) {
-            Logger.shared.info("Edit refused \(tool.logDetail) of \(logName) — not downloaded")
+            Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — not downloaded")
             return end(.failed(EditorPDFDocument.notDownloadedReason))
         }
         if let refusal = EditorPDFToolEngine.refusal(tool, pageCount: pageCount) {
-            Logger.shared.info("Edit refused \(tool.logDetail) of \(logName) — \(refusal)")
+            Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — \(refusal)")
             return end(.failed(refusal))
         }
         if case .compress(.target(let bytes)) = tool, let size = EditorFileStore.stamp(ofPath: path)?.size,
            size <= bytes {
-            Logger.shared.info("Edit wrote nothing for \(tool.logDetail) of \(logName) — already under the target")
+            Logger.shared.info("\(writer) wrote nothing for \(tool.logDetail) of \(logName) — already under the target")
             return end(.nothingWritten("“\(name)” is already \(FileSyncManager.formatBytes(size)), under the "
                                        + "\(FileSyncManager.formatBytes(bytes)) target — nothing was written."))
         }
@@ -430,7 +435,7 @@ public final class EditorPDFTools: ObservableObject {
         if let warning = await EditorPDFToolEngine.fidelityWarning(for: tool, input: input) {
             guard generation == self.generation, !flag.isCancelled else { return end(.cancelled) }
             guard confirm(warning, tool.title) else {
-                Logger.shared.info("Edit did not \(tool.logDetail) of \(logName) — declined: \(warning.confirmationTitle)")
+                Logger.shared.info("\(writer) did not \(tool.logDetail) of \(logName) — declined: \(warning.confirmationTitle)")
                 return end(.declined)
             }
         }
@@ -464,10 +469,10 @@ public final class EditorPDFTools: ObservableObject {
             // `.info`, not `.warning`: these are the toolkit's refusals — a wrong password, a
             // restricted file, an empty page range — answers about the file, not faults in the app.
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            Logger.shared.info("Edit could not \(tool.logDetail) of \(logName) — \(message)")
+            Logger.shared.info("\(writer) could not \(tool.logDetail) of \(logName) — \(message)")
             return end(.failed(message))
         case .success(.noGain):
-            Logger.shared.info("Edit wrote nothing for \(tool.logDetail) of \(logName) — no smaller than the original")
+            Logger.shared.info("\(writer) wrote nothing for \(tool.logDetail) of \(logName) — no smaller than the original")
             return end(.nothingWritten(Self.noGainMessage(tool)))
         case .success(.bytes(let data)):
             let suffix = tool.suffix
@@ -477,12 +482,12 @@ public final class EditorPDFTools: ObservableObject {
             switch written {
             case .failure(let error):
                 let message = "Couldn’t write the copy of “\(name)” — \(error.localizedDescription)"
-                Logger.shared.warning("Edit could not write \(tool.logDetail) of \(logName): \(error.localizedDescription)")
+                Logger.shared.warning("\(writer) could not write \(tool.logDetail) of \(logName): \(error.localizedDescription)")
                 return end(.failed(message))
             case .success(let copy):
                 sizes = (before?.size, data.count)
                 let quoted = Self.sizes(before: before?.size, after: data.count)
-                Logger.shared.info("Edit wrote \((copy as NSString).lastPathComponent) from \(logName) — "
+                Logger.shared.info("\(writer) wrote \((copy as NSString).lastPathComponent) from \(logName) — "
                                    + tool.logDetail + (quoted.map { ", \($0)" } ?? ""))
                 host.didWrite(copy)
                 return end(.wrote(copy))

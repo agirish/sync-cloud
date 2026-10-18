@@ -1509,6 +1509,11 @@ struct FileContextMenu: View {
         labelSaidFavorite == isFavoriteNow
     }
 
+    /// The row's own ☁ answer when it has one, a fresh `lstat` otherwise — Download's rule below.
+    static func isCloudOnly(_ path: String) -> Bool {
+        CloudOnlyBadgeCache.cached(path) ?? MaterializationStatus.isCloudOnly(atPath: path)
+    }
+
     static func resolvedSelection(node: FileNode, selection: Set<String>, tree: [FileNode]) -> [FileNode] {
         let effectiveSelection: Set<String>
         if selection.isEmpty {
@@ -1567,6 +1572,16 @@ struct FileContextMenu: View {
         Group {
             SharedFileMenuItems.refresh(delegate: delegate)
             Divider()
+            // Several PDFs: the batch tools, first after Refresh (mockup 12). Hidden the moment the
+            // selection holds anything a tool could not read — a folder, another kind, a cloud-only
+            // file. The single-file submenu lives in its own section of the branch below.
+            if count > 1, delegate.canRunPDFTools, case .several(let paths)? = PanePDFToolOffer.offer(
+                for: selectedNodes,
+                isCloudOnly: { _ in PanePDFSelectionCloud.anyCloudOnly(selectedNodes.map(\.id), isCloudOnly: Self.isCloudOnly) },
+                encryption: { _ in .none }) {
+                PanePDFToolsSubmenu(offer: .several(paths: paths), delegate: delegate)
+                Divider()
+            }
             if count == 1, let singleNode = selectedNodes.first {
                 // **First after the divider**, ahead of Get Info and Reveal in Finder. Edit is a
                 // workspace of this app and the other two hand the file to something else — and
@@ -1620,6 +1635,15 @@ struct FileContextMenu: View {
                     } label: {
                         Label("Download", systemImage: "icloud.and.arrow.down")
                     }
+                }
+                // **Its own section, under the open-and-inspect items** (mockup 11), so it never
+                // shifts Rename or anything below it — and never between Refresh and Open in Edit,
+                // which leads this branch. Hidden, not greyed, for a folder, a non-PDF or a
+                // cloud-only file: nothing in it could run.
+                if delegate.canRunPDFTools, let offer = PanePDFToolOffer.offer(
+                    for: [singleNode], isCloudOnly: Self.isCloudOnly, encryption: PDFMenuEncryption.state(for:)) {
+                    Divider()
+                    PanePDFToolsSubmenu(offer: offer, delegate: delegate)
                 }
                 Divider()
                 Button(action: { delegate.handleRename(singleNode) }) {

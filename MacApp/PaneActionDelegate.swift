@@ -110,6 +110,10 @@ struct PaneActionDelegate: FileActionDelegate {
     /// this route and should not have to name it.
     var onCompareFilePair: (FileNode, FileNode, Bool) -> Void = { _, _, _ in }
     var onArmComparePick: (FileNode) -> Void = { _ in }
+    /// Runs a PDF tool from a row's menu — see ``handlePDFTool(_:paths:)``. Defaulted like the two
+    /// above, and ignored by `isEquivalent` like every closure here: it reaches the window's
+    /// `PanePDFTools` and the workspace through `@State`, whose storage outlives any render.
+    var onPDFTool: (PDFToolRequest, [String]) -> Void = { _, _ in }
     /// Forwarded from the host's `ComparePick`; nil when no pick is live.
     var armedComparePath: String?
 
@@ -351,6 +355,17 @@ struct PaneActionDelegate: FileActionDelegate {
 
     func handleCloseTab() {
         onCloseTab()
+    }
+
+    /// A real window is behind this delegate, with somewhere to present a tool's sheet.
+    var canRunPDFTools: Bool { true }
+
+    func handlePDFTool(_ request: PDFToolRequest, paths: [String]) {
+        // PDFs only, and passwords one file at a time — asserted here as well as in the menu, the
+        // shape every handler in this file uses.
+        guard !paths.isEmpty, paths.allSatisfy({ EditableText.isPDF(path: $0) }),
+              paths.count == 1 || request.runsOnSeveral else { return }
+        onPDFTool(request, paths)
     }
 
     func handleOpenInNewTab(_ node: FileNode) {

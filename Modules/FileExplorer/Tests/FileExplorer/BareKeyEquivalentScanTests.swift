@@ -190,6 +190,10 @@ import Testing
         // modal, and kept in a file of their own so the always-mounted menu stays in the net.
         "EditorPDFToolSheets.swift":
             "modal sheets: each tool's Cancel/run pair (.cancelAction/.defaultAction)",
+        // The batch's one sheet, presented with `.sheet` by the window for a pane-launched run —
+        // modal, and apart from `PanePDFTools.swift`, whose layer is always mounted.
+        "EditorPDFBatchSheet.swift":
+            "modal sheet: the batch's Cancel/run pair (.cancelAction/.defaultAction)",
     ]
 
     /// Is this file part of `FileExplorer`'s shipped source tree — at ANY depth under it?

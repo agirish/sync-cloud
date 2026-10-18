@@ -583,6 +583,27 @@ extension ContentView {
             reveal: { path in revealInBrowse(path, from: .pdfToolBanner) })
     }
 
+    /// **A PDF tool from a pane row's menu** — any workspace's file pane, Edit's own included. The
+    /// copies' follow-up is Edit's: the panes holding the folder re-read (and Edit's rail, when Edit
+    /// is on screen); the banner's Open hands the copy to Edit through the pane's own door, and its
+    /// Reveal in Browse is the reader's.
+    func startPanePDFTool(_ request: PDFToolRequest, paths: [String]) {
+        let writer = "PDF Tools in \(selectedWorkspace.title)"
+        panePDFTools.host = PanePDFToolHost(
+            didWrite: { path in
+                if selectedWorkspace == .editor { Task { await refreshEditorRail() } }
+                rereadPanesAfterEditorWrite(path, writer: "\(writer) wrote")
+            },
+            open: { path in handOffToEditor(path) },
+            // A batch's copies can sit in several folders, and the pane follows one folder and
+            // selects one row (TE47): it goes to the first copy, which is the first file's.
+            reveal: { paths in
+                guard let first = paths.first else { return }
+                revealInBrowse(first, from: .pdfToolBanner)
+            })
+        panePDFTools.start(request, paths: paths, writer: writer)
+    }
+
     /// What re-lists the rail, as one value — so a change to either half restarts the one task
     /// rather than needing a second `.task(id:)` that could answer from a different folder.
     struct EditorRailKey: Equatable {

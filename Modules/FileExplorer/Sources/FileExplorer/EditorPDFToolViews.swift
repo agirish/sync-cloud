@@ -157,13 +157,13 @@ struct EditorPDFToolBannerView: View {
 
     var body: some View {
         if let running = tools.running, tools.sheet == nil {
-            strip(symbol: nil, tint: accent, message: Self.runningMessage(running, progress: tools.progress)) {
+            Self.strip(symbol: nil, tint: accent, message: Self.runningMessage(running, progress: tools.progress)) {
                 Button("Cancel") { tools.cancelRun() }
                     .controlSize(.small)
                     .help("Stop — nothing is written")
             }
         } else if let banner = tools.banner {
-            strip(symbol: Self.symbol(banner.kind), tint: banner.kind == .failure ? .red : accent,
+            Self.strip(symbol: Self.symbol(banner.kind), tint: banner.kind == .failure ? .red : accent,
                   message: banner.message) {
                 if case .wrote(let path) = banner.kind {
                     Button("Open") { tools.follow(path) { tools.host.open($0) } }
@@ -187,8 +187,10 @@ struct EditorPDFToolBannerView: View {
         }
     }
 
-    private func strip<Buttons: View>(symbol: String?, tint: Color, message: String,
-                                      @ViewBuilder buttons: () -> Buttons) -> some View {
+    /// The strip itself — also what a pane-launched batch says its ending in
+    /// (``EditorPDFBatchBannerView``), so the two read the same.
+    static func strip<Buttons: View>(symbol: String?, tint: Color, message: String,
+                                     @ViewBuilder buttons: () -> Buttons) -> some View {
         let sentence = HStack(alignment: .firstTextBaseline, spacing: 6) {
             if let symbol {
                 Image(systemName: symbol)
@@ -229,7 +231,7 @@ struct EditorPDFToolBannerView: View {
 
     static func symbol(_ kind: EditorPDFToolBanner.Kind) -> String {
         switch kind {
-        case .wrote: return "checkmark.circle.fill"
+        case .wrote, .wroteSeveral: return "checkmark.circle.fill"
         case .note: return "info.circle"
         case .failure: return "exclamationmark.triangle.fill"
         }

@@ -116,6 +116,10 @@ struct ContentView: View {
     /// switch, `@State` rather than `@StateObject` so the window is not subscribed to Compare's
     /// search field.
     @State private var differencesSession = DifferencesSession()
+    /// The PDF tools run from a pane's row menu — see `PanePDFTools`. Held on the same terms as the
+    /// two sessions above: owned here, observed only by the layer that draws its sheet and banner,
+    /// so a run's page-by-page progress re-renders that layer and not this window.
+    @State var panePDFTools = PanePDFTools()
     /// Whether the rail's inline naming row is open. Held here because ⌘N opens it from any
     /// workspace, including ones where the editor is not on screen yet.
     @State var editorIsNaming = false
@@ -1215,6 +1219,10 @@ struct ContentView: View {
             // title bar is drawn — the Window menu and Mission Control. Zero-sized, in the
             // background, because it is a binding to AppKit and not a view.
             .background(WindowChromeBinder(subtitle: windowSubtitleText).frame(width: 0, height: 0))
+        // A PDF tool run from a row's menu: its sheet, and its banner at the window's foot. Ahead
+        // of the overlay chain below, so every panel in it covers the banner — and not IN the chain,
+        // because the sheet must not yield to them (see `PanePDFToolsPresenter`).
+        .modifier(PanePDFToolsPresenter(model: panePDFTools, accent: glassHue.accentColor))
         .overlay {
             // **The divergence diff leads, ahead of even the picker.** Everything below is
             // something the user *opened*; this is a question they are in the middle of ANSWERING.
@@ -4801,6 +4809,7 @@ struct ContentView: View {
                 compareFilePairAction(first, second, secondIsInOtherPane: secondIsInOtherPane,
                                       clickedPaneIsLeft: pane.isLeft) },
             onArmComparePick: { node in armComparePick(node, isLeft: pane.isLeft) },
+            onPDFTool: { request, paths in startPanePDFTool(request, paths: paths) },
             armedComparePath: comparePick?.armed.id)
     }
 

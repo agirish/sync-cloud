@@ -166,41 +166,14 @@ struct EditorPDFCompressSheet: View {
     @State private var failure: String?
     /// Read once when the sheet opens — the body redraws on every page of progress.
     @State private var size: Int?
-    /// The window's hue, for the segmented picker — `accentedSegments` takes the hue itself.
-    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     var body: some View {
         EditorPDFToolSheetFrame(tools: tools, title: "Compress", action: "Compress",
                                 canRun: !byTarget || EditorPDFCompression.megabytes(typedMegabytes) != nil,
                                 failure: failure, run: go) {
             VStack(alignment: .leading, spacing: 10) {
-                Picker("", selection: $byTarget) {
-                    Text("By strength").tag(false)
-                    Text("To a size").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
-                if byTarget {
-                    HStack(spacing: 6) {
-                        Text("Under")
-                        TextField("2", text: $typedMegabytes)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 70)
-                            .multilineTextAlignment(.trailing)
-                        Text("MB")
-                    }
-                    Text("Tries lower quality until the file fits.")
-                        .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
-                } else {
-                    Picker("", selection: $quality) {
-                        ForEach(EditorPDFCompression.strengths, id: \.quality) { strength in
-                            Text("\(strength.title) — \(strength.subtitle)").tag(strength.quality)
-                        }
-                    }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
-                }
+                EditorPDFCompressControls(byTarget: $byTarget, quality: $quality,
+                                          typedMegabytes: $typedMegabytes)
                 if let size {
                     Text("This file is \(FileSyncManager.formatBytes(size)). Every page is redrawn as an "
                          + "image, so text in the copy can’t be selected.")
@@ -225,6 +198,48 @@ struct EditorPDFCompressSheet: View {
             compression = .quality(quality)
         }
         Task { failure = await tools.runFromSheet(.compress(compression)) }
+    }
+}
+
+/// **Compress's settings** — a strength, or a size to come in under. One file's sheet and a
+/// batch's (``EditorPDFBatchSheet``) draw these same controls, so the two cannot drift.
+struct EditorPDFCompressControls: View {
+    @Binding var byTarget: Bool
+    @Binding var quality: Double
+    @Binding var typedMegabytes: String
+    /// A batch's target is each file's, and says so.
+    var perFile = false
+    /// The window's hue, for the segmented picker — `accentedSegments` takes the hue itself.
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+
+    var body: some View {
+        Picker("", selection: $byTarget) {
+            Text("By strength").tag(false)
+            Text(perFile ? "To a size per file" : "To a size").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
+        if byTarget {
+            HStack(spacing: 6) {
+                Text("Under")
+                TextField("2", text: $typedMegabytes)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 70)
+                    .multilineTextAlignment(.trailing)
+                Text("MB")
+            }
+            Text("Tries lower quality until the file fits.")
+                .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
+        } else {
+            Picker("", selection: $quality) {
+                ForEach(EditorPDFCompression.strengths, id: \.quality) { strength in
+                    Text("\(strength.title) — \(strength.subtitle)").tag(strength.quality)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+        }
     }
 }
 

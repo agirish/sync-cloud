@@ -337,6 +337,26 @@ enum EditorPDFToolEngine {
         }
     }
 
+    /// What a run needs to know about a file before it offers anything — read in the lane the way
+    /// ``EditorPDFDocument``'s load reads it, for a run started from a pane's menu, where no
+    /// document was opened first.
+    enum Probe: Sendable, Equatable {
+        case unreadable
+        case facts(pageCount: Int, encryption: PDFEncryptionState)
+    }
+
+    static func probe(_ input: URL) async -> Probe {
+        await PDFKitSerialAccess.perform { probeInLane(input) }
+    }
+
+    /// Called from the lane. A file locked to open has no pages to count until it is unlocked —
+    /// Edit attaches it at zero pages too.
+    nonisolated static func probeInLane(_ input: URL) -> Probe {
+        guard let document = PDFDocument(url: input) else { return .unreadable }
+        if document.isLocked { return .facts(pageCount: 0, encryption: .lockedToOpen) }
+        return .facts(pageCount: document.pageCount, encryption: PDFToolkit.encryptionState(of: input))
+    }
+
     /// What `tool` would lose from this file, or `nil` when the file has nothing at risk. Opens the
     /// PDF, so it runs in the lane too.
     static func fidelityWarning(for tool: EditorPDFTool, input: URL) async -> OutputFidelityWarning? {

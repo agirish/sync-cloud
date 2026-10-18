@@ -52,6 +52,26 @@ import Sync
                 "a stub with no workspace behind it offered the Duplicates door")
         #expect(existential.canOrganizeFolder == false,
                 "a stub with no workspace behind it offered the Organize door")
+        #expect(existential.canRunPDFTools == false,
+                "a stub with no window behind it offered the PDF Tools submenu")
+    }
+
+    /// **The PDF Tools door, through the existential the row menu uses** — and its handler passes
+    /// on PDFs only, and passwords one file at a time, whatever the menu did.
+    @Test func thePDFToolsDoorSurvivesTheExistentialAndGuardsItsHandler() {
+        var asked: [(PDFToolRequest, [String])] = []
+        var concrete = delegate(syncManager: FileSyncManager(), settings: SettingsManager())
+        concrete.onPDFTool = { asked.append(($0, $1)) }
+        let existential: FileActionDelegate = concrete
+        #expect(existential.canRunPDFTools,
+                "the real pane's answer did not survive the existential — the member is extension-only")
+        existential.handlePDFTool(.compress, paths: ["/a/One.pdf", "/a/Two.pdf"])
+        existential.handlePDFTool(.protect, paths: ["/a/One.pdf"])
+        existential.handlePDFTool(.compress, paths: ["/a/One.pdf", "/a/notes.md"])
+        existential.handlePDFTool(.removePassword, paths: ["/a/One.pdf", "/a/Two.pdf"])
+        existential.handlePDFTool(.compress, paths: [])
+        #expect(asked.map(\.0) == [.compress, .protect], "the handler passed on \(asked)")
+        #expect(asked.map(\.1) == [["/a/One.pdf", "/a/Two.pdf"], ["/a/One.pdf"]])
     }
 
     /// A real pane DOES offer the Duplicates door — otherwise the test above passes because the

@@ -7370,3 +7370,32 @@ done
 |---|---|---|
 | `v5.x` | No PDF model in Edit (`pdfModel=0`), so nothing for the tools to stand on | RECORDED — not owed (main only) |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace that opens PDFs at all | CLOSED — does not apply |
+
+---
+
+## PDF Tools in the file panes' right-click menu — main only
+
+A PDF row in any file pane (Browse, both Compare panes, Organize's, Edit's own) has a **PDF Tools**
+submenu — Rotate All Pages, Compress…, Clean Metadata…, Protect with Password… / Remove
+Password… — and several selected PDFs get a batch of the first three (`PanePDFToolsSubmenu`,
+`EditorPDFBatch`). A single file runs through Edit's own `EditorPDFTools`, so it stands on the Edit
+PDF tools above, which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s pdfTools=%s paneTools=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFTools.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PanePDFTools.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-17, against origin, before this landed:
+# main  pdfTools=1 paneTools=0
+# v5.x  pdfTools=0 paneTools=0
+# v4.x  pdfTools=0 paneTools=0
+# v3.x  pdfTools=0 paneTools=0
+# v2.x  pdfTools=0 paneTools=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | No `EditorPDFTools` (`pdfTools=0`), so nothing for the submenu to run | RECORDED — not owed (main only) |
+| `v4.x` / `v3.x` / `v2.x` | No Edit PDF model or tools at all | CLOSED — does not apply |
