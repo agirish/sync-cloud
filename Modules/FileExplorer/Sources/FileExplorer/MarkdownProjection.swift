@@ -222,13 +222,31 @@ struct MarkdownProjection {
     nonisolated(unsafe) private static var entities: [String: String] = [:]
     private static let entityLock = NSLock()
 
+    /// **One projection at a time, in the whole process** (2026-10-17). AppKit uniques attribute
+    /// dictionaries process-wide, so a run's `{font, previewReadOnly}` here is the very object
+    /// every other projection's equal run holds, whatever thread it is on (measured: one pointer
+    /// across two threads). A FileExplorer test process aborted with four projections building at
+    /// once on the cooperative pool and one of those shared dictionaries freed under the run that
+    /// held it — see "Four projections at once, and a shared attribute dictionary freed under one
+    /// of them" in docs/flaky-tests.md. Nothing in the walk is shared; the dictionaries are, and
+    /// only projections make ones with these keys. The app projects on the main actor alone, so
+    /// there it is never contended. Recursive: the re-read projects its part, or the whole.
+    static func oneAtATime<T>(_ body: () -> T) -> T {
+        building.lock()
+        defer { building.unlock() }
+        return body()
+    }
+    static let building = NSRecursiveLock()
+
     static func project(_ source: String, style: Style = Style()) -> MarkdownProjection {
-        var builder = Builder(source: source, style: style)
-        builder.run()
-        builder.logReadOnly(of: "note")
-        return MarkdownProjection(source: source, style: style, index: builder.index,
-                                  rendered: builder.out, blocks: builder.blocks,
-                                  segments: builder.segments, spans: builder.spans)
+        oneAtATime {
+            var builder = Builder(source: source, style: style)
+            builder.run()
+            builder.logReadOnly(of: "note")
+            return MarkdownProjection(source: source, style: style, index: builder.index,
+                                      rendered: builder.out, blocks: builder.blocks,
+                                      segments: builder.segments, spans: builder.spans)
+        }
     }
 
     /// What one stretch of the body projects to, in the file's own positions — the re-read
@@ -248,13 +266,15 @@ struct MarkdownProjection {
     /// indices start at 0.
     static func projectSlice(_ range: NSRange, of source: String, index: MarkdownSourceIndex, style: Style,
                              topLevel: Int, previousBlockSourceEnd: Int) -> Slice {
-        var builder = Builder(source: source, style: style, index: index)
-        let body = (source as NSString).substring(with: range)
-        builder.runSlice(body, firstLine: index.lineNumber(containing: range.location), topLevel: topLevel,
-                         previousBlockSourceEnd: previousBlockSourceEnd)
-        builder.logReadOnly(of: "part re-read")
-        return Slice(rendered: builder.out, blocks: builder.blocks, segments: builder.segments,
-                     spans: builder.spans, topLevelCount: builder.topLevel - topLevel)
+        oneAtATime {
+            var builder = Builder(source: source, style: style, index: index)
+            let body = (source as NSString).substring(with: range)
+            builder.runSlice(body, firstLine: index.lineNumber(containing: range.location), topLevel: topLevel,
+                             previousBlockSourceEnd: previousBlockSourceEnd)
+            builder.logReadOnly(of: "part re-read")
+            return Slice(rendered: builder.out, blocks: builder.blocks, segments: builder.segments,
+                         spans: builder.spans, topLevelCount: builder.topLevel - topLevel)
+        }
     }
 }
 

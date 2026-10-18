@@ -131,7 +131,14 @@ extension MarkdownProjection {
     }
 
     /// `new` re-read in part, or why only a whole re-read is sure to be right.
+    ///
+    /// One at a time with every build (``MarkdownProjection/oneAtATime(_:)``): the splice copies the
+    /// old rendering's runs and patches them, which are the same shared attribute dictionaries.
     func reread(_ new: String) -> Result<MarkdownProjection, Decline> {
+        Self.oneAtATime { splice(new) }
+    }
+
+    private func splice(_ new: String) -> Result<MarkdownProjection, Decline> {
         let index = MarkdownSourceIndex(new)
         let old = self.index.units, units = index.units
         let shorter = min(old.count, units.count)

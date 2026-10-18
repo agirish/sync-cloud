@@ -3609,3 +3609,77 @@ why; `editorTestDefaults` in `Modules/FileExplorer/Tests/FileExplorer/EditorMoun
 view; "Process-wide state, and suites running in parallel" for the in-process half of the same
 sharing; "A named NSPasteboard is machine-global, so two test PROCESSES share it" for the same
 shape on another shared resource.
+
+### 31. Four projections at once, and a shared attribute dictionary freed under one of them
+
+**Symptom.** FileExplorer's test process exits with `signal code 6`. There is no `✘` and no
+`Test run with` line. Seen once: CI run 39081784223, attempt 1, at `23e62ed1` on 2026-10-17, in
+the first second of the FileExplorer run, when about three thousand tests start together. The load
+average was about 15. Attempt 2 on the same SHA was green. The crash report
+(`swiftpm-testing-helper-2026-10-17-172022.ips`):
+
+```
+cooperative  MarkdownProjectionTests.indentedCodeHtmlAndRulesAreNotText
+               → MarkdownProjection.project → Builder.run → append → readOnlyBlock → endBlock
+               → -[NSMutableAttributedString addAttributes:range:]
+               → -[NSAttributeDictionary mutableCopyWithZone:]
+               → -[__NSPlaceholderDictionary initWithObjects:forKeys:count:]
+             NSInvalidArgumentException: attempt to insert nil object from objects[0]
+```
+
+Three other cooperative threads were also inside `MarkdownProjection.project` at that moment:
+one parsing, one making a block's font, and one measuring a table cell in `Builder.width(of:)`.
+The main thread was committing a CoreAnimation transaction.
+
+**What the report says.** The run being copied is the HTML block's text, and its attributes are
+`{font: monospaced 12, previewReadOnly: true}`, both non-nil. `mutableCopyWithZone:` reads the
+dictionary's count at offset 8 and each entry's key and value from offset 16 on (disassembled,
+macOS 27.0.1). It then hands them to `initWithObjects:forKeys:count:`. The call that threw is the
+one for a count between 1 and 40, so the object read as a small count with a nil first value. That
+is a freed dictionary whose memory now holds something else, and `out` still pointing at it. This
+is a use after free in the framework. Nothing we passed was nil.
+
+**Why the other projections are the suspects.** AppKit uniques attribute dictionaries across the
+whole process. `+[NSAttributeDictionary newWithDictionary:]` looks an equal dictionary up in one
+table (an `NSHashTable` of weak references, created with options 5, under an `os_unfair_lock`) and
+hands back the one it finds. Measured: two threads that each made `{font: monospaced 12}` got one
+pointer. Only the projection writes `previewReadOnly`, so every string holding that dictionary
+belonged to a projection or was a copy of one.
+
+**Ruled out: nothing in the walk is shared.** Each call has its own `Builder`. Paragraph styles,
+text lists and attachments are made per block. Fonts come from the system's cache and never
+change. The one static that changes, the entity cache, is behind its own lock. No attribute value
+is changed after it is set: every `NSMutableParagraphStyle` in the package is configured before it
+goes into a string.
+
+**Not reproduced.** None of these aborted:
+
+| Rig | Volume |
+|---|---|
+| Standalone, 8 threads building the HTML block's runs as `endBlock` does | 4.8 M blocks, 3 runs |
+| Standalone, 2, 3 and 4 threads making and dropping strings with **equal** attributes, so one thread frees what another looks up | 10.5 M rounds, 45 s |
+| Standalone, half the threads measuring `size()` beside half building, 2, 4 and 8 threads | 45 s |
+| 300 cold processes, 16 threads released at once into their first fonts and strings, as at a run's start | 4,800 thread starts |
+| In the test bundle, 10 threads projecting the corpus and the crashing note | ≈ 440 k projections, 3 runs |
+
+So the race rests on one crash report. The framework path that frees a uniqued dictionary early
+was not found.
+
+**Fix: one projection at a time, 2026-10-17.** `MarkdownProjection.oneAtATime` takes one
+`NSRecursiveLock` around `project(_:style:)`, `projectSlice` and `reread`, the only places that
+build or splice a projection's runs. That removes the one kind of concurrency that can share these
+dictionaries between projections. The app projects on the main actor and nowhere else, so its lock
+is never contended. `MarkdownProjectionOneAtATimeTests` checks each door: with the lock held, a
+projection must wait. **Not covered:** the main thread's TextKit work on a projection's runs in
+suites that mount `PreviewEditorView`. It shares the same dictionaries and takes no lock.
+
+**Tell.** Signal 6 with no `✘`. The `.ips` shows `NSInvalidArgumentException`,
+`attempt to insert nil object from objects[0]`, thrown by `initWithObjects:forKeys:count:` under
+`-[NSAttributeDictionary mutableCopyWithZone:]` under `Builder.endBlock`. Any `Builder` frame
+counts, and so does a main-thread frame in `PreviewEditSession` holding a projection's runs. The
+test on the faulting thread is a bystander. After the fix, look first for a new way into the
+projection that skips `oneAtATime`, then for a mounted preview on the main thread at the same time.
+A green rerun proves nothing.
+
+**See.** `MarkdownProjection.oneAtATime` and its doc comment; "Process-wide state, and suites
+running in parallel" for the same shape on Swift statics.
