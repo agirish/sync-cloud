@@ -30,10 +30,39 @@ public enum PDFToolRequest: Equatable, Sendable {
 /// Hidden when any item is a folder, is not a PDF (`EditableText.isPDF`, the gate every door into
 /// the reader asks), or is cloud-only — a cloud-only row already offers Download, and a tool would
 /// have no bytes to read.
-enum PanePDFToolOffer: Equatable {
+///
+/// **File ▸ PDF Tools asks the same question**, through ``forSelection(_:)``, outside a PDF open in
+/// Edit — and greys where the row hides.
+public enum PanePDFToolOffer: Equatable, Sendable {
     /// One PDF, with its protection as the menu reads it — see ``PDFMenuEncryption``.
     case single(path: String, encryption: PDFEncryptionState)
     case several(paths: [String])
+
+    /// The submenu's name — on the row and in File ▸ — which counts the files a batch runs over.
+    public var title: String {
+        switch self {
+        case .single: return "PDF Tools"
+        case .several(let paths): return "PDF Tools · \(paths.count) files"
+        }
+    }
+
+    /// **The row menu's answer for a selection, and File ▸ PDF Tools' too** — so the two cannot
+    /// disagree about whether a selection takes the tools, or which. One file is probed for its
+    /// protection; several share one cloud answer per selection (``PanePDFSelectionCloud``).
+    ///
+    /// The cloud lookup is the row's own: the badge's memo, else an `lstat`. The menu bar asks on
+    /// every window render, and a selected row has been drawn, so its badge has answered — and a
+    /// batch's answer is held for the second either caller asks in.
+    @MainActor
+    public static func forSelection(_ nodes: [FileNode]) -> PanePDFToolOffer? {
+        if nodes.count > 1 {
+            let paths = nodes.map(\.id)
+            return offer(for: nodes,
+                         isCloudOnly: { _ in PanePDFSelectionCloud.anyCloudOnly(paths, isCloudOnly: FileContextMenu.isCloudOnly) },
+                         encryption: { _ in .none })
+        }
+        return offer(for: nodes, isCloudOnly: FileContextMenu.isCloudOnly, encryption: PDFMenuEncryption.state(for:))
+    }
 
     /// The cheap rules first — path math and a flag the node holds — so a selection with a folder
     /// or a JPEG in it never pays a cloud lookup, and a cloud-only file never pays a probe.
@@ -124,19 +153,10 @@ struct PanePDFToolsSubmenu: View {
     let delegate: FileActionDelegate
 
     var body: some View {
-        switch offer {
-        case .single(let path, let encryption):
-            Menu {
-                Self.singleItems(encryption: encryption) { delegate.handlePDFTool($0, paths: [path]) }
-            } label: {
-                Label("PDF Tools", systemImage: "wrench.and.screwdriver")
-            }
-        case .several(let paths):
-            Menu {
-                Self.severalItems(count: paths.count) { delegate.handlePDFTool($0, paths: paths) }
-            } label: {
-                Label("PDF Tools · \(paths.count) files", systemImage: "wrench.and.screwdriver")
-            }
+        Menu {
+            PanePDFToolsMenuItems(offer: offer) { delegate.handlePDFTool($0, paths: $1) }
+        } label: {
+            Label(offer.title, systemImage: "wrench.and.screwdriver")
         }
     }
 
@@ -182,6 +202,27 @@ struct PanePDFToolsSubmenu: View {
             Button("Rotate Left") { run(.rotateAll(quarterTurns: -1)) }
             Button("Rotate Right") { run(.rotateAll(quarterTurns: 1)) }
             Button("Rotate 180°") { run(.rotateAll(quarterTurns: 2)) }
+        }
+    }
+}
+
+/// **The submenu's lines for an offer** — on a row, and in File ▸ PDF Tools outside a PDF open in
+/// Edit, the same view in both. `run` is handed each request with the paths it runs over.
+public struct PanePDFToolsMenuItems: View {
+    let offer: PanePDFToolOffer
+    let run: (PDFToolRequest, [String]) -> Void
+
+    public init(offer: PanePDFToolOffer, run: @escaping (PDFToolRequest, [String]) -> Void) {
+        self.offer = offer
+        self.run = run
+    }
+
+    public var body: some View {
+        switch offer {
+        case .single(let path, let encryption):
+            PanePDFToolsSubmenu.singleItems(encryption: encryption) { run($0, [path]) }
+        case .several(let paths):
+            PanePDFToolsSubmenu.severalItems(count: paths.count) { run($0, paths) }
         }
     }
 }

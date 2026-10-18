@@ -2,6 +2,7 @@
 import AppKit
 import Design
 import FileExplorer
+import SwiftUI
 import Testing
 
 /// **The menu bar over a PDF open in Edit** — File ▸ PDF Tools, Text's page controls on the modes'
@@ -76,6 +77,97 @@ import Testing
         }
     }
 
+    /// **The PDF on screen first, then the pane's selection** — and nothing greys the menu.
+    @Test func pdfToolsTakeTheOpenPDFFirstThenTheSelection() {
+        let batch = PanePDFToolOffer.several(paths: ["/a/One.pdf", "/a/Two.pdf"])
+        #expect(PDFToolsMenu.source(openPDF: true, selection: batch) == .openPDF,
+                "a selection outranked the PDF open in Edit — its page tools would be out of reach")
+        #expect(PDFToolsMenu.source(openPDF: true, selection: nil) == .openPDF)
+        #expect(PDFToolsMenu.source(openPDF: false, selection: batch) == .selection(batch))
+        #expect(PDFToolsMenu.source(openPDF: false, selection: nil) == nil)
+    }
+
+    // MARK: File ▸ PDF Tools, drawn for what the window publishes
+
+    /// One line of a menu AppKit built — a submenu with its lines after `▸`, a line nothing can
+    /// choose in brackets.
+    private static func lines(_ menu: NSMenu) -> [String] {
+        menu.update()
+        return menu.items.map { item in
+            if item.isSeparatorItem { return "—" }
+            if let submenu = item.submenu { return "\(item.title) ▸ \(lines(submenu).joined(separator: ", "))" }
+            return item.isEnabled ? item.title : "(\(item.title))"
+        }
+    }
+
+    private static func drawn(tools: EditorPDFTools?, selection: PaneRowVerbs.SelectionPDFTools?) -> NSMenu {
+        NSHostingMenu(rootView: PDFToolsMenuContent(tools: tools, selection: selection))
+    }
+
+    /// **Outside a PDF open in Edit, File ▸ PDF Tools is the row's submenu for the selection** — its
+    /// title, its lines, live — as `NSHostingMenu` builds it, which is how the menu bar turns a
+    /// SwiftUI menu into an `NSMenu`. The test host's own menu bar is never handed a selection.
+    @Test func pdfToolsDrawTheSelectionsSubmenu() throws {
+        let paths = ["/a/One.pdf", "/a/Two.pdf"]
+        let offer = PanePDFToolOffer.several(paths: paths)
+        let menu = Self.drawn(tools: nil, selection: .init(offer: offer, run: { _, _ in }))
+        let row = Self.lines(NSHostingMenu(rootView: PanePDFToolsMenuItems(offer: offer) { _, _ in }))
+        #expect(row.contains("Compress 2 Files…"), "the row's lines are empty — this check is vacuous: \(row)")
+        #expect(Self.lines(menu) == ["PDF Tools · 2 files ▸ " + row.joined(separator: ", ")],
+                "File ▸ PDF Tools reads \(Self.lines(menu)), the row \(row)")
+        let single = Self.drawn(tools: nil, selection: .init(offer: .single(path: paths[0], encryption: .lockedToOpen),
+                                                             run: { _, _ in }))
+        #expect(Self.lines(single) == ["PDF Tools ▸ (\(EditorPDFTools.lockedReason)), —, Remove Password…"],
+                "a file locked to open is not offered the one tool it takes: \(Self.lines(single))")
+    }
+
+    /// **Each line runs the row's request over the selection's paths** — chosen through AppKit, as a
+    /// click in the menu bar chooses it; the test host is the app, so its items fire.
+    @Test func pdfToolsRunTheRowsRequestsOverTheSelection() throws {
+        final class Box { var ran: [String] = [] }
+        func choose(_ titles: [String], in offer: PanePDFToolOffer) throws -> [String] {
+            let box = Box()
+            let menu = Self.drawn(tools: nil, selection: .init(offer: offer, run: { box.ran.append("\($0) \($1)") }))
+            for title in titles {
+                // The one submenu, then down through any submenu a line sits in — Rotate's three.
+                var level = try #require(menu.items.first?.submenu, "File ▸ PDF Tools has no submenu")
+                for step in title.split(separator: "▸").map({ $0.trimmingCharacters(in: .whitespaces) }) {
+                    level.update()
+                    let at = try #require(level.items.firstIndex { $0.title == step }, "no line \(step) in \(Self.lines(level))")
+                    if let next = level.items[at].submenu { level = next } else { level.performActionForItem(at: at) }
+                }
+            }
+            return box.ran
+        }
+        let paths = ["/a/One.pdf", "/a/Two.pdf"]
+        #expect(try choose(["Rotate All Pages ▸ Rotate Left", "Rotate All Pages ▸ Rotate 180°", "Compress 2 Files…",
+                            "Clean Metadata of 2 Files…"], in: .several(paths: paths))
+                == ["rotateAll(quarterTurns: -1) \(paths)", "rotateAll(quarterTurns: 2) \(paths)",
+                    "compress \(paths)", "cleanMetadata \(paths)"])
+        let one = ["/a/One.pdf"]
+        #expect(try choose(["Rotate All Pages ▸ Rotate Right", "Protect with Password…"],
+                           in: .single(path: one[0], encryption: .none))
+                == ["rotateAll(quarterTurns: 1) \(one)", "protect \(one)"])
+        #expect(try choose(["Remove Password…"], in: .single(path: one[0], encryption: .restrictedOnly))
+                == ["removePassword \(one)"])
+    }
+
+    /// **The open PDF wins, and nothing to act on greys every line** — the header's lines both times.
+    @Test func pdfToolsDrawTheOpenPDFsLinesOverASelection() throws {
+        let header = { (tools: EditorPDFTools) in
+            Self.lines(NSHostingMenu(rootView: EditorPDFToolsMenuItems(tools: tools))).joined(separator: ", ")
+        }
+        let open = EditorPDFTools()
+        let selection = PaneRowVerbs.SelectionPDFTools(offer: .several(paths: ["/a/One.pdf", "/a/Two.pdf"]),
+                                                       run: { _, _ in })
+        #expect(Self.lines(Self.drawn(tools: open, selection: selection)) == ["PDF Tools ▸ " + header(open)],
+                "a selection took File ▸ PDF Tools from the PDF open in Edit")
+        let idle = Self.lines(Self.drawn(tools: nil, selection: nil))
+        #expect(idle == ["PDF Tools ▸ " + header(PDFToolsCommand.idle)])
+        #expect(idle[0].contains("(Compress…)") && !idle[0].contains(", Compress…"),
+                "with nothing to act on, a line is live: \(idle)")
+    }
+
     /// **The page controls: Edit and the PDF open** — not locked, where the header draws none.
     @Test func thePageControlsAreOfferedForAnOpenPDFInEdit() {
         #expect(PDFPageVerbs.isOffered(workspace: .editor, hasPDF: true, phase: .open))
@@ -120,13 +212,41 @@ import Testing
         let commands = try Self.commands()
         let item = CodeText(try declarationBody(of: "struct PDFToolsCommand: View", in: commands))
         #expect(item.contains("@FocusedValue(\\.pdfTools) private var tools"))
-        #expect(item.contains("EditorPDFToolsMenuItems(tools: tools ?? Self.idle)"),
+        #expect(item.contains("@FocusedValue(\\.paneRowVerbs) private var rowVerbs"))
+        #expect(item.contains("PDFToolsMenuContent(tools: tools, selection: rowVerbs?.pdfTools)"),
+                "File ▸ PDF Tools is not drawn from both values the window publishes")
+        let content = CodeText(try declarationBody(of: "struct PDFToolsMenuContent: View", in: commands))
+        #expect(content.contains("PDFToolsMenu.source(openPDF: tools != nil, selection: selection?.offer)"))
+        #expect(content.contains("PanePDFToolsMenuItems(offer: offer, run: selection.run)"),
+                "File ▸ PDF Tools no longer draws the row's own items for a selection")
+        #expect(content.contains("EditorPDFToolsMenuItems(tools: tools ?? PDFToolsCommand.idle)"),
                 "File ▸ PDF Tools no longer draws the header's own items")
-        #expect(item.contains(".disabled(tools == nil)"))
+        #expect(content.contains(".disabled(tools == nil)"))
         #expect(CodeText(commands).contains("pdfTools: shortcutPDFTools,"))
 
         let app = CodeText(try macAppFile("SyncCloudApp.swift"))
         #expect(app.contains("PrintDocumentCommand() PDFToolsCommand()"), "PDF Tools is not in File's print group")
+    }
+
+    /// **The selection's tools are the row menu's: its gate, its question, its act.** The row
+    /// shows the submenu where `canRunPDFTools` and `forSelection` say so and runs it through
+    /// `handlePDFTool`; File ▸ is built from the same three on the same pane's delegate.
+    @Test func theSelectionsToolsAreTheRowMenus() throws {
+        let resolver = try declarationBody(of: "var shortcutPaneRowVerbs", in: try Self.commands())
+        let offered = try #require(argumentLists(of: "PaneRowVerbs(", in: resolver).map(CallArguments.init)
+            .first { $0.value("pdfTools") != "nil" }, "File ▸ PDF Tools is never handed a selection")
+        let pdfTools = try #require(offered.value("pdfTools"))
+        #expect(pdfTools.contains(normalizedCode("delegate.canRunPDFTools ? PanePDFToolOffer.forSelection(selection).map {")),
+                "the selection's tools are not asked the row menu's question: \(pdfTools)")
+        #expect(pdfTools.contains(normalizedCode("run: { delegate.handlePDFTool($0, paths: $1) }")),
+                "the selection's tools do not run through the row menu's handler: \(pdfTools)")
+
+        // …and the row menu still asks it, both times.
+        let pane = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift"), encoding: .utf8)
+        #expect(CodeText(pane).count(of: "PanePDFToolOffer.forSelection(") == 2,
+                "the row menu no longer asks forSelection for both its submenus")
     }
 
     @Test func thePageVerbsAreResolvedThroughTheRule() throws {

@@ -216,6 +216,80 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(count(.lockedToOpen) == 1)
     }
 
+    // MARK: The menu bar's half — File ▸ PDF Tools outside a PDF open in Edit
+
+    /// **File ▸ PDF Tools asks the row's own question** — `forSelection` is what both the row menu
+    /// and the menu bar's resolver call, so the cases the row hides are the cases the menu bar
+    /// greys, and one file's protection is probed for both.
+    @Test func theMenuBarAsksTheRowsQuestion() throws {
+        let pdf = path("A.pdf"), other = path("B.pdf"), docx = path("Letter.docx"), cloud = path("Cloud.pdf")
+        let locked = path("Locked.pdf"), restricted = path("Restricted.pdf")
+        PDFFixtures.write(pdf, pages: 1)
+        PDFFixtures.write(other, pages: 1)
+        PDFFixtures.write(cloud, pages: 1)
+        PDFFixtures.writeLocked(locked, password: "pw")
+        PDFFixtures.writeRestricted(restricted)
+        try Data("x".utf8).write(to: URL(fileURLWithPath: docx))
+        let sub = path("Sub")
+        try FileManager.default.createDirectory(atPath: sub, withIntermediateDirectories: true)
+        CloudOnlyBadgeCache.record(cloud, isCloudOnly: true)
+        defer { CloudOnlyBadgeCache.forget(cloud) }
+
+        let hidden: [(String, [FileNode])] = [
+            ("nothing", []),
+            ("a folder", [node(sub, isDirectory: true)]),
+            ("a .docx", [node(docx)]),
+            ("a cloud-only PDF", [node(cloud)]),
+            ("a PDF with a .docx", [node(pdf), node(docx)]),
+            ("a PDF with a folder", [node(pdf), node(sub, isDirectory: true)]),
+            ("a PDF with a cloud-only PDF", [node(pdf), node(cloud)]),
+        ]
+        for (label, nodes) in hidden {
+            #expect(PanePDFToolOffer.forSelection(nodes) == nil, "\(label) is offered tools")
+        }
+        #expect(PanePDFToolOffer.forSelection([node(pdf)]) == .single(path: pdf, encryption: .none))
+        #expect(PanePDFToolOffer.forSelection([node(restricted)]) == .single(path: restricted, encryption: .restrictedOnly),
+                "one file's protection is not the probe's")
+        #expect(PanePDFToolOffer.forSelection([node(locked)]) == .single(path: locked, encryption: .lockedToOpen))
+        #expect(PanePDFToolOffer.forSelection([node(pdf), node(other)]) == .several(paths: [pdf, other]))
+    }
+
+    /// The submenu's name, on the row and in File ▸ — a batch counts its files.
+    @Test func theSubmenuIsNamedForWhatItRunsOver() {
+        #expect(PanePDFToolOffer.single(path: "/a.pdf", encryption: .lockedToOpen).title == "PDF Tools")
+        #expect(PanePDFToolOffer.several(paths: ["/a.pdf", "/b.pdf", "/c.pdf"]).title == "PDF Tools · 3 files")
+    }
+
+    /// One line of a menu AppKit built: its title (a submenu with its own lines after `▸`), and
+    /// whether it can be chosen.
+    private static func lines(_ menu: NSMenu) -> [String] {
+        menu.update()
+        return menu.items.map { item in
+            if item.isSeparatorItem { return "—" }
+            if let submenu = item.submenu { return "\(item.title) ▸ \(lines(submenu).joined(separator: ", "))" }
+            return item.isEnabled ? item.title : "(\(item.title))"
+        }
+    }
+
+    /// **The lines File ▸ PDF Tools draws for a selection, as AppKit builds them** — the row's own
+    /// `PanePDFToolsMenuItems`, through `NSHostingMenu`, which is how a SwiftUI menu becomes an
+    /// `NSMenu`. Each protection's lines, the reasons as lines nothing can choose, and a batch's
+    /// three tools with no password item.
+    @Test func theMenuBarDrawsTheRowsLines() {
+        func drawn(_ offer: PanePDFToolOffer) -> [String] {
+            Self.lines(NSHostingMenu(rootView: PanePDFToolsMenuItems(offer: offer) { _, _ in }))
+        }
+        let rotate = "Rotate All Pages ▸ Rotate Left, Rotate Right, Rotate 180°"
+        #expect(drawn(.single(path: "/a.pdf", encryption: .none))
+                == [rotate, "—", "Compress…", "Clean Metadata…", "—", "Protect with Password…"])
+        #expect(drawn(.single(path: "/a.pdf", encryption: .restrictedOnly))
+                == [rotate, "—", "Compress…", "(\(EditorPDFTools.metadataEncryptedReason))", "—", "Remove Password…"])
+        #expect(drawn(.single(path: "/a.pdf", encryption: .lockedToOpen))
+                == ["(\(EditorPDFTools.lockedReason))", "—", "Remove Password…"])
+        #expect(drawn(.several(paths: ["/a.pdf", "/b.pdf", "/c.pdf"]))
+                == [rotate, "—", "Compress 3 Files…", "Clean Metadata of 3 Files…"])
+    }
+
     // MARK: The menu's protection probe
 
     /// **CoreGraphics answers what the toolkit answers**, for each of the three states — the menu's

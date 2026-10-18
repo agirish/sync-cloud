@@ -1575,10 +1575,8 @@ struct FileContextMenu: View {
             // Several PDFs: the batch tools, first after Refresh (mockup 12). Hidden the moment the
             // selection holds anything a tool could not read — a folder, another kind, a cloud-only
             // file. The single-file submenu lives in its own section of the branch below.
-            if count > 1, delegate.canRunPDFTools, case .several(let paths)? = PanePDFToolOffer.offer(
-                for: selectedNodes,
-                isCloudOnly: { _ in PanePDFSelectionCloud.anyCloudOnly(selectedNodes.map(\.id), isCloudOnly: Self.isCloudOnly) },
-                encryption: { _ in .none }) {
+            if count > 1, delegate.canRunPDFTools,
+               case .several(let paths)? = PanePDFToolOffer.forSelection(selectedNodes) {
                 PanePDFToolsSubmenu(offer: .several(paths: paths), delegate: delegate)
                 Divider()
             }
@@ -1640,8 +1638,7 @@ struct FileContextMenu: View {
                 // shifts Rename or anything below it — and never between Refresh and Open in Edit,
                 // which leads this branch. Hidden, not greyed, for a folder, a non-PDF or a
                 // cloud-only file: nothing in it could run.
-                if delegate.canRunPDFTools, let offer = PanePDFToolOffer.offer(
-                    for: [singleNode], isCloudOnly: Self.isCloudOnly, encryption: PDFMenuEncryption.state(for:)) {
+                if delegate.canRunPDFTools, let offer = PanePDFToolOffer.forSelection([singleNode]) {
                     Divider()
                     PanePDFToolsSubmenu(offer: offer, delegate: delegate)
                 }

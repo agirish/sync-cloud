@@ -7457,3 +7457,30 @@ done
 |---|---|---|
 | `v5.x` | No PDF reader in Edit (`pdfModel=0`): no tools, no page controls, and no `PDFView` for ⌘C to miss | RECORDED — not owed (main only) |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace that opens PDFs at all | CLOSED — does not apply |
+
+---
+
+## File ▸ PDF Tools on the pane's selected PDFs — main only
+
+Outside a PDF open in Edit, File ▸ PDF Tools is a pane row's PDF Tools submenu for the focused
+pane's selection — one PDF, or "PDF Tools · 3 files" for a batch — drawn by the row's own
+`PanePDFToolsMenuItems` from the row's own `PanePDFToolOffer.forSelection`, and run through the
+pane delegate's `handlePDFTool`. It stands on both the pane tools and File ▸ PDF Tools above, which
+only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s paneTools=%s pdfToolsMenu=%s selectionTools=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PanePDFTools.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/ShortcutCommands.swift 2>/dev/null | grep -c 'struct PDFToolsCommand')" \
+    "$(git show origin/$l:MacApp/ShortcutCommands.swift 2>/dev/null | grep -c 'struct PDFToolsMenuContent')"
+done
+# measured 2026-10-18, against origin, before this landed:
+# main  paneTools=1 pdfToolsMenu=1 selectionTools=0
+# v5.x, v4.x, v3.x, v2.x — 0 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | No pane PDF Tools and no File ▸ PDF Tools (`0 0`), so nothing to reach | RECORDED — not owed (main only) |
+| `v4.x` / `v3.x` / `v2.x` | No Edit PDF tools at all | CLOSED — does not apply |

@@ -111,11 +111,21 @@ struct PaneRowVerbs {
     /// same pair from `isNodeIgnored`, and a menu item that named only one direction would be wrong
     /// half the time. `nil` when the workspace has no comparison to ignore anything from.
     let ignore: IgnoreToggle?
+    /// The row menu's PDF Tools for the selection — `PanePDFToolOffer.forSelection`, the row's own
+    /// question — or `nil` where the row shows none. Not an item in this group: File ▸ PDF Tools
+    /// reads it, below Print…, wherever Edit is not showing a PDF (`PDFToolsMenu.source`).
+    let pdfTools: SelectionPDFTools?
 
     struct IgnoreToggle {
         /// Already resolved: "Ignore in Comparison" or "Include in Comparison".
         let title: String
         let run: () -> Void
+    }
+
+    struct SelectionPDFTools {
+        let offer: PanePDFToolOffer
+        /// The row menu's act — `handlePDFTool` on the pane's delegate.
+        let run: (PDFToolRequest, [String]) -> Void
     }
 }
 
@@ -352,8 +362,26 @@ enum TextSizeMenuRoute {
 
 /// **File ▸ PDF Tools** — the open PDF's tools in the menu bar: the header's Tools menu, drawn
 /// from the same `EditorPDFToolsMenuEntry.entries` by the same `EditorPDFToolsMenuItems`, so the
-/// two cannot disagree about an item, its title or whether it is live.
+/// two cannot disagree about an item, its title or whether it is live. **Anywhere Edit is not
+/// showing a PDF, it is a pane row's PDF Tools** for the focused pane's selection, drawn by the
+/// row's own `PanePDFToolsMenuItems` — one PDF or a batch, and greyed where the row hides them.
 enum PDFToolsMenu {
+    /// What File ▸ PDF Tools acts on.
+    enum Source: Equatable {
+        /// The PDF open in Edit — `isOffered` held.
+        case openPDF
+        /// The focused pane's selected PDFs, as the row menu offers them.
+        case selection(PanePDFToolOffer)
+    }
+
+    /// **The PDF on screen first**, then the selection; `nil` greys the menu. In Edit the pane's
+    /// selection is usually that same PDF — and the header's tools reach its pages, which a row's do
+    /// not.
+    static func source(openPDF: Bool, selection: PanePDFToolOffer?) -> Source? {
+        if openPDF { return .openPDF }
+        return selection.map(Source.selection)
+    }
+
     /// **Where the header draws its Tools menu, the menu bar offers it**: Edit on screen, a PDF in
     /// it, open or locked — Remove Password is the one tool a file locked to open takes. The rule is
     /// the header's for a second reason: the header's menu is what presents the tools' sheets, so an
@@ -1684,7 +1712,8 @@ extension ContentView {
     var shortcutPaneRowVerbs: PaneRowVerbs {
         let selection = activeSelectionNodes
         let none = PaneRowVerbs(openInNewTab: nil, quickLook: nil, openInEditor: nil, download: nil,
-                                revealInFinder: nil, rename: nil, chooseDestination: nil, ignore: nil)
+                                revealInFinder: nil, rename: nil, chooseDestination: nil, ignore: nil,
+                                pdfTools: nil)
         guard actionHandler != nil, let pane = activePane, !selection.isEmpty else { return none }
         let context = paneContext(isLeft: pane == .left)
         let delegate = paneActionDelegate(for: context)
@@ -1729,7 +1758,13 @@ extension ContentView {
                 ? PaneRowVerbs.IgnoreToggle(
                     title: allIgnored ? "Include in Comparison" : "Ignore in Comparison",
                     run: { delegate.handleIgnore(activeSelectionNodes) })
-                : nil)
+                : nil,
+            // The row menu's own gate and question, and its act: the handler re-checks the paths,
+            // and the run reads each file again before anything is written.
+            pdfTools: delegate.canRunPDFTools
+                ? PanePDFToolOffer.forSelection(selection).map {
+                    PaneRowVerbs.SelectionPDFTools(offer: $0, run: { delegate.handlePDFTool($0, paths: $1) })
+                } : nil)
     }
 
     /// File ▸ Organize's verbs, over the active pane's selection.
@@ -2225,7 +2260,8 @@ struct PrintDocumentCommand: View {
     }
 }
 
-/// File ▸ PDF Tools ▸ — the PDF header's Tools menu, in the menu bar (see ``PDFToolsMenu``).
+/// File ▸ PDF Tools ▸ — the PDF header's Tools menu, in the menu bar, or a pane row's PDF Tools for
+/// the selection wherever Edit is not showing a PDF (see ``PDFToolsMenu``).
 ///
 /// **Below Print…, after a divider**: the group is what a document becomes on its way out, and every
 /// tool here writes a new copy, as Export as PDF… does. **No chords** — each opens a sheet or writes
@@ -2236,16 +2272,38 @@ struct PrintDocumentCommand: View {
 /// attached to no file, whose every line is greyed by the entries' own rules.
 struct PDFToolsCommand: View {
     @FocusedValue(\.pdfTools) private var tools
+    @FocusedValue(\.paneRowVerbs) private var rowVerbs
 
     var body: some View {
         Divider()
-        Menu("PDF Tools") {
-            EditorPDFToolsMenuItems(tools: tools ?? Self.idle)
-        }
-        .disabled(tools == nil)
+        PDFToolsMenuContent(tools: tools, selection: rowVerbs?.pdfTools)
     }
 
     @MainActor static let idle = EditorPDFTools()
+}
+
+/// **File ▸ PDF Tools' submenu, for what the window published** — apart from the item so a test can
+/// draw it with a selection, which the test host's menu bar is never handed.
+struct PDFToolsMenuContent: View {
+    let tools: EditorPDFTools?
+    let selection: PaneRowVerbs.SelectionPDFTools?
+
+    var body: some View {
+        if case .selection(let offer)? = PDFToolsMenu.source(openPDF: tools != nil, selection: selection?.offer),
+           let selection {
+            // The row's submenu under the row's title — "PDF Tools · 3 files" for a batch.
+            Menu(offer.title) {
+                PanePDFToolsMenuItems(offer: offer, run: selection.run)
+            }
+        } else {
+            // The header's lines, live for the open PDF and greyed line by line with none: a
+            // disabled `Menu` in the menu bar leaves its items live.
+            Menu("PDF Tools") {
+                EditorPDFToolsMenuItems(tools: tools ?? PDFToolsCommand.idle)
+            }
+            .disabled(tools == nil)
+        }
+    }
 }
 
 struct DeleteSelectionCommand: View {

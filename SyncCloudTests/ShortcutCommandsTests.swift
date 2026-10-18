@@ -57,7 +57,10 @@ import Foundation
                                        revealInFinder: {},
                                        rename: {}, chooseDestination: { _ in },
                                        ignore: PaneRowVerbs.IgnoreToggle(title: "Ignore in Comparison",
-                                                                         run: {})),
+                                                                         run: {}),
+                                       pdfTools: PaneRowVerbs.SelectionPDFTools(
+                                           offer: .several(paths: ["/a/One.pdf", "/a/Two.pdf"]),
+                                           run: { _, _ in })),
             compareTwoFiles: {},
             editorVerbs: EditorVerbs(mode: .edit, canPreview: true, setMode: { _ in },
                                      autosave: EditorVerbs.AutosaveSwitch(isOn: true, toggle: {}),
