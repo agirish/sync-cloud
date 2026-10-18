@@ -29,7 +29,7 @@ struct EditorPDFFillSignButton: View {
             .padding(.horizontal, worded ? 5 : 0)
             .frame(width: worded ? nil : 18, height: 18)
             .foregroundStyle(fill.isOn ? AnyShapeStyle(accent) : AnyShapeStyle(.primary))
-            .background(fill.isOn ? accent.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 5))
+            .background(fill.isOn ? accent.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: Radius.chip))
             .contentShape(Rectangle())
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
@@ -237,7 +237,7 @@ struct EditorPDFFillSignBar: View {
                 .padding(.horizontal, worded ? 5 : 0)
                 .frame(minWidth: 20, minHeight: 20)
                 .foregroundStyle(on ? AnyShapeStyle(accent) : AnyShapeStyle(.primary))
-                .background(on ? accent.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 5))
+                .background(on ? accent.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: Radius.chip))
                 .contentShape(Rectangle())
         }
     }

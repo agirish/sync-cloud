@@ -196,7 +196,8 @@ import Testing
         // 9 since Readability gained "Column widths" (Each column / All columns), under Row spacing.
         // 11 since Edit's PDF tools: Compress's "By strength / To a size" and Protect's "Lock to
         // open / Restrict editing".
-        #expect(sites == 11, "expected 11 segmented pickers in the app, found \(sites)")
+        // 12 since Fill & Sign's Add Signature sheet: "Draw / Type".
+        #expect(sites == 12, "expected 12 segmented pickers in the app, found \(sites)")
     }
 
     /// Every Swift file the SHIPPING app is built from: each module's `Sources`, plus `MacApp`.

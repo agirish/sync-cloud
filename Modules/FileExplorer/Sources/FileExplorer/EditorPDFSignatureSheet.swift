@@ -13,6 +13,8 @@ struct EditorPDFAddSignatureSheet: View {
     @State private var strokes: [[CGPoint]] = []
     @State private var typed = ""
     @State private var keep = true
+    /// The window's hue, for the Draw / Type picker — `accentedSegments` takes the hue itself.
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     static let privacy = "This places a picture of your signature on the page. It isn’t a certificate-based digital "
         + "signature. Saved signatures stay on this Mac as pen strokes, and are never synced or written to the log."
@@ -27,6 +29,7 @@ struct EditorPDFAddSignatureSheet: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
             .fixedSize()
             if typing {
                 VStack(alignment: .leading, spacing: 8) {
@@ -36,7 +39,7 @@ struct EditorPDFAddSignatureSheet: View {
                         .font(Font(PDFToolkit.scriptOrSystemFont(size: 32, script: true)))
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, minHeight: 60)
-                        .background(RoundedRectangle(cornerRadius: 8).strokeBorder(.tertiary, style: StrokeStyle(dash: [4])))
+                        .background(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(.tertiary, style: StrokeStyle(dash: [4])))
                 }
             } else {
                 ZStack(alignment: .bottomLeading) {
@@ -49,7 +52,7 @@ struct EditorPDFAddSignatureSheet: View {
                         .allowsHitTesting(false)
                 }
                 .frame(height: 130)
-                .background(RoundedRectangle(cornerRadius: 8).strokeBorder(.tertiary, style: StrokeStyle(dash: [4])))
+                .background(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(.tertiary, style: StrokeStyle(dash: [4])))
             }
             Toggle("Save on this Mac for next time", isOn: $keep)
             Text(Self.privacy)
