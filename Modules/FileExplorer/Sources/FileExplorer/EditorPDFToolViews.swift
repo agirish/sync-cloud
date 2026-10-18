@@ -41,26 +41,40 @@ struct EditorPDFToolsMenu: View {
 
 /// One line of the Tools menu, as data — what it says, whether it can be chosen, what it does — so
 /// a test can read the menu without opening it (a hosted `Menu`'s body never runs offscreen).
-struct EditorPDFToolsMenuEntry: Equatable {
-    enum Action: Equatable {
+public struct EditorPDFToolsMenuEntry: Equatable {
+    public enum Action: Equatable {
         case run(EditorPDFTool)
         case sheet(EditorPDFToolSheet)
+        /// The Pages tab's dragged order, written as a copy — the reorder bar's Save Reordered Copy.
+        case saveArrangement
+        /// The dragged order put back — the reorder bar's Reset.
+        case resetArrangement
         /// A line that only explains — why the others are greyed out.
         case none
     }
-    var title: String
-    var enabled: Bool
-    var action: Action
+    public var title: String
+    public var enabled: Bool
+    public var action: Action
     /// The submenu this line sits in, or `nil` at the top.
-    var submenu: String?
+    public var submenu: String?
     /// A divider before this line.
-    var dividerBefore = false
+    public var dividerBefore = false
+
+    public init(title: String, enabled: Bool, action: Action, submenu: String? = nil, dividerBefore: Bool = false) {
+        self.title = title
+        self.enabled = enabled
+        self.action = action
+        self.submenu = submenu
+        self.dividerBefore = dividerBefore
+    }
 
     /// The header menu, for the file the tools are attached to. With a selection, its own rotate
     /// lines come first, and Extract and Delete are filled in with it — the Pages tab's menu,
-    /// reachable without right-clicking.
+    /// reachable without right-clicking. **File ▸ PDF Tools is drawn from this list too**, so the
+    /// header and the menu bar cannot disagree; that is also why a pending reorder's two actions
+    /// are here, last, for as long as the reorder bar above the pages shows them.
     @MainActor
-    static func entries(_ tools: EditorPDFTools) -> [EditorPDFToolsMenuEntry] {
+    public static func entries(_ tools: EditorPDFTools) -> [EditorPDFToolsMenuEntry] {
         let idle = tools.running == nil
         let pages = tools.offersPageTools && idle
         let selected = tools.order.filter(tools.selection.pages.contains)
@@ -97,15 +111,26 @@ struct EditorPDFToolsMenuEntry: Equatable {
             out.append(.init(title: "Protect with Password…", enabled: tools.offersProtect && idle,
                              action: .sheet(.protect), dividerBefore: true))
         }
+        // The reorder bar's rule: shown while there is a dragged order and the file takes page tools.
+        if tools.arrangement != nil, tools.offersPageTools {
+            out.append(.init(title: "Save Reordered Copy", enabled: idle, action: .saveArrangement,
+                             dividerBefore: true))
+            out.append(.init(title: "Reset Page Order", enabled: idle, action: .resetArrangement))
+        }
         return out
     }
 }
 
-/// The menu's items, drawn from ``EditorPDFToolsMenuEntry/entries(_:)``.
-struct EditorPDFToolsMenuItems: View {
+/// The menu's items, drawn from ``EditorPDFToolsMenuEntry/entries(_:)`` — in the header's Tools
+/// menu and in File ▸ PDF Tools, the same view in both.
+public struct EditorPDFToolsMenuItems: View {
     @ObservedObject var tools: EditorPDFTools
 
-    var body: some View {
+    public init(tools: EditorPDFTools) {
+        self.tools = tools
+    }
+
+    public var body: some View {
         let groups = Self.groups(EditorPDFToolsMenuEntry.entries(tools))
         ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
             if let submenu = group.submenu {
@@ -123,7 +148,7 @@ struct EditorPDFToolsMenuItems: View {
     }
 
     /// Top-level lines and submenus, in the order the entries first name them.
-    static func groups(_ entries: [EditorPDFToolsMenuEntry])
+    public static func groups(_ entries: [EditorPDFToolsMenuEntry])
         -> [(submenu: String?, items: [EditorPDFToolsMenuEntry])] {
         entries.reduce(into: []) { groups, entry in
             if let submenu = entry.submenu, let at = groups.firstIndex(where: { $0.submenu == submenu }) {
@@ -143,6 +168,10 @@ struct EditorPDFToolsMenuItems: View {
             Button(entry.title) { Task { await tools.run(tool) } }.disabled(!entry.enabled)
         case .sheet(let sheet):
             Button(entry.title) { tools.sheet = sheet }.disabled(!entry.enabled)
+        case .saveArrangement:
+            Button(entry.title) { Task { await tools.saveArrangement() } }.disabled(!entry.enabled)
+        case .resetArrangement:
+            Button(entry.title) { tools.resetArrangement() }.disabled(!entry.enabled)
         }
     }
 }

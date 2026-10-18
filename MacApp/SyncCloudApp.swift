@@ -776,6 +776,9 @@ struct SyncCloudApp: App {
                 CommandGroup(replacing: .printItem) {
                     ExportPDFCommand()          // no chord — see AppChord.printDocument
                     PrintDocumentCommand()      // ⌘P
+                    // The PDF header's Tools menu, after a divider: each tool writes a new copy,
+                    // as Export as PDF… does. No chords — see the type.
+                    PDFToolsCommand()
                 }
             }
             // View ▸ the workspaces (one ⌘-digit each, checkmarked) and the show/hide switches. The

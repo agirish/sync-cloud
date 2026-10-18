@@ -1,4 +1,5 @@
 import AppKit
+import PDFKit
 
 /// The one rule for a menu chord that is also a text-editing key.
 ///
@@ -39,11 +40,20 @@ enum TextEditingChord {
     /// to be a parallel copy nothing shipped called, so the tests naming it pinned a rule the app
     /// did not run. If the predicate ever widens past "is an NSTextView", the failed downcast falls
     /// through to `fileAction` — the safe side, since only a real text view can take the hand-back.
+    ///
+    /// **`readerAction` is the PDF reader's half**, for the two chords a read-only page answers:
+    /// ⌘C copies the text selected on it and ⌘A selects all of it. The reader is a `PDFView`, not an
+    /// `NSTextView`, so without it those two went to the FILE action — the pane's selected rows,
+    /// which in Edit is usually the open PDF itself. `nil` (Cut, Paste and the rest) leaves a reader
+    /// responder on the file side, as before: nothing on a read-only page can be cut or pasted.
     static func route(responder: NSResponder?,
                       editorAction: (NSTextView) -> Void,
+                      readerAction: ((PDFView) -> Void)? = nil,
                       fileAction: () -> Void) {
         if belongsToTextEditor(responder), let editor = responder as? NSTextView {
             editorAction(editor)
+        } else if let readerAction, let reader = responder as? PDFView {
+            readerAction(reader)
         } else {
             fileAction()
         }
@@ -51,8 +61,10 @@ enum TextEditingChord {
 
     /// The live form: reads the key window's first responder for you.
     @MainActor
-    static func route(editorAction: (NSTextView) -> Void, fileAction: () -> Void) {
+    static func route(editorAction: (NSTextView) -> Void,
+                      readerAction: ((PDFView) -> Void)? = nil,
+                      fileAction: () -> Void) {
         route(responder: NSApp.keyWindow?.firstResponder,
-              editorAction: editorAction, fileAction: fileAction)
+              editorAction: editorAction, readerAction: readerAction, fileAction: fileAction)
     }
 }

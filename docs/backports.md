@@ -7427,3 +7427,33 @@ done
 |---|---|---|
 | `v5.x` | No PDF reader in Edit (`pdfModel=0`); View ▸ Text Size as it was, which is right there | CLOSED — does not apply |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace that opens PDFs at all | CLOSED — does not apply |
+
+---
+
+## The menu bar over a PDF in Edit — File ▸ PDF Tools, the page controls, ⌘C and ⌘A — main only
+
+File ▸ PDF Tools ▸ is the PDF header's Tools menu, drawn by the same `EditorPDFToolsMenuItems` from
+the same `EditorPDFToolsMenuEntry.entries` — which now also carry Save Reordered Copy and Reset Page
+Order while a dragged order is pending. With a PDF open, Text's ⌃⌘1/2/3 are Fit Page / Fit Width /
+Actual Size (Zoom In and Zoom Out under them) and ⌃⌘L is Go to Page…. ⌘C and ⌘A over the reader
+reach its own copy and select-all (`TextEditingChord.route`'s `readerAction`) instead of the file
+clipboard, and ⌘A in the Pages grid selects its pages (`EditorPDFPagesSelectAll`) — the grid's own
+`.onKeyPress` never ran, because the menu's ⌘A takes the key first. All of it stands on
+`EditorPDFDocument`, which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s pdfModel=%s pdfToolsMenu=%s readerRoute=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/ShortcutCommands.swift 2>/dev/null | grep -c 'struct PDFToolsCommand')" \
+    "$(git show origin/$l:MacApp/TextEditingChord.swift 2>/dev/null | grep -c 'readerAction')"
+done
+# measured 2026-10-17, against origin, before this landed:
+# main  pdfModel=1 pdfToolsMenu=0 readerRoute=0
+# v5.x, v4.x, v3.x, v2.x — 0 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | No PDF reader in Edit (`pdfModel=0`): no tools, no page controls, and no `PDFView` for ⌘C to miss | RECORDED — not owed (main only) |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace that opens PDFs at all | CLOSED — does not apply |

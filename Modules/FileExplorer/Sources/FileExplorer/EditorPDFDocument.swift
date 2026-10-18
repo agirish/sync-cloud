@@ -423,6 +423,9 @@ public final class EditorPDFViewState: ObservableObject {
     weak var reader: PDFView?
     /// Asks the page view to take the keyboard — the find bar going away hands it back.
     @Published private(set) var focusRequest = 0
+    /// Asks the header's page field to take the caret — Text ▸ Go to Page… ⌃⌘L, the PDF's Go to
+    /// Line. A count, like ``focusRequest``, so a second press while the field is up asks again.
+    @Published public private(set) var pageFieldRequest = 0
     private var token = 0
     private let defaults: UserDefaults
 
@@ -447,6 +450,8 @@ public final class EditorPDFViewState: ObservableObject {
     public func selectedText() -> String? { reader?.currentSelection?.string }
 
     func requestFocus() { focusRequest &+= 1 }
+
+    public func requestPageField() { pageFieldRequest &+= 1 }
 
     static let minScale: CGFloat = 0.1
     static let maxScale: CGFloat = 8

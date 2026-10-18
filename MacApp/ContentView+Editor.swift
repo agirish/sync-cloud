@@ -1165,6 +1165,25 @@ extension ContentView {
         PDFZoomVerbs.resolve(workspace: selectedWorkspace, pdf: editorPDF, readerHasFocus: editorPDFReaderFocused)
     }
 
+    /// File ▸ PDF Tools — the open PDF's tools, `nil` unless Edit is on screen with a PDF open or
+    /// locked (`PDFToolsMenu.isOffered`), which is where the header draws its Tools menu.
+    var shortcutPDFTools: EditorPDFTools? {
+        guard PDFToolsMenu.isOffered(workspace: selectedWorkspace, hasPDF: editorPDF.path != nil,
+                                     phase: editorPDF.phase) else { return nil }
+        return editorPDF.tools
+    }
+
+    /// Text ▸ Fit Page / Fit Width / Actual Size, the zoom and Go to Page… — `nil` unless Edit is on
+    /// screen with a PDF open (`PDFPageVerbs.isOffered`). Go to Page… only where the header draws
+    /// its page field: a PDF with pages.
+    var shortcutPDFPage: PDFPageVerbs? {
+        guard PDFPageVerbs.isOffered(workspace: selectedWorkspace, hasPDF: editorPDF.path != nil,
+                                     phase: editorPDF.phase) else { return nil }
+        let view = editorPDF.view
+        return PDFPageVerbs(view: view,
+                            goToPage: (editorPDF.facts?.pageCount ?? 0) > 0 ? { view.requestPageField() } : nil)
+    }
+
     /// Text ▸ Expand ⌃⌘E — the header button's bit and act, offered where the header draws the
     /// button (`EditorExpandSwitch.isOffered`). The act is `toggleJustTheText`, the one the button
     /// calls, so the item and the button cannot fold different things.

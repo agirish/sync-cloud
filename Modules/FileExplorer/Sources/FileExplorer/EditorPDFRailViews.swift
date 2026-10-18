@@ -62,8 +62,9 @@ struct EditorPDFRailPages: View {
     var railWidth: CGFloat = EditorLayoutMetrics.railWidth
 
     @State private var visible: Set<Int> = []
-    /// The grid takes keys once a page is clicked: Esc clears the selection, ⌘A selects every page,
-    /// Delete asks to leave the selection out of a copy. A focus of its own, so these keys never
+    /// The grid takes keys once a page is clicked: Esc clears the selection, ⌘A selects every page
+    /// (through Edit ▸ Select All — ``EditorPDFPagesSelectAll``), Delete asks to leave the selection
+    /// out of a copy. A focus of its own, so these keys never
     /// reach the grid while a field anywhere else is being typed in.
     @FocusState private var gridFocused: Bool
 
@@ -102,11 +103,10 @@ struct EditorPDFRailPages: View {
                     tools.clearSelection()
                     return .handled
                 }
-                .onKeyPress(characters: ["a"], phases: .down) { press in
-                    guard press.modifiers == .command else { return .ignored }
-                    tools.selectAll()
-                    return .handled
-                }
+                // ⌘A is Edit ▸ Select All's, which reads this while the grid has focus. Not an
+                // `.onKeyPress`: a menu key equivalent takes the key before a focused view sees it,
+                // so the handler that was here never ran.
+                .focusedValue(\.pdfPagesSelectAll, EditorPDFPagesSelectAll { tools.selectAll() })
                 .onKeyPress(keys: [.delete, .deleteForward]) { _ in
                     let pages = tools.order.filter(tools.selection.pages.contains)
                     guard !pages.isEmpty, tools.offersPageTools, tools.running == nil else { return .ignored }
@@ -330,5 +330,29 @@ struct EditorPDFReorderBar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+}
+
+/// **⌘A in the Pages tab** — published while the grid has focus, for Edit ▸ Select All to call.
+///
+/// The menu item owns ⌘A app-wide, and AppKit offers a key equivalent to the menu before a focused
+/// SwiftUI view's `.onKeyPress` sees it (measured 2026-10-17 in a standalone probe: the menu fired,
+/// the handler did not). So the grid tells the item what ⌘A means there instead.
+public struct EditorPDFPagesSelectAll {
+    public let run: () -> Void
+
+    public init(_ run: @escaping () -> Void) {
+        self.run = run
+    }
+}
+
+private struct EditorPDFPagesSelectAllKey: FocusedValueKey {
+    typealias Value = EditorPDFPagesSelectAll
+}
+
+extension FocusedValues {
+    public var pdfPagesSelectAll: EditorPDFPagesSelectAll? {
+        get { self[EditorPDFPagesSelectAllKey.self] }
+        set { self[EditorPDFPagesSelectAllKey.self] = newValue }
     }
 }

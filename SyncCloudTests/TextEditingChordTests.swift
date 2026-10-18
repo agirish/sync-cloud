@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import PDFKit
 import SwiftUI
 import Design
 @testable import SyncCloud
@@ -64,6 +65,44 @@ import Design
                                fileAction: { fileRuns += 1 })
         #expect(editorRuns + fileRuns == 1)
         #expect(editorRuns == (caretHasFocus ? 1 : 0))
+    }
+
+    // MARK: The PDF reader
+
+    /// **A PDF reader takes ⌘C and ⌘A when the item offers it its half** — and hands over the
+    /// reader it matched, so the copy is the page's selection rather than the pane's files.
+    @Test func aReaderTakesTheChordsThatOfferIt() {
+        let reader = PDFView(frame: .zero)
+        var ran = "", received: PDFView?
+        TextEditingChord.route(responder: reader,
+                               editorAction: { _ in ran = "editor" },
+                               readerAction: { received = $0; ran = "reader" },
+                               fileAction: { ran = "file" })
+        #expect(ran == "reader")
+        #expect(received === reader, "the reader branch fired without the reader to act on")
+    }
+
+    /// **Without a reader half — Cut, Paste, ⌘⌫ and the rest — a reader keeps the file action**,
+    /// exactly as before it had one.
+    @Test func aReaderKeepsTheFileActionWhereTheItemOffersNoReaderHalf() {
+        var ran = ""
+        TextEditingChord.route(responder: PDFView(frame: .zero),
+                               editorAction: { _ in ran = "editor" },
+                               fileAction: { ran = "file" })
+        #expect(ran == "file")
+    }
+
+    /// **The caret still wins, and nothing else becomes a reader** — a field editor with a reader
+    /// half offered goes to the editor; a file table goes to the files.
+    @Test func theReaderHalfChangesNothingElse() {
+        var ran: [String] = []
+        for responder: NSResponder? in [NSTextView(frame: .zero), NSTableView(frame: .zero), nil] {
+            TextEditingChord.route(responder: responder,
+                                   editorAction: { _ in ran.append("editor") },
+                                   readerAction: { _ in ran.append("reader") },
+                                   fileAction: { ran.append("file") })
+        }
+        #expect(ran == ["editor", "file", "file"])
     }
 
     // The tautological alias test that stood here (`belongsToTextEditor(x) ==

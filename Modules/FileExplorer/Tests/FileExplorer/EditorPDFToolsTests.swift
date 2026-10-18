@@ -872,6 +872,40 @@ extension PDFFixtures {
         #expect(!enabled(one).contains("Delete Pages…"), "a one-page file offers to delete its only page")
     }
 
+    /// **A dragged order puts Save Reordered Copy and Reset Page Order in the Tools menu** — and so in
+    /// File ▸ PDF Tools, which draws the same entries — last, after a divider, for as long as the
+    /// reorder bar above the pages shows them, and gone once the order is put back.
+    @Test func aPendingOrderPutsItsTwoActionsInTheMenu() throws {
+        let tools = EditorPDFTools()
+        tools.attach(path: "/a/plain.pdf", pageCount: 3, encryption: .none)
+        func actions() -> [EditorPDFToolsMenuEntry.Action] { EditorPDFToolsMenuEntry.entries(tools).map(\.action) }
+        #expect(!actions().contains(.saveArrangement) && !actions().contains(.resetArrangement),
+                "the reorder's actions are offered with no new order")
+
+        tools.move([0], onto: 2)
+        try #require(tools.arrangement != nil, "the drag made no order — this test would be vacuous")
+        let entries = EditorPDFToolsMenuEntry.entries(tools)
+        #expect(Array(entries.suffix(2)) == [
+            EditorPDFToolsMenuEntry(title: "Save Reordered Copy", enabled: true, action: .saveArrangement,
+                                    dividerBefore: true),
+            EditorPDFToolsMenuEntry(title: "Reset Page Order", enabled: true, action: .resetArrangement),
+        ])
+
+        tools.resetArrangement()
+        #expect(!actions().contains(.saveArrangement), "Save Reordered Copy outlived the order it saves")
+    }
+
+    /// **The menu's two reorder lines do what the reorder bar's buttons do** — the same two calls.
+    /// The items are a view only a running menu builds, so the switch that maps them is read.
+    @Test func theReorderLinesCallTheBarsActions() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/FileExplorer/EditorPDFToolViews.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        let flat = source.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        #expect(flat.contains("case .saveArrangement: Button(entry.title) { Task { await tools.saveArrangement() } }.disabled(!entry.enabled)"))
+        #expect(flat.contains("case .resetArrangement: Button(entry.title) { tools.resetArrangement() }.disabled(!entry.enabled)"))
+    }
+
     /// **The page field reads what it prefills and what it shows** — hyphens, en dashes from the
     /// copy's own name, and a Delete range.
     @Test func thePageFieldReadsItsOwnWords() throws {

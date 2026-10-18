@@ -1,4 +1,5 @@
 import SwiftUI
+import PDFKit
 import Dashboard
 import Design
 import Events
@@ -349,6 +350,56 @@ enum TextSizeMenuRoute {
     }
 }
 
+/// **File ▸ PDF Tools** — the open PDF's tools in the menu bar: the header's Tools menu, drawn
+/// from the same `EditorPDFToolsMenuEntry.entries` by the same `EditorPDFToolsMenuItems`, so the
+/// two cannot disagree about an item, its title or whether it is live.
+enum PDFToolsMenu {
+    /// **Where the header draws its Tools menu, the menu bar offers it**: Edit on screen, a PDF in
+    /// it, open or locked — Remove Password is the one tool a file locked to open takes. The rule is
+    /// the header's for a second reason: the header's menu is what presents the tools' sheets, so an
+    /// item offered where it is not mounted would ask for a sheet nothing shows.
+    /// `thePDFToolsAreResolvedThroughTheRule` pins the call site.
+    static func isOffered(workspace: Workspace, hasPDF: Bool, phase: EditorPDFDocument.Phase) -> Bool {
+        workspace == .editor && hasPDF && (phase == .open || phase == .locked)
+    }
+}
+
+/// **Text ▸ the page controls of a PDF open in Edit** — the header zoom menu's Fit Page, Fit Width
+/// and Actual Size, its − and +, and its page field, on the slots and chords Source / Preview /
+/// Split and Go to Line… have for text: the zoom stands where the modes stand, and the page field
+/// is a PDF's Go to Line. One item per chord whichever file is open, so nothing is registered twice.
+///
+/// **Beside ``EditorVerbs``, not inside it**, for ``PDFFindVerbs``' reason: those are a text
+/// document's, and `nil` while a PDF is open. The view state is carried rather than a snapshot of
+/// it because the window does not observe it — a page turn must not re-render the window — so the
+/// fit's tick is read by the menu item itself (`PDFFitCommands`).
+struct PDFPageVerbs {
+    let view: EditorPDFViewState
+    /// Text ▸ Go to Page…: the header's page field, or `nil` where the header draws none — a PDF
+    /// with no pages.
+    let goToPage: (() -> Void)?
+
+    /// Edit on screen and the PDF open — the rule the header draws its controls by.
+    /// `thePageVerbsAreResolvedThroughTheRule` pins the call site.
+    static func isOffered(workspace: Workspace, hasPDF: Bool, phase: EditorPDFDocument.Phase) -> Bool {
+        workspace == .editor && hasPDF && phase == .open
+    }
+
+    /// The fit each mode's slot — and so its ⌃⌘ digit — stands for, in the zoom menu's order.
+    static func fit(for mode: EditorMode) -> EditorPDFFit {
+        switch mode {
+        case .edit: return .page
+        case .preview: return .width
+        case .split: return .actual
+        }
+    }
+
+    /// Text ▸ Go to Line…'s title: Go to Page… while a PDF is open.
+    static func goToTitle(_ pdf: PDFPageVerbs?) -> String {
+        pdf == nil ? "Go to Line…" : "Go to Page…"
+    }
+}
+
 /// **Where Edit ▸ Find… and Text ▸ Find Next / Find Previous / Use Selection for Find go** — one
 /// rule each, out of the menu items so a test can hold them (the items are views that only a
 /// running menu bar builds).
@@ -515,6 +566,12 @@ enum SelectAllScope {
     static func appliesToPane(surface: SelectionSurface?) -> Bool {
         surface != .differences
     }
+
+    /// ⌘A outside a text field: the PDF Pages grid's pages while it has focus — the grid publishes
+    /// `pages` only then — else the pane's rows.
+    static func selectAll(pages: (() -> Void)?, pane: (() -> Void)?) {
+        if let pages { pages() } else { pane?() }
+    }
 }
 
 /// Which of the four verbs a selection offers, as a pure rule.
@@ -564,6 +621,14 @@ private struct PaneRowVerbsKey: FocusedValueKey {
 
 private struct EditorVerbsKey: FocusedValueKey {
     typealias Value = EditorVerbs
+}
+
+private struct PDFToolsKey: FocusedValueKey {
+    typealias Value = EditorPDFTools
+}
+
+private struct PDFPageKey: FocusedValueKey {
+    typealias Value = PDFPageVerbs
 }
 
 private struct PDFFindKey: FocusedValueKey {
@@ -1036,6 +1101,18 @@ extension FocusedValues {
         set { self[PDFZoomKey.self] = newValue }
     }
 
+    /// File ▸ PDF Tools — `nil` unless Edit shows a PDF that is open or locked; see `PDFToolsMenu`.
+    var pdfTools: EditorPDFTools? {
+        get { self[PDFToolsKey.self] }
+        set { self[PDFToolsKey.self] = newValue }
+    }
+
+    /// Text ▸ the fit, the zoom and Go to Page… — `nil` unless Edit shows an open PDF.
+    var pdfPage: PDFPageVerbs? {
+        get { self[PDFPageKey.self] }
+        set { self[PDFPageKey.self] = newValue }
+    }
+
     /// Text ▸ Expand — `nil` wherever the header draws no Expand button; see `EditorExpandSwitch`.
     var editorExpand: EditorExpandSwitch? {
         get { self[EditorExpandKey.self] }
@@ -1187,6 +1264,12 @@ struct ShortcutValuePublisher: ViewModifier {
     /// ⌘+ ⌘− ⌘0 on a PDF whose pages have the keyboard. Suspended with the rest — the pages
     /// cannot be the keyboard's under the pick — so the keys go back to the text size there.
     let pdfZoom: PDFZoomVerbs?
+    /// File ▸ PDF Tools. Suspended with the rest: a tool's sheet over a destination pick stacks two
+    /// questions on one window.
+    let pdfTools: EditorPDFTools?
+    /// Text ▸ the fit, the zoom and Go to Page…. Suspended with the rest: the page field would take
+    /// the keyboard from the pick.
+    let pdfPage: PDFPageVerbs?
     /// Text ▸ Expand. Suspended with the rest: folding the pane under a destination pick would hide
     /// the folder the pick is describing.
     let editorExpand: EditorExpandSwitch?
@@ -1244,6 +1327,8 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveEditorVerbs: EditorVerbs? { suspended ? nil : editorVerbs }
     var effectivePDFFind: PDFFindVerbs? { suspended ? nil : pdfFind }
     var effectivePDFZoom: PDFZoomVerbs? { suspended ? nil : pdfZoom }
+    var effectivePDFTools: EditorPDFTools? { suspended ? nil : pdfTools }
+    var effectivePDFPage: PDFPageVerbs? { suspended ? nil : pdfPage }
     var effectiveEditorExpand: EditorExpandSwitch? { suspended ? nil : editorExpand }
 
     /// ⌘W's published value, which is the one that does NOT go silent — see ``CloseTabAction``.
@@ -1293,6 +1378,8 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.editorVerbs, effectiveEditorVerbs)           // Text ▸ / Markup ▸
             .focusedSceneValue(\.pdfFind, effectivePDFFind)                   // ⌘F ⌘G ⇧⌘G ⌘E over a PDF
             .focusedSceneValue(\.pdfZoom, effectivePDFZoom)                   // ⌘+ ⌘− ⌘0 in a focused PDF
+            .focusedSceneValue(\.pdfTools, effectivePDFTools)                 // File ▸ PDF Tools
+            .focusedSceneValue(\.pdfPage, effectivePDFPage)                   // ⌃⌘1/2/3 ⌃⌘L over a PDF
             .focusedSceneValue(\.editorExpand, effectiveEditorExpand)         // Text ▸ Expand, ⌃⌘E
     }
 }
@@ -1336,6 +1423,8 @@ extension ContentView {
             editorVerbs: shortcutEditorVerbs,
             pdfFind: shortcutPDFFind,
             pdfZoom: shortcutPDFZoom,
+            pdfTools: shortcutPDFTools,
+            pdfPage: shortcutPDFPage,
             editorExpand: shortcutEditorExpand,
             // Suspended by the palette too, on the destination picker's own argument: it is a
             // full-window overlay whose scrim blocks the mouse from every control these chords
@@ -2136,6 +2225,29 @@ struct PrintDocumentCommand: View {
     }
 }
 
+/// File ▸ PDF Tools ▸ — the PDF header's Tools menu, in the menu bar (see ``PDFToolsMenu``).
+///
+/// **Below Print…, after a divider**: the group is what a document becomes on its way out, and every
+/// tool here writes a new copy, as Export as PDF… does. **No chords** — each opens a sheet or writes
+/// a file, and the keys Preview gives its rotations (⌘L, ⌘R) are the activity log and Rescan here.
+///
+/// **Greyed item by item, not only as a submenu**: a disabled `Menu` in the menu bar still leaves its
+/// items live (measured — `TextMarkupMenuTests`). With nothing to act on it lists ``idle`` — tools
+/// attached to no file, whose every line is greyed by the entries' own rules.
+struct PDFToolsCommand: View {
+    @FocusedValue(\.pdfTools) private var tools
+
+    var body: some View {
+        Divider()
+        Menu("PDF Tools") {
+            EditorPDFToolsMenuItems(tools: tools ?? Self.idle)
+        }
+        .disabled(tools == nil)
+    }
+
+    @MainActor static let idle = EditorPDFTools()
+}
+
 struct DeleteSelectionCommand: View {
     @FocusedValue(\.deleteSelection) private var delete
 
@@ -2177,11 +2289,15 @@ struct SwitchPaneFocusCommand: View {
 /// the caret is in a field, and a menu equivalent would take it.
 struct SelectAllCommand: View {
     @FocusedValue(\.selectAllInPane) private var selectAll
+    /// The PDF Pages tab's ⌘A, while its grid has focus — see `EditorPDFPagesSelectAll`.
+    @FocusedValue(\.pdfPagesSelectAll) private var pages
 
     var body: some View {
         Button("Select All") {
+            // The PDF reader's text, then the Pages grid's pages, then the pane's rows.
             TextEditingChord.route(editorAction: { $0.selectAll(nil) },
-                                   fileAction: { selectAll?() })
+                                   readerAction: { $0.selectAll(nil) },
+                                   fileAction: { SelectAllScope.selectAll(pages: pages?.run, pane: selectAll) })
         }
         .keyboardShortcut(AppChord.selectAll.key, modifiers: AppChord.selectAll.modifiers)
         // Never disabled: with the caret in a field the item is still live, because it selects the
@@ -2233,7 +2349,9 @@ struct CopyCommand: View {
 
     var body: some View {
         Button("Copy") {
+            // A PDF's selected text, not the PDF: the reader's copy is the one ⌘C means there.
             TextEditingChord.route(editorAction: { $0.copy(nil) },
+                                   readerAction: { $0.copy(nil) },
                                    fileAction: { clipboard?.copy?() })
         }
         .keyboardShortcut(AppChord.copy.key, modifiers: AppChord.copy.modifiers)
@@ -2588,8 +2706,18 @@ struct ToggleInspectorCommand: View {
 /// because it is what such a file is showing.
 struct EditorModeCommands: View {
     @FocusedValue(\.editorVerbs) private var verbs
+    @FocusedValue(\.pdfPage) private var pdfPage
 
     var body: some View {
+        // A PDF's page controls on the same slots and chords — see `PDFPageVerbs`.
+        if let pdfPage {
+            PDFFitCommands(state: pdfPage.view)
+        } else {
+            textModes
+        }
+    }
+
+    private var textModes: some View {
         ForEach(EditorMode.allCases, id: \.self) { mode in
             Toggle(mode.title, isOn: Binding(
                 get: { verbs?.mode == mode },
@@ -2599,6 +2727,33 @@ struct EditorModeCommands: View {
             .keyboardShortcut(mode.chord.key, modifiers: mode.chord.modifiers)
             .disabled(verbs == nil || (mode != .edit && verbs?.canPreview != true))
         }
+    }
+}
+
+/// Text ▸ Fit Page ⌃⌘1 / Fit Width ⌃⌘2 / Actual Size ⌃⌘3, then Zoom In and Zoom Out — the PDF
+/// header's zoom menu and its − and +, as items. Ticked like that menu's fits: none while the reader
+/// has zoomed by hand. **Observes the view state itself**, which the window does not; this small
+/// view is the one that redraws for it. The zoom items have no chords: ⌘+ and ⌘− are View ▸ Text
+/// Size's, which zoom the PDF only while its pages have the keyboard (`PDFZoomVerbs`); these work
+/// wherever the keyboard is.
+struct PDFFitCommands: View {
+    @ObservedObject var state: EditorPDFViewState
+
+    var body: some View {
+        ForEach(EditorMode.allCases, id: \.self) { mode in
+            let fit = PDFPageVerbs.fit(for: mode)
+            // The zoom menu's own titles, so the two say the same thing.
+            Toggle(fit.title, isOn: Binding(
+                get: { state.fit == fit },
+                // Un-ticking the fit drawn has no meaning, as for the modes.
+                set: { isOn in if isOn { state.fit = fit } }
+            ))
+            .keyboardShortcut(mode.chord.key, modifiers: mode.chord.modifiers)
+        }
+        Button("Zoom In") { state.zoom(in: true) }
+            .disabled(!state.canZoom(in: true))
+        Button("Zoom Out") { state.zoom(in: false) }
+            .disabled(!state.canZoom(in: false))
     }
 }
 
@@ -2666,11 +2821,15 @@ struct FindPreviousCommand: View {
 /// already up, a second press leaves it up.
 struct GoToLineCommand: View {
     @FocusedValue(\.editorVerbs) private var verbs
+    /// With a PDF open the item is Go to Page… — the header's page field (`PDFPageVerbs`).
+    @FocusedValue(\.pdfPage) private var pdfPage
 
     var body: some View {
-        Button("Go to Line…") { verbs?.goToLine?() }
-            .keyboardShortcut(AppChord.goToLine.key, modifiers: AppChord.goToLine.modifiers)
-            .disabled(verbs?.goToLine == nil)
+        Button(PDFPageVerbs.goToTitle(pdfPage)) {
+            if let pdfPage { pdfPage.goToPage?() } else { verbs?.goToLine?() }
+        }
+        .keyboardShortcut(AppChord.goToLine.key, modifiers: AppChord.goToLine.modifiers)
+        .disabled(pdfPage.map { $0.goToPage == nil } ?? (verbs?.goToLine == nil))
     }
 }
 
@@ -3067,14 +3226,14 @@ struct VerifyDifferencesCommand: View {
 struct EditorMenus: Commands {
     var body: some Commands {
         CommandMenu("Text") {
-            EditorModeCommands()         // ⌃⌘1 ⌃⌘2 ⌃⌘3 — Source / Preview / Split, ticked
+            EditorModeCommands()         // ⌃⌘1 ⌃⌘2 ⌃⌘3 — Source / Preview / Split, ticked; a PDF's fit and zoom
             EditorExpandCommand()        // ⌃⌘E — Expand, ticked while the document has the window
             EditInPreviewCommand()       // TE67 — no chord, ticked
             Divider()
             FindNextCommand()            // ⌘G
             FindPreviousCommand()        // ⇧⌘G
             UseSelectionForFindCommand() // ⌘E
-            GoToLineCommand()            // ⌃⌘L — the other way to a place in the text (TE61)
+            GoToLineCommand()            // ⌃⌘L — the other way to a place in the text (TE61); Go to Page… in a PDF
             Divider()
             EditorTextSettingCommands()  // Wrap Lines · Readable Line Length · Check Spelling While Typing · Continue Lists, ticked
             Divider()

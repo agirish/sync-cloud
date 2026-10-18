@@ -97,6 +97,8 @@ struct EditorPDFHeaderControls: View {
         .onChange(of: pageFieldFocused) { _, focused in
             if !focused { typedPage = Self.pageText(state.visiblePages) }
         }
+        // Text ▸ Go to Page… ⌃⌘L puts the caret in this field.
+        .onChange(of: state.pageFieldRequest) { _, _ in pageFieldFocused = true }
     }
 
     /// What the field says: "7", or "6–7" for a spread — one-based, as the reader counts.
