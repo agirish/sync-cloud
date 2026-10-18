@@ -186,6 +186,10 @@ import Testing
         // the two above it.
         "RestructurePairMergeSheet.swift":
             "modal sheet: Cancel carries .cancelAction so Escape dismisses",
+        // The PDF tools' sheets, each presented with `.sheet` from the header's Tools menu —
+        // modal, and kept in a file of their own so the always-mounted menu stays in the net.
+        "EditorPDFToolSheets.swift":
+            "modal sheets: each tool's Cancel/run pair (.cancelAction/.defaultAction)",
     ]
 
     /// Is this file part of `FileExplorer`'s shipped source tree — at ANY depth under it?

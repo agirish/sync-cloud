@@ -559,11 +559,28 @@ extension ContentView {
             onShowTextFiles: (panesHiddenForCurrentTab && !showsRail)
                 ? { showEditorRail(tab: .files, from: .emptyPage) } : nil,
             railWidth: railWidth)
+        // The PDF tools' door to the window: what a written copy re-lists, and the banner's Open
+        // and Reveal in Browse. Set on every appearance — the model outlives this view.
+        .onAppear { editorPDF.tools.host = editorPDFToolHost }
         // The rail is re-listed on arrival and whenever the folder or the hidden-files preference
         // moves — `.task(id:)` restarts on either.
         .task(id: EditorRailKey(folder: editorFolder, showsHidden: syncManager.showHiddenFiles)) {
             await refreshEditorRail()
         }
+    }
+
+    /// **What a PDF tool's copy does to the window** — Export as PDF's follow-up exactly: the rail
+    /// lists the folder the copy landed in, and a pane showing that folder is re-read. The copy is
+    /// never opened for the reader; the banner's Open is theirs to press, and it goes through the
+    /// one door a rail click takes, which asks about the open document first.
+    var editorPDFToolHost: EditorPDFToolHost {
+        EditorPDFToolHost(
+            didWrite: { path in
+                Task { await refreshEditorRail() }
+                rereadPanesAfterEditorWrite(path)
+            },
+            open: { path in openInEditor(path: path, selectsInPane: true) },
+            reveal: { path in revealInBrowse(path, from: .pdfToolBanner) })
     }
 
     /// What re-lists the rail, as one value — so a change to either half restarts the one task
@@ -648,6 +665,9 @@ extension ContentView {
     /// - Returns: `false` when the caller must do nothing at all.
     @discardableResult
     func settleEditorDocument() -> Bool {
+        // **A PDF's pending reorder is the one thing a PDF can lose** — dragged in the Pages tab and
+        // not yet saved as a copy. Asked here because every route out of the document asks this.
+        guard editorPDF.tools.confirmLeaving() else { return false }
         // **A word being composed is committed first** (UND-5), so it is in the buffer for the
         // question, the flush and the history below — never left in a storage put away without it.
         editorDocument.buffer.source.endComposition()
@@ -990,8 +1010,9 @@ extension ContentView {
     /// closed file, and every rule the binding adds is about a pick: the other pane's clear and the
     /// focused-pane move are both skipped for an empty write, and Compare's pick needs a row.
     func closeEditorDocument() {
-        // A PDF has nothing to settle; its own close releases its pages.
+        // A PDF has nothing to settle but a pending reorder; its own close releases its pages.
         if editorPDF.path != nil {
+            guard editorPDF.tools.confirmLeaving() else { return }
             EditorOpenRoute.closePDF(editorPDF,
                                      paneSelection: { syncManager.selectedLeftPaths },
                                      setPaneSelection: { syncManager.selectedLeftPaths = $0 },

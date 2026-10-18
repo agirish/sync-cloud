@@ -50,7 +50,20 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-markdown", exact: "0.8.0"),
         .package(url: "https://github.com/swiftlang/swift-cmark", exact: "0.8.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin", exact: "1.5.0"),
-        .package(url: "https://github.com/swiftlang/swift-docc-symbolkit", exact: "1.0.0")
+        .package(url: "https://github.com/swiftlang/swift-docc-symbolkit", exact: "1.0.0"),
+
+        // **The second SHIPPED dependency: the PDF tools' engine.** Edit's Rotate, Delete, Reorder
+        // and Extract pages, Compress, Clean Metadata and the two password tools call
+        // `PDFToolkitCore` — PDF Utils' engine, cut out as its own package so both apps run the
+        // same code. It owns no queue and does its PDFKit work on the calling thread, which is what
+        // lets every call here go through `PDFKitSerialAccess` like any other parse.
+        //
+        // **Pinned `exact`, and one pin is the whole graph** — it names no dependencies of its own.
+        // Exact because this code rewrites people's documents: a new engine version changes what a
+        // tool's copy contains (0.1.0 → 0.1.1 was the difference between keeping a file's
+        // bookmarks on macOS 27 and dropping them), and that should arrive as a commit someone
+        // reviewed, not as whatever a resolve happened to fetch. pdf-utils pins the same tag.
+        .package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.1.1")
     ],
     targets: [
         .target(
@@ -64,7 +77,8 @@ let package = Package(
                 // tree into Swift values is nine tenths of its parse (measured 2026-10-04: 41ms
                 // against 3ms for a 100 KB note, debug build).
                 .product(name: "cmark-gfm", package: "swift-cmark"),
-                .product(name: "cmark-gfm-extensions", package: "swift-cmark")
+                .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
+                .product(name: "PDFToolkitCore", package: "pdf-toolkit")
             ]),
         .target(
             name: "FileExplorerTestSupport",
@@ -75,7 +89,8 @@ let package = Package(
                 "FileExplorer", "FileExplorerTestSupport", "Sync", "Design",
                 .product(name: "EventsTestSupport", package: "Events"),
                 .product(name: "TestProcessTextChecking", package: "Design"),
-                .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
+                .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
+                .product(name: "PDFToolkitCore", package: "pdf-toolkit")
             ],
             path: "Tests/FileExplorer")
     ]

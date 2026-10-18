@@ -293,11 +293,14 @@ enum EditorRevealInBrowse {
         case header
         /// A Text Files rail row's right-click menu — any row, open or not.
         case railRow
+        /// The PDF tools' banner — the copy a tool just wrote.
+        case pdfToolBanner
 
         var name: String {
             switch self {
             case .header: return "the header's file name"
             case .railRow: return "a rail row's menu"
+            case .pdfToolBanner: return "the PDF tools' banner"
             }
         }
     }

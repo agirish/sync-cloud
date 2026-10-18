@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Design
 
@@ -46,10 +47,16 @@ struct EditorPDFRailOutline: View {
 ///
 /// **The current page follows the reader**: ringed as the page view scrolls, and brought into view
 /// when it leaves the list's — unless the reader is the one scrolling the list.
+///
+/// **The tools' half (Phase 3)**: click selects and goes to the page, ⌘-click toggles, ⇧-click
+/// extends; a selection's context menu rotates, deletes or extracts it into a copy; and dragging a
+/// cell is a PENDING reorder — the cells move, each keeps its original number, and nothing is
+/// written until Save Reordered Copy. All of that state is ``EditorPDFTools``', not this view's.
 struct EditorPDFRailPages: View {
     @ObservedObject var pdf: EditorPDFDocument
     @ObservedObject var view: EditorPDFViewState
     @ObservedObject var thumbnails: EditorPDFThumbnails
+    @ObservedObject var tools: EditorPDFTools
     let accent: Color
     var layout: EditorPDFPagesLayout = .grid
     var railWidth: CGFloat = EditorLayoutMetrics.railWidth
@@ -63,10 +70,13 @@ struct EditorPDFRailPages: View {
 
     var body: some View {
         if let facts = pdf.facts, pdf.phase == .open, facts.pageCount > 0 {
+            if tools.arrangement != nil, tools.offersPageTools { EditorPDFReorderBar(tools: tools, accent: accent) }
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(0..<facts.pageCount, id: \.self) { index in
+                        // Shown in the pending order when there is one; ids are the ORIGINAL page,
+                        // so a cell is the same cell wherever it is dragged to.
+                        ForEach(tools.arrangement ?? Array(0..<facts.pageCount), id: \.self) { index in
                             // The shape the image will have — crop box, turned — so a row does not
                             // change height when its thumbnail lands, which moved the grid under
                             // the reader and threw the opening scroll off the current page.
@@ -127,8 +137,12 @@ struct EditorPDFRailPages: View {
 
     private func cell(_ index: Int, size: CGSize) -> some View {
         let isCurrent = index == view.currentPage
+        let isSelected = tools.selection.pages.contains(index)
         return Button {
-            view.requestPage(index)
+            let click = EditorPDFPageSelection.click(for: NSEvent.modifierFlags)
+            tools.click(index, click)
+            // Only a plain click goes to the page; ⌘ and ⇧ are about the selection.
+            if click == .plain { view.requestPage(index) }
         } label: {
             VStack(spacing: 4) {
                 page(index, size: size)
@@ -138,20 +152,39 @@ struct EditorPDFRailPages: View {
                                           lineWidth: isCurrent ? 3 : 0.5)
                             .padding(isCurrent ? -4 : 0)
                     }
+                // The ORIGINAL number, also while the pages are reordered — it is what the reader
+                // dragged, and the new order is written only on Save.
                 Text(String(index + 1))
-                    .scaledFont(.system(size: 10, weight: isCurrent ? .semibold : .regular))
+                    .scaledFont(.system(size: 10, weight: isCurrent || isSelected ? .semibold : .regular))
                     .monospacedDigit()
-                    .foregroundStyle(isCurrent ? .primary : .secondary)
+                    .foregroundStyle(isSelected ? AnyShapeStyle(accent) : isCurrent ? AnyShapeStyle(.primary)
+                                                                               : AnyShapeStyle(.secondary))
             }
             .padding(EditorPDFPagesLayout.cellInset)
+            .background {
+                if isSelected { RoundedRectangle(cornerRadius: 7).fill(accent.opacity(0.18)) }
+            }
             .contentShape(EditorFileRailView.rowOutline)
         }
         // The rail's own row wash, as every other row here wears — a bare `.plain` was the one
         // control in the rail that gave no sign it could be clicked.
         .buttonStyle(.hoverAffordance(.row, tint: accent, shape: EditorFileRailView.rowShape))
+        .contextMenu {
+            EditorPDFPageMenu(tools: tools, pages: tools.selection.target(for: index, order: tools.order))
+        }
+        .draggable(EditorPDFPageDrag.payload(token: tools.dragToken, page: index)) {
+            page(index, size: size).frame(width: 60)
+        }
+        .dropDestination(for: String.self) { items, _ in
+            guard tools.acceptsReorder,
+                  let dragged = items.compactMap({ EditorPDFPageDrag.page(in: $0, token: tools.dragToken) }).first
+            else { return false }
+            tools.move(tools.selection.target(for: dragged, order: tools.order), onto: index)
+            return true
+        }
         .help("Go to page \(index + 1)")
         .accessibilityLabel("Page \(index + 1)")
-        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAddTraits(isCurrent || isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     /// The page's image, or a blank sheet of its shape until the image arrives. Pages stay white in
@@ -167,5 +200,96 @@ struct EditorPDFRailPages: View {
                 .fill(Color.white)
                 .aspectRatio(max(size.width, 1) / max(size.height, 1), contentMode: .fit)
         }
+    }
+}
+
+/// What a dragged page carries: the document's drag token and the page — never its path, which a
+/// drop into another app's text field would paste — so a drop from another PDF, or text from
+/// anywhere, is not taken for a reorder.
+enum EditorPDFPageDrag {
+    static let prefix = "synccloud-pdf-page:"
+
+    static func payload(token: UUID, page: Int) -> String { "\(prefix)\(page):\(token.uuidString)" }
+
+    static func page(in payload: String, token: UUID) -> Int? {
+        guard payload.hasPrefix(prefix) else { return nil }
+        let rest = payload.dropFirst(prefix.count)
+        guard let colon = rest.firstIndex(of: ":"), String(rest[rest.index(after: colon)...]) == token.uuidString
+        else { return nil }
+        return Int(rest[..<colon])
+    }
+}
+
+/// **A selection's menu in the Pages tab** — each item writes a copy. Its own view so a test can
+/// host it: a row's `.contextMenu` body never runs offscreen.
+struct EditorPDFPageMenu: View {
+    @ObservedObject var tools: EditorPDFTools
+    /// Zero-based, as shown.
+    let pages: [Int]
+
+    var body: some View {
+        if let reason = tools.disabledReason {
+            Text(reason)
+        }
+        Group {
+            Button("Rotate Left") { run(.rotate(pages: pages, quarterTurns: -1)) }
+            Button("Rotate Right") { run(.rotate(pages: pages, quarterTurns: 1)) }
+            Button("Rotate 180°") { run(.rotate(pages: pages, quarterTurns: 2)) }
+            Divider()
+            Button(Self.title("Delete", pages)) {
+                tools.sheet = .pages(.delete, prefill: EditorPDFPageMenu.rangeText(pages))
+            }
+            .disabled(pages.count >= tools.pageCount)
+            Button(Self.title("Extract", pages)) {
+                tools.sheet = .pages(.extract, prefill: EditorPDFPageMenu.rangeText(pages))
+            }
+        }
+        .disabled(!tools.offersPageTools || tools.running != nil)
+    }
+
+    private func run(_ tool: EditorPDFTool) {
+        Task { await tools.run(tool) }
+    }
+
+    static func title(_ verb: String, _ pages: [Int]) -> String {
+        pages.count == 1 ? "\(verb) Page \(pages[0] + 1)…" : "\(verb) \(pages.count) Pages…"
+    }
+
+    /// "2-4, 7" for the field, one-based and in the order given — ``EditorPDFCopyName/pageList``'s
+    /// runs, with a hyphen the parser reads.
+    static func rangeText(_ pages: [Int]) -> String {
+        guard !pages.isEmpty else { return "" }
+        var runs: [String] = []
+        var start = pages[0], end = pages[0]
+        func close() { runs.append(start == end ? "\(start + 1)" : "\(start + 1)-\(end + 1)") }
+        for page in pages.dropFirst() {
+            if page == end + 1 { end = page } else { close(); start = page; end = page }
+        }
+        close()
+        return runs.joined(separator: ", ")
+    }
+}
+
+/// **The pending reorder's bar**, above the pages: nothing is written until Save.
+struct EditorPDFReorderBar: View {
+    @ObservedObject var tools: EditorPDFTools
+    let accent: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("New page order — not saved")
+                .scaledFont(.system(size: 11, weight: .semibold))
+            HStack(spacing: 6) {
+                Button("Reset") { tools.resetArrangement() }
+                Button("Save Reordered Copy") { Task { await tools.saveArrangement() } }
+                    .buttonStyle(.borderedProminent)
+                    .tint(accent)
+            }
+            .controlSize(.small)
+            .disabled(tools.running != nil)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 }

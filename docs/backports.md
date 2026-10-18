@@ -7339,3 +7339,34 @@ done
 |---|---|---|
 | `v5.x` | Both menus on `isText` — right there, since Edit on that line opens no PDF | CLOSED — does not apply |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace | CLOSED — does not apply |
+
+---
+
+## Edit's PDF tools write copies beside the original — main only
+
+The PDF header has a Tools menu, and the Pages tab selects (click, ⌘-click, ⇧-click), drags into a
+pending order and has a menu on a selection. Rotate, Delete, Reorder and Extract pages, Compress,
+Clean Metadata, Protect with Password and Remove Password each write a NEW file, `<name>
+(<what was done>).pdf`, through `EditorFileStore.createNew` — never over the original or anything
+else. The engine is `agirish/pdf-toolkit` 0.1.1 (`PDFToolkitCore`), the app's second shipped
+dependency, called inside `PDFKitSerialAccess`. It all stands on `EditorPDFDocument`, which only
+`main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s pdfModel=%s toolkit=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Package.swift 2>/dev/null | grep -c 'pdf-toolkit')"
+done
+# measured 2026-10-17, against origin, before this landed:
+# main  pdfModel=1 toolkit=0
+# v5.x  pdfModel=0 toolkit=0
+# v4.x  pdfModel=0 toolkit=0
+# v3.x  pdfModel=0 toolkit=0
+# v2.x  pdfModel=0 toolkit=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | No PDF model in Edit (`pdfModel=0`), so nothing for the tools to stand on | RECORDED — not owed (main only) |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace that opens PDFs at all | CLOSED — does not apply |

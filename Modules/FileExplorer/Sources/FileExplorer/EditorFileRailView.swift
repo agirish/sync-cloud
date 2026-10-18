@@ -164,7 +164,7 @@ struct EditorFileRailView: View {
             case .files: filesSection
             case .pages:
                 if let pdf {
-                    EditorPDFRailPages(pdf: pdf, view: pdf.view, thumbnails: pdf.thumbnails, accent: accent,
+                    EditorPDFRailPages(pdf: pdf, view: pdf.view, thumbnails: pdf.thumbnails, tools: pdf.tools, accent: accent,
                                        layout: pagesLayout, railWidth: width)
                 }
             case .outline: outlineSection

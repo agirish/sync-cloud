@@ -171,6 +171,14 @@ struct EditorPDFBody: View {
     let quickLook: (String) -> Void
 
     var body: some View {
+        VStack(spacing: 0) {
+            EditorPDFToolBannerView(tools: pdf.tools, accent: accent)
+            content
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch pdf.phase {
         case .loading:
             ProgressView()
@@ -331,6 +339,9 @@ struct EditorPDFStatusLine: View {
 /// where the mode capsule sits. **No ＋, no format bar, no Go to Line, no save word**: nothing here
 /// writes. Find opens the PDF's own find bar (``EditorPDFFindBar``), not the text one.
 ///
+/// **The Tools menu does not change "Read only"**: every tool writes a NEW copy beside the file, so
+/// the file on screen is as unwritten after a run as before it.
+///
 /// The Expand button is the workspace's own view, handed in. The × is drawn here with the text
 /// header's modifiers and its accessibility label, calling the same host close.
 ///
@@ -364,6 +375,10 @@ struct EditorPDFHeader<Trailing: View>: View {
                 if pdf.phase == .open {
                     EditorPDFHeaderControls(state: pdf.view, find: pdf.find, pageCount: pdf.facts?.pageCount ?? 0,
                                             accent: accent, onAccent: onAccent)
+                }
+                // Locked too: Remove Password is the one tool a file locked to open can take.
+                if pdf.phase == .open || pdf.phase == .locked {
+                    EditorPDFToolsMenu(tools: pdf.tools, accent: accent)
                 }
                 trailing
                 Button(action: onClose) {

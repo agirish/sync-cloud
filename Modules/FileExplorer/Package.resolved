@@ -1,6 +1,15 @@
 {
-  "originHash" : "e48717ebc7338342aa0e8565a970c8473b36179458ca4fe3150950a1f817f36a",
+  "originHash" : "cb579a204e6b2b2491566fe4cc91b27d2f7d8bff0dc8732f78d93cee4d0a1ee0",
   "pins" : [
+    {
+      "identity" : "pdf-toolkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/agirish/pdf-toolkit",
+      "state" : {
+        "revision" : "567a99ea3c036578b7b1e4cae86d204dbb4a70bf",
+        "version" : "0.1.1"
+      }
+    },
     {
       "identity" : "swift-cmark",
       "kind" : "remoteSourceControl",

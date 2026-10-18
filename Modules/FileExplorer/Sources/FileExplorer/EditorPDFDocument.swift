@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import PDFKit
+import PDFToolkitCore
 import Sync
 
 /// **A PDF open in Edit — read-only, and deliberately not an ``EditorDocument``.**
@@ -39,7 +40,7 @@ public final class EditorPDFDocument: ObservableObject {
 
     /// What a load found, crossing back from the lane.
     enum Read: Sendable {
-        case open(SendableDocument, EditorPDFFacts, [EditorPDFOutlineEntry])
+        case open(SendableDocument, EditorPDFFacts, [EditorPDFOutlineEntry], PDFEncryptionState)
         case locked(SendableDocument)
         case unreadable
         /// Withdrawn before its turn came — another open or a close got there first — so nothing
@@ -70,6 +71,9 @@ public final class EditorPDFDocument: ObservableObject {
     /// Find inside the PDF — see ``EditorPDFFind``. Attached and detached with the thumbnails, so
     /// its document never outlives the PDF either.
     public let find: EditorPDFFind
+    /// The PDF tools — selection, a pending reorder, a run — see ``EditorPDFTools``. Attached with
+    /// the file and detached on every close, like ``thumbnails``.
+    public let tools = EditorPDFTools()
 
     /// A locked document waiting for its password. Held apart from ``document`` so the page view
     /// never gets a document it cannot draw.
@@ -157,6 +161,7 @@ public final class EditorPDFDocument: ObservableObject {
         outline = []
         thumbnails.detach()
         find.detach()
+        tools.detach()
         stamp = nil
         path = nil
         phase = .loading
@@ -196,6 +201,9 @@ public final class EditorPDFDocument: ObservableObject {
                           unlocked: unlocked.thumbnailSource?.document)
         find.attach(path: path, pageCount: facts.pageCount, hasText: facts.hasText,
                     unlocked: unlocked.findSource?.document)
+        // The file on disk is still locked: unlocking it here unlocks the reader's copy, not the
+        // file every tool opens by URL — so the tools keep offering only Remove Password.
+        tools.update(pageCount: facts.pageCount)
         phase = .open
         log("Editor unlocked \(path) (PDF, \(Self.pages(facts.pageCount)))")
         onLoaded?(.open)
@@ -236,6 +244,7 @@ public final class EditorPDFDocument: ObservableObject {
                 outline = []
                 thumbnails.detach()
                 find.detach()
+                tools.detach()
                 finish(.refused(Self.unreadableReason), path: path)
             case .locked(let held):
                 document = nil
@@ -243,15 +252,17 @@ public final class EditorPDFDocument: ObservableObject {
                 outline = []
                 thumbnails.detach()
                 find.detach()
+                tools.attach(path: path, pageCount: 0, encryption: .lockedToOpen)
                 locked = held.document
                 finish(.locked, path: path)
-            case .open(let held, let facts, let outline):
+            case .open(let held, let facts, let outline, let encryption):
                 locked = nil
                 document = held.document
                 self.facts = facts
                 self.outline = outline
                 thumbnails.attach(path: path, pageCount: facts.pageCount)
                 find.attach(path: path, pageCount: facts.pageCount, hasText: facts.hasText)
+                tools.attach(path: path, pageCount: facts.pageCount, encryption: encryption)
                 if let page { view.requestPage(min(page, max(facts.pageCount - 1, 0))) }
                 finish(.open, path: path, reloaded: page != nil)
             }
@@ -273,8 +284,11 @@ public final class EditorPDFDocument: ObservableObject {
             guard ticket.isWanted else { return .skipped }
             guard let document = PDFDocument(url: URL(fileURLWithPath: path)) else { return .unreadable }
             if document.isLocked { return .locked(SendableDocument(document)) }
+            // How the file is protected, for the tools — read in this same turn. A restricted-only
+            // file opens like any other, so it is the toolkit's question, not `isLocked`.
+            let url = URL(fileURLWithPath: path)
             return .open(SendableDocument(document), EditorPDFFacts.read(document, path: path),
-                         EditorPDFOutline.flatten(document))
+                         EditorPDFOutline.flatten(document), PDFToolkit.encryptionState(of: url))
         }
     }
 
@@ -349,6 +363,7 @@ public final class EditorPDFDocument: ObservableObject {
             outline = []
             thumbnails.detach()
             find.detach()
+            tools.detach()
             stamp = nil
             finish(.refused(Self.goneReason), path: path)
             return
