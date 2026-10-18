@@ -33,7 +33,7 @@ struct EditorPDFFindBar: View {
                     stepper
                     Button("Done") { find.hide() }
                         .controlSize(.small)
-                        .help("Close the find bar")
+                        .help(ShortcutHint.tooltip("Close the find bar", "esc"))
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
@@ -58,7 +58,6 @@ struct EditorPDFFindBar: View {
                 .textFieldStyle(.plain)
                 .scaledFont(.system(size: 11))
                 .focused($focused)
-                .disabled(!find.isSearchable)
                 .onChange(of: typed) { _, text in find.type(text) }
                 .onSubmit { find.submit(typed) }
                 .onExitCommand { find.hide() }
@@ -103,7 +102,7 @@ struct EditorPDFFindBar: View {
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
         .disabled(find.matches.isEmpty)
         .accessibilityLabel(label)
-        .help(forward ? "Next match (⌘G)" : "Previous match (⇧⌘G)")
+        .help(ShortcutHint.tooltip(label, forward ? AppChord.findNext.display : AppChord.findPrevious.display))
     }
 }
 
@@ -115,6 +114,11 @@ struct EditorPDFReader: View {
     @ObservedObject var find: EditorPDFFind
 
     var body: some View {
-        EditorPDFPageView(document: document, state: state, highlights: find.highlights)
+        EditorPDFPageView(document: document, state: state, highlights: find.highlights,
+                          onEscape: { [find] in
+                              guard find.isShown else { return false }
+                              find.hide()
+                              return true
+                          })
     }
 }

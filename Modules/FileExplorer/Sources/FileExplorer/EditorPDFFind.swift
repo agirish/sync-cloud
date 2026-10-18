@@ -17,9 +17,13 @@ enum EditorPDFTextMatch {
     /// The query as it is matched: folded, trimmed, every whitespace run one space. Empty for a
     /// query of nothing but whitespace, which searches nothing.
     static func normalizedQuery(_ query: String) -> String {
-        query.precomposedStringWithCompatibilityMapping
-            .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
-            .joined(separator: " ")
+        oneLine(query.precomposedStringWithCompatibilityMapping)
+    }
+
+    /// `text` trimmed, every run of whitespace or line breaks one space — how a selection made
+    /// across lines is put in the one-line field.
+    static func oneLine(_ text: String) -> String {
+        text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
     }
 
     /// Every place `query` appears in `text`, as ranges of `text` itself (UTF-16, `NSString`'s —
@@ -82,17 +86,18 @@ public struct EditorPDFFindMatch: Equatable, Sendable {
 
 /// What the page view draws: every match by page, and which one is current.
 struct EditorPDFHighlights: Equatable {
+    /// A match by where it is: its page, and its place among that page's matches.
+    struct Spot: Equatable {
+        var page: Int
+        var ordinal: Int
+    }
+
     var pages: [Int: [[CGRect]]] = [:]
-    /// The current match: its page, and its place among that page's matches.
-    var current: (page: Int, ordinal: Int)?
+    var current: Spot?
 
     static let none = EditorPDFHighlights()
 
     var isEmpty: Bool { pages.isEmpty }
-
-    static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.pages == rhs.pages && lhs.current?.page == rhs.current?.page && lhs.current?.ordinal == rhs.current?.ordinal
-    }
 }
 
 // MARK: - The find
@@ -143,6 +148,9 @@ public final class EditorPDFFind: ObservableObject {
     @Published private(set) var focusRequest = 0
     /// Pages searched for the current query.
     @Published public private(set) var searchedPages = 0
+    /// Pages whose text could not be read for the current query — all of them, and the bar says
+    /// so rather than "Not found".
+    @Published private(set) var failedPages = 0
 
     /// How long a turn may wait for the lane before the bar says so.
     static let waitThreshold: Duration = .milliseconds(300)
@@ -161,7 +169,17 @@ public final class EditorPDFFind: ObservableObject {
     private var pump: Task<Void, Never>?
     private var typing: Task<Void, Never>?
     private var generation = 0
+    /// When the current search started, and how many of its turns waited past ``waitThreshold`` —
+    /// for its one log line.
+    private var startedAt: ContinuousClock.Instant?
+    private var waitedTurns = 0
 
+    /// Told one line when a search finishes — never the query, which can be anything the reader
+    /// typed. ``EditorPDFDocument`` hands in its log.
+    var log: (String) -> Void = { _ in }
+
+    /// Searches started, each a fresh run of turns. Test instrumentation.
+    private(set) var searchesStarted = 0
     /// Turns that came up for a withdrawn search and skipped. Test instrumentation.
     private(set) var skippedTurns = 0
     /// Pages searched for the current query, in the order their turns landed. Test instrumentation.
@@ -251,11 +269,16 @@ public final class EditorPDFFind: ObservableObject {
         if !wasShown { restart() }
     }
 
-    /// Esc and Done: puts the bar away, withdraws the search and clears the highlights.
+    /// Esc and Done: puts the bar away, withdraws the search, clears the highlights and gives the
+    /// pages the keyboard back. The search's document is let go too, unless it is a password copy
+    /// that cannot be opened again — the next search reopens it in the lane.
     public func hide() {
+        let wasShown = isShown
         stop()
         isShown = false
         phase = .idle
+        if let source, source.reopens { self.source = Source(path: source.path) }
+        if wasShown { view.requestFocus() }
     }
 
     /// Searches for `text` now.
@@ -269,8 +292,11 @@ public final class EditorPDFFind: ObservableObject {
     /// The bar's field: searches once typing settles, so a word typed fast is one search, not one
     /// per letter.
     func type(_ text: String) {
-        guard text != query else { return }
+        // Cancelled FIRST: typing back to the query searched must also drop the settle still
+        // pending for what was typed in between.
         typing?.cancel()
+        typing = nil
+        guard text != query else { return }
         let settle = Self.typingSettle
         typing = Task { [weak self] in
             try? await Task.sleep(for: settle)
@@ -303,12 +329,22 @@ public final class EditorPDFFind: ObservableObject {
 
     /// ⌘E: the reader's selection becomes the query. `nil` or empty — nothing selected — leaves the
     /// query alone, and says so.
+    ///
+    /// The query is set before the bar is shown, so showing it searches once — for the selection,
+    /// not first for the query it replaces. A selection made across lines is put on one.
     @discardableResult
     public func useSelection(_ text: String?) -> Bool {
-        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty else { return false }
-        show()
-        search(trimmed)
+        let selected = EditorPDFTextMatch.oneLine(text ?? "")
+        guard !selected.isEmpty else { return false }
+        typing?.cancel()
+        typing = nil
+        query = selected
+        if isShown {
+            focusRequest &+= 1
+            restart()
+        } else {
+            show()
+        }
         return true
     }
 
@@ -322,22 +358,24 @@ public final class EditorPDFFind: ObservableObject {
         guard isShown, !matches.isEmpty else { return .none }
         var pages: [Int: [[CGRect]]] = [:]
         for match in matches { pages[match.pageIndex, default: []].append(match.rects) }
-        let current = currentIndex.map { (matches[$0].pageIndex, matches[$0].ordinal) }
+        let current = currentIndex.map { EditorPDFHighlights.Spot(page: matches[$0].pageIndex, ordinal: matches[$0].ordinal) }
         return EditorPDFHighlights(pages: pages, current: current)
     }
 
     /// The counter, and the line under it while a turn waits.
     var caption: String { Self.caption(phase: phase, query: query, count: matches.count,
-                                       current: currentIndex, isWaiting: isWaiting) }
+                                       current: currentIndex, isWaiting: isWaiting,
+                                       unreadable: phase == .done && pageCount > 0 && failedPages == pageCount) }
 
     /// "3 of 9", "3 of 9 so far" while pages are still being searched, and why there is no count.
-    nonisolated static func caption(phase: Phase, query: String, count: Int, current: Int?, isWaiting: Bool) -> String {
+    nonisolated static func caption(phase: Phase, query: String, count: Int, current: Int?, isWaiting: Bool,
+                                    unreadable: Bool = false) -> String {
         if phase == .noText { return noTextCaption }
         guard !EditorPDFTextMatch.normalizedQuery(query).isEmpty, phase != .idle else { return "" }
         let searching = phase == .searching
         let counted: String
         if count == 0 {
-            counted = searching ? "Searching…" : "Not found"
+            counted = searching ? "Searching…" : (unreadable ? unreadableCaption : "Not found")
         } else {
             let position = current.map { "\($0 + 1) of \(count)" } ?? (count == 1 ? "1 match" : "\(count) matches")
             counted = searching ? "\(position) so far" : position
@@ -347,6 +385,7 @@ public final class EditorPDFFind: ObservableObject {
 
     nonisolated static let noTextCaption = "This PDF has no text to search"
     nonisolated static let waitingCaption = "Waiting for other PDF work…"
+    nonisolated static let unreadableCaption = "Couldn't read this PDF's text"
 
     // MARK: The search
 
@@ -378,8 +417,11 @@ public final class EditorPDFFind: ObservableObject {
         currentIndex = nil
         isWaiting = false
         searchedPages = 0
+        failedPages = 0
         landed = []
         asking = nil
+        startedAt = nil
+        waitedTurns = 0
     }
 
     private func restart() {
@@ -389,6 +431,8 @@ public final class EditorPDFFind: ObservableObject {
         let needle = EditorPDFTextMatch.normalizedQuery(query)
         guard isShown, !needle.isEmpty else { phase = .idle; return }
         phase = .searching
+        searchesStarted += 1
+        startedAt = .now
         let order = Self.order(start: view.currentPage, count: pageCount)
         let generation = self.generation
         let ticket = self.ticket
@@ -407,6 +451,7 @@ public final class EditorPDFFind: ObservableObject {
                     guard !Task.isCancelled, !started.withLock({ $0 }),
                           let self, generation == self.generation else { return }
                     self.isWaiting = true
+                    self.waitedTurns += 1
                 }
                 let turn = await Self.searchPage(page, query: needle, source: source, ticket: ticket,
                                                  started: started, lane: lane)
@@ -415,10 +460,30 @@ public final class EditorPDFFind: ObservableObject {
                 self.land(turn)
             }
             guard let self, generation == self.generation else { return }
-            self.phase = .done
-            self.isWaiting = false
-            self.pump = nil
+            self.finish()
         }
+    }
+
+    private func finish() {
+        phase = .done
+        isWaiting = false
+        pump = nil
+        guard let source else { return }
+        log(Self.logLine(path: source.path, pageCount: pageCount, matches: matches.count,
+                         failed: failedPages, elapsed: startedAt.map { ContinuousClock.now - $0 } ?? .zero,
+                         waited: waitedTurns))
+    }
+
+    /// The one line a finished search writes. No query: it can be anything the reader typed.
+    static func logLine(path: String, pageCount: Int, matches: Int, failed: Int,
+                                    elapsed: Duration, waited: Int) -> String {
+        let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+        var line = "Editor searched \(path) (PDF, \(EditorPDFDocument.pages(pageCount))): "
+            + (matches == 1 ? "1 match" : "\(matches) matches")
+            + " in \(String(format: "%.1f", seconds)) s"
+        if waited > 0 { line += " — \(waited) page turn\(waited == 1 ? "" : "s") waited on other PDF work" }
+        if failed > 0 { line += " — \(failed) page\(failed == 1 ? "" : "s") unreadable" }
+        return line
     }
 
     private func land(_ turn: Turn) {
@@ -429,6 +494,7 @@ public final class EditorPDFFind: ObservableObject {
             skippedTurns += 1
         case .failed(let page):
             searchedPages += 1
+            failedPages += 1
             landed.append(page)
         case .page(let page, let found):
             searchedPages += 1
@@ -451,8 +517,8 @@ public final class EditorPDFFind: ObservableObject {
         currentIndex = index
         let match = matches[index]
         view.requestPage(match.pageIndex)
-        if let rect = match.rects.reduce(nil, { (union: CGRect?, next) in union.map { $0.union(next) } ?? next }) {
-            view.reveal(rect, onPage: match.pageIndex)
+        if let first = match.rects.first {
+            view.reveal(match.rects.dropFirst().reduce(first) { $0.union($1) }, onPage: match.pageIndex)
         }
     }
 

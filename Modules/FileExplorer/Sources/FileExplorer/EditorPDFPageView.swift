@@ -44,6 +44,7 @@ final class ReaderPDFView: PDFView {
 
     private let overlay = EditorPDFFindOverlay()
     private weak var watchedClip: NSClipView?
+    private var watchesScale = false
 
     /// Puts the overlay on top, the size of the view, and redraws it as the pages scroll. Kept on
     /// top on every layout: PDFKit adds views of its own when a document arrives.
@@ -64,6 +65,14 @@ final class ReaderPDFView: PDFView {
             NotificationCenter.default.addObserver(self, selector: #selector(pagesMoved(_:)),
                                                    name: NSView.boundsDidChangeNotification, object: clip)
         }
+        // A zoom resizes the pages without necessarily moving the clip's bounds, and a page turn
+        // can swap which pages are drawn: both redraw the highlights where the pages now are.
+        if !watchesScale {
+            watchesScale = true
+            for name in [Notification.Name.PDFViewScaleChanged, .PDFViewVisiblePagesChanged] {
+                NotificationCenter.default.addObserver(self, selector: #selector(pagesMoved(_:)), name: name, object: self)
+            }
+        }
         overlay.needsDisplay = true
     }
 
@@ -81,10 +90,17 @@ final class ReaderPDFView: PDFView {
         scaleFactor = EditorPDFFit.scale(fit, pageSize: pageSize, viewSize: bounds.size, margin: sideMargin)
     }
 
+    /// Esc in the pages — the find bar's, when it is up (``EditorPDFReader``). `true` when it
+    /// closed something.
+    var onEscape: (() -> Bool)?
+    static let escapeKeyCode: UInt16 = 53
+
     /// ⌥← and ⌥→ turn a page, as Edit's keys rather than the panes': with Edit on screen the
-    /// reader has the workspace to itself.
+    /// reader has the workspace to itself. Esc closes the find bar from the pages too, as it does
+    /// from its field — a press with nothing to close goes on as before.
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.keyCode == Self.escapeKeyCode, flags.isEmpty, onEscape?() == true { return }
         if flags == [.option, .numericPad, .function] || flags == .option {
             switch event.specialKey {
             case .leftArrow?:
@@ -128,6 +144,15 @@ final class EditorPDFFindOverlay: NSView {
         return convert(reader.convert(rect, from: page), from: reader)
     }
 
+    /// **The tint is light enough to read the text through.** The overlay sits ABOVE the pages —
+    /// PDFKit draws them on layers of its own, so a multiply blend here would blend with nothing —
+    /// and black text under the tint comes out darkened yellow. Measured 2026-10-17: at the 0.6 this
+    /// shipped with, that text read at ~2.6:1 against its highlight; at ``currentAlpha`` it reads at
+    /// ~5.9:1 (`theHighlightLeavesTheTextReadable`). The current match is told apart by an outline
+    /// rather than by a darker fill.
+    static let currentAlpha: CGFloat = 0.4
+    static let otherAlpha: CGFloat = 0.25
+
     override func draw(_ dirtyRect: NSRect) {
         guard !highlights.isEmpty, let reader, let document = reader.document else { return }
         let base = NSColor.findHighlightColor
@@ -135,12 +160,18 @@ final class EditorPDFFindOverlay: NSView {
             let index = document.index(for: page)
             guard let found = highlights.pages[index] else { continue }
             for (ordinal, rects) in found.enumerated() {
-                let isCurrent = highlights.current?.page == index && highlights.current?.ordinal == ordinal
-                base.withAlphaComponent(isCurrent ? 0.6 : 0.28).setFill()
+                let isCurrent = highlights.current == EditorPDFHighlights.Spot(page: index, ordinal: ordinal)
                 for rect in rects {
                     guard let placed = place(rect.insetBy(dx: -1, dy: -1), on: page),
-                          placed.intersects(dirtyRect) else { continue }
+                          placed.intersects(dirtyRect.insetBy(dx: -3, dy: -3)) else { continue }
+                    base.withAlphaComponent(isCurrent ? Self.currentAlpha : Self.otherAlpha).setFill()
                     NSBezierPath(roundedRect: placed, xRadius: 2, yRadius: 2).fill()
+                    if isCurrent {
+                        NSColor.systemOrange.setStroke()
+                        let ring = NSBezierPath(roundedRect: placed.insetBy(dx: -0.75, dy: -0.75), xRadius: 2.5, yRadius: 2.5)
+                        ring.lineWidth = 1.5
+                        ring.stroke()
+                    }
                 }
             }
         }
@@ -157,6 +188,8 @@ struct EditorPDFPageView: NSViewRepresentable {
     @ObservedObject var state: EditorPDFViewState
     /// The find's matches, drawn over the pages.
     var highlights: EditorPDFHighlights = .none
+    /// Esc in the pages: `true` when it closed something.
+    var onEscape: (() -> Bool)?
 
     final class Coordinator: NSObject {
         let state: EditorPDFViewState
@@ -164,6 +197,7 @@ struct EditorPDFPageView: NSViewRepresentable {
         var pageToken: Int?
         var scaleToken: Int?
         var revealToken: Int?
+        var focusToken: Int?
         init(state: EditorPDFViewState) { self.state = state }
 
         @MainActor @objc func pageChanged(_ note: Notification) {
@@ -190,7 +224,8 @@ struct EditorPDFPageView: NSViewRepresentable {
         view.maxScaleFactor = EditorPDFViewState.maxScale
         view.clearInheritedBackground()
         context.coordinator.view = view
-        state.selectedText = { [weak view] in view?.currentSelection?.string }
+        context.coordinator.focusToken = state.focusRequest
+        state.reader = view
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.pageChanged(_:)),
                                                name: .PDFViewPageChanged, object: view)
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.scaleChanged(_:)),
@@ -219,18 +254,44 @@ struct EditorPDFPageView: NSViewRepresentable {
             coordinator.scaleToken = request.token
             view.scaleFactor = request.value
         }
+        let reveal = state.revealRequest.flatMap { $0.token != coordinator.revealToken ? $0 : nil }
         if let request = state.pageRequest, request.token != coordinator.pageToken,
            let document, let page = document.page(at: request.value) {
             coordinator.pageToken = request.token
-            view.go(to: page)
+            // **Not when a match on this page is to be shown in the same pass**: going to the page
+            // scrolls to its top first, so stepping between two matches already on screen jumped
+            // the view up and back down for nothing. The reveal goes to the page itself.
+            if Self.goesToPageTop(page: request.value, reveal: reveal?.value) { view.go(to: page) }
         }
-        if let request = state.revealRequest, request.token != coordinator.revealToken,
-           let document, let page = document.page(at: request.value.pageIndex) {
+        if let request = reveal, let document, let page = document.page(at: request.value.pageIndex) {
             coordinator.revealToken = request.token
-            // A margin round the match, so it is not drawn hard against the edge it scrolled to.
-            view.go(to: request.value.rect.insetBy(dx: -24, dy: -48), on: page)
+            // A margin round the match, so it is not drawn hard against the edge it scrolled to —
+            // and no scroll at all for a match already in sight.
+            let wanted = request.value.rect.insetBy(dx: -24, dy: -48)
+            if !Self.isInSight(request.value.rect, on: page, in: view) { view.go(to: wanted, on: page) }
         }
+        if state.focusRequest != coordinator.focusToken {
+            coordinator.focusToken = state.focusRequest
+            DispatchQueue.main.async { [weak view] in
+                guard let view, let window = view.window else { return }
+                window.makeFirstResponder(view)
+            }
+        }
+        view.onEscape = onEscape
         view.highlights = highlights
+    }
+
+    /// Whether a page ask scrolls to the page's top: not when a match on that same page is to be
+    /// revealed in the same pass, which goes to the page itself.
+    static func goesToPageTop(page: Int, reveal: EditorPDFReveal?) -> Bool {
+        reveal?.pageIndex != page
+    }
+
+    /// Whether `rect`, in page space on `page`, is wholly on screen in `view` — a page on screen at
+    /// all, and the rect inside the view's bounds.
+    static func isInSight(_ rect: CGRect, on page: PDFPage, in view: PDFView) -> Bool {
+        guard view.visiblePages.contains(page) else { return false }
+        return view.bounds.contains(view.convert(rect, from: page))
     }
 
     /// **The pages take the keyboard only when nothing else has it**, so ⌥← / ⌥→ and Space work
@@ -247,7 +308,8 @@ struct EditorPDFPageView: NSViewRepresentable {
 
     static func dismantleNSView(_ view: ReaderPDFView, coordinator: Coordinator) {
         NotificationCenter.default.removeObserver(coordinator)
-        coordinator.state.selectedText = { nil }
+        if coordinator.state.reader === view { coordinator.state.reader = nil }
+        view.onEscape = nil
         view.highlights = .none
         // The model owns the document and releases it on close; the view lets go of it now.
         view.document = nil

@@ -110,6 +110,7 @@ public final class EditorPDFDocument: ObservableObject {
         let view = EditorPDFViewState()
         self.view = view
         find = EditorPDFFind(view: view)
+        find.log = { [weak self] in self?.log($0) }
     }
 
     public var name: String { path.map { ($0 as NSString).lastPathComponent } ?? "" }
@@ -391,10 +392,19 @@ public final class EditorPDFViewState: ObservableObject {
     @Published public private(set) var scaleRequest: EditorPDFRequest<CGFloat>?
     /// A place on a page the view is asked to scroll into sight — the find's current match.
     @Published public private(set) var revealRequest: EditorPDFRequest<EditorPDFReveal>?
-    /// **The reader's own selection, as text** — set by the page view while it is mounted, for ⌘E.
-    /// Selection text the reader already made on the main thread, read there; no extraction.
-    public internal(set) var selectedText: () -> String? = { nil }
+    /// The page view showing the reader now, set while it is mounted — what ⌘E reads the
+    /// selection from. Weak, and cleared only by the view that set it: a page view torn down after
+    /// its successor was built must not take the successor's away.
+    weak var reader: PDFView?
+    /// Asks the page view to take the keyboard — the find bar going away hands it back.
+    @Published private(set) var focusRequest = 0
     private var token = 0
+
+    /// **The reader's own selection, as text**, for ⌘E. Selection text the reader already made on
+    /// the main thread, read there; no extraction.
+    public func selectedText() -> String? { reader?.currentSelection?.string }
+
+    func requestFocus() { focusRequest &+= 1 }
 
     /// The zoom buttons' steps: Preview's, roughly — a quarter up, back down by the same.
     static let zoomStep: CGFloat = 1.25

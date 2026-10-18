@@ -107,7 +107,7 @@ enum PDFTextFixtures {
     private func wait(_ label: String, turns: Int = 4000, until done: () -> Bool) async -> Bool {
         for _ in 0..<turns {
             if done() { return true }
-            await PDFKitSerialAccess.perform {}
+            _ = await PDFKitSerialAccess.perform {}
             try? await Task.sleep(nanoseconds: 5_000_000)
         }
         Issue.record("timed out waiting for \(label)")
@@ -250,8 +250,10 @@ enum PDFTextFixtures {
         find.show()
         lane.hold()
         find.search("needle")
-        try? await Task.sleep(for: .milliseconds(600))
-        #expect(find.isWaiting, "a turn held 600 ms behind other work does not say it is waiting")
+        // Bounded in turns, not a fixed sleep (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"):
+        // the turn is held, so it waits past the threshold however busy the machine is.
+        await wait("the waiting line") { find.isWaiting }
+        #expect(find.isWaiting, "a turn held behind other work does not say it is waiting")
         #expect(find.caption.contains(EditorPDFFind.waitingCaption))
         lane.release()
         await wait("the search") { find.phase == .done }
@@ -336,7 +338,7 @@ enum PDFTextFixtures {
         #expect(pdf.find.phase == .noText)
         #expect(pdf.find.caption == EditorPDFFind.noTextCaption)
         #expect(!pdf.find.isSearchable)
-        await PDFKitSerialAccess.perform {}
+        _ = await PDFKitSerialAccess.perform {}
         #expect(pdf.find.asking == nil && pdf.find.searchedPages == 0)
         #expect(pdf.find.currentTicket.bodies.withLock { $0 } == 0, "an image-only PDF queued a page")
         #expect(try #require(pdf.find.currentSource).readDocuments.withLock { $0 }.isEmpty)
@@ -367,7 +369,7 @@ enum PDFTextFixtures {
         reader.document = document
         reader.layoutDocumentView()
         let rect = CGRect(x: 72, y: 600, width: 100, height: 20)
-        reader.highlights = EditorPDFHighlights(pages: [0: [[rect]]], current: (0, 0))
+        reader.highlights = EditorPDFHighlights(pages: [0: [[rect]]], current: .init(page: 0, ordinal: 0))
         reader.layout()
         let overlay = try #require(reader.subviews.last as? EditorPDFFindOverlay, "the overlay is not on top")
         let page = try #require(document.page(at: 0))
@@ -386,4 +388,194 @@ enum PDFTextFixtures {
         let card = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
         #expect(card.contains("EditorPDFFindBar(find: pdf.find, accent: accent)"), "the bar is not mounted under the header")
     }
+
+    // MARK: Review fixes (2026-10-17)
+
+    /// **Typing back to the query searched drops the settle pending for what was typed between** —
+    /// it returned early and left that search to fire.
+    @Test func typingBackToTheQueryDropsTheStaleSettle() async {
+        let find = find(needles(pages: 2), pages: 2)
+        find.show()
+        find.search("needle")
+        await wait("the search") { find.phase == .done }
+        let started = find.searchesStarted
+        find.type("needl")
+        find.type("needle")
+        try? await Task.sleep(for: EditorPDFFind.typingSettle * 3)
+        #expect(find.query == "needle", "a stale settle searched for \(find.query)")
+        #expect(find.searchesStarted == started, "typing back to the query searched again")
+    }
+
+    /// **⌘E on a hidden bar searches once — for the selection**, and a selection made across lines
+    /// is put on one.
+    @Test func useSelectionSearchesOnceAndOnOneLine() async {
+        let file = path("lines.pdf")
+        PDFTextFixtures.write(file, pages: [["The annual", "statement is enclosed."]])
+        let find = find(file, pages: 1)
+        find.search("kept from before")
+        let started = find.searchesStarted
+        #expect(find.useSelection("annual\nstatement"))
+        #expect(find.query == "annual statement")
+        #expect(find.searchesStarted == started + 1, "showing the bar searched the old query first")
+        await wait("the search") { find.phase == .done }
+        #expect(find.matches.count == 1)
+    }
+
+    /// **A PDF whose text cannot be read says so**, rather than "Not found".
+    @Test func aPDFWhoseTextCannotBeReadSaysSo() async {
+        let file = path("not-a-pdf.pdf")
+        FileManager.default.createFile(atPath: file, contents: Data("not a pdf".utf8))
+        let find = find(file, pages: 3)
+        find.show()
+        find.search("x")
+        await wait("the search") { find.phase == .done }
+        #expect(find.caption == EditorPDFFind.unreadableCaption)
+    }
+
+    /// **Hiding lets the search's document go and gives the pages the keyboard back.**
+    @Test func hidingReleasesTheDocumentAndHandsBackTheKeyboard() async throws {
+        let view = EditorPDFViewState()
+        let find = find(needles(pages: 2), pages: 2, view: view)
+        find.show()
+        find.search("needle")
+        await wait("the search") { find.phase == .done }
+        let source = try #require(find.currentSource)
+        let focus = view.focusRequest
+        find.hide()
+        #expect(find.currentSource !== source, "the bar went away and the search kept its document")
+        #expect(view.focusRequest == focus + 1, "the pages were not given the keyboard back")
+        find.hide()
+        #expect(view.focusRequest == focus + 1, "a second Esc asked again with nothing closed")
+    }
+
+    /// **A finished search logs one line, without the query; a withdrawn one logs nothing.**
+    @Test func aFinishedSearchLogsOneLineWithoutTheQuery() async {
+        // Named so the path holds neither query word: the check is on the line, not the file.
+        let find = find(needles("plain.pdf", pages: 3), pages: 3)
+        var lines: [String] = []
+        find.log = { lines.append($0) }
+        find.show()
+        find.search("needle")
+        find.search("Page")
+        await wait("the search") { find.phase == .done }
+        #expect(lines.count == 1, "\(lines)")
+        #expect(lines.first?.hasPrefix("Editor searched ") == true)
+        #expect(lines.first?.contains("(PDF, 3 pages): 3 matches in ") == true, "\(lines)")
+        #expect(lines.first?.contains("Page") == false && lines.first?.contains("needle") == false,
+                "the log carries the query")
+        #expect(EditorPDFFind.logLine(path: "/p.pdf", pageCount: 1, matches: 1, failed: 1,
+                                      elapsed: .milliseconds(1500), waited: 2)
+                == "Editor searched /p.pdf (PDF, 1 page): 1 match in 1.5 s — 2 page turns waited on other PDF work — 1 page unreadable")
+    }
+
+    /// **A reload under an open bar searches the new file again.**
+    @Test func aReloadUnderTheBarSearchesAgain() async {
+        let file = needles(pages: 3)
+        let find = find(file, pages: 3)
+        find.show()
+        find.search("needle")
+        await wait("the search") { find.phase == .done }
+        find.attach(path: file, pageCount: 3, hasText: true)
+        #expect(find.phase == .searching && find.query == "needle")
+        await wait("the search again") { find.phase == .done }
+        #expect(find.matches.count == 3)
+    }
+
+    /// **The tint leaves the text readable**: black text under the current match's tint against
+    /// the tinted page, at WCAG's 4.5:1 for body text.
+    @Test func theHighlightLeavesTheTextReadable() throws {
+        let tint = try #require(NSColor.findHighlightColor.usingColorSpace(.sRGB))
+        func over(_ base: CGFloat, alpha: CGFloat) -> [CGFloat] {
+            [tint.redComponent, tint.greenComponent, tint.blueComponent].map { alpha * $0 + (1 - alpha) * base }
+        }
+        func luminance(_ rgb: [CGFloat]) -> CGFloat {
+            let l = rgb.map { $0 <= 0.03928 ? $0 / 12.92 : pow(($0 + 0.055) / 1.055, 2.4) }
+            return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]
+        }
+        for alpha in [EditorPDFFindOverlay.currentAlpha, EditorPDFFindOverlay.otherAlpha] {
+            let text = luminance(over(0, alpha: alpha)), page = luminance(over(1, alpha: alpha))
+            let ratio = (page + 0.05) / (text + 0.05)
+            #expect(ratio >= 4.5, "text under a \(alpha) tint reads at \(ratio):1")
+        }
+    }
+
+    /// **Zooming redraws the highlights**, and a page turn does too — the clip's bounds need not move.
+    @Test func zoomingRedrawsTheHighlights() throws {
+        let file = needles("zoom.pdf", pages: 2)
+        let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
+        reader.document = PDFDocument(url: URL(fileURLWithPath: file))
+        reader.layoutDocumentView()
+        // In a window: `needsDisplay` reads false for a view with nowhere to draw.
+        let window = NSWindow(contentRect: reader.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = reader
+        defer { window.contentView = nil }
+        reader.highlights = EditorPDFHighlights(pages: [0: [[CGRect(x: 72, y: 600, width: 100, height: 20)]]])
+        let overlay = try #require(reader.subviews.last as? EditorPDFFindOverlay)
+        reader.displayIfNeeded()
+        overlay.needsDisplay = false
+        NotificationCenter.default.post(name: .PDFViewScaleChanged, object: reader)
+        #expect(overlay.needsDisplay, "a zoom left the highlights where the pages were")
+        overlay.needsDisplay = false
+        NotificationCenter.default.post(name: .PDFViewVisiblePagesChanged, object: reader)
+        #expect(overlay.needsDisplay, "a page turn left the highlights where the pages were")
+    }
+
+    /// **A step to a match on its own page does not jump to the page's top first**, and a match
+    /// already in sight is not scrolled to.
+    @Test func showingAMatchDoesNotJumpThePage() throws {
+        let reveal = EditorPDFReveal(pageIndex: 3, rect: .zero)
+        #expect(!EditorPDFPageView.goesToPageTop(page: 3, reveal: reveal))
+        #expect(EditorPDFPageView.goesToPageTop(page: 3, reveal: nil))
+        #expect(EditorPDFPageView.goesToPageTop(page: 4, reveal: reveal))
+
+        let file = needles("sight.pdf", pages: 6)
+        let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
+        let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 700, height: 900))
+        reader.displayMode = .singlePageContinuous
+        reader.autoScales = false
+        reader.scaleFactor = 1
+        reader.document = document
+        let window = NSWindow(contentRect: reader.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = reader
+        defer { window.contentView = nil }
+        reader.layoutDocumentView()
+        reader.go(to: try #require(document.page(at: 0)))
+        let first = try #require(document.page(at: 0)), last = try #require(document.page(at: 5))
+        #expect(EditorPDFPageView.isInSight(CGRect(x: 72, y: 650, width: 100, height: 20), on: first, in: reader))
+        #expect(!EditorPDFPageView.isInSight(CGRect(x: 72, y: 650, width: 100, height: 20), on: last, in: reader))
+    }
+
+    /// **Esc in the pages closes the bar when it is up**, and goes on as before when it is not.
+    @Test func escInThePagesClosesTheBar() throws {
+        let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+        var closes = 0
+        var open = true
+        reader.onEscape = { guard open else { return false }; closes += 1; open = false; return true }
+        let escape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                   windowNumber: 0, context: nil, characters: "\u{1b}",
+                                                   charactersIgnoringModifiers: "\u{1b}", isARepeat: false,
+                                                   keyCode: ReaderPDFView.escapeKeyCode))
+        reader.keyDown(with: escape)
+        #expect(closes == 1)
+        reader.keyDown(with: escape)
+        #expect(closes == 1, "a second Esc closed something that was not open")
+
+        let source = try ChromeGlassWiringTests.source("EditorPDFFindBar.swift")
+        #expect(source.contains("guard find.isShown else { return false }"), "the reader's Esc is not the bar's")
+        #expect(!source.contains(".disabled(!find.isSearchable)"), "the field is disabled, so Esc cannot reach it")
+    }
+
+    /// **⌘E's selection is read from the page view mounted now** — one torn down after its
+    /// successor was built leaves the successor's in place.
+    @Test func anOldPageViewKeepsItsHandsOffTheNewOnesSelection() {
+        let state = EditorPDFViewState()
+        let old = ReaderPDFView(), new = ReaderPDFView()
+        state.reader = old
+        state.reader = new
+        EditorPDFPageView.dismantleNSView(old, coordinator: EditorPDFPageView.Coordinator(state: state))
+        #expect(state.reader === new, "dismantling the old view took the new one's selection away")
+        EditorPDFPageView.dismantleNSView(new, coordinator: EditorPDFPageView.Coordinator(state: state))
+        #expect(state.reader == nil)
+    }
+
 }

@@ -39,7 +39,7 @@ struct EditorPDFHeaderControls: View {
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
         .accessibilityLabel("Find in this PDF")
-        .help("Find in this PDF")
+        .help(ShortcutHint.tooltip("Find in this PDF", AppChord.findInPane.display))
     }
 
     /// "2 of 3", the number a field: type a page and Return.
