@@ -7312,3 +7312,30 @@ done
 **Pick notes, should ⇧⌘G alone ever go to `v5.x`.** `AppChord.findPrevious` + its registry line,
 `FindPreviousCommand` with the text branch of `FindMenuRoute.step`, the Text menu line, the ⌘/
 reference row and `windowSize` (740 → 760, re-measure there), and the `TextMarkupMenuTests` order pin.
+
+---
+
+## Compare's differences and Duplicates offer Open in Edit for PDFs — main only
+
+A difference row's menu (`DifferenceRowMenu.editableSides`) and a duplicate copy's
+(`DuplicateGroupCard.offersOpenInEditor`) now gate on `EditableText.opensInEdit` rather than
+`isText`, so a PDF on either surface opens read-only in Edit, as every other door already did. The
+compare pair viewer (Differences overlay, Compare Copies) still has no Open in Edit of its own.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s opensInEdit=%s diffGateIsText=%s dupGateIsText=%s\n' "$l" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PairContentKind.swift 2>/dev/null | grep -c 'func opensInEdit')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferenceRowMenu.swift 2>/dev/null | grep -c 'EditableText.isText(path: \$0.side.path)')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DuplicateGroupCard.swift 2>/dev/null | grep -c 'EditableText.isText(path: copy.path)')"
+done
+# measured 2026-10-17, against origin, before this landed:
+# main  opensInEdit=1 diffGateIsText=1 dupGateIsText=1
+# v5.x  opensInEdit=0 diffGateIsText=1 dupGateIsText=1
+# v4.x, v3.x, v2.x — 0 0 0 (no Open in Edit on either surface)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Both menus on `isText` — right there, since Edit on that line opens no PDF | CLOSED — does not apply |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace | CLOSED — does not apply |

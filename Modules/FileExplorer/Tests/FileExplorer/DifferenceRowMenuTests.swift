@@ -83,16 +83,33 @@ import Sync
                 == [.init(paneName: "Dropbox", path: "/dropbox/docs/notes.md")])
     }
 
-    /// Not a text file, no editor: the same predicate every other door asks refuses a PDF, so this
-    /// list must too.
-    @Test func aRowThatIsNotTextOffersTheEditorOnNeitherSide() {
+    /// **A file Edit does not open, no editor**: the same predicate every other door asks refuses
+    /// a `.docx`, so this list must too. It was a PDF until Edit read PDFs (Phase 2) — flipped on
+    /// purpose, and a PDF has its own test below.
+    @Test func aRowEditCannotOpenOffersTheEditorOnNeitherSide() {
+        #expect(!EditableText.opensInEdit(path: "/icloud/docs/report.docx"), "the premise: Edit refuses a .docx")
         for type in [FileDifference.DifferenceType.differentDates, .missingOnRight, .missingOnLeft] {
-            #expect(DifferenceRowMenu.editableSides(for: diff(type, relativePath: "docs/report.pdf",
-                                                              left: "/icloud/docs/report.pdf",
-                                                              right: "/dropbox/docs/report.pdf"),
+            #expect(DifferenceRowMenu.editableSides(for: diff(type, relativePath: "docs/report.docx",
+                                                              left: "/icloud/docs/report.docx",
+                                                              right: "/dropbox/docs/report.docx"),
                                                     paneNames: names).isEmpty,
-                    "a PDF row offers Open in Edit (\(type))")
+                    "a .docx row offers Open in Edit (\(type))")
         }
+    }
+
+    /// **A PDF row offers Open in Edit on each side that exists** — Edit opens it read-only, and
+    /// the hand-off routes it there (`EditorOpenRoute`).
+    @Test func aPDFRowOffersTheEditorOnEachSideThatExists() {
+        func sides(_ type: FileDifference.DifferenceType) -> [DifferenceRowMenu.Side] {
+            DifferenceRowMenu.editableSides(for: diff(type, relativePath: "docs/report.pdf",
+                                                      left: "/icloud/docs/report.pdf",
+                                                      right: "/dropbox/docs/report.pdf"),
+                                            paneNames: names)
+        }
+        #expect(sides(.differentDates) == [.init(paneName: "iCloud", path: "/icloud/docs/report.pdf"),
+                                           .init(paneName: "Dropbox", path: "/dropbox/docs/report.pdf")])
+        #expect(sides(.missingOnRight) == [.init(paneName: "iCloud", path: "/icloud/docs/report.pdf")])
+        #expect(sides(.missingOnLeft) == [.init(paneName: "Dropbox", path: "/dropbox/docs/report.pdf")])
     }
 
     /// **A folder is refused on the scan's folder fact, not on its name.** Named like a text file

@@ -42,13 +42,13 @@ public enum DifferenceRowMenu {
     }
 
     /// The sides of a difference that "Open in Edit" is offered for, left first: the sides that
-    /// exist, narrowed to files the Edit workspace opens.
+    /// exist, narrowed to files the Edit workspace opens — text, writable, and PDFs, read-only.
     ///
-    /// **The same predicate every other door asks** — `EditableText.isText(path:)`, the gate the
-    /// pane row menu, the Info inspector and File ▸ Open in Edit apply — so this list cannot offer
-    /// a PDF the editor would then refuse, nor withhold a `.md` the rail would list.
+    /// **The same predicate every other door asks** — `EditableText.opensInEdit(path:)`, the gate
+    /// the pane row menu, the Info inspector and File ▸ Open in Edit apply — so this list cannot
+    /// offer a file the editor would then refuse, nor withhold a `.md` or a PDF the rail would list.
     ///
-    /// **A folder side offers nothing, whatever it is called.** `isText` cannot tell a folder from a
+    /// **A folder side offers nothing, whatever it is called.** The gate cannot tell a folder from a
     /// file (it has no disk to ask; a directory named `notes.md` answers true), and its own doc
     /// leaves that test to every caller that can have a directory in hand. The row carries the
     /// scan's answer for each side (`leftIsDirectory` / `rightIsDirectory`), so each side is asked
@@ -59,7 +59,7 @@ public enum DifferenceRowMenu {
     /// folder was withheld.
     public static func editableSides(for difference: FileDifference, paneNames: PaneProviderNames) -> [Side] {
         existing(for: difference, paneNames: paneNames)
-            .filter { !$0.isDirectory && EditableText.isText(path: $0.side.path) }
+            .filter { !$0.isDirectory && EditableText.opensInEdit(path: $0.side.path) }
             .map(\.side)
     }
 

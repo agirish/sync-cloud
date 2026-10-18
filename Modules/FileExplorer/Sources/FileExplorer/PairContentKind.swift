@@ -32,8 +32,8 @@ public enum EditableText {
 
     /// **Whether "Open in Edit" is offered for this file**: text, which opens writable, or a PDF,
     /// which opens read-only. The gate every door asks — ⌘O, the row menu, the preview's button,
-    /// a click in Edit's pane, the inspector, row dimming. ``isText(path:)`` keeps meaning "text",
-    /// for the surfaces that still only handle text (the rail's list, Compare, duplicates).
+    /// a click in Edit's pane, the inspector, row dimming, a Compare difference row and a duplicate
+    /// copy. ``isText(path:)`` keeps meaning "text", for the questions only text answers.
     public static func opensInEdit(path: String) -> Bool {
         let kind = PairContentKind.classify(path: path)
         return kind == .text || kind == .pdf

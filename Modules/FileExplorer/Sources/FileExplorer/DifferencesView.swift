@@ -2190,10 +2190,10 @@ struct DifferenceInspectionMenu: View {
             Divider()
         }
         // **Directly under Compare…, ahead of Get Info** — the pane row menu's placement, where
-        // Open in Edit leads the single-file items. One item per side that holds a text file the
-        // editor opens (`editableSides`), so a one-sided row gets one, and a folder or a PDF gets
-        // none — and no divider either, which is what keeps a non-text row's menu exactly what it
-        // was before this group existed.
+        // Open in Edit leads the single-file items. One item per side that holds a file the editor
+        // opens — text, or a PDF read-only (`editableSides`) — so a one-sided row gets one, and a
+        // folder or a `.docx` gets none — and no divider either, which is what keeps such a row's
+        // menu exactly what it was before this group existed.
         let editable = DifferenceRowMenu.editableSides(for: difference, paneNames: paneNames)
         if let onOpenInEditor, !editable.isEmpty {
             ForEach(editable, id: \.paneName) { side in

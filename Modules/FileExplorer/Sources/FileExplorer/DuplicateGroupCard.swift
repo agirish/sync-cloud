@@ -446,13 +446,13 @@ struct DuplicateGroupCard: View {
     ///
     /// **On every row, the keeper's included** — the copy you are keeping is the one you are most
     /// likely to want to open. Gated on the same public predicate the Info inspector and File ▸
-    /// Open in Edit ask (`EditableText.isText`), so this row cannot come to call something text
-    /// that the pane row's menu does not. A folder group never offers it, whatever its copies are
+    /// Open in Edit ask (`EditableText.opensInEdit` — text, and PDFs read-only), so this row cannot
+    /// offer what the pane row's menu does not. A folder group never offers it, whatever its copies are
     /// named: a folder called `notes.md` is not a document. Cloud-only copies ARE offered, as the
     /// pane row menu offers them — the editor's own load says what it can and cannot read.
     func offersOpenInEditor(_ copy: DuplicateCopy) -> Bool {
         onOpenInEditor != nil && !group.isDirectory && !copy.isDirectory
-            && EditableText.isText(path: copy.path)
+            && EditableText.opensInEdit(path: copy.path)
     }
 
     /// Whether this copy's row offers "Compare with keeper". Absent on the keeper's own row:

@@ -58,15 +58,22 @@ import Testing
         #expect(text.card.offersCompareWithKeeper(text.other))
         #expect(!text.card.offersCompareWithKeeper(text.keeper), "the keeper offers to compare with itself")
 
+        // A kind Edit refuses — the baseline was a PDF until Edit read PDFs (Phase 2), flipped on
+        // purpose; a PDF now offers it, below.
+        let docx = Self.card(("report.docx", "report.docx"))
+        #expect(!docx.card.offersOpenInEditor(docx.other), "a .docx copy offers the editor")
+        #expect(!docx.card.offersOpenInEditor(docx.keeper), "a .docx keeper offers the editor")
+        #expect(docx.card.offersCompareWithKeeper(docx.other))
+
         let pdf = Self.card(("report.pdf", "report.pdf"))
-        #expect(!pdf.card.offersOpenInEditor(pdf.other), "a PDF copy offers a text editor")
-        #expect(!pdf.card.offersOpenInEditor(pdf.keeper), "a PDF keeper offers a text editor")
-        #expect(pdf.card.offersCompareWithKeeper(pdf.other))
+        #expect(pdf.card.offersOpenInEditor(pdf.other), "a PDF copy does not offer Open in Edit — Edit reads PDFs")
+        #expect(pdf.card.offersOpenInEditor(pdf.keeper), "a PDF keeper does not offer Open in Edit")
 
         // …and whether the row carries a menu at all follows from those two, not a third rule.
         #expect(text.card.hasRowMenu(text.keeper) && text.card.hasRowMenu(text.other))
-        #expect(pdf.card.hasRowMenu(pdf.other))
-        #expect(!pdf.card.hasRowMenu(pdf.keeper), "a non-text keeper row is given an empty menu")
+        #expect(pdf.card.hasRowMenu(pdf.keeper) && pdf.card.hasRowMenu(pdf.other))
+        #expect(docx.card.hasRowMenu(docx.other))
+        #expect(!docx.card.hasRowMenu(docx.keeper), "a keeper row Edit cannot open is given an empty menu")
     }
 
     /// **Two things that are never "a text file", whatever the name says.** A folder group whose
@@ -102,31 +109,32 @@ import Testing
     /// **Each row's menu as SwiftUI actually builds it, top to bottom.**
     ///
     /// Text group: the keeper's row answers Open in Edit alone; the other row answers Open in Edit
-    /// ABOVE Compare with keeper. PDF group: the keeper's row answers nothing at all, and the other
+    /// ABOVE Compare with keeper. `.docx` group — a kind Edit refuses; it was a PDF until Edit read
+    /// PDFs: the keeper's row answers nothing at all, and the other
     /// row answers Compare alone. Both cards are the same shape, so the text card is the positive
-    /// control for the PDF keeper — the sweep reaches the keeper's row, and finds a menu there only
+    /// control for the `.docx` keeper — the sweep reaches the keeper's row, and finds a menu there only
     /// when one belongs.
     @Test func eachRowDrawsItsOwnMenuInOrder() {
         // One sweep per card: each is a few hundred hosted right-clicks, and on a loaded machine
         // the main actor they queue on is shared with every other UI suite in the package.
         let textRows = Self.drawnMenuRows(Self.card(("notes.md", "notes.md")).card)
-        let pdfRows = Self.drawnMenuRows(Self.card(("report.pdf", "report.pdf")).card)
+        let refusedRows = Self.drawnMenuRows(Self.card(("report.docx", "report.docx")).card)
 
         let text = textRows.map(\.titles)
         #expect(text == [["Open in Edit"], ["Open in Edit", "Compare with keeper"]],
                 "text rows drew \(text)")
-        let pdf = pdfRows.map(\.titles)
-        #expect(pdf == [["Compare with keeper"]], "PDF rows drew \(pdf)")
+        let refused = refusedRows.map(\.titles)
+        #expect(refused == [["Compare with keeper"]], ".docx rows drew \(refused)")
 
-        // Where the keeper's row is: the first menu the text sweep met, and the PDF sweep met none
+        // Where the keeper's row is: the first menu the text sweep met, and the .docx sweep met none
         // there. Read as positions, so a menu that moved rows cannot pass as the right count.
         if let keeperRow = textRows.first?.y, let otherRow = textRows.last?.y,
-           let pdfOther = pdfRows.first?.y {
+           let refusedOther = refusedRows.first?.y {
             #expect(keeperRow < otherRow)
-            #expect(abs(pdfOther - otherRow) < 8,
-                    "the PDF card's only menu is not on its second row (\(pdfOther) vs \(otherRow))")
+            #expect(abs(refusedOther - otherRow) < 8,
+                    "the .docx card's only menu is not on its second row (\(refusedOther) vs \(otherRow))")
         } else {
-            Issue.record("a sweep found no menu at all: text \(textRows) pdf \(pdfRows)")
+            Issue.record("a sweep found no menu at all: text \(textRows) refused \(refusedRows)")
         }
     }
 

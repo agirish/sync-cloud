@@ -929,7 +929,7 @@ public struct DetailsSidebar: View {
 /// a closure is fixed when the view is built and the inspector's selection changes underneath it,
 /// so a nil chosen at construction would answer about whichever file happened to be selected then.
 /// `isOffered` is therefore asked per path, on every render, and must be cheap and I/O-free (in the
-/// app it is `EditableText.isText`, which reads a path extension).
+/// app it is `EditableText.opensInEdit`, which reads a path extension).
 ///
 /// **One value rather than two separate parameters**, on the argument `PaneRowVerbs` makes about
 /// its own pair: two properties are two chances for a host to wire one and forget the other, and a
