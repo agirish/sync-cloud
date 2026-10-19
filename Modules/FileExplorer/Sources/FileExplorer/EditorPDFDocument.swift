@@ -194,7 +194,11 @@ public final class EditorPDFDocument: ObservableObject {
                 PDFDocument(url: URL(fileURLWithPath: path))
                     .flatMap { $0.unlock(withPassword: password) ? SendableDocument($0) : nil }
             }
-            return Unlocked(facts: EditorPDFFacts.read(held.document, path: path),
+            let facts = EditorPDFFacts.read(held.document, path: path)
+            // The file on disk is still locked, so `formFields(at:)` listed nothing — but the
+            // reader's unlocked copy has its widgets, and a click must not type into them either.
+            if EditorPDFForm.declaresFields(held.document) { EditorPDFForm.lockWidgets(in: held.document) }
+            return Unlocked(facts: facts,
                             outline: EditorPDFOutline.flatten(held.document),
                             thumbnailSource: copy(), findSource: copy())
         }
@@ -280,7 +284,9 @@ public final class EditorPDFDocument: ObservableObject {
                 thumbnails.attach(path: path, pageCount: facts.pageCount)
                 find.attach(path: path, pageCount: facts.pageCount, hasText: facts.hasText)
                 tools.attach(path: path, pageCount: facts.pageCount, encryption: encryption)
-                fill.attach(path: path, boxes: facts.boxes, encryption: encryption, allowsFilling: facts.allowsFilling)
+                fill.attach(path: path, boxes: facts.boxes, encryption: encryption, allowsFilling: facts.allowsFilling,
+                            form: facts.form, allowsFormEntry: facts.allowsFormEntry,
+                            allowsCommenting: facts.allowsCommenting)
                 if let page { view.requestPage(min(page, max(facts.pageCount - 1, 0))) }
                 finish(.open, path: path, reloaded: page != nil)
             }
@@ -305,7 +311,9 @@ public final class EditorPDFDocument: ObservableObject {
             // How the file is protected, for the tools — read in this same turn. A restricted-only
             // file opens like any other, so it is the toolkit's question, not `isLocked`.
             let url = URL(fileURLWithPath: path)
-            return .open(SendableDocument(document), EditorPDFFacts.read(document, path: path),
+            let facts = EditorPDFFacts.read(document, path: path)
+            if EditorPDFForm.declaresFields(document) { EditorPDFForm.lockWidgets(in: document) }
+            return .open(SendableDocument(document), facts,
                          EditorPDFOutline.flatten(document), PDFToolkit.encryptionState(of: url))
         }
     }
@@ -588,6 +596,13 @@ public struct EditorPDFFacts: Equatable, Sendable {
     /// Whether the file's owner lets it be written on — comments or form filling allowed. Only an
     /// owner-restricted file says no.
     public var allowsFilling = true
+    /// The two halves of ``allowsFilling``, which a form file needs apart (Phase 5c): its fields need
+    /// form entry, and text or a signature placed on its pages needs commenting. Many forms allow the
+    /// first and forbid the second.
+    public var allowsFormEntry = true
+    public var allowsCommenting = true
+    /// The file's own interactive form, or ``EditorPDFForm/none`` — see ``EditorPDFForm``.
+    public var form = EditorPDFForm.none
 
     /// How many pages are asked for text. A 300-page scan is not walked end to end to say "Image
     /// only": if the first few have no text layer, the rest of a scan will not either.
@@ -611,7 +626,10 @@ public struct EditorPDFFacts: Equatable, Sendable {
         return EditorPDFFacts(pageCount: count, pageSizes: sizes, majorVersion: document.majorVersion,
                               minorVersion: document.minorVersion, fileSize: size, hasText: hasText,
                               shownSizes: shown, boxes: boxes,
-                              allowsFilling: document.allowsCommenting || document.allowsFormFieldEntry)
+                              allowsFilling: document.allowsCommenting || document.allowsFormFieldEntry,
+                              allowsFormEntry: document.allowsFormFieldEntry,
+                              allowsCommenting: document.allowsCommenting,
+                              form: EditorPDFForm.read(document, url: URL(fileURLWithPath: path)))
     }
 
     /// "Letter · 8.5 × 11 in" for the page at `index`, or `nil` past the end.

@@ -240,6 +240,9 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
 
 /// What the next click on a page places.
 public enum EditorPDFFillTool: Equatable, Sendable {
+    /// A click fills the PDF's own field under it (Phase 5c) — first in the toolbar, and what Fill &
+    /// Sign opens on when the file has fields it can fill.
+    case formFields
     case text
     case date
     case mark(EditorPDFFillMark)
@@ -248,6 +251,7 @@ public enum EditorPDFFillTool: Equatable, Sendable {
     /// What the status line says while this is chosen.
     public var hint: String {
         switch self {
+        case .formFields: return "Form Fields · click a field to fill it, Tab moves to the next"
         case .text: return "Text · click on the page to type"
         case .date: return "Date · click to place today’s date"
         case .mark(let mark): return "\(mark.rawValue) · click to place the mark"
@@ -334,6 +338,23 @@ public final class EditorPDFFillSign: ObservableObject {
     /// Why Fill & Sign is off for this file, or `nil` — said when its button is pressed.
     @Published public private(set) var refusal: String?
 
+    // MARK: The PDF's own form (Phase 5c)
+
+    /// The file's fields, read in the lane with the facts — ``EditorPDFForm/none`` for a flat file.
+    @Published public private(set) var form = EditorPDFForm.none
+    /// **The values typed into the form's fields and not yet saved**, by fully qualified name —
+    /// only those that differ from the file's own. Draft state: nothing reaches the reader's
+    /// document or the file until Save Filled Copy hands them to `fillFormData`.
+    @Published public private(set) var values: [String: FormFieldValue] = [:]
+    /// The field the keyboard is on — Tab and ⇧Tab move it, Space and Return act on it.
+    @Published public private(set) var focusedField: String?
+    /// The text field being typed into, or `nil`.
+    @Published public private(set) var editingField: String?
+    /// The file's owner permissions, apart: form entry lets its fields be filled, commenting lets
+    /// text and signatures be placed on its pages (``EditorPDFFacts/allowsFormEntry``).
+    @Published public private(set) var allowsFormEntry = true
+    @Published public private(set) var allowsCommenting = true
+
     public let store: EditorPDFSignatureStore
     /// Placing, moving, deleting — undone with ⌘Z while the pages have the keyboard.
     public let undoManager = UndoManager()
@@ -346,14 +367,19 @@ public final class EditorPDFFillSign: ObservableObject {
     /// The items before a drag or a typing session began — what its one undo step restores.
     private var gestureBefore: [EditorPDFFillItem]?
     private var editBefore: [EditorPDFFillItem]?
+    /// The values before a field's typing began — what its one undo step restores.
+    private var fieldEditBefore: [String: FormFieldValue]?
 
     var today: () -> Date = Date.init
     /// Today in the Mac's short date format — "17/10/2026" here, "10/17/26" in the US.
     var formatDate: (Date) -> String = { DateFormatter.localizedString(from: $0, dateStyle: .short, timeStyle: .none) }
     /// Puts a refusal to the reader — an alert in the app, recorded in a test.
     var presentRefusal: @MainActor (String) -> Void = { EditorPDFFillSign.alertRefusal($0) }
-    /// Asks what to do with unsaved items — an alert in the app, a canned answer in a test.
-    var askLeaving: @MainActor (_ name: String, _ count: Int) -> LeaveAnswer = { EditorPDFFillSign.alertLeaving(name: $0, count: $1) }
+    /// Asks what to do with unsaved items — an alert in the app, a canned answer in a test. `count`
+    /// is the items placed and the fields changed together.
+    lazy var askLeaving: @MainActor (_ name: String, _ count: Int) -> LeaveAnswer = { [unowned self] name, count in
+        EditorPDFFillSign.alertLeaving(name: name, count: count, fields: self.values.count)
+    }
 
     public enum LeaveAnswer: Sendable { case save, discard, cancel }
 
@@ -375,8 +401,23 @@ public final class EditorPDFFillSign: ObservableObject {
 
     // MARK: The file
 
-    /// `allowsFilling` is the file's own permissions — read in the lane with the facts.
-    func attach(path: String, boxes: [EditorPDFPageBox], encryption: PDFEncryptionState, allowsFilling: Bool) {
+    /// `allowsFilling` is the file's own permissions — read in the lane with the facts — and `form`,
+    /// `allowsFormEntry` and `allowsCommenting` its form and the permissions' two halves (5c).
+    func attach(path: String, boxes: [EditorPDFPageBox], encryption: PDFEncryptionState, allowsFilling: Bool,
+                form: EditorPDFForm = .none, allowsFormEntry: Bool = true, allowsCommenting: Bool = true) {
+        if self.path == path, form != self.form, !values.isEmpty {
+            // **A reload whose form is no longer the one the values were typed into** — a field
+            // renamed, a value changed elsewhere. Said, as the items' drop is.
+            Logger.shared.info("Edit dropped \(Self.fields(values.count)) filled with Fill & Sign on "
+                               + "\(EditorPDFTools.logName(path)) — the file changed on disk")
+            values = [:]
+            focusedField = nil
+            editingField = nil
+            fieldEditBefore = nil
+            undoManager.removeAllActions()
+            tools?.banner = EditorPDFToolBanner(message: "The file changed on disk, so the fields you filled were cleared.",
+                                                kind: .note)
+        }
         if self.path == path, boxes != self.boxes, !items.isEmpty {
             // **A reload whose pages are no longer the ones the items were placed on.** A file that
             // changed but kept every page as it was keeps its items.
@@ -391,6 +432,9 @@ public final class EditorPDFFillSign: ObservableObject {
         }
         self.path = path
         self.boxes = boxes
+        self.form = form
+        self.allowsFormEntry = allowsFormEntry
+        self.allowsCommenting = allowsCommenting
         refusal = Self.refusal(encryption: encryption, allowsFilling: allowsFilling)
         if refusal != nil { isOn = false }
     }
@@ -400,11 +444,18 @@ public final class EditorPDFFillSign: ObservableObject {
             Logger.shared.info("Edit discarded \(Self.count(items.count)) placed with Fill & Sign on "
                                + "\(EditorPDFTools.logName(path)) — the file was closed")
         }
+        if let path, !values.isEmpty {
+            Logger.shared.info("Edit discarded \(Self.fields(values.count)) filled with Fill & Sign on "
+                               + "\(EditorPDFTools.logName(path)) — the file was closed")
+        }
         clear()
         isOn = false
         path = nil
         boxes = []
         refusal = nil
+        form = .none
+        allowsFormEntry = true
+        allowsCommenting = true
     }
 
     private func clear() {
@@ -415,6 +466,10 @@ public final class EditorPDFFillSign: ObservableObject {
         addingSignature = nil
         gestureBefore = nil
         editBefore = nil
+        values = [:]
+        focusedField = nil
+        editingField = nil
+        fieldEditBefore = nil
         undoManager.removeAllActions()
     }
 
@@ -446,7 +501,8 @@ public final class EditorPDFFillSign: ObservableObject {
         }
         guard hasPages else { return }
         isOn = true
-        armed = .text
+        // A file with fields it can fill opens on them (mockup 19); any other on Text, as in 5b.
+        armed = offersFormFields ? .formFields : .text
     }
 
     /// A file with pages to place on — what ``toggle()`` needs to turn on, and what File ▸ Fill &
@@ -463,6 +519,8 @@ public final class EditorPDFFillSign: ObservableObject {
     /// Esc: stops typing, then lets go of the selection, then of the tool.
     @discardableResult
     public func escape() -> Bool {
+        if editingField != nil { endFieldEditing(); return true }
+        if focusedField != nil { focusedField = nil; return true }
         if editing != nil { endEditing(); return true }
         if selection != nil { selection = nil; return true }
         if armed != nil { armed = nil; return true }
@@ -475,17 +533,34 @@ public final class EditorPDFFillSign: ObservableObject {
     public var unsaved: [EditorPDFFillItem] { items.filter(\.hasInk) }
     public var hasUnsavedItems: Bool { !unsaved.isEmpty }
 
-    /// "4 items not saved" — the header's second row while Fill & Sign is on.
+    /// Items placed or fields changed — what Save Filled Copy writes and a leave asks about.
+    public var hasUnsavedChanges: Bool { hasUnsavedItems || !values.isEmpty }
+
+    /// "4 items not saved" — the header's second row while Fill & Sign is on — and with a form,
+    /// "2 fields changed" (mockup 19), or both.
     public var unsavedCaption: String? {
-        let n = unsaved.count
-        return n == 0 ? nil : "\(Self.count(n)) not saved"
+        let n = unsaved.count, f = values.count
+        switch (f, n) {
+        case (0, 0): return nil
+        case (0, _): return "\(Self.count(n)) not saved"
+        case (_, 0): return "\(Self.fields(f)) changed"
+        default: return "\(Self.fields(f)) changed · \(Self.count(n)) not saved"
+        }
     }
 
     nonisolated static func count(_ n: Int) -> String { n == 1 ? "1 item" : "\(n) items" }
+    nonisolated static func fields(_ n: Int) -> String { n == 1 ? "1 field" : "\(n) fields" }
 
     /// The status line's words while the toolbar is up: what a click does, then what is placed.
     public var statusSegments: [String] {
         var out = [armed?.hint ?? (selection != nil ? "Drag to move · Delete removes it" : "Choose what to place")]
+        if form.hasFields {
+            // "14 fields · 2 changed" (mockup 19) — the ones that can be filled — or, on a form whose
+            // every field is read-only or a signature, that none can be.
+            let fillable = form.fillable.count
+            out.append(fillable == 0 ? "\(Self.fields(form.fields.count)), none fillable"
+                       : Self.fields(fillable) + (values.isEmpty ? "" : " · \(values.count) changed"))
+        }
         let placed = unsaved
         if !placed.isEmpty {
             let signatures = placed.filter(\.isSignature).count
@@ -504,11 +579,17 @@ public final class EditorPDFFillSign: ObservableObject {
     @discardableResult
     public func place(at point: CGPoint, page: Int) -> UUID? {
         guard isOn, let armed, let box = box(page) else { return nil }
+        // The owner allows the form but not marks on its pages: nothing is placed (5c).
+        guard armed == .formFields || offersPlacing else { return nil }
         endEditing()
+        endFieldEditing()
         let content: EditorPDFFillItem.Content
         var size: CGFloat = fontSize
         let name: String
         switch armed {
+        case .formFields:
+            // Fields are filled, not placed on: the overlay sends a click on one to it.
+            return nil
         case .text:
             content = .text("")
             name = "Place Text"
@@ -589,6 +670,222 @@ public final class EditorPDFFillSign: ObservableObject {
         editBefore = nil
         let wasNew = !before.contains { $0.id == id }
         if items != before { register(before, wasNew ? "Place Text" : items.contains { $0.id == id } ? "Typing" : "Delete") }
+    }
+
+    // MARK: Form fields (Phase 5c)
+
+    /// Why the form's fields can't be filled here: the owner allows comments on the pages, not entry
+    /// into the form.
+    nonisolated static let noFormEntryReason = "This PDF’s owner doesn’t allow filling its form"
+    /// Why nothing can be placed on a form whose owner allows filling it but not commenting.
+    static let noCommentingReason = "This PDF’s owner allows filling its form but not adding text or signatures to its pages"
+    static let xfaNote = "This form also carries XFA data, so Acrobat may show different values than other apps."
+
+    /// Whether the Form Fields tool is offered: the file has a field that can be filled, and its
+    /// owner allows entry into the form.
+    public var offersFormFields: Bool { allowsFormEntry && !form.fillable.isEmpty }
+    /// Whether Text, Date, the marks and the signatures are offered. A form's copy keeps them as
+    /// annotations, which an owner who forbids commenting forbids; a flat file's copy draws them
+    /// into the page, as 5b always has.
+    public var offersPlacing: Bool { !usesFormPath || allowsCommenting }
+
+    /// **Whether Save fills the form in place (`fillFormData`) rather than flattening (5b's
+    /// `fillAndSignData`)**: a file with fields, where the in-place fill can carry something — a
+    /// field to fill, or items its owner lets it keep as annotations. A form with neither — every
+    /// field read-only or a signature, and commenting forbidden, the shape a finished DocuSign or a
+    /// locked petition comes in — keeps 5b's flattening path, the one way anything can be placed on
+    /// it, under the same "this will flatten the form" question 5b asks.
+    public var usesFormPath: Bool { form.hasFields && (offersFormFields || allowsCommenting) }
+
+    /// The lines under the toolbar while it is up: what Save would refuse, said as the reader types
+    /// rather than after Save — then the file's own caveats.
+    public var formNotes: [String] {
+        var out: [String] = []
+        if let formProblem, !Self.isNothingYet(formProblem) {
+            out.append(EditorPDFToolEngine.reason(formProblem, tool: .fillForm(values: values, items: [])))
+        }
+        guard usesFormPath else { return out }
+        if !offersPlacing { out.append(Self.noCommentingReason + ".") }
+        if !allowsFormEntry, !form.fillable.isEmpty { out.append(Self.noFormEntryReason + ".") }
+        if form.hasXFA { out.append(Self.xfaNote) }
+        return out
+    }
+
+    /// Nothing typed or placed yet: not a problem to warn about, just nothing to save.
+    static func isNothingYet(_ problem: PDFOperationError) -> Bool {
+        if case .noFormValues = problem { return true }
+        return false
+    }
+
+    /// **What `fillFormData` would refuse in the values and items as they stand**, or `nil` — the
+    /// toolkit's own checks, run here so Save never surprises (``EditorPDFForm/problem``).
+    var formProblem: PDFOperationError? {
+        guard usesFormPath else { return nil }
+        return EditorPDFForm.problem(values: values, items: items, form: form, boxes: boxes,
+                                     allowsFormEntry: allowsFormEntry, allowsCommenting: allowsCommenting,
+                                     file: URL(fileURLWithPath: path ?? "/"))
+    }
+
+    /// Whether Save Filled Copy has something to write and nothing the toolkit would refuse.
+    public var canSave: Bool {
+        guard hasUnsavedChanges else { return false }
+        return formProblem == nil
+    }
+
+    /// The field's value as the reader sees it now: the draft, else the file's own.
+    public func value(of field: FormField) -> FormFieldValue? {
+        values[field.name] ?? EditorPDFForm.original(field)
+    }
+
+    /// A text or choice field's words as they stand.
+    public func text(of field: FormField) -> String {
+        switch value(of: field) {
+        case .text(let string)?, .choice(let string)?: return string
+        default: return ""
+        }
+    }
+
+    /// Whether a checkbox is ticked, or `widget` is the radio group's chosen one.
+    public func isOn(_ field: FormField, widget: FormField.Widget? = nil) -> Bool {
+        switch value(of: field) {
+        case .checked(let on)?: return on
+        case .radio(let export)?: return widget.map { $0.exportValue == export } ?? true
+        default: return false
+        }
+    }
+
+    /// Why `field` takes no value here, or `nil`.
+    public func fieldRefusal(_ field: FormField) -> String? {
+        EditorPDFForm.refusal(field, allowsFormEntry: allowsFormEntry)
+    }
+
+    private func fillableField(_ name: String) -> FormField? {
+        guard isOn, let field = form.field(named: name), fieldRefusal(field) == nil else { return nil }
+        return field
+    }
+
+    /// Sets a field's draft — dropped again when it matches the file's own, so a field typed back
+    /// to what it was is not "changed".
+    private func set(_ value: FormFieldValue, for field: FormField) {
+        if value == EditorPDFForm.original(field) { values[field.name] = nil } else { values[field.name] = value }
+    }
+
+    /// Puts the keyboard on a field — or on none.
+    public func focusField(_ name: String?) {
+        if editingField != nil, editingField != name { endFieldEditing() }
+        endEditing()
+        selection = nil
+        focusedField = name
+    }
+
+    /// **Starts typing into a text field** — or an editable combo's own value. The whole session is
+    /// one undo step, taken by ``endFieldEditing()``.
+    public func beginFieldEditing(_ name: String) {
+        guard let field = fillableField(name), Self.isTyped(field) else { return }
+        if editingField == name { return }
+        focusField(name)
+        fieldEditBefore = values
+        editingField = name
+    }
+
+    /// Text fields, and combos that take a value of their own.
+    static func isTyped(_ field: FormField) -> Bool {
+        switch field.kind {
+        case .text: return true
+        case .choice(_, let allowsCustom): return allowsCustom
+        default: return false
+        }
+    }
+
+    /// **The words as typed, every keystroke** — returned as the field accepts them: cut at the
+    /// field's `/MaxLen`, and on one line unless the field is multiline. The typing field shows what
+    /// comes back, so a 9-character field stops at nine.
+    @discardableResult
+    public func typeField(_ string: String) -> String {
+        guard let name = editingField, let field = form.field(named: name) else { return string }
+        var accepted = string
+        if case .text(let multiline) = field.kind, !multiline {
+            accepted = accepted.replacingOccurrences(of: "\r\n", with: " ")
+                .replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: " ")
+        }
+        if let max = field.maxLength, accepted.count > max { accepted = String(accepted.prefix(max)) }
+        if case .choice = field.kind { set(.choice(accepted), for: field) } else { set(.text(accepted), for: field) }
+        return accepted
+    }
+
+    /// Ends the typing: one undo step for it when the value moved.
+    public func endFieldEditing() {
+        guard editingField != nil else { return }
+        editingField = nil
+        guard let before = fieldEditBefore else { return }
+        fieldEditBefore = nil
+        if values != before { register(items, before, "Typing") }
+    }
+
+    /// A checkbox clicked: ticked or not, one undo step.
+    public func toggleCheckbox(_ name: String) {
+        guard let field = fillableField(name), field.kind == .checkbox else { return }
+        focusField(name)
+        changeValues("Check Box") { $0.set(.checked(!$0.isOn(field)), for: field) }
+    }
+
+    /// A radio button clicked: its group takes its value.
+    public func selectRadio(_ name: String, export: String) {
+        guard let field = fillableField(name), field.kind == .radio, field.options.contains(export) else { return }
+        focusField(name)
+        changeValues("Choose Option") { $0.set(.radio(export), for: field) }
+    }
+
+    /// A choice picked from a combo's or a list's menu.
+    public func choose(_ name: String, option: String) {
+        guard let field = fillableField(name), case .choice(_, let allowsCustom) = field.kind,
+              allowsCustom || field.options.contains(option) else { return }
+        focusField(name)
+        changeValues("Choose Option") { $0.set(.choice(option), for: field) }
+    }
+
+    /// **Tab and ⇧Tab: the next fillable field in document order**, round from the last to the first.
+    /// A text field takes the typing straight away, as Acrobat's does.
+    public func focusNext(forward: Bool = true) {
+        guard allowsFormEntry else { return }
+        let order = form.fillable.map(\.name)
+        guard !order.isEmpty else { return }
+        let next: String
+        if let current = focusedField, let at = order.firstIndex(of: current) {
+            next = order[(at + (forward ? 1 : order.count - 1)) % order.count]
+        } else {
+            next = forward ? order[0] : order[order.count - 1]
+        }
+        endFieldEditing()
+        // Only a text field: an editable combo gets the keyboard, and its menu offers the typing.
+        if let field = form.field(named: next), case .text = field.kind {
+            beginFieldEditing(next)
+        } else {
+            focusField(next)
+        }
+    }
+
+    /// Space on the field the keyboard is on: a checkbox toggles, a radio group steps to its next
+    /// option. A choice's menu is the overlay's to open.
+    public func activateFocused() {
+        guard let name = focusedField, let field = fillableField(name) else { return }
+        switch field.kind {
+        case .checkbox: toggleCheckbox(name)
+        case .radio:
+            let options = field.options
+            guard !options.isEmpty else { return }
+            let current: String? = { if case .radio(let e)? = value(of: field) { return e }; return nil }()
+            let at = current.flatMap { options.firstIndex(of: $0) }
+            selectRadio(name, export: options[at.map { ($0 + 1) % options.count } ?? 0])
+        case .text: beginFieldEditing(name)
+        default: break
+        }
+    }
+
+    private func changeValues(_ name: String, _ body: (EditorPDFFillSign) -> Void) {
+        let before = values
+        body(self)
+        if values != before { register(items, before, name) }
     }
 
     // MARK: Changing what is placed
@@ -710,15 +1007,25 @@ public final class EditorPDFFillSign: ObservableObject {
     }
 
     private func register(_ before: [EditorPDFFillItem], _ name: String) {
+        register(before, values, name)
+    }
+
+    /// **One undo step for items and field values together** — placing and filling share the one
+    /// ⌘Z stack, so a step back is a step back whichever was done last.
+    private func register(_ before: [EditorPDFFillItem], _ beforeValues: [String: FormFieldValue], _ name: String) {
         undoManager.beginUndoGrouping()
         defer { undoManager.endUndoGrouping() }
         undoManager.registerUndo(withTarget: self) { fill in
             let after = fill.items
+            let afterValues = fill.values
             fill.editing = nil
             fill.editBefore = nil
+            fill.editingField = nil
+            fill.fieldEditBefore = nil
             fill.items = before
+            fill.values = beforeValues
             if let selection = fill.selection, !before.contains(where: { $0.id == selection }) { fill.selection = nil }
-            fill.register(after, name)
+            fill.register(after, afterValues, name)
         }
         undoManager.setActionName(name)
     }
@@ -730,11 +1037,27 @@ public final class EditorPDFFillSign: ObservableObject {
     @discardableResult
     public func save() async -> EditorPDFToolOutcome {
         endEditing()
+        endFieldEditing()
         guard let tools else { return .failed("No PDF is open.") }
         let placed = unsaved
         let toolkit = placed.compactMap { item in box(item.page).map { item.toolkitItem(on: $0) } }
         let path = self.path
-        let outcome = await tools.run(.fillAndSign(toolkit))
+        let tool: EditorPDFTool
+        if usesFormPath {
+            // **A file with its own form is filled in place** — `fillFormData`, so the copy's form
+            // stays fillable — and what the toolkit would refuse is said before a lane turn.
+            tool = .fillForm(values: values, items: toolkit)
+            if let problem = formProblem, let path {
+                Logger.shared.info("Edit refused \(tool.logDetail) of \(EditorPDFTools.logName(path)) — "
+                                   + EditorPDFToolEngine.logReason(problem, tool: tool))
+                let reason = EditorPDFToolEngine.reason(problem, tool: tool)
+                tools.banner = EditorPDFToolBanner(message: reason, kind: .failure)
+                return .failed(reason)
+            }
+        } else {
+            tool = .fillAndSign(toolkit)
+        }
+        let outcome = await tools.run(tool)
         if case .wrote = outcome, self.path == path {
             clear()
             isOn = false
@@ -745,8 +1068,13 @@ public final class EditorPDFFillSign: ObservableObject {
     /// Discard: every item goes, and the toolbar stays for another go.
     public func discard() {
         endEditing()
-        change("Discard") { $0.removeAll() }
+        endFieldEditing()
+        let before = items, beforeValues = values
+        items.removeAll()
+        values = [:]
+        if items != before || values != beforeValues { register(before, beforeValues, "Discard") }
         selection = nil
+        focusedField = nil
     }
 
     // MARK: Leaving
@@ -757,10 +1085,14 @@ public final class EditorPDFFillSign: ObservableObject {
     /// runs would cancel it. The banner then says where the copy went, and the next leave goes.
     public func mayLeave() -> Bool {
         endEditing()
-        guard hasUnsavedItems, let path else { return true }
-        let answer = askLeaving((path as NSString).lastPathComponent, unsaved.count)
-        Logger.shared.info("Edit asked before leaving \(EditorPDFTools.logName(path)) with \(Self.count(unsaved.count)) "
-                           + "placed with Fill & Sign — " + {
+        endFieldEditing()
+        guard hasUnsavedChanges, let path else { return true }
+        let answer = askLeaving((path as NSString).lastPathComponent, unsaved.count + values.count)
+        let what = values.isEmpty ? "\(Self.count(unsaved.count)) placed"
+            : unsaved.isEmpty ? "\(Self.fields(values.count)) filled"
+            : "\(Self.fields(values.count)) filled and \(Self.count(unsaved.count)) placed"
+        Logger.shared.info("Edit asked before leaving \(EditorPDFTools.logName(path)) with \(what) "
+                           + "with Fill & Sign — " + {
                                switch answer {
                                case .save: return "the reader chose to save a filled copy"
                                case .discard: return "the reader chose to discard them"
@@ -784,18 +1116,25 @@ public final class EditorPDFFillSign: ObservableObject {
         alert.runModal()
     }
 
-    static func leaveQuestion(name: String, count: Int) -> (title: String, detail: String) {
-        ("Save the filled copy of “\(name)”?",
-         "\(count == 1 ? "1 item you placed isn’t" : "\(count) items you placed aren’t") saved. The original file hasn’t been changed.")
+    /// `count` is everything unsaved, `fields` the part of it that is changed fields.
+    static func leaveQuestion(name: String, count: Int, fields: Int = 0) -> (title: String, detail: String) {
+        let items = count - fields
+        let what: String
+        switch (fields, items) {
+        case (0, _): what = items == 1 ? "1 item you placed isn’t" : "\(items) items you placed aren’t"
+        case (_, 0): what = fields == 1 ? "1 field you filled isn’t" : "\(fields) fields you filled aren’t"
+        default: what = "\(Self.fields(fields)) you filled and \(Self.count(items)) you placed aren’t"
+        }
+        return ("Save the filled copy of “\(name)”?", "\(what) saved. The original file hasn’t been changed.")
     }
 
-    static func alertLeaving(name: String, count: Int) -> LeaveAnswer {
-        let question = leaveQuestion(name: name, count: count)
+    static func alertLeaving(name: String, count: Int, fields: Int = 0) -> LeaveAnswer {
+        let question = leaveQuestion(name: name, count: count, fields: fields)
         let alert = NSAlert()
         alert.messageText = question.title
         alert.informativeText = question.detail
         alert.addButton(withTitle: "Save Filled Copy")
-        alert.addButton(withTitle: "Discard Items")
+        alert.addButton(withTitle: fields == 0 ? "Discard Items" : "Discard Changes")
         alert.addButton(withTitle: "Cancel")
         switch alert.runModal() {
         case .alertFirstButtonReturn: return .save

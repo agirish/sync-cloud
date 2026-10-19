@@ -72,6 +72,23 @@ struct EditorPDFFillSignBar: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
+                // What Save would refuse, as it arises, and the form's own caveats (5c): lines of
+                // their own under the rungs, so they wrap rather than widen the toolbar.
+                let notes = fill.formNotes
+                if !notes.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(notes, id: \.self) { note in
+                            Label(note, systemImage: "exclamationmark.triangle")
+                                .labelStyle(.titleAndIcon)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .scaledFont(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 5)
+                }
                 Divider()
             }
             .sheet(item: $fill.addingSignature) { kind in
@@ -104,15 +121,24 @@ struct EditorPDFFillSignBar: View {
 
     @ViewBuilder
     private func placing(_ rung: Rung) -> some View {
-        toolButton("Text", symbol: "textformat", tool: .text, worded: rung.wordsTools)
-        toolButton("Date", symbol: "calendar", tool: .date, worded: rung.wordsTools)
-        separator
-        ForEach(EditorPDFFillMark.allCases, id: \.self) { mark in
-            markButton(mark)
+        // First, on a file with its own fields (mockup 19) — and there only.
+        if fill.form.hasFields {
+            toolButton("Form Fields", symbol: "character.textbox", tool: .formFields, worded: rung.wordsTools)
+                .disabled(!fill.offersFormFields)
+            separator
         }
-        separator
-        signatureButton(.signature, worded: rung.wordsTools, anchor: signatureAnchor)
-        signatureButton(.initials, worded: rung.wordsTools, anchor: initialsAnchor)
+        Group {
+            toolButton("Text", symbol: "textformat", tool: .text, worded: rung.wordsTools)
+            toolButton("Date", symbol: "calendar", tool: .date, worded: rung.wordsTools)
+            separator
+            ForEach(EditorPDFFillMark.allCases, id: \.self) { mark in
+                markButton(mark)
+            }
+            separator
+            signatureButton(.signature, worded: rung.wordsTools, anchor: signatureAnchor)
+            signatureButton(.initials, worded: rung.wordsTools, anchor: initialsAnchor)
+        }
+        .disabled(!fill.offersPlacing)
     }
 
     private var separator: some View {
@@ -133,7 +159,19 @@ struct EditorPDFFillSignBar: View {
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
         .accessibilityLabel(title)
         .accessibilityAddTraits(isArmed(tool) ? .isSelected : [])
-        .help(EditorPDFFillTool.text == tool ? "Text — click on the page to type" : tool.hint)
+        .help(help(for: tool))
+    }
+
+    private func help(for tool: EditorPDFFillTool) -> String {
+        if tool == .formFields, !fill.offersFormFields {
+            return fill.allowsFormEntry ? "This form has no fields that can be filled here" : EditorPDFFillSign.noFormEntryReason
+        }
+        if tool != .formFields, !fill.offersPlacing { return EditorPDFFillSign.noCommentingReason }
+        switch tool {
+        case .text: return "Text — click on the page to type"
+        case .formFields: return "Form Fields — click a field to fill it; Tab moves to the next"
+        default: return tool.hint
+        }
     }
 
     private func markButton(_ mark: EditorPDFFillMark) -> some View {
@@ -217,13 +255,16 @@ struct EditorPDFFillSignBar: View {
     private var actions: some View {
         Button("Discard") { fill.discard() }
             .controlSize(.small)
-            .disabled(fill.items.isEmpty)
-            .help("Remove everything placed — ⌘Z brings it back")
+            .disabled(fill.items.isEmpty && fill.values.isEmpty)
+            .help(fill.usesFormPath ? "Remove everything placed and clear the fields you filled — ⌘Z brings it back"
+                                      : "Remove everything placed — ⌘Z brings it back")
         Button("Save Filled Copy") { Task { await fill.save() } }
             .controlSize(.small)
             .buttonStyle(.borderedProminent)
-            .disabled(!fill.hasUnsavedItems || tools.running != nil)
-            .help("Write a copy with these items beside the original — the original isn’t changed")
+            .disabled(!fill.canSave || tools.running != nil)
+            .help(fill.usesFormPath
+                  ? "Write a copy beside the original with these values — its form stays fillable, and the original isn’t changed"
+                  : "Write a copy with these items beside the original — the original isn’t changed")
     }
 
     /// A chosen tool's wash, the header button's.

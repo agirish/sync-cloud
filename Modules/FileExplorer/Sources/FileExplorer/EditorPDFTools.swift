@@ -334,8 +334,8 @@ public final class EditorPDFTools: ObservableObject {
     public func resetArrangement() { arrangement = nil }
 
     /// Whether leaving the file would lose something: a pending order, a run still in flight, or
-    /// items placed with Fill & Sign and not saved.
-    public var hasWorkToLose: Bool { arrangement != nil || running != nil || fill?.hasUnsavedItems == true }
+    /// items placed — or fields filled — with Fill & Sign and not saved.
+    public var hasWorkToLose: Bool { arrangement != nil || running != nil || fill?.hasUnsavedChanges == true }
 
     /// **Asks before a pending reorder — or a run in flight — is lost** to opening another file,
     /// closing this one or quitting. True when there is nothing to lose or the reader said to go.
@@ -474,8 +474,9 @@ public final class EditorPDFTools: ObservableObject {
         case .failure(let error):
             // `.info`, not `.warning`: these are the toolkit's refusals — a wrong password, a
             // restricted file, an empty page range — answers about the file, not faults in the app.
-            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            Logger.shared.info("\(writer) could not \(tool.logDetail) of \(logName) — \(message)")
+            let message = EditorPDFToolEngine.reason(error, tool: tool)
+            Logger.shared.info("\(writer) could not \(tool.logDetail) of \(logName) — "
+                               + EditorPDFToolEngine.logReason(error, tool: tool))
             return end(.failed(message))
         case .success(.noGain):
             Logger.shared.info("\(writer) wrote nothing for \(tool.logDetail) of \(logName) — no smaller than the original")
@@ -552,9 +553,13 @@ public final class EditorPDFTools: ObservableObject {
 
     /// The leave question, in the words of what would be lost.
     static func leaveQuestion(running: String?, hasArrangement: Bool,
-                              placedItems: Int = 0) -> (title: String, detail: String, go: String) {
-        let placed = placedItems == 0 ? ""
+                              placedItems: Int = 0, filledFields: Int = 0) -> (title: String, detail: String, go: String) {
+        var placed = placedItems == 0 ? ""
             : " The \(placedItems == 1 ? "item" : "\(placedItems) items") placed with Fill & Sign \(placedItems == 1 ? "is" : "are") discarded too."
+        if filledFields > 0 {
+            placed += " The \(filledFields == 1 ? "field" : "\(filledFields) fields") filled with Fill & Sign "
+                + "\(filledFields == 1 ? "is" : "are") cleared too."
+        }
         if let running {
             return ("Stop \(running)?",
                     "\(running) is still running on this PDF. Leaving stops it, and nothing is written."
@@ -569,7 +574,7 @@ public final class EditorPDFTools: ObservableObject {
 
     func confirmDiscardWithAlert() -> Bool {
         let question = Self.leaveQuestion(running: running?.tool, hasArrangement: arrangement != nil,
-                                          placedItems: fill?.unsaved.count ?? 0)
+                                          placedItems: fill?.unsaved.count ?? 0, filledFields: fill?.values.count ?? 0)
         let alert = NSAlert()
         alert.messageText = question.title
         alert.informativeText = question.detail

@@ -7547,3 +7547,36 @@ done
 |---|---|---|
 | `v5.x` | No Fill & Sign and no File ▸ PDF Tools (`0 0`), so nothing for the items to drive | CLOSED — does not apply |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace that opens PDFs at all | CLOSED — does not apply |
+
+---
+
+## Fill & Sign fills a PDF's own form fields (Phase 5c) — main only
+
+pdf-toolkit moves from `0.1.1` to `0.2.0` (`formFields(at:)`, `fillFormData(inputURL:values:items:)`;
+both tracked `Package.resolved` files that resolve it, FileExplorer's and Dashboard's, regenerated).
+A PDF's fields are read in the lane with the facts (`EditorPDFForm`), and Fill & Sign opens on a
+Form Fields tool that tints them, types into them, ticks, chooses and Tabs through them as draft
+state on `EditorPDFFillSign`, on the same ⌘Z stack and leave question as the placed items. Save
+Filled Copy on a file with a form runs a new `EditorPDFTool.fillForm` into `fillFormData`, so the
+copy's form stays fillable and placed items become annotations; a flat file keeps 5b's
+`fillAndSignData`. The toolkit's refusals are said before the lane (`EditorPDFForm.problem`), and
+`EditorPDFToolEngine.reason` maps every `PDFOperationError` in one exhaustive switch. The reader's
+own widgets are made read-only in the lane (`EditorPDFForm.lockWidgets`): before this, a click in
+Edit's reader typed straight into the on-screen document. All of it stands on Fill & Sign, which
+only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s fillSign=%s toolkit=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSign.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Package.swift 2>/dev/null | grep -o 'pdf-toolkit", exact: "[0-9.]*"' | grep -o '[0-9][0-9.]*' || echo none)"
+done
+# measured 2026-10-18, against origin, before this landed:
+# main  fillSign=1 toolkit=0.1.1
+# v5.x, v4.x, v3.x, v2.x — fillSign=0 toolkit=none
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | No Fill & Sign and no pdf-toolkit (`0 none`), so no reader for forms to join and no engine to fill them | CLOSED — does not apply |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace that opens PDFs at all | CLOSED — does not apply |

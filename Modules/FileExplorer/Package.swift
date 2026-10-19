@@ -63,7 +63,7 @@ let package = Package(
         // tool's copy contains (0.1.0 → 0.1.1 was the difference between keeping a file's
         // bookmarks on macOS 27 and dropping them), and that should arrive as a commit someone
         // reviewed, not as whatever a resolve happened to fetch. pdf-utils pins the same tag.
-        .package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.1.1")
+        .package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.2.0")
     ],
     targets: [
         .target(
@@ -92,6 +92,13 @@ let package = Package(
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
                 .product(name: "PDFToolkitCore", package: "pdf-toolkit")
             ],
-            path: "Tests/FileExplorer")
+            path: "Tests/FileExplorer",
+            resources: [
+                // pdf-toolkit's corpus form, copied as it is at 0.2.0: every field kind form filling
+                // handles, with appearance streams — a form no fixture written by PDFKit can be,
+                // since PDFKit's writer emits no catalog /AcroForm of its own. Fill & Sign's Form
+                // Fields tests (`EditorPDFFormFieldsTests`) read and fill it.
+                .copy("Fixtures")
+            ])
     ]
 )

@@ -27,6 +27,6 @@ public struct EditorPDFFillSignMenuItems: View {
             Text(reason)
         }
         Button("Save Filled Copy") { Task { await fill.save() } }
-            .disabled(!fill.hasUnsavedItems || tools.running != nil)
+            .disabled(!fill.canSave || tools.running != nil)
     }
 }

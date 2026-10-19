@@ -77,6 +77,10 @@ public enum EditorPDFTool: Equatable, Sendable {
     case removePassword(EditorPDFSecret)
     /// What Fill & Sign placed, as the toolkit draws it — ``EditorPDFFillSign/save()``.
     case fillAndSign([FillSignItem])
+    /// **Fill & Sign on a file with its own form** (Phase 5c): the values typed into its fields, by
+    /// fully qualified name, and what was placed — filled in place by `fillFormData`, so the copy's
+    /// form stays fillable and the placed items become annotations rather than page content.
+    case fillForm(values: [String: FormFieldValue], items: [FillSignItem])
 
     public var title: String {
         switch self {
@@ -88,7 +92,7 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .cleanMetadata: return "Clean Metadata"
         case .protect: return "Protect"
         case .removePassword: return "Remove Password"
-        case .fillAndSign: return "Fill & Sign"
+        case .fillAndSign, .fillForm: return "Fill & Sign"
         }
     }
 
@@ -106,7 +110,8 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .removePassword: return "unlocked"
         // "(signed)" when it carries a signature or initials, drawn or typed; "(filled)" for text,
         // dates and marks alone (decided with the 5b mockups).
-        case .fillAndSign(let items): return items.contains(where: Self.isSigned) ? "signed" : "filled"
+        case .fillAndSign(let items), .fillForm(_, let items):
+            return items.contains(where: Self.isSigned) ? "signed" : "filled"
         }
     }
 
@@ -121,7 +126,8 @@ public enum EditorPDFTool: Equatable, Sendable {
         switch self {
         case .compress, .fillAndSign: return .formFlattened
         case .extract, .reorder, .removePassword: return .formOrphaned
-        case .rotate, .deletePages, .cleanMetadata, .protect: return nil
+        // Filled in place: the form, its widgets and everything else the file carries survive.
+        case .rotate, .deletePages, .cleanMetadata, .protect, .fillForm: return nil
         }
     }
 
@@ -141,7 +147,9 @@ public enum EditorPDFTool: Equatable, Sendable {
     var rebuildsDocument: Bool {
         switch self {
         case .extract, .reorder, .compress, .cleanMetadata, .removePassword, .fillAndSign: return true
-        case .rotate, .deletePages, .protect: return false
+        // `fillFormData` mutates the document opened from the file and serializes it, so a
+        // restricted original's encryption — and its restrictions — carry into the copy.
+        case .rotate, .deletePages, .protect, .fillForm: return false
         }
     }
 
@@ -164,6 +172,13 @@ public enum EditorPDFTool: Equatable, Sendable {
             let signatures = items.filter(Self.isSigned).count
             return "fill and sign (\(EditorPDFFillSign.count(items.count))"
                 + (signatures == 0 ? ")" : signatures == 1 ? ", 1 signature)" : ", \(signatures) signatures)")
+        case .fillForm(let values, let items):
+            // Counts only, as above: never a field's name, which can say what the form is about.
+            let signatures = items.filter(Self.isSigned).count
+            var parts = [EditorPDFFillSign.fields(values.count)]
+            if !items.isEmpty { parts.append(EditorPDFFillSign.count(items.count)) }
+            if signatures > 0 { parts.append(signatures == 1 ? "1 signature" : "\(signatures) signatures") }
+            return "fill form (\(parts.joined(separator: ", ")))"
         }
     }
 
@@ -348,6 +363,8 @@ enum EditorPDFToolEngine {
             return .bytes(try PDFToolkit.removePasswordData(inputURL: input, password: password.reveal()))
         case .fillAndSign(let items):
             return .bytes(try PDFToolkit.fillAndSignData(inputURL: input, items: items))
+        case .fillForm(let values, let items):
+            return .bytes(try PDFToolkit.fillFormData(inputURL: input, values: values, items: items))
         }
     }
 
@@ -422,8 +439,69 @@ enum EditorPDFToolEngine {
             // The toolkit throws both; said here first so the lane never runs for them.
             guard items.contains(where: \.hasInk) else { return PDFOperationError.noFillSignItems.errorDescription }
             return outOfRange(items.map(\.pageIndex), pageCount: pageCount)
+        case .fillForm(let values, let items):
+            let inked = items.filter(\.hasInk)
+            guard !values.isEmpty || !inked.isEmpty else { return reason(PDFOperationError.noFormValues, tool: tool) }
+            return outOfRange(inked.map(\.pageIndex), pageCount: pageCount)
         case .compress, .cleanMetadata, .protect, .removePassword:
             return nil
+        }
+    }
+
+    // MARK: The toolkit's refusals, in Edit's words
+
+    /// **What the reader is told when the toolkit refuses** — every `PDFOperationError`, in one
+    /// exhaustive switch so a case a new toolkit adds fails to build here rather than reaching the
+    /// banner unread. Most read as the toolkit words them. Two do not, because they were written for
+    /// PDF Utils' windows: `permissionsForbidEditing` names page changes and Password Protect, and
+    /// for a form being filled the question is the owner's form-entry or comment permission; and
+    /// `textOnRotatedPage` points at a Fill & Sign that flattens, which in Edit is this very tool.
+    static func reason(_ error: PDFOperationError, tool: EditorPDFTool) -> String {
+        switch error {
+        case .permissionsForbidEditing(let url):
+            guard case .fillForm(let values, _) = tool else { return error.errorDescription ?? "" }
+            let name = url.lastPathComponent
+            return values.isEmpty
+                ? "“\(name)”’s owner allows filling its form but not adding text or signatures to its pages, "
+                    + "so only the fields can be saved."
+                : "“\(name)”’s owner doesn’t allow filling its form. Tools ▸ Remove Password… can write an "
+                    + "unrestricted copy if you know the password."
+        case .textOnRotatedPage(let page):
+            return "Typed text can’t go on page \(page) while the form stays fillable, because that page is rotated. "
+                + "Remove it, or sign there with a drawn signature instead."
+        case .formValueNotAccepted(let field, let value):
+            // The toolkit's words, but a paragraph typed into a field is not quoted whole.
+            let shown = value.count > 40 ? value.prefix(40) + "…" : Substring(value)
+            return "The field “\(field)” does not accept “\(shown)”."
+        case .couldNotOpen, .couldNotWrite, .outputMatchesInput, .invalidPageRange, .pageOutOfBounds,
+             .pageRangeRequired, .cannotRemoveEveryPage, .fileAccessDenied, .noInputFiles, .noPagesSelected,
+             .compressionFailed, .emptyPDF, .noRedactions, .redactionFailed, .watermarkTextRequired,
+             .watermarkImageRequired, .watermarkFailed, .noFillSignItems, .fillSignFailed, .passwordRequired,
+             .incorrectPassword, .notEncrypted, .protectionFailed, .metadataEncrypted, .couldNotOpenImage,
+             .cropTooSmall, .ocrFailed, .encryptedInput, .couldNotEncodeOutput, .noFormValues,
+             .unknownFormField, .formFieldReadOnly, .formFieldNotFillable, .formFillFailed:
+            return error.errorDescription ?? ""
+        }
+    }
+
+    /// A run's failure as the banner says it: the toolkit's refusal in Edit's words, anything else
+    /// as its own description.
+    static func reason(_ error: any Error, tool: EditorPDFTool) -> String {
+        if let error = error as? PDFOperationError { return reason(error, tool: tool) }
+        return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
+    /// **The same failure as the log says it — with nothing the reader typed and no field's name.**
+    /// The form refusals carry both (`formValueNotAccepted` quotes the value), and the log keeps to
+    /// what Fill & Sign's log has always kept to: counts and the file.
+    static func logReason(_ error: any Error, tool: EditorPDFTool) -> String {
+        switch error as? PDFOperationError {
+        case .formValueNotAccepted?: return "a field did not accept its value"
+        case .unknownFormField?: return "a value named a field the form does not have"
+        case .formFieldReadOnly?: return "a value was for a read-only field"
+        case .formFieldNotFillable?: return "a value was for a field that cannot be filled"
+        case .formFillFailed?: return "a field did not take its new value"
+        default: return reason(error, tool: tool)
         }
     }
 
