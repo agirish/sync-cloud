@@ -332,8 +332,8 @@ enum EditorPDFSignatureMenu {
     }
 }
 
-/// The header's second row while Fill & Sign holds unsaved items — "4 items not saved" where the
-/// Read only tag sits, which comes back once they are saved or discarded.
+/// The header's second row while Fill & Sign holds unsaved items — "4 items not saved" in place of
+/// the file's facts (`tag`), which come back once the items are saved or discarded.
 struct EditorPDFFillCaption<Tag: View>: View {
     @ObservedObject var fill: EditorPDFFillSign
     @ViewBuilder let tag: Tag

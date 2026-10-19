@@ -498,8 +498,9 @@ struct EditorPDFHeader<Trailing: View>: View {
 /// screen, the file's size, and whether there is text to select ("Image only" for a scan).
 ///
 /// - **No version.** "PDF 1.4" is jargon that tells a reader almost nothing; it is in the tooltip
-///   on "PDF", after the note that the file is read-only here (``kindHelp(_:)``).
-/// - **No "Read only" pill** — the tooltip says it, without a tag that read as a warning.
+///   on "PDF", after the note that Edit never changes the file (``kindHelp(_:)``).
+/// - **No "Read only" pill** — it read as a warning, and "read only" was not true of a file the
+///   tools and Fill & Sign make changed copies of. The tooltip says what is.
 /// - **"4 items not saved" in the facts' place** while Fill & Sign holds some, as it used to stand in
 ///   for the Read only tag (``EditorPDFFillCaption``). 6b moves the count into a save pill.
 /// - **It sheds whole segments**, never a word in half: "Text selectable" first, then the paper's
@@ -548,12 +549,12 @@ struct EditorPDFFactsRow: View {
     static let kindWord = "PDF"
 
     /// What the tooltip on "PDF" opens with.
-    static let readOnlyNote = "Read only in Edit. Tools and Fill & Sign write a copy."
+    static let originalUntouchedNote = "Edit never changes this file. Tools and Fill & Sign save a new copy beside it."
 
-    /// The tooltip on "PDF": that the file is read-only here, then its version, "PDF version 1.4".
+    /// The tooltip on "PDF": that Edit never changes the file, then its version, "PDF version 1.4".
     static func kindHelp(_ facts: EditorPDFFacts?) -> String {
-        guard let facts else { return readOnlyNote }
-        return "\(readOnlyNote)\n\(facts.versionFact)"
+        guard let facts else { return originalUntouchedNote }
+        return "\(originalUntouchedNote)\n\(facts.versionFact)"
     }
 
     /// **Row 2's readings, widest first** — every fact; then without "Text selectable" (or "Image

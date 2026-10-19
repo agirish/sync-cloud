@@ -541,7 +541,7 @@ enum PDFURLOpens {
     }
 
     /// **Row 2 says paper, size and text, and no version** — the version is in the tooltip on
-    /// "PDF", after the read-only note (decided 2026-10-19).
+    /// "PDF", after the note that Edit never changes the file (decided 2026-10-19).
     @Test func rowTwoSaysPaperSizeAndTextAndKeepsTheVersionForTheTooltip() {
         let facts = EditorPDFFacts(pageCount: 3, pageSizes: Array(repeating: PDFFixtures.letter, count: 3),
                                    majorVersion: 1, minorVersion: 7, fileSize: "184 KB", hasText: true)
@@ -549,8 +549,8 @@ enum PDFURLOpens {
         #expect(widest == ["Letter, 8.5 × 11 in", "184 KB", "Text selectable"])
         #expect(!(widest ?? []).joined().contains("1.7"), "the version is back in row 2")
         #expect(EditorPDFFactsRow.kindHelp(facts)
-                == "Read only in Edit. Tools and Fill & Sign write a copy.\nPDF version 1.7")
-        #expect(EditorPDFFactsRow.kindHelp(nil) == "Read only in Edit. Tools and Fill & Sign write a copy.")
+                == "Edit never changes this file. Tools and Fill & Sign save a new copy beside it.\nPDF version 1.7")
+        #expect(EditorPDFFactsRow.kindHelp(nil) == "Edit never changes this file. Tools and Fill & Sign save a new copy beside it.")
         #expect(EditorPDFFactsRow.kindWord == "PDF")
     }
 
