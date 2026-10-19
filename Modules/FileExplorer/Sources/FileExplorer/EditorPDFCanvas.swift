@@ -28,6 +28,24 @@ enum EditorPDFFloating {
         return floating
     }
 
+    /// **In dark mode the glass stands on a dark veil** — the window's own background at this
+    /// opacity, under the glass. Measured 2026-10-18 over a full page of black text: Frosted in dark
+    /// left light labels on translucent grey with the type showing through; light mode reads, and
+    /// keeps its glass bare. Under the glass, not on it, so the glass keeps its edge and sheen and
+    /// only stops refracting the page. Chosen over Solid's ground at every level, 2026-10-18.
+    /// Measured the same day: 0.85 still let the type through; 0.95 leaves a flat ground.
+    static let darkVeil: Double = 0.95
+
+    /// The veil's opacity for a piece drawn in `material` — ``darkVeil`` under glass in dark mode,
+    /// none otherwise: Solid and Reduce Transparency draw an opaque ground already.
+    static func veil(material: SelectionLensMaterial, colorScheme: ColorScheme) -> Double {
+        guard colorScheme == .dark else { return 0 }
+        switch material {
+        case .frosted, .clear: return darkVeil
+        case .today, .probe: return 0
+        }
+    }
+
     /// **Floating pieces never overlap.** `frame` slid along `axis` — the edge it is docked to —
     /// until it clears every one of `obstacles` by ``gap``, staying inside the canvas's inset; the
     /// nearer way wins. Only where no place along that edge is clear does it step across the edge
@@ -82,12 +100,19 @@ enum EditorPDFFloating {
 
 /// **What a floating piece stands on**: at Solid a solid shape with a hairline and a soft shadow,
 /// as an opaque window draws a panel; in Frosted the app's chrome glass, one capsule round all its
-/// buttons (`chromeGlassGroup`); in Clear, Frosted's (``EditorPDFFloating/clearDrawsFrosted``).
+/// buttons (`chromeGlassGroup`); in Clear, Frosted's (``EditorPDFFloating/clearDrawsFrosted``). In
+/// dark mode the glass stands on a dark veil (``EditorPDFFloating/veil(material:colorScheme:)``).
 struct EditorPDFFloatingGround: ViewModifier {
     let shape: HoverAffordanceShape
     @Environment(\.selectionLensAppearance) private var appearance
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
+        let floating = EditorPDFFloating.appearance(appearance)
+        let veil = EditorPDFFloating.veil(
+            material: ChromeGlass.material(appearance: floating, reduceTransparency: reduceTransparency),
+            colorScheme: colorScheme)
         content
             .background {
                 ChromeGlassTodayGround {
@@ -98,7 +123,16 @@ struct EditorPDFFloatingGround: ViewModifier {
                 }
             }
             .chromeGlassGroup(shape)
-            .environment(\.selectionLensAppearance, EditorPDFFloating.appearance(appearance))
+            // After the group, so the veil is behind its glass.
+            .background {
+                if veil > 0 {
+                    shape.outline
+                        .fill(Color(nsColor: .windowBackgroundColor).opacity(veil))
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .environment(\.selectionLensAppearance, floating)
     }
 }
 

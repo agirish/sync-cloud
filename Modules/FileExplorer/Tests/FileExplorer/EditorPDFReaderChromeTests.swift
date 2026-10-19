@@ -566,6 +566,28 @@ import Sync
         }
     }
 
+    /// **In dark mode the glass stands on a dark veil**; light mode, Solid and the probe draw none.
+    /// Decided 2026-10-18 over Solid's ground at every level: Frosted in dark let the page's type
+    /// show through behind light labels.
+    @Test func floatingGlassStandsOnADarkVeilInDarkModeOnly() throws {
+        for material in [SelectionLensMaterial.frosted, .clear] {
+            #expect(EditorPDFFloating.veil(material: material, colorScheme: .dark) == EditorPDFFloating.darkVeil)
+            #expect(EditorPDFFloating.veil(material: material, colorScheme: .light) == 0)
+        }
+        for material in [SelectionLensMaterial.today, .probe] {
+            #expect(EditorPDFFloating.veil(material: material, colorScheme: .dark) == 0)
+        }
+        #expect(EditorPDFFloating.darkVeil >= 0.9, "a thin veil lets the page's type through again")
+        // Behind the glass, not on it, and read off the floating appearance the glass itself draws in.
+        let canvas = try ChromeGlassWiringTests.source("EditorPDFCanvas.swift")
+        #expect(canvas.contains("material: ChromeGlass.material(appearance: floating, reduceTransparency: reduceTransparency)"))
+        let group = try #require(canvas.range(of: ".chromeGlassGroup(shape)"))
+        let veil = try #require(canvas.range(of: "if veil > 0 {"))
+        let floating = try #require(canvas.range(of: ".environment(\\.selectionLensAppearance, floating)"))
+        #expect(group.upperBound < veil.lowerBound && veil.upperBound < floating.lowerBound,
+                "the veil is no longer a background behind the floating pieces' glass")
+    }
+
     // MARK: Keyboard and VoiceOver
 
     /// **⌃⌘L reaches the capsule's field**, and the header has no page field left to compete.
