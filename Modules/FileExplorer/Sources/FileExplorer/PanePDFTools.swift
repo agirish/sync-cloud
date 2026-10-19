@@ -62,7 +62,10 @@ public final class PanePDFTools: ObservableObject {
     public var isBusy: Bool {
         if preparing { return true }
         switch current {
-        case .single(let tools): return tools.running != nil
+        // A sheet that is up and not yet run counts: the menu bar's File ▸ PDF Tools stays live
+        // over it, and a second request replaced `current` — taking the sheet, and the password
+        // half-typed into it, down with it.
+        case .single(let tools): return tools.running != nil || tools.sheet != nil
         // A batch's sheet is up from the request to the end of its run — Rotate's included, which
         // opens on its progress before its run has started.
         case .batch(let batch): return batch.isRunning || batch.showsSheet

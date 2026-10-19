@@ -16,17 +16,22 @@ public struct EditorPDFFillSignMenuItems: View {
         self.tools = tools
     }
 
+    /// Add Signature's sheet, or a PDF tool's.
+    private var sheetIsUp: Bool { fill.addingSignature != nil || tools.sheet != nil }
+
     public var body: some View {
         Toggle("Fill & Sign", isOn: Binding(
             get: { fill.isOn },
             // The button's act either way: off with unsaved items asks first.
             set: { _ in fill.toggle() }
         ))
-        .disabled(!fill.hasPages || fill.refusal != nil)
+        // Greyed under a sheet too: the menu bar stays live over one, and the toggle's `clear()`
+        // took the Add Signature sheet down with the strokes drawn in it.
+        .disabled(!fill.hasPages || fill.refusal != nil || sheetIsUp)
         if let reason = fill.menuReason {
             Text(reason)
         }
         Button("Save Filled Copy") { Task { await fill.save() } }
-            .disabled(!fill.canSave || tools.running != nil)
+            .disabled(!fill.canSave || tools.running != nil || sheetIsUp)
     }
 }

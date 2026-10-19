@@ -389,7 +389,8 @@ import Testing
     }
 
     /// **⌘C and ⌘A hand a PDF reader its own copy and select-all**, and ⌘A in the Pages grid its
-    /// pages. Cut and Paste do not — nothing on a read-only page can be cut or pasted.
+    /// pages. Cut and Paste do not — nothing on a read-only page can be cut or pasted, so over a
+    /// reader they are refused by `TextEditingChord.route` rather than reaching the file clipboard.
     @Test func copyAndSelectAllReachTheReader() throws {
         let commands = try Self.commands()
         let copy = CodeText(try declarationBody(of: "struct CopyCommand: View", in: commands))

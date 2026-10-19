@@ -73,6 +73,9 @@ struct ContentView: View {
     /// ``refreshEditorRail()`` stays a single comparison: held apart, a folder whose only change was
     /// a PDF arriving would keep a caption claiming it was empty.
     @State var editorRailSurvey = EditorRail.Survey(rows: [], otherFileCount: nil)
+    /// The folder `editorRailSurvey` was read from — `editorFolder` moves at once, the survey only
+    /// when its walk returns, and the folder menu must not pair the one with the other.
+    @State var editorRailSurveyFolder: String?
 
     /// Which folders each pane has open in its Tree presentation.
     ///

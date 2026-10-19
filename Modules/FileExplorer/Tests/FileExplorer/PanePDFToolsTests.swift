@@ -569,6 +569,23 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(files() == ["Form.pdf", "Plain.pdf", "Scan.pdf"], "a declined batch wrote \(files())")
     }
 
+    /// **A sheet that is up is a run in progress, though nothing runs yet** — a second request from
+    /// the menu bar used to replace it, and the Protect sheet vanished with its password.
+    @Test func aSecondRequestLeavesAnOpenSheetUp() async throws {
+        let file = path("Open sheet.pdf")
+        PDFFixtures.write(file, pages: 1)
+        let model = PanePDFTools()
+        model.start(.protect, paths: [file], writer: "PDF Tools in Browse")
+        await model.work?.value
+        guard case .single(let first)? = model.current else { Issue.record("no single run"); return }
+        try #require(first.sheet == .protect && first.running == nil)
+        model.start(.compress, paths: [file], writer: "PDF Tools in Browse")
+        guard case .single(let still)? = model.current else { Issue.record("the run went"); return }
+        #expect(still === first, "a second request replaced the open sheet's run")
+        #expect(first.sheet == .protect)
+        #expect(first.banner?.message == "Another tool is still running.")
+    }
+
     /// The window refuses a second request while one runs, in the running one's banner.
     @Test func aSecondRequestWaitsItsTurn() async {
         let paths = ["One.pdf", "Two.pdf"].map(path)

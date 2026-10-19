@@ -12,6 +12,17 @@ import SwiftUI
 
     /// **Go to Page… asks again on every press** — a count, so a second ⌃⌘L with the field already
     /// up still puts the caret in it.
+    /// **File ▸ PDF Tools greys under a tool's own sheet**, as it does while a tool runs — Rotate
+    /// chosen there ran underneath an open Compress sheet.
+    @Test func theToolsMenuGreysUnderASheet() {
+        let tools = EditorPDFTools()
+        tools.attach(path: "/a/plain.pdf", pageCount: 3, encryption: .none)
+        #expect(EditorPDFToolsMenuEntry.entries(tools).contains { $0.enabled }, "nothing was live to begin with")
+        tools.sheet = .compress
+        let live = EditorPDFToolsMenuEntry.entries(tools).filter(\.enabled).map(\.title)
+        #expect(live.isEmpty, "live under a sheet: \(live)")
+    }
+
     @Test func everyGoToPageIsANewAsk() {
         let state = EditorPDFViewState()
         let before = state.pageFieldRequest

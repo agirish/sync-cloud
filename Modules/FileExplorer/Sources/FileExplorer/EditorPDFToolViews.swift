@@ -75,7 +75,10 @@ public struct EditorPDFToolsMenuEntry: Equatable {
     /// are here, last, for as long as the reorder bar above the pages shows them.
     @MainActor
     public static func entries(_ tools: EditorPDFTools) -> [EditorPDFToolsMenuEntry] {
-        let idle = tools.running == nil
+        // **A sheet that is up counts as busy.** The menu bar's copy of this list stays live over
+        // a window-modal sheet, and Rotate chosen there ran underneath an open Compress sheet,
+        // whose own Compress was then refused as "still running".
+        let idle = tools.running == nil && tools.sheet == nil
         let pages = tools.offersPageTools && idle
         let selected = tools.order.filter(tools.selection.pages.contains)
         var out: [EditorPDFToolsMenuEntry] = []

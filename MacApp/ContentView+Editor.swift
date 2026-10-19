@@ -81,6 +81,7 @@ extension ContentView {
         // The folder can change while the walk is out; a late answer for the wrong folder would
         // list somebody else's files under this one's heading.
         guard folder == editorFolder else { return }
+        if editorRailSurveyFolder != folder { editorRailSurveyFolder = folder }
         // **Only when the listing actually changed.** This runs after every autosave — twice a
         // sentence, for a typist — and writing `@State` unconditionally is a change as far as
         // SwiftUI is concerned, so an identical survey still bought a full body pass. The rows
@@ -335,7 +336,8 @@ extension ContentView {
             paneFolder: editorFolder,
             sourceRoot: (settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath,
             providerName: settings.availableProviders.first { $0.id == leftProviderId }?.displayName,
-            subfolders: editorRailSurvey.folders,
+            subfolders: EditorHeaderLocation.subfolders(editorRailSurvey.folders,
+                                                        surveyed: editorRailSurveyFolder, folder: editorFolder),
             otherSources: editorOtherSources)
     }
 

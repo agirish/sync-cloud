@@ -87,10 +87,23 @@ import Sync
                                   links: [:]).folders == ["Photos"])
     }
 
-    /// Unreadable reports nothing to step into, as it reports nothing to open.
-    @Test func anUnreadableFolderOffersNoFolders() {
-        #expect(EditorRail.survey(in: "/nowhere/at/all", showsHidden: false,
-                                  isCloudOnly: nothingIsCloudOnly, links: [:]).folders.isEmpty)
+    /// Unreadable reports nothing to step into, as it reports nothing to open. **A real folder
+    /// with a folder inside, made unreadable** — a path that does not exist answered "empty" too,
+    /// whatever the survey did, so the test proved nothing. The control reads it first.
+    @Test func anUnreadableFolderOffersNoFolders() throws {
+        let root = try scratch()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try folder("Inside", in: root)
+        #expect(EditorRail.survey(in: root.path, showsHidden: false,
+                                  isCloudOnly: nothingIsCloudOnly, links: [:]).folders == ["Inside"])
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: root.path)
+        try #require((try? FileManager.default.contentsOfDirectory(atPath: root.path)) == nil,
+                     "the folder is still readable, so this proves nothing")
+        let survey = EditorRail.survey(in: root.path, showsHidden: false, isCloudOnly: nothingIsCloudOnly, links: [:])
+        #expect(survey.folders.isEmpty && survey.otherFileCount == nil)
     }
 
     // MARK: Where a pick goes

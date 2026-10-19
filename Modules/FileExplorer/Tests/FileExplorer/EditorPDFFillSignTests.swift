@@ -348,6 +348,29 @@ extension PDFFixtures {
         #expect(pdf.path == file, "the original did not stay open")
     }
 
+    /// **What changes while the copy is being written is kept, not cleared** — it is not in the copy,
+    /// and clearing deleted it without a word. The save is held on its lane turn while a second item
+    /// goes down, then let finish: the copy has the first words only, and both items are still there.
+    @Test func anItemPlacedWhileTheCopyIsWrittenOutlivesTheSave() async throws {
+        let (pdf, _) = try await letter("Lease during.pdf")
+        let fill = pdf.fill, tools = pdf.tools
+        fill.toggle()
+        let first = try #require(fill.place(at: CGPoint(x: 100, y: 500), page: 1))
+        fill.type("NUMBAT-FIRST", into: first)
+        let save = Task { await fill.save() }
+        for _ in 0..<10_000 where tools.running == nil { await Task.yield() }
+        try #require(tools.running != nil, "the save never began")
+        let late = try #require(fill.place(at: CGPoint(x: 100, y: 300), page: 1))
+        fill.type("NUMBAT-LATE", into: late)
+        fill.endEditing()
+        guard case .wrote(let copy) = await save.value else { Issue.record("the save wrote no copy"); return }
+        #expect(text(of: copy).contains("NUMBAT-FIRST"))
+        #expect(!text(of: copy).contains("NUMBAT-LATE"), "the late item reached the copy, so this proves nothing")
+        #expect(fill.isOn, "the toolbar went down over an item the copy does not carry")
+        #expect(fill.items.map(\.id).contains(late), "the item placed during the save was cleared")
+        #expect(fill.hasUnsavedChanges, "the leave question would no longer ask about it")
+    }
+
     /// **A signature or initials make it "(signed)"** — drawn or typed.
     @Test(arguments: [false, true])
     func aSignatureMakesItSigned(typed: Bool) async throws {
@@ -496,6 +519,22 @@ extension PDFFixtures {
         #expect(menuLines(fill, tools) == ["✓ Fill & Sign", "(Save Filled Copy)"], "Save is live while the save runs")
         guard case .wrote = await save.value else { Issue.record("the save wrote no copy"); return }
         #expect(menuLines(fill, tools) == ["Fill & Sign", "(Save Filled Copy)"], "the toolbar outlived the save")
+    }
+
+    /// **Under a sheet both lines grey** — Add Signature's or a tool's. The menu bar stays live over
+    /// a window-modal sheet, and the toggle took Add Signature down with its strokes.
+    @Test func theMenuBarsItemsGreyUnderASheet() async throws {
+        let (pdf, _) = try await letter("Under a sheet.pdf")
+        let fill = pdf.fill, tools = pdf.tools
+        fill.toggle()
+        fill.armed = .mark(.check)
+        fill.place(at: CGPoint(x: 100, y: 100), page: 0)
+        #expect(menuLines(fill, tools) == ["✓ Fill & Sign", "Save Filled Copy"])
+        fill.addingSignature = .signature
+        #expect(menuLines(fill, tools) == ["(✓ Fill & Sign)", "(Save Filled Copy)"], "live under Add Signature")
+        fill.addingSignature = nil
+        tools.sheet = .compress
+        #expect(menuLines(fill, tools) == ["(✓ Fill & Sign)", "(Save Filled Copy)"], "live under a tool's sheet")
     }
 
     /// **A refused file: the toggle greyed and the reason under it**, short enough for a menu — the

@@ -44,16 +44,22 @@ enum TextEditingChord {
     /// **`readerAction` is the PDF reader's half**, for the two chords a read-only page answers:
     /// ⌘C copies the text selected on it and ⌘A selects all of it. The reader is a `PDFView`, not an
     /// `NSTextView`, so without it those two went to the FILE action — the pane's selected rows,
-    /// which in Edit is usually the open PDF itself. `nil` (Cut, Paste and the rest) leaves a reader
-    /// responder on the file side, as before: nothing on a read-only page can be cut or pasted.
+    /// which in Edit is usually the open PDF itself.
+    ///
+    /// **A reader never runs the file action, half or no half.** With `nil` (Cut, Paste, ⌘⌫, the
+    /// transfers, ⌘↑ / ⌘↓) the keystroke is refused with `readerRefusal` — a beep, AppKit's answer to
+    /// a command that does not apply. It used to fall through to the file side, so ⌘X over a page cut
+    /// the open PDF onto the file clipboard, ⌘V pasted files into its folder and ⌘⌫ offered to
+    /// delete it: verbs about the pane's rows, fired from a page that was showing none of them.
     static func route(responder: NSResponder?,
                       editorAction: (NSTextView) -> Void,
                       readerAction: ((PDFView) -> Void)? = nil,
+                      readerRefusal: () -> Void = { NSSound.beep() },
                       fileAction: () -> Void) {
         if belongsToTextEditor(responder), let editor = responder as? NSTextView {
             editorAction(editor)
-        } else if let readerAction, let reader = enclosingReader(of: responder) {
-            readerAction(reader)
+        } else if let reader = enclosingReader(of: responder) {
+            if let readerAction { readerAction(reader) } else { readerRefusal() }
         } else {
             fileAction()
         }

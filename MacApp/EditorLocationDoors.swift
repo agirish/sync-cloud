@@ -109,6 +109,14 @@ enum EditorHeaderLocation {
             .first
     }
 
+    /// The survey's subfolders, **only while the survey is of `folder`.** A move to another folder
+    /// is instant and its survey is not — up to seconds on an iCloud folder still to download — and
+    /// meanwhile the old folder's names joined to the new folder's target named folders that do not
+    /// exist: a pick re-rooted the pane on one, re-scoping Compare and clearing ignored paths.
+    static func subfolders(_ surveyFolders: [String], surveyed: String?, folder: String) -> [String] {
+        surveyed == folder ? surveyFolders : []
+    }
+
     /// **The rail's folder menu** (``EditorFolderTrail``): the location's levels for the pane's
     /// folder — the same words, the same targets, the folder's own level named and not offered —
     /// plus the folder's own target, which a subfolder's is built from. `nil` with no folder.

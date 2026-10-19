@@ -421,10 +421,14 @@ public final class EditorPDFFillSign: ObservableObject {
         if self.path == path, boxes != self.boxes, !items.isEmpty {
             // **A reload whose pages are no longer the ones the items were placed on.** A file that
             // changed but kept every page as it was keeps its items.
-            Logger.shared.info("Edit dropped \(Self.count(items.count)) placed with Fill & Sign on "
+            // `clear()` takes the filled fields too, so the log and the banner name them as well.
+            let fields = values.isEmpty ? "" : " and \(Self.fields(values.count)) filled"
+            Logger.shared.info("Edit dropped \(Self.count(items.count)) placed\(fields) with Fill & Sign on "
                                + "\(EditorPDFTools.logName(path)) — the file changed on disk")
             clear()
-            tools?.banner = EditorPDFToolBanner(message: "The file changed on disk, so the items you placed were dropped.",
+            tools?.banner = EditorPDFToolBanner(message: fields.isEmpty
+                                                    ? "The file changed on disk, so the items you placed were dropped."
+                                                    : "The file changed on disk, so the items you placed and the fields you filled were cleared.",
                                                 kind: .note)
         } else if self.path != path {
             clear()
@@ -1034,11 +1038,17 @@ public final class EditorPDFFillSign: ObservableObject {
 
     /// **Save Filled Copy**: the items, as the toolkit draws them, through the tools' one run. On a
     /// copy written, the items go and the toolbar goes down; the copy is the banner's to open.
+    ///
+    /// **Only if nothing changed while the copy was being written.** The run takes a lane turn and a
+    /// detached write, and the pages stay live meanwhile, so an item placed or a field typed during
+    /// it is not in the copy. Clearing then deleted it with no word; now everything stays, still
+    /// counted as unsaved, and the leave question still asks about it.
     @discardableResult
     public func save() async -> EditorPDFToolOutcome {
         endEditing()
         endFieldEditing()
         guard let tools else { return .failed("No PDF is open.") }
+        let savedItems = items, savedValues = values
         let placed = unsaved
         let toolkit = placed.compactMap { item in box(item.page).map { item.toolkitItem(on: $0) } }
         let path = self.path
@@ -1059,8 +1069,13 @@ public final class EditorPDFFillSign: ObservableObject {
         }
         let outcome = await tools.run(tool)
         if case .wrote = outcome, self.path == path {
-            clear()
-            isOn = false
+            if items == savedItems, values == savedValues {
+                clear()
+                isOn = false
+            } else if let path {
+                Logger.shared.info("Edit kept Fill & Sign on \(EditorPDFTools.logName(path)) — it changed "
+                                   + "while the filled copy was being written, so the copy does not carry everything")
+            }
         }
         return outcome
     }

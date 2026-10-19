@@ -103,14 +103,22 @@ import Design
         #expect(ran == "file")
     }
 
-    /// **Without a reader half — Cut, Paste, ⌘⌫ and the rest — a reader keeps the file action**,
-    /// exactly as before it had one.
-    @Test func aReaderKeepsTheFileActionWhereTheItemOffersNoReaderHalf() {
-        var ran = ""
-        TextEditingChord.route(responder: PDFView(frame: .zero),
-                               editorAction: { _ in ran = "editor" },
-                               fileAction: { ran = "file" })
-        #expect(ran == "file")
+    /// **Without a reader half — Cut, Paste, ⌘⌫ and the rest — a reader refuses the chord; it never
+    /// falls through to the file action.** That fall-through cut the open PDF onto the file clipboard
+    /// on ⌘X and offered to delete it on ⌘⌫, from a page showing none of the pane's rows. Checked for
+    /// the reader itself and for a view inside it, which is where Fill & Sign's overlay sits.
+    @Test func aReaderRefusesWhereTheItemOffersNoReaderHalf() {
+        let reader = PDFView(frame: .zero)
+        let inside = NSView(frame: .zero)
+        reader.addSubview(inside)
+        for responder: NSResponder in [reader, inside] {
+            var ran = ""
+            TextEditingChord.route(responder: responder,
+                                   editorAction: { _ in ran = "editor" },
+                                   readerRefusal: { ran = "refused" },
+                                   fileAction: { ran = "file" })
+            #expect(ran == "refused", "\(type(of: responder)) ran \(ran)")
+        }
     }
 
     /// **The caret still wins, and nothing else becomes a reader** — a field editor with a reader

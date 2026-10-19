@@ -227,6 +227,33 @@ extension PDFFixtures {
 
     // MARK: Editing
 
+    /// **A reload whose pages changed drops the filled fields with the items — and says so.** It
+    /// used to log and announce only the items, while `clear()` took the fields too, unmentioned.
+    @Test func aPageChangeThatDropsTheItemsNamesTheFieldsItClearsToo() async throws {
+        let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
+        let tools = EditorPDFTools()
+        fill.tools = tools
+        let field = FormField(name: "name", kind: .text(multiline: false), value: nil,
+                              widgets: [FormField.Widget(pageIndex: 0, rect: CGRect(x: 10, y: 10, width: 100, height: 20))])
+        let form = EditorPDFForm(fields: [field])
+        let page = EditorPDFPageBox(cropBox: CGRect(x: 0, y: 0, width: 612, height: 792), rotation: 0)
+        fill.attach(path: "/tmp/reload.pdf", boxes: [page], encryption: .none, allowsFilling: true, form: form)
+        fill.toggle()
+        fill.beginFieldEditing("name")
+        fill.typeField("Ada")
+        fill.endFieldEditing()
+        fill.armed = .mark(.check)
+        try #require(fill.place(at: CGPoint(x: 300, y: 300), page: 0) != nil)
+        try #require(fill.values.count == 1 && fill.items.count == 1)
+
+        let log = LogCapture()
+        let turned = EditorPDFPageBox(cropBox: page.cropBox, rotation: 90)
+        fill.attach(path: "/tmp/reload.pdf", boxes: [turned], encryption: .none, allowsFilling: true, form: form)
+        #expect(fill.values.isEmpty && fill.items.isEmpty)
+        #expect(tools.banner?.message == "The file changed on disk, so the items you placed and the fields you filled were cleared.")
+        #expect(await log.holds(containing: "Edit dropped 1 item placed and 1 field filled with Fill & Sign on reload.pdf in /tmp"))
+    }
+
     /// **Every kind takes its value**: text, multiline, checkbox, radio, combo, list, and an
     /// editable combo's own words.
     @Test func everyKindEdits() async throws {

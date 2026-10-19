@@ -246,6 +246,14 @@ import FileExplorer
         #expect(trail.subfolders == ["Receipts"])
     }
 
+    /// **A survey of another folder offers no subfolders** — the folder moved and its walk has not
+    /// returned, so the old folder's names would be joined to the new folder's target.
+    @Test func aSurveyOfAnotherFolderOffersNoSubfolders() {
+        #expect(EditorHeaderLocation.subfolders(["Taxes"], surveyed: "/c/Family", folder: "/c/Family") == ["Taxes"])
+        #expect(EditorHeaderLocation.subfolders(["Taxes"], surveyed: "/c", folder: "/c/Family") == [])
+        #expect(EditorHeaderLocation.subfolders(["Taxes"], surveyed: nil, folder: "/c/Family") == [])
+    }
+
     /// At the top of the source the folder's target is `""`, so its subfolders go by bare name.
     @Test func atTheTopOfTheSourceTheFoldersTargetIsEmpty() throws {
         let trail = try #require(EditorHeaderLocation.folderTrail(
@@ -427,8 +435,12 @@ import FileExplorer
             in: try declarationBody(of: "var editorFolderTrail: EditorFolderTrail? {", in: editor))
         #expect(trail.passes("paneFolder", "editorFolder"),
                 "the menu is not about the folder the rail lists")
-        #expect(trail.passes("subfolders", "editorRailSurvey.folders"),
-                "the menu's subfolders are not the rail survey's")
+        #expect(trail.passes("subfolders", """
+            EditorHeaderLocation.subfolders(editorRailSurvey.folders, surveyed: editorRailSurveyFolder, folder: editorFolder)
+            """), "the menu's subfolders are not the rail survey's, or are offered for a folder it did not read")
+        let refresh = try declarationBody(of: "func refreshEditorRail() async {", in: editor)
+        #expect(sourceCodeOnly(refresh).contains("if editorRailSurveyFolder != folder { editorRailSurveyFolder = folder }"),
+                "the survey's folder is never recorded, so the menu would offer no subfolders at all")
         #expect(trail.passes("otherSources", "editorOtherSources"),
                 "the menu does not know the user's other sources, as the header's location does")
     }
