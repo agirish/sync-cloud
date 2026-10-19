@@ -7775,3 +7775,34 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF find in Edit (`pdfFind=0`), so nothing to speed up | CLOSED — does not apply |
+
+---
+
+## Save as PDF from a file row and File ▸ — main only
+
+A Word, Excel, PowerPoint, RTF, Markdown or text row in any file pane has **Save as PDF** in the
+section PDF Tools takes on a PDF row, and several such rows get **Save N as PDFs** first after
+Refresh; File ▸ Save as PDF does the same for the focused pane's selection. Each PDF is written
+beside its original under its name, numbered on a clash, never over anything (`PaneSaveAsPDF`,
+`SaveAsPDFOffer`). Text and Markdown render through Edit's `DocumentPDF`; RTF through the text
+system; Word, Excel and PowerPoint through Quick Look's `qlmanage -p -o` HTML drawn by WebKit
+(`SaveAsPDFRender`). The banner and its stacking stand on the pane PDF Tools' card
+(`PanePDFToolsPresenter`), which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s documentPDF=%s paneTools=%s saveAsPDF=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/DocumentPDF.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PanePDFTools.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/SaveAsPDF.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-19, against origin, before this landed:
+# main  documentPDF=1 paneTools=1 saveAsPDF=0
+# v5.x  documentPDF=1 paneTools=0 saveAsPDF=0
+# v4.x, v3.x, v2.x — 0 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Edit's `DocumentPDF` (File ▸ Export as PDF… for an open note), but no row item, no Office engine and no pane PDF Tools card for the banner (`paneTools=0`) | RECORDED — not owed (main only) |
+| `v4.x` / `v3.x` / `v2.x` | No `DocumentPDF` and no pane PDF Tools | CLOSED — does not apply |

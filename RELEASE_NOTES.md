@@ -93,6 +93,15 @@ Requires **macOS 26**, unchanged from the 5.x line.
   written, and Reveal in Browse selects the new copies. **File ▸ PDF Tools** holds the same submenu
   for the focused pane's selection — "PDF Tools · 3 files" for several — whenever Edit is not
   showing a PDF.
+- **Save as PDF from a file's right-click menu.** A Word, Excel or PowerPoint file, an RTF, a
+  Markdown note or a `.txt` gets **Save as PDF**, where a PDF gets PDF Tools: the PDF is written
+  beside it under its name — "Lease.docx" becomes "Lease.pdf", or "Lease 2.pdf" when that is taken
+  — and the file itself is never changed. Markdown and text come out as the pages Edit's Print makes;
+  Word, Excel and PowerPoint as macOS draws them in Quick Look, every sheet in turn and each slide on
+  a page of its own, with their text selectable. A deck whose slides are pictures says so. Select
+  several for **Save 3 as PDFs**: one at a time, with Stop, and a file that cannot be read is named in
+  the banner. A folder you can't write to asks where. **File ▸ Save as PDF** does the same for the
+  focused pane's selection.
 
 ### Fill & Sign
 

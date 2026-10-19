@@ -123,6 +123,9 @@ struct ContentView: View {
     /// two sessions above: owned here, observed only by the layer that draws its sheet and banner,
     /// so a run's page-by-page progress re-renders that layer and not this window.
     @State var panePDFTools = PanePDFTools()
+    /// Save as PDF from a pane's row menu or File ▸ — see `PaneSaveAsPDF`. Held as the tools are,
+    /// observed only by the layer that draws its banner.
+    @State var paneSaveAsPDF = PaneSaveAsPDF()
     /// Whether the rail's inline naming row is open. Held here because ⌘N opens it from any
     /// workspace, including ones where the editor is not on screen yet.
     @State var editorIsNaming = false
@@ -1232,7 +1235,8 @@ struct ContentView: View {
         // A PDF tool run from a row's menu: its sheet, and its banner at the window's foot. Ahead
         // of the overlay chain below, so every panel in it covers the banner — and not IN the chain,
         // because the sheet must not yield to them (see `PanePDFToolsPresenter`).
-        .modifier(PanePDFToolsPresenter(model: panePDFTools, accent: glassHue.accentColor))
+        .modifier(PanePDFToolsPresenter(model: panePDFTools, saveAsPDF: paneSaveAsPDF,
+                                        accent: glassHue.accentColor))
         .overlay {
             // **The divergence diff leads, ahead of even the picker.** Everything below is
             // something the user *opened*; this is a question they are in the middle of ANSWERING.
@@ -4824,6 +4828,7 @@ struct ContentView: View {
                                       clickedPaneIsLeft: pane.isLeft) },
             onArmComparePick: { node in armComparePick(node, isLeft: pane.isLeft) },
             onPDFTool: { request, paths in startPanePDFTool(request, paths: paths) },
+            onSaveAsPDF: { paths in startSaveAsPDF(paths) },
             armedComparePath: comparePick?.armed.id)
     }
 

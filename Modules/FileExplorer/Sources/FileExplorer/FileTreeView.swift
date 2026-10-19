@@ -1580,6 +1580,14 @@ struct FileContextMenu: View {
                 PanePDFToolsSubmenu(offer: .several(paths: paths), delegate: delegate)
                 Divider()
             }
+            // Several files Save as PDF can convert: the same slot, which PDF Tools never shares —
+            // a PDF hides this item, and anything but PDFs hides that one. Hidden for a folder, a
+            // kind nothing converts, or a cloud-only file, as the tools are.
+            if count > 1, delegate.canSaveAsPDF,
+               case .several(let paths)? = SaveAsPDFOffer.forSelection(selectedNodes) {
+                SaveAsPDFMenuItem(offer: .several(paths: paths), delegate: delegate)
+                Divider()
+            }
             if count == 1, let singleNode = selectedNodes.first {
                 // **First after the divider**, ahead of Get Info and Reveal in Finder. Edit is a
                 // workspace of this app and the other two hand the file to something else — and
@@ -1641,6 +1649,13 @@ struct FileContextMenu: View {
                 if delegate.canRunPDFTools, let offer = PanePDFToolOffer.forSelection([singleNode]) {
                     Divider()
                     PanePDFToolsSubmenu(offer: offer, delegate: delegate)
+                }
+                // **Save as PDF, in PDF Tools' own section** (CV1) — a file that can become a PDF
+                // shows it where a PDF shows its tools, so Rename never moves. A PDF keeps its tools
+                // and is never offered this.
+                if delegate.canSaveAsPDF, let offer = SaveAsPDFOffer.forSelection([singleNode]) {
+                    Divider()
+                    SaveAsPDFMenuItem(offer: offer, delegate: delegate)
                 }
                 Divider()
                 Button(action: { delegate.handleRename(singleNode) }) {

@@ -333,7 +333,17 @@ enum EditorPDFCopyWriter {
         _ data: Data, besides original: String, suffix: String,
         chooseName: (URL, Set<String>) -> URL = { FileSyncManager.generateUniqueURL(for: $0, reserved: $1) }
     ) throws -> String {
-        let wanted = URL(fileURLWithPath: EditorPDFCopyName.firstChoice(for: original, suffix: suffix))
+        try write(data, wanting: EditorPDFCopyName.firstChoice(for: original, suffix: suffix),
+                  chooseName: chooseName)
+    }
+
+    /// The same write, at `wanted` or the keep-both rule's next free name after it — Save as PDF's
+    /// door, whose first choice is the original's own name with `.pdf` rather than a suffixed one.
+    nonisolated static func write(
+        _ data: Data, wanting wanted: String,
+        chooseName: (URL, Set<String>) -> URL = { FileSyncManager.generateUniqueURL(for: $0, reserved: $1) }
+    ) throws -> String {
+        let wanted = URL(fileURLWithPath: wanted)
         var refused: Set<String> = []
         for _ in 0..<attempts {
             let path = chooseName(wanted, refused).path

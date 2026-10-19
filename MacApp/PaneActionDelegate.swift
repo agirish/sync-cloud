@@ -114,6 +114,10 @@ struct PaneActionDelegate: FileActionDelegate {
     /// above, and ignored by `isEquivalent` like every closure here: it reaches the window's
     /// `PanePDFTools` and the workspace through `@State`, whose storage outlives any render.
     var onPDFTool: (PDFToolRequest, [String]) -> Void = { _, _ in }
+    /// Saves files as PDF from a row's menu — see ``handleSaveAsPDF(paths:)``. Defaulted and ignored
+    /// by `isEquivalent` on the line above's terms: it reaches the window's `PaneSaveAsPDF` through
+    /// `@State`.
+    var onSaveAsPDF: ([String]) -> Void = { _ in }
     /// Forwarded from the host's `ComparePick`; nil when no pick is live.
     var armedComparePath: String?
 
@@ -366,6 +370,16 @@ struct PaneActionDelegate: FileActionDelegate {
         guard !paths.isEmpty, paths.allSatisfy({ EditableText.isPDF(path: $0) }),
               paths.count == 1 || request.runsOnSeveral else { return }
         onPDFTool(request, paths)
+    }
+
+    /// A real window is behind this delegate, with a foot to show the run's banner at.
+    var canSaveAsPDF: Bool { true }
+
+    func handleSaveAsPDF(paths: [String]) {
+        // Only what an engine converts — asserted here as well as in the menu, the shape every
+        // handler in this file uses.
+        guard !paths.isEmpty, paths.allSatisfy({ SaveAsPDFKind.of(path: $0) != nil }) else { return }
+        onSaveAsPDF(paths)
     }
 
     func handleOpenInNewTab(_ node: FileNode) {

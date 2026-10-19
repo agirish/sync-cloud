@@ -195,18 +195,28 @@ public final class PanePDFTools: ObservableObject {
 /// the lane, and its Cancel is the only way to stop it. A sheet is window-modal, so nothing can
 /// cover it mid-run, and it is what Edit already presents these exact views in, so they look the
 /// same from a pane as from Edit's Tools menu.
+///
+/// **Save as PDF's banner stands above the tools' in the same column** (``PaneSaveAsPDFLayer``), so
+/// the two never draw over each other at the window's foot.
 public struct PanePDFToolsPresenter: ViewModifier {
     let model: PanePDFTools
+    let saveAsPDF: PaneSaveAsPDF?
     let accent: Color
 
-    public init(model: PanePDFTools, accent: Color) {
+    public init(model: PanePDFTools, saveAsPDF: PaneSaveAsPDF? = nil, accent: Color) {
         self.model = model
+        self.saveAsPDF = saveAsPDF
         self.accent = accent
     }
 
     public func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
-            PanePDFToolsLayer(model: model, accent: accent)
+            VStack(spacing: 0) {
+                if let saveAsPDF {
+                    PaneSaveAsPDFLayer(model: saveAsPDF, accent: accent)
+                }
+                PanePDFToolsLayer(model: model, accent: accent)
+            }
         }
     }
 }

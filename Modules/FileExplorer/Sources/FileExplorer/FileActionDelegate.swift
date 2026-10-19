@@ -231,6 +231,15 @@ public protocol FileActionDelegate: Sendable {
     /// original and never touches the original. The window reads each file again in the PDFKit
     /// lane before anything runs; the menu's answer is only what it offered.
     func handlePDFTool(_ request: PDFToolRequest, paths: [String])
+
+    /// Whether this host can save a row's files as PDF. Gated like PDF Tools: a conformer with no
+    /// window behind it draws no Save as PDF item rather than one that does nothing.
+    var canSaveAsPDF: Bool { get }
+
+    /// Saves each file as a PDF beside it — Word, Excel, PowerPoint, rich text, Markdown or text
+    /// (``SaveAsPDFKind``). The original is only read; the PDF is a new file, under the original's
+    /// name or the next free one.
+    func handleSaveAsPDF(paths: [String])
 }
 
 extension FileActionDelegate {
@@ -311,4 +320,6 @@ extension FileActionDelegate {
     /// Same default, same reason, and declared as requirements above for the same one.
     public var canRunPDFTools: Bool { false }
     public func handlePDFTool(_ request: PDFToolRequest, paths: [String]) {}
+    public var canSaveAsPDF: Bool { false }
+    public func handleSaveAsPDF(paths: [String]) {}
 }

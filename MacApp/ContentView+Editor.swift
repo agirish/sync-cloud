@@ -624,6 +624,37 @@ extension ContentView {
         panePDFTools.start(request, paths: paths, writer: writer)
     }
 
+    /// **Save as PDF from a pane row's menu or File ▸** — each file's PDF beside it (CV4). The
+    /// follow-up is the PDF tools': the panes holding the folder re-read, the banner's Open in Edit
+    /// goes through the pane's own door, and its Reveal in Browse selects the PDFs. A folder that
+    /// cannot be written to asks where, with a save panel.
+    func startSaveAsPDF(_ paths: [String]) {
+        let writer = "Save as PDF in \(selectedWorkspace.title)"
+        paneSaveAsPDF.fontScale = appFontScale
+        paneSaveAsPDF.accent = glassHue.accentColor
+        paneSaveAsPDF.host = PaneSaveAsPDFHost(
+            didWrite: { path in
+                if selectedWorkspace == .editor { Task { await refreshEditorRail() } }
+                rereadPanesAfterEditorWrite(path, writer: writer)
+            },
+            open: { path in handOffToEditor(path) },
+            reveal: { copies in
+                guard let first = copies.first else { return }
+                revealInBrowse(first, with: EditorRevealInBrowse.companions(of: copies),
+                               replacing: paths.count > 1 ? Set(paths) : [], from: .saveAsPDFBanner)
+            },
+            chooseDestination: { original, suggested in
+                let panel = NSSavePanel()
+                panel.nameFieldStringValue = suggested
+                panel.allowedContentTypes = [.pdf]
+                panel.canCreateDirectories = true
+                let folder = ((original as NSString).deletingLastPathComponent as NSString).lastPathComponent
+                panel.message = "“\(folder)” can’t be written to. Choose where to save “\(suggested)”."
+                return panel.runModal() == .OK ? panel.url?.path : nil
+            })
+        paneSaveAsPDF.start(paths: paths, writer: writer)
+    }
+
     /// What re-lists the rail, as one value — so a change to either half restarts the one task
     /// rather than needing a second `.task(id:)` that could answer from a different folder.
     struct EditorRailKey: Equatable {

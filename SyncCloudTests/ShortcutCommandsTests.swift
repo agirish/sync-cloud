@@ -60,7 +60,10 @@ import Foundation
                                                                          run: {}),
                                        pdfTools: PaneRowVerbs.SelectionPDFTools(
                                            offer: .several(paths: ["/a/One.pdf", "/a/Two.pdf"]),
-                                           run: { _, _ in })),
+                                           run: { _, _ in }),
+                                       saveAsPDF: PaneRowVerbs.SelectionSaveAsPDF(
+                                           offer: .several(paths: ["/a/One.docx", "/a/Two.md"]),
+                                           run: { _ in })),
             compareTwoFiles: {},
             editorVerbs: EditorVerbs(mode: .edit, canPreview: true, setMode: { _ in },
                                      autosave: EditorVerbs.AutosaveSwitch(isOn: true, toggle: {}),

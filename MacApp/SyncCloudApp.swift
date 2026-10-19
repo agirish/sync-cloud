@@ -781,6 +781,8 @@ struct SyncCloudApp: App {
                     PDFToolsCommand()
                     // The header's Fill & Sign button and its save pill's Save — see the type.
                     PDFFillSignCommand()
+                    // The row menu's Save as PDF for the selection — see the type.
+                    SaveAsPDFCommand()
                 }
             }
             // View ▸ the workspaces (one ⌘-digit each, checkmarked) and the show/hide switches. The

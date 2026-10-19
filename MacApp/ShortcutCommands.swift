@@ -115,6 +115,9 @@ struct PaneRowVerbs {
     /// question — or `nil` where the row shows none. Not an item in this group: File ▸ PDF Tools
     /// reads it, below Print…, wherever Edit is not showing a PDF (`PDFToolsMenu.source`).
     let pdfTools: SelectionPDFTools?
+    /// The row menu's Save as PDF for the selection — `SaveAsPDFOffer.forSelection`, the row's own
+    /// question — or `nil` where the row shows none, which greys File ▸ Save as PDF.
+    let saveAsPDF: SelectionSaveAsPDF?
 
     struct IgnoreToggle {
         /// Already resolved: "Ignore in Comparison" or "Include in Comparison".
@@ -126,6 +129,12 @@ struct PaneRowVerbs {
         let offer: PanePDFToolOffer
         /// The row menu's act — `handlePDFTool` on the pane's delegate.
         let run: (PDFToolRequest, [String]) -> Void
+    }
+
+    struct SelectionSaveAsPDF {
+        let offer: SaveAsPDFOffer
+        /// The row menu's act — `handleSaveAsPDF` on the pane's delegate.
+        let run: ([String]) -> Void
     }
 }
 
@@ -1744,7 +1753,7 @@ extension ContentView {
         let selection = activeSelectionNodes
         let none = PaneRowVerbs(openInNewTab: nil, quickLook: nil, openInEditor: nil, download: nil,
                                 revealInFinder: nil, rename: nil, chooseDestination: nil, ignore: nil,
-                                pdfTools: nil)
+                                pdfTools: nil, saveAsPDF: nil)
         guard actionHandler != nil, let pane = activePane, !selection.isEmpty else { return none }
         let context = paneContext(isLeft: pane == .left)
         let delegate = paneActionDelegate(for: context)
@@ -1795,6 +1804,11 @@ extension ContentView {
             pdfTools: delegate.canRunPDFTools
                 ? PanePDFToolOffer.forSelection(selection).map {
                     PaneRowVerbs.SelectionPDFTools(offer: $0, run: { delegate.handlePDFTool($0, paths: $1) })
+                } : nil,
+            // The same three for Save as PDF: the row's gate, its question, its act.
+            saveAsPDF: delegate.canSaveAsPDF
+                ? SaveAsPDFOffer.forSelection(selection).map {
+                    PaneRowVerbs.SelectionSaveAsPDF(offer: $0, run: { delegate.handleSaveAsPDF(paths: $0) })
                 } : nil)
     }
 
@@ -2311,6 +2325,34 @@ struct PDFToolsCommand: View {
     }
 
     @MainActor static let idle = EditorPDFTools()
+}
+
+/// **File ▸ Save as PDF** — the row menu's Save as PDF for the focused pane's selection: one file
+/// or a batch, under the row's own title ("Save 3 as PDFs"), and greyed where the row hides it.
+///
+/// **After PDF Tools**, in the group of things a document becomes on its way out. Unlike Export as
+/// PDF…, which renders the document open in Edit to a place the reader picks, this writes each
+/// selected file's PDF beside it — so no ellipsis: it opens nothing. **No chord**, as for the tools.
+struct SaveAsPDFCommand: View {
+    @FocusedValue(\.paneRowVerbs) private var rowVerbs
+
+    var body: some View {
+        SaveAsPDFMenuContent(selection: rowVerbs?.saveAsPDF)
+    }
+}
+
+/// File ▸ Save as PDF's item for what the window published — apart from the command so a test can
+/// draw it with a selection, which the test host's menu bar is never handed.
+struct SaveAsPDFMenuContent: View {
+    let selection: PaneRowVerbs.SelectionSaveAsPDF?
+
+    var body: some View {
+        Button(selection?.offer.title ?? "Save as PDF") {
+            guard let selection else { return }
+            selection.run(selection.offer.paths)
+        }
+        .disabled(selection == nil)
+    }
 }
 
 /// **File ▸ PDF Tools' submenu, for what the window published** — apart from the item so a test can
