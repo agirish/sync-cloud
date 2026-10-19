@@ -7580,3 +7580,28 @@ done
 |---|---|---|
 | `v5.x` | No Fill & Sign and no pdf-toolkit (`0 none`), so no reader for forms to join and no engine to fill them | CLOSED — does not apply |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace that opens PDFs at all | CLOSED — does not apply |
+
+---
+
+## Edit's PDF open parses the file once — main only
+
+`EditorPDFDocument.read` used to open the file, then hand its URL to
+`PDFToolkit.encryptionState(of:)`, which opened it a second time in the shared PDFKit lane just to
+say how it is protected. The state now comes off the document already open
+(`EditorPDFDocument.encryption(of:)`, the toolkit's rule without its own open). It stands on
+`EditorPDFDocument`, which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s pdfModel=%s toolkitCall=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift 2>/dev/null | grep -c 'PDFToolkit.encryptionState(of: url)')"
+done
+# measured 2026-10-18, against origin, before this landed:
+# main  pdfModel=1 toolkitCall=1
+# v5.x, v4.x, v3.x, v2.x — pdfModel=0 toolkitCall=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF reader in Edit (`pdfModel=0`), so no open to parse twice | CLOSED — does not apply |

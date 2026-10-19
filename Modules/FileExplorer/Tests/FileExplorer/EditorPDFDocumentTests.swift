@@ -2,6 +2,7 @@ import Testing
 import os
 import AppKit
 import PDFKit
+import PDFToolkitCore
 import SwiftUI
 import Sync
 @testable import FileExplorer
@@ -40,6 +41,36 @@ enum PDFFixtures {
                        withOptions: [.userPasswordOption: password, .ownerPasswordOption: password + "-owner"])
         try? FileManager.default.removeItem(atPath: plain)
     }
+}
+
+/// **Counts `PDFDocument(url:)` per path, process-wide** — by replacing `-[PDFDocument
+/// initWithURL:]` with a counting trampoline the first time it is asked, for the whole test
+/// process. Behaviour is unchanged: the original runs with the same arguments. Counted per PATH, so
+/// a sibling suite opening its own files in parallel never moves another test's count.
+///
+/// The trampoline passes raw pointers, never objects: an `init` consumes `self` and returns +1,
+/// which a Swift closure of objects cannot say, so ARC is kept out of it entirely.
+enum PDFURLOpens {
+    private static let counts = OSAllocatedUnfairLock(initialState: [String: Int]())
+
+    static func count(_ path: String) -> Int {
+        _ = installed
+        return counts.withLock { $0[path, default: 0] }
+    }
+
+    private static let installed: Void = {
+        let selector = #selector(PDFDocument.init(url:))
+        let method = class_getInstanceMethod(PDFDocument.self, selector)!
+        typealias Init = @convention(c) (UnsafeRawPointer, Selector, UnsafeRawPointer) -> UnsafeRawPointer?
+        let original = unsafeBitCast(method_getImplementation(method), to: Init.self)
+        let counting: @convention(block) (UnsafeRawPointer, UnsafeRawPointer) -> UnsafeRawPointer? = { object, url in
+            if let path = Unmanaged<NSURL>.fromOpaque(url).takeUnretainedValue().path {
+                counts.withLock { $0[path, default: 0] += 1 }
+            }
+            return original(object, selector, url)
+        }
+        method_setImplementation(method, imp_implementationWithBlock(counting))
+    }()
 }
 
 /// **The read-only PDF model Edit shows instead of a text document** — `EditorPDFDocument`.
@@ -347,6 +378,47 @@ enum PDFFixtures {
         #expect(await open(pdf, file) == .open)
         #expect(await elsewhere == 8)
         #expect(PDFKitSerialAccess.peakConcurrentParses <= 1)
+    }
+
+    /// **An open parses the file ONCE** — the protection the tools need is read off the document
+    /// it opened, not by handing the URL to `PDFToolkit.encryptionState(of:)`, which opens it again
+    /// in the lane everyone else waits on. Counted at `PDFDocument(url:)` itself, so a second parse
+    /// inside the toolkit counts too. A file with no form: one WITH fields is listed by the toolkit's
+    /// own open as well (``EditorPDFForm/read(_:url:)``).
+    @Test func anOpenParsesTheFileOnce() async {
+        let file = path("once.pdf")
+        PDFFixtures.writeRestricted(file)
+        let before = PDFURLOpens.count(file)
+        guard case .open(_, _, _, let encryption) = await EditorPDFDocument.read(file) else {
+            Issue.record("the restricted fixture did not open")
+            return
+        }
+        #expect(encryption == .restrictedOnly)
+        #expect(PDFURLOpens.count(file) - before == 1, "the open parsed \(file) more than once")
+    }
+
+    /// **The local rule answers as the toolkit does** — on a plain, a restricted and a locked file,
+    /// both through a real open and through the rule itself. What keeps ``EditorPDFDocument/
+    /// encryption(of:)`` honest if pdf-toolkit's rule ever moves.
+    @Test(arguments: ["plain", "restricted", "locked"])
+    func theToolsLearnTheProtectionTheToolkitWould(_ kind: String) async {
+        let file = path("\(kind).pdf")
+        switch kind {
+        case "restricted": PDFFixtures.writeRestricted(file)
+        case "locked": PDFFixtures.writeLocked(file, password: "open-sesame")
+        default: PDFFixtures.write(file, pages: 2)
+        }
+        let toolkit = PDFToolkit.encryptionState(of: URL(fileURLWithPath: file))
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        #expect(await open(pdf, file) == (kind == "locked" ? .locked : .open))
+        #expect(pdf.tools.encryption == toolkit, "\(kind): the tools were told \(String(describing: pdf.tools.encryption)), the toolkit says \(toolkit)")
+        let opened = await PDFKitSerialAccess.perform {
+            PDFDocument(url: URL(fileURLWithPath: file)).map(EditorPDFDocument.encryption(of:))
+        }
+        #expect(opened == toolkit, "\(kind): the local rule says \(String(describing: opened)), the toolkit \(toolkit)")
+        let expected: [String: PDFEncryptionState] = ["plain": .none, "restricted": .restrictedOnly,
+                                                      "locked": .lockedToOpen]
+        #expect(toolkit == expected[kind], "the \(kind) fixture is not what it says it is")
     }
 
     // MARK: The page view

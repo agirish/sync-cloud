@@ -308,14 +308,25 @@ public final class EditorPDFDocument: ObservableObject {
             guard ticket.isWanted else { return .skipped }
             guard let document = PDFDocument(url: URL(fileURLWithPath: path)) else { return .unreadable }
             if document.isLocked { return .locked(SendableDocument(document)) }
-            // How the file is protected, for the tools — read in this same turn. A restricted-only
-            // file opens like any other, so it is the toolkit's question, not `isLocked`.
-            let url = URL(fileURLWithPath: path)
+            // How the file is protected, for the tools — from the document just opened, not a
+            // second parse of the file. A restricted-only file opens like any other.
             let facts = EditorPDFFacts.read(document, path: path)
             if EditorPDFForm.declaresFields(document) { EditorPDFForm.lockWidgets(in: document) }
             return .open(SendableDocument(document), facts,
-                         EditorPDFOutline.flatten(document), PDFToolkit.encryptionState(of: url))
+                         EditorPDFOutline.flatten(document), encryption(of: document))
         }
+    }
+
+    /// **How an already-open document is protected** — pdf-toolkit 0.2.0's rule in
+    /// `PDFToolkit.encryptionState(of:)`, minus its own `PDFDocument(url:)`: locked is
+    /// `.lockedToOpen`, encrypted but open is `.restrictedOnly`, anything else `.none`.
+    ///
+    /// Local so an open parses the file ONCE: the toolkit's call takes a URL and opens it again, in
+    /// the lane thumbnails, find and duplicate scans wait on. `EditorPDFDocumentTests` holds the two
+    /// to the same answer on a plain, a restricted and a locked file. Called inside the lane only.
+    nonisolated static func encryption(of document: PDFDocument) -> PDFEncryptionState {
+        if document.isLocked { return .lockedToOpen }
+        return document.isEncrypted ? .restrictedOnly : .none
     }
 
     // MARK: Words
