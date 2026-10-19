@@ -81,6 +81,30 @@ public enum EditorPDFTool: Equatable, Sendable {
     /// fully qualified name, and what was placed — filled in place by `fillFormData`, so the copy's
     /// form stays fillable and the placed items become annotations rather than page content.
     case fillForm(values: [String: FormFieldValue], items: [FillSignItem])
+    /// **Rotate or Delete Pages with a dragged order pending** — `then` on the original, its pages
+    /// then put in `order` (the Pages tab's arrangement, in the file's own page numbers): one copy
+    /// that does both. Made only by ``composing(_:arrangement:)``.
+    indirect case arranged(order: [Int], then: EditorPDFTool)
+
+    /// **The tool a run performs while the reader has a page order pending** (decided 2026-10-18:
+    /// "use the new order"). Rotate and Delete Pages take the order along — the copy comes out in
+    /// the dragged order with the change applied.
+    ///
+    /// **Extract does not**: the pages typed ARE its order, page by page, so a pending one has
+    /// nothing left to say — and the Pages tab's prefill already lists a selection as it is shown.
+    /// Nothing else takes it either: the order stays pending for Save Reordered Copy.
+    static func composing(_ tool: EditorPDFTool, arrangement: [Int]?) -> EditorPDFTool {
+        guard let arrangement else { return tool }
+        switch tool {
+        case .rotate, .deletePages:
+            // A delete that took every moved page leaves the rest in the file's order — a plain
+            // delete, named as one, with no reorder to orphan a form.
+            let order = EditorPDFToolEngine.order(arrangement, after: tool)
+            return order == Array(order.indices) ? tool : .arranged(order: arrangement, then: tool)
+        default:
+            return tool
+        }
+    }
 
     public var title: String {
         switch self {
@@ -93,6 +117,7 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .protect: return "Protect"
         case .removePassword: return "Remove Password"
         case .fillAndSign, .fillForm: return "Fill & Sign"
+        case .arranged(_, let then): return then.title
         }
     }
 
@@ -112,6 +137,8 @@ public enum EditorPDFTool: Equatable, Sendable {
         // dates and marks alone (decided with the 5b mockups).
         case .fillAndSign(let items), .fillForm(_, let items):
             return items.contains(where: Self.isSigned) ? "signed" : "filled"
+        // "Invoice (reordered, rotated).pdf" — the reorder's word, then the tool's.
+        case .arranged(_, let then): return "\(Self.reorder([]).suffix), \(then.suffix)"
         }
     }
 
@@ -128,6 +155,9 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .extract, .reorder, .removePassword: return .formOrphaned
         // Filled in place: the form, its widgets and everything else the file carries survive.
         case .rotate, .deletePages, .cleanMetadata, .protect, .fillForm: return nil
+        // The reorder step rebuilds the pages into a fresh document, as Reorder alone does — so a
+        // combined Rotate or Delete warns where either alone would not.
+        case .arranged: return .formOrphaned
         }
     }
 
@@ -150,6 +180,8 @@ public enum EditorPDFTool: Equatable, Sendable {
         // `fillFormData` mutates the document opened from the file and serializes it, so a
         // restricted original's encryption — and its restrictions — carry into the copy.
         case .rotate, .deletePages, .protect, .fillForm: return false
+        // The reorder step comes last. (Its first step is refused on a restricted file anyway.)
+        case .arranged: return true
         }
     }
 
@@ -179,6 +211,22 @@ public enum EditorPDFTool: Equatable, Sendable {
             if !items.isEmpty { parts.append(EditorPDFFillSign.count(items.count)) }
             if signatures > 0 { parts.append(signatures == 1 ? "1 signature" : "\(signatures) signatures") }
             return "fill form (\(parts.joined(separator: ", ")))"
+        case .arranged(let order, let then):
+            return "\(then.logDetail) in the new page order \(order.map { String($0 + 1) }.joined(separator: ", "))"
+        }
+    }
+
+    /// What the banner adds for a copy that also took the dragged order — "the new page order, with
+    /// page 2 turned 90° right". `nil` for every other tool, whose copy's name says it all.
+    var arrangedDetail: String? {
+        guard case .arranged(_, let then) = self else { return nil }
+        switch then {
+        case .rotate(let pages, let turns):
+            return "the new page order, with \(EditorPDFCopyName.pageList(pages)) turned \(EditorPDFCopyName.degrees(turns))"
+        case .deletePages(let pages):
+            return "the new page order, without \(EditorPDFCopyName.pageList(pages.sorted()))"
+        default:
+            return "the new page order"
         }
     }
 
@@ -322,8 +370,11 @@ enum EditorPDFToolEngine {
         case noGain
     }
 
-    /// Called from the lane. `progress` and `isCancelled` reach only Compress.
+    /// Called from the lane. `progress` reaches only Compress; `isCancelled` reaches Compress, and
+    /// a combined run between its two steps. `staging` is where a two-step run keeps its middle
+    /// bytes — a private folder, never the PDF's own.
     nonisolated static func output(of tool: EditorPDFTool, input: URL,
+                                   staging: URL = FileManager.default.temporaryDirectory,
                                    progress: (@Sendable (Int, Int) -> Void)?,
                                    isCancelled: (@Sendable () -> Bool)?) throws -> Output {
         switch tool {
@@ -365,16 +416,46 @@ enum EditorPDFToolEngine {
             return .bytes(try PDFToolkit.fillAndSignData(inputURL: input, items: items))
         case .fillForm(let values, let items):
             return .bytes(try PDFToolkit.fillFormData(inputURL: input, values: values, items: items))
+        case .arranged(let order, let then):
+            // **The tool first, on the original, then the reorder** — so Rotate and Delete keep
+            // their own refusals (a restricted file) and Delete its bookmark pruning, and the copy
+            // is what Save Reordered Copy would make of the tool's copy.
+            //
+            // The toolkit reads by URL, so the middle bytes go to a folder of this run's own under
+            // `staging` — never beside the PDF, where a sync or a listing would see them — and the
+            // folder goes on every way out. Both steps take this one lane turn.
+            guard case .bytes(let first) = try output(of: then, input: input, staging: staging,
+                                                      progress: nil, isCancelled: nil)
+            else { throw PDFOperationError.couldNotEncodeOutput }
+            if isCancelled?() == true { throw CancellationError() }
+            let folder = staging.appendingPathComponent("SyncCloud-pdf-tool-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let middle = folder.appendingPathComponent("staged.pdf")
+            try first.write(to: middle, options: .withoutOverwriting)
+            return .bytes(try PDFToolkit.reorderData(inputURL: middle, order: Self.order(order, after: then)))
         }
+    }
+
+    /// `order` — a permutation of the ORIGINAL's pages — as it reads in `tool`'s copy: unchanged
+    /// for Rotate, which keeps every page where it was; for Delete, the survivors renumbered, in
+    /// the order the reader dragged them.
+    nonisolated static func order(_ order: [Int], after tool: EditorPDFTool) -> [Int] {
+        guard case .deletePages(let pages) = tool else { return order }
+        let gone = Set(pages)
+        let survivors = order.indices.filter { !gone.contains($0) }
+        let at = Dictionary(uniqueKeysWithValues: survivors.enumerated().map { ($1, $0) })
+        return order.compactMap { at[$0] }
     }
 
     /// The run, through the lane. `perform` takes a closure that cannot throw, so the outcome
     /// crosses back as a `Result`.
     static func run(_ tool: EditorPDFTool, input: URL,
+                    staging: URL = FileManager.default.temporaryDirectory,
                     progress: (@Sendable (Int, Int) -> Void)? = nil,
                     isCancelled: (@Sendable () -> Bool)? = nil) async -> Result<Output, any Error> {
         await PDFKitSerialAccess.perform {
-            Result { try output(of: tool, input: input, progress: progress, isCancelled: isCancelled) }
+            Result { try output(of: tool, input: input, staging: staging, progress: progress, isCancelled: isCancelled) }
         }
     }
 
@@ -443,6 +524,11 @@ enum EditorPDFToolEngine {
             let inked = items.filter(\.hasInk)
             guard !values.isEmpty || !inked.isEmpty else { return reason(PDFOperationError.noFormValues, tool: tool) }
             return outOfRange(inked.map(\.pageIndex), pageCount: pageCount)
+        case .arranged(let order, let then):
+            guard isPermutation(order, pageCount: pageCount) else {
+                return "The new order has to name every page exactly once."
+            }
+            return refusal(then, pageCount: pageCount)
         case .compress, .cleanMetadata, .protect, .removePassword:
             return nil
         }

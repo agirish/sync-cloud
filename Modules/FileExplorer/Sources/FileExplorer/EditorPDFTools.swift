@@ -204,6 +204,9 @@ public final class EditorPDFTools: ObservableObject {
     /// Called IN THE LANE before each of Compress's pages, with the run's cancel flag — the tests'
     /// way to cancel between two pages without racing the main actor. `nil` in the app.
     var laneProgressHook: (@Sendable (Int, Int, CancelFlag) -> Void)?
+    /// Where a combined run (a tool in the dragged order) keeps its middle bytes, in a folder of its
+    /// own that it removes — the user's temporary folder in the app, a test's own folder in a test.
+    var stagingRoot = FileManager.default.temporaryDirectory
     /// Asks whether to go ahead despite `warning` — a native alert in the app, a canned answer in a
     /// test. `toolTitle` is the tool's own title, which `detailLines` names.
     var confirm: @MainActor (OutputFidelityWarning, String) -> Bool = { EditorPDFTools.confirmWithAlert($0, toolTitle: $1) }
@@ -372,9 +375,15 @@ public final class EditorPDFTools: ObservableObject {
     /// the fidelity confirmation when the file has something to lose, then the lane, then the copy.
     /// Every ending is reported on ``banner`` unless `bannerFailures` is false — a sheet shows its
     /// own failure in place, where the field that caused it is.
+    ///
+    /// **With a dragged order pending, Rotate and Delete Pages write it too** — one copy, in the new
+    /// order with the change applied (``EditorPDFTool/composing(_:arrangement:)``), and the order is
+    /// done with once it lands. Every surface asks through here — the header's Tools menu,
+    /// File ▸ PDF Tools, the Pages tab's menu and the page-range sheet — so all of them do the same.
     @discardableResult
-    public func run(_ tool: EditorPDFTool, bannerFailures: Bool = true) async -> EditorPDFToolOutcome {
+    public func run(_ asked: EditorPDFTool, bannerFailures: Bool = true) async -> EditorPDFToolOutcome {
         guard let path else { return .failed("No PDF is open.") }
+        let tool = EditorPDFTool.composing(asked, arrangement: arrangement)
         let logName = Self.logName(path)
         // A failure, not "nothing written": a sheet must stay up with this said in it, not close.
         guard running == nil else {
@@ -402,6 +411,9 @@ public final class EditorPDFTools: ObservableObject {
             cancelFlag = nil
             switch outcome {
             case .wrote(let copy):
+                // The order went into the copy — as Save Reordered Copy's does, only the one that
+                // was used, not one dragged since.
+                if case .arranged(let order, _) = tool, arrangement == order { arrangement = nil }
                 let copyName = (copy as NSString).lastPathComponent
                 banner = EditorPDFToolBanner(
                     message: wroteMessage(copyName, tool: tool, before: sizes?.before, after: sizes?.after),
@@ -450,7 +462,7 @@ public final class EditorPDFTools: ObservableObject {
         let before = EditorFileStore.stamp(ofPath: path)
         let hook = laneProgressHook
         let result = await EditorPDFToolEngine.run(
-            tool, input: input,
+            tool, input: input, staging: stagingRoot,
             progress: { [weak self] page, total in
                 hook?(page, total, flag)
                 Task { @MainActor in
@@ -506,6 +518,7 @@ public final class EditorPDFTools: ObservableObject {
     /// reader missed, by how much; and for a restricted original, that the copy is not restricted.
     private func wroteMessage(_ copyName: String, tool: EditorPDFTool, before: Int?, after: Int?) -> String {
         var message = "Wrote “\(copyName)”"
+        if let detail = tool.arrangedDetail { message += " — \(detail)" }
         if case .compress(let compression) = tool {
             message += Self.sizes(before: before, after: after).map { " — \($0)" } ?? ""
             if case .target(let bytes) = compression, let after, after > bytes {

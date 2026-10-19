@@ -15,17 +15,23 @@ extension PDFFixtures {
     /// A 2-page PDF carrying a REAL catalog `/AcroForm` with one text field on page 1 — assembled
     /// byte by byte, because PDFKit will not write an `/AcroForm` from widget annotations (a fixture
     /// built that way reports no form and tests nothing). pdf-toolkit's own fixture, ported.
-    static func writeAcroForm(_ path: String) throws {
+    /// `pages` past 2 repeats page 2; the default writes the original fixture byte for byte.
+    static func writeAcroForm(_ path: String, pages: Int = 2) throws {
         let stream = "BT /Helv 24 Tf 72 396 Td (MARKERPAGE1) Tj ET"
-        let objects = [
+        let extra = (2..<max(pages, 2)).map { 8 + $0 - 2 }
+        let kids = ([3, 4] + extra).map { "\($0) 0 R" }.joined(separator: " ")
+        var objects = [
             "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] /DA (/Helv 0 Tf 0 g) >> >>",
-            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            "<< /Type /Pages /Kids [\(kids)] /Count \(max(pages, 2)) >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [5 0 R] /Contents 6 0 R /Resources << /Font << /Helv 7 0 R >> >> >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 6 0 R /Resources << /Font << /Helv 7 0 R >> >> >>",
             "<< /Type /Annot /Subtype /Widget /FT /Tx /T (FullName) /V (typed value) /Rect [72 600 272 624] /DA (/Helv 12 Tf 0 g) /F 4 /P 3 0 R >>",
             "<< /Length \(stream.utf8.count) >>\nstream\n\(stream)\nendstream",
             "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         ]
+        objects += extra.map { _ in
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 6 0 R /Resources << /Font << /Helv 7 0 R >> >> >>"
+        }
         var pdf = "%PDF-1.7\n"
         var offsets: [Int] = []
         for (index, body) in objects.enumerated() {
@@ -579,6 +585,171 @@ extension PDFFixtures {
         #expect(files().contains("Form (rotated).pdf") && files().contains("Form (pages removed).pdf"),
                 "the tools that lose nothing did not write: \(files())")
         #expect(declinedCopies.isEmpty, "a declined warning still wrote: \(declinedCopies)")
+    }
+
+    // MARK: A pending order rides Rotate and Delete
+
+    /// A folder of the test's own for a combined run's middle bytes, so "nothing left behind" is
+    /// read there rather than in a temporary folder every other process shares.
+    private func staging(_ tools: EditorPDFTools) throws -> String {
+        let root = path(".staging-root")
+        try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
+        tools.stagingRoot = URL(fileURLWithPath: root, isDirectory: true)
+        return root
+    }
+
+    private func leftIn(_ folder: String) -> [String] {
+        (try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? ["<unreadable>"]
+    }
+
+    /// **Rotate with a dragged order writes ONE copy in that order, with the pages turned** — the
+    /// texts and the turns both in the new order, the original as it was, nothing staged left
+    /// beside it or in the private folder, and the order done with. The banner and the log say both.
+    @Test func aRotateTakesThePendingOrderAlong() async throws {
+        let log = LogCapture()
+        let file = path("Turn-\(UUID().uuidString.prefix(6)).pdf")
+        PDFFixtures.write(file, pages: 3)
+        let name = (file as NSString).lastPathComponent
+        let base = (name as NSString).deletingPathExtension
+        let original = try pin(file)
+        let tools = tools(file)
+        let root = try staging(tools)
+        tools.move([2], onto: 0)
+        try #require(tools.arrangement == [2, 0, 1], "the drag made \(String(describing: tools.arrangement))")
+
+        let outcome = await tools.run(.rotate(pages: [0], quarterTurns: 1))
+        let copy = path("\(base) (reordered, rotated).pdf")
+        #expect(outcome == .wrote(copy), "\(outcome)")
+        #expect(texts(copy) == ["Page 3", "Page 1", "Page 2"], "pages: \(texts(copy))")
+        // Page 1 turned, and it now sits second.
+        #expect(try #require(PDFDocument(url: URL(fileURLWithPath: copy))).pageRotations == [0, 90, 0])
+        try expectUntouched(file, original, "rotate in the new order")
+        #expect(files() == [".staging-root", name, "\(base) (reordered, rotated).pdf"].sorted(),
+                "not exactly one copy: \(files())")
+        #expect(leftIn(root).isEmpty, "the middle bytes were left behind: \(leftIn(root))")
+        #expect(tools.arrangement == nil, "the order outlived the copy that took it")
+        #expect(tools.banner?.message.contains("the new page order, with page 1 turned 90° right") == true,
+                "banner: \(tools.banner?.message ?? "nothing")")
+        let line = try #require(await log.line(containing: "Edit wrote \(base) (reordered, rotated).pdf from \(name)"))
+        #expect(line.contains("rotate 90° right page 1 in the new page order 3, 1, 2"), "\(line)")
+    }
+
+    /// **Delete with a dragged order leaves the survivors in that order** — and a page that was
+    /// already turned in the original keeps its turn where the drag put it.
+    @Test func aDeleteTakesThePendingOrderAlong() async throws {
+        let file = path("Four.pdf")
+        PDFFixtures.write(file, pages: 4)
+        let turned = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
+        turned.page(at: 1)?.rotation = 90
+        try #require(turned.write(to: URL(fileURLWithPath: file)))
+        let original = try pin(file)
+        let tools = tools(file)
+        let root = try staging(tools)
+        tools.move([3], onto: 0)
+        try #require(tools.arrangement == [3, 0, 1, 2], "the drag made \(String(describing: tools.arrangement))")
+
+        let outcome = await tools.run(.deletePages([0]))
+        let copy = path("Four (reordered, pages removed).pdf")
+        #expect(outcome == .wrote(copy), "\(outcome)")
+        #expect(texts(copy) == ["Page 4", "Page 2", "Page 3"], "pages: \(texts(copy))")
+        #expect(try #require(PDFDocument(url: URL(fileURLWithPath: copy))).pageRotations == [0, 90, 0])
+        try expectUntouched(file, original, "delete in the new order")
+        #expect(files() == [".staging-root", "Four (reordered, pages removed).pdf", "Four.pdf"],
+                "not exactly one copy: \(files())")
+        #expect(leftIn(root).isEmpty, "the middle bytes were left behind: \(leftIn(root))")
+        #expect(tools.arrangement == nil)
+        #expect(tools.banner?.message.contains("the new page order, without page 1") == true,
+                "banner: \(tools.banner?.message ?? "nothing")")
+    }
+
+    /// **The middle bytes go to the private folder and nowhere else** — with that folder unusable
+    /// the run fails, rather than staging beside the PDF, and writes nothing there.
+    @Test func aCombinedRunStagesOnlyInItsPrivateFolder() async throws {
+        let file = path("Three.pdf")
+        PDFFixtures.write(file, pages: 3)
+        let tools = tools(file)
+        // A FILE where the folder should be: nothing can be made under it.
+        let blocked = path(".not-a-folder")
+        try Data("x".utf8).write(to: URL(fileURLWithPath: blocked))
+        tools.stagingRoot = URL(fileURLWithPath: blocked, isDirectory: true)
+        tools.move([2], onto: 0)
+
+        let outcome = await tools.run(.rotate(pages: [0], quarterTurns: 1))
+        guard case .failed = outcome else { Issue.record("staged somewhere else: \(outcome)"); return }
+        #expect(files() == [".not-a-folder", "Three.pdf"], "\(files())")
+        #expect(tools.arrangement == [2, 0, 1], "a failed run dropped the order")
+    }
+
+    /// **A delete that takes every moved page is a plain delete** — the rest are in the file's
+    /// order, so the copy is named for the delete alone and the order stays pending.
+    @Test func aDeleteOfTheMovedPageIsAPlainDelete() async throws {
+        let file = path("Three.pdf")
+        PDFFixtures.write(file, pages: 3)
+        let tools = tools(file)
+        tools.move([2], onto: 0)
+        let outcome = await tools.run(.deletePages([2]))
+        #expect(outcome == .wrote(path("Three (pages removed).pdf")), "\(outcome)")
+        #expect(texts(path("Three (pages removed).pdf")) == ["Page 1", "Page 2"])
+        #expect(tools.arrangement == [2, 0, 1], "the order went with a copy that does not carry it")
+    }
+
+    /// **Extract keeps the order typed, pending order or not** — and leaves the order pending.
+    @Test func anExtractIgnoresThePendingOrder() async throws {
+        let file = path("Three.pdf")
+        PDFFixtures.write(file, pages: 3)
+        let tools = tools(file)
+        tools.move([2], onto: 0)
+        let outcome = await tools.run(.extract([1, 0]))
+        #expect(outcome == .wrote(path("Three (pages 2, 1).pdf")), "\(outcome)")
+        #expect(texts(path("Three (pages 2, 1).pdf")) == ["Page 2", "Page 1"])
+        #expect(tools.arrangement == [2, 0, 1])
+        let caption = EditorPDFPageRangeSheet.parse("2, 1", action: .extract, pageCount: 3, arrangement: [2, 0, 1]).caption
+        #expect(!caption.contains("new page order") && caption.contains("(pages 2, 1)"), "\(caption)")
+    }
+
+    /// **The header's lines — and so File ▸ PDF Tools, drawn from the same entries — and the Delete
+    /// sheet say and do the same.** Rotate All Pages, run from its entry, takes the order along.
+    @Test func everySurfaceTakesThePendingOrderAlong() async throws {
+        let file = path("Three.pdf")
+        PDFFixtures.write(file, pages: 3)
+        let tools = tools(file)
+        _ = try staging(tools)
+        tools.move([2], onto: 0)
+
+        let caption = EditorPDFPageRangeSheet.parse("1", action: .delete, pageCount: 3, arrangement: tools.arrangement).caption
+        #expect(caption.contains("in the new page order") && caption.contains("(reordered, pages removed)"), "\(caption)")
+
+        let entry = try #require(EditorPDFToolsMenuEntry.entries(tools).first {
+            $0.submenu == "Rotate All Pages" && $0.title == "Rotate 180°"
+        })
+        guard case .run(let tool) = entry.action else { Issue.record("\(entry.action)"); return }
+        let outcome = await tools.run(tool)
+        #expect(outcome == .wrote(path("Three (reordered, rotated).pdf")), "\(outcome)")
+        #expect(texts(path("Three (reordered, rotated).pdf")) == ["Page 3", "Page 1", "Page 2"])
+        #expect(try #require(PDFDocument(url: URL(fileURLWithPath: path("Three (reordered, rotated).pdf")))).pageRotations
+                == [180, 180, 180])
+    }
+
+    /// **A reorder orphans a form, so Rotate and Delete warn when they take the order along** —
+    /// neither does alone (``aFormWarnsOnCompressExtractAndReorderOnly``). Declined, nothing is
+    /// written and the order stays.
+    @Test func aCombinedRunOnAFormWarns() async throws {
+        let form = path("Form.pdf")
+        try PDFFixtures.writeAcroForm(form, pages: 3)
+        // Delete page 2, not page 1: [2, 3, 1] without page 1 is [2, 3] — the file's own order, a
+        // plain delete that rightly does not warn.
+        for tool: EditorPDFTool in [.rotate(pages: [0], quarterTurns: 1), .deletePages([1])] {
+            let tools = tools(form)
+            tools.move([0], onto: 2)
+            try #require(tools.arrangement == [1, 2, 0])
+            var asked: [String] = []
+            tools.confirm = { warning, _ in asked.append(warning.confirmationTitle); return false }
+            let outcome = await tools.run(tool)
+            #expect(asked == ["Form fields will stop working"], "\(tool.title): asked \(asked)")
+            #expect(outcome == .declined, "\(tool.title): \(outcome)")
+            #expect(tools.arrangement == [1, 2, 0], "\(tool.title): a declined run dropped the order")
+        }
+        #expect(files() == ["Form.pdf"], "a declined warning still wrote: \(files())")
     }
 
     // MARK: Encryption

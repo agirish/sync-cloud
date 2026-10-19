@@ -101,7 +101,7 @@ struct EditorPDFPageRangeSheet: View {
     @State private var failure: String?
 
     var body: some View {
-        let parsed = Self.parse(typed, action: action, pageCount: tools.pageCount)
+        let parsed = Self.parse(typed, action: action, pageCount: tools.pageCount, arrangement: tools.arrangement)
         EditorPDFToolSheetFrame(tools: tools, title: action == .extract ? "Extract Pages" : "Delete Pages",
                                 action: action == .extract ? "Extract" : "Delete",
                                 canRun: parsed.pages != nil, failure: failure, run: { go(parsed.pages) }) {
@@ -131,8 +131,11 @@ struct EditorPDFPageRangeSheet: View {
     ///
     /// **An en dash is read as a hyphen**: the copy's name and this sheet's own caption say "3–5", and
     /// pasting that back used to fail — `PageRangeParser` reads only "-".
-    static func parse(_ text: String, action: EditorPDFPageAction,
-                      pageCount: Int) -> (pages: [Int]?, caption: String, isBlank: Bool) {
+    ///
+    /// With a dragged order pending, Delete's caption says the copy takes it — the run does
+    /// (``EditorPDFTool/composing(_:arrangement:)``); Extract's order is the one typed either way.
+    static func parse(_ text: String, action: EditorPDFPageAction, pageCount: Int,
+                      arrangement: [Int]? = nil) -> (pages: [Int]?, caption: String, isBlank: Bool) {
         let typed = text.replacingOccurrences(of: "–", with: "-").replacingOccurrences(of: "—", with: "-")
         if typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return (nil, action == .extract ? "Type the pages to keep, in the order you want them — e.g. 3-5, 1."
@@ -144,10 +147,12 @@ struct EditorPDFPageRangeSheet: View {
             if action == .delete, Set(pages).count >= pageCount {
                 return (nil, PDFOperationError.cannotRemoveEveryPage.errorDescription ?? "", false)
             }
-            let tool: EditorPDFTool = action == .extract ? .extract(pages) : .deletePages(pages)
-            let detail = action == .extract
+            let tool = EditorPDFTool.composing(action == .extract ? .extract(pages) : .deletePages(pages),
+                                               arrangement: arrangement)
+            var detail = action == .extract
                 ? "Keeps \(EditorPDFCopyName.pageList(pages)), in this order"
                 : "Leaves out \(EditorPDFCopyName.pageList(pages.sorted()))"
+            if case .arranged = tool { detail += ", in the new page order" }
             return (pages, "\(detail) — as “… (\(tool.suffix)).pdf”.", false)
         } catch {
             return (nil, (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, false)

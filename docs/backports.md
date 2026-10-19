@@ -7605,3 +7605,29 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF reader in Edit (`pdfModel=0`), so no open to parse twice | CLOSED — does not apply |
+
+---
+
+## Rotate and Delete Pages take a pending page order along — main only
+
+In Edit's PDF reader, Rotate and Delete Pages run while a dragged page order is pending now write
+ONE copy in that order with the change applied — "Name (reordered, rotated).pdf" — and the order is
+done with once it lands (`EditorPDFTool.composing(_:arrangement:)`, `.arranged`). The tool runs on
+the original first, its bytes are staged in a private temporary folder, and `reorderData` puts them
+in the dragged order, all in one `PDFKitSerialAccess` turn. A combined run on a form warns
+(`.formOrphaned`) where Rotate or Delete alone would not. Extract is unchanged: the pages typed are
+its order. All of it stands on `EditorPDFTools`, which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s pdfTools=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFTools.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-18, against origin, before this landed:
+# main  pdfTools=1
+# v5.x, v4.x, v3.x, v2.x — pdfTools=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF tools in Edit (`pdfTools=0`), so no pending order to take along | CLOSED — does not apply |
