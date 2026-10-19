@@ -118,8 +118,9 @@ Requires **macOS 26**, unchanged from the 5.x line.
   opening another file or quitting asks first. A form's caveats, and anything Save would refuse, sit
   in a note under the pill.
   **File ▸ Fill & Sign** and **File ▸ Save Filled Copy** do the same from the menu bar.
-- **A PDF whose owner restricted editing gets no Fill & Sign, and says why** — in File ▸ Fill &
-  Sign, as the line under it. A form that allows filling but not adding to its pages fills its
+- **A PDF whose owner restricted editing gets no Fill & Sign, and says why** — File ▸ Fill & Sign
+  is greyed with *This PDF doesn’t allow filling* under it, and the Fill & Sign button gives the
+  reason. A form that allows filling but not adding to its pages fills its
   fields only.
 
 ### The rest of Edit
