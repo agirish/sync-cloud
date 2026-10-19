@@ -21,7 +21,7 @@ public enum PathKind: Equatable, Sendable {
 /// synchronous `rows` computation.
 public typealias PalettePathProbe = (String) -> PathKind
 
-/// **Go to Folder** — Finder's ⇧⌘G as a behaviour rather than a surface (ROADMAP_V4 §3).
+/// **Go to Folder** — Finder's ⇧⌘G as a behaviour rather than a surface (ROADMAP v4 §3).
 ///
 /// A typed path is a different kind of query from a typed name, and the difference is that the user
 /// has already said exactly where they mean. `PaletteRouter.folderRows` ranks folder *names* out of

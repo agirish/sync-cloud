@@ -414,7 +414,7 @@ public final class FolderJumpStore: ObservableObject {
     /// and the ⌘K landing *is* that list, so hiding them turns "my drive is not awake" into a
     /// palette that opens blank. Those are different claims and this answers both: the lists come
     /// back unchecked with `rootIsAvailable == false`, for the caller to mark unavailable rather
-    /// than drop. Decided 2026-08-19 (ROADMAP_V4 §7), narrowing "a remembered folder that has gone
+    /// than drop. Decided 2026-08-19 (ROADMAP v4 §7), narrowing "a remembered folder that has gone
     /// does not appear" to the case where the root is actually there to be asked.
     ///
     /// One pass so the root is `stat`ed **once** for both lists — under an unreachable network

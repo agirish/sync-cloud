@@ -1,7 +1,7 @@
 import Foundation
 
 /// A restructure plan as an ordered list of typed path operations — the 6 Aug log's schema,
-/// extended and versioned (ROADMAP_V5 §5.4).
+/// extended and versioned (ROADMAP v5 §5.4).
 ///
 /// **Replayable is the whole design**: §5.5 runs it forwards on the disk, replays it onto the
 /// corpus, memory and store keys, and derives its inverse mechanically — so every action carries
@@ -49,7 +49,7 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
         /// Where the file actually landed when `dst` was taken — `generateUniqueURL`'s pick,
         /// **filled at apply time**. Its own fact rather than folded into `dst`, because the
         /// inverse must restore the file's *original* name: it reads `collidedInto ?? dst` as
-        /// its source (ROADMAP_V5 §5.4).
+        /// its source (ROADMAP v5 §5.4).
         public var collidedInto: String?
         /// `move-dir` only: this action relocates its source directory **intact, to a different
         /// parent** — it does not drain the folder the source sits in.
@@ -137,7 +137,7 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
         self.actions = actions
     }
 
-    /// The mechanical inverse (ROADMAP_V5 §5.4): reverse the list, swap `src`/`dst`, and turn
+    /// The mechanical inverse (ROADMAP v5 §5.4): reverse the list, swap `src`/`dst`, and turn
     /// `create-dir` into `remove-empty-dir` and back. `keep` inverts to itself — doing nothing
     /// twice. Derived, never authored, which is what makes `inverse.inverse == self` a testable
     /// law rather than a hope.
@@ -200,7 +200,7 @@ public enum RestructureRemoval {
     public enum Origin: Equatable, Sendable {
         /// Folders one landing itself emptied, scoped to that landing's manifest.
         case landing(manifestId: String)
-        /// Folders that were already empty when the survey looked (ROADMAP_V5 §5.2).
+        /// Folders that were already empty when the survey looked (ROADMAP v5 §5.2).
         case standing
     }
 

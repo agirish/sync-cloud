@@ -201,7 +201,7 @@ import Testing
 
     // MARK: - The surveyed-at stamp (§4.1)
 
-    /// **The pair that pulls both ways** (ROADMAP_V5 §4.1): a survey that changes nothing must
+    /// **The pair that pulls both ways** (ROADMAP v5 §4.1): a survey that changes nothing must
     /// still move the stamp — it answers "when did we last LOOK" — and must not move the
     /// fingerprint, because the fingerprint keys every cached verdict and the stamp lives on the
     /// corpus precisely so the two can move independently.

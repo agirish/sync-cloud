@@ -157,7 +157,7 @@ import Foundation
     }
 }
 
-/// Scope relation reads the finding's SUBJECT (ROADMAP_V5 §5.0): a backlog finding about
+/// Scope relation reads the finding's SUBJECT (ROADMAP v5 §5.0): a backlog finding about
 /// `Health/Dental/2025` under a scope pointed exactly there is work inside the scope, not an
 /// ancestor note about `Health/Dental`.
 @Suite struct StructureFindingScopeRelationTests {

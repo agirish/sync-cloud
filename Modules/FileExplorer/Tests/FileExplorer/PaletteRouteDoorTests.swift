@@ -5,7 +5,7 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// **The route-table walk** — ROADMAP_V4 §7's one stated silent-removal risk, owed since the 620pt
+/// **The route-table walk** — ROADMAP v4 §7's one stated silent-removal risk, owed since the 620pt
 /// card was deleted in `7e8fff03` and taken 2026-08-19.
 ///
 /// The card listed workspaces, sources, folders and actions in 620pt with room for a title *and* a

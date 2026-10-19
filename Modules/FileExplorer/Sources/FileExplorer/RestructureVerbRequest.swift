@@ -3,7 +3,7 @@ import Sync
 
 /// A Restructure verb the menu asked for, waiting for the workspace to carry it out.
 ///
-/// **A value, not a call.** ROADMAP_V5 §11's `Plan This Folder's Shape…` and
+/// **A value, not a call.** ROADMAP v5 §11's `Plan This Folder's Shape…` and
 /// `Set Up Like Its Siblings` act on surfaces the workspace owns, and a sheet presented from the
 /// menu bar would sit outside the anchor that keeps it alive when the lens changes — the exact
 /// teardown-mid-apply bug the two existing sheets were moved to a stable anchor to fix. So the

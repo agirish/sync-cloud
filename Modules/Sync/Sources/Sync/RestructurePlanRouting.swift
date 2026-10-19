@@ -1,7 +1,7 @@
 import Foundation
 
 /// Which plan surface a finding opens — the **geometry** question, answered once, in a pure
-/// function (ROADMAP_V5 §5.4/§5.9; the audit's G2).
+/// function (ROADMAP v5 §5.4/§5.9; the audit's G2).
 ///
 /// The shipped build offered `Plan…` on shape findings alone, so five kinds stated their fix in
 /// the card's blast-radius sentence and then offered only *Reveal*. Every one of those fixes is a
@@ -68,7 +68,7 @@ public enum RestructurePlanRouting {
         // Named rather than defaulted, so a new detail case has to be decided here.
         //
         // **`duplicatedTaxonomy` stays unrouted, and now for a measured reason** (proposal O18,
-        // ROADMAP_V5 §5.9's 2026-08-28 note). Its pair is a merge, and the shapes this detector
+        // ROADMAP v5 §5.9's 2026-08-28 note). Its pair is a merge, and the shapes this detector
         // actually fires on — pinned in `StructureDuplicatedTaxonomyTests` — are dominated by
         // correct parallels: one bank statement covering two accounts and filed under both makes
         // the whole of the smaller folder a `.sameText` partner of the larger. Offering `Plan…`

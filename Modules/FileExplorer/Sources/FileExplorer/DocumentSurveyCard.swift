@@ -207,7 +207,7 @@ public enum DocumentSurveyCardText {
 /// in different places. What moves between states is the words, the bar and the verb.
 ///
 /// **It never carries a count badge, and it is outside the checks-run fraction.** That answers
-/// ROADMAP_V5's open question and needs no ledger code: `countedLenses` filters `OrganizeLens`
+/// ROADMAP v5's open question and needs no ledger code: `countedLenses` filters `OrganizeLens`
 /// cases on `carriesBadge` plus a producing pass, and the survey is neither a lens nor a pass, so
 /// it falls out exactly as Storage does. A badge means something to act on, and reading is not that.
 struct DocumentSurveyCard: View {

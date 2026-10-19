@@ -41,7 +41,7 @@ public enum PaletteRoute: Equatable, Sendable {
     /// Reveal this folder in the source browser, without re-aiming Organize.
     case folder(path: String)
 
-    /// Point the aimed pane at another source **and land on this folder** — ROADMAP_V4 §3's
+    /// Point the aimed pane at another source **and land on this folder** — ROADMAP v4 §3's
     /// deferred half of Go to Folder, shipped as RD7.
     ///
     /// **A case of its own rather than a `.folder` with a provider bolted on**, for two reasons

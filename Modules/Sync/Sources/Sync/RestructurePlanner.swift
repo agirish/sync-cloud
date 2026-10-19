@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Edited once, applied to every member — per member the operations are **derived, never typed**
 /// (``RestructurePlanner``). `nil` target is *keep*, and keep is the default for every row: the
-/// editor never guesses a mapping (ROADMAP_V5 §5.4 step 3).
+/// editor never guesses a mapping (ROADMAP v5 §5.4 step 3).
 public struct RestructureMapping: Equatable, Sendable {
 
     public struct Row: Codable, Equatable, Sendable, Identifiable {
@@ -502,7 +502,7 @@ public enum RestructurePlanner {
     }
 
     /// One folder's contents moved into another folder that is **not its sibling** — the merge
-    /// kinds whose two paths sit under different parents (ROADMAP_V5 §5.2's mirrored inbox, loose
+    /// kinds whose two paths sit under different parents (ROADMAP v5 §5.2's mirrored inbox, loose
     /// folder beside its container, and a child echoing its parent).
     ///
     /// The family mapping cannot express these: a mapping row renames a child *within* its

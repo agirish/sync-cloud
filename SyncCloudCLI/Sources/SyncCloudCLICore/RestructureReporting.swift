@@ -2,7 +2,7 @@ import Foundation
 import Sync
 
 /// `synccloud restructure` — the structure detectors over the active folder profile, from a
-/// terminal (ROADMAP_V5 §13).
+/// terminal (ROADMAP v5 §13).
 ///
 /// **Report-only, deliberately and permanently for 5.0.** No `--apply`, no `--plan`: §5.5's six
 /// invariants are all about a person reading a manifest before anything moves, and a flag that

@@ -70,7 +70,7 @@ struct OrganizeVerbs {
     let keepName: (() -> Void)?
     /// §5.5's ledger undo — the one verb here that is selection-FREE: it acts on the newest
     /// landing in the Restructure ledger, so it is offered whenever one can be undone. In this
-    /// menu (never Edit) so it cannot sit beside ⌘Z's Undo and be mistaken for it — ROADMAP_V5
+    /// menu (never Edit) so it cannot sit beside ⌘Z's Undo and be mistaken for it — ROADMAP v5
     /// §11's one hard constraint on the verb.
     let undoReorganisation: (() -> Void)?
     /// §11's two deferred verbs, landed (proposal O10). Both act on the finding the selected
@@ -2744,7 +2744,7 @@ struct OrganizeVerbCommands: View {
             .disabled(verbs?.setUpLikeSiblings == nil)
         Divider()
         // Worded as its own sentence and kept out of Edit, so it can never sit beside ⌘Z's Undo
-        // and be mistaken for it (ROADMAP_V5 §11). Selection-free: the newest ledger landing.
+        // and be mistaken for it (ROADMAP v5 §11). Selection-free: the newest ledger landing.
         Button("Undo This Reorganisation") { verbs?.undoReorganisation?() }
             .disabled(verbs?.undoReorganisation == nil)
     }

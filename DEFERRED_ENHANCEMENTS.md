@@ -16,7 +16,7 @@ Distinct from `ROADMAP.md` (net-new user features we intend to build); this is h
 / coverage the review chose to punt. Whether the two should be one file was asked and settled on
 2026-08-02 — they stay separate, because a roadmap is a plan you work down while several entries
 here are deliberately low-value and may never be worth scheduling. The reasoning is written out in
-full at the end of `ROADMAP.md`.
+full at the end of `ROADMAP.md`'s Backlog part.
 
 ---
 

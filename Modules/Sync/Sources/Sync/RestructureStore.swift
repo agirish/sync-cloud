@@ -5,7 +5,7 @@ import Foundation
 ///
 /// `kind × path` is the identity everything in ``RestructureStore`` shares — a suppression, an
 /// answer, and (from §5.4/§5.5) a draft and a ledger entry all key on it, which is what lets one
-/// decision serve four sections (ROADMAP_V5 §5.0). The path is the finding's **subject** — the most
+/// decision serve four sections (ROADMAP v5 §5.0). The path is the finding's **subject** — the most
 /// specific folder it is about — for the same reason ``StructureFinding/id`` is: the family alone
 /// is not unique for every kind.
 public struct RestructureKey: Hashable, Codable, Sendable {
@@ -33,7 +33,7 @@ public struct RestructureKey: Hashable, Codable, Sendable {
 /// Everything Restructure remembers, in one app-owned file — `restructure.json`, beside
 /// `people.json`.
 ///
-/// **One store, not four** (ROADMAP_V5 §5.0, decisions block): suppressions, Ask answers, drafted
+/// **One store, not four** (ROADMAP v5 §5.0, decisions block): suppressions, Ask answers, drafted
 /// plans and the applied ledger share the `kind × path` identity, so they share a file — all four
 /// sections are modelled now. The decoder still carries any section it does not model across a
 /// save rather than deleting it, the same discipline ``PeopleStore`` has for hand-added keys.
@@ -42,7 +42,7 @@ public struct RestructureKey: Hashable, Codable, Sendable {
 /// `StorageLensStore`, `FilingVerdictCache`): the file is small, a rewrite costs nothing, and a
 /// partial write would be worse than none.
 ///
-/// **What survives what** is the design (ROADMAP_V5 §5.0): every section survives a re-survey,
+/// **What survives what** is the design (ROADMAP v5 §5.0): every section survives a re-survey,
 /// because the keys are paths and the profile can be replaced underneath them. What a section does
 /// *not* survive is its path moving — an Apply replays its manifest onto these keys through
 /// ``rekey(renames:)``, exactly as §5.5 replays it onto the corpus and the memory.

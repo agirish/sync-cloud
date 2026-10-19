@@ -667,7 +667,7 @@ public class FileSyncManager: ObservableObject {
     /// do nothing — the common outcome is "up to date", which is invisible unless it is stated.
     @Published public internal(set) var filingSurveyReport: FilingSurveyReport?
     /// When a survey last LOOKED at the tree, whatever it found — the corpus's `surveyedAt` stamp
-    /// (ROADMAP_V5 §4.1). The app seeds it from disk at attach; a finishing re-survey publishes it
+    /// (ROADMAP v5 §4.1). The app seeds it from disk at attach; a finishing re-survey publishes it
     /// directly, so the footnote updates the moment the survey does. Public set for the same
     /// reason `filingMemory`'s is: the app hands over what it read.
     @Published public var filingSurveyedAt: Date?
@@ -972,7 +972,7 @@ public class FileSyncManager: ObservableObject {
     /// The cache is keyed on nothing but the profile's own identity: `filingFolderProfile`'s
     /// `didSet` drops it, which is the only way the answer can change — the detectors read the
     /// profile and nothing else, no disk, no clock. **Scope is deliberately not part of the key**
-    /// (ROADMAP_V5 §5.2): the lens scopes this report at render time by path prefix, so one cache
+    /// (ROADMAP v5 §5.2): the lens scopes this report at render time by path prefix, so one cache
     /// serves every scope and there is no scoped invalidation to get wrong. That is also why this
     /// is not `@Published`: it is a pure function of a stored property, and republishing it would
     /// be a second source of truth for the same fact.

@@ -15,7 +15,7 @@ import Testing
 /// It **prints** rather than asserting a yield. A count off one machine's tree is a measurement,
 /// not an invariant, and pinning it here would fail the moment he files a document. What the
 /// pinned fixture next door asserts is the *rule*; this is where the number to write down comes
-/// from, and the line it prints is the evidence for the note in ROADMAP_V5 §5.9.
+/// from, and the line it prints is the evidence for the note in ROADMAP v5 §5.9.
 ///
 /// Machine-pinned on `liveProfile`: it needs his profile, his tree and his indexes. On CI that
 /// gate is closed by design, and the report line says so rather than the suite vanishing.

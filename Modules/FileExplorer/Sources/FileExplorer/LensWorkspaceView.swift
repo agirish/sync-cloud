@@ -419,7 +419,7 @@ public struct LensWorkspaceView: View {
     private let onOpenHelp: ((String) -> Void)?
     /// A menu verb aimed at a finding, waiting to be carried out here.
     ///
-    /// **The menu never presents a sheet.** ROADMAP_V5 §11's verbs act on the workspace's own
+    /// **The menu never presents a sheet.** ROADMAP v5 §11's verbs act on the workspace's own
     /// state, so the request arrives as a value and this view opens its own surface — a sheet
     /// presented from the menu would live outside the anchor that keeps it alive across a lens
     /// switch, which is the bug main's round-4 fixed for the two sheets that already existed.
@@ -728,7 +728,7 @@ public struct LensWorkspaceView: View {
         scopePathRaw = OrganizeScope.normalizedPath(path, providerRoot: providerRoot)
     }
 
-    /// The Restructure → To File hand-off (ROADMAP_V5 §5.2): a backlog or loose-files finding's
+    /// The Restructure → To File hand-off (ROADMAP v5 §5.2): a backlog or loose-files finding's
     /// per-file half goes to the lens that judges files one at a time, scoped to the finding's
     /// subject and to nothing wider.
     private func handOffToToFile(_ finding: StructureFinding) {
@@ -3540,7 +3540,7 @@ public struct LensWorkspaceView: View {
                         providerName: providerName,
                         // The crowding classification, narrowed to the scope the findings were —
                         // strip counts beside a scoped list must count the same subtree
-                        // (ROADMAP_V5 §5.2: the counts are scope-dependent, the cache is not).
+                        // (ROADMAP v5 §5.2: the counts are scope-dependent, the cache is not).
                         deadWeight: scopedDeadWeight,
                         accent: glassHue.accentColor,
                         onReveal: { relative in

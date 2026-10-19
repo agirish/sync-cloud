@@ -1,6 +1,6 @@
 import Foundation
 
-/// The one moment a backlog finding is worth saying out loud (ROADMAP_V5 §5.6; proposal O15).
+/// The one moment a backlog finding is worth saying out loud (ROADMAP v5 §5.6; proposal O15).
 ///
 /// **§5.6's argument is "say it the month it happens", and the build only says it if the lens is
 /// open.** A backlog finding — a year folder its siblings have shapes for and it does not — is

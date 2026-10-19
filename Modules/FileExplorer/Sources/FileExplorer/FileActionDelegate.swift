@@ -136,7 +136,7 @@ public protocol FileActionDelegate: Sendable {
     /// already has a home.
     func handleOrganizeFolder(_ node: FileNode)
 
-    /// Opens the Restructure lens scoped to this folder — ROADMAP_V5 §5.10's deliberate route:
+    /// Opens the Restructure lens scoped to this folder — ROADMAP v5 §5.10's deliberate route:
     /// the shape question, asked from the row you are standing on. Folders only, gated by
     /// `canOrganizeFolder` like its sibling above (same workspace behind both doors).
     func handleCheckFolderShape(_ node: FileNode)

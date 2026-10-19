@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The manifest's laws, and the scaffold that first exercises them (ROADMAP_V5 §5.4, §5.2).
+/// The manifest's laws, and the scaffold that first exercises them (ROADMAP v5 §5.4, §5.2).
 @Suite struct RestructureManifestTests {
 
     private static func backlogFinding(scaffold: [String]) -> StructureFinding {

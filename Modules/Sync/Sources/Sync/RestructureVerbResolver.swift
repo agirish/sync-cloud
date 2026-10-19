@@ -1,7 +1,7 @@
 import Foundation
 
 /// Which Restructure verb a menu can offer for a selected folder, and which finding it would act
-/// on (ROADMAP_V5 §11; proposal O10).
+/// on (ROADMAP v5 §11; proposal O10).
 ///
 /// §11 gave four verbs menu homes and two of them shipped without one, deferred with a dated note
 /// because they need this: a menu acts on a **selection**, and Restructure's surfaces act on a

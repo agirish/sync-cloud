@@ -53,7 +53,7 @@ import Foundation
     /// The root is checked before any of its children, so a sleeping drive takes out every recent
     /// and every pin at once. This landing IS that list, so dropping them makes ⌘K open blank and
     /// "I have no recents" indistinguishable from "my drive is not awake". Decided 2026-08-19
-    /// (ROADMAP_V4 §7), narrowing the earlier "a remembered folder that has gone does not appear"
+    /// (ROADMAP v4 §7), narrowing the earlier "a remembered folder that has gone does not appear"
     /// to the case where the root was there to be asked.
     @Test func anAsleepRootListsItsRememberedFoldersMarkedRatherThanHidingThem() throws {
         let index = PaletteIndex(

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The newest instance of a recurring series has no folders yet (ROADMAP_V5 §5.2).
+/// The newest instance of a recurring series has no folders yet (ROADMAP v5 §5.2).
 ///
 /// `Health/Dental/2025` holds this year's claims flat while `2019`–`2024` each hold `Claims/` and
 /// `Statements/` — worth saying the month it happens rather than thirteen years later, which is

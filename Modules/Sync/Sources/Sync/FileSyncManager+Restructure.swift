@@ -4,7 +4,7 @@ import Foundation
 /// §5.2's backlog scaffold — the first Restructure landing, and deliberately the safest possible
 /// one: `create-dir` and nothing else, no file moves, nothing to undo but empty folders. It
 /// exists to prove the manifest, the ledger and ⌘Z on a real tree before anything destructive
-/// does (ROADMAP_V5, Order item 2).
+/// does (ROADMAP v5, Order item 2).
 @MainActor
 extension FileSyncManager {
 

@@ -99,7 +99,7 @@ public enum FilingSurveyStore {
     }
 
     /// The corpus's `surveyedAt` stamp alone — nil when the file is absent, unreadable, or predates
-    /// the stamp (ROADMAP_V5 §4.1).
+    /// the stamp (ROADMAP v5 §4.1).
     ///
     /// A separate read on purpose: the app wants this at launch, in the block that already loads
     /// the profile, and building a nine-thousand-document dictionary to display one date would be
@@ -130,7 +130,7 @@ public enum FilingSurveyStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         // Stamped HERE, at the one write every survey goes through, so "last surveyed" moves even
-        // when the survey changed nothing (ROADMAP_V5 §4.1) — while the memory below still writes
+        // when the survey changed nothing (ROADMAP v5 §4.1) — while the memory below still writes
         // only on change, which is what keeps the fingerprint (and every cached verdict keyed on
         // it) from moving with the stamp. The pair pulls both ways on purpose.
         var stamped = corpus

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The `kind × subject` identity every Restructure section keys on (ROADMAP_V5 §5.0).
+/// The `kind × subject` identity every Restructure section keys on (ROADMAP v5 §5.0).
 ///
 /// The kind went into `StructureFinding.id` before the second detector landed, because
 /// `RestructureLens` renders one `ForEach(findings)` and the second kind to fire on a family

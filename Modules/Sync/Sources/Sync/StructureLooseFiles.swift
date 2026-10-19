@@ -1,7 +1,7 @@
 import Foundation
 
 /// The two detectors `ROADMAP.md` 20 listed and every draft after it dropped, recovered and
-/// measured on 2026-08-20 (ROADMAP_V5 §5.2).
+/// measured on 2026-08-20 (ROADMAP v5 §5.2).
 enum StructureLooseFiles {
 
     /// A year run needs this many bare-year children before files beside it read as parked.

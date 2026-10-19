@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The seven new detectors, each proved three ways (ROADMAP_V5 §5.2): a synthetic fixture that
+/// The seven new detectors, each proved three ways (ROADMAP v5 §5.2): a synthetic fixture that
 /// fires, a control that stays silent, and the reference tree with its count pinned — a detector
 /// whose count moves on the fixture moves for a reason someone has to write down.
 @Suite struct StructureDetectorsTests {

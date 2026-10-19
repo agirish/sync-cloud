@@ -114,7 +114,7 @@ public struct GoToFieldBar: View {
 /// The field itself, in AppKit.
 ///
 /// **Not a SwiftUI `TextField`, and the reason was measured in this app rather than assumed**
-/// (ROADMAP_V4 §7, 2026-08-18). A SwiftUI `TextField` in a `ToolbarItem` does materialise as a
+/// (ROADMAP v4 §7, 2026-08-18). A SwiftUI `TextField` in a `ToolbarItem` does materialise as a
 /// focusable AppKit control and does type — but `@FocusState` cannot put the caret in it, with the
 /// state owned by the field's own view or by the scene root. ⌘K is precisely that: focus claimed
 /// with no click to ride in on. Worse, a SwiftUI field focused behind SwiftUI's back is one

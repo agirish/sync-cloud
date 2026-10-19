@@ -1,6 +1,6 @@
 import Foundation
 
-/// An inbox subtree shadowing a real destination (ROADMAP_V5 §5.2).
+/// An inbox subtree shadowing a real destination (ROADMAP v5 §5.2).
 ///
 /// `Health/TODO/Dental` beside `Health/Dental` is a filing decision deferred twice: the document
 /// went into the inbox, then got a folder there, so the same category now exists in both worlds

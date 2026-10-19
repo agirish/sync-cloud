@@ -1,6 +1,6 @@
 import Foundation
 
-/// Two names for one thing — and it is two rules, not one (ROADMAP_V5 §5.2).
+/// Two names for one thing — and it is two rules, not one (ROADMAP v5 §5.2).
 ///
 /// A **child echoing its parent** (`PG&E/PGE`) and **two siblings echoing each other** (`Form W-2`
 /// beside `Form W2`) need different code and return different things, but they are one kind with

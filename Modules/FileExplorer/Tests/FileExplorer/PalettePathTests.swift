@@ -3,7 +3,7 @@ import Foundation
 @testable import Sync
 @testable import FileExplorer
 
-/// **Go to Folder** — ROADMAP_V4 §3's small item, and §7's last open one.
+/// **Go to Folder** — ROADMAP v4 §3's small item, and §7's last open one.
 ///
 /// Finder's ⇧⌘G as a behaviour rather than a surface: the ⌘K field takes a typed path. The whole
 /// feature is one row, so most of this suite is about the cases where that row is a **refusal** —

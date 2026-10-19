@@ -116,7 +116,7 @@ extension ContentView {
                 // Cleared on close. §7 decided a 30-second memory would replace this line;
                 // **that was deferred past v4.2 on 2026-08-19**, so clearing is the shipped rule
                 // rather than a placeholder. The argument for the memory, and the ↩ hazard that
-                // sets its length, are kept in ROADMAP_V4 §7 for whoever picks it up.
+                // sets its length, are kept in ROADMAP v4 §7 for whoever picks it up.
                 goToQuery = ""
                 // **Here, not in the field's own teardown.** Measured: by the time SwiftUI removes
                 // the field from the window, AppKit has already dropped the field editor and the
@@ -719,7 +719,7 @@ extension ContentView {
     }
 
     /// **Switches the aimed pane to another source and lands it on the typed folder** — the half of
-    /// Go to Folder ROADMAP_V4 §3 deferred, and the ordering below is the whole of it.
+    /// Go to Folder ROADMAP v4 §3 deferred, and the ordering below is the whole of it.
     ///
     /// A provider change runs its own navigation reset: `onChange(of: leftProviderId)` fires on the
     /// **next view update** and calls `retargetPane()`, which re-homes the pane at its new source's

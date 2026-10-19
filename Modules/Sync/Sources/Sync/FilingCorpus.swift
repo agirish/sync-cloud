@@ -29,7 +29,7 @@ public struct FilingCorpus: Sendable, Equatable {
     /// ``FilingEngine/relativeFolderPaths(of:limit:)`` uses, so a corpus key and a memory key name
     /// the same folder.
     public var documents: [String: FilingCorpusDocument]
-    /// When a survey last LOOKED, whatever it found (ROADMAP_V5 §4.1).
+    /// When a survey last LOOKED, whatever it found (ROADMAP v5 §4.1).
     ///
     /// This lives on the corpus and not the memory, deliberately: the corpus is rewritten by every
     /// survey while the memory is written only on change — because the memory's bytes are hashed

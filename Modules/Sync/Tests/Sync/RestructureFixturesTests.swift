@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The three in-repo Restructure fixtures, decoded by the real decoder (ROADMAP_V5 §5.8).
+/// The three in-repo Restructure fixtures, decoded by the real decoder (ROADMAP v5 §5.8).
 ///
 /// Lifted from the live profile and the 6 Aug reorg log on 2026-08-28 — folder names and counts
 /// only, no file names, no content. Their job is to let CI pin every detector's count on a real

@@ -1,6 +1,6 @@
 import Foundation
 
-/// What a folder's emptiness is, when it is empty enough to classify (ROADMAP_V5 §5.2).
+/// What a folder's emptiness is, when it is empty enough to classify (ROADMAP v5 §5.2).
 ///
 /// **Crowding is a property of the scope, not a finding** — always non-zero on a real tree — so
 /// these never become cards or take a badge. The lens renders them as the crowding strip's three
@@ -32,7 +32,7 @@ public struct StructureReport: Equatable, Sendable {
 }
 
 /// The whole detector set behind one call — pure functions of the profile, like the shape
-/// detector that ships (ROADMAP_V5 §5.8).
+/// detector that ships (ROADMAP v5 §5.8).
 ///
 /// **Scope is deliberately not a parameter.** The report is computed once per profile and cached
 /// behind `FileSyncManager.structureReport`; the lens scopes it at render time by path prefix,

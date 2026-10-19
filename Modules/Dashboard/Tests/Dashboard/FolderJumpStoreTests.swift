@@ -411,7 +411,7 @@ import Sync
 
     /// **An asleep root keeps its rows; a live root drops what has gone.** The two are different
     /// claims and the single-list signature can only make the first, which is why the two-list one
-    /// exists (decided 2026-08-19, ROADMAP_V4 §7).
+    /// exists (decided 2026-08-19, ROADMAP v4 §7).
     ///
     /// The consequence if this regresses is not one missing row: the root is checked first, so
     /// every recent and every pin goes at once — and ⌘K's empty-query landing IS that list, so the

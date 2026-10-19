@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The removal step's manifest builder — one construction serving both origins (ROADMAP_V5 §5.5's
+/// The removal step's manifest builder — one construction serving both origins (ROADMAP v5 §5.5's
 /// landing-scoped removal and §5.2's decided route for the folders that were already empty).
 @Suite struct RestructureRemovalTests {
 

@@ -138,7 +138,7 @@ struct RestructureLens: View {
     /// rather than inventing a zero.
     let folderCount: Int?
     /// When the survey last looked at the tree, or nil when unknown — a corpus that predates the
-    /// stamp, or no profile at all (ROADMAP_V5 §4.1).
+    /// stamp, or no profile at all (ROADMAP v5 §4.1).
     var surveyedAt: Date? = nil
     /// Whether a duplicate scan's groups are on hand — §5.9's staleness truth: the
     /// duplicated-taxonomy detector reads the scan, not the profile, so with no scan its findings
@@ -152,7 +152,7 @@ struct RestructureLens: View {
     var providerName: String?
     /// The crowding classification for this scope — path → class, already narrowed. Counts, not
     /// findings: always non-zero on a real tree, so it renders as the strip's three filters and
-    /// never takes a badge (ROADMAP_V5 §5.2).
+    /// never takes a badge (ROADMAP v5 §5.2).
     var deadWeight: [String: DeadWeightClass] = [:]
     let accent: Color
     let onReveal: (String) -> Void
@@ -478,7 +478,7 @@ struct RestructureLens: View {
 
     // MARK: The crowding strip
 
-    /// Three counts above the findings, each a filter into a list (ROADMAP_V5 §5.2). Crowding is
+    /// Three counts above the findings, each a filter into a list (ROADMAP v5 §5.2). Crowding is
     /// a property of the scope — always non-zero on a real tree — so these are chips, not cards,
     /// and none of them takes a badge. Only the empties will carry an action (§5.5's removal
     /// sheet); the other two are report-only in 5.0, and the strip says the number, offers the
@@ -518,7 +518,7 @@ struct RestructureLens: View {
         }
     }
 
-    /// Whether the expanded list ends in a Trash route (ROADMAP_V5 §5.2's decided behaviour).
+    /// Whether the expanded list ends in a Trash route (ROADMAP v5 §5.2's decided behaviour).
     ///
     /// **Only the empties.** The other two classes are report-only for reasons their own tooltips
     /// state — a single-file leaf can be a destination waiting for its next file, and hoisting a
@@ -682,7 +682,7 @@ struct RestructureLens: View {
                     crowdingRow(path)
                 }
             }
-            // The empties' Trash route (ROADMAP_V5 §5.2, decided). Only on this class — the
+            // The empties' Trash route (ROADMAP v5 §5.2, decided). Only on this class — the
             // other two are report-only and say so in their own tooltips — and only under the
             // expanded list. Past the grouping threshold that list is branch rows rather than
             // paths, so the button sits under names rather than folders; the sheet it opens is
@@ -1020,7 +1020,7 @@ struct RestructureLens: View {
         }
     }
 
-    /// One symbol per kind, so a mixed list sorts by eye before it is read (ROADMAP_V5 §5.1's
+    /// One symbol per kind, so a mixed list sorts by eye before it is read (ROADMAP v5 §5.1's
     /// stated aim for the tag).
     ///
     /// **Exhaustive on purpose**: a detector added later fails to compile here rather than
@@ -1059,7 +1059,7 @@ struct RestructureLens: View {
     }
 
     /// The verb the tag's tooltip carries — what acting on this class of finding would do
-    /// (ROADMAP_V5 §5.1: the class of change is legible before any sheet opens).
+    /// (ROADMAP v5 §5.1: the class of change is legible before any sheet opens).
     static func kindVerb(_ kind: FindingKind) -> String {
         switch kind {
         case .shape: return "Renames or merges folders"
@@ -1119,7 +1119,7 @@ struct RestructureLens: View {
         return (members: scaffold.joined(separator: ", "), note: "what its siblings expect")
     }
 
-    /// The card's blast-radius sentence (ROADMAP_V5 §5.1): the honest cost, derived from the
+    /// The card's blast-radius sentence (ROADMAP v5 §5.1): the honest cost, derived from the
     /// finding's own shape, and the sentence that makes someone open the sheet. nil for the kinds
     /// whose subtitle already carries the whole story.
     static func blastRadius(for finding: StructureFinding) -> String? {

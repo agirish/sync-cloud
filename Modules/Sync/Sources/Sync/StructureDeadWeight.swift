@@ -1,6 +1,6 @@
 import Foundation
 
-/// The crowding classification — dead weight by shape alone (ROADMAP_V5 §5.2).
+/// The crowding classification — dead weight by shape alone (ROADMAP v5 §5.2).
 ///
 /// Three classes, and only the empties carry an action, because only their rule survives contact
 /// with this tree's history: a single-file leaf can be a destination waiting for its next file

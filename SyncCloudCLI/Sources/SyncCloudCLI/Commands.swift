@@ -204,7 +204,7 @@ struct Providers: AsyncParsableCommand {
 
 /// Report-only, deliberately: no `--apply`, no `--plan`, not in 5.0 — the Apply invariants are
 /// all about a person reading a manifest before anything moves, and a flag that skips the
-/// reading skips the invariants (ROADMAP_V5 §13). No migration preflight either: this reads
+/// reading skips the invariants (ROADMAP v5 §13). No migration preflight either: this reads
 /// `folder-profile.json` and never touches providers, roots or the disk it describes.
 struct Restructure: AsyncParsableCommand {
     static let configuration = CommandConfiguration(

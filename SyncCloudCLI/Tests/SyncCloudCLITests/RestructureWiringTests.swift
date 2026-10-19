@@ -28,7 +28,7 @@ import ArgumentParser
         }
     }
 
-    /// Report-only is a public promise (ROADMAP_V5 §13): the flags that would skip the
+    /// Report-only is a public promise (ROADMAP v5 §13): the flags that would skip the
     /// person-reads-the-manifest invariants must not parse.
     @Test func applyAndPlanDoNotParse() {
         #expect(throws: (any Error).self) {

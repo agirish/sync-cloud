@@ -414,7 +414,7 @@ public enum OrganizeScopeFilter {
     /// A finding whose subject is `.` (the profile root itself) relativizes to the root path and
     /// is therefore an ancestor of any scope — reported as `aboutAncestor`, not dropped.
     ///
-    /// **The subject, not the family** (ROADMAP_V5 §5.0): for shape they are the same folder, but
+    /// **The subject, not the family** (ROADMAP v5 §5.0): for shape they are the same folder, but
     /// a backlog finding about `Health/Dental/2025` under a scope pointed at exactly that folder
     /// is work *inside* the scope — reading the family would demote the one finding the user
     /// scoped to into an ancestor note about `Health/Dental`.

@@ -4,7 +4,7 @@ import Foundation
 @testable import Sync
 
 /// `synccloud restructure`'s core: discovery exactly where the app looks, a stable JSON format,
-/// and failures that say what the lens would show (ROADMAP_V5 §13).
+/// and failures that say what the lens would show (ROADMAP v5 §13).
 @Suite struct RestructureReportingTests {
 
     /// A profiles directory holding one active profile with one backlog family — enough for

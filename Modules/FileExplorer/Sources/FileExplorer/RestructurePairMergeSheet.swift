@@ -4,7 +4,7 @@ import Sync
 
 /// The confirm surface for a **cross-parent** pair merge — an inbox folder mirroring its real
 /// destination, a loose folder beside the container it belongs in, a child echoing its parent
-/// (ROADMAP_V5 §5.2; the audit's G2).
+/// (ROADMAP v5 §5.2; the audit's G2).
 ///
 /// There is no mapping to edit here and no shape to choose: the pair is two paths, and the
 /// operations follow from them. So this sheet is the review section alone — the derived

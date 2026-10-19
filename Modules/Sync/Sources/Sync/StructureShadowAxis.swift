@@ -1,6 +1,6 @@
 import Foundation
 
-/// A year hiding inside a role name, beside siblings that spell it bare (ROADMAP_V5 §4.3, built
+/// A year hiding inside a role name, beside siblings that spell it bare (ROADMAP v5 §4.3, built
 /// as one of §5.2's detectors).
 ///
 /// `IRS Docs - 2023` beside `2023` is a year folder that should be `2023` — and its fix is a

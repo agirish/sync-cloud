@@ -56,7 +56,7 @@ import FileExplorer
 /// key was the bug this file was written to fix: the field could not hold the caret. Now the field
 /// is in the toolbar of the host window, so the polarity inverts — **the panel must refuse key, or
 /// taking it would pull the caret out of the field the user is typing into.** Measured before it
-/// was built (ROADMAP_V4 §7, spike 2): with the panel non-key the host stays key, first responder
+/// was built (ROADMAP v4 §7, spike 2): with the panel non-key the host stays key, first responder
 /// stays the field editor, typed characters keep landing, and the list's selection fill draws
 /// identically, because the highlight is this app's own `fill(accent)` rather than an AppKit
 /// emphasized selection.

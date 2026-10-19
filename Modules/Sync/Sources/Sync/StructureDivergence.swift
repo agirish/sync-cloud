@@ -3,7 +3,7 @@ import Foundation
 /// What class of disagreement a structure finding names — and therefore what acting on it would do.
 ///
 /// One case per detector, settled as the complete set **before** any store serialises a raw value
-/// (ROADMAP_V5 §5.0): `RestructureStore` keys suppressions and answers on `kind × path`, so a raw
+/// (ROADMAP v5 §5.0): `RestructureStore` keys suppressions and answers on `kind × path`, so a raw
 /// value is a file-format commitment. **Raw values are append-only and never reused** — the same
 /// rule `GlassLevel` follows, for the same reason.
 ///
@@ -76,7 +76,7 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
         }
     }
 
-    /// Which of two folders echoes the other — the two sub-rules of one kind (ROADMAP_V5 §5.2:
+    /// Which of two folders echoes the other — the two sub-rules of one kind (ROADMAP v5 §5.2:
     /// count them as one kind with two sub-rules, or the card cannot say which shape it found).
     public enum EchoRelation: Equatable, Sendable {
         /// A child restating its parent's name — `PG&E/PGE`.
@@ -120,14 +120,14 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
     /// child, the mirrored inbox, the backlog member. **The subject, not the family, is the second
     /// half of the identity**, because `kind × family` is not unique: echo-name can fire twice in
     /// one family on two different sibling pairs, and one suppression keyed on the family would
-    /// have silenced both (ROADMAP_V5 §5.0). The family is still carried for §5.2's grouping rule —
+    /// have silenced both (ROADMAP v5 §5.0). The family is still carried for §5.2's grouping rule —
     /// a folder's rows sort together under one path heading.
     public let subject: String
     /// The schemes found, largest membership first. Non-empty only for ``FindingKind/shape``.
     public let schemes: [Scheme]
 
     /// Siblings whose shape no second sibling vouches for — the unvouched drop path
-    /// (ROADMAP_V5 §5.1). Rendered greyed, as drift: they are members of the family, and a card
+    /// (ROADMAP v5 §5.1). Rendered greyed, as drift: they are members of the family, and a card
     /// that says "11 folders" about a family of 17 is undercounting on purpose it cannot state.
     public let drift: [String]
 
@@ -140,7 +140,7 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
     /// What the detector saw, for every kind whose card needs more than the subject.
     public let detail: Detail?
 
-    /// `kind × subject` — the composite identity every store key shares (ROADMAP_V5 §5.0).
+    /// `kind × subject` — the composite identity every store key shares (ROADMAP v5 §5.0).
     ///
     /// The kind went into the id before the second detector landed, not after: `RestructureLens`
     /// renders one `ForEach(findings)`, and one family producing a *Shape* and a *Series* and an
@@ -226,7 +226,7 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
 /// **Identical sibling structure is usually a sign of health**, and separating the real case needs
 /// content overlap, not names. That evidence now exists — the duplicate scan's `.sameText` pass
 /// groups documents across folders — so the detector is scheduled rather than refused
-/// (ROADMAP_V5 §5.9, last of the set, because it is the only one that can be stale: it reads a
+/// (ROADMAP v5 §5.9, last of the set, because it is the only one that can be stale: it reads a
 /// scan, not the profile).
 public enum StructureDivergence {
 
