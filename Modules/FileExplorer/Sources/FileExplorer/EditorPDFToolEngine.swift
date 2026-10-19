@@ -472,11 +472,12 @@ enum EditorPDFToolEngine {
     }
 
     /// Called from the lane. A file locked to open has no pages to count until it is unlocked —
-    /// Edit attaches it at zero pages too.
+    /// Edit attaches it at zero pages too. The protection comes off the document just opened, as
+    /// Edit's open reads it, not from a second parse of the file.
     nonisolated static func probeInLane(_ input: URL) -> Probe {
         guard let document = PDFDocument(url: input) else { return .unreadable }
         if document.isLocked { return .facts(pageCount: 0, encryption: .lockedToOpen) }
-        return .facts(pageCount: document.pageCount, encryption: PDFToolkit.encryptionState(of: input))
+        return .facts(pageCount: document.pageCount, encryption: EditorPDFDocument.encryption(of: document))
     }
 
     /// What `tool` would lose from this file, or `nil` when the file has nothing at risk. Opens the

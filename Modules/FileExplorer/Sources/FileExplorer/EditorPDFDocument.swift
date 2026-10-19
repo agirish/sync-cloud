@@ -323,7 +323,8 @@ public final class EditorPDFDocument: ObservableObject {
     ///
     /// Local so an open parses the file ONCE: the toolkit's call takes a URL and opens it again, in
     /// the lane thumbnails, find and duplicate scans wait on. `EditorPDFDocumentTests` holds the two
-    /// to the same answer on a plain, a restricted and a locked file. Called inside the lane only.
+    /// to the same answer on a plain, a restricted and a locked file. Called inside the lane only —
+    /// by this open and by the pane menu's probe (``EditorPDFToolEngine/probeInLane(_:)``).
     nonisolated static func encryption(of document: PDFDocument) -> PDFEncryptionState {
         if document.isLocked { return .lockedToOpen }
         return document.isEncrypted ? .restrictedOnly : .none

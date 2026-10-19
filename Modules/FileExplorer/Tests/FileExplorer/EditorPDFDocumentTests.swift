@@ -397,6 +397,18 @@ enum PDFURLOpens {
         #expect(PDFURLOpens.count(file) - before == 1, "the open parsed \(file) more than once")
     }
 
+    /// **A pane menu's probe parses the file ONCE too** — `EditorPDFToolEngine.probe(_:)`, which
+    /// runs before a PDF Tools item opens anything, reads the protection off its own document by
+    /// the same rule, not by a second open inside `PDFToolkit.encryptionState(of:)`.
+    @Test func aPaneProbeParsesTheFileOnce() async {
+        let file = path("probe.pdf")
+        PDFFixtures.writeRestricted(file, pages: 2)
+        let before = PDFURLOpens.count(file)
+        let probe = await EditorPDFToolEngine.probe(URL(fileURLWithPath: file))
+        #expect(probe == .facts(pageCount: 2, encryption: .restrictedOnly))
+        #expect(PDFURLOpens.count(file) - before == 1, "the probe parsed \(file) more than once")
+    }
+
     /// **The local rule answers as the toolkit does** — on a plain, a restricted and a locked file,
     /// both through a real open and through the rule itself. What keeps ``EditorPDFDocument/
     /// encryption(of:)`` honest if pdf-toolkit's rule ever moves.

@@ -7606,6 +7606,22 @@ done
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF reader in Edit (`pdfModel=0`), so no open to parse twice | CLOSED — does not apply |
 
+**The pane menu's probe followed, same rule.** `EditorPDFToolEngine.probeInLane(_:)` opened the
+file, then asked `PDFToolkit.encryptionState(of: input)`, a second open; it now calls
+`EditorPDFDocument.encryption(of:)` on its own document. Same lines, same verdict: the engine
+exists only on `main`.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s engine=%s toolkitCall=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFToolEngine.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorPDFToolEngine.swift 2>/dev/null | grep -c 'PDFToolkit.encryptionState(of: input)')"
+done
+# measured 2026-10-18, against origin, before this landed:
+# main  engine=1 toolkitCall=1
+# v5.x, v4.x, v3.x, v2.x — engine=0 toolkitCall=0
+```
+
 ---
 
 ## Rotate and Delete Pages take a pending page order along — main only
