@@ -521,40 +521,57 @@ extension PDFFixtures {
         if case .permissionsForbidEditing? = problem {} else { Issue.record("\(String(describing: problem))") }
     }
 
-    /// **A form with nothing to fill and no room for annotations keeps 5b's flattening path** —
-    /// every field read-only or a signature, commenting forbidden: the shape of a finished DocuSign.
-    /// Filled in place it could carry nothing, so Text and the signatures stay offered and Save
-    /// flattens, as before 5c. With commenting allowed the same form keeps its form.
+    /// **A form with nothing to fill whose owner forbids commenting is refused** — every field
+    /// read-only or a signature. It used to flatten placed items into its pages, against the "no
+    /// commenting" that a form WITH a fillable field already honours by refusing them. With
+    /// commenting allowed the same form keeps its form and takes the items as annotations.
     @Test(arguments: [false, true])
-    func aFormWithNothingToFillFlattensUnlessItTakesAnnotations(commenting: Bool) async throws {
-        let log = LogCapture()
-        let stem = "Signed-\(commenting)-\(UUID().uuidString.prefix(6))"
-        let file = path("\(stem).pdf")
+    func aFormWithNothingToFillTakesItemsOnlyWhereCommentingIsAllowed(commenting: Bool) async throws {
+        let file = path("Signed-\(commenting)-\(UUID().uuidString.prefix(6)).pdf")
         PDFFixtures.write(file, pages: 1)
         let pdf = try await open(file)
         let fill = pdf.fill
+        var said: [String] = []
+        fill.presentRefusal = { said.append($0) }
         let signature = FormField(name: "sig", kind: .signature, value: nil, isFillable: false,
                                   widgets: [FormField.Widget(pageIndex: 0, rect: CGRect(x: 72, y: 72, width: 200, height: 30))])
         fill.attach(path: file, boxes: fill.boxes, encryption: .none, allowsFilling: true,
                     form: EditorPDFForm(fields: [signature]), allowsFormEntry: true, allowsCommenting: commenting)
-        #expect(fill.usesFormPath == commenting)
-        #expect(fill.offersPlacing && !fill.offersFormFields)
         fill.toggle()
+        if !commenting {
+            #expect(!fill.isOn, "a form that forbids commenting and has nothing to fill took Fill & Sign")
+            #expect(said == [EditorPDFFillSign.nothingToFillReason])
+            #expect(fill.menuReason == EditorPDFFillSign.restrictedTitle, "the menu line is the alert's long reason")
+            return
+        }
+        #expect(said.isEmpty && fill.isOn)
+        #expect(fill.usesFormPath && fill.offersPlacing && !fill.offersFormFields)
         #expect(fill.armed == .text)
         #expect(fill.statusSegments.contains("1 field, none fillable"), "\(fill.statusSegments)")
         fill.armed = .mark(.check)
         fill.place(at: CGPoint(x: 300, y: 300), page: 0)
-        #expect(fill.canSave)
-        if !commenting {
-            // The real file has no form, so the toolkit's own `fillFormData` would refuse: only the
-            // tool chosen is asked about here, through the log line that names it.
-            _ = await fill.save()
-            let entries = await log.entries
-            #expect(entries.contains { $0.message.contains("Edit wrote \(stem) (filled).pdf") && $0.message.contains("fill and sign (1 item)") },
-                    "a form with nothing to fill did not take 5b's path")
-        } else {
-            #expect(fill.formProblem == nil)
-        }
+        #expect(fill.canSave && fill.formProblem == nil)
+    }
+
+    /// **The real file: restricted by its owner to filling only, with every field read-only.** No
+    /// synthetic form — the corpus form re-encrypted, its fields made read-only by the facts read.
+    @Test func aRestrictedFormWhoseFieldsAreAllReadOnlyIsRefused() async throws {
+        let file = path("Read-only restricted.pdf")
+        try PDFFixtures.writeForm(file, permissions: [.allowsFormFieldEntry, .allowsHighQualityPrinting])
+        let pdf = try await open(file)
+        let fill = pdf.fill
+        let form = try #require(pdf.facts?.form)
+        let readOnly = EditorPDFForm(fields: form.fields.map { var f = $0; f.isFillable = false; return f })
+        fill.attach(path: file, boxes: fill.boxes, encryption: .restrictedOnly, allowsFilling: true,
+                    form: readOnly, allowsFormEntry: true, allowsCommenting: false)
+        var said: [String] = []
+        fill.presentRefusal = { said.append($0) }
+        fill.toggle()
+        #expect(!fill.isOn && said == [EditorPDFFillSign.nothingToFillReason])
+        // The control: the same file with its fields as they are fills, as `aRestrictedButFillableFormFills` says.
+        fill.attach(path: file, boxes: fill.boxes, encryption: .restrictedOnly, allowsFilling: true,
+                    form: form, allowsFormEntry: true, allowsCommenting: false)
+        #expect(fill.refusal == nil)
     }
 
     // MARK: Refused before the lane

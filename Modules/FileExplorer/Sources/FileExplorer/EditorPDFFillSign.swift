@@ -440,6 +440,7 @@ public final class EditorPDFFillSign: ObservableObject {
         self.allowsFormEntry = allowsFormEntry
         self.allowsCommenting = allowsCommenting
         refusal = Self.refusal(encryption: encryption, allowsFilling: allowsFilling)
+            ?? (form.hasFields && !allowsCommenting && !offersFormFields ? Self.nothingToFillReason : nil)
         if refusal != nil { isOn = false }
     }
 
@@ -478,6 +479,12 @@ public final class EditorPDFFillSign: ObservableObject {
     }
 
     static let restrictedTitle = "This PDF doesn’t allow filling"
+    /// **A form whose owner forbids commenting and has no field that can be filled** — every field
+    /// read-only or a signature. Placed items would have to be flattened into the pages, against the
+    /// owner's "no commenting", and a form with a fillable field already refuses them for exactly
+    /// that; this used to be the one form where they were taken (his call, 2026-10-18, to match).
+    static let nothingToFillReason = "Its owner doesn’t allow adding text or signatures to its pages, and its form "
+        + "has no field that can be filled."
     static let restrictedReason = "Its owner restricted editing, so Fill & Sign is off for it. Tools ▸ Remove Password… "
         + "can write an unrestricted copy if you know the password."
 
@@ -517,7 +524,7 @@ public final class EditorPDFFillSign: ObservableObject {
     /// reason is two sentences; the tools' short reason for a file locked to open, which File ▸ PDF
     /// Tools already shows as a line.
     var menuReason: String? {
-        refusal.map { $0 == Self.restrictedReason ? Self.restrictedTitle : $0 }
+        refusal.map { $0 == Self.restrictedReason || $0 == Self.nothingToFillReason ? Self.restrictedTitle : $0 }
     }
 
     /// Esc: stops typing, then lets go of the selection, then of the tool.
@@ -697,9 +704,9 @@ public final class EditorPDFFillSign: ObservableObject {
     /// **Whether Save fills the form in place (`fillFormData`) rather than flattening (5b's
     /// `fillAndSignData`)**: a file with fields, where the in-place fill can carry something — a
     /// field to fill, or items its owner lets it keep as annotations. A form with neither — every
-    /// field read-only or a signature, and commenting forbidden, the shape a finished DocuSign or a
-    /// locked petition comes in — keeps 5b's flattening path, the one way anything can be placed on
-    /// it, under the same "this will flatten the form" question 5b asks.
+    /// field read-only or a signature, and commenting forbidden — is refused at `attach`
+    /// (``nothingToFillReason``): flattening was the one way anything could be placed on it, and it
+    /// went against the same "no commenting" a fillable form's refusal honours.
     public var usesFormPath: Bool { form.hasFields && (offersFormFields || allowsCommenting) }
 
     /// The lines under the toolbar while it is up: what Save would refuse, said as the reader types
@@ -1126,7 +1133,8 @@ public final class EditorPDFFillSign: ObservableObject {
 
     static func alertRefusal(_ reason: String) {
         let alert = NSAlert()
-        alert.messageText = reason == restrictedReason ? restrictedTitle : "Fill & Sign isn’t available for this PDF"
+        alert.messageText = reason == restrictedReason || reason == nothingToFillReason
+            ? restrictedTitle : "Fill & Sign isn’t available for this PDF"
         alert.informativeText = reason
         alert.addButton(withTitle: "OK")
         alert.runModal()
