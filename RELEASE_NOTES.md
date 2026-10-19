@@ -5,6 +5,156 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v6.0 — DRAFT, not released
+
+> What is on `main` since v5.5. It may still change before v6.0 is cut, and nothing here is
+> installable from a release yet.
+
+**Edit reads PDFs.** A PDF opens in Edit, read-only, through the same doors a text file uses. Its
+pages and bookmarks are in the rail, its page number and zoom float over the pages, it can be laid
+out as a book, and Find searches it. Its tools rotate, extract and delete pages, compress the file,
+clean its metadata and add or remove a password, and Fill & Sign fills in a form and signs it — and
+every one of them writes a new copy beside the original, never the file you opened. Around the PDFs,
+Edit's side column gets one control, its folder line becomes a menu, and Unified becomes one box.
+
+Requires **macOS 26**, unchanged from the 5.x line.
+
+### PDFs open in Edit
+
+- **A PDF opens in Edit, read-only.** `⌘O`, Open in Edit on a file's right-click menu and in the
+  Info inspector, the preview's Edit button and a click in Edit's file pane all open a PDF now, as
+  do Open in Edit on a PDF's row in Compare's list of differences and on a copy in Organize's
+  duplicates. Nothing in Edit writes to the PDF: there is no Autosave switch and no format bar, and
+  `⌘P` prints its own pages. Finder's Open With does not offer SyncCloud for PDFs.
+- **The Text Files list is now Files**, the folder's text files and its PDFs each under a heading of
+  their own.
+- **A PDF's header has a text file's two rows.** The first holds the name, then **Find**, **Fill &
+  Sign** and **Tools**, then Expand and ×; the second says what the file is — "PDF · Letter, 8.5 ×
+  11 in · 42 KB · Text selectable", the paper of the page you are on. Point at "PDF" for its
+  version, and right-click the name for Reveal in Browse. In a narrow column Find and Tools drop
+  their words first, then Fill & Sign, before the name is cut.
+- **Locked and damaged PDFs say so.** A PDF that needs a password asks for it — *This PDF needs a
+  password* — and SyncCloud uses it only to open the file and doesn't save it. One PDFKit cannot
+  read says *PDFKit couldn't read this file.*, with **Quick Look** and **Open in Preview** beside
+  it, and one still in the cloud says it is not downloaded.
+
+### Reading a PDF
+
+- **Pages and Outline.** With a PDF open the rail gains a **Pages** tab of thumbnails — click one to
+  go to that page — with a **Grid** / **List** switch, kept across launches. Grid adds a column as
+  the side column is dragged wider; List puts one page under another at the column's width, drawn
+  sharp at that size. A PDF with two or more bookmarks gains an **Outline** tab that lists them.
+- **The page number and the zoom float over the pages**, in a capsule at the bottom: ‹ and › turn
+  the page, − and + step through 50, 75, 100, 125, 150, 200 and 400%, and the zoom opens a menu with
+  those steps and Fit Page, Fit Width and Actual Size. Every PDF opens at Fit Page. Drag the capsule
+  by its grip to a corner or the middle of any edge, and it stays there for every PDF until you move
+  it again; double-click the grip to put it back. In a narrow column it drops − and + first, then ‹
+  and ›, but never the page number or the zoom.
+- **Page layouts.** **Page Layout**, at the foot of the zoom menu, offers Single Page, Continuous,
+  Two Pages and Two Pages, Continuous, and **Cover Page Separately** for the two-page layouts, which
+  pairs pages 2–3, 4–5 as a printed book does. In two pages the page number reads as the spread,
+  "6–7", and ⌥← and ⌥→ turn a whole spread. The layout is remembered.
+- **The keys follow the pages.** Click into the pages and `⌘+`, `⌘−` and `⌘0` zoom the PDF — View ▸
+  Text Size reads Zoom then — and go back to the app's text size once you click into the file pane
+  or the sidebar. With a PDF open, the Text menu's `⌃⌘1`, `⌃⌘2` and `⌃⌘3` are Fit Page, Fit Width
+  and Actual Size, with Zoom In and Zoom Out under them, and `⌃⌘L` is **Go to Page…**. `⌘C` copies
+  the text selected on a page, and `⌘A` selects all of it.
+- **Find in a PDF.** `⌘F`, or Find in the header, opens a find card in the top-right corner of the
+  pages; the capsule steps aside if it is there. Matches are tinted on the pages, a phrase broken
+  across two lines is still found, and case and accents are ignored. `⌘G` and `⇧⌘G` step through
+  them, `⌘E` searches for what you have selected, and Esc puts the card away. A long PDF is searched
+  a page at a time, so the count says "so far" until every page has been read, and *Waiting for
+  other PDF work…* while a duplicate scan or other PDF work is ahead of it. A scanned PDF says *This
+  PDF has no text to search*.
+
+### PDF Tools: every one writes a new copy
+
+- **A Tools menu over the PDF**, and the same items in **File ▸ PDF Tools**: rotate the selected
+  pages or all of them, **Extract Pages…**, **Delete Pages…**, **Compress…**, **Clean Metadata…**,
+  and **Protect with Password…** or **Remove Password…**. Compress offers Best Quality, Balanced and
+  Smallest File, or a size to come in under.
+- **The original is never written to.** Each tool writes a copy beside it that says what was done —
+  "Statement (compressed).pdf", "(rotated)", "(pages removed)", "(metadata cleaned)", "(protected)",
+  "(unlocked)" — and never replaces a file already there. A banner says what was written, with
+  **Open** and **Reveal in Browse**. A PDF locked with a password offers only Remove Password.
+- **Pick pages, and put them in a new order.** In the Pages tab, click, ⌘-click and ⇧-click select
+  pages and `⌘A` selects them all; right-click a selection to rotate, delete or extract just those
+  pages. Drag a page to a new place, and nothing is written until **Save Reordered Copy**; **Reset
+  Page Order** puts them back. Rotating or deleting with a new order pending writes one copy that
+  does both — "(reordered, rotated)". Closing the PDF, opening another file or quitting with an
+  unsaved order or a tool still running asks first.
+- **PDF Tools in every file pane.** Right-click a PDF in Browse, either Compare pane, Organize's
+  pane or Edit's own for a **PDF Tools** submenu: Rotate All Pages, Compress…, Clean Metadata…, and
+  Protect with Password… or Remove Password…, with the same sheets and copy names. Select several
+  PDFs to rotate, compress or clean them as a batch: one sheet sets the options, the files go one at
+  a time, a file that cannot be done is skipped with its reason, Cancel keeps the copies already
+  written, and Reveal in Browse selects the new copies. **File ▸ PDF Tools** holds the same submenu
+  for the focused pane's selection — "PDF Tools · 3 files" for several — whenever Edit is not
+  showing a PDF.
+
+### Fill & Sign
+
+- **Fill & Sign, in the PDF's header, puts a toolbar under it**: **Text**, **Date** — today, in your
+  Mac's short format — ✓, ✗ and •, **Signature** and **Initials**. Drag what you placed to move it,
+  pull its corner handle to resize it, press Delete to remove it, and double-click text to change
+  it; A− and A+ and the two inks change the selected item, and `⌘Z` undoes.
+- **Signatures stay on this Mac.** **Add Signature…** draws one with the trackpad or mouse, or types
+  it in a script face. It is a picture of your signature, not a certificate-based digital one, and a
+  saved one is kept on this Mac only — never synced, never written to the log.
+- **A PDF's own form fields.** A form with fields — a W-9, a visa form — opens Fill & Sign on **Form
+  Fields**: type into text fields, set checkboxes and radio buttons, choose from pop-ups and lists,
+  and Tab and ⇧Tab move through them in the form's own order. A field that takes no value is tinted
+  grey and says why when you point at it. Text, dates, marks and signatures are still there for what
+  the form has no field for.
+- **Save Filled Copy writes a new copy** — "Lease (signed).pdf", or "(filled)" with no signature or
+  initials — and leaves the original as it was. A form stays fillable in the copy, in Preview,
+  Acrobat or anywhere else, with what you placed kept as annotations. Until you save, the line under
+  the name counts what is unsaved, and closing the PDF, opening another file or quitting asks first.
+  **File ▸ Fill & Sign** and **File ▸ Save Filled Copy** do the same from the menu bar.
+- **A PDF whose owner restricted editing gets no Fill & Sign, and says why** — in File ▸ Fill &
+  Sign, as the line under it. A form that allows filling but not adding to its pages fills its
+  fields only.
+
+### The rest of Edit
+
+- **One strip for Edit's side column.** The Files list can now fold on its own, into the strip at
+  the left edge; before, only Expand could hide it, and Expand took the file pane and the sidebar
+  with it. The strip has a button for the file pane and one for each of the list's tabs — Files,
+  Outline, and Pages while a PDF is open — and each opens its column or folds it, lit while it
+  shows. **View ▸ File List** (`⌃⌘T`) does the same.
+- **The file pane and the list share one width**, dragged at the column's edge, from 232 to 480
+  points.
+- **The folder line is a menu.** The folder's name, on the line under the rail's tabs, opens a menu:
+  the folders inside it on top, then each folder above it up to the top of the source, in Finder's
+  path-menu order. A pick takes the file pane there, and the list follows. It lists up to 40
+  subfolders and says how many more there are.
+- **Edit's sidebar has a switch of its own**, off to begin with: `⌃⌘S` in Edit no longer shows or
+  hides the sidebar in Browse, Compare and Organize.
+- **Find Previous.** **Text ▸ Find Previous** (`⇧⌘G`) steps back through the find bar's matches, in
+  a text file as in a PDF.
+- **Ticking a box in a read-only Preview is quick in a long note.** With Edit in Preview off, or in
+  a note over 256 KB, a tick rewrote and compared the whole note; it now changes only its own line.
+  The last task in a 200 KB note went from 35 ms to 0.2 ms, and in a 4 MiB note from 808 ms to
+  3.7 ms.
+
+### Unified is one box
+
+- **One outline round the window.** Unified — Settings ▸ Appearance ▸ Content surface — drew each
+  area as its own box, a gutter apart, so it read as Cards drawn with hairlines. It now draws one
+  outlined region round everything under the toolbar, with a hairline wherever two areas meet: the
+  sidebar, the inspector, the panes, Compare's Differences, and Edit's strip, list and document.
+  Cards is unchanged.
+- **Organize and Compare's Differences follow the same rule.** Every Organize section, Storage
+  included, and Compare's Differences area kept their Cards shape in Unified — a header box and a
+  content box a gutter apart — so switching styles changed the panes and not the area beside them.
+  Each column with a header over content now draws it one way: a card per section in Cards, a
+  hairline under the header in Unified.
+- **Organize's header lines up with the pane's.** With the pane showing a tab strip — two tabs, or
+  View ▸ Tab Bar — the header of the Organize section beside it sat one strip higher than the
+  pane's. It now lines up, in both styles and at every text size.
+
+---
+
 ## v5.5
 
 ### Edit gets a format bar, tables, and lists that carry on

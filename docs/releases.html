@@ -135,6 +135,70 @@
 
 <div class="timeline">
 
+  <!-- v6.0 — DRAFT, not released. Keep the Latest badge on v5.5 until v6.0 is cut. -->
+  <article class="rel draft">
+    <div class="rel-head"><span class="v">v6.0</span><span class="tag draft">In development</span></div>
+    <p class="lede"><b>Not released yet</b> &#8212; this is what is on <code>main</code> since v5.5, and it may still change before v6.0 is cut. <b>Edit reads PDFs.</b> A PDF opens in Edit, read-only, through the same doors a text file uses. Its pages and bookmarks are in the rail, its page number and zoom float over the pages, it can be laid out as a book, and Find searches it. Its tools rotate, extract and delete pages, compress the file, clean its metadata and add or remove a password, and Fill &amp; Sign fills in a form and signs it — and every one of them writes a new copy beside the original, never the file you opened. Around the PDFs, Edit's side column gets one control, its folder line becomes a menu, and Unified becomes one box. Requires <b>macOS 26</b>, unchanged from the 5.x line.</p>
+    <div class="grp">
+      <h3>PDFs open in Edit</h3>
+      <ul class="flist">
+        <li><span class="ic">&#128196;</span><span><b>A PDF opens in Edit, read-only.</b> <code>⌘O</code>, Open in Edit on a file's right-click menu and in the Info inspector, the preview's Edit button and a click in Edit's file pane all open a PDF now, as do Open in Edit on a PDF's row in Compare's list of differences and on a copy in Organize's duplicates. Nothing in Edit writes to the PDF: there is no Autosave switch and no format bar, and <code>⌘P</code> prints its own pages. Finder's Open With does not offer SyncCloud for PDFs.</span></li>
+        <li><span class="ic">&#128196;</span><span><b>The Text Files list is now Files</b>, the folder's text files and its PDFs each under a heading of their own.</span></li>
+        <li><span class="ic">&#128196;</span><span><b>A PDF's header has a text file's two rows.</b> The first holds the name, then <b>Find</b>, <b>Fill &amp; Sign</b> and <b>Tools</b>, then Expand and ×; the second says what the file is — "PDF · Letter, 8.5 × 11 in · 42 KB · Text selectable", the paper of the page you are on. Point at "PDF" for its version, and right-click the name for Reveal in Browse. In a narrow column Find and Tools drop their words first, then Fill &amp; Sign, before the name is cut.</span></li>
+        <li><span class="ic">&#128196;</span><span><b>Locked and damaged PDFs say so.</b> A PDF that needs a password asks for it — <i>This PDF needs a password</i> — and SyncCloud uses it only to open the file and doesn't save it. One PDFKit cannot read says <i>PDFKit couldn't read this file.</i>, with <b>Quick Look</b> and <b>Open in Preview</b> beside it, and one still in the cloud says it is not downloaded.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Reading a PDF</h3>
+      <ul class="flist">
+        <li><span class="ic">&#128214;</span><span><b>Pages and Outline.</b> With a PDF open the rail gains a <b>Pages</b> tab of thumbnails — click one to go to that page — with a <b>Grid</b> / <b>List</b> switch, kept across launches. Grid adds a column as the side column is dragged wider; List puts one page under another at the column's width, drawn sharp at that size. A PDF with two or more bookmarks gains an <b>Outline</b> tab that lists them.</span></li>
+        <li><span class="ic">&#128214;</span><span><b>The page number and the zoom float over the pages</b>, in a capsule at the bottom: ‹ and › turn the page, − and + step through 50, 75, 100, 125, 150, 200 and 400%, and the zoom opens a menu with those steps and Fit Page, Fit Width and Actual Size. Every PDF opens at Fit Page. Drag the capsule by its grip to a corner or the middle of any edge, and it stays there for every PDF until you move it again; double-click the grip to put it back. In a narrow column it drops − and + first, then ‹ and ›, but never the page number or the zoom.</span></li>
+        <li><span class="ic">&#128214;</span><span><b>Page layouts.</b> <b>Page Layout</b>, at the foot of the zoom menu, offers Single Page, Continuous, Two Pages and Two Pages, Continuous, and <b>Cover Page Separately</b> for the two-page layouts, which pairs pages 2–3, 4–5 as a printed book does. In two pages the page number reads as the spread, "6–7", and ⌥← and ⌥→ turn a whole spread. The layout is remembered.</span></li>
+        <li><span class="ic">&#128214;</span><span><b>The keys follow the pages.</b> Click into the pages and <code>⌘+</code>, <code>⌘−</code> and <code>⌘0</code> zoom the PDF — View ▸ Text Size reads Zoom then — and go back to the app's text size once you click into the file pane or the sidebar. With a PDF open, the Text menu's <code>⌃⌘1</code>, <code>⌃⌘2</code> and <code>⌃⌘3</code> are Fit Page, Fit Width and Actual Size, with Zoom In and Zoom Out under them, and <code>⌃⌘L</code> is <b>Go to Page…</b>. <code>⌘C</code> copies the text selected on a page, and <code>⌘A</code> selects all of it.</span></li>
+        <li><span class="ic">&#128214;</span><span><b>Find in a PDF.</b> <code>⌘F</code>, or Find in the header, opens a find card in the top-right corner of the pages; the capsule steps aside if it is there. Matches are tinted on the pages, a phrase broken across two lines is still found, and case and accents are ignored. <code>⌘G</code> and <code>⇧⌘G</code> step through them, <code>⌘E</code> searches for what you have selected, and Esc puts the card away. A long PDF is searched a page at a time, so the count says "so far" until every page has been read, and <i>Waiting for other PDF work…</i> while a duplicate scan or other PDF work is ahead of it. A scanned PDF says <i>This PDF has no text to search</i>.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>PDF Tools: every one writes a new copy</h3>
+      <ul class="flist">
+        <li><span class="ic">&#128295;</span><span><b>A Tools menu over the PDF</b>, and the same items in <b>File ▸ PDF Tools</b>: rotate the selected pages or all of them, <b>Extract Pages…</b>, <b>Delete Pages…</b>, <b>Compress…</b>, <b>Clean Metadata…</b>, and <b>Protect with Password…</b> or <b>Remove Password…</b>. Compress offers Best Quality, Balanced and Smallest File, or a size to come in under.</span></li>
+        <li><span class="ic">&#128295;</span><span><b>The original is never written to.</b> Each tool writes a copy beside it that says what was done — "Statement (compressed).pdf", "(rotated)", "(pages removed)", "(metadata cleaned)", "(protected)", "(unlocked)" — and never replaces a file already there. A banner says what was written, with <b>Open</b> and <b>Reveal in Browse</b>. A PDF locked with a password offers only Remove Password.</span></li>
+        <li><span class="ic">&#128295;</span><span><b>Pick pages, and put them in a new order.</b> In the Pages tab, click, ⌘-click and ⇧-click select pages and <code>⌘A</code> selects them all; right-click a selection to rotate, delete or extract just those pages. Drag a page to a new place, and nothing is written until <b>Save Reordered Copy</b>; <b>Reset Page Order</b> puts them back. Rotating or deleting with a new order pending writes one copy that does both — "(reordered, rotated)". Closing the PDF, opening another file or quitting with an unsaved order or a tool still running asks first.</span></li>
+        <li><span class="ic">&#128295;</span><span><b>PDF Tools in every file pane.</b> Right-click a PDF in Browse, either Compare pane, Organize's pane or Edit's own for a <b>PDF Tools</b> submenu: Rotate All Pages, Compress…, Clean Metadata…, and Protect with Password… or Remove Password…, with the same sheets and copy names. Select several PDFs to rotate, compress or clean them as a batch: one sheet sets the options, the files go one at a time, a file that cannot be done is skipped with its reason, Cancel keeps the copies already written, and Reveal in Browse selects the new copies. <b>File ▸ PDF Tools</b> holds the same submenu for the focused pane's selection — "PDF Tools · 3 files" for several — whenever Edit is not showing a PDF.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Fill &amp; Sign</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9997;</span><span><b>Fill &amp; Sign, in the PDF's header, puts a toolbar under it</b>: <b>Text</b>, <b>Date</b> — today, in your Mac's short format — ✓, ✗ and •, <b>Signature</b> and <b>Initials</b>. Drag what you placed to move it, pull its corner handle to resize it, press Delete to remove it, and double-click text to change it; A− and A+ and the two inks change the selected item, and <code>⌘Z</code> undoes.</span></li>
+        <li><span class="ic">&#9997;</span><span><b>Signatures stay on this Mac.</b> <b>Add Signature…</b> draws one with the trackpad or mouse, or types it in a script face. It is a picture of your signature, not a certificate-based digital one, and a saved one is kept on this Mac only — never synced, never written to the log.</span></li>
+        <li><span class="ic">&#9997;</span><span><b>A PDF's own form fields.</b> A form with fields — a W-9, a visa form — opens Fill &amp; Sign on <b>Form Fields</b>: type into text fields, set checkboxes and radio buttons, choose from pop-ups and lists, and Tab and ⇧Tab move through them in the form's own order. A field that takes no value is tinted grey and says why when you point at it. Text, dates, marks and signatures are still there for what the form has no field for.</span></li>
+        <li><span class="ic">&#9997;</span><span><b>Save Filled Copy writes a new copy</b> — "Lease (signed).pdf", or "(filled)" with no signature or initials — and leaves the original as it was. A form stays fillable in the copy, in Preview, Acrobat or anywhere else, with what you placed kept as annotations. Until you save, the line under the name counts what is unsaved, and closing the PDF, opening another file or quitting asks first. <b>File ▸ Fill &amp; Sign</b> and <b>File ▸ Save Filled Copy</b> do the same from the menu bar.</span></li>
+        <li><span class="ic">&#9997;</span><span><b>A PDF whose owner restricted editing gets no Fill &amp; Sign, and says why</b> — in File ▸ Fill &amp; Sign, as the line under it. A form that allows filling but not adding to its pages fills its fields only.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>The rest of Edit</h3>
+      <ul class="flist">
+        <li><span class="ic">&#128221;</span><span><b>One strip for Edit's side column.</b> The Files list can now fold on its own, into the strip at the left edge; before, only Expand could hide it, and Expand took the file pane and the sidebar with it. The strip has a button for the file pane and one for each of the list's tabs — Files, Outline, and Pages while a PDF is open — and each opens its column or folds it, lit while it shows. <b>View ▸ File List</b> (<code>⌃⌘T</code>) does the same.</span></li>
+        <li><span class="ic">&#128221;</span><span><b>The file pane and the list share one width</b>, dragged at the column's edge, from 232 to 480 points.</span></li>
+        <li><span class="ic">&#128221;</span><span><b>The folder line is a menu.</b> The folder's name, on the line under the rail's tabs, opens a menu: the folders inside it on top, then each folder above it up to the top of the source, in Finder's path-menu order. A pick takes the file pane there, and the list follows. It lists up to 40 subfolders and says how many more there are.</span></li>
+        <li><span class="ic">&#128221;</span><span><b>Edit's sidebar has a switch of its own</b>, off to begin with: <code>⌃⌘S</code> in Edit no longer shows or hides the sidebar in Browse, Compare and Organize.</span></li>
+        <li><span class="ic">&#128221;</span><span><b>Find Previous.</b> <b>Text ▸ Find Previous</b> (<code>⇧⌘G</code>) steps back through the find bar's matches, in a text file as in a PDF.</span></li>
+        <li><span class="ic">&#128221;</span><span><b>Ticking a box in a read-only Preview is quick in a long note.</b> With Edit in Preview off, or in a note over 256 KB, a tick rewrote and compared the whole note; it now changes only its own line. The last task in a 200 KB note went from 35 ms to 0.2 ms, and in a 4 MiB note from 808 ms to 3.7 ms.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Unified is one box</h3>
+      <ul class="flist">
+        <li><span class="ic">&#127912;</span><span><b>One outline round the window.</b> Unified — Settings ▸ Appearance ▸ Content surface — drew each area as its own box, a gutter apart, so it read as Cards drawn with hairlines. It now draws one outlined region round everything under the toolbar, with a hairline wherever two areas meet: the sidebar, the inspector, the panes, Compare's Differences, and Edit's strip, list and document. Cards is unchanged.</span></li>
+        <li><span class="ic">&#127912;</span><span><b>Organize and Compare's Differences follow the same rule.</b> Every Organize section, Storage included, and Compare's Differences area kept their Cards shape in Unified — a header box and a content box a gutter apart — so switching styles changed the panes and not the area beside them. Each column with a header over content now draws it one way: a card per section in Cards, a hairline under the header in Unified.</span></li>
+        <li><span class="ic">&#127912;</span><span><b>Organize's header lines up with the pane's.</b> With the pane showing a tab strip — two tabs, or View ▸ Tab Bar — the header of the Organize section beside it sat one strip higher than the pane's. It now lines up, in both styles and at every text size.</span></li>
+      </ul>
+    </div>
+    <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v5.5...main">v5.5...main</a></p>
+  </article>
+
   <!-- v5.5 -->
   <article class="rel">
     <div class="rel-head"><span class="v">v5.5</span><span class="tag latest">Latest</span></div>
