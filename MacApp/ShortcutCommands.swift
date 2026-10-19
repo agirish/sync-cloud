@@ -392,6 +392,20 @@ enum PDFToolsMenu {
     }
 }
 
+/// **File ▸ Fill & Sign and Save Filled Copy** — the header's Fill & Sign button and its toolbar's
+/// save, drawn by `EditorPDFFillSignMenuItems` over the open PDF's own Fill & Sign and tools. The
+/// tools ride along because Save is greyed while any of them runs, as the toolbar's is.
+struct PDFFillSignVerbs {
+    let fill: EditorPDFFillSign
+    let tools: EditorPDFTools
+
+    /// **Edit and the PDF open** — where the header draws the button and the toolbar goes under it;
+    /// a locked PDF has neither. `theFillAndSignIsResolvedThroughTheRule` pins the call site.
+    static func isOffered(workspace: Workspace, hasPDF: Bool, phase: EditorPDFDocument.Phase) -> Bool {
+        workspace == .editor && hasPDF && phase == .open
+    }
+}
+
 /// **Text ▸ the page controls of a PDF open in Edit** — the header zoom menu's Fit Page, Fit Width
 /// and Actual Size, its − and +, and its page field, on the slots and chords Source / Preview /
 /// Split and Go to Line… have for text: the zoom stands where the modes stand, and the page field
@@ -657,6 +671,10 @@ private struct PDFToolsKey: FocusedValueKey {
 
 private struct PDFPageKey: FocusedValueKey {
     typealias Value = PDFPageVerbs
+}
+
+private struct PDFFillKey: FocusedValueKey {
+    typealias Value = PDFFillSignVerbs
 }
 
 private struct PDFFindKey: FocusedValueKey {
@@ -1141,6 +1159,13 @@ extension FocusedValues {
         set { self[PDFPageKey.self] = newValue }
     }
 
+    /// File ▸ Fill & Sign and Save Filled Copy — `nil` unless Edit shows an open PDF; see
+    /// ``PDFFillSignVerbs``.
+    var pdfFill: PDFFillSignVerbs? {
+        get { self[PDFFillKey.self] }
+        set { self[PDFFillKey.self] = newValue }
+    }
+
     /// Text ▸ Expand — `nil` wherever the header draws no Expand button; see `EditorExpandSwitch`.
     var editorExpand: EditorExpandSwitch? {
         get { self[EditorExpandKey.self] }
@@ -1298,6 +1323,9 @@ struct ShortcutValuePublisher: ViewModifier {
     /// Text ▸ the fit, the zoom and Go to Page…. Suspended with the rest: the page field would take
     /// the keyboard from the pick.
     let pdfPage: PDFPageVerbs?
+    /// File ▸ Fill & Sign and Save Filled Copy. Suspended with the rest: the toolbar would take
+    /// the pages' clicks, and the leave question would stack on the pick.
+    let pdfFill: PDFFillSignVerbs?
     /// Text ▸ Expand. Suspended with the rest: folding the pane under a destination pick would hide
     /// the folder the pick is describing.
     let editorExpand: EditorExpandSwitch?
@@ -1357,6 +1385,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectivePDFZoom: PDFZoomVerbs? { suspended ? nil : pdfZoom }
     var effectivePDFTools: EditorPDFTools? { suspended ? nil : pdfTools }
     var effectivePDFPage: PDFPageVerbs? { suspended ? nil : pdfPage }
+    var effectivePDFFill: PDFFillSignVerbs? { suspended ? nil : pdfFill }
     var effectiveEditorExpand: EditorExpandSwitch? { suspended ? nil : editorExpand }
 
     /// ⌘W's published value, which is the one that does NOT go silent — see ``CloseTabAction``.
@@ -1408,6 +1437,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.pdfZoom, effectivePDFZoom)                   // ⌘+ ⌘− ⌘0 in a focused PDF
             .focusedSceneValue(\.pdfTools, effectivePDFTools)                 // File ▸ PDF Tools
             .focusedSceneValue(\.pdfPage, effectivePDFPage)                   // ⌃⌘1/2/3 ⌃⌘L over a PDF
+            .focusedSceneValue(\.pdfFill, effectivePDFFill)                   // File ▸ Fill & Sign
             .focusedSceneValue(\.editorExpand, effectiveEditorExpand)         // Text ▸ Expand, ⌃⌘E
     }
 }
@@ -1453,6 +1483,7 @@ extension ContentView {
             pdfZoom: shortcutPDFZoom,
             pdfTools: shortcutPDFTools,
             pdfPage: shortcutPDFPage,
+            pdfFill: shortcutPDFFill,
             editorExpand: shortcutEditorExpand,
             // Suspended by the palette too, on the destination picker's own argument: it is a
             // full-window overlay whose scrim blocks the mouse from every control these chords
@@ -2304,6 +2335,19 @@ struct PDFToolsMenuContent: View {
             .disabled(tools == nil)
         }
     }
+}
+
+/// File ▸ Fill & Sign and Save Filled Copy, under PDF Tools — see ``PDFFillSignVerbs``. **No
+/// chords**, as for the tools: one puts a toolbar up, the other writes a file. With no PDF open it
+/// draws ``idle``, attached to no file, which greys both lines by their own rules.
+struct PDFFillSignCommand: View {
+    @FocusedValue(\.pdfFill) private var verbs
+
+    var body: some View {
+        EditorPDFFillSignMenuItems(fill: verbs?.fill ?? Self.idle, tools: verbs?.tools ?? PDFToolsCommand.idle)
+    }
+
+    @MainActor static let idle = EditorPDFFillSign(store: EditorPDFSignatureStore())
 }
 
 struct DeleteSelectionCommand: View {

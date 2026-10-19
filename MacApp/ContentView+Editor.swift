@@ -1191,6 +1191,14 @@ extension ContentView {
                             goToPage: (editorPDF.facts?.pageCount ?? 0) > 0 ? { view.requestPageField() } : nil)
     }
 
+    /// File ▸ Fill & Sign and Save Filled Copy — the open PDF's own, `nil` unless Edit is on screen
+    /// with a PDF open (`PDFFillSignVerbs.isOffered`), which is where the header draws the button.
+    var shortcutPDFFill: PDFFillSignVerbs? {
+        guard PDFFillSignVerbs.isOffered(workspace: selectedWorkspace, hasPDF: editorPDF.path != nil,
+                                         phase: editorPDF.phase) else { return nil }
+        return PDFFillSignVerbs(fill: editorPDF.fill, tools: editorPDF.tools)
+    }
+
     /// Text ▸ Expand ⌃⌘E — the header button's bit and act, offered where the header draws the
     /// button (`EditorExpandSwitch.isOffered`). The act is `toggleJustTheText`, the one the button
     /// calls, so the item and the button cannot fold different things.

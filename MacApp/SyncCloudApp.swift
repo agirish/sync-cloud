@@ -779,6 +779,8 @@ struct SyncCloudApp: App {
                     // The PDF header's Tools menu, after a divider: each tool writes a new copy,
                     // as Export as PDF… does. No chords — see the type.
                     PDFToolsCommand()
+                    // The header's Fill & Sign button and its toolbar's save — see the type.
+                    PDFFillSignCommand()
                 }
             }
             // View ▸ the workspaces (one ⌘-digit each, checkmarked) and the show/hide switches. The

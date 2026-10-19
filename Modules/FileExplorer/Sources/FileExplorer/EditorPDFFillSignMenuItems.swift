@@ -1,0 +1,32 @@
+import SwiftUI
+
+/// **File ▸ Fill & Sign and Save Filled Copy** — the header button and the toolbar's save, in the
+/// menu bar. The same acts (``EditorPDFFillSign/toggle()``, ``EditorPDFFillSign/save()``) under
+/// the same rules: ticked while the toolbar is up, and Save live exactly where the toolbar's is.
+///
+/// **Greyed where the button would only explain**: a refused file gets the toggle greyed and the
+/// reason as a line under it, as File ▸ PDF Tools says a locked file's — the button, pressed, puts
+/// the same reason up as an alert. With no file it is greyed by ``EditorPDFFillSign/hasPages``.
+public struct EditorPDFFillSignMenuItems: View {
+    @ObservedObject var fill: EditorPDFFillSign
+    @ObservedObject var tools: EditorPDFTools
+
+    public init(fill: EditorPDFFillSign, tools: EditorPDFTools) {
+        self.fill = fill
+        self.tools = tools
+    }
+
+    public var body: some View {
+        Toggle("Fill & Sign", isOn: Binding(
+            get: { fill.isOn },
+            // The button's act either way: off with unsaved items asks first.
+            set: { _ in fill.toggle() }
+        ))
+        .disabled(!fill.hasPages || fill.refusal != nil)
+        if let reason = fill.menuReason {
+            Text(reason)
+        }
+        Button("Save Filled Copy") { Task { await fill.save() } }
+            .disabled(!fill.hasUnsavedItems || tools.running != nil)
+    }
+}

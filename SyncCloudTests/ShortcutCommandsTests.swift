@@ -69,6 +69,8 @@ import Foundation
             pdfZoom: PDFZoomVerbs(zoom: { _ in }, actualSize: {}),
             pdfTools: EditorPDFTools(),
             pdfPage: PDFPageVerbs(view: EditorPDFViewState(), goToPage: {}),
+            pdfFill: PDFFillSignVerbs(fill: EditorPDFFillSign(store: EditorPDFSignatureStore()),
+                                      tools: EditorPDFTools()),
             editorExpand: EditorExpandSwitch(isOn: false, toggle: {}),
             suspended: suspended
         )
@@ -219,6 +221,7 @@ import Foundation
         #expect(publisher.effectivePDFZoom == nil)
         #expect(publisher.effectivePDFTools == nil)
         #expect(publisher.effectivePDFPage == nil)
+        #expect(publisher.effectivePDFFill == nil)
         // Text ▸ Expand: folding the pane under a pick hides the folder the pick describes.
         #expect(publisher.effectiveEditorExpand == nil)
     }
@@ -266,6 +269,7 @@ import Foundation
         #expect(publisher.effectivePDFZoom != nil)
         #expect(publisher.effectivePDFTools != nil)
         #expect(publisher.effectivePDFPage != nil)
+        #expect(publisher.effectivePDFFill != nil)
         #expect(publisher.effectiveEditorExpand != nil)
     }
 

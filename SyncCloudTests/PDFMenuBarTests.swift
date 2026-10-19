@@ -2,6 +2,7 @@
 import AppKit
 import Design
 import FileExplorer
+import Sync
 import SwiftUI
 import Testing
 
@@ -59,6 +60,78 @@ import Testing
             #expect(!line.isEnabled, "File ▸ PDF Tools ▸ \(line.title) is live with no PDF open")
             #expect(line.keyEquivalent.isEmpty, "File ▸ PDF Tools ▸ \(line.title) carries a chord")
         }
+    }
+
+    /// **Fill & Sign and Save Filled Copy straight under PDF Tools, greyed with no PDF open, and
+    /// no chords** — the header's button and its toolbar's save.
+    @Test func fillAndSignFollowsPDFToolsGreyedWithNoPDF() throws {
+        let file = try Self.file()
+        let titles = Self.titles(file)
+        let tools = try #require(titles.firstIndex(of: "PDF Tools"), "File has no PDF Tools submenu")
+        #expect(Array(titles[(tools + 1)...].prefix(2)) == ["Fill & Sign", "Save Filled Copy"],
+                "Fill & Sign does not follow PDF Tools: \(titles[tools...])")
+        file.update()
+        for item in file.items[(tools + 1)...].prefix(2) {
+            #expect(!item.isEnabled, "File ▸ \(item.title) is live with no PDF open")
+            #expect(item.keyEquivalent.isEmpty, "File ▸ \(item.title) carries a chord")
+            #expect(item.state == .off, "File ▸ \(item.title) is ticked with no PDF open")
+        }
+    }
+
+    /// **Each line, chosen through AppKit, does what its control does** — the toggle puts the
+    /// header button's toolbar up and down, and Save Filled Copy writes the copy the toolbar's save
+    /// writes. Over a real open PDF, drawn by `NSHostingMenu` as the menu bar draws it; the test host
+    /// is the app, so its items fire. The lines' greying is `EditorPDFFillSignTests`'.
+    @Test func fillAndSignsLinesDoWhatTheButtonAndTheSaveDo() async throws {
+        let folder = NSTemporaryDirectory() + "pdf-fill-menu-" + UUID().uuidString
+        let suite = "PDFMenuBarTests-" + UUID().uuidString
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(atPath: folder)
+            UserDefaults.standard.removePersistentDomain(forName: suite)
+        }
+        let file = (folder as NSString).appendingPathComponent("Lease.pdf")
+        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let context = try #require(CGContext(URL(fileURLWithPath: file) as CFURL, mediaBox: &box, nil))
+        context.beginPDFPage(nil)
+        context.endPDFPage()
+        context.closePDF()
+
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: try #require(UserDefaults(suiteName: suite)))
+        pdf.open(path: file, log: { _ in })
+        for _ in 0..<1000 where pdf.phase == .loading {
+            await PDFKitSerialAccess.perform {}
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(pdf.phase == .open)
+        defer { pdf.close() }
+
+        func choose(_ title: String) throws {
+            let menu = NSHostingMenu(rootView: EditorPDFFillSignMenuItems(fill: pdf.fill, tools: pdf.tools))
+            menu.update()
+            let at = try #require(menu.items.firstIndex { $0.title == title }, "no line \(title) in \(Self.titles(menu))")
+            menu.performActionForItem(at: at)
+        }
+        try choose("Fill & Sign")
+        #expect(pdf.fill.isOn, "File ▸ Fill & Sign did not put the toolbar up")
+        try choose("Fill & Sign")
+        #expect(!pdf.fill.isOn, "File ▸ Fill & Sign did not put the toolbar away")
+
+        try choose("Fill & Sign")
+        pdf.fill.armed = .mark(.check)
+        pdf.fill.place(at: CGPoint(x: 100, y: 100), page: 0)
+        try #require(pdf.fill.hasUnsavedItems)
+        try choose("Save Filled Copy")
+        for _ in 0..<10_000 where pdf.tools.running == nil && pdf.tools.banner == nil { await Task.yield() }
+        for _ in 0..<1000 where pdf.tools.running != nil {
+            await PDFKitSerialAccess.perform {}
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        guard case .wrote(let copy)? = pdf.tools.banner?.kind else {
+            Issue.record("File ▸ Save Filled Copy wrote no copy: \(String(describing: pdf.tools.banner))"); return
+        }
+        #expect((copy as NSString).lastPathComponent == "Lease (filled).pdf")
+        #expect(!pdf.fill.isOn && !pdf.fill.hasUnsavedItems, "the toolbar outlived the menu's save")
     }
 
     // MARK: The rules
@@ -177,6 +250,20 @@ import Testing
         #expect(!PDFPageVerbs.isOffered(workspace: .browse, hasPDF: true, phase: .open))
     }
 
+    /// **Fill & Sign: Edit and the PDF open** — where the header draws its button. A locked PDF
+    /// has none: its pages are not there to place on.
+    @Test func fillAndSignIsOfferedForAnOpenPDFInEdit() {
+        #expect(PDFFillSignVerbs.isOffered(workspace: .editor, hasPDF: true, phase: .open))
+        #expect(!PDFFillSignVerbs.isOffered(workspace: .editor, hasPDF: true, phase: .locked))
+        #expect(!PDFFillSignVerbs.isOffered(workspace: .editor, hasPDF: true, phase: .loading))
+        #expect(!PDFFillSignVerbs.isOffered(workspace: .editor, hasPDF: true, phase: .refused("gone")))
+        #expect(!PDFFillSignVerbs.isOffered(workspace: .editor, hasPDF: false, phase: .open))
+        for workspace in Workspace.allCases where workspace != .editor {
+            #expect(!PDFFillSignVerbs.isOffered(workspace: workspace, hasPDF: true, phase: .open),
+                    "offered from \(workspace), where no toolbar can go up")
+        }
+    }
+
     /// **Each mode's slot is the capsule's same place** — Source's ⌃⌘1 is Fit Page, the capsule's
     /// first — and every fit has a slot.
     @Test func theFitsTakeTheModesSlotsInTheCapsulesOrder() {
@@ -256,6 +343,25 @@ import Testing
         #expect(body.contains("(editorPDF.facts?.pageCount ?? 0) > 0 ? { view.requestPageField() } : nil"),
                 "Go to Page… is not the header's page field, or is offered where none is drawn")
         #expect(CodeText(try Self.commands()).contains("pdfPage: shortcutPDFPage,"))
+    }
+
+    /// **File ▸ Fill & Sign is the open PDF's own**, through the rule, drawn by the module's items
+    /// over it — and in File's print group, after PDF Tools.
+    @Test func theFillAndSignIsResolvedThroughTheRule() throws {
+        let editor = try macAppFile("ContentView+Editor.swift")
+        let body = CodeText(try declarationBody(of: "var shortcutPDFFill: PDFFillSignVerbs?", in: editor))
+        #expect(body.contains("PDFFillSignVerbs.isOffered(workspace: selectedWorkspace, hasPDF: editorPDF.path != nil, phase: editorPDF.phase)"))
+        #expect(body.contains("return PDFFillSignVerbs(fill: editorPDF.fill, tools: editorPDF.tools)"))
+
+        let commands = try Self.commands()
+        #expect(CodeText(commands).contains("pdfFill: shortcutPDFFill,"))
+        let item = CodeText(try declarationBody(of: "struct PDFFillSignCommand: View", in: commands))
+        #expect(item.contains("@FocusedValue(\\.pdfFill) private var verbs"))
+        #expect(item.contains("EditorPDFFillSignMenuItems(fill: verbs?.fill ?? Self.idle, tools: verbs?.tools ?? PDFToolsCommand.idle)"),
+                "File ▸ Fill & Sign is not drawn over what the window published")
+
+        let app = CodeText(try macAppFile("SyncCloudApp.swift"))
+        #expect(app.contains("PDFToolsCommand() PDFFillSignCommand()"), "Fill & Sign does not follow PDF Tools")
     }
 
     /// **The modes' items become the fits, on the modes' own chords** — and Go to Line becomes Go

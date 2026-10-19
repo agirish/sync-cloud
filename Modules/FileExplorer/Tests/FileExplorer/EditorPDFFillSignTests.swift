@@ -457,6 +457,62 @@ extension PDFFixtures {
         #expect(fill.items.isEmpty && !fill.isOn)
     }
 
+    // MARK: The menu bar
+
+    /// **File ▸ Fill & Sign and Save Filled Copy, as AppKit builds them** — `NSHostingMenu`, which
+    /// is how the menu bar turns SwiftUI items into an `NSMenu`. Drawn afresh for each read, so
+    /// what is read is the state, not whether a hosted menu has redrawn yet. A tick reads "✓ ", a
+    /// line nothing can choose is in brackets.
+    private func menuLines(_ fill: EditorPDFFillSign, _ tools: EditorPDFTools) -> [String] {
+        let menu = NSHostingMenu(rootView: EditorPDFFillSignMenuItems(fill: fill, tools: tools))
+        menu.update()
+        return menu.items.map { item in
+            let title = (item.state == .on ? "✓ " : "") + item.title
+            return item.isEnabled ? title : "(\(title))"
+        }
+    }
+
+    /// **The toggle is the header button, and Save is the toolbar's** — greyed with no file; live
+    /// and ticked as the button is lit; Save live only with something placed and no tool running.
+    /// The acts are driven directly: a menu item fires only in the app host, where
+    /// `PDFMenuBarTests.fillAndSignsLinesDoWhatTheButtonAndTheSaveDo` chooses each one.
+    @Test func theMenuBarsItemsFollowTheButtonAndTheToolbarsSave() async throws {
+        let idle = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
+        #expect(menuLines(idle, EditorPDFTools()) == ["(Fill & Sign)", "(Save Filled Copy)"],
+                "a line is live with no PDF open")
+
+        let (pdf, _) = try await letter()
+        let fill = pdf.fill, tools = pdf.tools
+        #expect(menuLines(fill, tools) == ["Fill & Sign", "(Save Filled Copy)"])
+        fill.toggle()
+        #expect(menuLines(fill, tools) == ["✓ Fill & Sign", "(Save Filled Copy)"], "Save is live with nothing placed")
+
+        fill.armed = .mark(.check)
+        fill.place(at: CGPoint(x: 100, y: 100), page: 0)
+        #expect(menuLines(fill, tools) == ["✓ Fill & Sign", "Save Filled Copy"])
+        let save = Task { await fill.save() }
+        for _ in 0..<10_000 where tools.running == nil { await Task.yield() }
+        try #require(tools.running != nil, "the save never began")
+        #expect(menuLines(fill, tools) == ["✓ Fill & Sign", "(Save Filled Copy)"], "Save is live while the save runs")
+        guard case .wrote = await save.value else { Issue.record("the save wrote no copy"); return }
+        #expect(menuLines(fill, tools) == ["Fill & Sign", "(Save Filled Copy)"], "the toolbar outlived the save")
+    }
+
+    /// **A refused file: the toggle greyed and the reason under it**, short enough for a menu — the
+    /// alert's title for an owner's restriction, the tools' line for a file locked to open.
+    @Test func aRefusedFileGreysTheToggleAndSaysWhy() async throws {
+        let file = path("Statement.pdf")
+        PDFFixtures.writeRestricted(file)
+        let pdf = try await open(file)
+        #expect(menuLines(pdf.fill, pdf.tools)
+                == ["(Fill & Sign)", "(\(EditorPDFFillSign.restrictedTitle))", "(Save Filled Copy)"])
+
+        let locked = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
+        locked.attach(path: file, boxes: pdf.fill.boxes, encryption: .lockedToOpen, allowsFilling: true)
+        #expect(menuLines(locked, pdf.tools)
+                == ["(Fill & Sign)", "(\(EditorPDFTools.lockedReason))", "(Save Filled Copy)"])
+    }
+
     // MARK: The overlay
 
     /// **The overlay over a real page view**: it lets clicks through to PDFKit unless it has

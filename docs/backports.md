@@ -7520,3 +7520,30 @@ done
 |---|---|---|
 | `v5.x` | No PDF reader in Edit (`pdfModel=0`), so no header or tools for Fill & Sign to join | CLOSED — does not apply |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace that opens PDFs at all | CLOSED — does not apply |
+
+---
+
+## File ▸ Fill & Sign and Save Filled Copy — main only
+
+Under File ▸ PDF Tools, a **Fill & Sign** toggle (ticked while the toolbar is up, greyed with the
+refusal as a line under it) and **Save Filled Copy** (live where the toolbar's is), drawn by
+`EditorPDFFillSignMenuItems` over the open PDF's `EditorPDFFillSign` and `EditorPDFTools`, published
+as `PDFFillSignVerbs` while Edit shows an open PDF. It stands on Fill & Sign above and on File ▸
+PDF Tools, which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s fillSign=%s pdfToolsMenu=%s fillMenu=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSign.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/ShortcutCommands.swift 2>/dev/null | grep -c 'struct PDFToolsCommand')" \
+    "$(git show origin/$l:MacApp/ShortcutCommands.swift 2>/dev/null | grep -c 'struct PDFFillSignCommand')"
+done
+# measured 2026-10-18, against origin, before this landed:
+# main  fillSign=1 pdfToolsMenu=1 fillMenu=0
+# v5.x, v4.x, v3.x, v2.x — 0 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | No Fill & Sign and no File ▸ PDF Tools (`0 0`), so nothing for the items to drive | CLOSED — does not apply |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace that opens PDFs at all | CLOSED — does not apply |

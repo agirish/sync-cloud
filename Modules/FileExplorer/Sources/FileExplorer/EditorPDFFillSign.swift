@@ -444,9 +444,20 @@ public final class EditorPDFFillSign: ObservableObject {
             presentRefusal(refusal)
             return
         }
-        guard path != nil, !boxes.isEmpty else { return }
+        guard hasPages else { return }
         isOn = true
         armed = .text
+    }
+
+    /// A file with pages to place on — what ``toggle()`` needs to turn on, and what File ▸ Fill &
+    /// Sign is greyed without.
+    var hasPages: Bool { path != nil && !boxes.isEmpty }
+
+    /// **The refusal as a menu line** — the alert's own title for an owner's restriction, whose
+    /// reason is two sentences; the tools' short reason for a file locked to open, which File ▸ PDF
+    /// Tools already shows as a line.
+    var menuReason: String? {
+        refusal.map { $0 == Self.restrictedReason ? Self.restrictedTitle : $0 }
     }
 
     /// Esc: stops typing, then lets go of the selection, then of the tool.
