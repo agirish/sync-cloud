@@ -2,43 +2,56 @@ import PDFKit
 import SwiftUI
 import Design
 
-/// **The find bar for a PDF, under its header** (mockup 3) — the text find bar's shape: a field with
-/// the count beside it, ‹ › and Done.
+/// **The find bar for a PDF, drawn as a card floating in the canvas's top-right corner** (Phase 6a,
+/// mockup G, as Safari's): the field, the count, ‹ › and ×. It floats over the pages instead of
+/// pushing them down a row, so opening it moves nothing (`theFindCardLeavesThePageWhereItWas`); the
+/// capsule slides clear of it if it is docked there (``EditorPDFFloating/clear(_:of:sliding:within:)``).
 ///
 /// **The app's own control, not `NSTextFinder`'s bar**: that one drives an `NSTextFinderClient`,
 /// and a `PDFView` is not one — nor could it be without its text being extracted on the main
 /// thread. The searching is ``EditorPDFFind``'s, in the PDFKit lane.
 ///
-/// Typing searches once it settles; Return goes to the next match; Esc and Done put the bar away
-/// and clear the highlights.
+/// Typing searches once it settles; Return goes to the next match; Esc and × put the card away
+/// and clear the highlights. While the lane is busy with other PDF work the count says so, inside
+/// the card.
 struct EditorPDFFindBar: View {
     @ObservedObject var find: EditorPDFFind
     let accent: Color
     @State private var typed = ""
     @FocusState private var focused: Bool
 
+    /// The widest the count is let grow before it wraps — enough for "3 of 9 so far" on one line,
+    /// and the waiting note on a second.
+    static let captionWidth: CGFloat = 150
+
     var body: some View {
         if find.isShown {
-            VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    field
+            HStack(spacing: 6) {
+                field
+                if !find.caption.isEmpty {
                     Text(find.caption)
                         .scaledFont(.system(size: 10))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .layoutPriority(-1)
-                    Spacer(minLength: 0)
-                    stepper
-                    Button("Done") { find.hide() }
-                        .controlSize(.small)
-                        .help(ShortcutHint.tooltip("Close the find bar", "esc"))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: Self.captionWidth, alignment: .leading)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                Divider()
+                stepper
+                Button { find.hide() } label: {
+                    Image(systemName: "xmark")
+                        .scaledFont(.system(size: 9, weight: .semibold))
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+                .accessibilityLabel("Close Find")
+                .help(ShortcutHint.tooltip("Close Find", "esc"))
             }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .modifier(EditorPDFFloatingGround(shape: .roundedRect(Radius.card)))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Find in this PDF")
             .onAppear {
                 typed = find.query
                 focused = true
@@ -78,7 +91,7 @@ struct EditorPDFFindBar: View {
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
-        .frame(minWidth: 140, idealWidth: 220, maxWidth: 260)
+        .frame(minWidth: 120, idealWidth: 170, maxWidth: 180)
         .background(RoundedRectangle(cornerRadius: Radius.chip).fill(Color(nsColor: .textBackgroundColor)))
         .overlay(RoundedRectangle(cornerRadius: Radius.chip).strokeBorder(Color(nsColor: .separatorColor)))
     }
@@ -88,8 +101,6 @@ struct EditorPDFFindBar: View {
             stepButton(forward: false)
             stepButton(forward: true)
         }
-        .padding(.horizontal, 2)
-        .chromeGlassTrack()
     }
 
     private func stepButton(forward: Bool) -> some View {
@@ -97,30 +108,11 @@ struct EditorPDFFindBar: View {
         return Button { find.step(forward: forward) } label: {
             Image(systemName: forward ? "chevron.right" : "chevron.left")
                 .scaledFont(.system(size: 9, weight: .semibold))
-                .frame(width: 16, height: 16)
+                .frame(width: 18, height: 18)
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
         .disabled(find.matches.isEmpty)
         .accessibilityLabel(label)
         .help(ShortcutHint.tooltip(label, forward ? AppChord.findNext.display : AppChord.findPrevious.display))
-    }
-}
-
-/// The reader's pages, with the find's matches drawn over them — its own view so a match landing
-/// re-renders the page view and nothing else in the card.
-struct EditorPDFReader: View {
-    let document: PDFDocument?
-    let state: EditorPDFViewState
-    @ObservedObject var find: EditorPDFFind
-    /// Not observed: the overlay watches it itself, so a drag redraws the overlay and nothing else.
-    var fill: EditorPDFFillSign?
-
-    var body: some View {
-        EditorPDFPageView(document: document, state: state, highlights: find.highlights, fill: fill,
-                          onEscape: { [find] in
-                              guard find.isShown else { return false }
-                              find.hide()
-                              return true
-                          })
     }
 }

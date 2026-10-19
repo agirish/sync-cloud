@@ -4,31 +4,35 @@ import PDFToolkitCore
 import Design
 import Sync
 
-/// **The header's Tools menu** — beside the fit bar, for a PDF that is open or locked. Every item
-/// writes a new copy next to the original; the open file stays as it is, and stays read-only.
+/// **The header's Tools menu** — the last of the file actions, before the divider, for a PDF that
+/// is open or locked. Every item writes a new copy next to the original; the open file stays as it
+/// is, and stays read-only.
 ///
 /// It also presents the tools' sheets, whichever surface asked for one: the Pages tab's menu sets
 /// ``EditorPDFTools/sheet`` too. This view is mounted whenever a sheet can be asked for — a PDF
 /// that is open or locked — and in the other phases (loading, refused) ``EditorPDFTools/detach()``
 /// has already cleared any sheet, so none is left without a presenter.
 ///
-/// **The format bar's glyph-menu recipe** (`EditorFormatBar`): `.menuStyle(.button)` with the
-/// glyph hover affordance, so it washes and tints like the header's other glyphs — the AppKit
-/// pop-up chrome of a borderless menu would grow a row whose height the header pins.
+/// **The file actions' bezel** (``EditorPDFActionStyle``), with the wrench it has always drawn and a
+/// chevron, since it opens a menu: `.menuStyle(.button)` under the shared style, so it washes and
+/// tints like Find and Fill & Sign beside it — the AppKit pop-up chrome of a borderless menu would
+/// grow a row whose height the header pins.
 struct EditorPDFToolsMenu: View {
     @ObservedObject var tools: EditorPDFTools
     let accent: Color
+    let onAccent: Color
+    /// "Tools" beside the wrench, while the header's rung keeps the word.
+    var worded = true
 
     var body: some View {
         Menu {
             EditorPDFToolsMenuItems(tools: tools)
         } label: {
-            Image(systemName: "wrench.and.screwdriver")
-                .scaledFont(.system(size: 11, weight: .semibold))
-                .frame(width: 18, height: 18)
+            EditorPDFActionLabel(symbol: "wrench.and.screwdriver", word: worded ? "Tools" : nil, chevron: true,
+                                 accent: accent, onAccent: onAccent)
         }
         .menuStyle(.button)
-        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        .modifier(EditorPDFActionStyle(accent: accent))
         .menuIndicator(.hidden)
         .fixedSize()
         .help("PDF tools — each writes a new copy and leaves this file as it is")

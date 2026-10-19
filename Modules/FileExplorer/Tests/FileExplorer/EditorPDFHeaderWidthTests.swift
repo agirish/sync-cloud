@@ -7,14 +7,16 @@ import Sync
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// **The PDF header's width, at every text size** — the first test the PDF header has had.
+/// **The PDF header's width, at every text size** — Phase 6a's rungs.
 ///
-/// The header is the name, then Find, the page field, the zoom, the layout, Fill & Sign, Tools,
-/// Expand and ×. **It does not fit the split's 260pt floor and never did**:
-/// measured 2026-10-17, everything but the name took ~446pt at 100% before the Page / Width /
-/// Actual capsule folded into the zoom menu, and 378pt after. So the bound is the one decided that
-/// day: **the document column at the smallest window**, with the controls shedding words as it
-/// narrows (``EditorPDFHeaderControls/Rung``) and the name keeping what is pinned here.
+/// The name row is the name, then Find, Fill & Sign and Tools ▾, a divider, Expand and ×. The page
+/// field, the zoom and the layout left it for the floating capsule, which is what gave the name its
+/// room back: before 6a the narrowest rung left it 55pt in the column at the smallest window
+/// (measured 2026-10-17), and the mockup gave it about 140.
+///
+/// The bound is the one decided 2026-10-17: **the document column at the smallest window**, the
+/// actions shedding their words as it narrows (``EditorPDFHeaderControls/Rung``) and the name
+/// keeping what is pinned here.
 @MainActor
 @Suite(.serialized) final class EditorPDFHeaderWidthTests {
 
@@ -31,17 +33,13 @@ import FileExplorerTestSupport
     /// 150pt minimum and the rail open — `EditorLayoutTests`' conservative reading, ~368pt.
     static var column: CGFloat { 760 - 150 - EditorLayoutMetrics.railWidth - 2 * LiquidGlass.cardGutter }
 
-    /// **Fill & Sign's room, held for it before Phase 5b built it**: its glyph form — the same 18pt
-    /// glyph and 6pt gap as Tools beside it — which is what it sheds to at the narrowest rung. Its
-    /// worded form is drawn only on the wider rungs, where the name has already had what it needs.
-    /// Now that the button is in the row, the row's own width counts it, and this is the most its
-    /// glyph form may take (`fillAndSignTakesNoMoreThanTheRoomHeldForIt`).
-    static let fillAndSignGlyph: CGFloat = 18 + 6
-
-    /// **What the name keeps at the narrowest rung, at every text size.** Measured 2026-10-17 on a
-    /// 64-page PDF in Two Pages: 65pt at 100%, 57pt at 135%. Pinned below the smallest, so a control
-    /// that grows by a few points fails here, naming the text size, rather than eating the name.
-    static let nameFloor: CGFloat = 55
+    /// **What the name keeps at the narrowest rung, at every text size.**
+    ///
+    /// Measured 2026-10-18 on macOS 27, at the narrowest rung: the row's chrome is 204pt at 90% and
+    /// 230pt at 135%, leaving the name 164pt down to **138pt at the largest size**. Pinned 4pt
+    /// under that, as the 55pt it replaces was pinned; the failure message prints what the name is
+    /// left.
+    static let nameFloor: CGFloat = 134
 
     private func open(pages: Int) async throws -> EditorPDFDocument {
         let file = (folder as NSString).appendingPathComponent("r.pdf")
@@ -80,53 +78,38 @@ import FileExplorerTestSupport
             - width(Text(pdf.name).scaledFont(.system(size: 13, weight: .semibold)), scale: scale)
     }
 
-    /// The widest the controls get: two pages, so the field holds "63–64", and Fit Width, the
-    /// longest zoom label.
-    private func widest() async throws -> EditorPDFDocument {
-        let pdf = try await open(pages: 64)
-        pdf.view.layout = .twoPages
-        pdf.view.fit = .width
-        return pdf
-    }
-
-    /// **At the smallest window, the narrowest rung — Fill & Sign's glyph in it — leaves the name
-    /// its floor, at every step of the Text size slider.**
+    /// **At the smallest window, the narrowest rung leaves the name its floor, at every step of the
+    /// Text size slider** — Find, Fill & Sign and Tools as bezelled glyphs, Expand and ×.
     @Test func theNarrowestRungLeavesTheNameRoomAtTheSmallestWindow() async throws {
-        let pdf = try await widest()
+        let pdf = try await open(pages: 64)
         let narrowest = try #require(EditorPDFHeaderControls.Rung.allCases.last)
         for percent in FontSize.selectablePercents {
             let chrome = chrome(pdf, narrowest, scale: FontSize(percent: percent).scale)
             let left = Self.column - chrome
             #expect(left >= Self.nameFloor, """
-                    at \(percent)% the narrowest PDF header, Fill & Sign's glyph included, is \(chrome)pt \
-                    and leaves \(left)pt of name in the \(Self.column)pt column — under the \(Self.nameFloor)pt floor
+                    at \(percent)% the narrowest PDF header is \(chrome)pt and leaves \(left)pt of name \
+                    in the \(Self.column)pt column — under the \(Self.nameFloor)pt floor
                     """)
         }
     }
 
-    /// **Fill & Sign's glyph takes no more than the room held for it**, at every text size — and
-    /// it IS in the narrowest row, unworded: the row with it less the row without it, gap and all.
-    @Test func fillAndSignTakesNoMoreThanTheRoomHeldForIt() async throws {
-        let pdf = try await widest()
-        let narrowest = try #require(EditorPDFHeaderControls.Rung.allCases.last)
-        #expect(!narrowest.wordsFillAndSign, "the narrowest rung words Fill & Sign")
-        #expect(EditorPDFHeaderControls.Rung.worded.wordsFillAndSign, "the widest rung does not word Fill & Sign")
-        for percent in FontSize.selectablePercents {
-            let scale = FontSize(percent: percent).scale
-            let with = width(EditorPDFHeaderControls(state: pdf.view, find: pdf.find, pageCount: 64, fill: pdf.fill,
-                                                     accent: .blue, rung: narrowest), scale: scale)
-            let without = width(EditorPDFHeaderControls(state: pdf.view, find: pdf.find, pageCount: 64, fill: pdf.fill,
-                                                        accent: .blue, rung: narrowest, showsFillAndSign: false), scale: scale)
-            #expect(with - without > 10, "at \(percent)% Fill & Sign takes \(with - without)pt — is it in the row?")
-            #expect(with - without <= Self.fillAndSignGlyph,
-                    "at \(percent)% Fill & Sign's glyph takes \(with - without)pt, over the \(Self.fillAndSignGlyph)pt held for it")
-        }
+    /// **The order things shed in** (decided 2026-10-19): Find and Tools lose their words first,
+    /// then Fill & Sign; nothing on the widest rung is a bare glyph, everything on the narrowest is.
+    @Test func findAndToolsShedTheirWordsBeforeFillAndSign() throws {
+        let rungs = EditorPDFHeaderControls.Rung.allCases
+        #expect(rungs == [.worded, .fillAndSignWorded, .glyphs])
+        #expect(rungs.map(\.wordsFindAndTools) == [true, false, false])
+        #expect(rungs.map(\.wordsFillAndSign) == [true, true, false])
+        let source = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
+        #expect(source.contains("EditorPDFFindButton(find: find, accent: accent, onAccent: onAccent, worded: rung.wordsFindAndTools)"))
+        #expect(source.contains("EditorPDFFillSignButton(fill: fill, accent: accent, onAccent: onAccent, worded: rung.wordsFillAndSign)"))
+        #expect(source.contains("EditorPDFToolsMenu(tools: tools, accent: accent, onAccent: onAccent, worded: rung.wordsFindAndTools)"))
     }
 
     /// **Each rung is narrower than the one before it**, at every text size — or `ViewThatFits`
     /// has nothing to choose between, and the floor above is measuring the only rung there is.
     @Test func eachRungShedsWidth() async throws {
-        let pdf = try await widest()
+        let pdf = try await open(pages: 64)
         for percent in FontSize.selectablePercents {
             let widths = EditorPDFHeaderControls.Rung.allCases.map { chrome(pdf, $0, scale: FontSize(percent: percent).scale) }
             #expect(zip(widths, widths.dropFirst()).allSatisfy { $0 > $1 + 10 },
@@ -134,12 +117,42 @@ import FileExplorerTestSupport
         }
     }
 
+    /// **The three file actions keep their bezel when they lose their words** — one style for all
+    /// three (decided 2026-10-19), and Expand and × outside it.
+    @Test func theFileActionsShareOneBezelledStyle() throws {
+        let card = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
+        let tools = try ChromeGlassWiringTests.source("EditorPDFToolViews.swift")
+        #expect(ChromeGlassWiringTests.count(".modifier(EditorPDFActionStyle(accent: accent))", in: card) == 2,
+                "Find and Fill & Sign do not both wear the file actions' style")
+        #expect(tools.contains(".modifier(EditorPDFActionStyle(accent: accent))"), "Tools does not wear the file actions' style")
+        #expect(tools.contains("symbol: \"wrench.and.screwdriver\""), "Tools lost the wrench it has always drawn")
+        // The bezel is the style's, not the word's: nothing in it reads the rung.
+        let style = try #require(card.range(of: "struct EditorPDFActionStyle: ViewModifier {"))
+        // To the struct's own closing brace: a fixed-length window ran on into Find's button, which
+        // does read it.
+        let rest = card[style.upperBound...]
+        let end = try #require(rest.range(of: "\n}\n"))
+        let styleBody = String(rest[..<end.lowerBound])
+        #expect(styleBody.contains(".buttonStyle(.hoverAffordance(.segment"), "the style's body was not found — vacuous")
+        #expect(!styleBody.contains("worded"), "the bezel depends on whether the word is drawn")
+    }
+
     /// **The header chooses among all of them, widest first** — the name row's `ViewThatFits`.
     @Test func theHeaderChoosesAmongTheRungs() throws {
         let source = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
         #expect(source.contains("ForEach(EditorPDFHeaderControls.Rung.allCases, id: \\.self) { rung in"))
-        #expect(source.contains("fill: pdf.fill, accent: accent, rung: rung)"), "the controls are not drawn at the chosen rung")
-        #expect(source.contains("EditorPDFFillSignButton(fill: fill, accent: accent, worded: rung.wordsFillAndSign)"),
-                "Fill & Sign does not shed its word with the rung")
+        #expect(source.contains("accent: accent, onAccent: onAccent, rung: rung)"), "the actions are not drawn at the chosen rung")
+    }
+
+    /// **No "PDF" tag beside the name, and no page, zoom or layout control in the header** — the
+    /// name ends in .pdf, and the capsule moves around the page now.
+    @Test func theNameRowHoldsTheFileAndWhatActsOnIt() throws {
+        let card = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
+        let start = try #require(card.range(of: "func nameRow(_ rung: EditorPDFHeaderControls.Rung) -> some View {"))
+        let end = try #require(card.range(of: "private var metaRow: some View {", range: start.upperBound..<card.endIndex))
+        let row = String(card[start.upperBound..<end.lowerBound])
+        for gone in ["EditorPDFZoom", "pageField", "EditorPDFLayoutMenu", "Text(\"PDF\")", "EditorPDFCapsule"] {
+            #expect(!row.contains(gone), "the name row draws \(gone) again")
+        }
     }
 }

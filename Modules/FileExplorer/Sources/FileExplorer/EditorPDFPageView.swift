@@ -19,13 +19,49 @@ final class ReaderPDFView: PDFView {
     var fit: EditorPDFFit? = .page {
         didSet { if fit != oldValue { fittedKey = nil; needsLayout = true } }
     }
-    /// What the fit was last applied for: the view's size, and — in a one-spread-at-a-time layout —
-    /// the spread's.
+    /// What the fit was last applied for: the room it fitted into, and — in a one-spread-at-a-time
+    /// layout — the spread's size.
     private var fittedKey: FitKey?
     private struct FitKey: Equatable {
         var viewSize: CGSize
         var spreadSize: CGSize?
     }
+
+    /// **The room the floating pieces keep clear** (Phase 6a): 28pt above the first page, and the
+    /// capsule's band on the edge it is docked to (``EditorPDFFloating/canvasInsets(place:capsule:)``).
+    /// Set as the scroll view's content insets, so the pages still scroll under the glass but the
+    /// first page starts below the band and the last one can scroll fully clear of it. A fit is
+    /// measured on what is left, so Fit Page puts the whole page between the bands.
+    var canvasInsets = NSEdgeInsetsZero {
+        didSet {
+            guard !NSEdgeInsetsEqual(canvasInsets, oldValue) else { return }
+            fittedKey = nil
+            needsLayout = true
+        }
+    }
+
+    /// The scroll view PDFKit keeps the pages in.
+    var pagesScrollView: NSScrollView? { subviews.lazy.compactMap { $0 as? NSScrollView }.first }
+
+    /// The view's size less ``canvasInsets`` — what a fit is measured on. (Not `fittingSize`, which
+    /// is `NSView`'s own and means something else.)
+    var fitRoom: CGSize {
+        CGSize(width: max(bounds.width - canvasInsets.left - canvasInsets.right, 1),
+               height: max(bounds.height - canvasInsets.top - canvasInsets.bottom, 1))
+    }
+
+    /// Puts ``canvasInsets`` on the scroll view — by hand, so AppKit's own safe-area adjustment
+    /// does not overwrite them on the next layout. A page view that was never given any is left
+    /// exactly as PDFKit set it up.
+    private func applyCanvasInsets() {
+        guard let scroll = pagesScrollView else { return }
+        if scroll.automaticallyAdjustsContentInsets {
+            guard !NSEdgeInsetsEqual(canvasInsets, NSEdgeInsetsZero) else { return }
+            scroll.automaticallyAdjustsContentInsets = false
+        }
+        if !NSEdgeInsetsEqual(scroll.contentInsets, canvasInsets) { scroll.contentInsets = canvasInsets }
+    }
+
     /// The scale the fit last set. A scale change away from it that the fit did not make is the
     /// reader's own — a pinch — and lets the fit go (``EditorPDFPageView/Coordinator``).
     private(set) var fittedScale: CGFloat?
@@ -48,6 +84,7 @@ final class ReaderPDFView: PDFView {
     override func layout() {
         super.layout()
         clearInheritedBackground()
+        applyCanvasInsets()
         watchPageTurns()
         refit()
         if overlay.superview != nil || fillOverlay.superview != nil { installOverlay() }
@@ -144,10 +181,11 @@ final class ReaderPDFView: PDFView {
                                       coverSeparately: displaysAsBook)
         let spread = EditorPDFFit.spreadSize(pages.compactMap { document.page(at: $0)?.bounds(for: displayBox).size },
                                              gap: spreadGap)
-        let key = FitKey(viewSize: bounds.size, spreadSize: layoutMode.isContinuous ? nil : spread)
+        let room = fitRoom
+        let key = FitKey(viewSize: room, spreadSize: layoutMode.isContinuous ? nil : spread)
         guard key != fittedKey else { return }
         fittedKey = key
-        let scale = EditorPDFFit.scale(fit, spreadSize: spread, viewSize: bounds.size, margin: sideMargin)
+        let scale = EditorPDFFit.scale(fit, spreadSize: spread, viewSize: room, margin: sideMargin)
         fittedScale = scale
         isApplyingFit = true
         scaleFactor = scale
@@ -348,6 +386,8 @@ struct EditorPDFPageView: NSViewRepresentable {
     var fill: EditorPDFFillSign?
     /// Esc in the pages: `true` when it closed something.
     var onEscape: (() -> Bool)?
+    /// The bands the floating pieces keep clear — see ``ReaderPDFView/canvasInsets``.
+    var canvasInsets = NSEdgeInsetsZero
 
     final class Coordinator: NSObject {
         let state: EditorPDFViewState
@@ -410,6 +450,7 @@ struct EditorPDFPageView: NSViewRepresentable {
     }
 
     private func update(_ view: ReaderPDFView, coordinator: Coordinator) {
+        view.canvasInsets = canvasInsets
         Self.applyLayout(state.layout, coverSeparately: state.coverSeparately, to: view)
         if view.document !== document {
             view.document = document
@@ -477,10 +518,22 @@ struct EditorPDFPageView: NSViewRepresentable {
     }
 
     /// Whether `rect`, in page space on `page`, is wholly on screen in `view` — a page on screen at
-    /// all, and the rect inside the view's bounds.
+    /// all, and the rect inside the view's bounds, clear of the bands the floating pieces keep
+    /// (``clearRect(of:)``): a match under the capsule is not in sight.
     static func isInSight(_ rect: CGRect, on page: PDFPage, in view: PDFView) -> Bool {
         guard view.visiblePages.contains(page) else { return false }
-        return view.bounds.contains(view.convert(rect, from: page))
+        return clearRect(of: view).contains(view.convert(rect, from: page))
+    }
+
+    /// `view`'s bounds less its ``ReaderPDFView/canvasInsets`` — a `PDFView` is not flipped, so the
+    /// top band comes off the top of the rect, which is its `maxY`.
+    static func clearRect(of view: PDFView) -> CGRect {
+        guard let reader = view as? ReaderPDFView else { return view.bounds }
+        let insets = reader.canvasInsets
+        return CGRect(x: view.bounds.minX + insets.left,
+                      y: view.bounds.minY + (view.isFlipped ? insets.top : insets.bottom),
+                      width: max(view.bounds.width - insets.left - insets.right, 0),
+                      height: max(view.bounds.height - insets.top - insets.bottom, 0))
     }
 
     /// **The pages take the keyboard only when nothing else has it**, so ⌥← / ⌥→ and Space work

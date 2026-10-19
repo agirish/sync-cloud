@@ -48,11 +48,6 @@ public enum EditorPDFLayout: String, CaseIterable, Sendable {
     /// until there are two pages to a row.
     func displaysAsBook(coverSeparately: Bool) -> Bool { isTwoUp && coverSeparately }
 
-    /// What the status line calls it — "Two Pages · cover separate" when the cover is on its own.
-    public func caption(coverSeparately: Bool) -> String {
-        displaysAsBook(coverSeparately: coverSeparately) ? "\(title) · cover separate" : title
-    }
-
     /// **The pages on screen together with `page`**, zero-based — the page alone in a single-page
     /// layout, else its spread: 1–2, 3–4 … or, with the cover on its own, 1, then 2–3, 4–5 …, the
     /// pairing PDFKit draws (measured 2026-10-17: `goToNextPage` from page 1 lands in 2–3 with the
@@ -91,6 +86,16 @@ public enum EditorPDFSettings {
 
     static func coverSeparately(in defaults: UserDefaults) -> Bool {
         defaults.object(forKey: coverSeparatelyKey) as? Bool ?? coverSeparatelyDefault
+    }
+
+    /// **Where the page and zoom capsule floats** (Phase 6a) — stored as the place's name, never as
+    /// points, so it survives a resize and a relaunch at any window size. Bottom centre until it is
+    /// moved, and again after Reset Position or a double-click on its grip.
+    public static let capsulePlaceKey = "editorPDFCapsulePlace"
+    public static let capsulePlaceDefault = EditorPDFCapsulePlace.bottom
+
+    static func capsulePlace(in defaults: UserDefaults) -> EditorPDFCapsulePlace {
+        defaults.string(forKey: capsulePlaceKey).flatMap(EditorPDFCapsulePlace.init(rawValue:)) ?? capsulePlaceDefault
     }
 }
 

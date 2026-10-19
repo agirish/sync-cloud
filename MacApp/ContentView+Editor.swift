@@ -1183,7 +1183,7 @@ extension ContentView {
     }
 
     /// Text ▸ Fit Page / Fit Width / Actual Size, the zoom and Go to Page… — `nil` unless Edit is on
-    /// screen with a PDF open (`PDFPageVerbs.isOffered`). Go to Page… only where the header draws
+    /// screen with a PDF open (`PDFPageVerbs.isOffered`). Go to Page… only where the capsule draws
     /// its page field: a PDF with pages.
     var shortcutPDFPage: PDFPageVerbs? {
         guard PDFPageVerbs.isOffered(workspace: selectedWorkspace, hasPDF: editorPDF.path != nil,

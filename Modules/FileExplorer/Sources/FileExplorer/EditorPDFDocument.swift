@@ -51,7 +51,8 @@ public final class EditorPDFDocument: ObservableObject {
     /// The file on screen, or `nil` when no PDF is open.
     @Published public private(set) var path: String?
     @Published public private(set) var phase: Phase = .loading
-    /// What the status line says about the file. `nil` until it has opened (and been unlocked).
+    /// What the header's second row says about the file. `nil` until it has opened (and been
+    /// unlocked).
     @Published public private(set) var facts: EditorPDFFacts?
     /// The document the page view draws — only once it is open, never while it is locked.
     @Published private(set) var document: PDFDocument?
@@ -300,7 +301,7 @@ public final class EditorPDFDocument: ObservableObject {
         onLoaded?(phase)
     }
 
-    /// The lane's half of a load: open, and if it opened, read what the status line needs.
+    /// The lane's half of a load: open, and if it opened, read what the header's facts need.
     nonisolated static func read(_ path: String, ticket: PDFOpenTicket = PDFOpenTicket()) async -> Read {
         await PDFKitSerialAccess.perform {
             // Counted by the model that withdrew it (``skippedOpens``), not on the column
@@ -440,6 +441,14 @@ public final class EditorPDFViewState: ObservableObject {
             if coverSeparately != oldValue { defaults.set(coverSeparately, forKey: EditorPDFSettings.coverSeparatelyKey) }
         }
     }
+    /// **Where the page and zoom capsule floats** — one of eight places over the canvas, remembered
+    /// across launches under ``EditorPDFSettings/capsulePlaceKey``. A PLACE, never points: the
+    /// canvas changes size with the window, and a place is the same place at every size.
+    @Published public var capsulePlace: EditorPDFCapsulePlace {
+        didSet {
+            if capsulePlace != oldValue { defaults.set(capsulePlace.rawValue, forKey: EditorPDFSettings.capsulePlaceKey) }
+        }
+    }
     /// **Whether the pages have the keyboard** — the page view first responder (or inside it) in
     /// the key window. Reported by the view; what puts ⌘+ ⌘− ⌘0 on the PDF's zoom rather than the
     /// app's text size.
@@ -456,7 +465,7 @@ public final class EditorPDFViewState: ObservableObject {
     weak var reader: PDFView?
     /// Asks the page view to take the keyboard — the find bar going away hands it back.
     @Published private(set) var focusRequest = 0
-    /// Asks the header's page field to take the caret — Text ▸ Go to Page… ⌃⌘L, the PDF's Go to
+    /// Asks the capsule's page field to take the caret — Text ▸ Go to Page… ⌃⌘L, the PDF's Go to
     /// Line. A count, like ``focusRequest``, so a second press while the field is up asks again.
     @Published public private(set) var pageFieldRequest = 0
     private var token = 0
@@ -468,11 +477,12 @@ public final class EditorPDFViewState: ObservableObject {
         self.defaults = defaults
         layout = EditorPDFSettings.layout(in: defaults)
         coverSeparately = EditorPDFSettings.coverSeparately(in: defaults)
+        capsulePlace = EditorPDFSettings.capsulePlace(in: defaults)
     }
 
     /// **The pages on screen together, zero-based** — the current page alone in a single-page
-    /// layout, its spread in a two-page one: what the page field, the status line and the Pages tab
-    /// say the reader is on.
+    /// layout, its spread in a two-page one: what the page field, the header's paper and the Pages
+    /// tab say the reader is on.
     public var visiblePages: ClosedRange<Int> {
         EditorPDFLayout.spread(containing: currentPage, pageCount: pageCount, twoUp: layout.isTwoUp,
                                coverSeparately: coverSeparately)
@@ -510,6 +520,23 @@ public final class EditorPDFViewState: ObservableObject {
 
     /// Whether − or + has a stop to go to.
     public func canZoom(in zoomingIn: Bool) -> Bool { EditorPDFZoom.step(from: scale, in: zoomingIn) != nil }
+
+    /// The capsule's ‹ and ›: the page just past the spread on screen, so a two-page layout turns a
+    /// whole spread, as ⌥← and ⌥→ do. Nothing past either end.
+    public func turnPage(forward: Bool) {
+        guard let target = pageTurnTarget(forward: forward) else { return }
+        requestPage(target)
+    }
+
+    /// Whether ‹ or › has a page to go to.
+    public func canTurnPage(forward: Bool) -> Bool { pageTurnTarget(forward: forward) != nil }
+
+    /// The page ‹ or › asks for — before or after ``visiblePages`` — or `nil` at either end.
+    func pageTurnTarget(forward: Bool) -> Int? {
+        let pages = visiblePages
+        let target = forward ? pages.upperBound + 1 : pages.lowerBound - 1
+        return (0..<pageCount).contains(target) ? target : nil
+    }
 
     /// A preset from the zoom menu: that scale, held until a fit is picked — a resize leaves it.
     public func zoom(to value: CGFloat) {
@@ -588,7 +615,7 @@ public enum EditorPDFFit: String, CaseIterable, Sendable {
     }
 }
 
-/// What the status line says about the open PDF, read in the lane once per load.
+/// What the header's second row says about the open PDF, read in the lane once per load.
 public struct EditorPDFFacts: Equatable, Sendable {
     public var pageCount: Int
     /// Each page's media box, in points — pages of one file can differ.
@@ -601,7 +628,7 @@ public struct EditorPDFFacts: Equatable, Sendable {
     public var hasText: Bool
     /// Each page as the reader SEES it — its crop box, turned by its rotation — which is the shape
     /// the page view draws and a thumbnail is drawn in (``EditorPDFThumbnails/shownSize(of:)``).
-    /// ``pageSizes`` stays the media box, the paper the status line names. Empty when not read.
+    /// ``pageSizes`` stays the media box, the paper the header names. Empty when not read.
     public var shownSizes: [CGSize] = []
     /// Each page's crop box and rotation — where Fill & Sign's items are placed (``EditorPDFPageBox``).
     public var boxes: [EditorPDFPageBox] = []
@@ -644,17 +671,22 @@ public struct EditorPDFFacts: Equatable, Sendable {
                               form: EditorPDFForm.read(document, url: URL(fileURLWithPath: path)))
     }
 
-    /// "Letter · 8.5 × 11 in" for the page at `index`, or `nil` past the end.
-    public func paperCaption(page index: Int) -> String? {
+    /// "Letter, 8.5 × 11 in" for the page at `index` — or "Letter" alone without its `inches`, the
+    /// header's narrower reading — and `nil` past the end, or for a paper with no name once its
+    /// inches are shed.
+    ///
+    /// **The page on screen, not the first page**, as the status line this replaced had it: pages
+    /// of one file can differ, and the row says the paper of the one being read.
+    public func paperFact(page index: Int, inches: Bool = true) -> String? {
         guard pageSizes.indices.contains(index) else { return nil }
-        return Self.paperCaption(pageSizes[index])
+        return Self.paperFact(pageSizes[index], inches: inches)
     }
 
-    /// The paper's name when it is a common one, then its size in inches.
-    static func paperCaption(_ size: CGSize) -> String {
-        let inches = "\(Self.inches(size.width)) × \(Self.inches(size.height)) in"
-        guard let name = paperName(size) else { return inches }
-        return "\(name) · \(inches)"
+    /// The paper's name when it is a common one, then — unless shed — its size in inches.
+    static func paperFact(_ size: CGSize, inches: Bool = true) -> String? {
+        let measured = "\(Self.inches(size.width)) × \(Self.inches(size.height)) in"
+        guard let name = paperName(size) else { return inches ? measured : nil }
+        return inches ? "\(name), \(measured)" : name
     }
 
     /// Named papers, portrait, in points. Matched either way up, within a point.
@@ -680,7 +712,9 @@ public struct EditorPDFFacts: Equatable, Sendable {
         return value == value.rounded() ? String(Int(value)) : String(format: "%g", Double(value))
     }
 
-    public var versionCaption: String { "PDF \(majorVersion).\(minorVersion)" }
+    /// "PDF version 1.7" — said only in the tooltip on row 2's "PDF" (decided 2026-10-19: in the
+    /// row itself it is jargon that tells a reader almost nothing).
+    public var versionFact: String { "PDF version \(majorVersion).\(minorVersion)" }
     public var textCaption: String { hasText ? "Text selectable" : "Image only" }
 }
 

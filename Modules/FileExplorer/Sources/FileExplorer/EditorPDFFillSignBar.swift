@@ -3,44 +3,6 @@ import PDFToolkitCore
 import SwiftUI
 import Design
 
-/// **The header's Fill & Sign button** — beside the layout menu and before Tools (mockup 17). It
-/// turns the toolbar under the header on and off, and is lit while it is on.
-///
-/// **It sheds its word on the narrow rungs** (``EditorPDFHeaderControls/Rung/wordsFillAndSign``):
-/// the glyph alone is the layout button's 18pt, so the header's width test counts it as Tools is
-/// counted.
-struct EditorPDFFillSignButton: View {
-    @ObservedObject var fill: EditorPDFFillSign
-    let accent: Color
-    var worded: Bool
-
-    var body: some View {
-        Button { fill.toggle() } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "signature")
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                if worded {
-                    Text("Fill & Sign")
-                        .scaledFont(.system(size: 10, weight: .medium))
-                        .lineLimit(1)
-                        .fixedSize()
-                }
-            }
-            .padding(.horizontal, worded ? 5 : 0)
-            .frame(width: worded ? nil : 18, height: 18)
-            .foregroundStyle(fill.isOn ? AnyShapeStyle(accent) : AnyShapeStyle(.primary))
-            .background(fill.isOn ? accent.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: Radius.chip))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-        .accessibilityLabel("Fill & Sign")
-        .accessibilityValue(fill.isOn ? "On" : "Off")
-        .help(fill.refusal == nil
-              ? (fill.isOn ? "Put Fill & Sign away" : "Fill & Sign — place text, dates, marks and signatures, then save a filled copy")
-              : "Fill & Sign isn’t available for this PDF")
-    }
-}
-
 /// **Fill & Sign's toolbar, under the header** (mockup 17): what to place, its size and ink, and
 /// Discard and Save Filled Copy. Nothing it does writes until Save Filled Copy.
 ///
@@ -72,6 +34,18 @@ struct EditorPDFFillSignBar: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
+                // What a click does, and what the form and the page hold — "14 fields · 2 changed".
+                // The status line said it until 6a took the status line away; here until 6b's
+                // palette and save pill take it, under the tools it describes.
+                Text(fill.statusSegments.joined(separator: " · "))
+                    .scaledFont(.system(size: 10))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 5)
                 // What Save would refuse, as it arises, and the form's own caveats (5c): lines of
                 // their own under the rungs, so they wrap rather than widen the toolbar.
                 let notes = fill.formNotes

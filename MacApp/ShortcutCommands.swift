@@ -406,7 +406,7 @@ struct PDFFillSignVerbs {
     }
 }
 
-/// **Text ▸ the page controls of a PDF open in Edit** — the header zoom menu's Fit Page, Fit Width
+/// **Text ▸ the page controls of a PDF open in Edit** — the capsule view menu's Fit Page, Fit Width
 /// and Actual Size, its − and +, and its page field, on the slots and chords Source / Preview /
 /// Split and Go to Line… have for text: the zoom stands where the modes stand, and the page field
 /// is a PDF's Go to Line. One item per chord whichever file is open, so nothing is registered twice.
@@ -417,7 +417,7 @@ struct PDFFillSignVerbs {
 /// fit's tick is read by the menu item itself (`PDFFitCommands`).
 struct PDFPageVerbs {
     let view: EditorPDFViewState
-    /// Text ▸ Go to Page…: the header's page field, or `nil` where the header draws none — a PDF
+    /// Text ▸ Go to Page…: the capsule's page field, or `nil` where no capsule is drawn — a PDF
     /// with no pages.
     let goToPage: (() -> Void)?
 
@@ -2833,7 +2833,7 @@ struct EditorModeCommands: View {
 }
 
 /// Text ▸ Fit Page ⌃⌘1 / Fit Width ⌃⌘2 / Actual Size ⌃⌘3, then Zoom In and Zoom Out — the PDF
-/// header's zoom menu and its − and +, as items. Ticked like that menu's fits: none while the reader
+/// capsule's view menu and its − and +, as items. Ticked like that menu's fits: none while the reader
 /// has zoomed by hand. **Observes the view state itself**, which the window does not; this small
 /// view is the one that redraws for it. The zoom items have no chords: ⌘+ and ⌘− are View ▸ Text
 /// Size's, which zoom the PDF only while its pages have the keyboard (`PDFZoomVerbs`); these work
@@ -2923,7 +2923,7 @@ struct FindPreviousCommand: View {
 /// already up, a second press leaves it up.
 struct GoToLineCommand: View {
     @FocusedValue(\.editorVerbs) private var verbs
-    /// With a PDF open the item is Go to Page… — the header's page field (`PDFPageVerbs`).
+    /// With a PDF open the item is Go to Page… — the capsule's page field (`PDFPageVerbs`).
     @FocusedValue(\.pdfPage) private var pdfPage
 
     var body: some View {

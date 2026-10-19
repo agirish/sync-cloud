@@ -43,9 +43,9 @@ import SwiftUI
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
-    /// **The header's page field answers Go to Page…** — the request is what the menu item sends.
+    /// **The capsule's page field answers Go to Page…** — the request is what the menu item sends.
     @Test func thePageFieldTakesTheCaretWhenAsked() throws {
-        let card = try source("EditorPDFCard.swift")
+        let card = try source("EditorPDFCapsule.swift")
         #expect(card.contains(".onChange(of: state.pageFieldRequest) { _, _ in pageFieldFocused = true }"),
                 "nothing answers Text ▸ Go to Page… — the item would do nothing")
     }

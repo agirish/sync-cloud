@@ -318,8 +318,8 @@ extension ContentView {
 /// responder `is NSTextView`, which is true of every field editor in the window — so it would open
 /// the document's find bar from inside a pane's own search box.
 ///
-/// **A PDF open in Edit comes first** (`FindMenuRoute.find`): its reader has a find bar of its own
-/// under the header, and nothing in it is a text view this walk could find.
+/// **A PDF open in Edit comes first** (`FindMenuRoute.find`): its reader has a find card of its own
+/// floating over the pages, and nothing in it is a text view this walk could find.
 struct FindInPaneCommand: View {
     /// Set by whichever scene is focused; `nil` when no window is up, which is when the item should
     /// be disabled rather than silently doing nothing.

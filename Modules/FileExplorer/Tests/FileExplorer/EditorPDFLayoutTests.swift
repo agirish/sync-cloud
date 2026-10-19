@@ -281,15 +281,15 @@ import FileExplorerTestSupport
     // MARK: Spreads in the header, the status line and the rail
 
     @Test func thePageFieldShowsAndTakesASpread() {
-        #expect(EditorPDFHeaderControls.pageText(6...6) == "7")
-        #expect(EditorPDFHeaderControls.pageText(5...6) == "6–7")
+        #expect(EditorPDFCapsule.pageText(6...6) == "7")
+        #expect(EditorPDFCapsule.pageText(5...6) == "6–7")
         // The field's own spread sent back unchanged goes to its first page — the spread it is.
-        #expect(EditorPDFHeaderControls.page(typed: "6–7", pageCount: 64) == 5)
-        #expect(EditorPDFHeaderControls.page(typed: "7", pageCount: 64) == 6)
-        #expect(EditorPDFHeaderControls.page(typed: "–", pageCount: 64) == nil)
+        #expect(EditorPDFCapsule.page(typed: "6–7", pageCount: 64) == 5)
+        #expect(EditorPDFCapsule.page(typed: "7", pageCount: 64) == 6)
+        #expect(EditorPDFCapsule.page(typed: "–", pageCount: 64) == nil)
         // Wide enough for "63–64".
-        #expect(EditorPDFHeaderControls.fieldWidth(pageCount: 64, twoUp: true)
-                > EditorPDFHeaderControls.fieldWidth(pageCount: 64))
+        #expect(EditorPDFCapsule.fieldWidth(pageCount: 64, twoUp: true)
+                > EditorPDFCapsule.fieldWidth(pageCount: 64))
     }
 
     /// **A typed page lands on the spread that holds it** — 7 with the cover separate is 6–7.
@@ -298,28 +298,25 @@ import FileExplorerTestSupport
         let state = state(.twoPages, cover: true)
         let (window, view) = try await mount(doc, state)
         defer { window.contentView = nil }
-        state.requestPage(try #require(EditorPDFHeaderControls.page(typed: "7", pageCount: 12)))
+        state.requestPage(try #require(EditorPDFCapsule.page(typed: "7", pageCount: 12)))
         // The request is handed to the view on the next update, as the field's is.
         _ = await LayoutPumpWait.pump(window, upTo: 10) { state.visiblePages == 5...6 }
         #expect(state.visiblePages == 5...6, "typing 7 shows \(state.visiblePages)")
-        #expect(EditorPDFHeaderControls.pageText(state.visiblePages) == "6–7")
+        #expect(EditorPDFCapsule.pageText(state.visiblePages) == "6–7")
         #expect(view.visiblePages.map { doc.index(for: $0) } == [5, 6])
     }
 
-    /// **"Pages 6–7 of 64", then the layout and the zoom** (mockups 15 and 16) — the zoom also being
-    /// where its value is still said once the header's control has shed its word.
-    @Test func theStatusLineNamesTheSpreadAndTheLayout() {
-        let facts = EditorPDFFacts(pageCount: 64, pageSizes: Array(repeating: PDFFixtures.letter, count: 64),
-                                   majorVersion: 1, minorVersion: 7, fileSize: "2 MB", hasText: true)
-        #expect(EditorPDFStatusLine.segments(facts: facts, pages: 5...6, layout: .twoPages, coverSeparately: true,
-                                             zoom: "Fit Page")
-                == ["Pages 6–7 of 64", "Two Pages · cover separate", "Fit Page", "Letter · 8.5 × 11 in", "2 MB",
-                    "PDF 1.7", "Text selectable"])
-        #expect(EditorPDFStatusLine.segments(facts: facts, pages: 6...6, layout: .singlePage).prefix(2)
-                == ["Page 7 of 64", "Single Page"])
-        // The cover choice says nothing in a single-page layout.
-        #expect(EditorPDFStatusLine.segments(facts: facts, pages: 6...6, layout: .continuous, coverSeparately: true)[1]
-                == "Continuous")
+    /// **Row 2's paper is the page on screen's** — the status line's rule for a file of mixed
+    /// sizes, kept now the status line is gone: a spread names its first page's paper.
+    @Test func rowTwoNamesThePaperOfThePageOnScreen() throws {
+        let sizes = [PDFFixtures.letter, CGSize(width: 595, height: 842), PDFFixtures.letter]
+        let facts = EditorPDFFacts(pageCount: 3, pageSizes: sizes, majorVersion: 1, minorVersion: 7,
+                                   fileSize: "2 MB", hasText: true)
+        #expect(EditorPDFFactsRow.rungs(facts, page: 0).first?.first == "Letter, 8.5 × 11 in")
+        #expect(EditorPDFFactsRow.rungs(facts, page: 1).first?.first == "A4, 8.26 × 11.69 in")
+        let row = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
+        #expect(row.contains("Self.rungs($0, page: state.visiblePages.lowerBound)"),
+                "row 2 no longer reads the paper of the page on screen")
     }
 
     /// **The view state's spread is what all three read**, and the Pages tab rings every page in it.
@@ -505,6 +502,49 @@ import FileExplorerTestSupport
         let item = try #require(menu.items.first { $0.title == "Two Pages, Continuous" })
         _ = item.target?.perform(item.action)
         #expect(state.layout == .twoPagesContinuous)
+    }
+
+    /// **The capsule's view menu** (Phase 6a, mockup E): the zoom menu exactly as
+    /// `theZoomMenuReadsAsTheMockupDoes` reads it, then a separator and Page Layout ▸ — nothing
+    /// folded into the zoom part, nothing after.
+    @Test func theViewMenuIsTheZoomMenuThenPageLayout() throws {
+        let state = state(.twoPages, cover: true)
+        state.fit = nil
+        state.scale = 1.25
+        let zoom = EditorPDFZoomMenu.menu(for: state).items.map { $0.isSeparatorItem ? "—" : $0.title }
+        let view = EditorPDFViewMenu.menu(for: state)
+        let titles = view.items.map { $0.isSeparatorItem ? "—" : $0.title }
+        #expect(titles == zoom + ["—", EditorPDFViewMenu.layoutTitle], "the view menu reads \(titles)")
+        #expect(titles.last == "Page Layout")
+        let layout = try #require(view.items.last?.submenu, "Page Layout has no submenu")
+        #expect(layout.items.map { $0.isSeparatorItem ? "—" : $0.title }
+                == EditorPDFLayoutMenu.menu(for: state).items.map { $0.isSeparatorItem ? "—" : $0.title })
+        #expect(view.items.last?.isEnabled == true, "Page Layout is greyed")
+    }
+
+    /// **5a's layout menu, as the view menu's Page Layout submenu** — `theLayoutMenuGreysTheCover…`'s
+    /// assertions, unchanged, read through the menu the capsule opens now that the button is gone.
+    @Test func thePageLayoutSubmenuGreysTheCoverInTheSinglePageLayouts() throws {
+        let state = state(.twoPages, cover: true)
+        func submenu() throws -> NSMenu {
+            try #require(EditorPDFViewMenu.menu(for: state).items.last?.submenu, "Page Layout has no submenu")
+        }
+        var menu = try submenu()
+        #expect(menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
+                == ["Single Page", "Continuous", "Two Pages", "Two Pages, Continuous", "—", "Cover Page Separately"])
+        #expect(menu.items.filter { $0.state == .on }.map(\.title) == ["Two Pages", "Cover Page Separately"])
+        #expect(menu.items.last?.isEnabled == true)
+        for layout in [EditorPDFLayout.singlePage, .continuous] {
+            state.layout = layout
+            menu = try submenu()
+            #expect(menu.items.last?.isEnabled == false, "Cover Page Separately is live in \(layout)")
+        }
+        let item = try #require(menu.items.first { $0.title == "Two Pages, Continuous" })
+        _ = item.target?.perform(item.action)
+        #expect(state.layout == .twoPagesContinuous)
+        let cover = try #require(try submenu().items.last)
+        _ = cover.target?.perform(cover.action)
+        #expect(state.coverSeparately == false, "Cover Page Separately does not toggle the cover")
     }
 
     // MARK: Whose keyboard

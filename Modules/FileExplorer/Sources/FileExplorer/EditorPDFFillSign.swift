@@ -248,7 +248,7 @@ public enum EditorPDFFillTool: Equatable, Sendable {
     case mark(EditorPDFFillMark)
     case signature(EditorPDFSignature)
 
-    /// What the status line says while this is chosen.
+    /// What the toolbar's line of words says while this is chosen.
     public var hint: String {
         switch self {
         case .formFields: return "Form Fields · click a field to fill it, Tab moves to the next"
@@ -312,7 +312,7 @@ public final class EditorPDFSignatureStore: ObservableObject {
 
 /// **Fill & Sign: the items placed on the open PDF, and the toolbar's state** (mockups 17 and 18).
 /// A sibling of ``EditorPDFTools`` on ``EditorPDFDocument``, observed by the toolbar, the header's
-/// button, the status line and the page view's overlay.
+/// button, the header's second row and the page view's overlay.
 ///
 /// **Nothing is written until Save Filled Copy**, which is a tool run like any other —
 /// ``EditorPDFTool/fillAndSign(_:)`` through ``EditorPDFTools/run(_:bannerFailures:)`` — so the copy
@@ -555,7 +555,8 @@ public final class EditorPDFFillSign: ObservableObject {
     nonisolated static func count(_ n: Int) -> String { n == 1 ? "1 item" : "\(n) items" }
     nonisolated static func fields(_ n: Int) -> String { n == 1 ? "1 field" : "\(n) fields" }
 
-    /// The status line's words while the toolbar is up: what a click does, then what is placed.
+    /// The toolbar's line of words while it is up — the status line's, until 6a took that away:
+    /// what a click does, then what the form and the page hold.
     public var statusSegments: [String] {
         var out = [armed?.hint ?? (selection != nil ? "Drag to move · Delete removes it" : "Choose what to place")]
         if form.hasFields {

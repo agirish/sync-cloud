@@ -135,13 +135,13 @@ enum PDFURLOpens {
         let facts = try? #require(pdf.facts)
         #expect(facts?.pageCount == 3)
         #expect(pdf.view.pageCount == 3, "the view state cannot say what spread the reader is on")
-        #expect(facts?.paperCaption(page: 0) == "Letter · 8.5 × 11 in")
+        #expect(facts?.paperFact(page: 0) == "Letter, 8.5 × 11 in")
         #expect(facts?.hasText == true)
         #expect(facts?.fileSize != nil)
         #expect(lines.last == "Editor opened \(file) (PDF, 3 pages)")
     }
 
-    /// A scan's pages are pictures: nothing to select, and the status line says so.
+    /// A scan's pages are pictures: nothing to select, and the header's second row says so.
     @Test func aScanSaysImageOnly() async {
         let file = path("scan.pdf")
         PDFFixtures.write(file, pages: 2, size: CGSize(width: 595, height: 842), text: false)
@@ -149,7 +149,7 @@ enum PDFURLOpens {
         #expect(await open(pdf, file) == .open)
         #expect(pdf.facts?.hasText == false)
         #expect(pdf.facts?.textCaption == "Image only")
-        #expect(pdf.facts?.paperCaption(page: 1) == "A4 · 8.26 × 11.69 in")
+        #expect(pdf.facts?.paperFact(page: 1) == "A4, 8.26 × 11.69 in")
     }
 
     /// **Bytes that are not a PDF are refused, not shown as text** — the mockup's "PDFKit couldn't
@@ -324,12 +324,14 @@ enum PDFURLOpens {
     /// **A PDF's header draws no location line** — the text header's "in Finance" or "iCloud ›
     /// Documents › …" crumbs (asked 2026-10-17: "it doesn't make sense"). Its second row says what
     /// the file is; Reveal in Browse on the name is the way to where it lives. Read over the
-    /// header's own body, so the text header's location line is untouched by this.
+    /// header's own body and its second row's, which close the file, so the text header's location
+    /// line is untouched by this.
     @Test func thePDFHeaderDrawsNoLocationLine() throws {
         let card = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
         let start = try #require(card.range(of: "struct EditorPDFHeader<Trailing: View>: View {"))
-        let end = try #require(card.range(of: "static var readOnlyTag", range: start.upperBound..<card.endIndex))
-        let header = String(card[start.upperBound..<end.lowerBound])
+        try #require(card.range(of: "struct EditorPDFFactsRow: View {", range: start.upperBound..<card.endIndex),
+                     "row 2 no longer follows the header — this read would miss it")
+        let header = String(card[start.upperBound..<card.endIndex])
         #expect(!header.contains("EditorLocationLabel"), "the PDF header draws the location crumbs again")
         #expect(!header.contains("EditorDocumentLocation"), "the PDF header takes a location again")
         #expect(header.contains("Label(\"Reveal in Browse\""), "the PDF's name lost its way to where it lives")
@@ -519,25 +521,37 @@ enum PDFURLOpens {
 
     // MARK: Words and rules
 
-    @Test func paperCaptions() {
-        #expect(EditorPDFFacts.paperCaption(CGSize(width: 612, height: 792)) == "Letter · 8.5 × 11 in")
-        #expect(EditorPDFFacts.paperCaption(CGSize(width: 792, height: 612)) == "Letter · 11 × 8.5 in")
-        #expect(EditorPDFFacts.paperCaption(CGSize(width: 288, height: 432)) == "4 × 6 in")
+    /// Row 2's paper (decided 2026-10-19): the name and the inches with a comma, since "·" is the
+    /// row's own separator — and the name alone once the inches are shed, or nothing for a paper
+    /// with no name.
+    @Test func paperFacts() {
+        #expect(EditorPDFFacts.paperFact(CGSize(width: 612, height: 792)) == "Letter, 8.5 × 11 in")
+        #expect(EditorPDFFacts.paperFact(CGSize(width: 792, height: 612)) == "Letter, 11 × 8.5 in")
+        #expect(EditorPDFFacts.paperFact(CGSize(width: 288, height: 432)) == "4 × 6 in")
+        #expect(EditorPDFFacts.paperFact(CGSize(width: 612, height: 792), inches: false) == "Letter")
+        #expect(EditorPDFFacts.paperFact(CGSize(width: 288, height: 432), inches: false) == nil)
     }
 
     @Test func aTypedPageIsClampedIntoTheDocument() {
-        #expect(EditorPDFHeaderControls.page(typed: "3", pageCount: 10) == 2)
-        #expect(EditorPDFHeaderControls.page(typed: "0", pageCount: 10) == 0)
-        #expect(EditorPDFHeaderControls.page(typed: "99", pageCount: 10) == 9)
-        #expect(EditorPDFHeaderControls.page(typed: " 4 ", pageCount: 10) == 3)
-        #expect(EditorPDFHeaderControls.page(typed: "x", pageCount: 10) == nil)
+        #expect(EditorPDFCapsule.page(typed: "3", pageCount: 10) == 2)
+        #expect(EditorPDFCapsule.page(typed: "0", pageCount: 10) == 0)
+        #expect(EditorPDFCapsule.page(typed: "99", pageCount: 10) == 9)
+        #expect(EditorPDFCapsule.page(typed: " 4 ", pageCount: 10) == 3)
+        #expect(EditorPDFCapsule.page(typed: "x", pageCount: 10) == nil)
     }
 
-    @Test func theStatusLineSaysPagePaperSizeVersionAndText() {
+    /// **Row 2 says paper, size and text, and no version** — the version is in the tooltip on
+    /// "PDF", after the read-only note (decided 2026-10-19).
+    @Test func rowTwoSaysPaperSizeAndTextAndKeepsTheVersionForTheTooltip() {
         let facts = EditorPDFFacts(pageCount: 3, pageSizes: Array(repeating: PDFFixtures.letter, count: 3),
                                    majorVersion: 1, minorVersion: 7, fileSize: "184 KB", hasText: true)
-        #expect(EditorPDFStatusLine.segments(facts: facts, pages: 1...1)
-                == ["Page 2 of 3", "Continuous", "Letter · 8.5 × 11 in", "184 KB", "PDF 1.7", "Text selectable"])
+        let widest = EditorPDFFactsRow.rungs(facts, page: 1).first
+        #expect(widest == ["Letter, 8.5 × 11 in", "184 KB", "Text selectable"])
+        #expect(!(widest ?? []).joined().contains("1.7"), "the version is back in row 2")
+        #expect(EditorPDFFactsRow.kindHelp(facts)
+                == "Read only in Edit. Tools and Fill & Sign write a copy.\nPDF version 1.7")
+        #expect(EditorPDFFactsRow.kindHelp(nil) == "Read only in Edit. Tools and Fill & Sign write a copy.")
+        #expect(EditorPDFFactsRow.kindWord == "PDF")
     }
 
     @Test func zoomingLeavesTheFitAndStepsTheScale() {

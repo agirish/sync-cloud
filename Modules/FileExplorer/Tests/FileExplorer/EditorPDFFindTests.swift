@@ -380,13 +380,17 @@ enum PDFTextFixtures {
         #expect(overlay.highlights.isEmpty)
     }
 
-    /// **Esc is wired to hide**, from the bar's own field — a key a hosted field cannot be sent.
+    /// **Esc is wired to hide**, from the bar's own field — a key a hosted field cannot be sent —
+    /// and so is the card's × (Phase 6a: the card's close, where the bar had Done). The card is
+    /// mounted over the pages, in the canvas, and no longer under the header.
     @Test func escInTheFieldHidesTheBar() throws {
         let source = try ChromeGlassWiringTests.source("EditorPDFFindBar.swift")
         #expect(source.contains(".onExitCommand { find.hide() }"), "Esc in the PDF find field no longer hides the bar")
-        #expect(source.contains("Button(\"Done\") { find.hide() }"))
-        let card = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
-        #expect(card.contains("EditorPDFFindBar(find: pdf.find, accent: accent)"), "the bar is not mounted under the header")
+        #expect(source.contains("Button { find.hide() } label: {"), "the card's × does not put it away")
+        let canvas = try ChromeGlassWiringTests.source("EditorPDFCanvas.swift")
+        #expect(canvas.contains("EditorPDFFindBar(find: find, accent: accent)"), "the card is not mounted over the pages")
+        let workspace = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
+        #expect(!workspace.contains("EditorPDFFindBar("), "the find bar is still a row under the header")
     }
 
     // MARK: Review fixes (2026-10-17)
@@ -560,8 +564,9 @@ enum PDFTextFixtures {
         reader.keyDown(with: escape)
         #expect(closes == 1, "a second Esc closed something that was not open")
 
+        let canvas = try ChromeGlassWiringTests.source("EditorPDFCanvas.swift")
+        #expect(canvas.contains("guard find.isShown else { return false }"), "the reader's Esc is not the bar's")
         let source = try ChromeGlassWiringTests.source("EditorPDFFindBar.swift")
-        #expect(source.contains("guard find.isShown else { return false }"), "the reader's Esc is not the bar's")
         #expect(!source.contains(".disabled(!find.isSearchable)"), "the field is disabled, so Esc cannot reach it")
     }
 

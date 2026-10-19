@@ -657,8 +657,8 @@ public struct EditorWorkspaceView: View {
             .frame(height: LiquidGlass.headerHeight)
     }
 
-    /// Everything under the header: ⌘N's row when it has no rail to live in, the document, and its
-    /// status line.
+    /// Everything under the header: ⌘N's row when it has no rail to live in, the document, and — for
+    /// a text file — its status line. A PDF has none (Phase 6a).
     private var textCard: some View {
         VStack(spacing: 0) {
             // ⌘N's row, when there is no rail to draw it in. The rail draws it otherwise, and the
@@ -675,17 +675,14 @@ public struct EditorWorkspaceView: View {
                     .padding(.top, 6)
             }
             if let pdf {
-                // Under the header, over the pages — where the text find bar sits over the text.
-                EditorPDFFindBar(find: pdf.find, accent: accent)
+                // **No find bar and no status line here** (Phase 6a): the find card floats over the
+                // pages (`EditorPDFReader`), and what the status line said is the header's row 2 and
+                // the capsule's. Fill & Sign's toolbar keeps its row until 6b makes it a palette.
                 if pdf.phase == .open {
                     EditorPDFFillSignBar(fill: pdf.fill, tools: pdf.tools, accent: accent)
                 }
                 EditorPDFBody(pdf: pdf, accent: accent, quickLook: railRowActions.quickLook)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if let facts = pdf.facts, pdf.phase == .open {
-                    Divider()
-                    EditorPDFStatusLine(state: pdf.view, facts: facts, fill: pdf.fill)
-                }
             } else {
                 textBody
             }

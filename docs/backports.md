@@ -7647,3 +7647,28 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF tools in Edit (`pdfTools=0`), so no pending order to take along | CLOSED — does not apply |
+
+---
+
+## The PDF reader's floating page and zoom capsule, two header rows (Phase 6a) — main only
+
+Edit's PDF header is now a text file's two rows at a text file's height: the name, Find, Fill & Sign
+and Tools, then "PDF · Letter, 8.5 × 11 in · 42 KB · Text selectable". Page, zoom and the view menu
+moved into a glass capsule over the canvas (`EditorPDFCapsule`), movable to eight places stored by
+name under `editorPDFCapsulePlace`; find became a floating card; the PDF's status line is gone. All
+of it reshapes `EditorPDFCard`, the reader `main` alone has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s pdfCard=%s statusLine=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFCard.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorPDFCard.swift 2>/dev/null | grep -c 'struct EditorPDFStatusLine')"
+done
+# measured 2026-10-18, against origin, before this landed:
+# main  pdfCard=1 statusLine=1
+# v5.x, v4.x, v3.x, v2.x — pdfCard=0 statusLine=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF reader in Edit (`pdfCard=0`), so no header or status line to rework | CLOSED — does not apply |
