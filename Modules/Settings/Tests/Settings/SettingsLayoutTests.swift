@@ -124,7 +124,7 @@ import Testing
     private static let windowFloor = CGSize(width: 760, height: 560)
 
     /// The version string this branch's builds actually carry, mirroring `project.yml`'s
-    /// `CFBundleShortVersionString`. Kept in step by the release procedure in `CLAUDE.md`, which
+    /// `CFBundleShortVersionString`. Kept in step by the release procedure in `RELEASE.md`, which
     /// makes updating it part of cutting a release.
     ///
     /// It is written down rather than read from `Bundle.main` because under `swift test`
@@ -939,7 +939,7 @@ import Testing
     ///
     /// **The ceiling is 19 characters including the "SyncCloud " prefix, and it is tighter than it
     /// looks** — "SyncCloud 10.10-dev" is 19 characters and measures 136pt, but "SyncCloud
-    /// 100.10-dev" is 20 and measures 145pt, which WRAPS. The scheme in `CLAUDE.md` stays clear as
+    /// 100.10-dev" is 20 and measures 145pt, which WRAPS. The scheme in `RELEASE.md` stays clear as
     /// long as MAJOR stays below 100; it is a two-character marker away from trouble, not the
     /// comfortable margin the earlier note claimed. If a version does approach it, this test says so.
     @MainActor

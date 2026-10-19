@@ -2,7 +2,7 @@
 
 <!-- Split out of CLAUDE.md on 2026-08-30 to keep that file to standing rules. -->
 
-> **Read this during every release cut** — `CLAUDE.md` → **Cutting a release** → **Cutting it**
+> **Read this during every release cut** — [`RELEASE.md`](../RELEASE.md) → **Cutting it**
 > step 1 requires it, and the audit is the step most easily skipped because nothing fails when it
 > is.
 >

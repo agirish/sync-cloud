@@ -96,7 +96,7 @@ public struct FontSize: Hashable, Identifiable, Sendable {
     /// **Through `selectablePercents`, never `percent + step`.** The menu items are the second route
     /// to this setting after the slider, and the two must agree on where the stops are: the slider
     /// cannot land between them, and neither may the keyboard. That is also what keeps the keyboard
-    /// inside the range the Settings rail's version line was measured against (see CLAUDE.md, "The
+    /// inside the range the Settings rail's version line was measured against (see RELEASE.md, "The
     /// version line has a width budget") — a stop the slider does not have is a width nobody checked.
     ///
     /// A value BETWEEN stops — `init(percent:)` clamps but does not snap, so a stored `102` survives —

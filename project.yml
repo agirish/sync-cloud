@@ -27,10 +27,10 @@ targets:
     info:
       path: MacApp/Info.plist
       properties:
-        # The version this branch's builds report. `main` carries the v3 line, so its tip sits at
-        # a pre-release marker for the next major; `-dev` says "this build is no release" without
+        # The version this branch's builds report. Each line's tip sits at a pre-release marker
+        # for the version it is heading toward; `-dev` says "this build is no release" without
         # implying a distributed beta. Cutting a release drops the suffix, tags, and re-bumps to
-        # the next marker — see "Cutting a release" in CLAUDE.md, which is where this is kept
+        # the next marker — see RELEASE.md, which is where this is kept
         # honest. Until 2026-08-02 this read "1.0" and had not moved since v0.10, so more than
         # twenty tagged releases all shipped claiming to be 1.0.
         CFBundleShortVersionString: "6.0-dev"

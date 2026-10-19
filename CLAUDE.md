@@ -1,9 +1,31 @@
 # SyncCloud — working agreement
 
-## Five release lines: `main` is v6, `v5.x`, `v4.x`, `v3.x` and `v2.x` are maintenance
+How work on SyncCloud gets done. "He" is Abhishek, who owns the project, runs the app against his real
+cloud data, and audits every commit. Releasing has its own file, [`RELEASE.md`](RELEASE.md) — read it
+before any release cut or version bump.
 
-Five long-lived branches, and only five. Every shipped major keeps a maintenance line, cut from
-that major's last tag when the next major opens on `main`:
+## At a glance
+
+- **Work in your own worktree.** Never edit the primary checkout `/Users/abhishek/Projects/SyncCloud`
+  except to fast-forward `main` when landing.
+- **Land on `main` only.** No backporting; record the gap in `docs/backports.md` instead (§1).
+- **Push to `main` automatically** once the gates pass — no ask ([`COMMIT.md`](COMMIT.md)). Then
+  keep going (§3).
+- **Still ask first:** release cuts, deleting a remote branch, pushing to a maintenance line, and
+  design calls only he can make (§4).
+- **Never force-push** — if one ever seems truly needed, ask and say why. **Never `git reset`, of
+  any kind. No merge commits. Never merge one line into another.**
+- **Never discard uncommitted work** — commit a checkpoint before anything that restores files
+  (`COMMIT.md` §7).
+- **Prefer one commit per change**, built by replaying onto a fresh branch (`COMMIT.md` §3).
+- **Refactors must be proven behaviour-preserving** (§5).
+
+---
+
+## 1. Branches and release lines
+
+Five long-lived branches, and only five. Each shipped major keeps a maintenance line, cut from that
+major's last tag when the next major opens on `main`:
 
 | Branch | Carries | Marker at tip | Breaking changes |
 |---|---|---|---|
@@ -13,461 +35,146 @@ that major's last tag when the next major opens on `main`:
 | `v3.x` | maintenance for the shipped **3.x series** (cut at `v3.1`, 2026-08-11) | `3.2-dev` / `302` | **never** |
 | `v2.x` | maintenance for the shipped **2.x series** (cut at `v2.8`, 2026-08-01) | `2.10-dev` / `210` | **never** |
 
-**Land on `main`. No backporting — standing direction, given 2026-08-26 without a scope limit
-(`e2b35dad`), and it governs new work generally rather than one batch.** This replaced an
-oldest-line-first rule; do not re-derive that rule from the shape of the table, and do not re-raise
-the question per batch.
+The markers are copies of `project.yml` and must move with it — [`RELEASE.md`](RELEASE.md) §2 has the
+check. Cutting a new maintenance line: `RELEASE.md` §5.
 
-**Record the gap anyway, in [`docs/backports.md`](docs/backports.md).** Those rows are now a
-*record* of what `main` carries that `v5.x`, `v4.x`, `v3.x` and `v2.x` do not — what a future audit needs if
-the direction ever changes — not a to-do list. Write down both directions: "checked and not owed"
-saves the next audit as much time as "owed", and the per-file pick notes are the expensive half to
-reconstruct. The file is carried on all five lines, so a maintainer on a maintenance line can read
-it without going through `main`. Largest known gap: **`v3.x` has none of the `DeleteOutcome`
-family**, so it cannot tell a trashed item from a permanently deleted one and offers ⌘Z for removals
-it cannot take back.
+### No backporting
 
-**If a maintenance line is ever cut again, add its row here and to `branches:` in
-`.github/workflows/tests.yml` in the same commit that pushes the branch** — and re-bump its tip
-marker in that same commit (see **Cutting a release**, step 5).
+**Land on `main`. No backporting** — standing direction since 2026-08-26 (`e2b35dad`), with no scope
+limit: it governs all new work, not one batch. It replaced an oldest-line-first rule; do not
+re-derive that rule from the shape of the table, and do not re-raise the question per batch.
 
-**Never merge one line into another.** All five stay linear; move commits with `git cherry-pick`.
-If a pick is ever authorised again, **verify it landed by CONTENT, not by `git branch -r --contains`**
-— a cherry-pick has a new SHA, so `--contains` answers about the wrong commit.
+**Record the gap anyway, in [`docs/backports.md`](docs/backports.md)** — a record of what `main`
+carries that the maintenance lines do not, for a future audit if the direction ever changes. Not a
+to-do list.
 
-**`origin` carries the five lines and nothing else — and that is a thing to CHECK, not assume.**
-A stray `roots` branch sat there unnoticed until 2026-08-27 because nothing here ever looked. One
-command, and it prints exactly five lines when the remote is clean:
+- Write down both directions: "checked and not owed" saves the next audit as much time as "owed",
+  and the per-file pick notes are the expensive half to reconstruct.
+- The row goes **inside** the change's own commit, never as a follow-up commit. If it is marginal
+  (test-only, a `main`-only suite), mention the gap in your report and skip the row.
+- The file is carried on all five lines, so a maintainer on any line can read it.
+- Largest known gap: **`v3.x` has none of the `DeleteOutcome` family**, so it cannot tell a trashed
+  item from a permanently deleted one and offers ⌘Z for removals it cannot take back.
 
-```sh
-git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x,v4.x,v5.x}, nothing else
-```
+### Keeping the lines clean
 
-A fifth is scaffolding and can go — but **deleting a remote branch is outward-facing, so establish
-that nothing unique dies first and ask before pushing the delete.** Two checks settle it:
-`git diff --name-status main <branch> | grep '^A'` must print nothing (it adds no file `main`
-lacks), and a local branch at the same SHA means the commits outlive the remote ref.
+- **Never merge one line into another.** All five stay linear. If a pick between lines is ever
+  authorised again, use `git cherry-pick`, and **verify it landed by content, not by
+  `git branch -r --contains`** — a cherry-pick has a new SHA, so `--contains` answers about the wrong
+  commit.
+- **`origin` carries the five lines and nothing else — check it, do not assume it.** A stray `roots`
+  branch sat there unnoticed until 2026-08-27 because nothing ever looked. This prints exactly five
+  lines when the remote is clean:
+  ```sh
+  git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x,v4.x,v5.x}
+  ```
+- **Any other remote branch is scaffolding and can go — but ask before pushing the delete**, and
+  first establish that nothing unique dies with it: `git diff --name-status main <branch> | grep '^A'`
+  must print nothing (it adds no file `main` lacks), and a local branch at the same SHA means its
+  commits outlive the remote ref.
+- **Tags are release-only** (`RELEASE.md` §1) and are never branched from, except once when a new
+  maintenance line is cut.
 
-Releases are cut as **tags on the line that owns them** — `v2.9` from `v2.x`, `v5.0` from `main`.
-Tags mark history and are never branched from, except once when a new maintenance line is cut from a
-major's last tag; these five branches are the only ones that persist.
+### The one deliberate exception: `candidate-tap-deferral`
 
-**One branch is a deliberate exception, written here so nobody tidies it away:
-`candidate-tap-deferral` (`dba29645`).** It parks a single unlanded 2026-08-04 commit — a tap-gesture
-deferral that was built, installed, clicked and **falsified** — which
-[`docs/columns-layout-loop.md`](docs/columns-layout-loop.md) cites by name and SHA, with the numbers,
-so the result stays reproducible instead of becoming folklore. **Delete the branch and the doc cites
-a SHA git will eventually collect.** A tag would be tidier, but the tag namespace is release-only
-(`git tag | grep -v '^v[0-9]*\.[0-9]*$'` must stay empty). Any other branch you find is scaffolding
-and can go.
+`candidate-tap-deferral` (`dba29645`) parks a single unlanded 2026-08-04 commit — a tap-gesture
+deferral that was built, installed, clicked and **falsified**. [`docs/columns-layout-loop.md`](docs/columns-layout-loop.md)
+cites it by name and SHA, with the numbers, so the result stays reproducible instead of becoming
+folklore. **Delete the branch and the doc cites a SHA git will eventually collect.** A tag would be
+tidier, but the tag namespace is release-only. Any other local branch you find is scaffolding.
 
-## Session isolation: work in a worktree, land and push without asking
+---
 
-The goal is a **linear `main`** where every completed change lands as a small number of thematic
-commits — usually **one**, see step 3 — with no long-lived feature branches, no PRs, no merge
-commits. But **in-progress work must
-never share a working tree with another session**: on 2026-07-13 several sessions edited the shared
-`main` checkout at once and their uncommitted changes got entangled.
-`/Users/abhishek/Projects/SyncCloud` is the shared landing zone, not a scratch space — do not edit
-it while work is in progress.
+## 2. Committing and pushing
 
-**Push to `main` automatically — no ask. Standing direction, 2026-10-18**, replacing the
-2026-08-30 "everything stays local until he says push" rule; do not re-derive that rule from older
-notes or memory. Once a change is finished and has passed the gates in step 3, rebase, squash,
-fast-forward the primary checkout and push, in one go. Commit freely inside the worktree before
-that — those commits are a working record, not the shipped history — and still never edit the
-primary checkout except to fast-forward it in step 4.
+@COMMIT.md
 
-**What the standing approval does NOT cover — these still need an explicit yes, asked one at a time:**
-cutting a release (tags, a GitHub release, flipping a Pages `latest` badge — see **Cutting a
-release**), deleting a remote branch, pushing to a maintenance line, and anything that rewrites
-published history (force-push is banned outright — see **Never force-push**, step 3). A design call only he can make is
-also an ask; a mechanical choice with a clear default is not — pick it, say so in the report, and
-keep going.
+The full workflow is [`COMMIT.md`](COMMIT.md), imported by the line above so it loads with this file in
+every session. In short: work in your own worktree; rebase on `origin/main`; squash by replaying onto a
+fresh `<task>-themed` branch, preferring one commit; pass the gates (the equivalence diff is empty,
+tests green, the app installed and seen running); fast-forward the primary and push — no ask. Never
+force-push, never `git reset`, and commit a checkpoint before anything that discards working-tree
+state.
 
-**After a push, keep going.** Do not stop to report and wait. In order:
+---
 
-1. **Watch CI for the SHA you pushed** (`gh run list --branch main --limit 3`). A red your commit
-   caused is the next task: fix forward with a new commit through the same steps — never revert by
-   rewriting `main`. Read [`docs/flaky-tests.md`](docs/flaky-tests.md) before blaming the commit.
-2. **Pick up the next pending item** — your own session's follow-ups first, then open items the
-   roadmap and memory name as built-not-pushed or planned. Check `git worktree list` and the
+## 3. After a push: keep going
+
+Do not stop to report and wait. In order:
+
+1. **Watch CI for the SHA you pushed** — `gh run list --branch main --limit 3`. A red your commit
+   caused is the next task: fix it forward through the same steps. Read
+   [`docs/flaky-tests.md`](docs/flaky-tests.md) before blaming the commit (§5).
+2. **Pick up the next pending item** — your own session's follow-ups first, then open items that the
+   roadmap and memory list as built-but-not-pushed or planned. Check `git worktree list` and the
    running sessions first, so you do not take over work another session is doing.
 3. **If nothing is pending, run an adversarial review** of what has landed on `main` since the last
-   one: try to break the recent commits — wrong edge cases, claims in commit bodies or docs the
-   code does not support, tests that pass vacuously, regressions against the previous tag. Fix what
-   is real, push it the same way, and loop back to 1.
+   one. Try to break the recent commits: edge cases, claims in commit bodies or docs the code does
+   not support, tests that pass vacuously, regressions against the previous tag. Fix what is real,
+   push it the same way, and go back to 1.
 
-Stop only when you truly need his input; then ask that one question directly and stop.
+Stop only when you truly need his input — then ask that one question directly, and stop.
 
-1. **Start** — worktree on a fresh branch off `origin/main`:
-   ```sh
-   git -C /Users/abhishek/Projects/SyncCloud fetch origin
-   git worktree add /Users/abhishek/Projects/SyncCloud-<task> -b <task> origin/main
-   ```
-   This is an **xcodegen** project — run `xcodegen` in the new worktree before `xcodebuild`.
+---
 
-2. **Work** — all changes inside that worktree. Commit as often as is useful; the granularity here
-   is for you, not for `main`, so a commit per experiment is fine and reverting one is cheap.
-   Nothing leaves the worktree at this stage.
+## 4. When to ask
 
-3. **Squash before you push — and prefer ONE commit.** The shipped shape is
-   the fewest commits a reader can follow, which is usually **one**. Split only when a second
-   genuinely earns its place: a refactor worth reading on its own before the behaviour change it
-   enabled, or docs that stand apart from the code. Not one commit per file, and never a stack of
-   `WIP`. "Prefer one" is a default, not a hard rule — two well-drawn themes beat one commit
-   nobody can review.
+The standing approval covers pushing finished work to `main`. **These still need his explicit yes,
+asked one question at a time, in terms of what he will see:**
 
-   **`git reset` is banned in every flavour, `--soft` included, and so is force-push** — standing
-   direction, 2026-09-09. The recipe that used to live here reached for `git reset --soft`; it is
-   gone. Squash by **replaying onto a fresh branch** instead: no ref moves, nothing is discarded,
-   and the working branch survives both as the fallback and as the thing you diff against.
+- cutting a release — tags, a GitHub release, flipping a Pages `latest` badge ([`RELEASE.md`](RELEASE.md))
+- deleting a remote branch (§1)
+- pushing to a maintenance line
+- a force-push, if one ever seems truly needed (`COMMIT.md` §6)
+- a design call only he can make
 
-   **Never force-push — and work so that one is never needed.** Standing direction, restated
-   2026-10-18. Every flavour counts: `--force`, `--force-with-lease`, a `+` refspec, deleting a
-   remote branch and pushing it again. The flow is built to make it unnecessary, so keep it that
-   way consciously:
-   - **Only `main` is ever pushed, and only by fast-forward.** `<task>` and `<task>-themed` never
-     leave this machine, so rebasing or rebuilding them rewrites nothing anyone else has.
-   - **Rebase on `origin/main` right before the squash, every time**, and again if `main` moved
-     before you land. `merge --ff-only` from the primary is the check: if it refuses, you are
-     behind — fetch, rebase, re-squash, retry.
-   - **Think before the push, not after.** Read the log and the diff in the gates below. A commit
-     that is wrong once it is on `main` gets fixed by a NEW commit (a fix-forward or a `revert`),
-     never by rewriting `main`.
-   - **A rejected push means another session landed first.** The answer is fetch and rebase.
+A mechanical choice with a clear default is not an ask: pick it, say so in the report, and keep
+going.
 
-   If a situation ever seems to truly need a force-push — a secret committed to `main` is the only
-   plausible case — **stop and ask him first**, and say why it is truly needed: what happened, why a
-   new commit cannot fix it, exactly what the force would overwrite, and what else was tried. The
-   standing push approval does not cover it.
+---
 
-   Rebase first — always, and before anything else touches the work:
-   ```sh
-   git fetch origin && git rebase origin/main
-   git checkout -b <task>-themed origin/main
-   ```
+## 5. Correctness and CI
 
-   **One commit** — the whole branch delta staged at once, deletions and renames included. This is
-   the default; reach for it unless you have already decided on a real second theme:
-   ```sh
-   git merge --squash <task>
-   git commit -F <message-file>    # no editor here, so write the message to a file
-   ```
-
-   **More than one** — group the working commits by theme, one `commit` per group:
-   ```sh
-   git cherry-pick -n <sha> <sha> && git commit -F <message-file>   # repeat per theme
-   ```
-   `cherry-pick` replays each *change* rather than a file's end state, so two themes may share a
-   file, and a change `main` made under you **conflicts loudly** instead of disappearing. This is
-   also why the grouping only works where your theme boundaries fall on commit boundaries — one
-   more reason to commit small and single-purpose in step 2, since those commits do not ship.
-
-   **Never build a theme with `git checkout <task> -- <paths>`.** Measured 2026-09-09, three ways
-   it loses work silently: it takes the file's **final** content, so a later theme bleeds into the
-   earlier commit; it **reverts** any change `main` made to that file, with no conflict and no
-   message; and a path the branch **deleted** is left sitting there, with nothing but an
-   `error: pathspec ... did not match` to show for it. `git diff | git apply --index` fixes only
-   the third of those.
-
-   **Then prove the rebuild kept everything — this must print NOTHING:**
-   ```sh
-   git diff <task> <task>-themed
-   ```
-   Empty means the themed branch is byte-identical to the work despite having been rebuilt commit
-   by commit. It is the one check that catches a dropped file, a lost deletion and a bled theme at
-   once, and it is cheap; run it before you read anything else. Note that it says nothing about
-   whether each commit *builds* on its own — build at each one if that matters.
-   - Message shape: imperative subject; prose body explaining *why*; trailer
-     `Co-Authored-By: <model> <noreply@anthropic.com>`.
-   - **Empty commits do not survive the squash, but check anyway** — this prints nothing when the
-     branch is clean and names the offender when it is not:
-     ```sh
-     git log --oneline --format='%H %s' origin/main..HEAD |
-       while read sha rest; do [ -z "$(git show --stat --format= $sha)" ] && echo "EMPTY: $sha $rest"; done
-     ```
-     Four empty `WIP` commits sit in `main`'s history (`33c25bd2`, `8456c9d0`, `ea6441bf`,
-     `a6622782`) from sessions that landed the whole branch without looking. Removing one after it
-     lands needs a force-push, which is why they are staying.
-   - **The gates, before anything lands:** the equivalence diff above is empty; the tests of every
-     package that changed — and of the packages that depend on it — are green locally; an app
-     change has been installed and seen running (**Trying an app change**); and any
-     `docs/backports.md` row is **inside** the squash, not a follow-up commit. Read
-     `git log --oneline origin/main..HEAD` and `git diff --stat origin/main..HEAD` one last time —
-     for you now, not as an ask.
-
-4. **Land and push.** Fast-forward the primary checkout; **no merge commits**:
-   ```sh
-   git -C /Users/abhishek/Projects/SyncCloud merge --ff-only <task>-themed && git push
-   ```
-   Run it as its own command, from the primary, and read back `git rev-parse --short origin/main`.
-   If `--ff-only` refuses or the push is rejected, another session landed first: fetch, go back to
-   step 3's rebase, re-squash, re-run the gates, and try again — never force anything.
-   It is the **themed** branch that lands — `<task>` itself is the working record and never ships.
-   Then report what landed, with the SHAs, and carry on (**After a push, keep going**, above).
-   Finally `git worktree remove /Users/abhishek/Projects/SyncCloud-<task>`.
-
-**Cite SHAs only after the push.** The squash and the rebase both renumber everything, so a SHA
-read before step 4 names a commit that no longer exists.
-
-### Never discard working-tree state to undo an experiment — commit first
-
-`git checkout -- <file>` and `git restore <file>` do not undo *your last edit*: they throw the file
-back to `HEAD` and take **every uncommitted change in it** with them, silently and with no reflog
-entry to recover from. The same is true of `git clean -fd` and `git stash drop` — and of
-`git reset --hard`, which is doubly out of bounds now that **`git reset` is banned outright**
-(step 3). Mutation testing is where this bites, because reverting the mutation is the whole point of
-the step and the file also holds the fix being tested.
-
-**It happened twice on 2026-08-30, in one session.** The second time it wiped a new view's entire
-API — a property, two parameters and the branch that used them — and the build then failed in a
-*different* file with `generic parameter 'R' could not be inferred` and a stray mention of
-`TableColumn`, because SwiftUI's `Group` had fallen back to another overload once its content
-stopped type-checking. The error named neither the deleted code nor the file it was deleted from.
-
-**So: commit a checkpoint BEFORE mutating anything.** Worktree commits are free and the squash in
-step 3 removes them, so there is no cost to pay:
-
-```sh
-git add -A && git commit -qm "checkpoint before mutation testing"
-# ...mutate, run the test, watch it fail...
-git checkout -- <file>     # now restores to the checkpoint, which is what was meant
-git status --short         # MUST still list the file as modified when work was expected
-```
-
-The check on the last line is the point: a `git status` that comes back clean where you expected
-modifications means the restore just took your work, and it is far cheaper to see that now than
-through a compiler error three files away. **Any command that discards working-tree state is
-forbidden while uncommitted work exists in its path** — commit, or `git stash push -- <file>` and
-pop it back, or copy the file aside and copy it back. Never `checkout --` on faith.
-
-## Cutting a release
-
-**The version bump is part of the release, not a follow-up.** Between `v0.10` and `v2.8` the version
-in `project.yml` never moved, so all twenty-odd tagged releases installed an app reporting itself as
-**1.0 (build 1)** — in the Settings rail, in `~/sync-cloud.log`, and in Finder's Version column.
-Nothing failed, because nothing *depends* on the version — the two things that read it only display
-it; it was simply wrong for two years.
-
-### Where the version lives
-
-`project.yml` is the only source of truth. Each line's current values are in the branch table at the
-top of this file — this block shows the shape, not any line's numbers, so that it cannot drift:
-
-```yaml
-CFBundleShortVersionString: "<MAJOR>.<MINOR>-dev"   # the marketing version — what people see
-CFBundleVersion: "<MAJOR × 100 + MINOR>"            # the build number — what Launch Services orders by
-```
-
-`MacApp/Info.plist` is **generated from it by xcodegen and tracked in git** — run `xcodegen` after
-editing `project.yml` and commit both; a `project.yml` edit alone leaves the tracked plist stale.
-
-Two things read the version, both display-only — there is no version-keyed migration or compare
-anywhere, which is what makes changing it safe:
-
-- the Settings rail — `Modules/Settings/Sources/Settings/SettingsLayout.swift`
-- the launch breadcrumb in `~/sync-cloud.log` — `MacApp/SyncCloudApp.swift`
-
-**Three places repeat the number instead of reading it, and all must move in the same commit** —
-they are copies, so nothing fails when they drift:
-
-- the `versionMarker` literal in `Modules/Settings/Tests/Settings/SettingsLayoutTests.swift` (step 2)
-- the branch table at the top of this file — the only place CLAUDE.md spells a live number
-- `MacApp/Info.plist`, which xcodegen regenerates
-
-The table is the one that gets missed — the v4.2 re-bump moved `project.yml` and the test literal but
-left all three lines' tables reading `4.1-dev` / `401`, and the table is what a session consults
-*before* a cut. This prints nothing when the table is right, and names the offender when it is not:
-
-```sh
-# main's row is read from the WORKING TREE — that is the copy you are about to land, and during a
-# cut it is the only one that is right. The maintenance rows come from origin, the only place they
-# exist. Reading origin on BOTH sides reports "clean" all through a local bump, which is useless.
-for l in main v5.x v4.x v3.x v2.x; do
-  if [ "$l" = main ]; then m=$(grep -o '"[0-9.]*-dev"' project.yml | tr -d '"')
-  else m=$(git show origin/$l:project.yml | grep -o '"[0-9.]*-dev"' | tr -d '"'); fi
-  r=$(grep "^| \`$l\`" CLAUDE.md | grep -o '`[0-9.]*-dev`' | tr -d '`')
-  [ "$m" = "$r" ] || echo "$l: table says $r, project.yml says $m"
-done
-```
-
-### The two numbers
-
-**Marketing version.** Between releases each tip carries a **pre-release marker** suffixed `-dev` for
-the version it is heading toward. The suffix says "this build is no release" without implying a
-distributed beta. A release drops the suffix and the tip is re-bumped straight afterwards, so a plain
-number like `2.9` is only ever what the tagged commit itself carries.
-
-Non-numeric is deliberate and verified: SyncCloud is distributed directly, not through the App Store,
-so `CFBundleShortVersionString` is a free-form display string. Measured on a real Release build —
-Launch Services stores `3.0-dev` verbatim and Spotlight emits `kMDItemVersion = "3.0-dev"` (Finder's
-Version column); LS *orders* on `CFBundleVersion`, not on this string. (The App Store's 1–3-integers
-rule would apply only on submission, and would mean dropping the suffix, nothing more.)
-
-**Build number.** `CFBundleVersion` = **MAJOR × 100 + MINOR** — `2.9` → `209`, `2.10` → `210`,
-`3.0` → `300`. One integer, so it orders correctly under both numeric and naive string comparison
-(`"2.10"` vs `"2.9"` does not); it increases across all lines at once, so a v4 build always outranks
-a v3.x one; and it is derived rather than being a second thing to remember. It changes in the same
-edit as the marker, and the `-dev` build shares it with the release it becomes — fine, because it
-identifies the version, not the build. **Keep MINOR under 100** or it stops being monotonic — and
-**MAJOR under 100** too, for a different reason: past that the rail's version line wraps (see **The
-version line has a width budget**). Both halves of the scheme are bounded.
-
-### Writing the notes
-
-**The notes are part of the release too** — v2.9 reached the point of being tagged with none,
-because nothing said to write them. They live in two places: `RELEASE_NOTES.md` (`main` is the
-superset) and `docs/releases.html` (**`main` only** — Pages serves `docs/` from `main`).
-
-**The badge flips at the cut, not when the notes are written.** Pages goes live the moment the notes
-land, so an article carrying `latest` announces a release nobody can install. A draft lands as
-`<article class="rel draft">`, the previous release **keeps** `latest`, and `RELEASE_NOTES.md` gets
-`## <version> — DRAFT, not released`. `586333f8` is the v4.1 cut that did it right.
-
-**Then audit every claim in them against the previous tag — one command per claim.** The audit
-rules, each with the release that produced it, are in
-**[`docs/release-notes-audit.md`](docs/release-notes-audit.md)**. **Read that file during the cut**
-— step 1 of **Cutting it** requires it. Nothing fails when the audit is skipped, which is exactly
-why it gets skipped; the notes then ship claims the code does not support.
-
-### Cutting it
-
-Tags are **two components** — `v2.9`, never `v2.9.0`; `git tag | grep -v '^v[0-9]*\.[0-9]*$'` should
-stay empty. Work in a worktree as always. **A cut is the exception to automatic pushing** (see
-**Session isolation**): build the whole cut locally, then ask once before step 3 puts any of it on
-`origin`.
-Everything after that point is outward-facing and irreversible in public (a pushed tag, a published
-release, a live Pages article), so the ask covers the cut as a unit, not each command in turn.
-
-1. **Drop the suffix, and publish the notes with it.** In `project.yml`, `2.9-dev` → `2.9`. Leave
-   `CFBundleVersion` alone — it is already `209`. In the same commit take the notes out of draft:
-   `RELEASE_NOTES.md`'s DRAFT heading and blockquote go; on `docs/releases.html` the article loses
-   `class="rel draft"`, its tag goes `draft`/"In development" → `latest`, the previous release trades
-   `latest` for a theme tag, and the footer goes `Changes so far: <prev>...main` →
-   `Full changelog: <prev>...<new>`. Then **work through
-   [`docs/release-notes-audit.md`](docs/release-notes-audit.md) before you commit** — it converts the
-   "Still to come" section, runs the draft-word grep (the markup list is not the whole set), and
-   audits every claim against the previous tag. v4.3's flip got every marker right and still landed
-   with two "not released" sentences intact, and because Pages publishes on the push, the live page
-   carried a `Latest` badge over a lede reading "Not released yet" until a follow-up caught it.
-2. **Regenerate and update the test marker.** Run `xcodegen`, and set `versionMarker` in
-   `Modules/Settings/Tests/Settings/SettingsLayoutTests.swift` to the same string — that literal is
-   what gives `theVersionLineFitsTheRailOnOneLine` something real to measure (see below).
-3. **Commit, land on the line, and let CI go green for that SHA — and STAY OFF THE MACHINE while
-   it runs.** The self-hosted runner IS this Mac. The v4.5 cut took three attempts on one SHA:
-   attempts 1 and 2 failed while local `swift test` runs were competing with the runner, and
-   attempt 3 went green on the same commit, no code changed, with the machine quiet and the load
-   average down from 6.61 to 4.20. Both flake families here — *"every gate parks at once, on the
-   pool their releases need"* and *"a log assertion reading a window that has already rolled"* in
-   [`docs/flaky-tests.md`](docs/flaky-tests.md) — are load-sensitive, so a busy machine
-   manufactures exactly the reds that look like a bad release. Check `uptime` and
-   `gh api repos/agirish/sync-cloud/actions/runners --jq '.runners[].busy'` BEFORE rerunning, and
-   budget a rerun into the cut rather than reading the first red as a verdict. The discriminator, if
-   you need one: run the failing suites locally at the red SHA — sub-second green there against a
-   ~12s timeout on CI is load, not code.
-
-   Then **check that the folder survey's ground truth actually ran**, which a green run does not
-   tell you:
-   `FolderSurveyGroundTruthTests` is the only suite comparing the survey rules to a real tree, and it
-   is gated on a live profile and an awake display, so it is routinely absent from a green package
-   run. `FolderSurveyGroundTruthGateTests` always runs and prints the verdict:
-
-   ```sh
-   gh run view <run-id> --log | grep '\[ground-truth\]'   # want: RAN — …
-   ```
-
-   A `SKIPPED` line names which gate closed it. On CI it always says `liveProfile is in
-   SYNCCLOUD_SKIP_MACHINE_PINNED` — that gate never opens there, by design — so the only way to get
-   a RAN is locally, and the display must be **woken and HELD**: `caffeinate -u <cmd>` only prevents
-   sleep and a short `-t` expires during the rebuild, before the gate reads it.
-   `nohup caffeinate -u -t 1200 &`, run it, then `pkill` the hold. Not a reason to hold the cut on
-   its own, but a reason not to believe the rules were checked against reality in it.
-4. **Tag that exact commit and push the tag** — `git tag v2.9 <sha> && git push origin v2.9` —
-   **before** creating the GitHub release, so the release binds to a tag that already exists. Then
-   cut it, and **pass `--target` explicitly — it is the line that owns the release, not the default
-   branch**:
-
-   ```sh
-   gh release create v2.9 --target v2.x \
-     --title "v2.9 — <the lede, shortened>" --notes-file <body> --latest
-   ```
-
-   Without `--target`, `gh release create` stores the repo's **default branch** (`main`) as
-   `target_commitish` even when the tag is on `v2.x`; v2.9 shipped that way. Nothing public renders
-   it, but it is wrong in the edit view and every API read, and invites exactly the question "was
-   this cut from main?" about a maintenance release. Fixable after publishing — the API's "unused if
-   the Git tag already exists" caveat governs tag *creation*, not the stored value:
-
-   ```sh
-   RID=$(gh release view v2.9 --json databaseId --jq .databaseId)
-   gh api --method PATCH repos/agirish/sync-cloud/releases/$RID -f target_commitish=v2.x
-   ```
-
-   **Then re-verify the tag did not move** — the real risk in editing a published release.
-   `gh api repos/agirish/sync-cloud/git/refs/tags/v2.9 --jq .object.sha` must be unchanged and
-   `git branch -r --contains <sha>` must still name `origin/v2.x` alone. Do not "correct" **v2.8**,
-   whose release says `main` and is right: it was tagged before the `v2.x` split at `0f016480`.
-5. **Re-bump the tip to the next marker, immediately.** After `v2.9`, `v2.x` becomes `2.10-dev` /
-   `210`. **A freshly cut maintenance line needs the same re-bump in its first commit** — `v3.x` was
-   cut from `v3.1` and left on `3.1` / `301` for eleven days. Same edit shape as step 1 plus
-   `xcodegen`, its own commit. Now, not next time.
-6. **Install and confirm what the app reports.** Run the `install-sync-cloud` skill and check the
-   first line of `~/sync-cloud.log` names the version you just cut.
-
-### The version line has a width budget
-
-The rail's version line is the one thing a version bump can actually break. `SettingsRail` is
-**fixed-width (176pt) and does not scroll**, and the line has no `lineLimit`, so an over-wide string
-wraps to a second row rather than clipping — and at the sheet's floor size that extra row takes the
-Large text size over its opening, which has only 0.4pt of margin.
-
-`Bundle.main` under `swift test` is the test host and carries **no** version, so the line does not
-render on its own and every rail test was blind to it. `SettingsRail.versionText` is the seam that
-fixes that: the tests inject `versionMarker` and really lay the line out. **Keep that literal in step
-with `project.yml`** — the whole reason step 2 exists.
-
-**The safe ceiling is 19 characters including the `SyncCloud ` prefix** — measured 2026-08-30, and
-tighter than it looks. The column is 142pt; `SyncCloud 10.10-dev` is 19 characters and measures
-136pt, but `SyncCloud 100.10-dev` is 20 and measures 145pt, which **wraps**. So the scheme here is
-safe only while MAJOR stays below 100 — a two-character marker from trouble, not a comfortable
-margin. The per-size table is in the test's doc comment. If a version does get long enough to
-matter, `theVersionLineFitsTheRailOnOneLine` fails and names the number; do not widen the rail
-without re-measuring the tabs that share its opening.
-
-## Trying an app change
-
-**Install from the worktree, before you push** — an app change nobody has seen running has not
-been verified, and he will be using the installed copy. The skill resolves the current worktree's `.dd` as well as the
-shared DerivedData root, so nothing has to land first.
-
-Run the `install-sync-cloud` skill (quits the running instance, installs the fresh build to
-`/Applications/SyncCloud.app`, de-dupes the DerivedData copy from Spotlight, then sweeps stale build
-debris). It launches and verifies the app itself — **by polling `~/sync-cloud.log` for a new line,
-not by `pgrep`**: a silent `open` exit is not proof the app started, and neither is a live pid. The
-app can come up wedged with zero windows and an empty log, which is exactly what `pgrep` cannot see.
-
-**Every build is ad-hoc; the installed copy is signed with this Mac's Apple Development identity.**
-macOS keys a privacy grant to the app's designated requirement, and an ad-hoc app's is its cdhash,
-which moves with every build. So every install used to be a new app to macOS, and the iCloud pane
-sat blank behind the "access files in your Documents folder" dialog until someone answered it (the
-2026-09-25 speed audit found 15 of 16 launches waiting, from 1.9 s to 46 min). Step 4 of the skill
-re-signs the bundle before copying it, which makes the requirement name the certificate instead.
-CI never uses the certificate, and neither does anyone else building from source. The app logs
-which kind of build it is right after its `launched` line — `Code signature: team …` or
-`Code signature: ad-hoc …` — and an ad-hoc install asks for Documents access at its first
-launch, as will every install after it until one is signed. **The certificate expires
-2026-12-01.** The skill signs through a renewal while both certificates carry the same name; with
-none, or with two different names, it installs ad-hoc and says so.
-
-## Correctness bar
-
-Refactors must be provably behavior-preserving: build the pre-change binary at `HEAD` and diff
-stdout / exit codes / resulting file trees against the new binary on a controlled fixture. State the
-verification in the commit body. He runs this against real cloud data and audits commits, so silent
-behavior changes are costly.
+**Refactors must be provably behaviour-preserving.** Build the pre-change binary at `HEAD` and diff
+stdout, exit codes and resulting file trees against the new binary on a controlled fixture. State the
+verification in the commit body. He runs this against real cloud data and audits commits, so a silent
+behaviour change is costly.
 
 **Before blaming a commit for a red suite, read [`docs/flaky-tests.md`](docs/flaky-tests.md).** It
-carries the known flake mechanisms with the tell for each, and it is the difference between fixing a
-regression and re-diagnosing a machine. It is carried on all five lines, but **the numbering is
-per-line and the counts differ** — cite a mechanism by its title, never by its number.
+carries the known flake mechanisms with the tell for each — the difference between fixing a
+regression and re-diagnosing a machine. It is carried on all five lines, but the numbering is
+per-line, so **cite a mechanism by its title, never its number**.
+
+**The self-hosted CI runner is this Mac.** Heavy local test runs compete with it, and the
+load-sensitive flakes then look like real failures. Check `uptime` before reading a red as a verdict.
+
+---
+
+## 6. Trying an app change
+
+**Install from the worktree before you push** — an app change nobody has seen running has not been
+verified, and he will be using the installed copy. Run the `install-sync-cloud` skill. It resolves the
+current worktree's `.dd` as well as the shared DerivedData root, so nothing has to land first.
+
+The skill quits the running instance, installs the fresh build to `/Applications/SyncCloud.app`,
+de-dupes the DerivedData copy from Spotlight, sweeps stale build debris, then launches and verifies
+the app — **by polling `~/sync-cloud.log` for a new line, not by `pgrep`**. A silent `open` exit is
+not proof the app started, and neither is a live pid: the app can come up wedged with zero windows
+and an empty log, which `pgrep` cannot see.
+
+### Signing
+
+**Every build is ad-hoc; the installed copy is signed with this Mac's Apple Development identity.**
+
+- macOS keys a privacy grant to the app's designated requirement. An ad-hoc app's requirement is its
+  cdhash, which changes with every build, so each install used to be a new app to macOS — and the
+  iCloud pane sat blank behind the "access files in your Documents folder" dialog until someone
+  answered it (the 2026-09-25 speed audit found 15 of 16 launches waiting, from 1.9 s to 46 min).
+- Step 4 of the skill re-signs the bundle before copying it, so the requirement names the
+  certificate instead. CI never uses the certificate, and neither does anyone else building from
+  source.
+- The app logs which kind of build it is right after its `launched` line — `Code signature: team …`
+  or `Code signature: ad-hoc …`. An ad-hoc install asks for Documents access at first launch, and so
+  will every install after it until one is signed.
+- **The certificate expires 2026-12-01.** The skill signs through a renewal while both certificates
+  carry the same name; with none, or with two different names, it installs ad-hoc and says so.

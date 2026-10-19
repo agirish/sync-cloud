@@ -95,7 +95,7 @@ public extension AppChord {
     // **The same detents Settings ▸ Text size offers, and nothing between or beyond them.** These
     // items step `FontSize.selectablePercents`, the slider's own stops, so the keyboard can never
     // reach a size the slider cannot — which matters because the Settings rail's version line has
-    // a width budget measured against exactly that range (see CLAUDE.md). `FontSize.stepped` is
+    // a width budget measured against exactly that range (see RELEASE.md). `FontSize.stepped` is
     // the rule, and its tests say so in as many words.
     //
     // ⌘+ is the platform's Bigger. AppKit matches a key equivalent of "+" against the "+" that
