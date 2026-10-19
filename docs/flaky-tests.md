@@ -3712,6 +3712,16 @@ Seen twice, with the same numbers both times: CI run 39084509812 at `4f9b7ddb` (
   15 / 16pt. Half the padded figure sat 0.5 / 1.5 / 2.5 / 3pt under a real wrap, so 2pt on the
   baseline was enough to make `13 − 2 = 11` fall short of `(23 + 2) / 2 = 12.5`.
 
+**Ruled out as the trigger, 2026-10-19: none of these moves the search field.** Each was laid out
+in the test process at the default size: Increased Contrast, Reduce Transparency, the dark scheme,
+`dynamicTypeSize` xSmall and xxxLarge, `controlActiveState` inactive and key, the Frosted lens,
+legacy scrollers (`preferredScrollerStyle` swapped in), and `AppleShowScrollBars`,
+`AppleKeyboardUIMode` and `AppleInterfaceStyle` in the argument domain. Two do move the rail, but
+through the tab list and on every rail at once: `displayScale` 2 or 3 makes the tab list 1pt
+shorter (the offscreen host lays out as 1× by default), and `legibilityWeight` `.bold` makes it 2pt
+taller. The CI launch itself, an x86_64 runner spawning `arch -arm64 swift test`, was not tried: a
+sandboxed session could not run the x86_64 shell.
+
 **Fix.** Both version-line tests take "a line" from the bare `.caption2` line
 (`SettingsLayoutTests.versionLineHeight`), not from a difference of two rails. The threshold is now
 5.5–8pt, and both sides of it keep 5.5–8pt over the 2pt seen. **Proved:** adding 2pt to the
