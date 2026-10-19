@@ -957,17 +957,16 @@ import Testing
 
         // The width check above is the diagnosis; this is the symptom — measured against what a
         // LINE costs rather than against an exact height. A one-character version cannot wrap, so
-        // it gives the unwrapped baseline, and subtracting a rail with no version line at all
-        // gives what one `.caption2` line is worth at this text size. A wrap adds a whole one of
-        // those; anything below half of it is layout jitter.
+        // it gives the unwrapped baseline; a wrap adds one bare `.caption2` line to it
+        // (`versionLineHeight`); anything below half of that is layout jitter.
         //
         // Jitter is why this is not an equality. It was one, and CI caught it: the runner laid
         // the identical unwrapped line out at 326pt where this machine measured 328pt, and the
         // test failed for a 2pt difference in the direction that means "did not wrap" (the marker
-        // was SHORTER than the one-character baseline). Half a line is far above that noise and
-        // far below a real wrap, so the threshold separates the two on any machine.
+        // was SHORTER than the one-character baseline). The rail's search field has been seen to
+        // move; see `versionLineHeight` for why "a line" must not include the line's padding.
         let unwrapped = railHeight(at: size.scale, version: "1")
-        let oneLine = unwrapped - railHeight(at: size.scale, version: nil)
+        let oneLine = versionLineHeight(at: size.scale)
         let extra = railHeight(at: size.scale) - unwrapped
 
         #expect(extra < oneLine / 2,
@@ -983,8 +982,8 @@ import Testing
     /// Both of its assertions are "nothing bad happened" shapes, and the height half especially
     /// so — if a wrapped line did not actually make `fittingSize.height` grow, comparing heights
     /// would pass for every string ever written and nobody would know. Measured: a marker wide
-    /// enough to need a second row adds exactly one `.caption2` line (13pt at the default text
-    /// size), and one needing three rows adds 26pt.
+    /// enough to need a second row adds exactly one `.caption2` line (11 / 13 / 15 / 16pt at Small /
+    /// Default / Large / Largest), and one needing three rows adds two.
     ///
     /// This checks the same `oneLine / 2` threshold the other test uses, from the other side, so
     /// the two together say the threshold DISCRIMINATES rather than merely that one side of it
@@ -997,7 +996,7 @@ import Testing
                 "the probe no longer overflows the column — it has stopped probing anything")
 
         let unwrapped = railHeight(at: 1, version: "1")
-        let oneLine = unwrapped - railHeight(at: 1, version: nil)
+        let oneLine = versionLineHeight(at: 1)
         let extra = railHeight(at: 1, version: overlong) - unwrapped
 
         #expect(extra >= oneLine / 2,
@@ -1020,6 +1019,23 @@ import Testing
                 The rail is the same height with and without a version — `versionText` is not \
                 what puts the line on screen, so injecting it measures nothing.
                 """)
+    }
+
+    /// What a wrap of the version line costs: one bare `.caption2` line at `scale`, without the
+    /// 10pt of padding the rail puts around it — a second row adds the line, not the padding.
+    ///
+    /// **It was measured with the padding, and that went red on CI twice** (2026-10-18 at
+    /// `4f9b7ddb`, 2026-10-19 at `0964ce60`): `rail("1") − rail(nil)` is the line *plus* its
+    /// padding, 23pt at the default size, so half of it sat 1.5pt under the 13pt a real wrap adds
+    /// (0.5pt at Small). The rail's search field — a `TextField`, measured by AppKit — reads 1pt
+    /// taller now and then in a busy full-package run, and CI's 2pt on the baseline read the
+    /// overlong probe as "11pt against a 25pt line". Against the bare line the threshold is half
+    /// of 11–16pt, so both sides keep 5.5–8pt over 2pt of jitter. `docs/flaky-tests.md`: "A
+    /// threshold measured with its padding in sits inside the jitter it was set against".
+    @MainActor
+    private func versionLineHeight(at scale: CGFloat) -> CGFloat {
+        laidOutHeight(Text("SyncCloud 1").scaledFont(.caption2),
+                      width: SettingsRail.versionTextWidth, scale: scale)
     }
 
     /// The rail as the APP lays it out — including the version line, which the host cannot

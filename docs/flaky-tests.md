@@ -3683,3 +3683,48 @@ A green rerun proves nothing.
 
 **See.** `MarkdownProjection.oneAtATime` and its doc comment; "Process-wide state, and suites
 running in parallel" for the same shape on Swift statics.
+
+### 32. A threshold measured with its padding in sits inside the jitter it was set against — FIXED
+
+**Symptom.** `SettingsLayoutTests.aVersionTooWideForTheRailReallyDoesWrapIt` red in the full
+Settings run, green on a same-SHA rerun and under `--filter`:
+
+```
+✘ … SettingsLayoutTests.swift:1003: Expectation failed: extra >= oneLine / 2
+  ↳ A version far too wide for the rail adds only 11.0pt to it against a 25.0pt line
+```
+
+Seen twice, with the same numbers both times: CI run 39084509812 at `4f9b7ddb` (2026-10-18) and run
+39303416880 at `0964ce60` (2026-10-19). No commit near either touched Settings or its dependencies.
+
+**Mechanism — two halves, and only together do they fail.**
+
+- **The rail's height jitters by 1–2pt.** The rail holds the search field, a `TextField` that AppKit
+  measures. In a busy full-package run that field now and then reads 26pt instead of 25pt: 3 of 600
+  samples across ten runs at load 21–99. It never moved in 2,000 samples with nothing else in the
+  process, nor in 12,000 across three quieter full runs, and a test that kept stealing text-field
+  focus in another window did not move it either. What sets it off was not found. CI's two reds are
+  the one-character baseline rail measuring 2pt over a nil→overlong span that matched this machine
+  exactly (36pt both ways). The same 2pt is what `237ee1d6` (2026-08-02) met on the same rail.
+- **The threshold left 0.5–3pt for that jitter, where its comment promised half a line.** "One
+  line" was `rail("1") − rail(nil)`, which is the line plus the 10pt of padding the rail puts around
+  it: 21 / 23 / 25 / 26pt at Small / Default / Large / Largest. A wrap adds only the line, 11 / 13 /
+  15 / 16pt. Half the padded figure sat 0.5 / 1.5 / 2.5 / 3pt under a real wrap, so 2pt on the
+  baseline was enough to make `13 − 2 = 11` fall short of `(23 + 2) / 2 = 12.5`.
+
+**Fix.** Both version-line tests take "a line" from the bare `.caption2` line
+(`SettingsLayoutTests.versionLineHeight`), not from a difference of two rails. The threshold is now
+5.5–8pt, and both sides of it keep 5.5–8pt over the 2pt seen. **Proved:** adding 2pt to the
+baseline rail reproduces CI's exact message ("11.0pt against a 25.0pt line") on the old code and
+stays green on the new code. Each test still catches what it is there for: `.lineLimit(1)` on the
+version line fails the probe ("0.0pt against a 13.0pt line"), and an overlong `versionMarker`
+fails the fit test's height half at all four sizes.
+
+**The general shape.** A threshold taken as "half of X" is only as safe as X is the thing the
+failure adds. Measure the quantity a defect costs, not that quantity plus whatever is fixed around
+it, and work out the headroom on **both** sides from the worst jitter seen, at every argument a
+parameterised test runs.
+
+**Tell.** A wrap/no-wrap or present/absent test that measures a difference of two `fittingSize`
+readings fails by about 2pt with the numbers repeating. Check what the threshold is half of before
+blaming the layout.
