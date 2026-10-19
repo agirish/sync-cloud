@@ -54,6 +54,39 @@ public struct RememberedVisit: Equatable, Sendable {
     }
 }
 
+/// **What the sidebar's Recents heading lists** (SQ5, SR4) — its icon cycles through these.
+///
+/// The raw value is the heading's text and the stored setting, so an unknown stored value falls
+/// back to plain Recents rather than to a list this build cannot draw.
+public enum RecentsMode: String, CaseIterable, Sendable {
+    /// Every folder you were last in, newest first — unchanged.
+    case recents = "Recents"
+    /// Folders stayed in on two or more different days, newest first (SQ1).
+    case revisited = "Revisited"
+    /// Folders stayed in most, by faded count of stays (SQ6, SQ8).
+    case frequent = "Frequent"
+
+    /// The mode one click of the heading's icon moves to: Recents → Revisited → Frequent → Recents.
+    public var next: RecentsMode {
+        let all = Self.allCases
+        return all[(all.firstIndex(of: self)! + 1) % all.count]
+    }
+}
+
+/// **The stays one folder has had** — what Revisited and Frequent count.
+///
+/// A record of its own rather than a field on `JumpLocation`, because the lists answer different
+/// questions over different spans. Recents is "where you were just now": eight per root, one date
+/// each, written on every folder a pane shows. Revisited and Frequent look back 90 days, and the
+/// folders that qualify are exactly the ones a run of one-offs pushes out of the eight before they
+/// can be counted. (Decided 2026-10-19, SQ1/SQ2/SQ8.)
+struct FolderStays: Codable, Equatable, Sendable {
+    var name: String
+    /// When each stay began, oldest first. Two are always ``FolderJumpStore/returnGap`` or more
+    /// apart in time away — a return sooner than that continues the stay before it.
+    var stays: [Date]
+}
+
 /// Both remembered lists as they should be drawn, and whether the root was there to be asked.
 ///
 /// `rootIsAvailable == false` means the lists are **everything remembered, unchecked** — the caller
@@ -88,6 +121,25 @@ public final class FolderJumpStore: ObservableObject {
     @Published private(set) var recentsByRoot: [String: [JumpLocation]] = [:]
     /// Pins are curated and outlive the session, so they persist.
     @Published private(set) var pinnedByRoot: [String: [JumpLocation]] = [:]
+    /// Each folder's stays, per root — see ``FolderStays``. Fed by
+    /// ``noteArrival(pane:root:relativePath:name:at:)``, never by `recordVisit`.
+    @Published private(set) var staysByRoot: [String: [String: FolderStays]] = [:]
+    /// Each pane's current folder, when it arrived, and whether that visit has counted yet.
+    /// Session-only: a folder open when the app quits was either stayed in already or was not.
+    private var panes: [String: PaneFolder] = [:]
+    /// When a pane last LEFT a folder it had stayed in, by `favoriteKey` — so a return inside
+    /// ``returnGap`` continues that stay rather than starting another. Session-only too: a relaunch
+    /// takes longer than the gap is worth arguing over.
+    private var departures: [String: Date] = [:]
+
+    private struct PaneFolder {
+        let root: String
+        let relativePath: String
+        let name: String
+        let at: Date
+        var counted: Bool
+        var key: String { FolderJumpStore.favoriteKey(root: FolderJumpStore.key(forRoot: root), relativePath: relativePath) }
+    }
 
     /// The user's dragged order, empty until they drag something. **Public because the row builder
     /// outside this module has to apply it** — see `FolderSidebarModel.rows(sources:recents:favoriteOrder:)`.
@@ -103,6 +155,31 @@ public final class FolderJumpStore: ObservableObject {
     /// `nonisolated` so it can be a default argument outside the main actor —
     /// `FolderSidebarModel.rows` applies the cap and is pure.
     public nonisolated static let maxRecents = 8
+    static let staysKey = "folderJumpStaysByRoot"
+    /// **How long a pane must stay in a folder for the visit to count as a stay** (SQ4).
+    /// Long enough that a folder clicked through on the way down, or skimmed past with Back and
+    /// Forward, never counts; short enough that opening a folder to read what is in it does.
+    nonisolated static let stayThreshold: TimeInterval = 4
+    /// **How long away before a return is a new stay** (SQ8). Stepping into a subfolder and back
+    /// out is one stay, not two. A tuning default, not a decision.
+    nonisolated static let returnGap: TimeInterval = 5 * 60
+    /// How far back Revisited and Frequent look (SQ2): a stay older than this is forgotten.
+    nonisolated static let revisitWindow: TimeInterval = 90 * 24 * 60 * 60
+    /// "Revisited" means stayed in on this many different calendar days (SQ1); Frequent asks for
+    /// this many stays (SQ8).
+    nonisolated static let revisitMinimum = 2
+    /// **The fade** (SQ7): a stay — or for Revisited, a day — weighs 0.5^(age in days / this), and
+    /// a folder needs a total weight of 1 to be listed. Two days a month ago just make it; two days
+    /// two months ago do not. A tuning default, not a decision, so it is one constant.
+    nonisolated static let fadeHalfLifeDays: Double = 30
+    /// The most stays one folder keeps — the newest. At the fade above, stays past the first few
+    /// dozen change nothing a person can see, and the record is rewritten on every stay.
+    nonisolated static let maxStaysPerFolder = 200
+    /// **A ceiling on the folders the stay record holds**, across every root. Not the eight rows —
+    /// the record has to reach well past those, or one-offs push the regulars out before their
+    /// second day — but a bound all the same, because the record is rewritten on every stay and
+    /// 90 days of a busy week's one-offs is otherwise unbounded. The least recently stayed go first.
+    nonisolated static let maxStayedFolders = 500
     /// The user's own order for the Favorites section, as `root\u{0}relativePath` keys.
     ///
     /// **A separate key rather than a field on `JumpLocation`, and separate from `pinnedByRoot`'s
@@ -172,6 +249,8 @@ public final class FolderJumpStore: ObservableObject {
             }
             out[key] = Array(list.prefix(Self.maxRecents))
         }
+        // Stays, through the same re-keying, merged per folder where two spellings meet.
+        staysByRoot = Self.rekeyedStays(Self.storedStays(from: defaults), moving: { $0 })
         // **Not seeded, and never written on load.** An empty order means "the user has not dragged
         // anything", and `orderedFavorites` falls through to the deterministic default for every
         // key it does not name — the same shape `visitedAt` uses for entries written before it
@@ -235,6 +314,17 @@ public final class FolderJumpStore: ObservableObject {
             return decoded
         }
         preserveUnreadable(data, from: key, in: defaults)
+        return [:]
+    }
+
+    /// The stay record, with the same three states as ``storedMap(_:from:)`` — unreadable bytes are
+    /// kept rather than written over by the next stay.
+    static func storedStays(from defaults: UserDefaults) -> [String: [String: FolderStays]] {
+        guard let data = defaults.data(forKey: staysKey) else { return [:] }
+        if let decoded = try? JSONDecoder().decode([String: [String: FolderStays]].self, from: data) {
+            return decoded
+        }
+        preserveUnreadable(data, from: staysKey, in: defaults)
         return [:]
     }
 
@@ -363,14 +453,219 @@ public final class FolderJumpStore: ObservableObject {
     ///
     /// Silent, and does not persist, when nothing matched — a root with no entries or a folder
     /// already gone is not an error, and a write here would rewrite the whole map for no change.
+    ///
+    /// **The folder's stays go with it**, so the same item works on a Revisited row: the row is
+    /// drawn from the stay record, and a removal that left that record in place would do nothing
+    /// the user could see.
     public func forgetRecent(root: String, relativePath: String) {
         let key = Self.key(forRoot: root)
+        if staysByRoot[key]?.removeValue(forKey: relativePath) != nil {
+            if staysByRoot[key]?.isEmpty == true { staysByRoot[key] = nil }
+            persistStays()
+        }
         guard var list = recentsByRoot[key] else { return }
         let before = list.count
         list.removeAll { $0.relativePath == relativePath }
         guard list.count != before else { return }
         recentsByRoot[key] = list
         persistRecents()
+    }
+
+    // MARK: - Stays, for Revisited and Frequent
+
+    /// **A pane arrived at a folder.** Called on every pane folder change, beside `recordVisit` —
+    /// and unlike it, this records nothing yet. The folder the pane is LEAVING is settled first:
+    /// if the pane was there for ``stayThreshold`` it counts as a stay, and if not — a parent
+    /// clicked through on the way down, a Back/Forward skim — it is dropped (SQ4).
+    ///
+    /// A folder left after a stay and returned to inside ``returnGap`` is the same stay carrying
+    /// on, so it does not count again (SQ8).
+    ///
+    /// - Parameter pane: which pane, as any stable name — each pane has one folder at a time, and
+    ///   the left pane moving must not settle the right one's.
+    public func noteArrival(pane: String, root: String, relativePath: String, name: String,
+                            at: Date = Date()) {
+        leave(pane, at: at)
+        departures = departures.filter { at.timeIntervalSince($0.value) < Self.returnGap }
+        // The root is never a recent, so it is never revisited either — see `recordVisit`.
+        guard !relativePath.isEmpty, !name.isEmpty else { return }
+        var folder = PaneFolder(root: root, relativePath: relativePath, name: name, at: at, counted: false)
+        // Back within the gap, or the other pane is already there having stayed: one stay, going on.
+        folder.counted = departures[folder.key] != nil
+            || panes.values.contains { $0.key == folder.key && $0.counted }
+        panes[pane] = folder
+    }
+
+    /// **Counts every pane that has now stayed long enough**, without waiting for it to move. The
+    /// app calls this ``stayThreshold`` after each arrival, so a folder counts while you are still
+    /// in it. Early or repeated calls are harmless: an arrival younger than the threshold is left
+    /// alone, and one already counted is not counted twice.
+    public func settleStays(at now: Date = Date()) {
+        for pane in panes.keys.sorted() { settle(pane, at: now) }
+    }
+
+    /// How long the app should wait after an arrival before calling ``settleStays(at:)``.
+    public nonisolated static var settleDelay: Duration { .seconds(stayThreshold) }
+
+    private func leave(_ pane: String, at now: Date) {
+        settle(pane, at: now)
+        guard let folder = panes.removeValue(forKey: pane) else { return }
+        if folder.counted { departures[folder.key] = now }
+    }
+
+    private func settle(_ pane: String, at now: Date) {
+        guard let folder = panes[pane], !folder.counted,
+              now.timeIntervalSince(folder.at) >= Self.stayThreshold else { return }
+        panes[pane]?.counted = true
+        // Dated at the ARRIVAL: a stay settled late — by the next move, the morning after — still
+        // happened when the pane got there.
+        recordStay(root: folder.root, relativePath: folder.relativePath, name: folder.name, at: folder.at)
+    }
+
+    /// Records one stay and forgets what has aged out of the window.
+    func recordStay(root: String, relativePath: String, name: String, at: Date) {
+        let key = Self.key(forRoot: root)
+        var folders = staysByRoot[key] ?? [:]
+        var record = folders[relativePath] ?? FolderStays(name: name, stays: [])
+        record.name = name
+        record.stays = Array((record.stays + [at]).sorted().suffix(Self.maxStaysPerFolder))
+        folders[relativePath] = record
+        var all = staysByRoot
+        all[key] = folders
+        staysByRoot = Self.pruned(all, now: at, cap: Self.maxStayedFolders)
+        persistStays()
+    }
+
+    /// The record with every stay older than the window dropped, every folder left with none
+    /// dropped, and — past `cap` folders — the least recently stayed dropped.
+    nonisolated static func pruned(_ stays: [String: [String: FolderStays]], now: Date,
+                                   cap: Int) -> [String: [String: FolderStays]] {
+        let cutoff = now.addingTimeInterval(-revisitWindow)
+        var kept: [(root: String, path: String, record: FolderStays, last: Date)] = []
+        for (root, folders) in stays {
+            for (path, record) in folders {
+                let live = record.stays.filter { $0 >= cutoff }
+                guard let last = live.max() else { continue }
+                kept.append((root, path, FolderStays(name: record.name, stays: live), last))
+            }
+        }
+        if kept.count > cap {
+            kept.sort {
+                if $0.last != $1.last { return $0.last > $1.last }
+                return ($0.root, $0.path) < ($1.root, $1.path)
+            }
+            kept = Array(kept.prefix(cap))
+        }
+        return kept.reduce(into: [:]) { out, entry in out[entry.root, default: [:]][entry.path] = entry.record }
+    }
+
+    /// What one stay (or day) counts for at `now` — 1 today, ½ after ``fadeHalfLifeDays`` (SQ7).
+    nonisolated static func fadedWeight(of date: Date, now: Date) -> Double {
+        let ageDays = max(0, now.timeIntervalSince(date)) / 86_400
+        return pow(0.5, ageDays / fadeHalfLifeDays)
+    }
+
+    /// A total weight of at least 1, with room for the rounding a sum of powers carries.
+    private nonisolated static func weighsEnough(_ total: Double) -> Bool { total >= 1 - 1e-9 }
+
+    /// **One folder's standing in a mode, or nil when it is not listed.**
+    ///
+    /// - **Revisited** (SQ1, SQ7): stays on 2+ different calendar days, each day weighed by its
+    ///   latest stay, summing to 1 or more. Ranked by the last stay — newest first.
+    /// - **Frequent** (SQ8, SQ6): 2+ stays, every stay weighed, summing to 1 or more. Ranked by
+    ///   that sum. So three stays this morning are Frequent and not Revisited.
+    nonisolated static func standing(of stays: [Date], in mode: RecentsMode, now: Date,
+                                     calendar: Calendar) -> (rank: Double, last: Date)? {
+        let cutoff = now.addingTimeInterval(-revisitWindow)
+        let live = stays.filter { $0 >= cutoff && $0 <= now }
+        guard let last = live.max() else { return nil }
+        switch mode {
+        case .recents:
+            return nil
+        case .revisited:
+            let latestPerDay = Dictionary(grouping: live, by: { calendar.startOfDay(for: $0) })
+                .values.compactMap { $0.max() }
+            let total = latestPerDay.reduce(0) { $0 + fadedWeight(of: $1, now: now) }
+            guard latestPerDay.count >= revisitMinimum, weighsEnough(total) else { return nil }
+            return (last.timeIntervalSinceReferenceDate, last)
+        case .frequent:
+            let total = live.reduce(0) { $0 + fadedWeight(of: $1, now: now) }
+            guard live.count >= revisitMinimum, weighsEnough(total) else { return nil }
+            return (total, last)
+        }
+    }
+
+    /// **The sidebar's Revisited or Frequent list**, across every root, with favorites and landing
+    /// folders subtracted exactly as ``mostRecentAcrossRoots(recents:favorites:landings:limit:)``
+    /// subtracts them — the same column, the same reasons. Highest rank first, ties to the most
+    /// recent stay, then by root and path so the order is the same on every run.
+    ///
+    /// Pure, like that one, so every rule is asserted without a store or a clock.
+    nonisolated static func stayedAcrossRoots(_ mode: RecentsMode,
+                                              stays: [String: [String: FolderStays]],
+                                              favorites: [String: [JumpLocation]],
+                                              landings: [String: String] = [:],
+                                              now: Date, calendar: Calendar = .current,
+                                              limit: Int) -> [RememberedVisit] {
+        guard limit > 0 else { return [] }
+        var found: [(visit: RememberedVisit, rank: Double, last: Date)] = []
+        for root in stays.keys.sorted() {
+            var subtracted = Set((favorites[root] ?? []).map(\.relativePath))
+            if let landing = landings[root] { subtracted.insert(landing) }
+            for (path, record) in stays[root] ?? [:] where !subtracted.contains(path) {
+                guard let standing = standing(of: record.stays, in: mode, now: now, calendar: calendar)
+                else { continue }
+                found.append((RememberedVisit(root: root, relativePath: path, name: record.name,
+                                              visitedAt: standing.last),
+                              standing.rank, standing.last))
+            }
+        }
+        found.sort {
+            if $0.rank != $1.rank { return $0.rank > $1.rank }
+            if $0.last != $1.last { return $0.last > $1.last }
+            if $0.visit.root != $1.visit.root { return $0.visit.root < $1.visit.root }
+            return $0.visit.relativePath < $1.visit.relativePath
+        }
+        return Array(found.map(\.visit).prefix(limit))
+    }
+
+    /// The sidebar's Recents section in `mode` — plain Recents, or one of the two stayed lists.
+    /// Only the sidebar asks: the ⌘K palette keeps its unfiltered per-root recents.
+    public func visitsAcrossRoots(_ mode: RecentsMode, landings: [String: String] = [:],
+                                  limit: Int = FolderJumpStore.maxRecents,
+                                  now: Date = Date()) -> [RememberedVisit] {
+        guard mode != .recents else { return recentVisitsAcrossRoots(landings: landings, limit: limit) }
+        return Self.stayedAcrossRoots(mode, stays: staysByRoot, favorites: pinnedByRoot,
+                                      landings: landings, now: now, limit: limit)
+    }
+
+    /// Written on every stay — far rarer than a visit, since a stay needs seconds in the folder.
+    private func persistStays() {
+        if let data = try? JSONEncoder().encode(staysByRoot) {
+            defaults.set(data, forKey: Self.staysKey)
+        } else {
+            Logger.shared.error("The revisited-folders record could not be encoded for saving — the previously stored record is left in place")
+        }
+    }
+
+    /// The stay record with each root passed through `moving` and then ``key(forRoot:)``, folders
+    /// meeting under one key merged — their stays combined, the first name kept. Keys in sorted
+    /// order so the merge is the same on every run.
+    nonisolated static func rekeyedStays(_ stays: [String: [String: FolderStays]],
+                                         moving: (String) -> String) -> [String: [String: FolderStays]] {
+        var out: [String: [String: FolderStays]] = [:]
+        for rawKey in stays.keys.sorted() {
+            let key = Self.key(forRoot: moving(rawKey))
+            for (path, record) in stays[rawKey] ?? [:] {
+                if var existing = out[key]?[path] {
+                    existing.stays = (existing.stays + record.stays).sorted()
+                    out[key]?[path] = existing
+                } else {
+                    out[key, default: [:]][path] = record
+                }
+            }
+        }
+        return out
     }
 
     /// Written on every visit, which is every pane folder change. Cheap on purpose: a capped list
@@ -573,10 +868,15 @@ public final class FolderJumpStore: ObservableObject {
         let visits = Self.rekeyed(recentsByRoot, whenVolumeMovedFrom: oldVolume, to: newVolume)
             .mapValues { Array($0.prefix(Self.maxRecents)) }
         let order = Self.rekeyedFavoriteOrder(favoriteOrder, whenVolumeMovedFrom: oldVolume, to: newVolume)
+        let stays = Self.rekeyedStays(staysByRoot) {
+            FolderSource.repathed($0, whenVolumeMovedFrom: oldVolume, to: newVolume) ?? $0
+        }
         let movedPins = pins != pinnedByRoot, movedVisits = visits != recentsByRoot
-        guard movedPins || movedVisits || order != favoriteOrder else { return }
+        let movedStays = stays != staysByRoot
+        guard movedPins || movedVisits || movedStays || order != favoriteOrder else { return }
         if movedPins { pinnedByRoot = pins; persistPinned() }
         if movedVisits { recentsByRoot = visits; persistRecents() }
+        if movedStays { staysByRoot = stays; persistStays() }
         if order != favoriteOrder {
             favoriteOrder = order
             defaults.set(favoriteOrder, forKey: Self.favoriteOrderKey)

@@ -605,6 +605,10 @@ public struct FolderSidebarView: View {
     @State private var visibleRows = SelectionLensVisibleRegion()
     private let width: CGFloat
     private let collapsed: Set<Section>
+    /// **Which list the Recents heading shows** (SQ5, SR4). The rows arrive already chosen
+    /// (`folderRows`); this decides only what the heading says and shows.
+    private let recentsMode: RecentsMode
+    private let onCycleRecentsMode: () -> Void
     private let notice: SidebarNotice?
     /// Which pane a click acts on — `nil` where there is only one and the question does not arise.
     /// See `SidebarTarget`.
@@ -839,6 +843,8 @@ public struct FolderSidebarView: View {
                 currentSourceId: String,
                 width: CGFloat = FolderSidebarView.defaultWidth,
                 collapsed: Set<Section> = [],
+                recentsMode: RecentsMode = .recents,
+                onCycleRecentsMode: @escaping () -> Void = {},
                 notice: SidebarNotice? = nil,
                 target: SidebarTarget? = nil,
                 onOpenRowOnSide: @escaping (FolderSidebarRow, Bool) -> Void = { _, _ in },
@@ -872,6 +878,8 @@ public struct FolderSidebarView: View {
         self.currentSourceId = currentSourceId
         self.width = width
         self.collapsed = collapsed
+        self.recentsMode = recentsMode
+        self.onCycleRecentsMode = onCycleRecentsMode
         self.notice = notice
         self.target = target
         self.onOpenRowOnSide = onOpenRowOnSide
@@ -925,8 +933,10 @@ public struct FolderSidebarView: View {
                         // empty Favorites is the first-run state and the sentence that helps is the
                         // one saying how it fills. Sources is never empty (a first run has at least
                         // one source, and the local shortcuts are always listed) and Recents simply
-                        // is not there until you have been somewhere.
-                        if section == .favorites || !isEmpty(section) {
+                        // is not there until you have been somewhere — unless it shows Revisited
+                        // or Frequent, whose heading carries the only way back to the full list.
+                        if section == .favorites || (section == .recents && recentsMode != .recents)
+                            || !isEmpty(section) {
                             sectionView(section)
                         }
                     }
@@ -1119,6 +1129,7 @@ public struct FolderSidebarView: View {
                     locationsBody
                 case .recents:
                     let rows = FolderSidebarModel.rows(folderRows, in: .recents)
+                    if rows.isEmpty, let line = Self.emptyLine(recentsMode) { emptyStayed(line) }
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                         // Recents do not reorder — their order is "when you were there", and a
                         // hand-placed one would be a claim the timestamps contradict. A recent can
@@ -1130,42 +1141,66 @@ public struct FolderSidebarView: View {
         }
     }
 
+    /// What a heading says: its section's name, except Recents, which names its mode (SN1, SR4).
+    func title(_ section: Section) -> String {
+        section == .recents ? recentsMode.rawValue : section.rawValue
+    }
+
     /// The heading, which is also the collapse control — the whole row, not just the chevron, so a
     /// 10pt triangle is not the hit area for a control someone uses to make room.
+    ///
+    /// **The fold is a full-width button UNDER the heading's text, not around it**, because Recents
+    /// carries a second control (SR4): a button nested inside another button's label leaves which
+    /// one a click reaches to the platform, and VoiceOver reads the outer one only. Laid side by
+    /// side, the text and chevron pass their clicks through to the fold, and the glyph keeps its own.
     private func header(_ section: Section, isCollapsed: Bool) -> some View {
         let hovered = hoveredHeader == section
-        return Button { onToggleSection(section) } label: {
+        return ZStack {
+            Button { onToggleSection(section) } label: {
+                Color.clear
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(title(section)), \(isCollapsed ? "collapsed" : "expanded"), \(count(section)) items")
             HStack(spacing: 4) {
-                Text(section.rawValue)
+                Text(title(section))
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 Spacer(minLength: 0)
+                    .allowsHitTesting(false)
+                // **Revealed on hover like the chevron, and kept while a filter is on** — in the
+                // accent, so a remembered mode never passes for plain Recents (SR4, SQ3).
+                if section == .recents, hovered || recentsMode != .recents { recentsModeButton }
                 // **The chevron appears on hover, and the count when it is folded** — Finder's own
                 // arrangement, where a Show/Hide affordance is revealed rather than kept on screen.
                 // Two things follow from it: the heading text starts at the same inset as a row's
                 // icon instead of being pushed right by a permanent glyph, so the column has one
                 // left edge; and a folded section can still say how much is behind it, which is the
                 // only thing that stops it reading as empty.
-                if hovered {
-                    Image(systemName: "chevron.right")
-                        .scaledFont(.system(size: 9, weight: .bold))
-                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                        .foregroundStyle(.tertiary)
-                } else if isCollapsed {
-                    Text("\(count(section))")
-                        .scaledFont(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .monospacedDigit()
+                Group {
+                    if hovered {
+                        Image(systemName: "chevron.right")
+                            .scaledFont(.system(size: 9, weight: .bold))
+                            .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                            .foregroundStyle(.tertiary)
+                    } else if isCollapsed {
+                        Text("\(count(section))")
+                            .scaledFont(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .monospacedDigit()
+                    }
                 }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             }
-            .frame(height: 16)
-            .padding(.horizontal, 10)
-            .padding(.bottom, 3)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .frame(height: 16)
+        .padding(.horizontal, 10)
+        .padding(.bottom, 3)
+        .contentShape(Rectangle())
         .onHover { hoveredHeader = $0 ? section : (hoveredHeader == section ? nil : hoveredHeader) }
-        .accessibilityLabel("\(section.rawValue), \(isCollapsed ? "collapsed" : "expanded"), \(count(section)) items")
         // **The way back from removing a standard place**, and the reason Remove is not a
         // one-way door. Desktop taken out of Favorites has nowhere else to appear, so without
         // this the only route back would be adding `~/Desktop` as a folder source — a different
@@ -1182,6 +1217,58 @@ public struct FolderSidebarView: View {
                 Button("Restore Standard Places") { onRestoreStandardFavorites() }
             }
         }
+    }
+
+    /// **The icon that cycles Recents → Revisited → Frequent** (SR4): dim and on hover only in
+    /// Recents; a repeat glyph in Revisited and a bars glyph in Frequent, both in the accent and
+    /// always shown. VoiceOver hears the mode it is in and the one a click moves to.
+    private var recentsModeButton: some View {
+        Button { onCycleRecentsMode() } label: {
+            Image(systemName: Self.modeSymbol(recentsMode))
+                .scaledFont(.system(size: 9, weight: .bold))
+                .foregroundStyle(recentsMode == .recents ? AnyShapeStyle(.tertiary) : AnyShapeStyle(accent))
+                .frame(width: 16, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(Self.modeHelp(recentsMode))
+        .accessibilityLabel(Self.modeAccessibilityLabel(recentsMode))
+    }
+
+    static func modeSymbol(_ mode: RecentsMode) -> String {
+        mode == .frequent ? "chart.bar" : "repeat"
+    }
+
+    static func modeHelp(_ mode: RecentsMode) -> String {
+        switch mode {
+        case .recents: return "Show only folders you came back to"
+        case .revisited: return "Show the folders you use most"
+        case .frequent: return "Show all recents"
+        }
+    }
+
+    static func modeAccessibilityLabel(_ mode: RecentsMode) -> String {
+        "Showing \(mode.rawValue). Switch to \(mode.next.rawValue)"
+    }
+
+    /// **What an empty Revisited or Frequent says** — both start empty, since every folder
+    /// remembered before them has no stays, so the line says how each fills, the way
+    /// `emptyFavorites` does. Plain Recents is simply not drawn when empty.
+    static func emptyLine(_ mode: RecentsMode) -> String? {
+        switch mode {
+        case .recents: return nil
+        case .revisited: return "No repeat visits yet. A folder shows here once you've opened it on two different days."
+        case .frequent: return "Nothing frequent yet. A folder shows here once you've spent time in it a few times."
+        }
+    }
+
+    private func emptyStayed(_ line: String) -> some View {
+        Text(line)
+            .scaledFont(.system(size: 11))
+            .foregroundStyle(.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 2)
     }
 
     /// Not "no folders": an empty Favorites is the *first-run* state, and the sentence that helps is

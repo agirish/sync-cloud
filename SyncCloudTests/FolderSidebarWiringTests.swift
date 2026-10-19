@@ -38,7 +38,8 @@ import Foundation
     /// Each trigger, and the call it has to make. Written as pairs rather than as two substring
     /// searches: `.onChange(of: selectedWorkspace)` exists for other reasons too, so finding the
     /// line proves nothing unless the refresh is inside it.
-    @Test(arguments: ["browseSidebarVisible", "selectedWorkspace", "leftProviderId"])
+    @Test(arguments: ["browseSidebarVisible", "selectedWorkspace", "leftProviderId",
+                      "browseSidebarRecentsMode"])
     func everyTriggerTheGuardMakesNecessaryIsWired(value: String) throws {
         let source = try Self.contentViewSource()
         let declaration = ".onChange(of: \(value)) { _, _ in refreshFolderSidebarRows() }"

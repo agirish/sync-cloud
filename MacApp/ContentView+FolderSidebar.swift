@@ -187,8 +187,10 @@ extension ContentView {
             // lists under Favorites or Locations — and both of them would otherwise be subtracting
             // from an already-counted eight, leaving the section short by however well they worked.
             // `FolderSidebarModel.rows` takes `recentsLimit` and applies it last.
-            recents: FolderJumpStore.shared.recentVisitsAcrossRoots(
-                landings: Self.folderSidebarLandings(providers), limit: .max),
+            // In whichever mode the heading shows — the same subtractions and the same cap
+            // downstream, so the three lists differ only in which folders qualify and their order.
+            recents: FolderJumpStore.shared.visitsAcrossRoots(
+                folderSidebarRecentsMode, landings: Self.folderSidebarLandings(providers), limit: .max),
             favoriteOrder: FolderJumpStore.shared.favoriteOrder,
             favoritePlaces: folderSidebarFavoritePlaces)
         // **The volume walk, only when something can have changed it.** See
@@ -763,6 +765,8 @@ extension ContentView {
             currentSourceId: folderSidebarProviderId,
             width: width,
             collapsed: folderSidebarCollapsedSections,
+            recentsMode: folderSidebarRecentsMode,
+            onCycleRecentsMode: { browseSidebarRecentsMode = folderSidebarRecentsMode.next.rawValue },
             notice: folderSidebarNotice.map {
                 SidebarNotice(message: $0.message, actionTitle: $0.actionTitle)
             },
@@ -845,6 +849,23 @@ extension ContentView {
     var folderSidebarCollapsedSections: Set<FolderSidebarView.Section> {
         Set(browseSidebarCollapsed.split(separator: ",")
             .compactMap { FolderSidebarView.Section(rawValue: String($0)) })
+    }
+
+    /// The stored mode, decoded. A value this build does not know reads as plain Recents.
+    var folderSidebarRecentsMode: RecentsMode {
+        RecentsMode(rawValue: browseSidebarRecentsMode) ?? .recents
+    }
+
+    /// **A pane moved to a folder** — the Revisited and Frequent half of a visit. The store settles the folder
+    /// the pane left, and a check after the stay threshold counts this one while the pane is still
+    /// there, so a folder joins Revisited without the user having to move on first.
+    func noteFolderArrival(pane: String, root: String, relativePath: String) {
+        FolderJumpStore.shared.noteArrival(pane: pane, root: root, relativePath: relativePath,
+                                           name: (relativePath as NSString).lastPathComponent)
+        Task { @MainActor in
+            try? await Task.sleep(for: FolderJumpStore.settleDelay)
+            FolderJumpStore.shared.settleStays()
+        }
     }
 
     func toggleFolderSidebarSection(_ section: FolderSidebarView.Section) {

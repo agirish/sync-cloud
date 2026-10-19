@@ -159,6 +159,18 @@ Requires **macOS 26**, unchanged from the 5.x line.
   View ▸ Tab Bar — the header of the Organize section beside it sat one strip higher than the
   pane's. It now lines up, in both styles and at every text size.
 
+### Recents, Revisited, Frequent
+
+- **Recents can show the folders you come back to, or the ones you use most.** Point at the Recents
+  heading in the sidebar and an icon appears beside the arrow; each click moves the heading on —
+  Recents, then **Revisited**, folders you spent a few seconds in on two or more different days,
+  newest first, then **Frequent**, the folders you have spent time in most, most first. Folders you
+  only clicked through, or passed with Back and Forward, do not count, and coming back within five
+  minutes is the same visit. Both look back 90 days and count older visits for less, so a folder you
+  have stopped using drops off. At most eight rows. The icon stays lit in the accent outside plain
+  Recents, and the choice is remembered across launches. Both lists start empty and fill from
+  visits made after the update. Recents itself, and the folders `⌘K` offers, are unchanged.
+
 ---
 
 ## v5.5

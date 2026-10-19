@@ -7697,3 +7697,32 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign in Edit (`fillSignBar=0`), so no toolbar to replace | CLOSED — does not apply |
+
+---
+
+## Recents, Revisited, Frequent — main only
+
+An icon on the sidebar's Recents heading cycles it through **Recents**, **Revisited** (stayed in on
+two or more calendar days, newest first) and **Frequent** (most stays, faded over 30 days). A stay is
+`FolderJumpStore.stayThreshold` in the folder, a return inside `returnGap` continues it, and both
+lists look back 90 days. It needs a new record (`staysByRoot`, under `folderJumpStaysByRoot`) fed
+by a dwell check beside `recordVisit`, and a remembered setting (`browseSidebarRecentsMode`). A new
+feature, so `main` alone by rule. `v5.x` and `v4.x` have the sidebar and simply lack the modes; the
+new key is additive, so a maintenance build sharing the defaults domain ignores it and leaves it
+intact.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s sidebar=%s revisited=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Dashboard/Sources/Dashboard/FolderSidebar.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/FolderJumpStore.swift 2>/dev/null | grep -c staysByRoot)"
+done
+# measured 2026-10-19, against origin, before this landed:
+# main, v5.x, v4.x — sidebar=1 revisited=0
+# v3.x, v2.x       — sidebar=0 revisited=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | The sidebar's Recents, without the modes | RECORDED — not owed (new feature) |
+| `v3.x` / `v2.x` | No folder sidebar (`sidebar=0`) | CLOSED — does not apply |

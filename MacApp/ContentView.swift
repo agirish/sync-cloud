@@ -365,6 +365,9 @@ struct ContentView: View {
     @AppStorage("browseSidebarWidth") var browseSidebarWidthRaw: Double = 180
     /// Which sections are folded, comma-joined — see `folderSidebarCollapsedSections`.
     @AppStorage("browseSidebarCollapsed") var browseSidebarCollapsed: String = ""
+    /// Which list the sidebar's Recents heading shows — `RecentsMode`'s raw value (SQ5, SQ3). One
+    /// sidebar-wide setting, remembered across launches like the folded sections.
+    @AppStorage("browseSidebarRecentsMode") var browseSidebarRecentsMode: String = RecentsMode.recents.rawValue
     /// Which places sit in Favorites, JSON-encoded — see `SidebarFavoritePlaces`. Empty means the
     /// key has never been written, which is not the same as "no favorites"; that distinction is
     /// what lets a first run get Desktop, Documents and Downloads while someone who removed all
@@ -4462,6 +4465,7 @@ struct ContentView: View {
         .onChange(of: syncManager.leftRelativePath) { _, rel in
             FolderJumpStore.shared.recordVisit(root: settings.rootPath(for: leftProviderId),
                                                relativePath: rel, name: (rel as NSString).lastPathComponent)
+            noteFolderArrival(pane: "left", root: settings.rootPath(for: leftProviderId), relativePath: rel)
             // The visit just recorded is a row the sidebar does not have yet. Same handler rather
             // than a second `onChange` on the same value: two would fire in an order SwiftUI does
             // not promise, and the wrong one puts the sidebar one folder behind the pane.
@@ -4470,6 +4474,7 @@ struct ContentView: View {
         .onChange(of: syncManager.rightRelativePath) { _, rel in
             FolderJumpStore.shared.recordVisit(root: settings.rootPath(for: rightProviderId),
                                                relativePath: rel, name: (rel as NSString).lastPathComponent)
+            noteFolderArrival(pane: "right", root: settings.rootPath(for: rightProviderId), relativePath: rel)
         }
         // The other moments the sidebar's answer can change: first appearance, a provider switch
         // (a different root is a different pair of lists), the set of sources changing, and the
@@ -4502,6 +4507,7 @@ struct ContentView: View {
         // ON, or arriving at Browse, lands on whatever was last resolved: exactly the stale list a
         // person would read as "my pins are gone". The guard and these two are one change.
         .onChange(of: browseSidebarVisible) { _, _ in refreshFolderSidebarRows() }
+        .onChange(of: browseSidebarRecentsMode) { _, _ in refreshFolderSidebarRows() }
         .onChange(of: editorSidebarVisible) { _, _ in refreshFolderSidebarRows() }
         .onChange(of: selectedWorkspace) { _, _ in refreshFolderSidebarRows() }
         // **The third**, added when collapsing the panes joined the gate. The paragraph above got
