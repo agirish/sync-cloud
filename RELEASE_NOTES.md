@@ -10,22 +10,24 @@ User-facing changes, newest first. For the full commit history see the
 > What is on `main` since v5.5. It may still change before v6.0 is cut, and nothing here is
 > installable from a release yet.
 
-**Edit reads PDFs.** A PDF opens in Edit, read-only, through the same doors a text file uses. Its
-pages and bookmarks are in the rail, its page number and zoom float over the pages, it can be laid
-out as a book, and Find searches it. Its tools rotate, extract and delete pages, compress the file,
-clean its metadata and add or remove a password, and Fill & Sign fills in a form and signs it — and
-every one of them writes a new copy beside the original, never the file you opened. Around the PDFs,
-Edit's side column gets one control, its folder line becomes a menu, and Unified becomes one box.
+**Edit opens PDFs, and changes them as new copies.** A PDF opens in Edit through the same doors a
+text file uses. Its pages and bookmarks are in the rail, its page number and zoom float over the
+pages, it can be laid out as a book, and Find searches it. Its tools rotate, reorder, extract and
+delete pages, compress the file, clean its metadata and add or remove a password, and Fill & Sign
+fills in a form and signs it. Each change is written to a new PDF beside the original; the file you
+opened is never modified. Around the PDFs, Edit's side column gets one control, its folder line
+becomes a menu, and Unified becomes one box.
 
 Requires **macOS 26**, unchanged from the 5.x line.
 
 ### PDFs open in Edit
 
-- **A PDF opens in Edit, read-only.** `⌘O`, Open in Edit on a file's right-click menu and in the
-  Info inspector, the preview's Edit button and a click in Edit's file pane all open a PDF now, as
-  do Open in Edit on a PDF's row in Compare's list of differences and on a copy in Organize's
-  duplicates. Nothing in Edit writes to the PDF: there is no Autosave switch and no format bar, and
-  `⌘P` prints its own pages. Finder's Open With does not offer SyncCloud for PDFs.
+- **PDFs open in Edit.** `⌘O`, Open in Edit on a file's right-click menu and in the Info inspector,
+  the preview's Edit button and a click in Edit's file pane all open a PDF now, as do Open in Edit
+  on a PDF's row in Compare's list of differences and on a copy in Organize's duplicates. The file
+  you opened is never modified: rotating, reordering or deleting pages, compressing, filling and
+  signing each write a new PDF beside it, so there is no Autosave switch or format bar. `⌘P` prints
+  its own pages. Finder's Open With does not offer SyncCloud for PDFs.
 - **The Text Files list is now Files**, the folder's text files and its PDFs each under a heading of
   their own.
 - **A PDF's header has a text file's two rows.** The first holds the name, then **Find**, **Fill &
@@ -132,10 +134,9 @@ Requires **macOS 26**, unchanged from the 5.x line.
   hides the sidebar in Browse, Compare and Organize.
 - **Find Previous.** **Text ▸ Find Previous** (`⇧⌘G`) steps back through the find bar's matches, in
   a text file as in a PDF.
-- **Ticking a box in a read-only Preview is quick in a long note.** With Edit in Preview off, or in
-  a note over 256 KB, a tick rewrote and compared the whole note; it now changes only its own line.
-  The last task in a 200 KB note went from 35 ms to 0.2 ms, and in a 4 MiB note from 808 ms to
-  3.7 ms.
+- **Ticking a box in Preview is quick in a long note.** With Edit in Preview off, or in a note over
+  256 KB, a tick rewrote and compared the whole note; it now changes only its own line. The last
+  task in a 200 KB note went from 35 ms to 0.2 ms, and in a 4 MiB note from 808 ms to 3.7 ms.
 
 ### Unified is one box
 
