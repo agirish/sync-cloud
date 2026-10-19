@@ -81,7 +81,7 @@ primary checkout except to fast-forward it in step 4.
 **What the standing approval does NOT cover — these still need an explicit yes, asked one at a time:**
 cutting a release (tags, a GitHub release, flipping a Pages `latest` badge — see **Cutting a
 release**), deleting a remote branch, pushing to a maintenance line, and anything that rewrites
-published history (force-push stays banned outright, step 3). A design call only he can make is
+published history (force-push is banned outright — see **Never force-push**, step 3). A design call only he can make is
 also an ask; a mechanical choice with a clear default is not — pick it, say so in the report, and
 keep going.
 
@@ -122,6 +122,25 @@ Stop only when you truly need his input; then ask that one question directly and
    direction, 2026-09-09. The recipe that used to live here reached for `git reset --soft`; it is
    gone. Squash by **replaying onto a fresh branch** instead: no ref moves, nothing is discarded,
    and the working branch survives both as the fallback and as the thing you diff against.
+
+   **Never force-push — and work so that one is never needed.** Standing direction, restated
+   2026-10-18. Every flavour counts: `--force`, `--force-with-lease`, a `+` refspec, deleting a
+   remote branch and pushing it again. The flow is built to make it unnecessary, so keep it that
+   way consciously:
+   - **Only `main` is ever pushed, and only by fast-forward.** `<task>` and `<task>-themed` never
+     leave this machine, so rebasing or rebuilding them rewrites nothing anyone else has.
+   - **Rebase on `origin/main` right before the squash, every time**, and again if `main` moved
+     before you land. `merge --ff-only` from the primary is the check: if it refuses, you are
+     behind — fetch, rebase, re-squash, retry.
+   - **Think before the push, not after.** Read the log and the diff in the gates below. A commit
+     that is wrong once it is on `main` gets fixed by a NEW commit (a fix-forward or a `revert`),
+     never by rewriting `main`.
+   - **A rejected push means another session landed first.** The answer is fetch and rebase.
+
+   If a situation ever seems to truly need a force-push — a secret committed to `main` is the only
+   plausible case — **stop and ask him first**, and say why it is truly needed: what happened, why a
+   new commit cannot fix it, exactly what the force would overwrite, and what else was tried. The
+   standing push approval does not cover it.
 
    Rebase first — always, and before anything else touches the work:
    ```sh
