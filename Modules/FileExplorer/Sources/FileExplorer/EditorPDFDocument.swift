@@ -257,6 +257,7 @@ public final class EditorPDFDocument: ObservableObject {
                 // comes with a new generation. Said rather than left as a silent no-op.
                 assertionFailure("a skipped open of \(path) came back as the current one")
             case .unreadable:
+                let lost = fill.unsavedWork
                 document = nil
                 locked = nil
                 facts = nil
@@ -265,6 +266,7 @@ public final class EditorPDFDocument: ObservableObject {
                 find.detach()
                 tools.detach()
                 fill.detach()
+                tools.banner = Self.lostWorkBanner(lost, because: "couldn’t be read")
                 finish(.refused(Self.unreadableReason), path: path)
             case .locked(let held):
                 document = nil
@@ -273,6 +275,7 @@ public final class EditorPDFDocument: ObservableObject {
                 thumbnails.detach()
                 find.detach()
                 tools.attach(path: path, pageCount: 0, encryption: .lockedToOpen)
+                tools.shownStamp = before
                 fill.attach(path: path, boxes: [], encryption: .lockedToOpen, allowsFilling: true)
                 locked = held.document
                 finish(.locked, path: path)
@@ -285,6 +288,7 @@ public final class EditorPDFDocument: ObservableObject {
                 thumbnails.attach(path: path, pageCount: facts.pageCount)
                 find.attach(path: path, pageCount: facts.pageCount, hasText: facts.hasText)
                 tools.attach(path: path, pageCount: facts.pageCount, encryption: encryption)
+                tools.shownStamp = before
                 fill.attach(path: path, boxes: facts.boxes, encryption: encryption, allowsFilling: facts.allowsFilling,
                             form: facts.form, allowsFormEntry: facts.allowsFormEntry,
                             allowsCommenting: facts.allowsCommenting)
@@ -387,6 +391,13 @@ public final class EditorPDFDocument: ObservableObject {
         }
     }
 
+    /// **Unsaved Fill & Sign work the file took with it is said, not only logged** — the leave
+    /// question cannot ask when the file goes on its own, so the banner over the card says it.
+    static func lostWorkBanner(_ lost: String?, because why: String) -> EditorPDFToolBanner? {
+        lost.map { EditorPDFToolBanner(message: "The file \(why), so Fill & Sign’s unsaved work — \($0) — was dropped.",
+                                       kind: .note) }
+    }
+
     /// Looks at the disk now: a new stamp reloads, keeping the page; an empty path says so.
     func look() {
         guard let path else { return }
@@ -396,6 +407,7 @@ public final class EditorPDFDocument: ObservableObject {
         if refusal == Self.notDownloadedReason { return }
         guard let now = EditorFileStore.stamp(ofPath: path) else {
             guard refusal != Self.goneReason else { return }
+            let lost = fill.unsavedWork
             document = nil
             locked = nil
             facts = nil
@@ -404,11 +416,17 @@ public final class EditorPDFDocument: ObservableObject {
             find.detach()
             tools.detach()
             fill.detach()
+            tools.banner = Self.lostWorkBanner(lost, because: "was moved or deleted")
             stamp = nil
             finish(.refused(Self.goneReason), path: path)
             return
         }
         guard now != stamp else { return }
+        // A new revision of a file evicted while open is not downloaded to show it — the text
+        // watch's rule (`EditorDiskWatch`): it is read when it is next opened, or by the next look
+        // once it is back. The watch is not re-armed here (it does not arm a cloud-only path), so
+        // after an atomic replace that next look is the app's next activation.
+        guard !isCloudOnly(path) else { return }
         // An atomic save installed a new inode; the descriptor still holds the old one.
         arm(path)
         load(path, keepingPage: view.currentPage)
@@ -651,9 +669,20 @@ public struct EditorPDFFacts: Equatable, Sendable {
     /// The file's own interactive form, or ``EditorPDFForm/none`` — see ``EditorPDFForm``.
     public var form = EditorPDFForm.none
 
-    /// How many pages are asked for text. A 300-page scan is not walked end to end to say "Image
-    /// only": if the first few have no text layer, the rest of a scan will not either.
+    /// How many pages are asked for text, at the front and again spread through the rest. A
+    /// 300-page scan is not walked end to end to say "Image only" — but the front alone was not
+    /// enough: a book whose cover and plates are scans and whose body is text read as image only,
+    /// and Find, which trusts this, refused to search it.
     static let textProbePages = 5
+
+    /// The pages ``textProbePages`` names: the first ones, and as many more evenly spread to the
+    /// last page — in order, each once.
+    static func textProbe(pageCount count: Int) -> [Int] {
+        guard count > 0 else { return [] }
+        let front = 0..<min(count, textProbePages)
+        let spread = (1...textProbePages).map { (count - 1) * $0 / textProbePages }
+        return Array(Set(front).union(spread)).sorted()
+    }
 
     /// Called inside the lane only.
     nonisolated static func read(_ document: PDFDocument, path: String) -> EditorPDFFacts {
@@ -665,7 +694,7 @@ public struct EditorPDFFacts: Equatable, Sendable {
             page.map { EditorPDFPageBox(cropBox: $0.bounds(for: .cropBox), rotation: $0.rotation) }
                 ?? EditorPDFPageBox(cropBox: .zero, rotation: 0)
         }
-        let hasText = (0..<min(count, textProbePages)).contains { index in
+        let hasText = textProbe(pageCount: count).contains { index in
             guard let text = document.page(at: index)?.string else { return false }
             return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }

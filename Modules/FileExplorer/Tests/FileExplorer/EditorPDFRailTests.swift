@@ -410,6 +410,21 @@ import FileExplorerTestSupport
         #expect(old.draws.withLock { $0 } == 0, "the turn from before the reload drew from the old document")
     }
 
+    /// **A PDF evicted while open is not downloaded to draw its thumbnails**: the Pages tab reopens
+    /// its source from the path, which on a dataless file would fetch it, in the lane.
+    @Test func thumbnailsDoNotDownloadAFileEvictedWhileOpen() async throws {
+        let file = path("evicted.pdf")
+        PDFFixtures.write(file, pages: 3)
+        let pdf = await opened(file)
+        pdf.thumbnails.isCloudOnly = { _ in true }
+        pdf.thumbnails.attach(path: file, pageCount: 3)
+        pdf.thumbnails.show([0, 1, 2])
+        let source = try #require(pdf.thumbnails.currentSource)
+        await wait("every page to be tried") { source.draws.withLock { $0 } >= 3 }
+        #expect(source.opens.withLock { $0 } == 0, "the evicted file was opened to draw it")
+        #expect(pdf.thumbnails.images.isEmpty)
+    }
+
     /// **A password-unlocked PDF has thumbnails** — from the copy unlocked in the same turn, the
     /// password kept nowhere. Without that copy every page would fail, never retried.
     @Test func anUnlockedPDFHasThumbnails() async throws {

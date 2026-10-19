@@ -528,6 +528,21 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(tools.banner?.message == "“Cloud.pdf” is still in the cloud. Download it first.")
     }
 
+    /// **The form question does not open a file still in the cloud** — reading its form would
+    /// download it before the batch's own cloud check skipped it.
+    @Test func theFormQuestionDoesNotOpenAFileStillInTheCloud() async throws {
+        let form = path("Cloud form.pdf"), plain = path("Plain.pdf")
+        try PDFFixtures.writeAcroForm(form)
+        PDFFixtures.write(plain, pages: 1)
+        let batch = batch(.compress, [form, plain])
+        batch.isCloudOnly = { $0 == form }
+        var asked: [EditorPDFBatchWarning] = []
+        batch.confirm = { asked.append($0); return true }
+        await batch.run(.compress(.quality(0.35)))
+        #expect(asked.isEmpty, "the form question read the cloud-only file: \(asked.map(\.names))")
+        #expect(batch.files[0].status == .skipped(.inTheCloud))
+    }
+
     /// The selection's cloud answer is walked once per render pass, not once per selected row.
     @Test func aSelectionsCloudAnswerIsWalkedOncePerPass() {
         var asked = 0
@@ -539,6 +554,28 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(asked == 2, "the selection was walked \(asked / 2) times")
         _ = PanePDFSelectionCloud.anyCloudOnly(paths, now: now.addingTimeInterval(2)) { _ in asked += 1; return false }
         #expect(asked == 4, "a stale answer was served")
+    }
+
+    /// **A batch says when a copy lost its original's restrictions**, as one file's run does —
+    /// Compress rebuilds the document, which carries no encryption. An unrestricted original's copy
+    /// says nothing of it.
+    @Test func aBatchSaysWhichCopiesLostTheirRestrictions() async throws {
+        let restricted = path("Restricted scan.pdf"), plain = path("Plain scan.pdf"), staged = path("staged.pdf")
+        PDFFixtures.writeScan(staged, pages: 1)
+        PDFFixtures.writeScan(plain, pages: 1)
+        let scan = try #require(PDFDocument(url: URL(fileURLWithPath: staged)))
+        #expect(scan.write(to: URL(fileURLWithPath: restricted),
+                           withOptions: [.ownerPasswordOption: "owner-only",
+                                         .accessPermissionsOption: NSNumber(value: PDFPermissionPreset.openAndPrintOnly)]))
+        try FileManager.default.removeItem(atPath: staged)
+        let batch = batch(.compress, [restricted, plain])
+        batch.confirm = { _ in true }
+        await batch.run(.compress(.quality(0.35)))
+        #expect(batch.banner?.message == "Wrote 2 compressed copies · 1 has no editing restrictions",
+                "\(String(describing: batch.banner?.message))")
+        #expect(EditorPDFBatch.summary([.wrote("a", sizes: nil), .wrote("b", sizes: nil)], tool: .compress(.quality(0.35)),
+                                       cancelled: false, unrestricted: 2)
+                == "Wrote 2 compressed copies · 2 have no editing restrictions")
     }
 
     /// Clean Metadata skips a password-protected file — the toolkit refuses one — and says so.

@@ -344,6 +344,42 @@ enum PDFTextFixtures {
         #expect(try #require(pdf.find.currentSource).readDocuments.withLock { $0 }.isEmpty)
     }
 
+    /// **A book whose first pages are scans is still searched** — a cover and plates in front of a
+    /// text body. The facts asked only the first five pages for text, called it image only, and
+    /// Find refused the whole book.
+    @Test func aPDFWhoseFrontPagesAreScansIsStillSearched() async throws {
+        let scans = path("plates.pdf"), body = needles("body.pdf", pages: 3), book = path("book.pdf")
+        PDFFixtures.write(scans, pages: 6, text: false)
+        let merged = try #require(PDFDocument(url: URL(fileURLWithPath: scans)))
+        let text = try #require(PDFDocument(url: URL(fileURLWithPath: body)))
+        for index in 0..<text.pageCount {
+            merged.insert(try #require(text.page(at: index)), at: merged.pageCount)
+        }
+        #expect(merged.write(to: URL(fileURLWithPath: book)))
+        let pdf = await opened(book)
+        #expect(pdf.facts?.pageCount == 9)
+        #expect(pdf.facts?.hasText == true, "a book with a text body was called image only")
+        pdf.find.show()
+        pdf.find.search("needle")
+        await wait("the search to finish") { pdf.find.phase == .done }
+        #expect(pdf.find.matches.count == 3)
+    }
+
+    /// **A PDF evicted while open is not downloaded by a search.** Esc lets the search's copy go and
+    /// the next search reopens it from the path — on a dataless file `PDFDocument(url:)` would fetch
+    /// it, in the lane. Its pages fail instead, and no document is opened.
+    @Test func aSearchDoesNotDownloadAFileEvictedWhileOpen() async throws {
+        let pdf = await opened(needles("evicted.pdf", pages: 6))
+        pdf.find.isCloudOnly = { _ in true }
+        pdf.find.attach(path: try #require(pdf.path), pageCount: 6, hasText: true)
+        pdf.find.show()
+        pdf.find.search("needle")
+        await wait("the search to finish") { pdf.find.phase == .done }
+        let source = try #require(pdf.find.currentSource)
+        #expect(source.readDocuments.withLock { $0 }.isEmpty, "the search opened the evicted file")
+        #expect(pdf.find.failedPages == 6 && pdf.find.matches.isEmpty)
+    }
+
     /// **Closing the PDF withdraws the search and lets its document go**; the query is kept.
     @Test func closingWithdrawsTheSearchAndReleasesItsDocument() async throws {
         let pdf = await opened(needles("close.pdf", pages: 40))

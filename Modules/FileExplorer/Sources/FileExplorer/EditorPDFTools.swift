@@ -164,6 +164,12 @@ public final class EditorPDFTools: ObservableObject {
 
     /// The file the tools act on — the reader's — or `nil` with nothing open.
     public private(set) var path: String?
+    /// **The file as the reader last read it** — set by ``EditorPDFDocument`` with each load. A
+    /// run reads the file afresh, so after a change on disk the reader has not reloaded yet (the
+    /// watch's settle, or a reload waiting behind a duplicate scan) it wrote from pages nobody was
+    /// shown: Fill & Sign's items placed by the old pages' boxes, Rotate's pages by the old
+    /// numbering. `nil` — a pane's run, with no reader — checks nothing.
+    var shownStamp: EditorFileStore.Stamp?
     @Published public private(set) var pageCount = 0
     /// How the file on disk is protected, read in the lane when it opened. `nil` until then.
     @Published public private(set) var encryption: PDFEncryptionState?
@@ -267,6 +273,7 @@ public final class EditorPDFTools: ObservableObject {
         generation &+= 1
         cancelFlag?.cancel()
         path = nil
+        shownStamp = nil
         pageCount = 0
         encryption = nil
         selection.clear()
@@ -446,6 +453,12 @@ public final class EditorPDFTools: ObservableObject {
                                        + "\(FileSyncManager.formatBytes(bytes)) target — nothing was written."))
         }
 
+        // Before any question, too: a confirmed "this will flatten the form" should not then be
+        // refused. Asked again after it, since the file can change while the question is up.
+        if let shownStamp, EditorFileStore.stamp(ofPath: path) != shownStamp {
+            Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — it changed on disk since it was read")
+            return end(.failed(Self.changedReason(name)))
+        }
         running = Running(tool: tool.title)
         progress = nil
         let flag = CancelFlag()
@@ -460,6 +473,10 @@ public final class EditorPDFTools: ObservableObject {
         guard generation == self.generation else { return end(.cancelled) }
 
         let before = EditorFileStore.stamp(ofPath: path)
+        if let shownStamp, before != shownStamp {
+            Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — it changed on disk since it was read")
+            return end(.failed(Self.changedReason(name)))
+        }
         let hook = laneProgressHook
         let result = await EditorPDFToolEngine.run(
             tool, input: input, staging: stagingRoot,
@@ -512,6 +529,10 @@ public final class EditorPDFTools: ObservableObject {
                 return end(.wrote(copy))
             }
         }
+    }
+
+    static func changedReason(_ name: String) -> String {
+        "“\(name)” changed on disk since it was opened, so nothing was written. It reloads in a moment — then try again."
     }
 
     /// The banner's sentence for a copy that landed — sizes for Compress, and for a size target the

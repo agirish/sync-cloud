@@ -553,6 +553,54 @@ extension PDFFixtures {
         #expect(fill.canSave && fill.formProblem == nil)
     }
 
+    /// **A checkbox whose boxes carry different values is not ticked** — a Yes box and a No box
+    /// under one name. A click ticked every box on screen while the copy turned on only the first
+    /// value; a click on "Yes" over a "No" already on unticked the field. A one-value checkbox ticks.
+    @Test func aCheckboxWhoseBoxesHaveSeparateValuesIsRefused() async throws {
+        let file = path("YesNo-\(UUID().uuidString.prefix(6)).pdf")
+        PDFFixtures.write(file, pages: 1)
+        let pdf = try await open(file)
+        let fill = pdf.fill
+        let boxes = [FormField.Widget(pageIndex: 0, rect: CGRect(x: 72, y: 72, width: 12, height: 12), exportValue: "Yes"),
+                     FormField.Widget(pageIndex: 0, rect: CGRect(x: 120, y: 72, width: 12, height: 12), exportValue: "No")]
+        let pair = FormField(name: "agree", kind: .checkbox, value: "Off", options: ["Yes", "No"], widgets: boxes)
+        let single = FormField(name: "single", kind: .checkbox, value: "Off", options: ["Yes"], widgets: [boxes[0]])
+        fill.attach(path: file, boxes: fill.boxes, encryption: .none, allowsFilling: true,
+                    form: EditorPDFForm(fields: [pair, single]))
+        fill.toggle()
+        #expect(fill.fieldRefusal(pair) == EditorPDFForm.separateBoxValuesReason)
+        fill.toggleCheckbox("agree")
+        #expect(fill.values.isEmpty, "a checkbox with separate values was ticked")
+        #expect(fill.fieldRefusal(single) == nil)
+        fill.toggleCheckbox("single")
+        #expect(fill.values == ["single": .checked(true)])
+        // Tab and the count leave it out too, so a form with nothing else to fill offers no fields.
+        #expect(EditorPDFForm(fields: [pair, single]).fillable.map(\.name) == ["single"])
+        #expect(EditorPDFForm(fields: [pair]).fillable.isEmpty)
+    }
+
+    /// **A file with no form whose owner allows only form entry is refused** — the permission covers
+    /// fields it does not have, and it used to take placed items flattened into an unrestricted
+    /// copy, against the "no commenting" a form already honours. Commenting allowed, it fills.
+    @Test(arguments: [false, true])
+    func aFileWithNoFormTakesItemsOnlyWhereCommentingIsAllowed(commenting: Bool) async throws {
+        let file = path("Flat-\(commenting)-\(UUID().uuidString.prefix(6)).pdf")
+        PDFFixtures.write(file, pages: 1)
+        let pdf = try await open(file)
+        let fill = pdf.fill
+        var said: [String] = []
+        fill.presentRefusal = { said.append($0) }
+        fill.attach(path: file, boxes: fill.boxes, encryption: .restrictedOnly, allowsFilling: true,
+                    form: .none, allowsFormEntry: true, allowsCommenting: commenting)
+        fill.toggle()
+        if commenting {
+            #expect(said.isEmpty && fill.isOn)
+        } else {
+            #expect(!fill.isOn && said == [EditorPDFFillSign.restrictedReason])
+            #expect(fill.menuReason == EditorPDFFillSign.restrictedTitle)
+        }
+    }
+
     /// **The real file: restricted by its owner to filling only, with every field read-only.** No
     /// synthetic form — the corpus form re-encrypted, its fields made read-only by the facts read.
     @Test func aRestrictedFormWhoseFieldsAreAllReadOnlyIsRefused() async throws {

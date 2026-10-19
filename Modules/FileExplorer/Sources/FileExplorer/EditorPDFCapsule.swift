@@ -337,9 +337,17 @@ struct EditorPDFCapsule: View {
     /// The zero-based page a typed number names, clamped into the document; `nil` for no number.
     /// The FIRST number counts, so a spread's own "6–7" sent back unchanged goes to 6 — the spread
     /// it already is.
+    ///
+    /// Any script's digits count — a Japanese keyboard's "３" is 3 — and a number too long for `Int`
+    /// is past the last page, so it goes there rather than being ignored.
     static func page(typed: String, pageCount: Int) -> Int? {
-        let digits = typed.drop { !$0.isNumber }.prefix { $0.isNumber }
-        guard pageCount > 0, let number = Int(digits) else { return nil }
+        let digits = typed.drop { $0.wholeNumberValue == nil }.prefix { $0.wholeNumberValue != nil }
+        guard pageCount > 0, !digits.isEmpty else { return nil }
+        let number = digits.reduce(0) { sum, digit in
+            let (shifted, over) = sum.multipliedReportingOverflow(by: 10)
+            let (next, overAgain) = shifted.addingReportingOverflow(digit.wholeNumberValue ?? 0)
+            return over || overAgain ? Int.max : next
+        }
         return min(max(number, 1), pageCount) - 1
     }
 
@@ -366,10 +374,24 @@ struct EditorPDFCapsule: View {
             Self.present(EditorPDFViewMenu.menu(for: state), from: zoomAnchor.view, place: state.capsulePlace)
         } label: {
             HStack(spacing: 3) {
-                Text(isVertical ? EditorPDFZoom.percent(state.scale) : said)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .fixedSize()
+                ZStack {
+                    // Upright, the label is the capsule's widest piece, and the capsule's width is
+                    // the side band a fit is measured inside: a label as wide as its digits fed
+                    // back into Fit Width — "99%" narrowed the band, the refit read "100%", which
+                    // widened it again, forever. So it is as wide as the widest scale's, always.
+                    if isVertical {
+                        Text(EditorPDFZoom.percent(EditorPDFViewState.maxScale))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .fixedSize()
+                            .hidden()
+                            .accessibilityHidden(true)
+                    }
+                    Text(isVertical ? EditorPDFZoom.percent(state.scale) : said)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize()
+                }
                 if !isVertical {
                     Image(systemName: "chevron.down")
                         .scaledFont(.system(size: 7, weight: .bold))

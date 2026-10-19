@@ -7726,3 +7726,30 @@ done
 |---|---|---|
 | `v5.x` / `v4.x` | The sidebar's Recents, without the modes | RECORDED — not owed (new feature) |
 | `v3.x` / `v2.x` | No folder sidebar (`sidebar=0`) | CLOSED — does not apply |
+
+---
+
+## Fixes from a review of the whole PDF reader — main only
+
+The upright capsule keeps one width at every zoom, so Fit Width no longer loops at 99–100%. A file
+evicted while open is not downloaded by Find, the Pages tab, a new revision or a batch's form
+question. A tool run or Save Filled Copy refuses a file that changed on disk since the reader read
+it. A file that goes from under the reader says what unsaved Fill & Sign work went with it. A reload
+that changed the pages forgets Fill & Sign's undo steps. A form-less PDF that forbids commenting, and
+a checkbox whose boxes carry separate values, are refused. The text probe also reads pages spread to
+the end. A batch says which copies lost their restrictions. Saved signatures stay removed after a
+reset. The page field reads any script's digits. All of it is in the PDF reader `main` alone has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s pdfDocument=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-19, against origin, before this landed:
+# main  pdfDocument=1
+# v5.x, v4.x, v3.x, v2.x — pdfDocument=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF reader in Edit (`pdfDocument=0`), so nothing to fix | CLOSED — does not apply |

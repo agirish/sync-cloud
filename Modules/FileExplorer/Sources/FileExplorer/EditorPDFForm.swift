@@ -30,7 +30,9 @@ public struct EditorPDFForm: Equatable, Sendable {
     public var hasFields: Bool { !fields.isEmpty }
 
     /// The fields Tab walks and a click fills: fillable ones, in document order.
-    public var fillable: [FormField] { fields.filter(\.isFillable) }
+    /// A checkbox whose boxes carry separate values is left out with them (``refusal(_:allowsFormEntry:)``),
+    /// so Tab, the count and whether the form offers fields at all agree with what a click does.
+    public var fillable: [FormField] { fields.filter { $0.isFillable && !($0.kind == .checkbox && $0.options.count > 1) } }
 
     public func field(named name: String) -> FormField? { fields.first { $0.name == name } }
 
@@ -82,6 +84,8 @@ public struct EditorPDFForm: Equatable, Sendable {
 
     // MARK: What a field says and takes
 
+    static let separateBoxValuesReason = "These boxes share one name with separate values, which can’t be set here"
+
     /// Why a field takes no value, or `nil` for one that does — the overlay's hover words.
     public static func refusal(_ field: FormField, allowsFormEntry: Bool) -> String? {
         switch field.kind {
@@ -90,6 +94,10 @@ public struct EditorPDFForm: Equatable, Sendable {
         default: break
         }
         if field.isReadOnly { return "Read-only — the form doesn’t let this field be changed" }
+        // **Boxes under one name with different values** — a Yes and a No box. A click cannot say
+        // which box it meant, the overlay ticks every box of the field, and the toolkit turns on
+        // only the first value: the screen and the copy disagreed. Refused, as such a list is.
+        if field.kind == .checkbox, field.options.count > 1 { return separateBoxValuesReason }
         if !field.isFillable { return "This list’s items have separate export values, which can’t be filled here" }
         if !allowsFormEntry { return EditorPDFFillSign.noFormEntryReason }
         return nil

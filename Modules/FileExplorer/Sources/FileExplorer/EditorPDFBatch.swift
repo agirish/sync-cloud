@@ -144,6 +144,8 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
     var confirm: @MainActor (EditorPDFBatchWarning) -> Bool = { EditorPDFBatch.confirmWithAlert($0) }
 
     private var cancelFlag: CancelFlag?
+    /// Copies this run wrote from a restricted original that came out unrestricted.
+    private var unrestrictedCopies = 0
     /// Called as each file starts, before its lane turn is asked for — a test's way to cancel at a
     /// known file rather than racing the lane for it.
     var fileStarted: @MainActor (Int) -> Void = { _ in }
@@ -174,6 +176,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         cancelFlag = flag
         progress = nil
         banner = nil
+        unrestrictedCopies = 0
         for index in files.indices { files[index].status = .waiting }
         defer {
             isRunning = false
@@ -229,9 +232,9 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
             return .skipped(skip)
         case .failed(let message):
             return .failed(message)
-        case .output(.noGain):
+        case .output(.noGain, _):
             return .skipped(.alreadySmall)
-        case .output(.bytes(let data)):
+        case .output(.bytes(let data), let unrestricted):
             let suffix = tool.tool(pageCount: 0).suffix
             let written = await Task.detached(priority: .userInitiated) {
                 Result { try EditorPDFCopyWriter.write(data, besides: path, suffix: suffix) }
@@ -240,6 +243,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
             case .failure(let error):
                 return .failed("Couldn’t write the copy — \(error.localizedDescription)")
             case .success(let copy):
+                if unrestricted { unrestrictedCopies += 1 }
                 let sizes: String? = if case .compress = tool {
                     EditorPDFTools.sizes(before: before, after: data.count)
                 } else {
@@ -254,7 +258,9 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
     enum Turn: Sendable {
         case skipped(Skip)
         case failed(String)
-        case output(EditorPDFToolEngine.Output)
+        /// `unrestricted`: the original's owner restricted editing and the tool rebuilt the
+        /// document, so the copy carries no restrictions — said, as one file's run says it.
+        case output(EditorPDFToolEngine.Output, unrestricted: Bool)
     }
 
     /// **The whole of one file's turn in the lane**: open it, decide whether it can run — the same
@@ -274,7 +280,8 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         if let refusal = EditorPDFToolEngine.refusal(edit, pageCount: pageCount) { return .failed(refusal) }
         do {
             return .output(try EditorPDFToolEngine.output(of: edit, input: input,
-                                                          progress: progress, isCancelled: isCancelled))
+                                                          progress: progress, isCancelled: isCancelled),
+                           unrestricted: document.isEncrypted && edit.rebuildsDocument)
         } catch is CancellationError {
             return .skipped(.cancelled)
         } catch {
@@ -293,6 +300,9 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         var warning: OutputFidelityWarning?
         for file in files {
             if flag.isCancelled { return nil }
+            // Not a file still in the cloud: reading its form opens it in PDFKit, which downloads
+            // it — the very read ``runOne(_:at:flag:)`` skips it to avoid.
+            if isCloudOnly(file.path) { continue }
             let input = URL(fileURLWithPath: EditorFileStore.resolved(file.path))
             if let found = await EditorPDFToolEngine.fidelityWarning(for: edit, input: input) {
                 atRisk.append(file.name)
@@ -343,7 +353,8 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         for copy in copies where folders.insert((copy as NSString).deletingLastPathComponent).inserted {
             host.didWrite(copy)
         }
-        let message = Self.summary(files.map(\.status), tool: tool, cancelled: cancelled)
+        let message = Self.summary(files.map(\.status), tool: tool, cancelled: cancelled,
+                                   unrestricted: unrestrictedCopies)
         let kind: EditorPDFToolBanner.Kind
         switch copies.count {
         case 0: kind = files.contains { if case .failed = $0.status { return true }; return false } ? .failure : .note
@@ -356,7 +367,11 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
 
     /// "Wrote 2 compressed copies · 1 skipped, already small" — what was written, then each reason
     /// a file was skipped, then what failed.
-    static func summary(_ statuses: [Status], tool: EditorPDFBatchTool, cancelled: Bool) -> String {
+    ///
+    /// `unrestricted` copies came from originals whose owner restricted editing, and do not carry
+    /// the restrictions — "· 1 has no editing restrictions", right after what was written.
+    static func summary(_ statuses: [Status], tool: EditorPDFBatchTool, cancelled: Bool,
+                        unrestricted: Int = 0) -> String {
         var wrote = 0
         var skips: [(Skip, Int)] = []
         var failures: [String] = []
@@ -371,6 +386,9 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         }
         let noun = tool.copyNoun
         var parts = [wrote == 0 ? "Wrote nothing" : "Wrote \(wrote) \(wrote == 1 ? noun.one : noun.many)"]
+        if unrestricted > 0 {
+            parts.append(unrestricted == 1 ? "1 has no editing restrictions" : "\(unrestricted) have no editing restrictions")
+        }
         for (skip, count) in skips where skip != .cancelled {
             parts.append("\(count) skipped, \(skip.reason)")
         }

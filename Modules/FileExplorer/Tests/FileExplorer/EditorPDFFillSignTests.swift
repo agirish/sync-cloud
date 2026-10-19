@@ -199,6 +199,29 @@ extension PDFFixtures {
         #expect(EditorPDFSignatureStore(defaults: defaults).saved(.initials).isEmpty)
     }
 
+    /// **A reset of every setting takes the saved signatures for good** — Reset All Settings empties
+    /// the domain under a store already up, and its next add used to write back the signatures the
+    /// reset had just removed.
+    @Test func savedSignaturesDoNotComeBackAfterAReset() throws {
+        let scratch = ScratchDefaults("EditorPDFSignatureReset")
+        let store = EditorPDFSignatureStore(defaults: scratch)
+        let old = EditorPDFSignature(kind: .signature, look: .typed("Alex Morgan"))
+        store.add(old)
+        scratch.removePersistentDomain(forName: scratch.scratchSuiteName)
+        let new = EditorPDFSignature(kind: .signature, look: .typed("Sam Reed"))
+        store.add(new)
+        let stored = try JSONDecoder().decode([EditorPDFSignature].self,
+                                              from: try #require(scratch.data(forKey: EditorPDFSignatureStore.key)))
+        #expect(stored == [new], "the reset's removed signature was written back")
+        #expect(store.saved == [new])
+        // A delete after a reset is built on what is stored too — not the list held before it.
+        scratch.removePersistentDomain(forName: scratch.scratchSuiteName)
+        store.delete(old.id)
+        let afterDelete = try JSONDecoder().decode([EditorPDFSignature].self,
+                                                   from: try #require(scratch.data(forKey: EditorPDFSignatureStore.key)))
+        #expect(afterDelete.isEmpty, "the delete wrote back signatures the reset removed: \(afterDelete)")
+    }
+
     // MARK: Placing
 
     @Test func turningItOnChoosesTextAndAClickPlacesWordsToType() async throws {
@@ -478,6 +501,59 @@ extension PDFFixtures {
         fill.place(at: CGPoint(x: 100, y: 100), page: 0)
         pdf.close()
         #expect(fill.items.isEmpty && !fill.isOn)
+    }
+
+    /// **A file that goes from under the reader says what unsaved work went with it** — a rename,
+    /// the Trash, a sync client's half-written file. The leave question cannot ask then, and the
+    /// items used to go with only a log line to say so.
+    @Test func aFileThatGoesFromUnderTheReaderSaysWhatWorkWentWithIt() async throws {
+        let (pdf, file) = try await letter()
+        let fill = pdf.fill
+        fill.toggle()
+        fill.armed = .mark(.check)
+        fill.place(at: CGPoint(x: 100, y: 100), page: 0)
+        fill.place(at: CGPoint(x: 100, y: 200), page: 0)
+        try FileManager.default.removeItem(atPath: file)
+        pdf.look()
+        #expect(pdf.phase == .refused(EditorPDFDocument.goneReason))
+        #expect(fill.items.isEmpty)
+        #expect(pdf.tools.banner?.message
+                == "The file was moved or deleted, so Fill & Sign’s unsaved work — 2 items — was dropped.")
+        // With nothing unsaved there is nothing to say.
+        let (quiet, other) = try await letter("Quiet.pdf")
+        try FileManager.default.removeItem(atPath: other)
+        quiet.look()
+        #expect(quiet.phase == .refused(EditorPDFDocument.goneReason) && quiet.tools.banner == nil)
+        // A file left unreadable — a sync client's half-written copy — says it the same way.
+        let (torn, tornFile) = try await letter("Torn.pdf")
+        torn.fill.toggle()
+        torn.fill.armed = .mark(.check)
+        torn.fill.place(at: CGPoint(x: 100, y: 100), page: 0)
+        try Data("not a PDF any more".utf8).write(to: URL(fileURLWithPath: tornFile))
+        var phases: [EditorPDFDocument.Phase] = []
+        torn.onLoaded = { phases.append($0) }
+        torn.look()
+        for _ in 0..<1000 where phases.isEmpty { await PDFKitSerialAccess.perform {} }
+        #expect(phases == [.refused(EditorPDFDocument.unreadableReason)])
+        #expect(torn.tools.banner?.message
+                == "The file couldn’t be read, so Fill & Sign’s unsaved work — 1 item — was dropped.")
+    }
+
+    /// **A reload that changed the pages takes the undo steps too**, with nothing placed at the
+    /// time: ⌘Z after a Discard put an item back on a page the file no longer had — counted as
+    /// unsaved, drawn nowhere, and left out of the copy that Save then cleared it as saved.
+    @Test func aReloadThatChangedThePagesForgetsTheUndoSteps() async throws {
+        let (pdf, file) = try await letter()
+        let fill = pdf.fill
+        fill.toggle()
+        fill.armed = .mark(.check)
+        fill.place(at: CGPoint(x: 100, y: 100), page: 1)
+        fill.discard()
+        #expect(fill.undoManager.canUndo, "the premise: Discard is a step ⌘Z undoes")
+        fill.attach(path: file, boxes: Array(fill.boxes.prefix(1)), encryption: .none, allowsFilling: true)
+        #expect(!fill.undoManager.canUndo, "the steps outlived the pages they were taken on")
+        fill.undoManager.undo()
+        #expect(fill.items.isEmpty)
     }
 
     // MARK: The menu bar

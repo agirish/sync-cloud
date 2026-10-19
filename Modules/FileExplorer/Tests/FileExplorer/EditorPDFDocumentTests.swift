@@ -262,6 +262,40 @@ enum PDFURLOpens {
         #expect(lines.last == "Editor reloaded \(file) (PDF, 6 pages) — changed elsewhere; kept page 4")
     }
 
+    /// **A new revision of a file evicted while open is not read** — reading it would download it,
+    /// in the lane — as the text watch leaves an evicted text file alone. The reader keeps what it
+    /// showed. (The settle is long so only the direct look below can reload.)
+    @Test func aChangeToAFileEvictedWhileOpenIsNotDownloadedToShowIt() async throws {
+        final class Flag { var cloudOnly = false }
+        let flag = Flag()
+        let file = path("evicted.pdf")
+        PDFFixtures.write(file, pages: 5)
+        let pdf = EditorPDFDocument(settle: .seconds(600), isCloudOnly: { _ in flag.cloudOnly })
+        #expect(await open(pdf, file) == .open)
+        let replacement = path("revision.pdf")
+        PDFFixtures.write(replacement, pages: 6)
+        _ = try FileManager.default.replaceItemAt(URL(fileURLWithPath: file), withItemAt: URL(fileURLWithPath: replacement))
+        flag.cloudOnly = true
+        let returned = pdf.loadsReturned
+        pdf.look()
+        #expect(pdf.facts?.pageCount == 5)
+        // Back on disk, the same look reads it — and that is the only load that returns. A load the
+        // evicted look had started would be withdrawn by this one and still return, ahead of it in
+        // the lane, so the count decides the absence rather than a pump that may beat the load.
+        flag.cloudOnly = false
+        let phase = await loaded(pdf) { pdf.look() }
+        #expect(phase == .open && pdf.facts?.pageCount == 6)
+        #expect(pdf.loadsReturned == returned + 1, "the look at the evicted file started a load")
+    }
+
+    /// **The text probe reads the front and a spread to the end**, each page once, and never past it.
+    @Test func theTextProbeReadsTheFrontAndASpreadToTheEnd() {
+        #expect(EditorPDFFacts.textProbe(pageCount: 0) == [])
+        #expect(EditorPDFFacts.textProbe(pageCount: 1) == [0])
+        #expect(EditorPDFFacts.textProbe(pageCount: 7) == [0, 1, 2, 3, 4, 6])
+        #expect(EditorPDFFacts.textProbe(pageCount: 1000) == [0, 1, 2, 3, 4, 199, 399, 599, 799, 999])
+    }
+
     /// A file deleted from under the reader says so, and lets its document go.
     @Test func aDeletedFileSaysSo() async throws {
         let file = path("doomed.pdf")
@@ -538,6 +572,10 @@ enum PDFURLOpens {
         #expect(EditorPDFCapsule.page(typed: "99", pageCount: 10) == 9)
         #expect(EditorPDFCapsule.page(typed: " 4 ", pageCount: 10) == 3)
         #expect(EditorPDFCapsule.page(typed: "x", pageCount: 10) == nil)
+        // Past what `Int` holds is past the last page, and a Japanese keyboard's digits are digits.
+        #expect(EditorPDFCapsule.page(typed: "99999999999999999999", pageCount: 10) == 9)
+        #expect(EditorPDFCapsule.page(typed: "３", pageCount: 10) == 2)
+        #expect(EditorPDFCapsule.page(typed: "", pageCount: 10) == nil)
     }
 
     /// **Row 2 says paper, size and text, and no version** — the version is in the tooltip on

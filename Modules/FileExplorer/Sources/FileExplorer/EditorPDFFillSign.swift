@@ -288,21 +288,26 @@ public final class EditorPDFSignatureStore: ObservableObject {
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        saved = defaults.data(forKey: Self.key)
-            .flatMap { try? JSONDecoder().decode([EditorPDFSignature].self, from: $0) } ?? []
+        saved = Self.read(defaults)
+    }
+
+    private static func read(_ defaults: UserDefaults) -> [EditorPDFSignature] {
+        defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([EditorPDFSignature].self, from: $0) } ?? []
     }
 
     public func saved(_ kind: EditorPDFSignature.Kind) -> [EditorPDFSignature] { saved.filter { $0.kind == kind } }
 
-    /// Newest first.
+    /// Newest first. **Built on what is stored, not on what was read at launch**: Settings ▸ Reset
+    /// All Settings empties the domain under a store that is already up, and the next add wrote the
+    /// signatures it had just removed back with the new one.
     public func add(_ signature: EditorPDFSignature) {
-        var next = [signature] + saved.filter { $0.id != signature.id }
+        var next = [signature] + Self.read(defaults).filter { $0.id != signature.id }
         let overflow = next.filter { $0.kind == signature.kind }.dropFirst(Self.limit).map(\.id)
         next.removeAll { overflow.contains($0.id) }
         write(next)
     }
 
-    public func delete(_ id: UUID) { write(saved.filter { $0.id != id }) }
+    public func delete(_ id: UUID) { write(Self.read(defaults).filter { $0.id != id }) }
 
     private func write(_ signatures: [EditorPDFSignature]) {
         saved = signatures
@@ -405,6 +410,13 @@ public final class EditorPDFFillSign: ObservableObject {
     /// `allowsFormEntry` and `allowsCommenting` its form and the permissions' two halves (5c).
     func attach(path: String, boxes: [EditorPDFPageBox], encryption: PDFEncryptionState, allowsFilling: Bool,
                 form: EditorPDFForm = .none, allowsFormEntry: Bool = true, allowsCommenting: Bool = true) {
+        if self.path == path, boxes != self.boxes || form != self.form {
+            // **The undo steps go with the pages and the form they were taken on** — with nothing
+            // to drop now as well. A Discard, or a placement undone, left steps that ⌘Z then played
+            // back onto pages that had changed: counted as unsaved, drawn nowhere, and left out of
+            // the copy without a word.
+            undoManager.removeAllActions()
+        }
         if self.path == path, form != self.form, !values.isEmpty {
             // **A reload whose form is no longer the one the values were typed into** — a field
             // renamed, a value changed elsewhere. Said, as the items' drop is.
@@ -439,9 +451,20 @@ public final class EditorPDFFillSign: ObservableObject {
         self.form = form
         self.allowsFormEntry = allowsFormEntry
         self.allowsCommenting = allowsCommenting
+        // An owner who forbids commenting gets no placed items, form or not: a file with no form
+        // allowed only "form entry" has nothing that permission covers, and took items flattened
+        // into an unrestricted copy — the inconsistency `nothingToFillReason` closed for forms.
         refusal = Self.refusal(encryption: encryption, allowsFilling: allowsFilling)
-            ?? (form.hasFields && !allowsCommenting && !offersFormFields ? Self.nothingToFillReason : nil)
+            ?? (!allowsCommenting && !offersFormFields
+                ? (form.hasFields ? Self.nothingToFillReason : Self.restrictedReason) : nil)
         if refusal != nil { isOn = false }
+    }
+
+    /// What a ``detach()`` now would throw away — "2 items and 1 field" — or `nil` with nothing
+    /// unsaved: the words for the banner when the file goes from under the reader.
+    var unsavedWork: String? {
+        let parts = (items.isEmpty ? [] : [Self.count(items.count)]) + (values.isEmpty ? [] : [Self.fields(values.count)])
+        return parts.isEmpty ? nil : parts.joined(separator: " and ")
     }
 
     func detach() {

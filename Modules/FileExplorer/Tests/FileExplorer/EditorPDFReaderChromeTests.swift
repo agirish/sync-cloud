@@ -396,6 +396,22 @@ import Sync
         #expect(EditorPDFViewMenu.menu(for: state).items.filter { $0.state == .on }.map(\.title) == ["Fit Page"])
     }
 
+    /// **Upright, the capsule is one width at every zoom** — its width is the side band a fit is
+    /// measured inside, so a width that followed the percentage's digits looped Fit Width between
+    /// 99% and 100% at a column width in between, the page flickering for as long as it was left.
+    @Test func theUprightCapsuleIsOneWidthAtEveryZoom() {
+        let state = EditorPDFViewState(defaults: defaults)
+        state.pageCount = 64
+        state.capsulePlace = .trailing
+        for scale in scales {
+            let widths = [EditorPDFViewState.minScale, 0.99, 1, 1.25, EditorPDFViewState.maxScale].map { zoom in
+                state.scale = zoom
+                return capsule(state, rung: .full, scale: scale).width
+            }
+            #expect(Set(widths).count == 1, "at \(scale) the upright capsule measures \(widths) across the zooms")
+        }
+    }
+
     /// **A narrow canvas takes − and + first, then ‹ and ›** — each rung narrower, at every text size
     /// — **and never "N of M" or the zoom label**: the narrowest still grows with the page count's
     /// digits and with the zoom's words.

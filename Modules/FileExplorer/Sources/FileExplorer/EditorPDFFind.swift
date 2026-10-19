@@ -197,6 +197,12 @@ public final class EditorPDFFind: ObservableObject {
         self.lane = lane
     }
 
+    /// **A file evicted while open is not downloaded by a search.** The search reads its own copy,
+    /// reopened from the path after Esc and every ``recycleEvery`` pages, and `PDFDocument(url:)` on
+    /// a dataless file downloads it there and then — in the lane every duplicate scan waits on. Its
+    /// pages fail instead, as an unreadable file's do. Injectable, as the reader's own is.
+    var isCloudOnly: @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
+
     /// The document the search reads, created on the main actor and then touched only inside the
     /// lane — see ``EditorPDFThumbnails/Source``, whose rules this one keeps.
     final class Source: @unchecked Sendable {
@@ -208,8 +214,12 @@ public final class EditorPDFFind: ObservableObject {
         /// Every document whose text a turn read. Test instrumentation, readable from any thread —
         /// how a test proves the reader's own document was never one of them.
         let readDocuments = OSAllocatedUnfairLock<Set<ObjectIdentifier>>(initialState: [])
-        init(path: String, unlocked: PDFDocument? = nil) {
+        /// Asked in the lane before every open from ``path`` — see ``EditorPDFFind/isCloudOnly``.
+        let isCloudOnly: @Sendable (String) -> Bool
+        init(path: String, unlocked: PDFDocument? = nil,
+             isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }) {
             self.path = path
+            self.isCloudOnly = isCloudOnly
             document = unlocked
             opened = unlocked != nil
             reopens = unlocked == nil
@@ -241,7 +251,7 @@ public final class EditorPDFFind: ObservableObject {
     /// a reload under it — searches the new file from the page on screen.
     func attach(path: String, pageCount: Int, hasText: Bool, unlocked: PDFDocument? = nil) {
         stop()
-        source = Source(path: path, unlocked: unlocked)
+        source = Source(path: path, unlocked: unlocked, isCloudOnly: isCloudOnly)
         self.pageCount = pageCount
         self.hasText = hasText
         if isShown { restart() }
@@ -277,7 +287,7 @@ public final class EditorPDFFind: ObservableObject {
         stop()
         isShown = false
         phase = .idle
-        if let source, source.reopens { self.source = Source(path: source.path) }
+        if let source, source.reopens { self.source = Source(path: source.path, isCloudOnly: isCloudOnly) }
         if wasShown { view.requestFocus() }
     }
 
@@ -535,6 +545,7 @@ public final class EditorPDFFind: ObservableObject {
                 source.opened = false
             }
             if !source.opened {
+                guard !source.isCloudOnly(source.path) else { return .failed(index) }
                 source.opened = true
                 source.readSinceOpen = 0
                 source.document = PDFDocument(url: URL(fileURLWithPath: source.path))

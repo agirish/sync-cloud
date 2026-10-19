@@ -245,6 +245,60 @@ extension PDFFixtures {
         #expect(EditorPDFPageMenu.rangeText([1, 2, 3, 6]) == "2-4, 7")
     }
 
+    /// **A run on a file that changed since the reader read it writes nothing** — the reload has not
+    /// landed yet, so the copy would come from pages nobody was shown: Fill & Sign's items placed
+    /// by the old pages' boxes, Rotate's pages by the old numbering. A pane's run, with no reader,
+    /// checks nothing; the reader's load sets what it read.
+    @Test func aRunOnAFileThatChangedSinceItWasReadWritesNothing() async throws {
+        let file = path("Four.pdf")
+        PDFFixtures.write(file, pages: 4)
+        let tools = tools(file)
+        tools.shownStamp = EditorFileStore.stamp(ofPath: file)
+        PDFFixtures.write(file, pages: 5)
+        let outcome = await tools.run(.rotate(pages: [1], quarterTurns: 1))
+        #expect(outcome == .failed(EditorPDFTools.changedReason("Four.pdf")))
+        #expect(files() == ["Four.pdf"], "a copy was written from the unseen revision: \(files())")
+        tools.shownStamp = EditorFileStore.stamp(ofPath: file)
+        guard case .wrote = await tools.run(.rotate(pages: [1], quarterTurns: 1)) else {
+            Issue.record("the revision the reader has read did not rotate"); return
+        }
+
+        // A form's question: a file that already changed is refused without being asked about, and
+        // one that changes while the question is up is refused after it.
+        let form = path("Form.pdf")
+        try PDFFixtures.writeAcroForm(form)
+        let formTools = self.tools(form)
+        var asked = 0
+        formTools.confirm = { _, _ in asked += 1; return true }
+        formTools.shownStamp = EditorFileStore.stamp(ofPath: form)
+        try PDFFixtures.writeAcroForm(form, pages: 3)
+        #expect(await formTools.run(.compress(.quality(0.35))) == .failed(EditorPDFTools.changedReason("Form.pdf")))
+        #expect(asked == 0, "a file that had already changed was asked about")
+        formTools.shownStamp = EditorFileStore.stamp(ofPath: form)
+        formTools.confirm = { _, _ in
+            asked += 1
+            try? PDFFixtures.writeAcroForm(form, pages: 2)
+            return true
+        }
+        #expect(await formTools.run(.compress(.quality(0.35))) == .failed(EditorPDFTools.changedReason("Form.pdf")))
+        #expect(asked == 1)
+        #expect(!files().contains { $0.hasPrefix("Form (") }, "a copy was written: \(files())")
+
+        let pdf = EditorPDFDocument(settle: .seconds(600), isCloudOnly: { _ in false })
+        pdf.open(path: file, log: { _ in })
+        for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
+        #expect(pdf.phase == .open)
+        #expect(pdf.tools.shownStamp == EditorFileStore.stamp(ofPath: file), "the reader's load did not set what it read")
+        // So does a load that found the file locked to open — Remove Password is a run like any other.
+        let locked = path("Locked.pdf")
+        PDFFixtures.writeLocked(locked, password: "secret")
+        let held = EditorPDFDocument(settle: .seconds(600), isCloudOnly: { _ in false })
+        held.open(path: locked, log: { _ in })
+        for _ in 0..<1000 where held.phase == .loading { await PDFKitSerialAccess.perform {} }
+        #expect(held.phase == .locked)
+        #expect(held.tools.shownStamp == EditorFileStore.stamp(ofPath: locked), "the locked load did not set what it read")
+    }
+
     // MARK: Rotate
 
     /// **Exactly the pages asked for turn**, and by the amount asked.

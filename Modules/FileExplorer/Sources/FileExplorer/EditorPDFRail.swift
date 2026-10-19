@@ -290,8 +290,12 @@ public final class EditorPDFThumbnails: ObservableObject {
         let draws = OSAllocatedUnfairLock(initialState: 0)
         /// Times ``document`` was opened from ``path``. Test instrumentation, as ``draws`` is.
         let opens = OSAllocatedUnfairLock(initialState: 0)
-        init(path: String, unlocked: PDFDocument? = nil) {
+        /// Asked in the lane before every open from ``path`` — see ``EditorPDFThumbnails/isCloudOnly``.
+        let isCloudOnly: @Sendable (String) -> Bool
+        init(path: String, unlocked: PDFDocument? = nil,
+             isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }) {
             self.path = path
+            self.isCloudOnly = isCloudOnly
             self.document = unlocked
             self.opened = unlocked != nil
             self.reopens = unlocked == nil
@@ -356,10 +360,17 @@ public final class EditorPDFThumbnails: ObservableObject {
 
     init(lane: Lane) { self.lane = lane }
 
+    /// **A file evicted while open draws no thumbnails** rather than being downloaded to draw them:
+    /// the source is reopened from the path every ``recycleEvery`` pages, and `PDFDocument(url:)`
+    /// on a dataless file downloads it there and then, in the lane. Its pages fail as an unreadable
+    /// file's do — not asked for again until the PDF is opened again, so a download does not bring
+    /// them back on its own. Injectable, as the reader's is.
+    var isCloudOnly: @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
+
     /// Starts over for a newly opened (or reloaded, or unlocked) PDF of `pageCount` pages.
     func attach(path: String, pageCount: Int, unlocked: PDFDocument? = nil) {
         detach()
-        source = Source(path: path, unlocked: unlocked)
+        source = Source(path: path, unlocked: unlocked, isCloudOnly: isCloudOnly)
         self.pageCount = pageCount
         attachments &+= 1
     }
@@ -484,6 +495,7 @@ public final class EditorPDFThumbnails: ObservableObject {
                 source.opened = false
             }
             if !source.opened {
+                guard !source.isCloudOnly(source.path) else { return .failed }
                 source.opened = true
                 source.drawnSinceOpen = 0
                 source.document = PDFDocument(url: URL(fileURLWithPath: source.path))
