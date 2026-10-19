@@ -392,9 +392,9 @@ enum PDFToolsMenu {
     }
 }
 
-/// **File ▸ Fill & Sign and Save Filled Copy** — the header's Fill & Sign button and its toolbar's
-/// save, drawn by `EditorPDFFillSignMenuItems` over the open PDF's own Fill & Sign and tools. The
-/// tools ride along because Save is greyed while any of them runs, as the toolbar's is.
+/// **File ▸ Fill & Sign and Save Filled Copy** — the header's Fill & Sign button and its save pill's
+/// Save, drawn by `EditorPDFFillSignMenuItems` over the open PDF's own Fill & Sign and tools. The
+/// tools ride along because Save is greyed while any of them runs, as the pill's is.
 struct PDFFillSignVerbs {
     let fill: EditorPDFFillSign
     let tools: EditorPDFTools
@@ -1323,7 +1323,7 @@ struct ShortcutValuePublisher: ViewModifier {
     /// Text ▸ the fit, the zoom and Go to Page…. Suspended with the rest: the page field would take
     /// the keyboard from the pick.
     let pdfPage: PDFPageVerbs?
-    /// File ▸ Fill & Sign and Save Filled Copy. Suspended with the rest: the toolbar would take
+    /// File ▸ Fill & Sign and Save Filled Copy. Suspended with the rest: the palette would take
     /// the pages' clicks, and the leave question would stack on the pick.
     let pdfFill: PDFFillSignVerbs?
     /// Text ▸ Expand. Suspended with the rest: folding the pane under a destination pick would hide

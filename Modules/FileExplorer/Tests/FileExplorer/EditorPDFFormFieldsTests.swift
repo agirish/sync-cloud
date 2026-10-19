@@ -209,7 +209,7 @@ extension PDFFixtures {
         pdf.fill.toggle()
         #expect(pdf.fill.armed == .formFields)
         // The twelve fields less a read-only one, a signature, a button and a list of export pairs.
-        #expect(pdf.fill.statusSegments.contains("8 fields"), "\(pdf.fill.statusSegments)")
+        #expect(pdf.fill.form.fillable.count == 8, "\(pdf.fill.form.fillable.map(\.name))")
         #expect(pdf.fill.place(at: CGPoint(x: 100, y: 100), page: 0) == nil, "Form Fields placed an item")
     }
 
@@ -547,7 +547,7 @@ extension PDFFixtures {
         #expect(said.isEmpty && fill.isOn)
         #expect(fill.usesFormPath && fill.offersPlacing && !fill.offersFormFields)
         #expect(fill.armed == .text)
-        #expect(fill.statusSegments.contains("1 field, none fillable"), "\(fill.statusSegments)")
+        #expect(fill.form.fields.count == 1 && fill.form.fillable.isEmpty)
         fill.armed = .mark(.check)
         fill.place(at: CGPoint(x: 300, y: 300), page: 0)
         #expect(fill.canSave && fill.formProblem == nil)
@@ -804,42 +804,5 @@ extension PDFFixtures {
 
         reader.fillSign = nil
         reader.document = nil
-    }
-}
-
-/// **Form Fields still fits the narrowest column**: on a file with fields the toolbar carries one
-/// more tool, first — and its narrowest rung must still fit the document column at the smallest
-/// window, at every text size, as 5b's bar does (`EditorPDFFillSignBarWidthTests`).
-@MainActor
-@Suite final class EditorPDFFormFieldsBarWidthTests {
-    private let defaults = ScratchDefaults("EditorPDFFormFieldsBarWidthTests")
-
-    private func width(_ rung: EditorPDFFillSignBar.Rung, scale: CGFloat) -> CGFloat {
-        let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
-        let field = FormField(name: "name", kind: .text(multiline: false), value: nil,
-                              widgets: [FormField.Widget(pageIndex: 0, rect: CGRect(x: 10, y: 10, width: 100, height: 20))])
-        fill.attach(path: "/tmp/form.pdf", boxes: [EditorPDFPageBox(cropBox: CGRect(x: 0, y: 0, width: 612, height: 792), rotation: 0)],
-                    encryption: .none, allowsFilling: true, form: EditorPDFForm(fields: [field]))
-        let bar = EditorPDFFillSignBar(fill: fill, tools: EditorPDFTools(), accent: .blue)
-            .content(rung)
-            .padding(.horizontal, 10)
-        return NSHostingView(rootView: bar.environment(\.appFontScale, scale)).fittingSize.width
-    }
-
-    @Test func theNarrowestRungWithFormFieldsFitsTheColumnAtEveryTextSize() throws {
-        let narrowest = try #require(EditorPDFFillSignBar.Rung.allCases.last)
-        for percent in FontSize.selectablePercents {
-            let measured = width(narrowest, scale: FontSize(percent: percent).scale)
-            #expect(measured <= EditorPDFHeaderWidthTests.column,
-                    "at \(percent)% the narrowest bar with Form Fields is \(measured)pt, over the \(EditorPDFHeaderWidthTests.column)pt column")
-        }
-    }
-
-    @Test func eachRungStillShedsWidth() {
-        for percent in FontSize.selectablePercents {
-            let widths = EditorPDFFillSignBar.Rung.allCases.map { width($0, scale: FontSize(percent: percent).scale) }
-            #expect(zip(widths, widths.dropFirst()).allSatisfy { $0 > $1 + 10 },
-                    "at \(percent)% the bar's rungs measure \(widths)")
-        }
     }
 }

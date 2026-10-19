@@ -63,7 +63,7 @@ import Testing
     }
 
     /// **Fill & Sign and Save Filled Copy straight under PDF Tools, greyed with no PDF open, and
-    /// no chords** — the header's button and its toolbar's save.
+    /// no chords** — the header's button and its save pill's Save.
     @Test func fillAndSignFollowsPDFToolsGreyedWithNoPDF() throws {
         let file = try Self.file()
         let titles = Self.titles(file)

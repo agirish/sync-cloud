@@ -78,7 +78,7 @@ public struct EditorPDFPageBox: Equatable, Sendable {
     }
 }
 
-/// The two inks the toolbar offers (mockup 17): a dark blue, as a pen signs, and near-black.
+/// The two inks the palette offers (mockup 17): a dark blue, as a pen signs, and near-black.
 public enum EditorPDFFillColor: String, CaseIterable, Codable, Sendable {
     case blue
     case black
@@ -240,7 +240,7 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
 
 /// What the next click on a page places.
 public enum EditorPDFFillTool: Equatable, Sendable {
-    /// A click fills the PDF's own field under it (Phase 5c) — first in the toolbar, and what Fill &
+    /// A click fills the PDF's own field under it (Phase 5c) — first in the palette, and what Fill &
     /// Sign opens on when the file has fields it can fill.
     case formFields
     case text
@@ -248,7 +248,7 @@ public enum EditorPDFFillTool: Equatable, Sendable {
     case mark(EditorPDFFillMark)
     case signature(EditorPDFSignature)
 
-    /// What the toolbar's line of words says while this is chosen.
+    /// What the palette's tool says it does, in its tooltip.
     public var hint: String {
         switch self {
         case .formFields: return "Form Fields · click a field to fill it, Tab moves to the next"
@@ -310,9 +310,9 @@ public final class EditorPDFSignatureStore: ObservableObject {
     }
 }
 
-/// **Fill & Sign: the items placed on the open PDF, and the toolbar's state** (mockups 17 and 18).
-/// A sibling of ``EditorPDFTools`` on ``EditorPDFDocument``, observed by the toolbar, the header's
-/// button, the header's second row and the page view's overlay.
+/// **Fill & Sign: the items placed on the open PDF, and the palette's state** (mockups 17, 18 and
+/// F). A sibling of ``EditorPDFTools`` on ``EditorPDFDocument``, observed by the palette, the save
+/// pill, the header's button and the page view's overlay.
 ///
 /// **Nothing is written until Save Filled Copy**, which is a tool run like any other —
 /// ``EditorPDFTool/fillAndSign(_:)`` through ``EditorPDFTools/run(_:bannerFailures:)`` — so the copy
@@ -322,7 +322,7 @@ public final class EditorPDFSignatureStore: ObservableObject {
 @MainActor
 public final class EditorPDFFillSign: ObservableObject {
 
-    /// Whether the toolbar is up.
+    /// Whether the palette is up.
     @Published public private(set) var isOn = false
     @Published public private(set) var items: [EditorPDFFillItem] = []
     @Published public var selection: UUID?
@@ -540,14 +540,14 @@ public final class EditorPDFFillSign: ObservableObject {
 
     // MARK: Counting
 
-    /// The items that would draw something — what Save Filled Copy writes and the header counts.
+    /// The items that would draw something — what Save Filled Copy writes and the save pill counts.
     public var unsaved: [EditorPDFFillItem] { items.filter(\.hasInk) }
     public var hasUnsavedItems: Bool { !unsaved.isEmpty }
 
     /// Items placed or fields changed — what Save Filled Copy writes and a leave asks about.
     public var hasUnsavedChanges: Bool { hasUnsavedItems || !values.isEmpty }
 
-    /// "4 items not saved" — the header's second row while Fill & Sign is on — and with a form,
+    /// "4 items not saved" — the save pill's words while Fill & Sign holds some — and with a form,
     /// "2 fields changed" (mockup 19), or both.
     public var unsavedCaption: String? {
         let n = unsaved.count, f = values.count
@@ -561,25 +561,6 @@ public final class EditorPDFFillSign: ObservableObject {
 
     nonisolated static func count(_ n: Int) -> String { n == 1 ? "1 item" : "\(n) items" }
     nonisolated static func fields(_ n: Int) -> String { n == 1 ? "1 field" : "\(n) fields" }
-
-    /// The toolbar's line of words while it is up — the status line's, until 6a took that away:
-    /// what a click does, then what the form and the page hold.
-    public var statusSegments: [String] {
-        var out = [armed?.hint ?? (selection != nil ? "Drag to move · Delete removes it" : "Choose what to place")]
-        if form.hasFields {
-            // "14 fields · 2 changed" (mockup 19) — the ones that can be filled — or, on a form whose
-            // every field is read-only or a signature, that none can be.
-            let fillable = form.fillable.count
-            out.append(fillable == 0 ? "\(Self.fields(form.fields.count)), none fillable"
-                       : Self.fields(fillable) + (values.isEmpty ? "" : " · \(values.count) changed"))
-        }
-        let placed = unsaved
-        if !placed.isEmpty {
-            let signatures = placed.filter(\.isSignature).count
-            out.append(Self.count(placed.count) + (signatures == 0 ? "" : signatures == 1 ? ", 1 signature" : ", \(signatures) signatures"))
-        }
-        return out
-    }
 
     // MARK: Placing
 
@@ -709,8 +690,9 @@ public final class EditorPDFFillSign: ObservableObject {
     /// went against the same "no commenting" a fillable form's refusal honours.
     public var usesFormPath: Bool { form.hasFields && (offersFormFields || allowsCommenting) }
 
-    /// The lines under the toolbar while it is up: what Save would refuse, said as the reader types
-    /// rather than after Save — then the file's own caveats.
+    /// The note card's lines, under the save pill while the palette is up (Phase 6b, decided
+    /// 2026-10-19): what Save would refuse, said as the reader types rather than after Save — then
+    /// the file's own caveats.
     public var formNotes: [String] {
         var out: [String] = []
         if let formProblem, !Self.isNothingYet(formProblem) {
@@ -963,13 +945,27 @@ public final class EditorPDFFillSign: ObservableObject {
         }
     }
 
-    /// A− and A+: the selected item's words a step smaller or bigger — and the next item's.
+    /// The size the selected item's words are in, else the next item's — what Smaller and Bigger
+    /// step from and what the size flyout ticks.
+    public var currentFontSize: CGFloat { selected.flatMap { $0.words != nil ? $0.fontSize : nil } ?? fontSize }
+
+    /// Smaller and Bigger: the selected item's words a step smaller or bigger — and the next item's.
     public func stepFontSize(bigger: Bool) {
-        let current = selected.flatMap { $0.words != nil ? $0.fontSize : nil } ?? fontSize
+        let current = currentFontSize
         let next = bigger ? Self.fontSizes.first { $0 > current + 0.01 } : Self.fontSizes.last { $0 < current - 0.01 }
         guard let next else { return }
+        setFontSize(next, undoName: bigger ? "Bigger Text" : "Smaller Text")
+    }
+
+    /// A size chosen in the size flyout (Phase 6b): the selected item's words, and the next item's.
+    public func setFontSize(_ size: CGFloat) {
+        guard abs(size - currentFontSize) > 0.01 else { return }
+        setFontSize(size, undoName: "Text Size")
+    }
+
+    private func setFontSize(_ next: CGFloat, undoName: String) {
         if let id = selection, selected?.words != nil {
-            change(bigger ? "Bigger Text" : "Smaller Text") { items in
+            change(undoName) { items in
                 guard let index = items.firstIndex(where: { $0.id == id }) else { return }
                 items[index].fontSize = next
                 Self.resizeToWords(&items[index], in: box(items[index].page))
@@ -981,7 +977,7 @@ public final class EditorPDFFillSign: ObservableObject {
     }
 
     public func canStepFontSize(bigger: Bool) -> Bool {
-        let current = selected.flatMap { $0.words != nil ? $0.fontSize : nil } ?? fontSize
+        let current = currentFontSize
         return bigger ? current < Self.fontSizes.last! - 0.01 : current > Self.fontSizes[0] + 0.01
     }
 
@@ -1045,7 +1041,7 @@ public final class EditorPDFFillSign: ObservableObject {
     // MARK: Saving
 
     /// **Save Filled Copy**: the items, as the toolkit draws them, through the tools' one run. On a
-    /// copy written, the items go and the toolbar goes down; the copy is the banner's to open.
+    /// copy written, the items go and the palette goes down; the copy is the banner's to open.
     ///
     /// **Only if nothing changed while the copy was being written.** The run takes a lane turn and a
     /// detached write, and the pages stay live meanwhile, so an item placed or a field typed during
@@ -1088,7 +1084,7 @@ public final class EditorPDFFillSign: ObservableObject {
         return outcome
     }
 
-    /// Discard: every item goes, and the toolbar stays for another go.
+    /// Discard: every item goes, and the palette stays for another go.
     public func discard() {
         endEditing()
         endFieldEditing()

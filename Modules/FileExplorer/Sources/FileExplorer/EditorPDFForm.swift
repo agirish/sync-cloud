@@ -15,7 +15,7 @@ public struct EditorPDFForm: Equatable, Sendable {
     /// Every field, signature and push-button fields included, in the toolkit's document order.
     public var fields: [FormField]
     /// Whether the form also carries XFA data. The toolkit fills the AcroForm only, and Acrobat may
-    /// show the XFA data instead — said once, in the toolbar's notes.
+    /// show the XFA data instead — said once, in the note card under the save pill.
     public var hasXFA: Bool
 
     public init(fields: [FormField] = [], hasXFA: Bool = false) {
@@ -85,7 +85,7 @@ public struct EditorPDFForm: Equatable, Sendable {
     /// Why a field takes no value, or `nil` for one that does — the overlay's hover words.
     public static func refusal(_ field: FormField, allowsFormEntry: Bool) -> String? {
         switch field.kind {
-        case .signature: return "Signature field — use Signature in the toolbar to sign the page"
+        case .signature: return "Signature field — use Signature in the Fill & Sign tools to sign the page"
         case .pushButton: return "Button — it does nothing in a saved copy"
         default: break
         }

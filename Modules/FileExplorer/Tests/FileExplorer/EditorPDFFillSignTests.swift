@@ -261,7 +261,7 @@ extension PDFFixtures {
         let placed = try #require(fill.items.first)
         #expect(placed.rect.size == CGSize(width: EditorPDFFillSign.signatureWidth, height: EditorPDFFillSign.signatureWidth / 3))
         #expect(fill.armed == nil)
-        #expect(fill.statusSegments.last == "1 item, 1 signature")
+        #expect(fill.unsaved.map(\.isSignature) == [true] && fill.unsavedCaption == "1 item not saved")
         #expect(fill.place(at: CGPoint(x: 10, y: 10), page: 0) == nil, "a second click placed it again")
     }
 

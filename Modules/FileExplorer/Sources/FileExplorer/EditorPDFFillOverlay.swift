@@ -12,7 +12,7 @@ import PDFToolkitCore
 ///
 /// **It answers ⌘Z itself, with Fill & Sign's own stack.** `PDFView` validates menu items of its own
 /// (it responds to `validateMenuItem:`), so undo cannot be answered on the reader without guessing
-/// what PDFKit says about every other item. While the toolbar is up this view takes the keyboard
+/// what PDFKit says about every other item. While the palette is up this view takes the keyboard
 /// whenever the reader would — it is inside the reader, so the pages still "have focus" for ⌘+ and
 /// ⌘− — and keys it does not use go on up to the reader (⌥← and ⌥→).
 ///

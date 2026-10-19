@@ -97,6 +97,16 @@ public enum EditorPDFSettings {
     static func capsulePlace(in defaults: UserDefaults) -> EditorPDFCapsulePlace {
         defaults.string(forKey: capsulePlaceKey).flatMap(EditorPDFCapsulePlace.init(rawValue:)) ?? capsulePlaceDefault
     }
+
+    /// **Where Fill & Sign's palette floats** (Phase 6b, mockup F) — the capsule's eight places,
+    /// stored the same way under its own key. The middle of the left side until it is moved, as
+    /// Acrobat's palette sits.
+    public static let palettePlaceKey = "editorPDFPalettePlace"
+    public static let palettePlaceDefault = EditorPDFCapsulePlace.leading
+
+    static func palettePlace(in defaults: UserDefaults) -> EditorPDFCapsulePlace {
+        defaults.string(forKey: palettePlaceKey).flatMap(EditorPDFCapsulePlace.init(rawValue:)) ?? palettePlaceDefault
+    }
 }
 
 /// **The zoom's ladder and its words** (mockup 15).

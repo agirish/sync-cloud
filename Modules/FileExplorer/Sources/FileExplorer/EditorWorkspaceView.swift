@@ -675,12 +675,10 @@ public struct EditorWorkspaceView: View {
                     .padding(.top, 6)
             }
             if let pdf {
-                // **No find bar and no status line here** (Phase 6a): the find card floats over the
-                // pages (`EditorPDFReader`), and what the status line said is the header's row 2 and
-                // the capsule's. Fill & Sign's toolbar keeps its row until 6b makes it a palette.
-                if pdf.phase == .open {
-                    EditorPDFFillSignBar(fill: pdf.fill, tools: pdf.tools, accent: accent)
-                }
+                // **No find bar, no Fill & Sign toolbar and no status line here** (Phases 6a and
+                // 6b): the find card, Fill & Sign's palette and its save pill float over the pages
+                // (`EditorPDFReader`), and what the status line said is the header's row 2 and the
+                // capsule's.
                 EditorPDFBody(pdf: pdf, accent: accent, quickLook: railRowActions.quickLook)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

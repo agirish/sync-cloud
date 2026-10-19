@@ -132,7 +132,7 @@ struct EditorPDFFindButton: View {
 }
 
 /// **The header's Fill & Sign button** — between Find and Tools (mockup C). It turns Fill & Sign's
-/// toolbar under the header on and off, and is lit while it is on.
+/// palette and save pill over the canvas on and off (Phase 6b), and is lit while it is on.
 struct EditorPDFFillSignButton: View {
     @ObservedObject var fill: EditorPDFFillSign
     let accent: Color
@@ -262,7 +262,7 @@ struct EditorPDFBody: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .open:
             EditorPDFReader(document: pdf.document, state: pdf.view, find: pdf.find, fill: pdf.fill,
-                            pageCount: pdf.facts?.pageCount ?? 0, accent: accent)
+                            tools: pdf.tools, pageCount: pdf.facts?.pageCount ?? 0, accent: accent)
         case .locked:
             EditorPDFUnlockView(pdf: pdf, accent: accent)
         case .refused(let reason):
@@ -484,7 +484,7 @@ struct EditorPDFHeader<Trailing: View>: View {
                 .fixedSize()
                 .hidden()
                 .frame(width: 0)
-                EditorPDFFactsRow(state: pdf.view, fill: pdf.fill, facts: pdf.phase == .open ? pdf.facts : nil)
+                EditorPDFFactsRow(state: pdf.view, facts: pdf.phase == .open ? pdf.facts : nil)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -501,16 +501,15 @@ struct EditorPDFHeader<Trailing: View>: View {
 ///   on "PDF", after the note that Edit never changes the file (``kindHelp(_:)``).
 /// - **No "Read only" pill** — it read as a warning, and "read only" was not true of a file the
 ///   tools and Fill & Sign make changed copies of. The tooltip says what is.
-/// - **"4 items not saved" in the facts' place** while Fill & Sign holds some, as it used to stand in
-///   for the Read only tag (``EditorPDFFillCaption``). 6b moves the count into a save pill.
+/// - **No unsaved count.** Fill & Sign's "4 items not saved" is the save pill's, over the canvas
+///   (Phase 6b), so row 2 says the same about the file whatever is placed on it.
 /// - **It sheds whole segments**, never a word in half: "Text selectable" first, then the paper's
 ///   inches, then the paper's name, then the size — whatever is left of the row always reads.
 ///
 /// Its own view, observing the view state for the page on screen — pages of one file can differ in
-/// size — and Fill & Sign for its count.
+/// size.
 struct EditorPDFFactsRow: View {
     @ObservedObject var state: EditorPDFViewState
-    @ObservedObject var fill: EditorPDFFillSign
     /// `nil` until the PDF is open — then the row says only "PDF".
     let facts: EditorPDFFacts?
 
@@ -521,14 +520,9 @@ struct EditorPDFFactsRow: View {
                 .lineLimit(1)
                 .fixedSize()
                 .help(Self.kindHelp(facts))
-            if fill.unsavedCaption != nil {
-                Text("·").foregroundStyle(.tertiary)
-            }
-            EditorPDFFillCaption(fill: fill) {
-                ViewThatFits(in: .horizontal) {
-                    ForEach(Array(rungs.enumerated()), id: \.offset) { _, segments in
-                        row(segments)
-                    }
+            ViewThatFits(in: .horizontal) {
+                ForEach(Array(rungs.enumerated()), id: \.offset) { _, segments in
+                    row(segments)
                 }
             }
         }

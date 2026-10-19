@@ -96,10 +96,13 @@ Requires **macOS 26**, unchanged from the 5.x line.
 
 ### Fill & Sign
 
-- **Fill & Sign, in the PDF's header, puts a toolbar under it**: **Text**, **Date** — today, in your
-  Mac's short format — ✓, ✗ and •, **Signature** and **Initials**. Drag what you placed to move it,
-  pull its corner handle to resize it, press Delete to remove it, and double-click text to change
-  it; A− and A+ and the two inks change the selected item, and `⌘Z` undoes.
+- **Fill & Sign, in the PDF's header, floats a palette of tools at the left of the page**, and the
+  page stays where it was: **Select**, **Text**, **Date** — today, in your Mac's short format —
+  **Marks** for ✓, ✗ and •, **Signature** and **Initials**, then **Text Size** and **Ink**. A tool
+  with a small triangle opens its choices beside it. The palette moves like the page capsule: drag
+  its grip to any edge or corner, or right-click it for Move To, and it stays where you put it.
+  Drag what you placed to move it, pull its corner handle to resize it, press Delete to remove it,
+  and double-click text to change it; Text Size and Ink change the selected item, and `⌘Z` undoes.
 - **Signatures stay on this Mac.** **Add Signature…** draws one with the trackpad or mouse, or types
   it in a script face. It is a picture of your signature, not a certificate-based digital one, and a
   saved one is kept on this Mac only — never synced, never written to the log.
@@ -110,8 +113,10 @@ Requires **macOS 26**, unchanged from the 5.x line.
   the form has no field for.
 - **Save Filled Copy writes a new copy** — "Lease (signed).pdf", or "(filled)" with no signature or
   initials — and leaves the original as it was. A form stays fillable in the copy, in Preview,
-  Acrobat or anywhere else, with what you placed kept as annotations. Until you save, the line under
-  the name counts what is unsaved, and closing the PDF, opening another file or quitting asks first.
+  Acrobat or anywhere else, with what you placed kept as annotations. Until you save, a pill at the top
+  of the page counts what is unsaved, beside **Discard** and **Save Filled Copy**, and closing the PDF,
+  opening another file or quitting asks first. A form's caveats, and anything Save would refuse, sit
+  in a note under the pill.
   **File ▸ Fill & Sign** and **File ▸ Save Filled Copy** do the same from the menu bar.
 - **A PDF whose owner restricted editing gets no Fill & Sign, and says why** — in File ▸ Fill &
   Sign, as the line under it. A form that allows filling but not adding to its pages fills its

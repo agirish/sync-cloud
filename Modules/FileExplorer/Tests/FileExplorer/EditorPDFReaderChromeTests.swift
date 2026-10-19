@@ -99,8 +99,8 @@ import Sync
         let row = try #require(card.range(of: "struct EditorPDFFactsRow: View {"))
         let rowBody = String(card[row.upperBound...].prefix(900))
         let pdfWord = try #require(rowBody.range(of: "Text(Self.kindWord)"))
-        let caption = try #require(rowBody.range(of: "EditorPDFFillCaption(fill: fill)"))
-        #expect(pdfWord.lowerBound < caption.lowerBound, "row 2 does not start with \"PDF\"")
+        let facts = try #require(rowBody.range(of: "ViewThatFits(in: .horizontal)"))
+        #expect(pdfWord.lowerBound < facts.lowerBound, "row 2 does not start with \"PDF\"")
         #expect(!card.contains("Read only\""), "the Read only tag is back")
     }
 
@@ -130,44 +130,23 @@ import Sync
         #expect(String(card[row.upperBound...].prefix(400)).contains(".fixedSize()"), "a segment can be cut mid-word")
     }
 
-    /// **Row 2 shows the unsaved count while Fill & Sign holds items** — in the facts' place, where
-    /// it stood in for the Read only tag before.
-    @Test func rowTwoShowsTheUnsavedCountWhileFillAndSignHoldsItems() async throws {
+    /// **Row 2 says nothing of Fill & Sign** (Phase 6b): the unsaved count is the save pill's, so
+    /// row 2 reads the same with an item placed as without.
+    @Test func rowTwoReadsTheSameWithAnItemPlaced() async throws {
         let pdf = try await open(pages: 2)
         // At row 2's own size: the header sets it, not the row.
         func drawn() -> CGFloat {
-            size(EditorPDFFactsRow(state: pdf.view, fill: pdf.fill, facts: pdf.facts).scaledFont(.system(size: 10))).width
+            size(EditorPDFFactsRow(state: pdf.view, facts: pdf.facts).scaledFont(.system(size: 10))).width
         }
         let before = drawn()
         pdf.fill.toggle()
         let id = try #require(pdf.fill.place(at: CGPoint(x: 100, y: 600), page: 0))
         pdf.fill.type("Alex Morgan", into: id)
         pdf.fill.endEditing()
-        #expect(pdf.fill.unsavedCaption == "1 item not saved")
-        let during = drawn()
-        let counted = size(HStack(spacing: 6) {
-            Text("PDF")
-            Text("·")
-            Text("1 item not saved")
-        }.scaledFont(.system(size: 10))).width
-        #expect(abs(during - before) > 1, "row 2 reads the same with an item placed")
-        #expect(abs(during - counted) < 2, "row 2 is \(during)pt with an item placed; \"PDF · 1 item not saved\" is \(counted)pt")
-    }
-
-    /// **Fill & Sign's words sit under its toolbar** (decided 2026-10-19) — what a click does, and
-    /// the form's and the page's counts, which the status line said until 6a took it away. Drawn:
-    /// the toolbar is a line taller than its tools.
-    @Test func fillAndSignsWordsSitUnderItsToolbar() async throws {
-        let pdf = try await open(pages: 2)
-        let bar = try ChromeGlassWiringTests.source("EditorPDFFillSignBar.swift")
-        #expect(bar.contains("Text(fill.statusSegments.joined(separator: \" · \"))"),
-                "Fill & Sign's words are drawn nowhere")
-        pdf.fill.toggle()
-        try #require(pdf.fill.isOn && !pdf.fill.statusSegments.isEmpty)
-        let toolbar = size(EditorPDFFillSignBar(fill: pdf.fill, tools: pdf.tools, accent: .blue), width: 700).height
-        let tools = size(EditorPDFFillSignBar(fill: pdf.fill, tools: pdf.tools, accent: .blue).content(.worded)
-            .padding(.vertical, 5), width: 700).height
-        #expect(toolbar > tools + 8, "the toolbar is \(toolbar)pt and its tools \(tools)pt — no line of words under them")
+        try #require(pdf.fill.unsavedCaption == "1 item not saved")
+        #expect(abs(drawn() - before) < 0.5, "row 2 changed with an item placed")
+        let card = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
+        #expect(!card.contains("unsavedCaption"), "the header counts Fill & Sign's items again")
     }
 
     /// **No status line under a PDF; a text file keeps its own.**
@@ -547,8 +526,8 @@ import Sync
     /// opening the card must not move the page.
     @Test func theFindCardIsAnObstacleOnlyWhileItIsUp() throws {
         let canvas = try ChromeGlassWiringTests.source("EditorPDFCanvas.swift")
-        #expect(canvas.contains("guard find.isShown, findCard.width > 0, findCard.height > 0 else { return [] }"))
-        #expect(canvas.contains("canvasInsets: EditorPDFFloating.canvasInsets(place: place, capsule: capsule))"),
+        #expect(canvas.contains("findCard: find.isShown ? findCard : .zero"))
+        #expect(canvas.contains("canvasInsets: EditorPDFFloating.canvasInsets(place: state.capsulePlace, capsule: capsule.now))"),
                 "the bands are not the capsule's alone")
     }
 

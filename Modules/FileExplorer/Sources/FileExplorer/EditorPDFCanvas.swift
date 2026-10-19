@@ -4,7 +4,7 @@ import SwiftUI
 import Design
 
 /// **The rules every piece floating over the PDF canvas keeps** (Phase 6a) — the page and zoom
-/// capsule and the find card now, Fill & Sign's palette and save pill in 6b. Written once, here, so
+/// capsule, the find card, and Fill & Sign's palette and save pill (6b). Written once, here, so
 /// the pieces cannot each grow their own idea of where the edge is or what "in the way" means.
 enum EditorPDFFloating {
     /// How far a floating piece stands in from the canvas's edges.
@@ -83,7 +83,7 @@ enum EditorPDFFloating {
     /// **The bands the pages keep clear**: ``topBand`` above the first page, and the capsule's own
     /// band on the edge it is docked to — its depth, the inset and a gap — so the end of the last
     /// page can scroll fully clear of it. A corner is on the top or bottom edge. Nothing for the
-    /// find card: opening it must not move the page.
+    /// find card, Fill & Sign's palette or its save pill: opening them must not move the page.
     static func canvasInsets(place: EditorPDFCapsulePlace, capsule: CGSize) -> NSEdgeInsets {
         var insets = NSEdgeInsets(top: topBand, left: 0, bottom: 0, right: 0)
         guard capsule.width > 0, capsule.height > 0 else { return insets }
@@ -137,37 +137,45 @@ struct EditorPDFFloatingGround: ViewModifier {
 }
 
 /// **The reader's canvas**: the pages, with the find's matches drawn over them, and the pieces that
-/// float over the pages — the page and zoom capsule and the find card (Phase 6a). Mounted OVER the
-/// page view rather than inside the `PDFView`, so the floating pieces are SwiftUI like the rest of
-/// the chrome and PDFKit's own views never cover them.
+/// float over the pages — the page and zoom capsule and the find card (Phase 6a), and while Fill &
+/// Sign is on its palette and its save pill (6b). Mounted OVER the page view rather than inside the
+/// `PDFView`, so the floating pieces are SwiftUI like the rest of the chrome and PDFKit's own views
+/// never cover them.
 ///
-/// **The capsule's place is the view state's**; this view only works out where that place is at
-/// the canvas's size, keeps it clear of the find card, follows a drag, and snaps the drop to the
-/// nearest place.
+/// **The capsule's and the palette's places are the view state's**; this view only works out where
+/// each place is at the canvas's size, keeps the pieces clear of each other, follows a drag, and
+/// snaps the drop to the nearest place.
+///
+/// **Who gives way to whom** (``EditorPDFFloating/clear(_:of:sliding:within:)``): the find card
+/// stays in its corner; the save pill slides along the top to clear it; the palette clears both;
+/// the capsule clears all three. The capsule is the piece that is always there, so it is the one
+/// that moves when another opens where it sits (mockup, "Overlap").
 struct EditorPDFReader: View {
     let document: PDFDocument?
     @ObservedObject var state: EditorPDFViewState
     @ObservedObject var find: EditorPDFFind
-    /// Not observed: the overlay watches it itself, so a drag redraws the overlay and nothing else.
+    /// Not observed: the overlay, the palette and the save pill watch it themselves, so a drag
+    /// redraws the overlay and nothing else.
     var fill: EditorPDFFillSign?
+    /// What Save Filled Copy runs through — the save pill greys Save while a tool runs.
+    var tools: EditorPDFTools?
     var pageCount: Int = 0
     var accent: Color = .accentColor
 
     @State private var canvas: CGSize = .zero
     /// The capsule as it is drawn now, and its last-measured size in each form — the drop measures
     /// every place with the form it would take there.
-    @State private var capsule: CGSize = .zero
-    @State private var rowSize: CGSize = .zero
-    @State private var uprightSize: CGSize = .zero
+    @State private var capsule = EditorPDFMeasure()
+    @State private var palette = EditorPDFMeasure()
     @State private var findCard: CGSize = .zero
-    /// How far the grip has dragged the capsule, while it is held.
+    /// The save pill and the note card under it, as drawn — `.zero` while neither is up.
+    @State private var saveStack: CGSize = .zero
+    /// The piece the grip is dragging, and how far, while it is held.
+    @State private var dragging: EditorPDFMovable?
     @State private var drag: CGSize = .zero
-    @State private var isDragging = false
 
     var body: some View {
-        let place = state.capsulePlace
-        let docked = place.frame(size: capsule, in: canvas)
-        let shown = EditorPDFFloating.clear(docked, of: obstacles, sliding: place.slideAxis, within: canvas)
+        let frames = layout
         ZStack {
             EditorPDFPageView(document: document, state: state, highlights: find.highlights, fill: fill,
                               onEscape: { [find] in
@@ -175,31 +183,52 @@ struct EditorPDFReader: View {
                                   find.hide()
                                   return true
                               },
-                              canvasInsets: EditorPDFFloating.canvasInsets(place: place, capsule: capsule))
-            if isDragging {
-                EditorPDFSnapTargets(row: rowSize, upright: uprightSize, canvas: canvas,
-                                     hot: dropPlace(for: shown, moved: drag), accent: accent)
+                              canvasInsets: EditorPDFFloating.canvasInsets(place: state.capsulePlace, capsule: capsule.now))
+            if let dragging {
+                let measured = dragging == .capsule ? capsule : palette
+                EditorPDFSnapTargets(row: measured.row, upright: measured.upright, canvas: canvas,
+                                     hot: dropPlace(for: dragging, moved: drag, frames: frames), accent: accent,
+                                     radius: dragging == .palette ? Radius.card : nil)
+            }
+            if let fill {
+                EditorPDFFillPalette(fill: fill, state: state, place: state.palettePlace, accent: accent,
+                                     onDrag: { moved in
+                                         dragging = .palette
+                                         drag = moved
+                                     },
+                                     onDrop: { moved in drop(.palette, moved: moved, frames: frames) },
+                                     onSize: { palette.measured($0, upright: state.palettePlace.isVertical) })
+                    .offset(offset(of: .palette, frames: frames))
+                    .designAnimation(.easeOut(duration: 0.2), value: state.palettePlace)
+                    .designAnimation(.easeOut(duration: 0.2), value: find.isShown)
+                    .designAnimation(.easeOut(duration: 0.2), value: frames.saveStack)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: state.palettePlace.alignment)
+                    .padding(EditorPDFFloating.inset)
+                if let tools {
+                    EditorPDFFillSaveStack(fill: fill, tools: tools, accent: accent, onSize: { saveStack = $0 })
+                        .offset(x: frames.saveStack.minX - frames.saveStackDocked.minX,
+                                y: frames.saveStack.minY - frames.saveStackDocked.minY)
+                        .designAnimation(.easeOut(duration: 0.2), value: find.isShown)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .padding(EditorPDFFloating.inset)
+                }
             }
             if pageCount > 0 {
                 EditorPDFCapsule(state: state, pageCount: pageCount, accent: accent,
                                  onDrag: { moved in
-                                     isDragging = true
+                                     dragging = .capsule
                                      drag = moved
                                  },
-                                 onDrop: { moved in
-                                     let landed = dropPlace(for: shown, moved: moved)
-                                     isDragging = false
-                                     drag = .zero
-                                     state.capsulePlace = landed
-                                 })
+                                 onDrop: { moved in drop(.capsule, moved: moved, frames: frames) })
                     .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
-                        capsule = size
-                        if state.capsulePlace.isVertical { uprightSize = size } else { rowSize = size }
+                        capsule.measured(size, upright: state.capsulePlace.isVertical)
                     }
-                    .offset(x: shown.minX - docked.minX + drag.width, y: shown.minY - docked.minY + drag.height)
-                    .designAnimation(.easeOut(duration: 0.2), value: place)
+                    .offset(offset(of: .capsule, frames: frames))
+                    .designAnimation(.easeOut(duration: 0.2), value: state.capsulePlace)
                     .designAnimation(.easeOut(duration: 0.2), value: find.isShown)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: place.alignment)
+                    .designAnimation(.easeOut(duration: 0.2), value: frames.palette)
+                    .designAnimation(.easeOut(duration: 0.2), value: frames.saveStack)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: state.capsulePlace.alignment)
                     .padding(EditorPDFFloating.inset)
             }
             EditorPDFFindBar(find: find, accent: accent)
@@ -210,29 +239,96 @@ struct EditorPDFReader: View {
         .onGeometryChange(for: CGSize.self) { $0.size } action: { canvas = $0 }
     }
 
-    /// What the capsule must keep clear of: the find card, while it is up — top right, as
-    /// ``EditorPDFFindBar`` is placed.
-    private var obstacles: [CGRect] {
-        guard find.isShown, findCard.width > 0, findCard.height > 0 else { return [] }
-        return [EditorPDFCapsulePlace.topTrailing.frame(size: findCard, in: canvas)]
+    /// Where each floating piece sits at its place, and where it is shown once clear of the others.
+    struct Frames {
+        var findCard = CGRect.zero
+        var saveStackDocked = CGRect.zero
+        var saveStack = CGRect.zero
+        var paletteDocked = CGRect.zero
+        var palette = CGRect.zero
+        var capsuleDocked = CGRect.zero
+        var capsule = CGRect.zero
     }
 
-    /// The place the capsule lands in if let go `moved` from where it is shown: the nearest to its
-    /// centre there.
-    private func dropPlace(for shown: CGRect, moved: CGSize) -> EditorPDFCapsulePlace {
-        EditorPDFCapsulePlace.nearest(to: CGPoint(x: shown.midX + moved.width, y: shown.midY + moved.height),
-                                      horizontal: rowSize, vertical: uprightSize, in: canvas)
+    /// **The pieces in the order they give way** — each slid along its own edge clear of the ones
+    /// before it. A piece not drawn is `.zero`, which the rule ignores.
+    private var layout: Frames {
+        Self.layout(canvas: canvas, findCard: find.isShown ? findCard : .zero, saveStack: saveStack,
+                    palette: palette.now, palettePlace: state.palettePlace,
+                    capsule: capsule.now, capsulePlace: state.capsulePlace)
+    }
+
+    static func layout(canvas: CGSize, findCard: CGSize, saveStack: CGSize,
+                       palette: CGSize, palettePlace: EditorPDFCapsulePlace,
+                       capsule: CGSize, capsulePlace: EditorPDFCapsulePlace) -> Frames {
+        func drawn(_ size: CGSize) -> Bool { size.width > 0 && size.height > 0 }
+        var frames = Frames()
+        if drawn(findCard) { frames.findCard = EditorPDFCapsulePlace.topTrailing.frame(size: findCard, in: canvas) }
+        if drawn(saveStack) {
+            frames.saveStackDocked = EditorPDFCapsulePlace.top.frame(size: saveStack, in: canvas)
+            frames.saveStack = EditorPDFFloating.clear(frames.saveStackDocked, of: [frames.findCard],
+                                                       sliding: .horizontal, within: canvas)
+        }
+        if drawn(palette) {
+            frames.paletteDocked = palettePlace.frame(size: palette, in: canvas)
+            frames.palette = EditorPDFFloating.clear(frames.paletteDocked, of: [frames.findCard, frames.saveStack],
+                                                     sliding: palettePlace.slideAxis, within: canvas)
+        }
+        frames.capsuleDocked = capsulePlace.frame(size: capsule, in: canvas)
+        frames.capsule = EditorPDFFloating.clear(frames.capsuleDocked,
+                                                 of: [frames.findCard, frames.saveStack, frames.palette],
+                                                 sliding: capsulePlace.slideAxis, within: canvas)
+        return frames
+    }
+
+    /// How far a piece is drawn from its place: slid clear of the others, plus the drag while held.
+    private func offset(of piece: EditorPDFMovable, frames: Frames) -> CGSize {
+        let (shown, docked) = piece == .capsule ? (frames.capsule, frames.capsuleDocked)
+                                                : (frames.palette, frames.paletteDocked)
+        let held = dragging == piece ? drag : .zero
+        return CGSize(width: shown.minX - docked.minX + held.width, height: shown.minY - docked.minY + held.height)
+    }
+
+    private func drop(_ piece: EditorPDFMovable, moved: CGSize, frames: Frames) {
+        let landed = dropPlace(for: piece, moved: moved, frames: frames)
+        dragging = nil
+        drag = .zero
+        state[keyPath: piece.place] = landed
+    }
+
+    /// The place a piece lands in if let go `moved` from where it is shown: the nearest to its
+    /// centre there, each place measured with the form the piece takes at it.
+    private func dropPlace(for piece: EditorPDFMovable, moved: CGSize, frames: Frames) -> EditorPDFCapsulePlace {
+        let (shown, measured) = piece == .capsule ? (frames.capsule, capsule) : (frames.palette, palette)
+        return EditorPDFCapsulePlace.nearest(to: CGPoint(x: shown.midX + moved.width, y: shown.midY + moved.height),
+                                             horizontal: measured.row, vertical: measured.upright, in: canvas)
     }
 }
 
-/// **The eight places, drawn while the capsule is dragged** (mockup H) — the one it would land in
-/// lit. Drawn only, never hit: the drag is the grip's.
+/// **A movable piece's sizes**: as drawn now, and last measured in each form — a row and a column —
+/// so a drop can measure every place with the form the piece would take there.
+struct EditorPDFMeasure: Equatable {
+    var now: CGSize = .zero
+    var row: CGSize = .zero
+    var upright: CGSize = .zero
+
+    mutating func measured(_ size: CGSize, upright isUpright: Bool) {
+        now = size
+        guard size != .zero else { return }
+        if isUpright { upright = size } else { row = size }
+    }
+}
+
+/// **The eight places, drawn while the capsule or the palette is dragged** (mockup H) — the one
+/// it would land in lit. Drawn only, never hit: the drag is the grip's.
 struct EditorPDFSnapTargets: View {
     let row: CGSize
     let upright: CGSize
     let canvas: CGSize
     let hot: EditorPDFCapsulePlace
     let accent: Color
+    /// The piece's corner radius — `nil` for the capsule's own round ends.
+    var radius: CGFloat?
 
     var body: some View {
         let standing = upright == .zero ? CGSize(width: row.height, height: row.width) : upright
@@ -240,16 +336,25 @@ struct EditorPDFSnapTargets: View {
         ZStack(alignment: .topLeading) {
             ForEach(EditorPDFCapsulePlace.allCases, id: \.self) { place in
                 let frame = place.frame(size: place.isVertical ? standing : lying, in: canvas)
-                Capsule()
-                    .strokeBorder(accent.opacity(place == hot ? 1 : 0.45),
-                                  style: StrokeStyle(lineWidth: 1.5, dash: place == hot ? [] : [4, 3]))
-                    .background(Capsule().fill(accent.opacity(place == hot ? 0.14 : 0)))
-                    .frame(width: frame.width, height: frame.height)
-                    .offset(x: frame.minX, y: frame.minY)
+                Group {
+                    if let radius {
+                        target(RoundedRectangle(cornerRadius: radius), lit: place == hot)
+                    } else {
+                        target(Capsule(), lit: place == hot)
+                    }
+                }
+                .frame(width: frame.width, height: frame.height)
+                .offset(x: frame.minX, y: frame.minY)
             }
         }
         .frame(width: canvas.width, height: canvas.height, alignment: .topLeading)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    private func target(_ shape: some InsettableShape, lit: Bool) -> some View {
+        shape
+            .strokeBorder(accent.opacity(lit ? 1 : 0.45), style: StrokeStyle(lineWidth: 1.5, dash: lit ? [] : [4, 3]))
+            .background(shape.fill(accent.opacity(lit ? 0.14 : 0)))
     }
 }

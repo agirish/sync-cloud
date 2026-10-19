@@ -7672,3 +7672,28 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF reader in Edit (`pdfCard=0`), so no header or status line to rework | CLOSED — does not apply |
+
+---
+
+## Fill & Sign as a floating palette and a save pill (Phase 6b) — main only
+
+Fill & Sign's full-width toolbar under the PDF header (`EditorPDFFillSignBar`) and its line of words
+are gone. Its tools float over the canvas in a palette (`EditorPDFFillPalette`) with flyouts for
+marks, signatures, size and ink, movable to the capsule's eight places and stored under
+`editorPDFPalettePlace`; the unsaved count, Discard and Save Filled Copy are a pill at the top of the
+canvas, with a note card under it for the form's caveats. Row 2 of the header no longer counts. All
+of it reshapes the Fill & Sign `main` alone has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s fillSignBar=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSignBar.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-19, against origin, before this landed:
+# main  fillSignBar=1
+# v5.x, v4.x, v3.x, v2.x — fillSignBar=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign in Edit (`fillSignBar=0`), so no toolbar to replace | CLOSED — does not apply |

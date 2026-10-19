@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// **File ▸ Fill & Sign and Save Filled Copy** — the header button and the toolbar's save, in the
-/// menu bar. The same acts (``EditorPDFFillSign/toggle()``, ``EditorPDFFillSign/save()``) under
-/// the same rules: ticked while the toolbar is up, and Save live exactly where the toolbar's is.
+/// **File ▸ Fill & Sign and Save Filled Copy** — the header button and the save pill's save, in
+/// the menu bar. The same acts (``EditorPDFFillSign/toggle()``, ``EditorPDFFillSign/save()``) under
+/// the same rules: ticked while the palette is up, and Save live exactly where the pill's is.
 ///
 /// **Greyed where the button would only explain**: a refused file gets the toggle greyed and the
 /// reason as a line under it, as File ▸ PDF Tools says a locked file's — the button, pressed, puts

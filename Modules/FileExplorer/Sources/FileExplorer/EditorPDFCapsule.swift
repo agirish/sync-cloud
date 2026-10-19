@@ -100,6 +100,44 @@ public enum EditorPDFCapsulePlace: String, CaseIterable, Sendable {
     }
 }
 
+/// **The two pieces a reader can move over the canvas** — the page and zoom capsule (6a) and Fill
+/// & Sign's palette (6b). Each has its own place in the view state, its own place to go back to,
+/// and its own words on the grip; the grip, its menu and its accessibility actions are one for both.
+enum EditorPDFMovable: CaseIterable, Sendable {
+    case capsule
+    case palette
+
+    /// Where the view state keeps this piece's place.
+    @MainActor var place: ReferenceWritableKeyPath<EditorPDFViewState, EditorPDFCapsulePlace> {
+        switch self {
+        case .capsule: return \.capsulePlace
+        case .palette: return \.palettePlace
+        }
+    }
+
+    /// Where a double-click and Reset Position put it back.
+    var home: EditorPDFCapsulePlace {
+        switch self {
+        case .capsule: return EditorPDFSettings.capsulePlaceDefault
+        case .palette: return EditorPDFSettings.palettePlaceDefault
+        }
+    }
+
+    var tooltip: String {
+        switch self {
+        case .capsule: return "Drag to move the page controls — double-click to put them back at the bottom"
+        case .palette: return "Drag to move the Fill & Sign tools — double-click to put them back at the left"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .capsule: return "Move the page controls"
+        case .palette: return "Move the Fill & Sign tools"
+        }
+    }
+}
+
 /// **The page and zoom capsule** (Phase 6a, mockups C, D, E and H) — the reader's page, zoom and
 /// view menu, floating in glass over the canvas instead of sharing the header with the file's own
 /// actions: a grip, ‹, the page field ("N of M", "6–7 of 64" for a spread), ›, a divider, −, the
@@ -208,28 +246,8 @@ struct EditorPDFCapsule: View {
 
     // MARK: The grip
 
-    /// **The one part that drags** — the buttons never do. Its dots are drawn here; the handling is
-    /// ``EditorPDFGripView``'s, laid over them: the drag, the double-click that resets, the
-    /// right-click Move To menu and the same items as accessibility actions.
     private var grip: some View {
-        let width: CGFloat = isVertical ? 22 : 12
-        let height: CGFloat = isVertical ? 12 : 22
-        let columns = isVertical ? 3 : 2, rows = isVertical ? 2 : 3
-        return Canvas { context, size in
-            let pitch: CGFloat = 4
-            let origin = CGPoint(x: (size.width - CGFloat(columns - 1) * pitch) / 2,
-                                 y: (size.height - CGFloat(rows - 1) * pitch) / 2)
-            for row in 0..<rows {
-                for column in 0..<columns {
-                    let centre = CGPoint(x: origin.x + CGFloat(column) * pitch, y: origin.y + CGFloat(row) * pitch)
-                    context.fill(Path(ellipseIn: CGRect(x: centre.x - 1, y: centre.y - 1, width: 2, height: 2)),
-                                 with: .color(.secondary))
-                }
-            }
-        }
-        .frame(width: width, height: height)
-        .accessibilityHidden(true)
-        .overlay(EditorPDFGrip(state: state, onDrag: onDrag, onDrop: onDrop))
+        EditorPDFGripHandle(state: state, piece: .capsule, upright: isVertical, onDrag: onDrag, onDrop: onDrop)
     }
 
     private var divider: some View {
@@ -396,16 +414,49 @@ struct EditorPDFCapsule: View {
 
 // MARK: - The grip
 
+/// **The one part of a movable piece that drags** — the buttons never do. Its dots are drawn here;
+/// the handling is ``EditorPDFGripView``'s, laid over them: the drag, the double-click that resets,
+/// the right-click Move To menu and the same items as accessibility actions. `upright` is the
+/// piece's own form: a column's grip is a short row of dots across its top, a row's a short column
+/// at its start.
+struct EditorPDFGripHandle: View {
+    let state: EditorPDFViewState
+    let piece: EditorPDFMovable
+    let upright: Bool
+    var onDrag: (CGSize) -> Void
+    var onDrop: (CGSize) -> Void
+
+    var body: some View {
+        let width: CGFloat = upright ? 22 : 12
+        let height: CGFloat = upright ? 12 : 22
+        let columns = upright ? 3 : 2, rows = upright ? 2 : 3
+        Canvas { context, size in
+            let pitch: CGFloat = 4
+            let origin = CGPoint(x: (size.width - CGFloat(columns - 1) * pitch) / 2,
+                                 y: (size.height - CGFloat(rows - 1) * pitch) / 2)
+            for row in 0..<rows {
+                for column in 0..<columns {
+                    let centre = CGPoint(x: origin.x + CGFloat(column) * pitch, y: origin.y + CGFloat(row) * pitch)
+                    context.fill(Path(ellipseIn: CGRect(x: centre.x - 1, y: centre.y - 1, width: 2, height: 2)),
+                                 with: .color(.secondary))
+                }
+            }
+        }
+        .frame(width: width, height: height)
+        .accessibilityHidden(true)
+        .overlay(EditorPDFGrip(state: state, piece: piece, onDrag: onDrag, onDrop: onDrop))
+    }
+}
+
 /// The grip's handling, as an AppKit view laid over its dots — see ``EditorPDFGripView``.
 struct EditorPDFGrip: NSViewRepresentable {
     let state: EditorPDFViewState
+    var piece: EditorPDFMovable = .capsule
     var onDrag: (CGSize) -> Void
     var onDrop: (CGSize) -> Void
 
     func makeNSView(context: Context) -> EditorPDFGripView {
         let view = EditorPDFGripView()
-        // On the view itself: it lies over the dots, so a SwiftUI `.help` under it would never show.
-        view.toolTip = EditorPDFGripView.tooltip
         update(view)
         return view
     }
@@ -414,12 +465,16 @@ struct EditorPDFGrip: NSViewRepresentable {
 
     private func update(_ view: EditorPDFGripView) {
         view.state = state
+        view.piece = piece
+        // On the view itself: it lies over the dots, so a SwiftUI `.help` under it would never show.
+        view.toolTip = piece.tooltip
         view.onDrag = onDrag
         view.onDrop = onDrop
     }
 }
 
-/// **The capsule's grip: the drag, the double-click, Move To, and their accessibility actions.**
+/// **A movable piece's grip: the drag, the double-click, Move To, and their accessibility actions**
+/// — the capsule's, and Fill & Sign's palette's (``piece``).
 ///
 /// **AppKit rather than a SwiftUI gesture**, for three reasons that are each a test: a drag that
 /// starts on the grip and never on a button is the view's own mouse handling, not a gesture racing
@@ -428,6 +483,8 @@ struct EditorPDFGrip: NSViewRepresentable {
 /// which a test can read and fire — a hosted SwiftUI `Menu`'s body never runs offscreen.
 final class EditorPDFGripView: NSView {
     weak var state: EditorPDFViewState?
+    /// Which piece this grip moves — whose place it sets and where it goes back to.
+    var piece = EditorPDFMovable.capsule
     var onDrag: (CGSize) -> Void = { _ in }
     var onDrop: (CGSize) -> Void = { _ in }
     private var start: NSPoint?
@@ -436,8 +493,6 @@ final class EditorPDFGripView: NSView {
     /// How far the pointer moves before a press is a drag — under it, a click is only a click, and
     /// the first half of a double-click moves nothing.
     static let dragThreshold: CGFloat = 3
-
-    static let tooltip = "Drag to move the page controls — double-click to put them back at the bottom"
 
     override var acceptsFirstResponder: Bool { false }
     override var mouseDownCanMoveWindow: Bool { false }
@@ -482,26 +537,27 @@ final class EditorPDFGripView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        state.map(EditorPDFCapsuleMenu.menu(for:))
+        state.map { EditorPDFCapsuleMenu.menu(for: $0, piece: piece) }
     }
 
-    /// Double-click and Reset Position: bottom centre again.
+    /// Double-click and Reset Position: the piece's own place again — bottom centre for the
+    /// capsule, the middle of the left side for the palette.
     func resetPosition() {
-        state?.capsulePlace = EditorPDFSettings.capsulePlaceDefault
+        state?[keyPath: piece.place] = piece.home
     }
 
     // MARK: Accessibility
 
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .handle }
-    override func accessibilityLabel() -> String? { "Move the page controls" }
-    override func accessibilityValue() -> Any? { state?.capsulePlace.title }
+    override func accessibilityLabel() -> String? { piece.accessibilityLabel }
+    override func accessibilityValue() -> Any? { state?[keyPath: piece.place].title }
 
     /// **Move To's places and Reset Position, as actions** — so moving the capsule never needs a
     /// drag, with VoiceOver or anything else.
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         guard let state else { return nil }
-        return EditorPDFCapsuleMenu.actions(for: state).map { action in
+        return EditorPDFCapsuleMenu.actions(for: state, piece: piece).map { action in
             NSAccessibilityCustomAction(name: action.title) {
                 action.perform()
                 return true
@@ -511,7 +567,8 @@ final class EditorPDFGripView: NSView {
 }
 
 /// **The grip's right-click menu** (mockup H): Move To ▸ the eight places, the current one ticked,
-/// and Reset Position — and the same items as the grip's accessibility actions.
+/// and Reset Position — and the same items as the grip's accessibility actions. The capsule's and
+/// the palette's, each moving its own piece.
 @MainActor
 enum EditorPDFCapsuleMenu {
     static let moveToTitle = "Move To"
@@ -524,13 +581,13 @@ enum EditorPDFCapsuleMenu {
     }
 
     /// The accessibility actions: "Move to Top Left" … "Move to Bottom Right", then Reset Position.
-    static func actions(for state: EditorPDFViewState) -> [Action] {
+    static func actions(for state: EditorPDFViewState, piece: EditorPDFMovable = .capsule) -> [Action] {
         EditorPDFCapsulePlace.allCases.map { place in
-            Action(title: "Move to \(place.title)") { state.capsulePlace = place }
-        } + [Action(title: resetTitle) { state.capsulePlace = EditorPDFSettings.capsulePlaceDefault }]
+            Action(title: "Move to \(place.title)") { state[keyPath: piece.place] = place }
+        } + [Action(title: resetTitle) { state[keyPath: piece.place] = piece.home }]
     }
 
-    static func menu(for state: EditorPDFViewState) -> NSMenu {
+    static func menu(for state: EditorPDFViewState, piece: EditorPDFMovable = .capsule) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         let places = NSMenu(title: moveToTitle)
@@ -538,17 +595,15 @@ enum EditorPDFCapsuleMenu {
         for place in EditorPDFCapsulePlace.allCases {
             // The rows of the canvas, top to bottom, a separator between each.
             if place == .leading || place == .bottomLeading { places.addItem(.separator()) }
-            let item = EditorClosureMenuItem(title: place.title) { state.capsulePlace = place }
-            item.state = state.capsulePlace == place ? .on : .off
+            let item = EditorClosureMenuItem(title: place.title) { state[keyPath: piece.place] = place }
+            item.state = state[keyPath: piece.place] == place ? .on : .off
             places.addItem(item)
         }
         let moveTo = NSMenuItem(title: moveToTitle, action: nil, keyEquivalent: "")
         moveTo.submenu = places
         menu.addItem(moveTo)
-        let reset = EditorClosureMenuItem(title: resetTitle) {
-            state.capsulePlace = EditorPDFSettings.capsulePlaceDefault
-        }
-        reset.isEnabled = state.capsulePlace != EditorPDFSettings.capsulePlaceDefault
+        let reset = EditorClosureMenuItem(title: resetTitle) { state[keyPath: piece.place] = piece.home }
+        reset.isEnabled = state[keyPath: piece.place] != piece.home
         menu.addItem(reset)
         return menu
     }

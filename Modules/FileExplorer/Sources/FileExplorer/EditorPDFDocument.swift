@@ -449,6 +449,13 @@ public final class EditorPDFViewState: ObservableObject {
             if capsulePlace != oldValue { defaults.set(capsulePlace.rawValue, forKey: EditorPDFSettings.capsulePlaceKey) }
         }
     }
+    /// **Where Fill & Sign's palette floats** (Phase 6b) — remembered under
+    /// ``EditorPDFSettings/palettePlaceKey``, a place like the capsule's.
+    @Published public var palettePlace: EditorPDFCapsulePlace {
+        didSet {
+            if palettePlace != oldValue { defaults.set(palettePlace.rawValue, forKey: EditorPDFSettings.palettePlaceKey) }
+        }
+    }
     /// **Whether the pages have the keyboard** — the page view first responder (or inside it) in
     /// the key window. Reported by the view; what puts ⌘+ ⌘− ⌘0 on the PDF's zoom rather than the
     /// app's text size.
@@ -478,6 +485,7 @@ public final class EditorPDFViewState: ObservableObject {
         layout = EditorPDFSettings.layout(in: defaults)
         coverSeparately = EditorPDFSettings.coverSeparately(in: defaults)
         capsulePlace = EditorPDFSettings.capsulePlace(in: defaults)
+        palettePlace = EditorPDFSettings.palettePlace(in: defaults)
     }
 
     /// **The pages on screen together, zero-based** — the current page alone in a single-page
