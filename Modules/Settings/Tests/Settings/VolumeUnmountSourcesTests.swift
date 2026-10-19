@@ -121,28 +121,32 @@ import Sync
     ///
     /// Counted through the lister, which each pass calls exactly once — the same instrument
     /// `SettingsDiscoveryTests` uses to count passes.
+    ///
+    /// **The card's sources are already on disk when the manager under count is built.** Adding
+    /// them through it spawned four discoveries of its own, and the test had to wait those out
+    /// before it could measure anything — work it is not about, behind its run's first wait. In
+    /// full-package runs at load 44–99 that wait ran out in 4 of 10. Built over saved sources with
+    /// `autoDiscover: false`, the manager has run no pass, so the count starts at a true zero.
     @MainActor
     @Test func unmountingACardRunsOneDiscoveryRatherThanOnePerSource() async throws {
         let defaults = TestDefaults()
+        let card = ["/Volumes/CARD", "/Volumes/CARD/DCIM", "/Volumes/CARD/RAW", "/Volumes/CARD/JPG"]
+        defaults.defaults.set(try JSONEncoder().encode(card.map(FolderSource.new(path:))),
+                              forKey: "folderSources")
         let counter = CallCounter()
         let settings = SettingsManager(autoDiscover: false,
                                        userDefaults: defaults.defaults,
                                        overridesDomainName: defaults.suiteName,
                                        cloudStorageLister: { counter.increment(); return .read([]) },
                                        pathValidator: { _ in true })
-        for folder in ["/Volumes/CARD", "/Volumes/CARD/DCIM", "/Volumes/CARD/RAW", "/Volumes/CARD/JPG"] {
-            settings.addFolderSource(path: folder)
-        }
-        // The four adds each spawn a discovery of their own; let them all land, then measure only
-        // what the removal costs.
-        let afterAdds = try await Self.countAfter(counter, reaching: 4)
+        try #require(settings.folderSources.count == 4, "the saved card did not load, so there is nothing to batch")
 
         settings.removeFolderSources(onVolume: "/Volumes/CARD")
-        let afterRemoval = try await Self.countAfter(counter, reaching: afterAdds + 1) - afterAdds
+        let passes = try await Self.countAfter(counter, reaching: 1)
 
         #expect(settings.folderSources.isEmpty, "the removal did not happen, so the count means nothing")
-        #expect(afterRemoval == 1,
-                "removing four sources on one card ran \(afterRemoval) provider discoveries; each one lists the CloudStorage mount and stats every root")
+        #expect(passes == 1,
+                "removing four sources on one card ran \(passes) provider discoveries; each one lists the CloudStorage mount and stats every root")
     }
 
     /// The lister count once at least `reaching` discoveries have run AND nothing more has arrived
@@ -151,30 +155,46 @@ import Sync
     /// **It requires the target rather than reporting whatever it saw**, and that is the whole
     /// design. The first version simply quiet-settled inside a 2s budget: on a busy machine — this
     /// suite runs in parallel with three other packages on a self-hosted runner that is also the
-    /// development Mac — the four adds had not started when it gave up, so it reported 0, and the
-    /// test then read "four discoveries" for a batch that had in fact run one. A measurement taken
-    /// before the work runs is not a small measurement, it is a wrong one, so this fails loudly
-    /// instead.
+    /// development Mac — the removal's pass had not started when it gave up, so it reported 0. A
+    /// measurement taken before the work runs is not a small measurement, it is a wrong one, so
+    /// this fails loudly instead.
     ///
-    /// Bounded at 20s so a genuinely wedged pass fails the assertion rather than hanging the suite.
+    /// **Polled on the main actor, and floored in polls** — see "Fixed pumps and fixed sleeps" in
+    /// `docs/flaky-tests.md`. Each pass starts as a main-actor `Task`, so what it waits for is
+    /// main-actor turns, and a poll that hops through the main actor spends one: the floor
+    /// guarantees `pollFloor` of them however few the clock allows. Polled off it, as this
+    /// was, the loop could spend all 20s while the main thread ran other suites' test bodies and
+    /// the passes sat queued. The poll count goes in the failure, because it is the diagnosis.
+    @MainActor
     private static func countAfter(_ counter: CallCounter, reaching target: Int,
                                    sourceLocation: SourceLocation = #_sourceLocation) async throws -> Int {
-        let deadline = Date().addingTimeInterval(20)
-        while counter.count < target, Date() < deadline {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+        var polls = 0
+        while counter.count < target, polls < Self.pollFloor || ContinuousClock.now < deadline {
+            polls += 1
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         try #require(counter.count >= target,
-                     "only \(counter.count) of \(target) provider discoveries had run after 20s — the machine is too busy for this measurement to mean anything",
+                     "only \(counter.count) of \(target) provider discoveries had run after \(polls) polls",
                      sourceLocation: sourceLocation)
-        // Then quiet: nothing more may arrive, or a late pass would be credited to the next phase.
-        var last = -1, quiet = 0
-        while quiet < 40, Date() < deadline {
+        // Then quiet: nothing more may arrive, or an extra pass would go uncounted. Counted in
+        // polls, not cut short by the deadline above — a run starved through the first loop used
+        // to reach this one with no time left, and an absence check that never looked passes. The
+        // cap only stops a count that never settles from hanging the suite.
+        var last = -1, quiet = 0, settling = 0
+        while quiet < 40, settling < 1_000 {
+            settling += 1
             try? await Task.sleep(nanoseconds: 10_000_000)
             let now = counter.count
             if now == last { quiet += 1 } else { quiet = 0; last = now }
         }
         return counter.count
     }
+
+    /// The fewest polls `countAfter` makes before it may give up — the number, and the reason, of
+    /// `waitPollFloor` in `Modules/Sync/Tests/Sync/TestSupport.swift`, which this target cannot
+    /// import.
+    private static let pollFloor = 50
 
     @MainActor
     @Test func unmountingAVolumeWithNoSourcesChangesNothing() {

@@ -634,6 +634,28 @@ wait they believe already returns. And `waitForOperationsToFinish` returns as so
 "quiescence cannot tell finished from not started" verbatim. Here it is covered by the `waitUntil`
 on the file landing that runs before it; on its own it is not a wait at all.
 
+**A poll count is a diagnosis only if each poll spends a main-actor turn, 2026-10-19 — FIXED.**
+`VolumeUnmountSourcesTests.unmountingACardRunsOneDiscoveryRatherThanOnePerSource` failed in 4 of
+10 local full Settings runs at load 44–99, always at its first wait —
+`Expectation failed: counter.count >= target`, after 25–48 s. That wait gave four add-time
+discoveries 20 s to reach the lister. Nothing was lost: `discoverProviders()` reaches the lister
+on every call, with no early return. Every pass starts as a main-actor `Task`; the wait polled from
+a `nonisolated` helper on the cooperative pool. Instrumented beside ten main-actor tests holding
+the main thread in 2.5 s chunks, it reached its deadline with **0 of 4 after 1,438 polls**, and
+all four landed 5.0 s later. Unmodified, the test failed at the same line, 138:50.
+
+1,438 polls reads as "genuinely disproved" by this section's own rule, and was nothing of the
+kind. Off-main polls stay cheap while the main thread is held, so their count measures the pool,
+not the turns the work is queued for — and a floor on them would have been met in under a second.
+Fixed by making the helper `@MainActor`, so each poll waits its turn behind the passes, with the
+usual 50-poll floor. Under the same hogs it passes at 143 s, once the hogs end. The four add-time
+passes are gone too: the sources are seeded in defaults, so the first wait is for the work under
+test. The quiet window after it had shared the 20 s deadline, so a starved first phase skipped it
+and left the absence check vacuous. It is now counted in polls. Mutation-tested: a per-id removal
+still fails "ran 4 provider discoveries", idle (3/3) and under the hogs; a removal that runs no
+discovery fails at the wait after 1,380 polls; with the deadline set to zero the floor alone
+passes, 3/3.
+
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
 `33bcc30d` — *Wait out the New Folder undo instead of guessing 100ms at it*;
