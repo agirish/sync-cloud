@@ -223,6 +223,32 @@ enum PDFTextFixtures {
         #expect(find.matches.count == 3)
     }
 
+    /// **The highlights are the matches, by page, in their order** — kept as each page lands, from a
+    /// search that started mid-file and wrapped, and gone with a new query. They used to be rebuilt
+    /// from every match on every read of the reader's body.
+    @Test func theHighlightsAreTheMatchesByPage() async {
+        let file = path("twice.pdf")
+        PDFTextFixtures.write(file, pages: (0..<6).map { ["Page \($0 + 1): a needle,", "and a second needle."] })
+        let view = EditorPDFViewState()
+        view.currentPage = 3
+        let find = find(file, pages: 6, view: view)
+        find.show()
+        find.search("needle")
+        await wait("the search") { find.phase == .done }
+        var rebuilt: [Int: [[CGRect]]] = [:]
+        for match in find.matches { rebuilt[match.pageIndex, default: []].append(match.rects) }
+        #expect(find.matches.count == 12)
+        #expect(find.highlights.pages == rebuilt)
+        find.search("second")
+        await wait("the new search") { find.phase == .done }
+        #expect(find.highlights.pages.values.map(\.count) == Array(repeating: 1, count: 6))
+        // A query on one page leaves no other page lit from the last one.
+        find.search("Page 3")
+        await wait("the one-page search") { find.phase == .done }
+        #expect(find.matches.map(\.pageIndex) == [2])
+        #expect(Array(find.highlights.pages.keys) == [2], "pages lit from an earlier query: \(find.highlights.pages.keys.sorted())")
+    }
+
     /// **Hiding withdraws the turn already queued**, as a changed query does.
     @Test func hidingWithdrawsItsQueuedPages() async {
         let lane = HeldLane()

@@ -140,6 +140,8 @@ public final class EditorPDFFind: ObservableObject {
     @Published public private(set) var phase: Phase = .idle
     /// Every match found so far, in document order.
     @Published public private(set) var matches: [EditorPDFFindMatch] = []
+    /// ``matches``' rects by page, kept as each page lands — what ``highlights`` hands the view.
+    private var highlightedPages: [Int: [[CGRect]]] = [:]
     /// The current match's place in ``matches``.
     @Published public private(set) var currentIndex: Int?
     /// A page turn has waited past ``waitThreshold`` for the lane — other PDF work is ahead of it.
@@ -363,11 +365,14 @@ public final class EditorPDFFind: ObservableObject {
     /// Whether there is any text to search — the facts' "Text selectable".
     public var isSearchable: Bool { hasText }
 
-    /// What the page view draws.
+    /// **What the page view draws** — read on every pass of the reader's body, which a page turn,
+    /// a zoom tick and every landed page all make. Built from ``matches`` it was a walk of every
+    /// match each time, and its comparison in the page view another: a long search on a common word
+    /// grew as pages times matches, on the main thread. The pages are kept as each one lands, so
+    /// an unchanged read shares their storage and compares at a glance.
     var highlights: EditorPDFHighlights {
         guard isShown, !matches.isEmpty else { return .none }
-        var pages: [Int: [[CGRect]]] = [:]
-        for match in matches { pages[match.pageIndex, default: []].append(match.rects) }
+        let pages = highlightedPages
         let current = currentIndex.map { EditorPDFHighlights.Spot(page: matches[$0].pageIndex, ordinal: matches[$0].ordinal) }
         return EditorPDFHighlights(pages: pages, current: current)
     }
@@ -424,6 +429,7 @@ public final class EditorPDFFind: ObservableObject {
         typing?.cancel()
         typing = nil
         if !matches.isEmpty { matches = [] }
+        highlightedPages = [:]
         currentIndex = nil
         isWaiting = false
         searchedPages = 0
@@ -511,6 +517,7 @@ public final class EditorPDFFind: ObservableObject {
             landed.append(page)
             guard !found.isEmpty else { return }
             let new = found.enumerated().map { EditorPDFFindMatch(pageIndex: page, ordinal: $0, rects: $1) }
+            highlightedPages[page] = found
             let at = matches.firstIndex { $0.pageIndex > page } ?? matches.count
             let current = currentIndex
             matches.insert(contentsOf: new, at: at)

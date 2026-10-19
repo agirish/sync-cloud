@@ -7753,3 +7753,25 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF reader in Edit (`pdfDocument=0`), so nothing to fix | CLOSED — does not apply |
+
+---
+
+## Find's highlights kept by page as each page lands — main only
+
+The PDF find bar's highlights are kept by page as each page's matches land, rather than rebuilt from
+every match on every pass of the reader's body. Behaviour-preserving; it speeds up the PDF Find
+`main` alone has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s pdfFind=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFind.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-19, against origin, before this landed:
+# main  pdfFind=1
+# v5.x, v4.x, v3.x, v2.x — pdfFind=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF find in Edit (`pdfFind=0`), so nothing to speed up | CLOSED — does not apply |
