@@ -113,6 +113,11 @@ Do not stop to report and wait. In order:
    not support, tests that pass vacuously, regressions against the previous tag. Fix what is real,
    push it the same way, and go back to 1.
 
+**When the next item is unrelated to what this session was asked to do, start it in its own
+session, and ask its questions there.** Fixing your own red in step 1 stays here; a step 2 item from
+elsewhere and every step 3 review go to a new session. On 2026-10-18 a review resumed inside a
+session about this file, and a product question reached him in the middle of it.
+
 Stop only when you truly need his input — then ask that one question directly, and stop.
 
 ---
