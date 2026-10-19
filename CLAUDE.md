@@ -61,7 +61,7 @@ a SHA git will eventually collect.** A tag would be tidier, but the tag namespac
 (`git tag | grep -v '^v[0-9]*\.[0-9]*$'` must stay empty). Any other branch you find is scaffolding
 and can go.
 
-## Session isolation: work in a worktree, land only when he says so
+## Session isolation: work in a worktree, land and push without asking
 
 The goal is a **linear `main`** where every completed change lands as a small number of thematic
 commits — usually **one**, see step 3 — with no long-lived feature branches, no PRs, no merge
@@ -71,12 +71,34 @@ never share a working tree with another session**: on 2026-07-13 several session
 `/Users/abhishek/Projects/SyncCloud` is the shared landing zone, not a scratch space — do not edit
 it while work is in progress.
 
-**Everything stays local until he says to push. Standing direction, 2026-08-30.** Commit freely
-inside the worktree — those commits are a working record, not the shipped history — but do not
-touch the primary checkout, do not `push`, and do not treat "the work is done and the tests are
-green" as permission to land. **Ask, in so many words, and wait for an explicit yes.** "Looks
-good" about the code is not a push approval; neither is an earlier session's approval, nor his
-approval of the *previous* batch. One ask, one push.
+**Push to `main` automatically — no ask. Standing direction, 2026-10-18**, replacing the
+2026-08-30 "everything stays local until he says push" rule; do not re-derive that rule from older
+notes or memory. Once a change is finished and has passed the gates in step 3, rebase, squash,
+fast-forward the primary checkout and push, in one go. Commit freely inside the worktree before
+that — those commits are a working record, not the shipped history — and still never edit the
+primary checkout except to fast-forward it in step 4.
+
+**What the standing approval does NOT cover — these still need an explicit yes, asked one at a time:**
+cutting a release (tags, a GitHub release, flipping a Pages `latest` badge — see **Cutting a
+release**), deleting a remote branch, pushing to a maintenance line, and anything that rewrites
+published history (force-push stays banned outright, step 3). A design call only he can make is
+also an ask; a mechanical choice with a clear default is not — pick it, say so in the report, and
+keep going.
+
+**After a push, keep going.** Do not stop to report and wait. In order:
+
+1. **Watch CI for the SHA you pushed** (`gh run list --branch main --limit 3`). A red your commit
+   caused is the next task: fix forward with a new commit through the same steps — never revert by
+   rewriting `main`. Read [`docs/flaky-tests.md`](docs/flaky-tests.md) before blaming the commit.
+2. **Pick up the next pending item** — your own session's follow-ups first, then open items the
+   roadmap and memory name as built-not-pushed or planned. Check `git worktree list` and the
+   running sessions first, so you do not take over work another session is doing.
+3. **If nothing is pending, run an adversarial review** of what has landed on `main` since the last
+   one: try to break the recent commits — wrong edge cases, claims in commit bodies or docs the
+   code does not support, tests that pass vacuously, regressions against the previous tag. Fix what
+   is real, push it the same way, and loop back to 1.
+
+Stop only when you truly need his input; then ask that one question directly and stop.
 
 1. **Start** — worktree on a fresh branch off `origin/main`:
    ```sh
@@ -89,7 +111,7 @@ approval of the *previous* batch. One ask, one push.
    is for you, not for `main`, so a commit per experiment is fine and reverting one is cheap.
    Nothing leaves the worktree at this stage.
 
-3. **Squash before you ask, not after he says yes — and prefer ONE commit.** The shipped shape is
+3. **Squash before you push — and prefer ONE commit.** The shipped shape is
    the fewest commits a reader can follow, which is usually **one**. Split only when a second
    genuinely earns its place: a refactor worth reading on its own before the behaviour change it
    enabled, or docs that stand apart from the code. Not one commit per file, and never a stack of
@@ -149,16 +171,23 @@ approval of the *previous* batch. One ask, one push.
      Four empty `WIP` commits sit in `main`'s history (`33c25bd2`, `8456c9d0`, `ea6441bf`,
      `a6622782`) from sessions that landed the whole branch without looking. Removing one after it
      lands needs a force-push, which is why they are staying.
-   - Then show him what you are proposing to land — `git log --oneline origin/main..HEAD` and
-     `git diff --stat origin/main..HEAD` — and ask.
+   - **The gates, before anything lands:** the equivalence diff above is empty; the tests of every
+     package that changed — and of the packages that depend on it — are green locally; an app
+     change has been installed and seen running (**Trying an app change**); and any
+     `docs/backports.md` row is **inside** the squash, not a follow-up commit. Read
+     `git log --oneline origin/main..HEAD` and `git diff --stat origin/main..HEAD` one last time —
+     for you now, not as an ask.
 
-4. **Land, once he has said yes.** Fast-forward the primary checkout; **no merge commits**:
+4. **Land and push.** Fast-forward the primary checkout; **no merge commits**:
    ```sh
    git -C /Users/abhishek/Projects/SyncCloud merge --ff-only <task>-themed && git push
    ```
+   Run it as its own command, from the primary, and read back `git rev-parse --short origin/main`.
+   If `--ff-only` refuses or the push is rejected, another session landed first: fetch, go back to
+   step 3's rebase, re-squash, re-run the gates, and try again — never force anything.
    It is the **themed** branch that lands — `<task>` itself is the working record and never ships.
-   Then record any maintenance-line gap in `docs/backports.md` — a record, not a to-do; see the
-   standing direction above. Finally `git worktree remove /Users/abhishek/Projects/SyncCloud-<task>`.
+   Then report what landed, with the SHAs, and carry on (**After a push, keep going**, above).
+   Finally `git worktree remove /Users/abhishek/Projects/SyncCloud-<task>`.
 
 **Cite SHAs only after the push.** The squash and the rebase both renumber everything, so a SHA
 read before step 4 names a commit that no longer exists.
@@ -286,8 +315,9 @@ why it gets skipped; the notes then ship claims the code does not support.
 ### Cutting it
 
 Tags are **two components** — `v2.9`, never `v2.9.0`; `git tag | grep -v '^v[0-9]*\.[0-9]*$'` should
-stay empty. Work in a worktree as always — and the push rule from **Session isolation** applies
-here too: build the whole cut locally, then ask once before step 3 puts any of it on `origin`.
+stay empty. Work in a worktree as always. **A cut is the exception to automatic pushing** (see
+**Session isolation**): build the whole cut locally, then ask once before step 3 puts any of it on
+`origin`.
 Everything after that point is outward-facing and irreversible in public (a pushed tag, a published
 release, a live Pages article), so the ask covers the cut as a unit, not each command in turn.
 
@@ -388,8 +418,8 @@ without re-measuring the tabs that share its opening.
 
 ## Trying an app change
 
-**Install from the worktree, before you ask for the push** — an app change he has not seen running
-is not a change he can approve. The skill resolves the current worktree's `.dd` as well as the
+**Install from the worktree, before you push** — an app change nobody has seen running has not
+been verified, and he will be using the installed copy. The skill resolves the current worktree's `.dd` as well as the
 shared DerivedData root, so nothing has to land first.
 
 Run the `install-sync-cloud` skill (quits the running instance, installs the fresh build to
