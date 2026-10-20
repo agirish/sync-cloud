@@ -7831,3 +7831,28 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF reader in Edit and no pane PDF Tools, so nothing to fix | CLOSED — does not apply |
+
+---
+
+## Fill & Sign's palette and save pill, from their review — main only
+
+A reload that newly refuses the file drops what was placed and says so; a floating piece finds the
+gap beside one piece and under another; the save pill sheds its words before it overflows; the
+find card fits the narrowest column; flyouts at the right-hand corners open leftwards; a palette
+that goes mid-drag takes the drag with it; an empty text box is not lost work. All in Fill & Sign,
+which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s fillSign=%s fillPalette=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSign.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillPalette.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-19, against origin, before this landed:
+# main  fillSign=1 fillPalette=1
+# v5.x, v4.x, v3.x, v2.x — 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign, so nothing to fix | CLOSED — does not apply |

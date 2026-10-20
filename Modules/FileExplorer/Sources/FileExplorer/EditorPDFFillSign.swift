@@ -410,6 +410,7 @@ public final class EditorPDFFillSign: ObservableObject {
     /// `allowsFormEntry` and `allowsCommenting` its form and the permissions' two halves (5c).
     func attach(path: String, boxes: [EditorPDFPageBox], encryption: PDFEncryptionState, allowsFilling: Bool,
                 form: EditorPDFForm = .none, allowsFormEntry: Bool = true, allowsCommenting: Bool = true) {
+        let reloaded = self.path == path
         if self.path == path, boxes != self.boxes || form != self.form {
             // **The undo steps go with the pages and the form they were taken on** — with nothing
             // to drop now as well. A Discard, or a placement undone, left steps that ⌘Z then played
@@ -457,13 +458,27 @@ public final class EditorPDFFillSign: ObservableObject {
         refusal = Self.refusal(encryption: encryption, allowsFilling: allowsFilling)
             ?? (!allowsCommenting && !offersFormFields
                 ? (form.hasFields ? Self.nothingToFillReason : Self.restrictedReason) : nil)
+        if refusal != nil, reloaded, let lost = unsavedWork {
+            // **A reload that now refuses the file takes what was placed.** The palette and the
+            // pill go with `isOn`, and the overlay draws only while on, so the items were kept out
+            // of sight — yet File ▸ Save Filled Copy and the leave question could still flatten them
+            // into a copy of a file whose owner now forbids it.
+            Logger.shared.info("Edit dropped \(lost) with Fill & Sign on \(EditorPDFTools.logName(path)) — "
+                               + "the file changed on disk and no longer allows it")
+            clear()
+            tools?.banner = EditorPDFToolBanner(
+                message: "The file changed on disk and no longer allows filling, so Fill & Sign’s unsaved work — \(lost) — was dropped.",
+                kind: .note)
+        }
         if refusal != nil { isOn = false }
     }
 
     /// What a ``detach()`` now would throw away — "2 items and 1 field" — or `nil` with nothing
     /// unsaved: the words for the banner when the file goes from under the reader.
     var unsavedWork: String? {
-        let parts = (items.isEmpty ? [] : [Self.count(items.count)]) + (values.isEmpty ? [] : [Self.fields(values.count)])
+        // What the pill counts: an item with nothing in it yet — text box just opened — is not work.
+        let placed = unsaved.count
+        let parts = (placed == 0 ? [] : [Self.count(placed)]) + (values.isEmpty ? [] : [Self.fields(values.count)])
         return parts.isEmpty ? nil : parts.joined(separator: " and ")
     }
 
@@ -580,6 +595,13 @@ public final class EditorPDFFillSign: ObservableObject {
         case (_, 0): return "\(Self.fields(f)) changed"
         default: return "\(Self.fields(f)) changed · \(Self.count(n)) not saved"
         }
+    }
+
+    /// The same, shorter, for a pill with less room — "2 fields · 1 item".
+    public var unsavedShortCaption: String? {
+        let n = unsaved.count, f = values.count
+        let parts = (f == 0 ? [] : [Self.fields(f)]) + (n == 0 ? [] : [Self.count(n)])
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     nonisolated static func count(_ n: Int) -> String { n == 1 ? "1 item" : "\(n) items" }
@@ -745,7 +767,8 @@ public final class EditorPDFFillSign: ObservableObject {
 
     /// Whether Save Filled Copy has something to write and nothing the toolkit would refuse.
     public var canSave: Bool {
-        guard hasUnsavedChanges else { return false }
+        // Never for a refused file — File ▸ Save Filled Copy is live exactly where the pill's is.
+        guard hasUnsavedChanges, refusal == nil else { return false }
         return formProblem == nil
     }
 

@@ -49,8 +49,8 @@ enum EditorPDFFloating {
     /// **Floating pieces never overlap.** `frame` slid along `axis` — the edge it is docked to —
     /// until it clears every one of `obstacles` by ``gap``, staying inside the canvas's inset; the
     /// nearer way wins. Only where no place along that edge is clear does it step across the edge
-    /// instead, below or beside the obstacle. `frame` itself when nothing is in the way, so the
-    /// piece goes back the moment the other one closes.
+    /// instead, below or beside the obstacle, and then along both at once. `frame` itself when
+    /// nothing is in the way, so the piece goes back the moment the other one closes.
     static func clear(_ frame: CGRect, of obstacles: [CGRect], sliding axis: Axis, within canvas: CGSize) -> CGRect {
         let blockers = obstacles.filter { !$0.isEmpty }
         // Half a point short of the gap, so a piece placed exactly a gap away reads as clear.
@@ -77,6 +77,18 @@ enum EditorPDFFloating {
             let open = candidates(pass).filter { room.contains($0) && !collides($0) }
             if let nearest = open.min(by: { distance($0) < distance($1) }) { return nearest }
         }
+        // **Then a step along both at once** — beside one obstacle and under another. One axis at a
+        // time missed it: in a narrow column with the save pill up, the capsule at Top Left found no
+        // place right of the palette (still under the pill) or under the pill (on the palette), and
+        // was drawn over the pill while (58, 52) was free.
+        let xs = [frame.minX] + blockers.flatMap { [$0.minX - gap - frame.width, $0.maxX + gap] }
+        let ys = [frame.minY] + blockers.flatMap { [$0.minY - gap - frame.height, $0.maxY + gap] }
+        let both = xs.flatMap { x in ys.map { y in CGRect(x: x, y: y, width: frame.width, height: frame.height) } }
+        if let nearest = both.filter({ room.contains($0) && !collides($0) }).min(by: { distance($0) < distance($1) }) {
+            return nearest
+        }
+        // Where the canvas has no clear place at all — too short for the pieces it holds — the
+        // piece stays docked. Which piece gives way then is not this rule's to decide.
         return frame
     }
 
@@ -198,7 +210,14 @@ struct EditorPDFReader: View {
                                          drag = moved
                                      },
                                      onDrop: { moved in drop(.palette, moved: moved, frames: frames) },
-                                     onSize: { palette.measured($0, upright: state.palettePlace.isVertical) })
+                                     onSize: { size in
+                                         palette.measured(size, upright: state.palettePlace.isVertical)
+                                         // **The palette went while its grip was held** — a save
+                                         // landed mid-drag. The drag goes with it: left set, the
+                                         // snap targets stayed drawn, and a late drop stored the
+                                         // place nearest the corner of an empty frame.
+                                         if size == .zero, dragging == .palette { dragging = nil; drag = .zero }
+                                     })
                     .offset(offset(of: .palette, frames: frames))
                     .designAnimation(.easeOut(duration: 0.2), value: state.palettePlace)
                     .designAnimation(.easeOut(duration: 0.2), value: find.isShown)
@@ -299,6 +318,8 @@ struct EditorPDFReader: View {
     }
 
     private func drop(_ piece: EditorPDFMovable, moved: CGSize, frames: Frames) {
+        // Only the drag that is still held: one let go of when its piece went is no drop.
+        guard dragging == piece else { return }
         let landed = dropPlace(for: piece, moved: moved, frames: frames)
         dragging = nil
         drag = .zero

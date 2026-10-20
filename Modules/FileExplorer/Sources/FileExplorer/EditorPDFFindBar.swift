@@ -23,8 +23,11 @@ struct EditorPDFFindBar: View {
     /// The count's width — enough for "3 of 9 so far" on one line, and the waiting note on a
     /// second. **Fixed, not a ceiling**: the card's width is what the capsule slides clear of, so a
     /// count as wide as its words made a capsule docked beside it hop sideways, unanimated, at
-    /// every step of a search — "Searching…", "1 of 12 so far", "1 of 12".
-    static let captionWidth: CGFloat = 150
+    /// every step of a search — "Searching…", "1 of 12 so far", "1 of 12". Sized with the
+    /// field's least width so the card, count and all, fits the narrowest column (`fieldMinWidth`).
+    static let captionWidth: CGFloat = 140
+    /// The field's least width — with the fixed count, what keeps the card inside a 368pt column.
+    static let fieldMinWidth: CGFloat = 100
 
     var body: some View {
         if find.isShown {
@@ -93,7 +96,7 @@ struct EditorPDFFindBar: View {
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
-        .frame(minWidth: 120, idealWidth: 170, maxWidth: 180)
+        .frame(minWidth: Self.fieldMinWidth, idealWidth: 170, maxWidth: 180)
         .background(RoundedRectangle(cornerRadius: Radius.chip).fill(Color(nsColor: .textBackgroundColor)))
         .overlay(RoundedRectangle(cornerRadius: Radius.chip).strokeBorder(Color(nsColor: .separatorColor)))
     }

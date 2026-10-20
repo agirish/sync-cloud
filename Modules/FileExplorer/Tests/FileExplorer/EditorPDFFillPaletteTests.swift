@@ -251,6 +251,44 @@ import Sync
 
     // MARK: Floating pieces never overlap
 
+    /// **In a narrow or short canvas a piece finds the gap beside one piece and under another**,
+    /// rather than being drawn over one: one axis at a time found none, and the capsule at Top
+    /// Left sat on the pill in the narrowest column while (58, 52) was free. Swept over every pair
+    /// of places at the narrow and short sizes, with a form's taller palette — every case here has
+    /// room (checked by simulating the rule); only a canvas too short for its pieces does not.
+    @Test func aPieceFindsTheGapBesideOneAndUnderAnother() {
+        let narrow = EditorPDFReader.layout(canvas: CGSize(width: 368, height: 400), findCard: .zero,
+                                            saveStack: CGSize(width: 281, height: 30),
+                                            palette: CGSize(width: 36, height: 308), palettePlace: .leading,
+                                            capsule: CGSize(width: 253, height: 28), capsulePlace: .topLeading)
+        #expect(!narrow.capsule.insetBy(dx: 0.5, dy: 0.5).intersects(narrow.saveStack), "\(narrow.capsule) over the pill")
+        #expect(!narrow.capsule.insetBy(dx: 0.5, dy: 0.5).intersects(narrow.palette), "\(narrow.capsule) over the palette")
+        let capsule = (row: CGSize(width: 253, height: 28), upright: CGSize(width: 44, height: 181))
+        for canvas in [CGSize(width: 368, height: 420), CGSize(width: 368, height: 520),
+                       CGSize(width: 700, height: 460), CGSize(width: 1000, height: 400)] {
+            for find in [CGSize.zero, CGSize(width: 250, height: 28)] {
+                for pill in [CGSize.zero, CGSize(width: 281, height: 30)] {
+                    for palettePlace in EditorPDFCapsulePlace.allCases {
+                        for capsulePlace in EditorPDFCapsulePlace.allCases {
+                            let frames = EditorPDFReader.layout(
+                                canvas: canvas, findCard: find, saveStack: pill,
+                                palette: palettePlace.isVertical ? CGSize(width: 36, height: 308) : CGSize(width: 308, height: 36),
+                                palettePlace: palettePlace,
+                                capsule: capsulePlace.isVertical ? capsule.upright : capsule.row, capsulePlace: capsulePlace)
+                            let shown = [frames.findCard, frames.saveStack, frames.palette, frames.capsule].filter { !$0.isEmpty }
+                            for (i, a) in shown.enumerated() {
+                                for b in shown.dropFirst(i + 1) {
+                                    #expect(!a.insetBy(dx: 0.5, dy: 0.5).intersects(b),
+                                            "\(canvas) palette \(palettePlace), capsule \(capsulePlace), find \(find != .zero), pill \(pill != .zero): \(a) overlaps \(b)")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// **No two floating pieces overlap, wherever the capsule and the palette are put** — with and
     /// without the find card and the save pill, on a roomy canvas and a short one. The order they
     /// give way in: the pill slides clear of the find card, the palette of both, the capsule of all.
@@ -291,6 +329,35 @@ import Sync
     }
 
     // MARK: The save pill and the note card
+
+    /// **The pill fits the narrowest column at every text size** — its words give way, the count
+    /// kept in its tooltip. With fixed words a form's "2 fields changed · 12 items not saved" ran past
+    /// the canvas, where nothing could keep it clear of the find card.
+    @Test func thePillFitsTheNarrowestColumnAtEveryTextSize() throws {
+        let fill = fill(form: true)
+        fill.beginFieldEditing("name")
+        fill.typeField("Ada Quill")
+        fill.endFieldEditing()
+        for n in 0..<12 { try placeText(fill, "Item \(n)") }
+        #expect(fill.unsavedCaption == "1 field changed · 12 items not saved", "the premise: \(fill.unsavedCaption ?? "none")")
+        #expect(fill.unsavedShortCaption == "1 field · 12 items")
+        let room = EditorPDFHeaderWidthTests.column - 2 * EditorPDFFloating.inset
+        for percent in FontSize.selectablePercents {
+            let stack = EditorPDFFillSaveStack(fill: fill, tools: EditorPDFTools(), accent: .blue)
+                .environment(\.appFontScale, FontSize(percent: percent).scale)
+            func width(_ proposed: CGFloat) -> CGFloat {
+                NSHostingController(rootView: stack).sizeThatFits(in: CGSize(width: proposed, height: 1000)).width
+            }
+            #expect(width(room) <= room, "at \(percent)% the pill is \(width(room))pt, over the \(room)pt the narrowest column has")
+            // With less room than the short words take, it drops them rather than squeezing its
+            // buttons — a squeezed pill is as wide as it is let be, one with no words keeps its own
+            // width. The column holds the short words at every size, so it keeps them there.
+            let bare = width(205)
+            #expect(bare <= 205 && width(220) == bare,
+                    "at \(percent)% with 220pt and 205pt the pill is \(width(220))pt and \(bare)pt — it squeezed its buttons to keep words")
+            #expect(width(room) > bare, "at \(percent)% the pill dropped words the column had room for")
+        }
+    }
 
     /// **The pill appears with the first mark, holds the count, and goes when nothing is left to
     /// save** — after Discard, and with Fill & Sign off.
@@ -429,5 +496,34 @@ import Sync
         let palette = try #require(canvas.range(of: "EditorPDFFillPalette(fill: fill"))
         let capsule = try #require(canvas.range(of: "EditorPDFCapsule(state: state"))
         #expect(pages.lowerBound < palette.lowerBound && palette.lowerBound < capsule.lowerBound)
+    }
+
+    /// **At a right-hand corner a flyout opens leftwards**, away from the edge the palette is docked
+    /// to — it used to start at the tool's left edge and run off the canvas. Elsewhere on the top
+    /// and bottom it starts at the tool's left, and at the side middles it opens beside the tool.
+    @Test func flyoutsOpenAwayFromTheDockedEdge() {
+        let tool = CGRect(x: 0, y: 0, width: 28, height: 28), menu = CGSize(width: 120, height: 200)
+        for place in EditorPDFCapsulePlace.allCases {
+            let origin = EditorPDFCapsule.menuOrigin(menu: menu, in: tool, flipped: true, place: place)
+            switch place {
+            case .topTrailing, .bottomTrailing:
+                #expect(origin.x + menu.width == tool.maxX, "at \(place) the flyout runs toward the docked edge")
+            case .leading:
+                #expect(origin.x > tool.maxX)
+            case .trailing:
+                #expect(origin.x + menu.width < tool.minX)
+            default:
+                #expect(origin.x == tool.minX, "at \(place) the flyout moved")
+            }
+        }
+    }
+
+    /// **A palette that goes while its grip is held takes the drag with it** — a save landing
+    /// mid-drag. The snap targets stayed drawn, and a late drop stored the place nearest the corner
+    /// of an empty frame. Wired in the canvas, which owns the drag.
+    @Test func aPaletteThatGoesMidDragTakesTheDragWithIt() throws {
+        let canvas = try ChromeGlassWiringTests.source("EditorPDFCanvas.swift")
+        #expect(canvas.contains("if size == .zero, dragging == .palette { dragging = nil; drag = .zero }"))
+        #expect(canvas.contains("guard dragging == piece else { return }"), "a drop is taken for a drag no longer held")
     }
 }

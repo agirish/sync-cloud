@@ -415,22 +415,29 @@ struct EditorPDFCapsule: View {
     /// (mockup E); below it at the top; beside it at the sides.
     static func present(_ menu: NSMenu, from view: NSView?, place: EditorPDFCapsulePlace) {
         guard let view else { return }
-        let size = menu.size
-        let top = view.isFlipped ? view.bounds.minY : view.bounds.maxY
-        let bottom = view.isFlipped ? view.bounds.maxY : view.bounds.minY
-        let up: CGFloat = view.isFlipped ? -1 : 1
-        let point: NSPoint
+        menu.popUp(positioning: nil, at: menuOrigin(menu: menu.size, in: view.bounds, flipped: view.isFlipped, place: place),
+                   in: view)
+    }
+
+    /// Where ``present(_:from:place:)`` opens a menu of `menu`'s size from a control of `bounds`:
+    /// above or below it on the top and bottom edges, beside it at the side middles — and **at a
+    /// right-hand corner, ending at the control's right edge rather than starting at its left**, so
+    /// it opens away from the edge the piece is docked to, as the palette's flyouts promise.
+    static func menuOrigin(menu size: CGSize, in bounds: CGRect, flipped: Bool, place: EditorPDFCapsulePlace) -> NSPoint {
+        let top = flipped ? bounds.minY : bounds.maxY
+        let bottom = flipped ? bounds.maxY : bounds.minY
+        let up: CGFloat = flipped ? -1 : 1
+        let x = place == .topTrailing || place == .bottomTrailing ? bounds.maxX - size.width : bounds.minX
         switch place {
         case .leading:
-            point = NSPoint(x: view.bounds.maxX + 4, y: top)
+            return NSPoint(x: bounds.maxX + 4, y: top)
         case .trailing:
-            point = NSPoint(x: view.bounds.minX - size.width - 4, y: top)
+            return NSPoint(x: bounds.minX - size.width - 4, y: top)
         case .bottomLeading, .bottom, .bottomTrailing:
-            point = NSPoint(x: 0, y: top + up * (size.height + 2))
+            return NSPoint(x: x, y: top + up * (size.height + 2))
         case .topLeading, .top, .topTrailing:
-            point = NSPoint(x: 0, y: bottom - up * 2)
+            return NSPoint(x: x, y: bottom - up * 2)
         }
-        menu.popUp(positioning: nil, at: point, in: view)
     }
 }
 
@@ -538,6 +545,18 @@ final class EditorPDFGripView: NSView {
         isDragging = true
         NSCursor.closedHand.set()
         onDrag(moved)
+    }
+
+    /// **A grip taken out of the window drops the drag it was in** — the palette went mid-drag, a
+    /// save landing. AppKit sends the rest of a drag to the view that took the press, so a late
+    /// `mouseDragged` restarted it and a late `mouseUp` dropped the piece at a place reckoned from
+    /// a frame that was no longer there.
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil {
+            start = nil
+            isDragging = false
+        }
     }
 
     override func mouseUp(with event: NSEvent) {

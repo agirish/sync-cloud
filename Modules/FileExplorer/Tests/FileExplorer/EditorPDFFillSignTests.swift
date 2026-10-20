@@ -503,6 +503,41 @@ extension PDFFixtures {
         #expect(fill.items.isEmpty && !fill.isOn)
     }
 
+    /// **A reload that now refuses the file takes what was placed, and says so** — the owner's
+    /// rules changed in place, the pages did not. With the palette and pill down and the overlay
+    /// not drawing, the items were out of sight, yet File ▸ Save Filled Copy and the leave question
+    /// could still flatten them into a copy of a file that now forbids it.
+    @Test(arguments: [true, false])
+    func aReloadThatRefusesTheFileTakesWhatWasPlaced(formEntry: Bool) async throws {
+        let (pdf, file) = try await letter()
+        let fill = pdf.fill
+        fill.toggle()
+        fill.armed = .mark(.check)
+        fill.place(at: CGPoint(x: 100, y: 100), page: 0)
+        #expect(fill.canSave, "the premise: the mark can be saved")
+        fill.attach(path: file, boxes: fill.boxes, encryption: .restrictedOnly, allowsFilling: formEntry,
+                    allowsFormEntry: formEntry, allowsCommenting: false)
+        #expect(!fill.isOn)
+        #expect(!fill.canSave, "File ▸ Save Filled Copy is live for items nobody can see")
+        #expect(!fill.hasUnsavedChanges, "the items outlived the palette and pill that showed them")
+        #expect(pdf.tools.banner?.message.contains("no longer allows filling") == true)
+    }
+
+    /// **What a vanished file took is what the pill counted** — a text box opened and not typed
+    /// into is no work, and was reported as "1 item".
+    @Test func anEmptyTextBoxIsNoLostWork() async throws {
+        let (pdf, _) = try await letter()
+        let fill = pdf.fill
+        fill.toggle()
+        fill.armed = .text
+        fill.place(at: CGPoint(x: 100, y: 100), page: 0)
+        #expect(!fill.hasUnsavedItems, "the premise: an empty text box is not counted")
+        #expect(fill.unsavedWork == nil)
+        fill.armed = .mark(.check)
+        fill.place(at: CGPoint(x: 100, y: 300), page: 0)
+        #expect(fill.unsavedWork == "1 item")
+    }
+
     /// **A file that goes from under the reader says what unsaved work went with it** — a rename,
     /// the Trash, a sync client's half-written file. The leave question cannot ask then, and the
     /// items used to go with only a log line to say so.

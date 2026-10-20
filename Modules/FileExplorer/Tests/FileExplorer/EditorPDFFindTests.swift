@@ -1,4 +1,5 @@
 import AppKit
+import Design
 import os
 import PDFKit
 import SwiftUI
@@ -234,6 +235,13 @@ enum PDFTextFixtures {
         await wait("the search") { find.phase == .done }
         #expect(find.caption != searching, "the premise: the count changed, from \(searching)")
         #expect(width() == early, "the card is \(early)pt at “\(searching)” and \(width())pt at “\(find.caption)”")
+        // And, count and all, it still fits the narrowest column at every text size.
+        let room = EditorPDFHeaderWidthTests.column - 2 * EditorPDFFloating.inset
+        for percent in FontSize.selectablePercents {
+            let card = EditorPDFFindBar(find: find, accent: .blue).environment(\.appFontScale, FontSize(percent: percent).scale)
+            let fitted = NSHostingController(rootView: card).sizeThatFits(in: CGSize(width: room, height: 200)).width
+            #expect(fitted <= room, "at \(percent)% the find card is \(fitted)pt, over the \(room)pt the column has")
+        }
     }
 
     /// **The highlights are the matches, by page, in their order** — kept as each page lands, from a

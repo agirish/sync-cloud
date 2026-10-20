@@ -319,6 +319,28 @@ import Sync
         #expect(dropped == [CGSize(width: 200, height: 60)])
     }
 
+    /// **A grip taken out of its window mid-drag lets the drag go** — the palette went while its
+    /// grip was held. The rest of the drag still reaches the view that took the press; it used to
+    /// restart the drag and drop the piece by a frame that was gone.
+    @Test func aGripLeavingItsWindowMidDragLetsTheDragGo() throws {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let grip = EditorPDFGripView(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
+        window.contentView?.addSubview(grip)
+        var dragged: [CGSize] = [], dropped: [CGSize] = []
+        grip.onDrag = { dragged.append($0) }
+        grip.onDrop = { dropped.append($0) }
+        grip.mouseDown(with: try mouse(.leftMouseDown, at: NSPoint(x: 10, y: 100)))
+        grip.mouseDragged(with: try mouse(.leftMouseDragged, at: NSPoint(x: 60, y: 100)))
+        #expect(dragged.count == 1, "the premise: the drag began")
+        grip.removeFromSuperview()
+        grip.mouseDragged(with: try mouse(.leftMouseDragged, at: NSPoint(x: 90, y: 100)))
+        grip.mouseUp(with: try mouse(.leftMouseUp, at: NSPoint(x: 90, y: 100)))
+        #expect(dragged.count == 1, "a drag event after the grip left restarted the drag")
+        #expect(dropped.isEmpty, "a mouse-up after the grip left dropped the piece")
+    }
+
     /// **Double-click and Reset Position put it back at bottom centre; Move To moves it** — and the
     /// menu ticks where it is.
     @Test func theGripResetsAndItsMenuMovesIt() throws {

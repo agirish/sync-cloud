@@ -381,9 +381,24 @@ struct EditorPDFFillSaveStack: View {
         }
     }
 
+    /// **The pill gives way before it overflows** — "2 fields changed · 1 item not saved", then
+    /// "2 fields · 1 item", then no words, the count kept in its tooltip. Its words were fixed, so in
+    /// the narrowest column, or at a large text size, the pill ran past the canvas, where the rule
+    /// that keeps it clear of the find card found no place for it and drew it over the card.
     private var pill: some View {
+        ViewThatFits(in: .horizontal) {
+            pill(caption: fill.unsavedCaption)
+            pill(caption: fill.unsavedShortCaption)
+            pill(caption: nil)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Fill & Sign changes not saved")
+        .accessibilityValue(fill.unsavedCaption ?? "")
+    }
+
+    private func pill(caption: String?) -> some View {
         HStack(spacing: 8) {
-            if let caption = fill.unsavedCaption {
+            if let caption {
                 Text(caption)
                     .monospacedDigit()
                     .lineLimit(1)
@@ -408,8 +423,7 @@ struct EditorPDFFillSaveStack: View {
         .padding(.trailing, 6)
         .padding(.vertical, 5)
         .modifier(EditorPDFFloatingGround(shape: .capsule))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Fill & Sign changes not saved")
+        .help(caption == nil ? (fill.unsavedCaption ?? "") : "")
     }
 
     private func card(_ notes: [String]) -> some View {
