@@ -87,8 +87,10 @@ enum EditorPDFFloating {
         if let nearest = both.filter({ room.contains($0) && !collides($0) }).min(by: { distance($0) < distance($1) }) {
             return nearest
         }
-        // Where the canvas has no clear place at all — too short for the pieces it holds — the
-        // piece stays docked. Which piece gives way then is not this rule's to decide.
+        // **Where the canvas has no clear place at all, the piece stays docked and overlaps** —
+        // too short for the pieces it holds: the narrowest column on a short window, a form's
+        // palette at a side, the find card and the pill all up. Rare enough to leave as it is
+        // (his call, 2026-10-19), rather than fold the palette or hide a piece.
         return frame
     }
 
@@ -96,6 +98,11 @@ enum EditorPDFFloating {
     /// band on the edge it is docked to — its depth, the inset and a gap — so the end of the last
     /// page can scroll fully clear of it. A corner is on the top or bottom edge. Nothing for the
     /// find card, Fill & Sign's palette or its save pill: opening them must not move the page.
+    ///
+    /// **The band is the capsule's docked one, even when it has stepped aside** for the palette or
+    /// the pill — so while it is aside it can cover a strip of the first or last page. A band that
+    /// followed it would move the page whenever Fill & Sign opened; the page stays still (his call,
+    /// 2026-10-19).
     static func canvasInsets(place: EditorPDFCapsulePlace, capsule: CGSize) -> NSEdgeInsets {
         var insets = NSEdgeInsets(top: topBand, left: 0, bottom: 0, right: 0)
         guard capsule.width > 0, capsule.height > 0 else { return insets }
