@@ -11,6 +11,7 @@ Read by `SaveAsPDFRenderTests` and `SaveAsPDFTests`. Each Office file here is on
 | `Wide.xlsx` | the same | one row of 26 columns ending `SAVEASPDF-WIDE-LASTCOL` |
 | `Deck.pptx` | python-pptx 1.0.2, the default template | three title-and-content slides, `SAVEASPDF-SLIDE-1`…`3` |
 | `Pictures.pptx` | python-pptx 1.0.2 + Pillow | two blank-layout slides, each one full-slide PNG and no text |
+| `PictureWords.pptx` | python-pptx 1.0.2 + Pillow 11.3, Arial drawn into 1920×1440 PNGs | two blank-layout slides, each one full-slide picture of words and no text: “Harvest moon festival” / “Tickets at the north gate”, “Lighthouse keeper rota” / “Lamps lit before dusk” — each title at x 160, y 260 px, the second line at y 960 |
 
 Not every python-pptx deck gets a Quick Look preview — some generated decks in the wild get none —
 but these do. If a macOS stops previewing one, `quickLookStillWritesHTML` names it.

@@ -98,9 +98,10 @@ Requires **macOS 26**, unchanged from the 5.x line.
   beside it under its name — "Lease.docx" becomes "Lease.pdf", or "Lease 2.pdf" when that is taken
   — and the file itself is never changed. Markdown and text come out as the pages Edit's Print makes;
   Word, Excel and PowerPoint as macOS draws them in Quick Look, every sheet in turn and each slide on
-  a page of its own, with their text selectable. A deck whose slides are pictures says so. Select
-  several for **Save 3 as PDFs**: one at a time, with Stop, and a file that cannot be read is named in
-  the banner. A folder you can't write to asks where. **File ▸ Save as PDF** does the same for the
+  a page of its own, with their text selectable. A deck whose slides are pictures has their words
+  recognised, so it can be searched too, and the banner says a word may be misread. Select several
+  for **Save 3 as PDFs**: one at a time, with Stop, and a file that cannot be read is named in the
+  banner. A folder you can't write to asks where. **File ▸ Save as PDF** does the same for the
   focused pane's selection.
 
 ### Fill & Sign

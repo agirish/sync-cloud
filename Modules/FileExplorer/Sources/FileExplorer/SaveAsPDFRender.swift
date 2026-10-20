@@ -9,9 +9,12 @@ import WebKit
 struct SaveAsPDFOutput: Sendable, Equatable {
     var data: Data
     var pageCount: Int
-    /// A deck whose pages carry no text a reader can select — its slides were pictures in the file
+    /// A deck whose pages carried no text a reader can select — its slides were pictures in the file
     /// itself, so the PDF is pictures too. The banner says so (decision AO).
     var isPictures: Bool
+    /// Pictures whose words Vision read, now laid invisibly over them (``PictureText``) — the PDF
+    /// can be searched, with a misread here and there, and the banner says that instead.
+    var isRecognised: Bool
 }
 
 /// Why a file could not be saved as PDF, in the reader's words — what follows "couldn't be saved
@@ -43,7 +46,8 @@ struct SaveAsPDFFailure: LocalizedError, Equatable {
 ///
 /// **No PDFKit here but one read in the lane.** Pages are counted and combined with CoreGraphics,
 /// which is not PDFKit (``PDFMenuEncryption`` measures the same distinction); whether a deck came
-/// out as pictures is asked of PDFKit through `PDFKitSerialAccess`, like every other parse.
+/// out as pictures is asked of PDFKit through `PDFKitSerialAccess`, like every other parse. A deck
+/// that did gets its pictures' words read by Vision and laid over them (``PictureText``).
 @MainActor
 enum SaveAsPDFRender {
 
@@ -56,7 +60,7 @@ enum SaveAsPDFRender {
 
     static func render(_ path: String, settings: Settings = Settings()) async throws -> SaveAsPDFOutput {
         guard let kind = SaveAsPDFKind.of(path: path) else { throw SaveAsPDFFailure.unreadable }
-        let data: Data
+        var data: Data
         switch kind {
         case .text, .markdown:
             data = try documentPDF(path, isMarkdown: kind == .markdown, settings: settings)
@@ -67,12 +71,20 @@ enum SaveAsPDFRender {
         }
         let pages = pageCount(data)
         guard pages > 0 else { throw SaveAsPDFFailure.noPages }
-        var isPictures = false
+        var isPictures = false, isRecognised = false
         if kind == .presentation {
-            let text = await PDFKitSerialAccess.perform { PDFDocument(data: data)?.string ?? "" }
+            let text = await PDFKitSerialAccess.perform { [data] in PDFDocument(data: data)?.string ?? "" }
             isPictures = text.allSatisfy(\.isWhitespace)
         }
-        return SaveAsPDFOutput(data: data, pageCount: pages, isPictures: isPictures)
+        if isPictures {
+            // Off the main actor: Vision blocks for every slide.
+            let read = await Task.detached(priority: .userInitiated) { [data] in PictureText.searchable(data) }.value
+            if let read {
+                data = read
+                isRecognised = true
+            }
+        }
+        return SaveAsPDFOutput(data: data, pageCount: pages, isPictures: isPictures, isRecognised: isRecognised)
     }
 
     // MARK: - Text and Markdown: Edit's Print render
@@ -226,6 +238,7 @@ enum SaveAsPDFRender {
             ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
         guard !boxes.isEmpty else { throw SaveAsPDFFailure.noPages }
         web.resize(width: (boxes.map(\.maxX).max() ?? 1024) + 16, height: (boxes.map(\.maxY).max() ?? 768) + 16)
+        await web.picturesDecoded()
         var composer = PDFComposer()
         for box in boxes {
             let slide = try await web.pdf(of: box)
@@ -406,13 +419,18 @@ struct PDFComposer {
     private let data = NSMutableData()
     private var context: CGContext?
 
-    static func firstPage(of data: Data) -> CGPDFPage? {
+    static func document(_ data: Data) -> CGPDFDocument? {
         guard let provider = CGDataProvider(data: data as CFData) else { return nil }
-        return CGPDFDocument(provider)?.page(at: 1)
+        return CGPDFDocument(provider)
+    }
+
+    static func firstPage(of data: Data) -> CGPDFPage? {
+        document(data)?.page(at: 1)
     }
 
     /// A new page of `paper`, with `page` scaled into `rect` (bottom-left origin) and white behind it.
-    mutating func add(_ page: CGPDFPage, paper: CGSize, into rect: CGRect) {
+    /// `over` draws on top, in the paper's points.
+    mutating func add(_ page: CGPDFPage, paper: CGSize, into rect: CGRect, over: (CGContext) -> Void = { _ in }) {
         if context == nil, let consumer = CGDataConsumer(data: data) {
             context = CGContext(consumer: consumer, mediaBox: nil, nil)
         }
@@ -432,6 +450,7 @@ struct PDFComposer {
             context.drawPDFPage(page)
             context.restoreGState()
         }
+        over(context)
         context.endPDFPage()
     }
 
@@ -572,6 +591,21 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
     func json(_ script: String) async throws -> Any? {
         guard let text = try await web.evaluateJavaScript(script) as? String else { return nil }
         return try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed])
+    }
+
+    /// **Every picture decoded, so `createPDF` draws it** — or ten seconds, whichever is first. A
+    /// page loaded is not its pictures decoded: a deck of two 1920 px slide pictures drew its second
+    /// page blank on every run, and the same box drew whole two seconds later. `decode()` settles
+    /// when a picture can be painted, and fails, settling too, for one that cannot.
+    func picturesDecoded() async {
+        _ = try? await web.callAsyncJavaScript("""
+            await Promise.race([
+              Promise.all(Array.from(document.images).map(function (image) {
+                return image.decode().catch(function () {});
+              })),
+              new Promise(function (settle) { setTimeout(settle, 10000); })
+            ])
+            """, contentWorld: .defaultClient)
     }
 
     func pdf(of rect: CGRect) async throws -> Data {

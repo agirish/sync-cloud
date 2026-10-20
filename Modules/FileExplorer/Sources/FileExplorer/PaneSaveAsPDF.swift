@@ -42,7 +42,8 @@ public struct SaveAsPDFBanner: Equatable, Identifiable, Sendable {
     }
     public let id = UUID()
     public var message: String
-    /// A second line: a deck saved as pictures, and why each file that failed did.
+    /// A second line: a deck saved as pictures — its text recognised or not — and why each file
+    /// that failed did.
     public var detail: String?
     public var kind: Kind
 
@@ -170,10 +171,12 @@ public final class PaneSaveAsPDF: ObservableObject {
             } else {
                 copy = try EditorPDFCopyWriter.write(output.data, wanting: wanted)
             }
-            saved.append(.init(name: name, copy: copy, pageCount: output.pageCount, isPictures: output.isPictures))
+            saved.append(.init(name: name, copy: copy, pageCount: output.pageCount,
+                               isPictures: output.isPictures, isRecognised: output.isRecognised))
             Logger.shared.info("\(writer) saved \(name) as \((copy as NSString).lastPathComponent) — "
                                + "\(output.pageCount) page\(output.pageCount == 1 ? "" : "s")"
                                + (output.isPictures ? ", slides as pictures" : "")
+                               + (output.isRecognised ? ", text recognised" : "")
                                + String(format: ", %.1f s", Date().timeIntervalSince(started)))
             host.didWrite(copy)
             return nil
@@ -192,6 +195,7 @@ enum SaveAsPDFSummary {
         var copy: String
         var pageCount: Int
         var isPictures: Bool
+        var isRecognised: Bool
     }
 
     struct Failed: Equatable {
@@ -214,7 +218,15 @@ enum SaveAsPDFSummary {
 
     static func banner(total: Int, saved: [Saved], failed: [Failed], stoppedBefore: Int) -> SaveAsPDFBanner {
         var detail: [String] = []
-        let pictures = saved.filter(\.isPictures)
+        // Read by Vision: searchable, with a misread here and there. Not read: no words at all.
+        let recognised = saved.filter { $0.isPictures && $0.isRecognised }
+        if !recognised.isEmpty {
+            detail.append(total == 1
+                ? "Its slides were pictures; their text was recognised so it can be searched, but may have mistakes."
+                : "Slides in \(names(recognised.map(\.name))) were pictures; their text was recognised so it can "
+                    + "be searched, but may have mistakes.")
+        }
+        let pictures = saved.filter { $0.isPictures && !$0.isRecognised }
         if !pictures.isEmpty {
             detail.append(total == 1
                 ? "Its slides were pictures, so their text can’t be selected or searched."

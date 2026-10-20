@@ -235,13 +235,16 @@ private struct SaveDelegate: FileActionDelegate {
 
     // MARK: The banner's words
 
+    /// A deck of pictures with no words Vision could read says its text can't be searched.
     @Test func aDeckOfPicturesIsSaidSo() {
-        let deck = SaveAsPDFSummary.Saved(name: "Old Pitch.pptx", copy: "/f/Old Pitch.pdf", pageCount: 14, isPictures: true)
+        let deck = SaveAsPDFSummary.Saved(name: "Old Pitch.pptx", copy: "/f/Old Pitch.pdf", pageCount: 14,
+                                          isPictures: true, isRecognised: false)
         let one = SaveAsPDFSummary.banner(total: 1, saved: [deck], failed: [], stoppedBefore: 0)
         #expect(one.message == "Saved “Old Pitch.pdf” · 14 pages")
         #expect(one.detail == "Its slides were pictures, so their text can’t be selected or searched.")
 
-        let memo = SaveAsPDFSummary.Saved(name: "Memo.docx", copy: "/f/Memo.pdf", pageCount: 1, isPictures: false)
+        let memo = SaveAsPDFSummary.Saved(name: "Memo.docx", copy: "/f/Memo.pdf", pageCount: 1,
+                                          isPictures: false, isRecognised: false)
         let failed = SaveAsPDFSummary.Failed(name: "Broken.docx", reason: "macOS couldn’t read it")
         let batch = SaveAsPDFSummary.banner(total: 3, saved: [memo, deck], failed: [failed], stoppedBefore: 0)
         #expect(batch.message == "Saved 2 of 3 as PDF. “Broken.docx” couldn’t be saved.")
@@ -249,6 +252,22 @@ private struct SaveDelegate: FileActionDelegate {
                 + "Broken.docx: macOS couldn’t read it")
         // A deck with text says nothing about pictures.
         #expect(SaveAsPDFSummary.banner(total: 1, saved: [memo], failed: [], stoppedBefore: 0).detail == nil)
+    }
+
+    /// **A deck of pictures whose words were recognised says so, and that they may be wrong** — the
+    /// sentence Abhishek chose on 2026-10-19 — and a batch names each kind of deck apart.
+    @Test func aDeckOfRecognisedPicturesIsSaidSo() {
+        let read = SaveAsPDFSummary.Saved(name: "Survey.pptx", copy: "/f/Survey.pdf", pageCount: 6,
+                                          isPictures: true, isRecognised: true)
+        let one = SaveAsPDFSummary.banner(total: 1, saved: [read], failed: [], stoppedBefore: 0)
+        #expect(one.message == "Saved “Survey.pdf” · 6 pages")
+        #expect(one.detail == "Its slides were pictures; their text was recognised so it can be searched, but may have mistakes.")
+
+        let blank = SaveAsPDFSummary.Saved(name: "Photos.pptx", copy: "/f/Photos.pdf", pageCount: 3,
+                                           isPictures: true, isRecognised: false)
+        let batch = SaveAsPDFSummary.banner(total: 2, saved: [read, blank], failed: [], stoppedBefore: 0)
+        #expect(batch.detail == "Slides in “Survey.pptx” were pictures; their text was recognised so it can be searched, "
+                + "but may have mistakes. Slides in “Photos.pptx” were pictures, so their text can’t be selected or searched.")
     }
 
     @Test func everyFileFailingIsAFailure() {

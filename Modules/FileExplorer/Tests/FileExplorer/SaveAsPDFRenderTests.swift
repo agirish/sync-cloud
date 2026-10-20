@@ -234,14 +234,62 @@ import PDFKit
         }
     }
 
-    /// **A deck whose slides are pictures says so** — the banner's note rests on this answer.
+    /// **A deck whose slides are pictures with no words says so** — the banner's note rests on this
+    /// answer, and Vision, finding nothing, adds nothing.
     @Test func aDeckOfPicturesIsCalledPictures() async throws {
         let output = try await SaveAsPDFRender.render(try Self.fixture("Pictures.pptx"))
         let document = try read(output)
         #expect(output.pageCount == 2)
         #expect(output.isPictures)
+        #expect(!output.isRecognised)
         let text = allText(document)
         #expect(text.allSatisfy { $0.isWhitespace }, "the PDF reads: \(text)")
+    }
+
+    /// **A deck of pictures of words comes out searchable** — each slide's words on its own page,
+    /// found by PDFKit's search where the picture shows them (R2, ``PictureText``).
+    @Test func aDeckOfPicturesOfWordsIsSearchable() async throws {
+        let output = try await SaveAsPDFRender.render(try Self.fixture("PictureWords.pptx"))
+        let document = try read(output)
+        #expect(output.pageCount == 2)
+        #expect(output.isPictures, "the deck's slides were read as text the file holds")
+        #expect(output.isRecognised)
+        #expect(pageText(document, 0).contains("Harvest moon festival"), "page 1 reads: \(pageText(document, 0))")
+        #expect(pageText(document, 0).contains("Tickets at the north gate"), "page 1 reads: \(pageText(document, 0))")
+        #expect(pageText(document, 1).contains("Lighthouse keeper rota"), "page 2 reads: \(pageText(document, 1))")
+        #expect(!pageText(document, 0).contains("Lighthouse"))
+
+        // The fixture draws each title from 1/12 of the way in, its top a fifth of the way down,
+        // and the second line two thirds down: the hidden words lie over the drawn ones.
+        let found = document.findString("Lighthouse", withOptions: [])
+        try #require(found.count == 1, "search found \(found.count)")
+        let page = try #require(found[0].pages.first)
+        #expect(document.index(for: page) == 1)
+        let size = page.bounds(for: .mediaBox).size
+        let title = found[0].bounds(for: page)
+        #expect(title.minX > size.width * 0.06 && title.minX < size.width * 0.11, "the title is at \(title) on \(size)")
+        #expect(title.midY > size.height * 0.7 && title.midY < size.height * 0.85, "the title is at \(title) on \(size)")
+        let lamps = try #require(document.findString("Lamps", withOptions: []).first)
+        let line = lamps.bounds(for: page)
+        #expect(line.midY > size.height * 0.25 && line.midY < size.height * 0.4, "the line is at \(line) on \(size)")
+    }
+
+    /// **The words are invisible** — each page draws pixel for pixel as it did without them.
+    @Test func recognisedTextDrawsNothing() async throws {
+        let plain = try await SaveAsPDFRender.officePDF(try Self.fixture("PictureWords.pptx"), kind: .presentation,
+                                                        settings: SaveAsPDFRender.Settings())
+        let read = try #require(PictureText.searchable(plain), "Vision read no words in the fixture")
+        let before = try #require(PDFComposer.document(plain)), after = try #require(PDFComposer.document(read))
+        #expect(after.numberOfPages == before.numberOfPages)
+        let plainText = PDFDocument(data: plain)?.string ?? ""
+        #expect(plainText.allSatisfy { $0.isWhitespace }, "the deck had text before: \(plainText)")
+        #expect(PDFDocument(data: read)?.string?.contains("Harvest") == true)
+        for number in 1...before.numberOfPages {
+            let old = try #require(before.page(at: number).flatMap(PictureText.bitmap(of:)))
+            let new = try #require(after.page(at: number).flatMap(PictureText.bitmap(of:)))
+            #expect(old.width == new.width && old.height == new.height)
+            #expect(old.dataProvider?.data as Data? == new.dataProvider?.data as Data?, "page \(number) looks different")
+        }
     }
 
     // MARK: What converts
