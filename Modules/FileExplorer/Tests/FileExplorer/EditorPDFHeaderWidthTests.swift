@@ -15,7 +15,7 @@ import FileExplorerTestSupport
 /// (measured 2026-10-17), and the mockup gave it about 140.
 ///
 /// The bound is the one decided 2026-10-17: **the document column at the smallest window**, the
-/// actions shedding their words as it narrows (``EditorPDFHeaderControls/Rung``) and the name
+/// actions shedding their words together as it narrows (``EditorPDFHeaderControls/Rung``) and the name
 /// keeping what is pinned here.
 @MainActor
 @Suite(.serialized) final class EditorPDFHeaderWidthTests {
@@ -93,17 +93,32 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **The order things shed in** (decided 2026-10-19): Find and Tools lose their words first,
-    /// then Fill & Sign; nothing on the widest rung is a bare glyph, everything on the narrowest is.
-    @Test func findAndToolsShedTheirWordsBeforeFillAndSign() throws {
+    /// **All three shed their words together** (revised 2026-10-19): a header with Fill & Sign
+    /// worded beside a bare magnifier and wrench read as two styles at once.
+    @Test func theActionsShedTheirWordsTogether() throws {
         let rungs = EditorPDFHeaderControls.Rung.allCases
-        #expect(rungs == [.worded, .fillAndSignWorded, .glyphs])
-        #expect(rungs.map(\.wordsFindAndTools) == [true, false, false])
-        #expect(rungs.map(\.wordsFillAndSign) == [true, true, false])
+        #expect(rungs == [.worded, .glyphs])
+        #expect(rungs.map(\.isWorded) == [true, false])
         let source = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
-        #expect(source.contains("EditorPDFFindButton(find: find, accent: accent, onAccent: onAccent, worded: rung.wordsFindAndTools)"))
-        #expect(source.contains("EditorPDFFillSignButton(fill: fill, accent: accent, onAccent: onAccent, worded: rung.wordsFillAndSign)"))
-        #expect(source.contains("EditorPDFToolsMenu(tools: tools, accent: accent, onAccent: onAccent, worded: rung.wordsFindAndTools)"))
+        #expect(source.contains("EditorPDFFindButton(find: find, accent: accent, onAccent: onAccent, worded: rung.isWorded)"))
+        #expect(source.contains("EditorPDFFillSignButton(fill: fill, accent: accent, onAccent: onAccent, worded: rung.isWorded)"))
+        #expect(source.contains("EditorPDFToolsMenu(tools: tools, accent: accent, onAccent: onAccent, worded: rung.isWorded)"))
+    }
+
+    /// **The actions keep their width when the row is short of it** — the name gives way instead.
+    /// Find and Fill & Sign used to shrink their bezels under words that cannot shrink, and each
+    /// word overprinted its neighbour (seen at a 380pt column, 2026-10-19).
+    @Test func theActionsAreNeverSqueezed() async throws {
+        let pdf = try await open(pages: 4)
+        for rung in EditorPDFHeaderControls.Rung.allCases {
+            let controls = EditorPDFHeaderControls(find: pdf.find, fill: pdf.fill, tools: pdf.tools,
+                                                   showsReaderActions: true, showsTools: true,
+                                                   accent: .blue, onAccent: .white, rung: rung)
+            let ideal = width(controls, scale: 1)
+            let short = NSHostingController(rootView: controls)
+                .sizeThatFits(in: CGSize(width: ideal - 40, height: 100)).width
+            #expect(short == ideal, "at \(rung) the actions measure \(ideal)pt and squeeze to \(short)pt in \(ideal - 40)pt")
+        }
     }
 
     /// **Each rung is narrower than the one before it**, at every text size — or `ViewThatFits`

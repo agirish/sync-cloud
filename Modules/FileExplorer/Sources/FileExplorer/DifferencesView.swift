@@ -1793,7 +1793,7 @@ public struct DifferencesView: View {
     private func syncProgressRow(verb: String, completed: Int, total: Int) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("\(verb) \(completed) of \(total)...")
+                Text("\(verb) \(completed) of \(total)…")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()

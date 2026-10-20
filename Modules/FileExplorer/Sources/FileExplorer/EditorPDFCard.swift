@@ -25,34 +25,36 @@ struct EditorPDFHeaderControls: View {
     /// How many words the actions draw — the header's row picks it (``EditorPDFHeader``).
     var rung: Rung = .worded
 
-    /// **What sheds as the column narrows, in the order it goes** (decided 2026-10-19): Find and
-    /// Tools lose their words first, then Fill & Sign, the longest word and the one with no
-    /// magnifier or wrench everybody already reads — and only after all three does the name
-    /// truncate, in the middle, on the last rung.
+    /// **What sheds as the column narrows** (decided 2026-10-19, revised the same day): all three
+    /// actions lose their words together, and only then does the name truncate, in the middle, on
+    /// the last rung. A middle rung that kept Fill & Sign's word beside a bare magnifier and wrench
+    /// read as a mix of two styles, and was the rung that got squeezed.
     ///
     /// The last rung is what the narrowest column gets, and `EditorPDFHeaderWidthTests` pins what
     /// it leaves the name in the column at the smallest window.
     enum Rung: CaseIterable {
         case worded
-        case fillAndSignWorded
         case glyphs
 
-        var wordsFindAndTools: Bool { self == .worded }
-        var wordsFillAndSign: Bool { self != .glyphs }
+        var isWorded: Bool { self == .worded }
     }
 
     var body: some View {
         HStack(spacing: 6) {
             if showsReaderActions {
-                EditorPDFFindButton(find: find, accent: accent, onAccent: onAccent, worded: rung.wordsFindAndTools)
-                EditorPDFFillSignButton(fill: fill, accent: accent, onAccent: onAccent, worded: rung.wordsFillAndSign)
+                EditorPDFFindButton(find: find, accent: accent, onAccent: onAccent, worded: rung.isWorded)
+                EditorPDFFillSignButton(fill: fill, accent: accent, onAccent: onAccent, worded: rung.isWorded)
                     .chromeGlassClearance(.leading, rowSpacing: 6)
             }
             if showsTools {
-                EditorPDFToolsMenu(tools: tools, accent: accent, onAccent: onAccent, worded: rung.wordsFindAndTools)
+                EditorPDFToolsMenu(tools: tools, accent: accent, onAccent: onAccent, worded: rung.isWorded)
                     .chromeGlassClearance(showsReaderActions ? .leading : [], rowSpacing: 6)
             }
         }
+        // **Never squeezed.** Tools was already fixed; Find and Fill & Sign were not, and a row
+        // short of its ideal width shrank their bezels under words that cannot shrink, so each
+        // word overprinted its neighbours. The name is what gives way.
+        .fixedSize()
     }
 }
 

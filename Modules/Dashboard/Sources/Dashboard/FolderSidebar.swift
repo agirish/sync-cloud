@@ -31,9 +31,10 @@ public struct FolderSidebarRow: Identifiable, Equatable, Sendable {
     public let root: String
     /// The source's display name, for the badge — `iCloud`, `Dropbox`, `Drive · emp`.
     ///
-    /// `nil` when only one source contributes rows, which is the first-run case and the case for
-    /// anyone with a single account: a badge repeating the same word down the whole column is noise
-    /// that says nothing.
+    /// **Always set on a recent** (decided 2026-10-19): Recents, Revisited and Frequent each draw
+    /// a different subset of the same folders, and a badge that came and went with the mode made
+    /// one folder look different in each. On a favorite, `nil` when only one source contributes
+    /// rows — the first-run case, where the same word down the whole column says nothing.
     public let sourceName: String?
     /// The path relative to ``root`` — what the pane is navigated to.
     public let relativePath: String
@@ -116,9 +117,10 @@ public enum FolderSidebarModel {
     ///
     /// Two disambiguators, and they answer different questions:
     ///
-    /// - **The badge (``FolderSidebarRow/sourceName``) says which source**, on every row, whenever
-    ///   more than one source contributes. With a single source it is `nil` — a badge repeating one
-    ///   word down the whole column says nothing.
+    /// - **The badge (``FolderSidebarRow/sourceName``) says which source** — on every recent, and
+    ///   on a favorite whenever more than one source contributes. A favorite from the only source
+    ///   gets `nil`; a recent never does, so a folder reads the same in Recents, Revisited and
+    ///   Frequent, whichever others the mode happens to draw beside it.
     /// - **The detail (``FolderSidebarRow/detail``) says which folder**, on a FAVORITE, and only
     ///   when a leaf name collides with another row's. It is the parent path, or the source's name
     ///   for a folder at the top level, which is the convention `StorageLensView.displayFolder`
@@ -235,7 +237,7 @@ public enum FolderSidebarModel {
             return FolderSidebarRow(
                 group: draft.group,
                 root: draft.root,
-                sourceName: showsBadge ? source?.name : nil,
+                sourceName: draft.group == .recents || showsBadge ? source?.name : nil,
                 relativePath: draft.path,
                 name: draft.name,
                 detail: showsDetail ? qualifier : nil,
@@ -1247,6 +1249,11 @@ public struct FolderSidebarView: View {
         }
     }
 
+    /// The context-menu item that forgets a recent, named for the list the heading shows.
+    static func forgetItemTitle(_ mode: RecentsMode) -> String {
+        "Remove from \(mode.rawValue)"
+    }
+
     static func modeAccessibilityLabel(_ mode: RecentsMode) -> String {
         "Showing \(mode.rawValue). Switch to \(mode.next.rawValue)"
     }
@@ -1732,7 +1739,7 @@ public struct FolderSidebarView: View {
         .buttonStyle(.hoverAffordance(.row, tint: accent))
         .disabled(!canOpen)
         .help(canOpen ? tooltip(row) : "\(row.relativePath) — not available right now")
-        .accessibilityLabel("\(row.group.rawValue): \(row.relativePath)"
+        .accessibilityLabel("\(row.group == .recents ? recentsMode.rawValue : row.group.rawValue): \(row.relativePath)"
                             + (row.sourceName.map { " in \($0)" } ?? "")
                             + (canOpen ? "" : ", not available"))
         .contextMenu {
@@ -1749,8 +1756,10 @@ public struct FolderSidebarView: View {
             // still worth doing when the folder behind it cannot be opened, which is exactly the
             // state — a source asleep, a folder renamed out from under its entry — that makes a
             // stale recent worth removing in the first place.
+            // Named for the list the heading shows: a Frequent row says "Remove from Frequent".
+            // `forgetRecent` takes the folder off all three lists, so the name is never a lie.
             if row.group == .recents {
-                Button("Remove from Recents") { onForgetRecent(row) }
+                Button(Self.forgetItemTitle(recentsMode)) { onForgetRecent(row) }
             }
             // **"Take me there" and "show me where that is" are different questions.** The row
             // itself answers the first; this answers the second, which is the one you ask when a

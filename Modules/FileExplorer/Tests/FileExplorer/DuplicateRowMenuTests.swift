@@ -5,7 +5,7 @@ import Testing
 @testable import Sync
 @testable import FileExplorer
 
-/// **A duplicate copy's row menu: "Open in Edit", then "Compare with keeper".**
+/// **A duplicate copy's row menu: "Open in Edit", then "Compare with Keeper".**
 ///
 /// The row itself is the keeper-pick button, so its context menu is the one place on it that adds
 /// no gesture — which is why the hand-off to Edit lives there and nowhere else on the row. Four
@@ -109,7 +109,7 @@ import Testing
     /// **Each row's menu as SwiftUI actually builds it, top to bottom.**
     ///
     /// Text group: the keeper's row answers Open in Edit alone; the other row answers Open in Edit
-    /// ABOVE Compare with keeper. `.docx` group — a kind Edit refuses; it was a PDF until Edit read
+    /// ABOVE Compare with Keeper. `.docx` group — a kind Edit refuses; it was a PDF until Edit read
     /// PDFs: the keeper's row answers nothing at all, and the other
     /// row answers Compare alone. Both cards are the same shape, so the text card is the positive
     /// control for the `.docx` keeper — the sweep reaches the keeper's row, and finds a menu there only
@@ -121,10 +121,10 @@ import Testing
         let refusedRows = Self.drawnMenuRows(Self.card(("report.docx", "report.docx")).card)
 
         let text = textRows.map(\.titles)
-        #expect(text == [["Open in Edit"], ["Open in Edit", "Compare with keeper"]],
+        #expect(text == [["Open in Edit"], ["Open in Edit", "Compare with Keeper"]],
                 "text rows drew \(text)")
         let refused = refusedRows.map(\.titles)
-        #expect(refused == [["Compare with keeper"]], ".docx rows drew \(refused)")
+        #expect(refused == [["Compare with Keeper"]], ".docx rows drew \(refused)")
 
         // Where the keeper's row is: the first menu the text sweep met, and the .docx sweep met none
         // there. Read as positions, so a menu that moved rows cannot pass as the right count.

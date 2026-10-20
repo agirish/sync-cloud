@@ -425,7 +425,7 @@ struct DuplicateGroupCard: View {
     ///
     /// **Open in Edit first**, as it leads the pane row's single-file branch: it is the one item
     /// that means the same thing on every row, keeper included, so it is the one a hand finds
-    /// without reading. Compare with keeper follows, and only on rows it means something on.
+    /// without reading. Compare with Keeper follows, and only on rows it means something on.
     ///
     /// Internal, not private, so a test can host it and read what is drawn and in what order — the
     /// `keeperAction(for:)` precedent.
@@ -438,7 +438,7 @@ struct DuplicateGroupCard: View {
             }
         }
         if offersCompareWithKeeper(copy) {
-            Button("Compare with keeper") { onCompareCopies(group.keeper, copy) }
+            Button("Compare with Keeper") { onCompareCopies(group.keeper, copy) }
         }
     }
 
@@ -455,7 +455,7 @@ struct DuplicateGroupCard: View {
             && EditableText.opensInEdit(path: copy.path)
     }
 
-    /// Whether this copy's row offers "Compare with keeper". Absent on the keeper's own row:
+    /// Whether this copy's row offers "Compare with Keeper". Absent on the keeper's own row:
     /// comparing the keeper with the keeper is not a thing, and a menu item that no-ops is worse
     /// than no menu.
     func offersCompareWithKeeper(_ copy: DuplicateCopy) -> Bool {

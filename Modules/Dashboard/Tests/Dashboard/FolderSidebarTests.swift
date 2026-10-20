@@ -335,6 +335,17 @@ import Design
         #expect(rows.map(\.sourceName) == [nil], "a badge names a source with nothing on screen")
     }
 
+    /// **A recent always names its source** (decided 2026-10-19) — Petition read "iCloud" under
+    /// Recents and nothing under Frequent, the only row there, because the badge was counted per mode.
+    @Test func aRecentFromTheOnlySourceIsStillBadged() {
+        let rows = FolderSidebarModel.rows(
+            sources: [Self.source("/iCloud", "iCloud", ["Health"])],
+            recents: [Self.visit("/iCloud", "Petition")])
+        #expect(FolderSidebarModel.rows(rows, in: .recents).map(\.sourceName) == ["iCloud"])
+        #expect(FolderSidebarModel.rows(rows, in: .pinned).map(\.sourceName) == [nil],
+                "a favorite from the only source is badged — the same word down the column says nothing")
+    }
+
     /// And the case it must not break: two sources that both draw still badge.
     @Test func twoSourcesThatBothDrawStillBadge() {
         let rows = FolderSidebarModel.rows(
@@ -740,8 +751,16 @@ import Design
         let gate = try #require(code.range(of: "if row.group == .recents {"),
                                 "the item is no longer gated on the group — it draws on favorites too")
         let body = String(code[gate.upperBound...].prefix(200))
-        #expect(body.contains("Button(\"Remove from Recents\") { onForgetRecent(row) }"),
+        #expect(body.contains("Button(Self.forgetItemTitle(recentsMode)) { onForgetRecent(row) }"),
                 "the gate no longer holds the Remove from Recents item — this scan is aimed at nothing")
+    }
+
+    /// **The item names the list the heading shows.** A Frequent row offering "Remove from
+    /// Recents" named a list the user could not see.
+    @Test func removeItemNamesTheShownList() {
+        #expect(FolderSidebarView.forgetItemTitle(.recents) == "Remove from Recents")
+        #expect(FolderSidebarView.forgetItemTitle(.revisited) == "Remove from Revisited")
+        #expect(FolderSidebarView.forgetItemTitle(.frequent) == "Remove from Frequent")
     }
 
     /// **Enabled on an unavailable row, unlike everything above it.** Taking a row off the column
