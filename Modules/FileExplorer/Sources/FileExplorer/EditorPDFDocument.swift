@@ -338,7 +338,7 @@ public final class EditorPDFDocument: ObservableObject {
     // MARK: Words
 
     static let notDownloadedReason = "Not downloaded — there is nothing here to read yet."
-    static let unreadableReason = "PDFKit couldn't read this file."
+    static let unreadableReason = "PDFKit couldn’t read this file."
     static let goneReason = "It is no longer here — it was moved or deleted."
 
     static func pages(_ count: Int) -> String { count == 1 ? "1 page" : "\(count) pages" }

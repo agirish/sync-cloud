@@ -38,8 +38,8 @@ Requires **macOS 26**, unchanged from the 5.x line.
   version, and right-click the name for Reveal in Browse. In a narrow column Find and Tools drop
   their words first, then Fill & Sign, before the name is cut.
 - **Locked and damaged PDFs say so.** A PDF that needs a password asks for it — *This PDF needs a
-  password* — and SyncCloud uses it only to open the file and doesn't save it. One PDFKit cannot
-  read says *PDFKit couldn't read this file.*, with **Quick Look** and **Open in Preview** beside
+  password* — and SyncCloud uses it only to open the file and doesn’t save it. One PDFKit cannot
+  read says *PDFKit couldn’t read this file.*, with **Quick Look** and **Open in Preview** beside
   it, and one still in the cloud says it is not downloaded.
 
 ### Reading a PDF

@@ -97,8 +97,8 @@ public enum EditorPDFFillColor: String, CaseIterable, Codable, Sendable {
 
     public var title: String {
         switch self {
-        case .blue: return "Blue ink"
-        case .black: return "Black ink"
+        case .blue: return "Blue Ink"
+        case .black: return "Black Ink"
         }
     }
 }
@@ -443,17 +443,6 @@ public enum EditorPDFFillTool: Equatable, Sendable {
     case date
     case mark(EditorPDFFillMark)
     case signature(EditorPDFSignature)
-
-    /// What the palette's tool says it does, in its tooltip.
-    public var hint: String {
-        switch self {
-        case .formFields: return "Form Fields · click a field to fill it, Tab moves to the next"
-        case .text: return "Text · click on the page to type"
-        case .date: return "Date · click to place today’s date"
-        case .mark(let mark): return "\(mark.rawValue) · click to place the mark"
-        case .signature(let signature): return "\(signature.kind.title) · click to place it"
-        }
-    }
 }
 
 /// ✓ ✗ • — drawn as text, as the toolkit draws every word (mockup 17).
@@ -464,7 +453,7 @@ public enum EditorPDFFillMark: String, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
-        case .check: return "Check mark"
+        case .check: return "Check Mark"
         case .cross: return "Cross"
         case .dot: return "Dot"
         }

@@ -154,6 +154,11 @@ struct EditorPDFPageRangeSheet: View {
                 : "Leaves out \(EditorPDFCopyName.pageList(pages.sorted()))"
             if case .arranged = tool { detail += ", in the new page order" }
             return (pages, "\(detail) — as “… (\(tool.suffix)).pdf”.", false)
+        } catch PDFOperationError.invalidPageRange(let bad) {
+            // The toolkit's "Invalid page range: x" said what was wrong and not what to type.
+            return (nil, "“\(bad)” isn’t a page or a range — type pages like 3-5, 1.", false)
+        } catch PDFOperationError.pageOutOfBounds(let page) {
+            return (nil, "This PDF has no page \(page) — it has \(EditorPDFDocument.pages(pageCount)).", false)
         } catch {
             return (nil, (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, false)
         }

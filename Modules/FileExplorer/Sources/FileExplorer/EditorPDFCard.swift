@@ -366,8 +366,8 @@ struct EditorPDFUnlockView: View {
 
     var body: some View {
         EditorPDFStateCard(symbol: "lock", title: "This PDF needs a password",
-                           message: rejected ? "That password didn't open it. Try again."
-                                             : "SyncCloud uses it only to open the file and doesn't save it.") {
+                           message: rejected ? "That password didn’t open it. Try again."
+                                             : "SyncCloud uses it only to open the file and doesn’t save it.") {
             HStack(spacing: 6) {
                 SecureField("Password", text: $password)
                     .textFieldStyle(.roundedBorder)

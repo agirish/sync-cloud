@@ -580,6 +580,9 @@ extension PDFFixtures {
         #expect(texts(path("Five (pages 3–5, 1).pdf")) == ["Page 3", "Page 4", "Page 5", "Page 1"])
         #expect(EditorPDFPageRangeSheet.parse("", action: .extract, pageCount: 5).pages == nil, "blank means everything")
         #expect(EditorPDFPageRangeSheet.parse("9", action: .extract, pageCount: 5).pages == nil)
+        // What was wrong, and what to type instead — not the toolkit's "Invalid page range: x".
+        #expect(EditorPDFPageRangeSheet.parse("9", action: .extract, pageCount: 5).caption == "This PDF has no page 9 — it has 5 pages.")
+        #expect(EditorPDFPageRangeSheet.parse("x", action: .extract, pageCount: 5).caption.hasSuffix("type pages like 3-5, 1."))
     }
 
     // MARK: Compress
@@ -910,7 +913,7 @@ extension PDFFixtures {
 
     /// **A restricted file opens, offers the page tools, and a page tool that cannot run on it says
     /// why in the toolkit's words.** Clean Metadata and Protect are not offered at all.
-    @Test func aRestrictedFileShowsTheToolkitsMessage() async throws {
+    @Test func aRestrictedFileSaysWhatItsOwnerForbids() async throws {
         let file = path("Statement.pdf")
         PDFFixtures.writeRestricted(file)
         let pdf = EditorPDFDocument(isCloudOnly: { _ in false })

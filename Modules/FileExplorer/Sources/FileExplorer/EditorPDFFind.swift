@@ -400,7 +400,7 @@ public final class EditorPDFFind: ObservableObject {
 
     nonisolated static let noTextCaption = "This PDF has no text to search"
     nonisolated static let waitingCaption = "Waiting for other PDF work…"
-    nonisolated static let unreadableCaption = "Couldn't read this PDF's text"
+    nonisolated static let unreadableCaption = "Couldn’t read this PDF’s text"
 
     // MARK: The search
 

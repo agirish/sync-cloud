@@ -241,7 +241,7 @@ struct EditorPDFFillPalette: View {
         case .formFields: return "Form Fields — click a field to fill it; Tab moves to the next"
         case .select: return "Select — click what you placed to move it; Delete removes it"
         case .text: return "Text — click on the page to type"
-        case .date: return EditorPDFFillTool.date.hint
+        case .date: return "Date — click to place today’s date"
         case .marks: return "Marks — ✓, ✗ or •, then click on the page to place it"
         case .signature, .initials: return "\(tool.title) — choose a saved one, or add one"
         case .style: return "Style — the font of the selected text, the face of a typed signature, the pen of a drawn one"

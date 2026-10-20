@@ -125,7 +125,7 @@ import Sync
         let fill = fill()
         var heard: [EditorPDFFillMark] = []
         let menu = EditorPDFFillFlyouts.marks(for: fill) { heard.append($0) }
-        #expect(menu.items.map(\.title) == ["✓  Check mark", "✗  Cross", "•  Dot"])
+        #expect(menu.items.map(\.title) == ["✓  Check Mark", "✗  Cross", "•  Dot"])
         #expect(menu.items.allSatisfy { $0.state == .off })
         let cross = try #require(menu.items.dropFirst().first)
         _ = cross.target?.perform(cross.action)
