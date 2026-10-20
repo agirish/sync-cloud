@@ -95,7 +95,8 @@ import PDFKit
 
     /// **Quick Look still writes HTML for each Office fixture** — the premise every route below
     /// stands on, pinned on its own so a macOS that changes it names the cause.
-    @Test(arguments: ["Memo.docx", "Memo.doc", "Long.docx", "Budget.xlsx", "Wide.xlsx", "Deck.pptx", "Pictures.pptx"])
+    @Test(arguments: ["Memo.docx", "Memo.doc", "Long.docx", "Budget.xlsx", "Wide.xlsx", "Deck.pptx", "Pictures.pptx",
+                     "FourPictures.docx", "FourPictures.xlsx"])
     func quickLookStillWritesHTML(_ name: String) async throws {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("ql-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
@@ -215,6 +216,40 @@ import PDFKit
         #expect(wide.paper == CGSize(width: 300, height: 200), "a sheet wider than the page does not turn to landscape")
         #expect(wide.content.width == 280)
         #expect(wide.scale == 0.5)
+    }
+
+    // MARK: Pictures — drawn, not blank
+
+    /// **Every picture lower down a Word document or a sheet is drawn, and drawn whole.** The four
+    /// are the same size, each its own hue, so their areas summed over every page match however the
+    /// pages fall. Before the sheet waited for its pictures to decode it drew one to three of them,
+    /// changing run to run; Word's print drew all four on every run measured, and is here so a change
+    /// of route is caught.
+    @Test(arguments: ["FourPictures.docx", "FourPictures.xlsx"])
+    func everyPictureIsDrawnWhole(_ name: String) async throws {
+        let output = try await SaveAsPDFRender.render(try Self.fixture(name))
+        let document = try #require(PDFComposer.document(output.data))
+        #expect(allText(try read(output)).contains("SAVEASPDF-FOUR-PICTURES-END"))
+        var areas = [0, 0, 0, 0]
+        for number in 1...document.numberOfPages {
+            let bitmap = try #require(document.page(at: number).flatMap(PictureText.bitmap(of:)))
+            let bytes = try #require(bitmap.dataProvider?.data as Data?)
+            for y in 0..<bitmap.height {
+                for x in 0..<bitmap.width {
+                    let at = y * bitmap.bytesPerRow + x * 4
+                    let r = Int(bytes[at]), g = Int(bytes[at + 1]), b = Int(bytes[at + 2])
+                    if r > 100, r > 2 * g, r > 2 * b { areas[0] += 1 }
+                    if g > 100, g > 2 * r, g > 2 * b { areas[1] += 1 }
+                    if b > 100, b > 2 * r, b > 2 * g { areas[2] += 1 }
+                    if r > 150, g > 150, b < 60 { areas[3] += 1 }
+                }
+            }
+        }
+        let whole = try #require(areas.max())
+        #expect(whole > 10_000, "no picture was drawn: \(areas)")
+        for (index, area) in areas.enumerated() {
+            #expect(Double(area) > Double(whole) * 0.95, "picture \(index + 1) of \(areas) is blank or cut")
+        }
     }
 
     // MARK: PowerPoint — one page per slide

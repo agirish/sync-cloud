@@ -298,6 +298,10 @@ enum SaveAsPDFRender {
         guard let sheet, let height = sheet["height"] as? Double, height > 0 else { throw SaveAsPDFFailure.noPages }
         let rows = (sheet["rows"] as? [Double]) ?? []
 
+        // The deck's race again: without the wait, a sheet of four pictures lower down drew only one
+        // to three of them, which ones changing run to run.
+        await web.picturesDecoded()
+
         let layout = SheetLayout(contentWidth: width, contentHeight: height, rowBottoms: rows, geometry: geometry)
         // A `createPDF` per band, each the band alone: one of the whole sheet came back as pages of
         // at most 14,400 points, and cutting those into bands put every clipped row's text into the
@@ -595,7 +599,8 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
 
     /// **Every picture decoded, so `createPDF` draws it** — or ten seconds, whichever is first. A
     /// page loaded is not its pictures decoded: a deck of two 1920 px slide pictures drew its second
-    /// page blank on every run, and the same box drew whole two seconds later. `decode()` settles
+    /// page blank on every run, and the same box drew whole two seconds later; a sheet's bands
+    /// lost pictures the same way. Word's print drew every picture without it. `decode()` settles
     /// when a picture can be painted, and fails, settling too, for one that cannot.
     func picturesDecoded() async {
         _ = try? await web.callAsyncJavaScript("""
