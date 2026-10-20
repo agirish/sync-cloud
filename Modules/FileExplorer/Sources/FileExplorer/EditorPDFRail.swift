@@ -318,6 +318,9 @@ public final class EditorPDFThumbnails: ObservableObject {
         case image(SendableImage)
         /// The page could not be drawn — not asked for again until the PDF is reopened.
         case failed
+        /// The file is in the cloud only, so nothing was opened — asked for again on the next
+        /// ``show(_:)``, so a download brings the pages back with the next scroll.
+        case notDownloaded
         /// No longer wanted when its turn came: nothing was drawn.
         case skipped
     }
@@ -332,6 +335,8 @@ public final class EditorPDFThumbnails: ObservableObject {
     /// margin pages nearest first.
     private var queue: [Int] = []
     private var failed: Set<Int> = []
+    /// Pages a cloud-only file could not draw, until the next ``show(_:)`` asks again.
+    private var notDownloaded: Set<Int> = []
     /// The pages kept on an eviction: the visible ones and their margin, as of the last ``show(_:)``.
     private var window: ClosedRange<Int>?
     private var pump: Task<Void, Never>?
@@ -362,9 +367,9 @@ public final class EditorPDFThumbnails: ObservableObject {
 
     /// **A file evicted while open draws no thumbnails** rather than being downloaded to draw them:
     /// the source is reopened from the path every ``recycleEvery`` pages, and `PDFDocument(url:)`
-    /// on a dataless file downloads it there and then, in the lane. Its pages fail as an unreadable
-    /// file's do — not asked for again until the PDF is opened again, so a download does not bring
-    /// them back on its own. Injectable, as the reader's is.
+    /// on a dataless file downloads it there and then, in the lane. Its pages are asked for again
+    /// at the next scroll (``Render/notDownloaded``), so once it is downloaded they draw. Injectable,
+    /// as the reader's is.
     var isCloudOnly: @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
 
     /// Starts over for a newly opened (or reloaded, or unlocked) PDF of `pageCount` pages.
@@ -385,6 +390,7 @@ public final class EditorPDFThumbnails: ObservableObject {
         pageCount = 0
         queue = []
         failed = []
+        notDownloaded = []
         window = nil
         // Emptied, so a turn already queued from before skips itself; then replaced (see `wanted`).
         wanted.set([])
@@ -405,6 +411,7 @@ public final class EditorPDFThumbnails: ObservableObject {
             wanted.set([])
             return
         }
+        notDownloaded = []
         let margin = Self.margin(forEdge: renderEdge)
         let lower = max(first - margin, 0)
         let upper = min(last + margin, pageCount - 1)
@@ -434,7 +441,7 @@ public final class EditorPDFThumbnails: ObservableObject {
     }
 
     private func nextPage() -> Int? {
-        queue.first { (drawnEdge[$0] ?? 0) < renderEdge && !failed.contains($0) }
+        queue.first { (drawnEdge[$0] ?? 0) < renderEdge && !failed.contains($0) && !notDownloaded.contains($0) }
     }
 
     private func kick() {
@@ -477,6 +484,9 @@ public final class EditorPDFThumbnails: ObservableObject {
         case .failed:
             drawn.append(page)
             failed.insert(page)
+        case .notDownloaded:
+            drawn.append(page)
+            notDownloaded.insert(page)
         case .skipped:
             skippedTurns += 1
             // Not wanted any more, so not next either — `queue` was replaced.
@@ -495,7 +505,7 @@ public final class EditorPDFThumbnails: ObservableObject {
                 source.opened = false
             }
             if !source.opened {
-                guard !source.isCloudOnly(source.path) else { return .failed }
+                guard !source.isCloudOnly(source.path) else { return .notDownloaded }
                 source.opened = true
                 source.drawnSinceOpen = 0
                 source.document = PDFDocument(url: URL(fileURLWithPath: source.path))

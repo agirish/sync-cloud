@@ -223,6 +223,19 @@ enum PDFTextFixtures {
         #expect(find.matches.count == 3)
     }
 
+    /// **The card keeps its width while the count changes** — the capsule slides clear of the card,
+    /// so a card as wide as its count moved a capsule docked beside it at every step of a search.
+    @Test func theFindCardKeepsItsWidthAsTheCountChanges() async {
+        let find = find(needles(pages: 3), pages: 3)
+        func width() -> CGFloat { NSHostingView(rootView: EditorPDFFindBar(find: find, accent: .blue)).fittingSize.width }
+        find.show()
+        find.search("needle")
+        let searching = find.caption, early = width()
+        await wait("the search") { find.phase == .done }
+        #expect(find.caption != searching, "the premise: the count changed, from \(searching)")
+        #expect(width() == early, "the card is \(early)pt at “\(searching)” and \(width())pt at “\(find.caption)”")
+    }
+
     /// **The highlights are the matches, by page, in their order** — kept as each page lands, from a
     /// search that started mid-file and wrapped, and gone with a new query. They used to be rebuilt
     /// from every match on every read of the reader's body.
@@ -609,6 +622,15 @@ enum PDFTextFixtures {
         let first = try #require(document.page(at: 0)), last = try #require(document.page(at: 5))
         #expect(EditorPDFPageView.isInSight(CGRect(x: 72, y: 650, width: 100, height: 20), on: first, in: reader))
         #expect(!EditorPDFPageView.isInSight(CGRect(x: 72, y: 650, width: 100, height: 20), on: last, in: reader))
+        // **Under the find card is not in sight**, though the card keeps no band: a step there
+        // scrolls the match out. The card is in the canvas's top-left space, as SwiftUI places it.
+        let match = CGRect(x: 72, y: 650, width: 100, height: 20)
+        let drawn = reader.convert(match, from: first)
+        reader.coveredRects = [CGRect(x: drawn.minX - 4, y: reader.bounds.height - drawn.maxY - 4,
+                                      width: drawn.width + 8, height: drawn.height + 8)]
+        #expect(!EditorPDFPageView.isInSight(match, on: first, in: reader), "a match under the find card was in sight")
+        reader.coveredRects = [CGRect(x: drawn.minX, y: reader.bounds.height - drawn.minY + 40, width: 50, height: 20)]
+        #expect(EditorPDFPageView.isInSight(match, on: first, in: reader), "a card clear of the match hid it")
     }
 
     /// **Esc in the pages closes the bar when it is up**, and goes on as before when it is not.

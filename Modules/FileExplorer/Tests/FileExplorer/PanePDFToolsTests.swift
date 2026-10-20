@@ -620,7 +620,24 @@ private struct PDFToolDelegate: FileActionDelegate {
         guard case .single(let still)? = model.current else { Issue.record("the run went"); return }
         #expect(still === first, "a second request replaced the open sheet's run")
         #expect(first.sheet == .protect)
-        #expect(first.banner?.message == "Another tool is still running.")
+        #expect(first.banner?.message == EditorPDFTools.busyMessage)
+    }
+
+    /// **⌘Q asks about a pane's run**, a sheet up included — and asks nothing when nothing runs.
+    @Test func quittingAsksAboutAPanesRun() async throws {
+        let file = path("Quit.pdf")
+        PDFFixtures.write(file, pages: 1)
+        let model = PanePDFTools()
+        var asked = 0
+        var answer = false
+        model.confirmQuit = { asked += 1; return answer }
+        #expect(model.mayQuit() && asked == 0, "asked with nothing running")
+        model.start(.protect, paths: [file], writer: "PDF Tools in Browse")
+        await model.work?.value
+        #expect(model.isBusy, "the premise: the Protect sheet is up")
+        #expect(!model.mayQuit() && asked == 1, "a declined question still let the app quit")
+        answer = true
+        #expect(model.mayQuit() && asked == 2)
     }
 
     /// The window refuses a second request while one runs, in the running one's banner.

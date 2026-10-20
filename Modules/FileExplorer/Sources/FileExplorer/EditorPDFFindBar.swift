@@ -20,8 +20,10 @@ struct EditorPDFFindBar: View {
     @State private var typed = ""
     @FocusState private var focused: Bool
 
-    /// The widest the count is let grow before it wraps — enough for "3 of 9 so far" on one line,
-    /// and the waiting note on a second.
+    /// The count's width — enough for "3 of 9 so far" on one line, and the waiting note on a
+    /// second. **Fixed, not a ceiling**: the card's width is what the capsule slides clear of, so a
+    /// count as wide as its words made a capsule docked beside it hop sideways, unanimated, at
+    /// every step of a search — "Searching…", "1 of 12 so far", "1 of 12".
     static let captionWidth: CGFloat = 150
 
     var body: some View {
@@ -35,7 +37,7 @@ struct EditorPDFFindBar: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: Self.captionWidth, alignment: .leading)
+                        .frame(width: Self.captionWidth, alignment: .leading)
                 }
                 stepper
                 Button { find.hide() } label: {
@@ -67,7 +69,7 @@ struct EditorPDFFindBar: View {
             Image(systemName: "magnifyingglass")
                 .scaledFont(.system(size: 10, weight: .medium))
                 .foregroundStyle(.secondary)
-            TextField("Find in PDF", text: $typed)
+            TextField("Find in this PDF", text: $typed)
                 .textFieldStyle(.plain)
                 .scaledFont(.system(size: 11))
                 .focused($focused)

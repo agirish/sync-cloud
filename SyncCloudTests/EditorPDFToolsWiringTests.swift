@@ -40,6 +40,10 @@ import FileExplorer
         let view = CodeText(try EditorDiskWatchWiringTests.source("ContentView.swift"))
         #expect(view.contains("SyncCloudAppDelegate.shared?.adoptPDFTools(editorPDF.tools)"),
                 "nothing hands the quit guard the PDF's tools — ⌘Q would never ask")
+        // And a run from a pane's right-click menu, which the open PDF's tools know nothing of.
+        #expect(app.contains("if let tools = Self.sharedPanePDFTools, !tools.mayQuit() {"))
+        #expect(view.contains("SyncCloudAppDelegate.shared?.adoptPanePDFTools(panePDFTools)"),
+                "nothing hands the quit guard the panes' PDF tools")
     }
 
     /// **A written copy re-lists the rail and the panes, and the banner's doors are the window's

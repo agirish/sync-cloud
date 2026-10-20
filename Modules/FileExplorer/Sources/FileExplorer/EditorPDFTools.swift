@@ -210,6 +210,12 @@ public final class EditorPDFTools: ObservableObject {
     /// Called IN THE LANE before each of Compress's pages, with the run's cancel flag — the tests'
     /// way to cancel between two pages without racing the main actor. `nil` in the app.
     var laneProgressHook: (@Sendable (Int, Int, CancelFlag) -> Void)?
+    /// Called on the main actor as the copy's write is handed off — a test's way to cancel or
+    /// leave while the bytes are being written, rather than racing the write for it.
+    var writeStartedHook: (@MainActor () -> Void)?
+    /// Called on the main actor with the copy's path once it has landed, before a cancel is
+    /// looked at — a test's way to replace the copy before the run would take it back.
+    var writeLandedHook: (@MainActor (String) -> Void)?
     /// Where a combined run (a tool in the dragged order) keeps its middle bytes, in a folder of its
     /// own that it removes — the user's temporary folder in the app, a test's own folder in a test.
     var stagingRoot = FileManager.default.temporaryDirectory
@@ -236,7 +242,7 @@ public final class EditorPDFTools: ObservableObject {
             if arrangement != nil {
                 arrangement = nil
                 Logger.shared.info("Edit dropped the new page order of \(Self.logName(path)) — the file changed on disk")
-                banner = EditorPDFToolBanner(message: "The file changed on disk, so the new page order was dropped.",
+                banner = EditorPDFToolBanner(message: "The file changed on disk, so the new page order was dropped. Drag the pages again to reorder it.",
                                              kind: .note)
             }
             if self.pageCount != pageCount { selection.clear() }
@@ -394,7 +400,7 @@ public final class EditorPDFTools: ObservableObject {
         let logName = Self.logName(path)
         // A failure, not "nothing written": a sheet must stay up with this said in it, not close.
         guard running == nil else {
-            let busy = "Another tool is still running — try again when it has finished."
+            let busy = Self.busyMessage
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — \(running?.tool ?? "another tool") is running")
             if bannerFailures { banner = EditorPDFToolBanner(message: busy, kind: .failure) }
             return .failed(busy)
@@ -512,10 +518,22 @@ public final class EditorPDFTools: ObservableObject {
             return end(.nothingWritten(Self.noGainMessage(tool)))
         case .success(.bytes(let data)):
             let suffix = tool.suffix
+            writeStartedHook?()
             let written = await Task.detached(priority: .userInitiated) {
-                Result { try EditorPDFCopyWriter.write(data, besides: path, suffix: suffix) }
+                Result { try EditorPDFCopyWriter.writeStamped(data, besides: path, suffix: suffix) }
             }.value
-            switch written {
+            if case .success(let landed) = written { writeLandedHook?(landed.path) }
+            // **Cancel, or a leave, pressed while the copy was being written still means "write
+            // nothing"** — as the button's help and the leave question promise. The copy just made
+            // is taken back, if it is still the file this run created.
+            if case .success(let landed) = written, flag.isCancelled || generation != self.generation {
+                let ours = EditorFileStore.stamp(ofPath: landed.path) == landed.stamp
+                if ours { try? FileManager.default.removeItem(atPath: landed.path) }
+                Logger.shared.info("\(writer) cancelled \(tool.logDetail) of \(logName) while its copy was being written — "
+                                   + (ours ? "the copy was removed" : "the copy had already been replaced, so it was left"))
+                return end(.cancelled)
+            }
+            switch written.map({ $0.path }) {
             case .failure(let error):
                 let message = "Couldn’t write the copy of “\(name)” — \(error.localizedDescription)"
                 Logger.shared.warning("\(writer) could not write \(tool.logDetail) of \(logName): \(error.localizedDescription)")
@@ -530,6 +548,9 @@ public final class EditorPDFTools: ObservableObject {
             }
         }
     }
+
+    /// A second run while one is in flight — Edit's and a pane's alike.
+    static let busyMessage = "Another tool is still running — try again when it has finished."
 
     static func changedReason(_ name: String) -> String {
         "“\(name)” changed on disk since it was opened, so nothing was written. It reloads in a moment — then try again."

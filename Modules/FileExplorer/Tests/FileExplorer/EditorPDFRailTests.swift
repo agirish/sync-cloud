@@ -416,13 +416,18 @@ import FileExplorerTestSupport
         let file = path("evicted.pdf")
         PDFFixtures.write(file, pages: 3)
         let pdf = await opened(file)
-        pdf.thumbnails.isCloudOnly = { _ in true }
+        let cloudOnly = OSAllocatedUnfairLock(initialState: true)
+        pdf.thumbnails.isCloudOnly = { _ in cloudOnly.withLock { $0 } }
         pdf.thumbnails.attach(path: file, pageCount: 3)
         pdf.thumbnails.show([0, 1, 2])
         let source = try #require(pdf.thumbnails.currentSource)
         await wait("every page to be tried") { source.draws.withLock { $0 } >= 3 }
         #expect(source.opens.withLock { $0 } == 0, "the evicted file was opened to draw it")
         #expect(pdf.thumbnails.images.isEmpty)
+        // **Downloaded again, the next scroll draws them** — they were not written off as unreadable.
+        cloudOnly.withLock { $0 = false }
+        pdf.thumbnails.show([0, 1])
+        await wait("the downloaded file's thumbnails") { [0, 1].allSatisfy { pdf.thumbnails.images[$0] != nil } }
     }
 
     /// **A password-unlocked PDF has thumbnails** — from the copy unlocked in the same turn, the

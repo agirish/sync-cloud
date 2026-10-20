@@ -1454,6 +1454,7 @@ struct ContentView: View {
             SyncCloudAppDelegate.shared?.adoptEditorDocument(editorDocument)
             SyncCloudAppDelegate.shared?.adoptAutosavePolicy(editorAutosavePolicy)
             SyncCloudAppDelegate.shared?.adoptPDFTools(editorPDF.tools)
+            SyncCloudAppDelegate.shared?.adoptPanePDFTools(panePDFTools)
             attachEditorDiskWatch()
             let isFirstAppearance = !hasBootstrappedSession
             hasBootstrappedSession = true

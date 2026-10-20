@@ -299,6 +299,41 @@ extension PDFFixtures {
         #expect(held.tools.shownStamp == EditorFileStore.stamp(ofPath: locked), "the locked load did not set what it read")
     }
 
+    /// **Cancel or a leave while the copy is being written still writes nothing** — the button's
+    /// help says "Stop — nothing is written" and the leave question "nothing is written". The copy
+    /// landed anyway, with "Wrote …" after a Cancel.
+    @Test func cancellingOrLeavingWhileTheCopyIsWrittenLeavesNoCopy() async throws {
+        let file = path("Four.pdf")
+        PDFFixtures.write(file, pages: 4)
+        let tools = tools(file)
+        tools.writeStartedHook = { tools.cancelRun() }
+        #expect(await tools.run(.rotate(pages: [1], quarterTurns: 1)) == .cancelled)
+        #expect(files() == ["Four.pdf"], "a cancelled run left \(files())")
+        #expect(tools.banner?.message.hasPrefix("Wrote") != true)
+
+        tools.writeStartedHook = { tools.detach() }
+        _ = await tools.run(.rotate(pages: [1], quarterTurns: 1))
+        #expect(files() == ["Four.pdf"], "a run whose file was closed left \(files())")
+
+        // **Only the file the run created**: a copy replaced before the run looks is someone
+        // else's now, and stays.
+        let replaced = self.tools(file)
+        replaced.writeStartedHook = { replaced.cancelRun() }
+        replaced.writeLandedHook = { landed in
+            try? FileManager.default.removeItem(atPath: landed)
+            FileManager.default.createFile(atPath: landed, contents: Data("someone else's".utf8))
+        }
+        #expect(await replaced.run(.rotate(pages: [1], quarterTurns: 1)) == .cancelled)
+        #expect(files().count == 2, "a cancelled run removed a file that replaced its copy: \(files())")
+        for name in files() where name != "Four.pdf" { try FileManager.default.removeItem(atPath: path(name)) }
+
+        let control = self.tools(file)
+        guard case .wrote = await control.run(.rotate(pages: [1], quarterTurns: 1)) else {
+            Issue.record("the control run wrote nothing"); return
+        }
+        #expect(files().count == 2)
+    }
+
     // MARK: Rotate
 
     /// **Exactly the pages asked for turn**, and by the amount asked.
@@ -972,7 +1007,7 @@ extension PDFFixtures {
             tools.move([0], onto: 2)
             tools.attach(path: "/a/one.pdf", pageCount: count, encryption: .none)
             #expect(tools.arrangement == nil, "count \(count)")
-            #expect(tools.banner?.message == "The file changed on disk, so the new page order was dropped.")
+            #expect(tools.banner?.message == "The file changed on disk, so the new page order was dropped. Drag the pages again to reorder it.")
             #expect(tools.selection.pages == (count == 3 ? [1] : []), "count \(count): \(tools.selection.pages)")
         }
     }

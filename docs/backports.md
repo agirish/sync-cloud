@@ -7806,3 +7806,28 @@ done
 |---|---|---|
 | `v5.x` | Edit's `DocumentPDF` (File ▸ Export as PDF… for an open note), but no row item, no Office engine and no pane PDF Tools card for the banner (`paneTools=0`) | RECORDED — not owed (main only) |
 | `v4.x` / `v3.x` / `v2.x` | No `DocumentPDF` and no pane PDF Tools | CLOSED — does not apply |
+
+---
+
+## The PDF reader's smaller seams from its review — main only
+
+A Cancel or leave while a tool's copy is being written takes the copy back; ⌘Q asks about a PDF
+tool started from a pane; the find card keeps one width and a match under it is not "in sight";
+a cloud-only PDF's thumbnails are asked for again once it is downloaded; refusals say what to do
+next. All in Edit's PDF reader and the pane PDF Tools, which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s pdfTools=%s paneTools=%s pdfRail=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFTools.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PanePDFTools.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFRail.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-19, against origin, before this landed:
+# main  pdfTools=1 paneTools=1 pdfRail=1
+# v5.x, v4.x, v3.x, v2.x — 0 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF reader in Edit and no pane PDF Tools, so nothing to fix | CLOSED — does not apply |

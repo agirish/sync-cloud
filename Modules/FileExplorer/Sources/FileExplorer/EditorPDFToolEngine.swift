@@ -320,7 +320,9 @@ enum EditorPDFCopyName {
 /// replaced. That refusal takes the next name — ``EditorImageImport``'s loop, bounded the same way.
 enum EditorPDFCopyWriter {
     struct EveryNameTaken: LocalizedError {
-        var errorDescription: String? { "every name for the copy was taken" }
+        var errorDescription: String? {
+            "every name for the copy beside it is taken — move or rename some of its copies, then try again"
+        }
     }
 
     static let attempts = 64
@@ -333,8 +335,17 @@ enum EditorPDFCopyWriter {
         _ data: Data, besides original: String, suffix: String,
         chooseName: (URL, Set<String>) -> URL = { FileSyncManager.generateUniqueURL(for: $0, reserved: $1) }
     ) throws -> String {
-        try write(data, wanting: EditorPDFCopyName.firstChoice(for: original, suffix: suffix),
-                  chooseName: chooseName)
+        try writeStamped(data, besides: original, suffix: suffix, chooseName: chooseName).path
+    }
+
+    /// The same, with the stamp of the file it created — so a run cancelled while the copy was
+    /// being written can take back exactly that file, and nothing that has replaced it since.
+    nonisolated static func writeStamped(
+        _ data: Data, besides original: String, suffix: String,
+        chooseName: (URL, Set<String>) -> URL = { FileSyncManager.generateUniqueURL(for: $0, reserved: $1) }
+    ) throws -> (path: String, stamp: EditorFileStore.Stamp) {
+        try writeStamped(data, wanting: EditorPDFCopyName.firstChoice(for: original, suffix: suffix),
+                         chooseName: chooseName)
     }
 
     /// The same write, at `wanted` or the keep-both rule's next free name after it — Save as PDF's
@@ -343,13 +354,20 @@ enum EditorPDFCopyWriter {
         _ data: Data, wanting wanted: String,
         chooseName: (URL, Set<String>) -> URL = { FileSyncManager.generateUniqueURL(for: $0, reserved: $1) }
     ) throws -> String {
+        try writeStamped(data, wanting: wanted, chooseName: chooseName).path
+    }
+
+    nonisolated static func writeStamped(
+        _ data: Data, wanting wanted: String,
+        chooseName: (URL, Set<String>) -> URL = { FileSyncManager.generateUniqueURL(for: $0, reserved: $1) }
+    ) throws -> (path: String, stamp: EditorFileStore.Stamp) {
         let wanted = URL(fileURLWithPath: wanted)
         var refused: Set<String> = []
         for _ in 0..<attempts {
             let path = chooseName(wanted, refused).path
             do {
-                try EditorFileStore.createNew(data, atPath: path)
-                return path
+                let stamp = try EditorFileStore.createNew(data, atPath: path)
+                return (path, stamp)
             } catch is EditorFileStore.AlreadyExists {
                 refused.insert(path)
             }

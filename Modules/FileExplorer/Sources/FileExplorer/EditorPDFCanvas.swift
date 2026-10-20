@@ -183,7 +183,8 @@ struct EditorPDFReader: View {
                                   find.hide()
                                   return true
                               },
-                              canvasInsets: EditorPDFFloating.canvasInsets(place: state.capsulePlace, capsule: capsule.now))
+                              canvasInsets: EditorPDFFloating.canvasInsets(place: state.capsulePlace, capsule: capsule.now),
+                              coveredRects: frames.covered)
             if let dragging {
                 let measured = dragging == .capsule ? capsule : palette
                 EditorPDFSnapTargets(row: measured.row, upright: measured.upright, canvas: canvas,
@@ -248,6 +249,14 @@ struct EditorPDFReader: View {
         var palette = CGRect.zero
         var capsuleDocked = CGRect.zero
         var capsule = CGRect.zero
+
+        /// **What covers the pages outside their bands** — the find card, the save pill, the
+        /// palette, and the capsule once it has slid off its own band — for "is a match in sight"
+        /// (``ReaderPDFView/coveredRects``). The pages keep no band for these: opening one must not
+        /// move them.
+        var covered: [CGRect] {
+            [findCard, saveStack, palette].filter { !$0.isEmpty } + (capsule == capsuleDocked ? [] : [capsule])
+        }
     }
 
     /// **The pieces in the order they give way** — each slid along its own edge clear of the ones

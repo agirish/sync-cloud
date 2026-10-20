@@ -40,6 +40,12 @@ final class ReaderPDFView: PDFView {
         }
     }
 
+    /// **What floats over the pages outside the bands** — the find card, and the capsule where it
+    /// has slid to clear it — in the canvas's top-left space, as SwiftUI lays them out. The pages do
+    /// not keep clear of these (opening the card must not move them); only "is a match in sight"
+    /// asks, so a step to a match under the card scrolls it out.
+    var coveredRects: [CGRect] = []
+
     /// The scroll view PDFKit keeps the pages in.
     var pagesScrollView: NSScrollView? { subviews.lazy.compactMap { $0 as? NSScrollView }.first }
 
@@ -388,6 +394,8 @@ struct EditorPDFPageView: NSViewRepresentable {
     var onEscape: (() -> Bool)?
     /// The bands the floating pieces keep clear — see ``ReaderPDFView/canvasInsets``.
     var canvasInsets = NSEdgeInsetsZero
+    /// What floats over the pages outside those bands — see ``ReaderPDFView/coveredRects``.
+    var coveredRects: [CGRect] = []
 
     final class Coordinator: NSObject {
         let state: EditorPDFViewState
@@ -451,6 +459,7 @@ struct EditorPDFPageView: NSViewRepresentable {
 
     private func update(_ view: ReaderPDFView, coordinator: Coordinator) {
         view.canvasInsets = canvasInsets
+        view.coveredRects = coveredRects
         Self.applyLayout(state.layout, coverSeparately: state.coverSeparately, to: view)
         if view.document !== document {
             view.document = document
@@ -522,7 +531,14 @@ struct EditorPDFPageView: NSViewRepresentable {
     /// (``clearRect(of:)``): a match under the capsule is not in sight.
     static func isInSight(_ rect: CGRect, on page: PDFPage, in view: PDFView) -> Bool {
         guard view.visiblePages.contains(page) else { return false }
-        return clearRect(of: view).contains(view.convert(rect, from: page))
+        let shown = view.convert(rect, from: page)
+        guard clearRect(of: view).contains(shown) else { return false }
+        guard let reader = view as? ReaderPDFView else { return true }
+        // From the canvas's top-left space into the view's: a `PDFView` is not flipped.
+        return !reader.coveredRects.contains { covered in
+            let y = view.isFlipped ? covered.minY : view.bounds.height - covered.maxY
+            return CGRect(x: covered.minX, y: y, width: covered.width, height: covered.height).intersects(shown)
+        }
     }
 
     /// `view`'s bounds less its ``ReaderPDFView/canvasInsets`` — a `PDFView` is not flipped, so the

@@ -1068,6 +1068,14 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         Self.sharedPDFTools = tools
     }
 
+    /// The panes' PDF tools — a run started from a row's right-click menu, which the open PDF's
+    /// tools know nothing of — for the quit guard to ask about the same way.
+    static weak var sharedPanePDFTools: PanePDFTools?
+
+    func adoptPanePDFTools(_ tools: PanePDFTools) {
+        Self.sharedPanePDFTools = tools
+    }
+
     /// Whether the quit flush may write the open document.
     ///
     /// **A function, split from the plumbing, because it is the decision and not the alert** — the
@@ -1297,6 +1305,10 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // one that lives here. It only asks, so a later "Wait" below keeps the order where it was.
         if let tools = Self.sharedPDFTools, !tools.mayLeave() {
             Logger.shared.info("Quit cancelled — the open PDF has work that would be lost")
+            return .terminateCancel
+        }
+        if let tools = Self.sharedPanePDFTools, !tools.mayQuit() {
+            Logger.shared.info("Quit cancelled — a pane's PDF tool is still running")
             return .terminateCancel
         }
         let manager = syncManager ?? Self.sharedSyncManager

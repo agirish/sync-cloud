@@ -288,6 +288,14 @@ enum PDFURLOpens {
         #expect(pdf.loadsReturned == returned + 1, "the look at the evicted file started a load")
     }
 
+    /// **A refusal that only said what happened says what to do next** — a file still in the cloud,
+    /// one moved or deleted from under the reader. The damaged file's card has its own buttons.
+    @Test func aRefusalSaysWhatToDoNext() {
+        #expect(EditorPDFBody.nextStep(for: EditorPDFDocument.notDownloadedReason)?.contains("File ▸ Download") == true)
+        #expect(EditorPDFBody.nextStep(for: EditorPDFDocument.goneReason)?.contains("Browse") == true)
+        #expect(EditorPDFBody.nextStep(for: EditorPDFDocument.unreadableReason) == nil)
+    }
+
     /// **The text probe reads the front and a spread to the end**, each page once, and never past it.
     @Test func theTextProbeReadsTheFrontAndASpreadToTheEnd() {
         #expect(EditorPDFFacts.textProbe(pageCount: 0) == [])

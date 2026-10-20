@@ -3,6 +3,7 @@ import Combine
 import PDFToolkitCore
 import SwiftUI
 import Design
+import Events
 import Sync
 
 /// What the window does around a pane-launched run's copies — the half that needs the app.
@@ -73,6 +74,38 @@ public final class PanePDFTools: ObservableObject {
         }
     }
 
+    /// **⌘Q asks about a pane's run too**, as it asks about the open PDF's — a batch part-way, a
+    /// Compress in its lane, or a sheet with a password half-typed was ended with no question.
+    /// It only asks, as the open PDF's question does: a later question in the quit can still keep
+    /// the app running, and the run must still be there if it does. The quit itself ends it; copies
+    /// already written stay, a copy part-written is a staged file the orphan sweep takes, and the
+    /// originals are untouched.
+    public func mayQuit() -> Bool {
+        guard isBusy else { return true }
+        let go = confirmQuit()
+        Logger.shared.info("PDF Tools asked before quitting with a run in progress"
+                           + (go ? " — the reader chose to quit" : " — the reader stayed"))
+        return go
+    }
+
+    /// Asks whether to quit over a run — a native alert in the app, a canned answer in a test.
+    var confirmQuit: @MainActor () -> Bool = { PanePDFTools.confirmQuitWithAlert() }
+
+    static let quitQuestion = (title: "Stop PDF Tools and quit?",
+                               detail: "A PDF tool started from a file pane is still running, or waiting for its options. "
+                                   + "Quitting stops it; copies it has already written stay. The original files are unchanged either way.",
+                               go: "Stop and Quit")
+
+    static func confirmQuitWithAlert() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = quitQuestion.title
+        alert.informativeText = quitQuestion.detail
+        alert.addButton(withTitle: quitQuestion.go)
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     /// The request a row's menu made, over `paths` — one file, or several for the three tools
     /// that run over several. `writer` names the workspace in the log ("PDF Tools in Browse").
     public func start(_ request: PDFToolRequest, paths: [String], writer: String) {
@@ -89,7 +122,7 @@ public final class PanePDFTools: ObservableObject {
     }
 
     private func refuseWhileBusy() {
-        let note = EditorPDFToolBanner(message: "Another tool is still running.", kind: .note)
+        let note = EditorPDFToolBanner(message: EditorPDFTools.busyMessage, kind: .note)
         switch current {
         case .single(let tools): tools.banner = note
         case .batch(let batch): batch.banner = note
@@ -133,7 +166,8 @@ public final class PanePDFTools: ObservableObject {
                       probe: EditorPDFToolEngine.Probe) {
         let name = (path as NSString).lastPathComponent
         guard case .facts(let pageCount, let encryption) = probe else {
-            tools.banner = EditorPDFToolBanner(message: "PDFKit couldn’t read “\(name)”, so no tool can run on it.",
+            tools.banner = EditorPDFToolBanner(message: "PDFKit couldn’t read “\(name)”, so no tool can run on it. "
+                                               + "It may be damaged — Preview may still open it.",
                                                kind: .failure)
             return
         }

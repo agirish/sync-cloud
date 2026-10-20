@@ -543,8 +543,25 @@ import Sync
     @Test func theFindCardIsAnObstacleOnlyWhileItIsUp() throws {
         let canvas = try ChromeGlassWiringTests.source("EditorPDFCanvas.swift")
         #expect(canvas.contains("findCard: find.isShown ? findCard : .zero"))
-        #expect(canvas.contains("canvasInsets: EditorPDFFloating.canvasInsets(place: state.capsulePlace, capsule: capsule.now))"),
+        #expect(canvas.contains("canvasInsets: EditorPDFFloating.canvasInsets(place: state.capsulePlace, capsule: capsule.now),"),
                 "the bands are not the capsule's alone")
+        // What floats over the pages is what "a match in sight" keeps clear of: the card, the pill,
+        // the palette, and the capsule once it has slid off its band — not the capsule at its place.
+        #expect(canvas.contains("coveredRects: frames.covered)"), "the page view is not told what floats over it")
+        let canvasSize = CGSize(width: 700, height: 800)
+        let card = CGSize(width: 330, height: 30), pill = CGSize(width: 200, height: 28)
+        let row = CGSize(width: 260, height: 30)
+        let calm = EditorPDFReader.layout(canvas: canvasSize, findCard: .zero, saveStack: .zero, palette: .zero,
+                                          palettePlace: .leading, capsule: row, capsulePlace: .bottom)
+        #expect(calm.covered.isEmpty, "the capsule at its place, inside its band, counted as covering")
+        let busy = EditorPDFReader.layout(canvas: canvasSize, findCard: card, saveStack: pill, palette: .zero,
+                                          palettePlace: .leading, capsule: row, capsulePlace: .topTrailing)
+        #expect(busy.covered.contains(busy.findCard) && busy.covered.contains(busy.saveStack))
+        #expect(busy.capsule != busy.capsuleDocked && busy.covered.contains(busy.capsule),
+                "the capsule slid clear of the card is not counted as covering")
+        // A refused Fill & Sign's tooltip reads as sentences, whichever line the menu has.
+        #expect(EditorPDFFillSignButton.sentence(EditorPDFFillSign.restrictedTitle) == "This PDF doesn’t allow filling.")
+        #expect(EditorPDFFillSignButton.sentence("Already one.") == "Already one.")
     }
 
     // MARK: Glass

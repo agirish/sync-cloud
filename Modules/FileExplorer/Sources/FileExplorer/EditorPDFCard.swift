@@ -149,7 +149,16 @@ struct EditorPDFFillSignButton: View {
         .accessibilityValue(fill.isOn ? "On" : "Off")
         .help(fill.refusal == nil
               ? (fill.isOn ? "Put Fill & Sign away" : "Fill & Sign — place text, dates, marks and signatures, then save a filled copy")
-              : "Fill & Sign isn’t available for this PDF")
+              : "Fill & Sign isn’t available. \(Self.sentence(fill.menuReason ?? "")) Click for why.")
+    }
+}
+
+extension EditorPDFFillSignButton {
+    /// `text` as a sentence of its own, ending in one full stop — the menu lines end in one or none.
+    static func sentence(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return "" }
+        return trimmed.hasSuffix(".") ? trimmed : trimmed + "."
     }
 }
 
@@ -283,7 +292,19 @@ struct EditorPDFBody: View {
             }
         } else {
             EditorPDFStateCard(symbol: reason == EditorPDFDocument.notDownloadedReason ? "icloud" : "doc",
-                               title: reason, message: nil) { EmptyView() }
+                               title: reason, message: Self.nextStep(for: reason)) { EmptyView() }
+        }
+    }
+
+    /// **What to do next, under a refusal that would otherwise say only what happened.**
+    static func nextStep(for reason: String) -> String? {
+        switch reason {
+        case EditorPDFDocument.notDownloadedReason:
+            return "Select it in a file pane and choose File ▸ Download, or Download on its right-click menu there, then open it again."
+        case EditorPDFDocument.goneReason:
+            return "Find it in Browse and open it again from there."
+        default:
+            return nil
         }
     }
 
