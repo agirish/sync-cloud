@@ -14,9 +14,11 @@ User-facing changes, newest first. For the full commit history see the
 text file uses. Its pages and bookmarks are in the rail, its page number and zoom float over the
 pages, it can be laid out as a book, and Find searches it. Its tools rotate, reorder, extract and
 delete pages, compress the file, clean its metadata and add or remove a password, and Fill & Sign
-fills in a form and signs it. Each change is written to a new PDF beside the original; the file you
-opened is never modified. Around the PDFs, Edit's side column gets one control, its folder line
-becomes a menu, and Unified becomes one box.
+fills in a form and signs it from a palette over the page. Each change is written to a new PDF
+beside the original; the file you opened is never modified. Word, Excel, PowerPoint, RTF, Markdown
+and text files can be saved as PDFs too. Around the PDFs, Edit's side column gets one control, its
+folder line becomes a menu, Unified becomes one box, and the sidebar's Recents can show the folders
+you come back to.
 
 Requires **macOS 26**, unchanged from the 5.x line.
 
@@ -95,10 +97,10 @@ Requires **macOS 26**, unchanged from the 5.x line.
   showing a PDF.
 - **Save as PDF from a file's right-click menu.** A Word, Excel or PowerPoint file, an RTF, a
   Markdown note or a `.txt` gets **Save as PDF**, where a PDF gets PDF Tools: the PDF is written
-  beside it under its name — "Lease.docx" becomes "Lease.pdf", or "Lease 2.pdf" when that is taken
-  — and the file itself is never changed. Markdown and text come out as the pages Edit's Print makes;
-  Word, Excel and PowerPoint as macOS draws them in Quick Look, every sheet in turn and each slide on
-  a page of its own, with their text selectable. A deck whose slides are pictures has their words
+  beside it under its name — "Lease.docx" becomes "Lease.pdf", or "Lease 2.pdf" when that is taken —
+  and the file itself is never changed. Markdown and text come out as the pages Edit's Print makes;
+  Word, Excel and PowerPoint as macOS draws them in Quick Look, every sheet in turn and each slide
+  on a page of its own, with their text selectable. A deck whose slides are pictures has their words
   recognised, so it can be searched too, and the banner says a word may be misread. Select several
   for **Save 3 as PDFs**: one at a time, with Stop, and a file that cannot be read is named in the
   banner. A folder you can't write to asks where. **File ▸ Save as PDF** does the same for the
@@ -110,9 +112,9 @@ Requires **macOS 26**, unchanged from the 5.x line.
   page stays where it was: **Select**, **Text**, **Date** — today, in your Mac's short format —
   **Marks** for ✓, ✗ and •, **Signature** and **Initials**, then **Text Size** and **Ink**. A tool
   with a small triangle opens its choices beside it. The palette moves like the page capsule: drag
-  its grip to any edge or corner, or right-click it for Move To, and it stays where you put it.
-  Drag what you placed to move it, pull its corner handle to resize it, press Delete to remove it,
-  and double-click text to change it; Text Size and Ink change the selected item, and `⌘Z` undoes.
+  its grip to any edge or corner, or right-click it for Move To, and it stays where you put it. Drag
+  what you placed to move it, pull its corner handle to resize it, press Delete to remove it, and
+  double-click text to change it; Text Size and Ink change the selected item, and `⌘Z` undoes.
 - **Signatures stay on this Mac.** **Add Signature…** draws one with the trackpad or mouse, or types
   it in a script face. It is a picture of your signature, not a certificate-based digital one, and a
   saved one is kept on this Mac only — never synced, never written to the log.
@@ -123,23 +125,22 @@ Requires **macOS 26**, unchanged from the 5.x line.
   the form has no field for.
 - **Save Filled Copy writes a new copy** — "Lease (signed).pdf", or "(filled)" with no signature or
   initials — and leaves the original as it was. A form stays fillable in the copy, in Preview,
-  Acrobat or anywhere else, with what you placed kept as annotations. Until you save, a pill at the top
-  of the page counts what is unsaved, beside **Discard** and **Save Filled Copy**, and closing the PDF,
-  opening another file or quitting asks first. A form's caveats, and anything Save would refuse, sit
-  in a note under the pill.
-  **File ▸ Fill & Sign** and **File ▸ Save Filled Copy** do the same from the menu bar.
-- **A PDF whose owner restricted editing gets no Fill & Sign, and says why** — File ▸ Fill & Sign
-  is greyed with *This PDF doesn’t allow filling* under it, and the Fill & Sign button gives the
-  reason. A form that allows filling but not adding to its pages fills its
-  fields only.
+  Acrobat or anywhere else, with what you placed kept as annotations. Until you save, a pill at the
+  top of the page counts what is unsaved, beside **Discard** and **Save Filled Copy**, and closing
+  the PDF, opening another file or quitting asks first. A form's caveats, and anything Save would
+  refuse, sit in a note under the pill. **File ▸ Fill & Sign** and **File ▸ Save Filled Copy** do
+  the same from the menu bar.
+- **A PDF whose owner restricted editing gets no Fill & Sign, and says why** — File ▸ Fill & Sign is
+  greyed with *This PDF doesn’t allow filling* under it, and the Fill & Sign button gives the
+  reason. A form that allows filling but not adding to its pages fills its fields only.
 
 ### The rest of Edit
 
 - **One strip for Edit's side column.** The Files list can now fold on its own, into the strip at
   the left edge; before, only Expand could hide it, and Expand took the file pane and the sidebar
-  with it. The strip has a button for the file pane and one for each of the list's tabs — Files,
-  Outline, and Pages while a PDF is open — and each opens its column or folds it, lit while it
-  shows. **View ▸ File List** (`⌃⌘T`) does the same.
+  with it. The strip has a button for the file pane and one for each tab the list shows — Files and
+  Outline for a text file; Files, Pages and, with two or more bookmarks, Outline for a PDF — and
+  each opens its column or folds it, lit while it shows. **View ▸ File List** (`⌃⌘T`) does the same.
 - **The file pane and the list share one width**, dragged at the column's edge, from 232 to 480
   points.
 - **The folder line is a menu.** The folder's name, on the line under the rail's tabs, opens a menu:
@@ -179,8 +180,8 @@ Requires **macOS 26**, unchanged from the 5.x line.
   only clicked through, or passed with Back and Forward, do not count, and coming back within five
   minutes is the same visit. Both look back 90 days and count older visits for less, so a folder you
   have stopped using drops off. At most eight rows. The icon stays lit in the accent outside plain
-  Recents, and the choice is remembered across launches. Both lists start empty and fill from
-  visits made after the update. Recents itself, and the folders `⌘K` offers, are unchanged.
+  Recents, and the choice is remembered across launches. Both lists start empty and fill from visits
+  made after the update. Recents itself, and the folders `⌘K` offers, are unchanged.
 
 ---
 

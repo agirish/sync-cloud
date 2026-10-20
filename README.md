@@ -23,8 +23,10 @@ filenames, straighten a tree that disagrees with its own habits, and show where 
 goes — reviewing and applying the change, with the way back written to disk first. Most act on what
 they find; Rules sets the standing instructions; **Storage** only reports, and never moves, deletes,
 or evicts a file.
-**Edit** is the one workspace that changes what is *inside* a file: it opens a text file, renders
-Markdown beside it, and writes it back only when you ask.
+**Edit** is the one workspace that changes what is *inside* a file: it writes Markdown and plain
+text, with a format bar, tables and a Preview you can type in, and saves as you go. New in 6.0, in
+development on `main`: it opens PDFs too — to read, search, rework and fill in and sign — and writes
+every change to a new PDF beside the original, never the file you opened.
 
 Deletes go to the Trash, overwrites are staged and swapped in atomically, and each run in the app is
 a single grouped **⌘Z** for as long as that session lasts. Permanent delete exists only as a
@@ -39,6 +41,8 @@ clearly-warned fallback on volumes with no Trash; the CLI has no undo stack of i
   and places you keep; **Locations**, every account you have signed into, any disks Favorites is
   not already holding, and the Trash; and **Recents**, the folders you were last in (it appears once you have been somewhere the other
   two don't already list). Favorites and Recents span every source, so a favorite in Dropbox is reachable without switching to Dropbox first.
+  New in 6.0: a click on the Recents heading's icon switches it to **Revisited**, the folders you
+  come back to on different days, or **Frequent**, the ones you spend most time in.
 - **Favorites you curate.** Starts as your home folder, Desktop, Documents and Downloads;
   right-click any place in Locations to add it, any row in Favorites to remove it, or
   any folder in a pane to keep it. **Restore Standard Places** brings the four back.
@@ -108,7 +112,7 @@ never wears a count badge.
 ### ✏️ Edit — write in a text file
 The one workspace that changes what is *inside* a file rather than moving files around. A collapsible
 file pane on the left to browse to any folder — one click on a text file opens it — and the open
-document beside it; fold the pane away and a rail lists the folder's text files instead, or hide
+document beside it; fold the pane away and a rail lists the folder's text files and PDFs instead, or hide
 both with **Expand** (⌃⌘E). Markdown renders in **Source / Preview / Split**, at the app's own text size rather
 than a web view's, and Preview can be typed in too (experimental, Markdown only; the **Edit** pill in
 its corner turns that off). **⌘N** makes a new file — nothing on disk until you press ↩ — and **⌘S** writes
@@ -118,7 +122,30 @@ every other write here, goes back in the encoding the file was read in, with LF 
 (CR) file is converted on its first edit, and one ⌘Z gives it back as it was opened. A change made
 to the file elsewhere is noticed as it happens: with nothing unsaved it reloads quietly, and with
 unsaved typing a banner asks which version to keep. A file that is not valid text opens read-only rather than risking its bytes.
-**⌘O** opens the text file selected in any pane here — so does **Open in Edit**, first in a file pane's right-click menu, by the file's name in the preview, in the Info inspector, and in the right-click menus of Compare's differences and Organize's duplicate copies. Above the document, **＋** makes a new file and **×** puts the open one away; above a Markdown file's text, a **format bar** carries the Markup verbs as buttons in a capsule per group — Body, B I S, the lists, Code and Quote, then Link, Table and Divider — with a word beside each where there is room (right-click it for icons only). **Table** inserts a table or makes one from tab- or comma-separated lines, and with the caret in a table a Table capsule adds and deletes rows and columns and formats it so its pipes line up. In Markdown, Return carries a list on and Tab nests an item; a web address pasted onto words makes them a link; an image dropped or pasted is saved in the note's **Images** folder and linked; and the line under the text names the heading you are in, with every heading one click away, counts a selection, and goes to a line (⌃⌘L). **Readable Line Length** keeps wrapped text in a centred column, and SyncCloud appears in Finder's **Open With** for text files.
+**⌘O** opens the text file or PDF selected in any pane here — so does **Open in Edit**, first in a file pane's right-click menu, by the file's name in the preview, in the Info inspector, and in the right-click menus of Compare's differences and Organize's duplicate copies. Above the document, **＋** makes a new file and **×** puts the open one away; above a Markdown file's text, a **format bar** carries the Markup verbs as buttons in a capsule per group — Body, B I S, the lists, Code and Quote, then Link, Table and Divider — with a word beside each where there is room (right-click it for icons only). **Table** inserts a table or makes one from tab- or comma-separated lines, and with the caret in a table a Table capsule adds and deletes rows and columns and formats it so its pipes line up. In Markdown, Return carries a list on and Tab nests an item; a web address pasted onto words makes them a link; an image dropped or pasted is saved in the note's **Images** folder and linked; and the line under the text names the heading you are in, with every heading one click away, counts a selection, and goes to a line (⌃⌘L). **Readable Line Length** keeps wrapped text in a centred column, and SyncCloud appears in Finder's **Open With** for text files.
+
+### 📄 PDFs in Edit — new in 6.0, in development
+Not in the v5.5 release; this is what `main` does today, and it may change before 6.0 is cut.
+- **A PDF opens in Edit** through the same doors as a text file — ⌘O, Open in Edit, the preview's
+  Edit button, a click in Edit's pane. The rail shows **Pages** (a grid or a list of thumbnails)
+  and the PDF's bookmarks as an **Outline**; the page number and zoom float over the pages in a
+  capsule you can drag to any edge or corner; **Page Layout** offers single pages, two-page spreads and a
+  separate cover; and **Find** (⌘F) tints every match on the pages. A PDF that needs a password
+  asks for it, and SyncCloud uses it only to open the file.
+- **The file you opened is never modified.** The **Tools** menu rotates, extracts and deletes
+  pages, compresses, cleans metadata and adds or removes a password, and pages dragged into a new
+  order are saved with **Save Reordered Copy**. The whole-file tools are on any PDF's right-click
+  menu in Browse, Compare and Organize too, for several PDFs at once. Every tool writes a new PDF beside the
+  original, named for what it did — `Statement (compressed).pdf` — and never replaces a file
+  already there.
+- **Fill & Sign** floats a palette over the page: text, today's date, ✓ ✗ • marks, and a
+  signature or initials you draw or type, kept on this Mac only and never synced. A PDF with form
+  fields of its own — a W-9, a visa form — fills those, in the form's own Tab order, and the copy
+  stays fillable. Nothing is written until **Save Filled Copy**, which writes
+  `Lease (signed).pdf` beside the original.
+- **Save as PDF** on the right-click menu turns a Word, Excel or PowerPoint file, an RTF, a
+  Markdown note or a `.txt` into a PDF beside it. A deck whose slides are pictures has their
+  words recognised, so the PDF can still be searched.
 
 ### 🤖 AI-assisted filing (optional)
 Organize's suggestions start from a fast, fully-offline engine (your existing folder names + filename
@@ -257,8 +284,8 @@ SyncCloud/
 
 ## Continuous integration
 
-The seven SPM package test suites and the app-target tests run on every push to `main`, `v4.x`,
-`v3.x` or `v2.x` and on every `v*` release tag, via a self-hosted GitHub Actions runner — see
+The seven SPM package test suites and the app-target tests run on every push to `main`, `v5.x`,
+`v4.x`, `v3.x` or `v2.x` and on every `v*` release tag, via a self-hosted GitHub Actions runner — see
 [`docs/ci.md`](docs/ci.md).
 
 ## Performance notes
