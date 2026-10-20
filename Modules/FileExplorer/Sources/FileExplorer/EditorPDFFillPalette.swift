@@ -7,7 +7,7 @@ import Design
 /// Acrobat's do, instead of a toolbar row that pushed the pages down. Turning Fill & Sign on leaves
 /// the page where it was.
 ///
-/// Select, Text, Date, Marks, Signature and Initials, then size and ink — with Form Fields first on
+/// Select, Text, Date, Marks, Signature and Initials, then style, size and ink — with Form Fields first on
 /// a file that has fields of its own. A tool with a corner triangle opens a flyout beside it, lined
 /// up with it, and that tool is the one lit while its flyout is open (``isLit(_:armed:flyout:)``).
 /// What a tool does is its tooltip; the toolbar's line of words went with the toolbar (decided
@@ -39,6 +39,7 @@ struct EditorPDFFillPalette: View {
         let marks = EditorHeadingMenuAnchor()
         let signature = EditorHeadingMenuAnchor()
         let initials = EditorHeadingMenuAnchor()
+        let style = EditorHeadingMenuAnchor()
         let size = EditorHeadingMenuAnchor()
         let ink = EditorHeadingMenuAnchor()
 
@@ -47,6 +48,7 @@ struct EditorPDFFillPalette: View {
             case .marks: return marks
             case .signature: return signature
             case .initials: return initials
+            case .style: return style
             case .size: return size
             case .ink: return ink
             }
@@ -62,6 +64,9 @@ struct EditorPDFFillPalette: View {
         case marks
         case signature
         case initials
+        /// **Aa** (TE92, TE93): the selected text's font, typed signature's face or drawn
+        /// signature's pen — or the next text's font.
+        case style
         case size
         case ink
 
@@ -71,6 +76,7 @@ struct EditorPDFFillPalette: View {
             case .marks: return .marks
             case .signature: return .signature
             case .initials: return .initials
+            case .style: return .style
             case .size: return .size
             case .ink: return .ink
             case .formFields, .select, .text, .date: return nil
@@ -86,6 +92,7 @@ struct EditorPDFFillPalette: View {
             case .marks: return "Marks"
             case .signature: return EditorPDFSignature.Kind.signature.title
             case .initials: return EditorPDFSignature.Kind.initials.title
+            case .style: return "Style"
             case .size: return "Text Size"
             case .ink: return "Ink"
             }
@@ -99,6 +106,7 @@ struct EditorPDFFillPalette: View {
         case marks
         case signature
         case initials
+        case style
         case size
         case ink
     }
@@ -111,7 +119,7 @@ struct EditorPDFFillPalette: View {
 
     /// **Which tool is lit.** While a flyout is open its tool, and no other — the chosen tool goes
     /// dark until it closes. Otherwise the armed one; Select when nothing is armed. Size and ink are
-    /// lit only while their flyouts are open.
+    /// lit only while their flyouts are open, as is style.
     static func isLit(_ tool: Tool, armed: EditorPDFFillTool?, flyout: Flyout?) -> Bool {
         if let flyout { return tool.flyout == flyout }
         switch (tool, armed) {
@@ -145,7 +153,7 @@ struct EditorPDFFillPalette: View {
         return layout {
             EditorPDFGripHandle(state: state, piece: .palette, upright: upright, onDrag: onDrag, onDrop: onDrop)
             ForEach(Self.tools(for: fill), id: \.self) { tool in
-                if tool == .size { divider(upright) }
+                if tool == .style { divider(upright) }
                 button(tool)
                 if tool == .formFields { divider(upright) }
             }
@@ -196,6 +204,7 @@ struct EditorPDFFillPalette: View {
             Text(shownMark.rawValue).scaledFont(.system(size: 14, weight: .bold))
         case .signature: glyph("signature")
         case .initials: Text("AB").scaledFont(.system(size: 10, weight: .bold))
+        case .style: Text("Aa").scaledFont(.system(size: 13, weight: .semibold))
         case .size: glyph("textformat.size")
         case .ink:
             Circle()
@@ -218,6 +227,7 @@ struct EditorPDFFillPalette: View {
 
     private func isDisabled(_ tool: Tool) -> Bool {
         if tool == .formFields { return !fill.offersFormFields }
+        if tool == .style, fill.styleTarget == .mark { return true }
         return tool.places && !fill.offersPlacing
     }
 
@@ -226,6 +236,7 @@ struct EditorPDFFillPalette: View {
             return fill.allowsFormEntry ? "This form has no fields that can be filled here" : EditorPDFFillSign.noFormEntryReason
         }
         if tool.places, !fill.offersPlacing { return EditorPDFFillSign.noCommentingReason }
+        if tool == .style, fill.styleTarget == .mark { return "Style — a mark keeps its own font" }
         switch tool {
         case .formFields: return "Form Fields — click a field to fill it; Tab moves to the next"
         case .select: return "Select — click what you placed to move it; Delete removes it"
@@ -233,6 +244,7 @@ struct EditorPDFFillPalette: View {
         case .date: return EditorPDFFillTool.date.hint
         case .marks: return "Marks — ✓, ✗ or •, then click on the page to place it"
         case .signature, .initials: return "\(tool.title) — choose a saved one, or add one"
+        case .style: return "Style — the font of the selected text, the face of a typed signature, the pen of a drawn one"
         case .size: return "Text size — of the selected text, and of the next"
         case .ink: return "Ink — of the selected item, and of the next"
         }
@@ -247,6 +259,7 @@ struct EditorPDFFillPalette: View {
         case .marks: open(.marks, EditorPDFFillFlyouts.marks(for: fill) { lastMark = $0 })
         case .signature: open(.signature, EditorPDFSignatureMenu.menu(for: fill, kind: .signature))
         case .initials: open(.initials, EditorPDFSignatureMenu.menu(for: fill, kind: .initials))
+        case .style: open(.style, EditorPDFFillFlyouts.style(for: fill))
         case .size: open(.size, EditorPDFFillFlyouts.size(for: fill))
         case .ink: open(.ink, EditorPDFFillFlyouts.ink(for: fill))
         }
@@ -285,7 +298,7 @@ struct EditorPDFFillPalette: View {
     }
 }
 
-/// **The palette's flyouts**: Marks, Text Size and Ink, each an `NSMenu` built when its tool is
+/// **The palette's flyouts**: Marks, Style, Text Size and Ink, each an `NSMenu` built when its tool is
 /// pressed, as the zoom's and the signatures' menus are — so a test can read and fire them.
 @MainActor
 enum EditorPDFFillFlyouts {
@@ -304,6 +317,109 @@ enum EditorPDFFillFlyouts {
             menu.addItem(item)
         }
         return menu
+    }
+
+    // MARK: Style (TE92, TE93)
+
+    static let changesSavedLine = "Also changes your saved signature"
+    static let changesSavedInitialsLine = "Also changes your saved initials"
+
+    /// **The Aa tool's flyout, by what is selected**: a typed signature's faces, each in its own
+    /// words; a drawn one's pens; text's fonts, each drawn in itself — and with nothing selected,
+    /// the next text's font. A saved signature's list ends with the line saying the saved one
+    /// changes too (decision AS).
+    static func style(for fill: EditorPDFFillSign) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for item in styleItems(for: fill) { menu.addItem(item) }
+        return menu
+    }
+
+    /// **An item's right-click menu**: its style choices, then Delete.
+    static func itemMenu(for fill: EditorPDFFillSign) -> NSMenu {
+        let menu = style(for: fill)
+        if !menu.items.isEmpty { menu.addItem(.separator()) }
+        menu.addItem(EditorClosureMenuItem(title: "Delete") { fill.deleteSelection() })
+        return menu
+    }
+
+    private static func styleItems(for fill: EditorPDFFillSign) -> [NSMenuItem] {
+        var out: [NSMenuItem] = []
+        switch fill.styleTarget {
+        case .typedSignature:
+            guard let item = fill.selected, let signature = item.signature,
+                  case .typed(let words) = signature.look else { return [] }
+            out.append(heading("Face of \(kindWord(signature.kind))"))
+            for face in EditorPDFSignatureFace.allCases {
+                let line = EditorClosureMenuItem(title: face.title) { fill.setFace(face) }
+                line.attributedTitle = faceTitle(words, face: face)
+                line.state = signature.face == face ? .on : .off
+                out.append(line)
+            }
+            out += savedNote(fill, kind: signature.kind)
+        case .drawnSignature:
+            guard let signature = fill.selected?.signature else { return [] }
+            out.append(heading("Pen of \(kindWord(signature.kind))"))
+            for pen in EditorPDFPen.allCases {
+                let line = EditorClosureMenuItem(title: pen.title) { fill.setPen(pen) }
+                line.image = penImage(pen)
+                line.state = signature.pen == pen ? .on : .off
+                out.append(line)
+            }
+            out += savedNote(fill, kind: signature.kind)
+        case .text, .nextText:
+            out.append(heading(fill.styleTarget == .nextText ? "Font of the next text" : "Font of this text"))
+            let current = fill.currentTextFont
+            for font in EditorPDFTextFont.allCases {
+                let line = EditorClosureMenuItem(title: font.title) { fill.setTextFont(font) }
+                line.attributedTitle = NSAttributedString(string: font.title, attributes: [.font: font.font(size: 14)])
+                line.state = current == font ? .on : .off
+                out.append(line)
+            }
+        case .mark:
+            break
+        }
+        return out
+    }
+
+    private static func kindWord(_ kind: EditorPDFSignature.Kind) -> String {
+        kind == .signature ? "this signature" : "these initials"
+    }
+
+    private static func heading(_ title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        return item
+    }
+
+    private static func savedNote(_ fill: EditorPDFFillSign, kind: EditorPDFSignature.Kind) -> [NSMenuItem] {
+        guard fill.restyleChangesSaved else { return [] }
+        return [.separator(), heading(kind == .signature ? changesSavedLine : changesSavedInitialsLine)]
+    }
+
+    /// The signature's own words in `face`, then the face's name, small — Zapfino a size down, its
+    /// loops are tall.
+    static func faceTitle(_ words: String, face: EditorPDFSignatureFace) -> NSAttributedString {
+        let title = NSMutableAttributedString(
+            string: words, attributes: [.font: PDFToolkit.font(size: face == .zapfino ? 12 : 18, script: true, font: face.toolkit)])
+        title.append(NSAttributedString(string: "   \(face.title)", attributes: [
+            .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor,
+        ]))
+        return title
+    }
+
+    /// A short stroke as thick as the pen draws on the pad.
+    static func penImage(_ pen: EditorPDFPen) -> NSImage {
+        NSImage(size: CGSize(width: 28, height: 12), flipped: false) { rect in
+            let path = NSBezierPath()
+            path.lineWidth = pen.padWidth
+            path.lineCapStyle = .round
+            path.move(to: CGPoint(x: 3, y: rect.midY))
+            path.line(to: CGPoint(x: rect.maxX - 3, y: rect.midY))
+            NSColor.labelColor.setStroke()
+            path.stroke()
+            return true
+        }
     }
 
     static let smallerTitle = "Smaller"
@@ -481,7 +597,8 @@ enum EditorPDFSignatureMenu {
         switch signature.look {
         case .typed(let string):
             item.attributedTitle = NSAttributedString(
-                string: string, attributes: [.font: PDFToolkit.scriptOrSystemFont(size: 18, script: true)])
+                string: string, attributes: [.font: PDFToolkit.font(size: signature.face == .zapfino ? 12 : 18, script: true,
+                                                                    font: signature.face.toolkit)])
         case .drawn:
             item.image = image(signature, height: 24)
             item.title = ""
@@ -499,7 +616,7 @@ enum EditorPDFSignatureMenu {
             NSColor.labelColor.setStroke()
             for stroke in strokes where !stroke.isEmpty {
                 let path = NSBezierPath()
-                path.lineWidth = 1.4
+                path.lineWidth = 1.4 * signature.pen.widthFraction / FillSignSignature.defaultPenWidthFraction
                 path.lineCapStyle = .round
                 path.lineJoinStyle = .round
                 let points = stroke.map { CGPoint(x: inset.minX + $0.x * inset.width, y: inset.minY + $0.y * inset.height) }

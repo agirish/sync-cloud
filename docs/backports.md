@@ -7856,3 +7856,31 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign, so nothing to fix | CLOSED — does not apply |
+
+---
+
+## Signature Styles: faces, inks, pens and fonts in Fill & Sign — main only
+
+A typed signature or initials takes one of seven of the Mac's handwriting faces, a drawn one a Fine,
+Medium or Bold pen with its wobble smoothed, and placed text a Sans, Serif, Rounded, Mono or
+Handwritten font; the palette's new Aa tool and an item's right-click menu restyle what is placed,
+and a saved signature restyled changes in the store too. The Add Signature sheet chooses the ink,
+on a pad that stays paper-white, and can make initials with the signature. Saved signatures keep
+their `editorPDFSavedSignatures` key, read as Snell Roundhand and Medium; the sheet's last face, pen
+and smoothing sit under `editorPDFSignatureFace`, `editorPDFSignaturePen` and
+`editorPDFSignatureSmoothing`. pdf-toolkit moves to 0.3.0 for `FillSignText.font`. All of it
+extends the Fill & Sign `main` alone has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s fillSign=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSign.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-19, against origin, before this landed:
+# main  fillSign=1
+# v5.x, v4.x, v3.x, v2.x — fillSign=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign in Edit (`fillSign=0`), so nothing to restyle | CLOSED — does not apply |

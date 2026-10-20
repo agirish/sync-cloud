@@ -90,14 +90,15 @@ import Sync
 
     // MARK: The tools
 
-    /// **Select, Text, Date, Marks, Signature, Initials, then size and ink** (mockup F) — and Form
-    /// Fields first, on a file with fields of its own and there only.
+    /// **Select, Text, Date, Marks, Signature, Initials, then style (Aa, between Initials and Text
+    /// Size — Signature Styles TE93), size and ink** (mockup F) — and Form Fields first, on a file
+    /// with fields of its own and there only.
     @Test func theToolsAreInTheMockupsOrderWithFormFieldsFirstOnAForm() {
-        let flat: [EditorPDFFillPalette.Tool] = [.select, .text, .date, .marks, .signature, .initials, .size, .ink]
+        let flat: [EditorPDFFillPalette.Tool] = [.select, .text, .date, .marks, .signature, .initials, .style, .size, .ink]
         #expect(EditorPDFFillPalette.tools(for: fill()) == flat)
         #expect(EditorPDFFillPalette.tools(for: fill(form: true)) == [.formFields] + flat)
-        // The four that open a flyout carry its corner triangle; the rest arm on a click.
-        #expect(EditorPDFFillPalette.Tool.allCases.filter { $0.flyout != nil } == [.marks, .signature, .initials, .size, .ink])
+        // The ones that open a flyout carry its corner triangle; the rest arm on a click.
+        #expect(EditorPDFFillPalette.Tool.allCases.filter { $0.flyout != nil } == [.marks, .signature, .initials, .style, .size, .ink])
     }
 
     /// **The tool whose flyout is open is the one lit, and no other** — Text goes dark while Marks'

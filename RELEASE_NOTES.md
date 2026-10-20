@@ -111,14 +111,20 @@ Requires **macOS 26**, unchanged from the 5.x line.
 
 - **Fill & Sign, in the PDF's header, floats a palette of tools at the left of the page**, and the
   page stays where it was: **Select**, **Text**, **Date** — today, in your Mac's short format —
-  **Marks** for ✓, ✗ and •, **Signature** and **Initials**, then **Text Size** and **Ink**. A tool
-  with a small triangle opens its choices beside it. The palette moves like the page capsule: drag
-  its grip to any edge or corner, or right-click it for Move To, and it stays where you put it. Drag
-  what you placed to move it, pull its corner handle to resize it, press Delete to remove it, and
-  double-click text to change it; Text Size and Ink change the selected item, and `⌘Z` undoes.
-- **Signatures stay on this Mac.** **Add Signature…** draws one with the trackpad or mouse, or types
-  it in a script face. It is a picture of your signature, not a certificate-based digital one, and a
-  saved one is kept on this Mac only — never synced, never written to the log.
+  **Marks** for ✓, ✗ and •, **Signature** and **Initials**, then **Aa**, **Text Size** and **Ink**.
+  A tool with a small triangle opens its choices beside it. The palette moves like the page capsule:
+  drag its grip to any edge or corner, or right-click it for Move To, and it stays where you put it.
+  Drag what you placed to move it, pull its corner handle to resize it, press Delete to remove it,
+  and double-click text to change it; Aa, Text Size and Ink change the selected item, and `⌘Z`
+  undoes. **Aa** sets text's font — Sans, Serif, Rounded, Mono or Handwritten, each shown in itself —
+  a typed signature's face or a drawn one's pen; right-click an item for the same choices.
+- **Signatures stay on this Mac.** **Add Signature…** draws one with the trackpad or mouse — Fine,
+  Medium or Bold, with the trackpad's wobble smoothed out — or types it in one of seven of the Mac's
+  handwriting faces, each shown in your own name. Blue or Black ink is chosen in the sheet, on a pad
+  that stays paper-white in Dark Mode. Typing your first signature can save matching initials with
+  it. Restyling a saved signature on the page changes the saved one too. It is a picture of your
+  signature, not a certificate-based digital one, and a saved one is kept on this Mac only — never
+  synced, never written to the log.
 - **A PDF's own form fields.** A form with fields — a W-9, a visa form — opens Fill & Sign on **Form
   Fields**: type into text fields, set checkboxes and radio buttons, choose from pop-ups and lists,
   and Tab and ⇧Tab move through them in the form's own order. A field that takes no value is tinted

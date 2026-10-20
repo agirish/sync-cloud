@@ -144,6 +144,11 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     override func mouseDown(with event: NSEvent) {
         guard let fill else { return }
         window?.makeFirstResponder(self)
+        // ⌃-click is a right-click: this method never hands the event on, so the menu is put up here.
+        if event.modifierFlags.contains(.control), let menu = menu(for: event) {
+            NSMenu.popUpContextMenu(menu, with: event, for: self)
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         if let item = handleHit(point) {
             fill.beginGesture()
@@ -199,6 +204,15 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     }
 
     override func magnify(with event: NSEvent) { reader?.magnify(with: event) }
+
+    /// **An item's right-click menu** (TE92): it is selected, and the menu offers what the palette's
+    /// Aa tool would for it — then Delete.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard isActive, let fill, let item = item(at: convert(event.locationInWindow, from: nil)) else { return nil }
+        fill.endEditing()
+        fill.select(item.id)
+        return EditorPDFFillFlyouts.itemMenu(for: fill)
+    }
 
     // MARK: Keys
 
@@ -329,7 +343,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         }()
         let text = item.words?.string ?? ""
         if field.stringValue != text { field.stringValue = text }
-        field.font = PDFToolkit.scriptOrSystemFont(size: max(4, item.fontSize * reader.scaleFactor), script: false)
+        field.font = item.nsFont(size: item.fontSize * reader.scaleFactor)
         field.textColor = item.color.nsColor
         field.frame = rect.insetBy(dx: 0, dy: -2).integral
         if field.currentEditor() == nil { window?.makeFirstResponder(field) }
@@ -366,13 +380,13 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         for item in fill.items where shown.contains(item.page) && item.id != fill.editing {
             guard let rect = viewRect(item) else { continue }
             if let words = item.words {
-                let font = PDFToolkit.scriptOrSystemFont(size: max(4, item.fontSize * scale), script: words.script)
+                let font = item.nsFont(size: item.fontSize * scale)
                 let paragraph = NSMutableParagraphStyle()
                 paragraph.lineBreakMode = .byWordWrapping
                 NSAttributedString(string: words.string, attributes: [.font: font, .foregroundColor: item.color.nsColor,
                                                                       .paragraphStyle: paragraph]).draw(in: rect)
             } else if case .signature(let signature) = item.content, case .drawn(let strokes, _) = signature.look {
-                drawStrokes(strokes, of: item, width: FillSignSignature.defaultPenWidthFraction
+                drawStrokes(strokes, of: item, width: signature.pen.widthFraction
                             * min(item.rect.width, item.rect.height) * scale)
             }
         }

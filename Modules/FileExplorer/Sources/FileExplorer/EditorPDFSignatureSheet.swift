@@ -3,8 +3,12 @@ import PDFToolkitCore
 import SwiftUI
 import Design
 
-/// **Add Signature / Add Initials** (mockup 18): drawn on a pad or typed in a script face, and
-/// saved on this Mac unless the box is unticked. Adding chooses it, so the next click places it.
+/// **Add Signature / Add Initials** (mockup 18; Signature Styles TE88–TE91, TE94): drawn on a pad
+/// or typed in one of the Mac's handwriting faces, in Blue or Black, and saved on this Mac unless
+/// the box is unticked. Adding chooses it, so the next click places it.
+///
+/// **The pad, the preview and the face tiles are paper-white in either appearance** — the ink shows
+/// as it will print, where blue on a dark pad was close to unreadable.
 struct EditorPDFAddSignatureSheet: View {
     let fill: EditorPDFFillSign
     let kind: EditorPDFSignature.Kind
@@ -13,11 +17,43 @@ struct EditorPDFAddSignatureSheet: View {
     @State private var strokes: [[CGPoint]] = []
     @State private var typed = ""
     @State private var keep = true
+    @State private var ink: EditorPDFFillColor
+    @State private var makeInitials = true
+    /// The last face, pen and smoothing chosen — remembered in the store's defaults.
+    @AppStorage private var faceRaw: String
+    @AppStorage private var penRaw: String
+    @AppStorage private var smooth: Bool
     /// The window's hue, for the Draw / Type picker — `accentedSegments` takes the hue itself.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
+    init(fill: EditorPDFFillSign, kind: EditorPDFSignature.Kind) {
+        self.fill = fill
+        self.kind = kind
+        _ink = State(initialValue: fill.color)
+        let defaults = fill.store.defaults
+        _faceRaw = AppStorage(wrappedValue: EditorPDFSignatureFace.snellRoundhand.rawValue,
+                              EditorPDFSignatureStore.faceKey, store: defaults)
+        _penRaw = AppStorage(wrappedValue: EditorPDFPen.medium.rawValue, EditorPDFSignatureStore.penKey, store: defaults)
+        _smooth = AppStorage(wrappedValue: true, EditorPDFSignatureStore.smoothKey, store: defaults)
+    }
+
     static let privacy = "This places a picture of your signature on the page. It isn’t a certificate-based digital "
         + "signature. Saved signatures stay on this Mac as pen strokes, and are never synced or written to the log."
+
+    /// What paper is: the pad, the preview and the face tiles in both appearances.
+    static let paper = Color.white
+    static let paperEdge = Color(white: 0.72)
+    static let paperCaption = Color(white: 0.45)
+
+    /// The window's hue: the Draw / Type and Pen pickers, and the ring on the chosen face and ink.
+    private var hue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
+
+    private var face: EditorPDFSignatureFace { EditorPDFSignatureFace(rawValue: faceRaw) ?? .snellRoundhand }
+    private var pen: EditorPDFPen { EditorPDFPen(rawValue: penRaw) ?? .medium }
+    private var words: String { typed.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var initials: String { EditorPDFSignature.initials(of: words) }
+
+    private var offersInitials: Bool { typing && fill.offersInitials(with: kind) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -29,32 +65,29 @@ struct EditorPDFAddSignatureSheet: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
+            .accentedSegments(hue)
             .fixedSize()
-            if typing {
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField(kind == .signature ? "Your name" : "Your initials", text: $typed)
-                        .textFieldStyle(.roundedBorder)
-                    Text(typed.isEmpty ? " " : typed)
-                        .font(Font(PDFToolkit.scriptOrSystemFont(size: 32, script: true)))
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, minHeight: 60)
-                        .background(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(.tertiary, style: StrokeStyle(dash: [4])))
-                }
-            } else {
-                ZStack(alignment: .bottomLeading) {
-                    EditorPDFSignaturePad(strokes: $strokes)
-                    Text("Draw with the trackpad or mouse")
-                        .scaledFont(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 20)
-                        .padding(.bottom, 8)
-                        .allowsHitTesting(false)
-                }
-                .frame(height: 130)
-                .background(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(.tertiary, style: StrokeStyle(dash: [4])))
+            if typing { typePane } else { drawPane }
+            HStack(spacing: 8) {
+                Text("Ink").foregroundStyle(.secondary)
+                ForEach(EditorPDFFillColor.allCases, id: \.self) { swatch($0) }
             }
             Toggle("Save on this Mac for next time", isOn: $keep)
+            if offersInitials {
+                Toggle(isOn: $makeInitials) {
+                    HStack(spacing: 4) {
+                        Text("Also make initials")
+                        Text(initials.isEmpty ? "—" : initials)
+                            .font(Font(PDFToolkit.font(size: 17, script: true, font: face.toolkit)))
+                            .foregroundStyle(Color(nsColor: ink.nsColor))
+                            .padding(.trailing, 3)
+                        Text("in this style")
+                    }
+                }
+                .disabled(!keep)
+                .help(keep ? "Saves initials from the first letter of each word, in the same face"
+                           : "Initials are saved with the signature — tick Save on this Mac first")
+            }
             Text(Self.privacy)
                 .scaledFont(.system(size: 10))
                 .foregroundStyle(.secondary)
@@ -71,31 +104,130 @@ struct EditorPDFAddSignatureSheet: View {
             }
         }
         .padding(18)
-        .frame(width: 420)
+        .frame(width: 440)
+    }
+
+    private var typePane: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField(kind == .signature ? "Your name" : "Your initials", text: $typed)
+                .textFieldStyle(.roundedBorder)
+            Text(typed.isEmpty ? " " : typed)
+                .font(Font(PDFToolkit.font(size: face == .zapfino ? 22 : 34, script: true, font: face.toolkit)))
+                .foregroundStyle(Color(nsColor: ink.nsColor))
+                .lineLimit(1)
+                .minimumScaleFactor(0.4)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 72)
+                .background(Self.paper, in: RoundedRectangle(cornerRadius: Radius.control))
+                .overlay(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(Self.paperEdge, style: StrokeStyle(dash: [4])))
+            Text("Style").foregroundStyle(.secondary)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                ForEach(EditorPDFSignatureFace.allCases, id: \.self) { tile($0) }
+            }
+        }
+    }
+
+    /// **A face, shown in the name as typed** (TE88) — chosen, and remembered for next time.
+    private func tile(_ option: EditorPDFSignatureFace) -> some View {
+        let chosen = option == face
+        return Button { faceRaw = option.rawValue } label: {
+            VStack(spacing: 2) {
+                Text(words.isEmpty ? (kind == .signature ? "Your name" : "AB") : words)
+                    .font(Font(PDFToolkit.font(size: option == .zapfino ? 9 : 16, script: true, font: option.toolkit)))
+                    .foregroundStyle(Color(white: 0.12))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .frame(maxWidth: .infinity, minHeight: 26)
+                Text(option.title)
+                    .scaledFont(.system(size: 10))
+                    .foregroundStyle(Self.paperCaption)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 5)
+            .background(Self.paper, in: RoundedRectangle(cornerRadius: Radius.chip))
+            .overlay(RoundedRectangle(cornerRadius: Radius.chip)
+                .strokeBorder(chosen ? hue.accentColor : Color(white: 0.84), lineWidth: chosen ? 2 : 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(option.title)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
+    }
+
+    private var drawPane: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .bottomLeading) {
+                EditorPDFSignaturePad(strokes: $strokes, ink: ink, pen: pen, smooth: smooth)
+                Text("Draw with the trackpad or mouse")
+                    .scaledFont(.system(size: 10))
+                    .foregroundStyle(Self.paperCaption)
+                    .padding(.leading, 20)
+                    .padding(.bottom, 8)
+                    .allowsHitTesting(false)
+            }
+            .frame(height: 130)
+            .background(Self.paper, in: RoundedRectangle(cornerRadius: Radius.control))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(Self.paperEdge, style: StrokeStyle(dash: [4])))
+            HStack(spacing: 10) {
+                Text("Pen").foregroundStyle(.secondary)
+                Picker("Pen", selection: $penRaw) {
+                    ForEach(EditorPDFPen.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accentedSegments(hue)
+                .fixedSize()
+            }
+            Toggle("Smooth out wobble", isOn: $smooth)
+                .help("Draws the strokes in gentle curves rather than every jitter of the trackpad")
+        }
+    }
+
+    private func swatch(_ option: EditorPDFFillColor) -> some View {
+        let chosen = option == ink
+        return Button { ink = option } label: {
+            Circle()
+                .fill(Color(nsColor: option.nsColor))
+                .frame(width: 18, height: 18)
+                .overlay(Circle().strokeBorder(.secondary.opacity(0.5), lineWidth: 0.5))
+                .padding(3)
+                .overlay(Circle().strokeBorder(chosen ? hue.accentColor : .clear, lineWidth: 2))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(option.title)
+        .accessibilityLabel(option.title)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 
     private var made: EditorPDFSignature? {
         if typing {
-            let words = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-            return words.isEmpty ? nil : EditorPDFSignature(kind: kind, look: .typed(words))
+            return words.isEmpty ? nil : EditorPDFSignature(kind: kind, look: .typed(words), face: face)
         }
-        return EditorPDFSignature.drawn(strokes, kind: kind)
+        return EditorPDFSignature.drawn(smooth ? EditorPDFSignature.smoothed(strokes) : strokes, kind: kind, pen: pen)
     }
 
     private func add() {
         guard let signature = made else { return }
-        if keep { fill.store.add(signature) }
-        fill.armed = .signature(signature)
+        fill.add(signature, keep: keep, makeInitials: offersInitials && makeInitials, ink: ink)
         dismiss()
     }
 }
 
-/// The pad a signature is drawn on: a stroke per drag, in the pad's own points, y down.
+/// The pad a signature is drawn on: a stroke per drag, in the pad's own points, y down — drawn in
+/// the chosen ink and pen, smoothed as it will be saved when smoothing is on.
 struct EditorPDFSignaturePad: NSViewRepresentable {
     @Binding var strokes: [[CGPoint]]
+    var ink: EditorPDFFillColor = .blue
+    var pen: EditorPDFPen = .medium
+    var smooth = false
 
     final class PadView: NSView {
         var strokes: [[CGPoint]] = [] { didSet { needsDisplay = true } }
+        var ink = EditorPDFFillColor.blue { didSet { needsDisplay = true } }
+        var pen = EditorPDFPen.medium { didSet { needsDisplay = true } }
+        var smooth = false { didSet { needsDisplay = true } }
         var onChange: (([[CGPoint]]) -> Void)?
         override var isFlipped: Bool { true }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -112,20 +244,23 @@ struct EditorPDFSignaturePad: NSViewRepresentable {
         override func mouseUp(with event: NSEvent) { onChange?(strokes) }
 
         override func draw(_ dirtyRect: NSRect) {
-            NSColor.separatorColor.setStroke()
+            // The paper's rule, not the window's separator: the pad is white in either appearance.
+            NSColor(white: 0.8, alpha: 1).setStroke()
             let base = NSBezierPath()
             base.move(to: CGPoint(x: 20, y: bounds.maxY - 28))
             base.line(to: CGPoint(x: bounds.maxX - 20, y: bounds.maxY - 28))
             base.stroke()
-            EditorPDFFillColor.blue.nsColor.set()
-            for stroke in strokes {
+            ink.nsColor.set()
+            let width = pen.padWidth
+            for stroke in smooth ? EditorPDFSignature.smoothed(strokes) : strokes {
                 guard let first = stroke.first else { continue }
                 if stroke.count == 1 {
-                    NSBezierPath(ovalIn: CGRect(x: first.x - 1.2, y: first.y - 1.2, width: 2.4, height: 2.4)).fill()
+                    NSBezierPath(ovalIn: CGRect(x: first.x - width / 2 - 0.1, y: first.y - width / 2 - 0.1,
+                                                width: width + 0.2, height: width + 0.2)).fill()
                     continue
                 }
                 let path = NSBezierPath()
-                path.lineWidth = 2.2
+                path.lineWidth = width
                 path.lineCapStyle = .round
                 path.lineJoinStyle = .round
                 path.move(to: first)
@@ -139,11 +274,15 @@ struct EditorPDFSignaturePad: NSViewRepresentable {
         let view = PadView()
         view.onChange = { strokes = $0 }
         view.setAccessibilityLabel("Signature pad")
+        updateNSView(view, context: context)
         return view
     }
 
     func updateNSView(_ view: PadView, context: Context) {
         view.onChange = { strokes = $0 }
         if view.strokes != strokes { view.strokes = strokes }
+        if view.ink != ink { view.ink = ink }
+        if view.pen != pen { view.pen = pen }
+        if view.smooth != smooth { view.smooth = smooth }
     }
 }

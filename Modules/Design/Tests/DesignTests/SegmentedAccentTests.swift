@@ -197,7 +197,8 @@ import Testing
         // 11 since Edit's PDF tools: Compress's "By strength / To a size" and Protect's "Lock to
         // open / Restrict editing".
         // 12 since Fill & Sign's Add Signature sheet: "Draw / Type".
-        #expect(sites == 12, "expected 12 segmented pickers in the app, found \(sites)")
+        // 13 since that sheet's pen: "Fine / Medium / Bold" (Signature Styles TE90).
+        #expect(sites == 13, "expected 13 segmented pickers in the app, found \(sites)")
     }
 
     /// Every Swift file the SHIPPING app is built from: each module's `Sources`, plus `MacApp`.

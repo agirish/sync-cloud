@@ -103,6 +103,107 @@ public enum EditorPDFFillColor: String, CaseIterable, Codable, Sendable {
     }
 }
 
+/// **The Mac's own handwriting faces a typed signature can take** (TE88; decision AQ, 2026-10-19:
+/// built-in faces only, nothing bundled). SignPainter is left out (decision AT, 2026-10-19): on a PDF
+/// with form fields a typed item is saved as a FreeText annotation, and Preview, Chrome and Acrobat
+/// all drew its ligature letters ("ir", "or") garbled or not at all.
+public enum EditorPDFSignatureFace: String, CaseIterable, Codable, Sendable {
+    case snellRoundhand
+    case savoye
+    case zapfino
+    case bradleyHand
+    case appleChancery
+    case noteworthy
+    case brushScript
+
+    public var title: String {
+        switch self {
+        case .snellRoundhand: return "Snell Roundhand"
+        case .savoye: return "Savoye"
+        case .zapfino: return "Zapfino"
+        case .bradleyHand: return "Bradley Hand"
+        case .appleChancery: return "Apple Chancery"
+        case .noteworthy: return "Noteworthy"
+        case .brushScript: return "Brush Script"
+        }
+    }
+
+    public var postScriptName: String {
+        switch self {
+        case .snellRoundhand: return "SnellRoundhand"
+        case .savoye: return "SavoyeLetPlain"
+        case .zapfino: return "Zapfino"
+        case .bradleyHand: return "BradleyHandITCTT-Bold"
+        case .appleChancery: return "Apple-Chancery"
+        case .noteworthy: return "Noteworthy-Light"
+        case .brushScript: return "BrushScriptMT"
+        }
+    }
+
+    var toolkit: FillSignFont { .named(postScriptName) }
+}
+
+/// **A drawn signature's pen** (TE90). Medium is the width every signature had before.
+public enum EditorPDFPen: String, CaseIterable, Codable, Sendable {
+    case fine
+    case medium
+    case bold
+
+    public var title: String {
+        switch self {
+        case .fine: return "Fine"
+        case .medium: return "Medium"
+        case .bold: return "Bold"
+        }
+    }
+
+    /// The toolkit's pen width: a fraction of the placed box's shorter side.
+    public var widthFraction: CGFloat {
+        switch self {
+        case .fine: return 0.013
+        case .medium: return FillSignSignature.defaultPenWidthFraction
+        case .bold: return 0.031
+        }
+    }
+
+    /// The pen's width on the Add Signature pad, in points — medium is the pad's old 2.2.
+    var padWidth: CGFloat { 2.2 * widthFraction / FillSignSignature.defaultPenWidthFraction }
+}
+
+/// **The font of placed text and dates** (TE93). Serif is Charter, not New York: New York has only
+/// a private system name, which a form's FreeText annotation can't carry — measured 2026-10-19, it
+/// came out as Helvetica in Preview, Chrome and Acrobat. Charter came through in all three.
+public enum EditorPDFTextFont: String, CaseIterable, Codable, Sendable {
+    case sans
+    case serif
+    case rounded
+    case mono
+    case handwritten
+
+    public var title: String {
+        switch self {
+        case .sans: return "Sans"
+        case .serif: return "Serif"
+        case .rounded: return "Rounded"
+        case .mono: return "Mono"
+        case .handwritten: return "Handwritten"
+        }
+    }
+
+    /// `nil` is the system font, as every text item was before.
+    var toolkit: FillSignFont? {
+        switch self {
+        case .sans: return nil
+        case .serif: return .named("Charter-Roman")
+        case .rounded: return .systemRounded
+        case .mono: return .systemMonospaced
+        case .handwritten: return .named("Noteworthy-Light")
+        }
+    }
+
+    func font(size: CGFloat) -> NSFont { PDFToolkit.font(size: size, script: false, font: toolkit) }
+}
+
 /// **A signature or a set of initials** — drawn with the pointer or typed in a script face. Saved
 /// ones are kept on this Mac only (``EditorPDFSignatureStore``), as pen strokes or the typed words.
 public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
@@ -118,24 +219,44 @@ public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
         /// Pen strokes normalized to the ink's own box — 0…1, y down — and that box's width over
         /// its height, so it is placed at the shape it was drawn.
         case drawn(strokes: [[CGPoint]], aspect: CGFloat)
-        /// Words drawn in the toolkit's script face (`FillSignText.isScript`).
+        /// Words drawn in a script face (``face``).
         case typed(String)
     }
 
     public var id: UUID
     public var kind: Kind
     public var look: Look
+    /// A typed one's face — Snell Roundhand, the one face there was, for one saved before faces.
+    public var face: EditorPDFSignatureFace
+    /// A drawn one's pen — Medium, the one width there was, for one saved before pens.
+    public var pen: EditorPDFPen
 
-    public init(id: UUID = UUID(), kind: Kind, look: Look) {
+    public init(id: UUID = UUID(), kind: Kind, look: Look, face: EditorPDFSignatureFace = .snellRoundhand,
+                pen: EditorPDFPen = .medium) {
         self.id = id
         self.kind = kind
         self.look = look
+        self.face = face
+        self.pen = pen
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, kind, look, face, pen }
+
+    /// **Signatures saved before faces and pens decode as Snell Roundhand and Medium** — and a face
+    /// this build doesn't know (a later one's) as Snell too, rather than losing every saved one.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        kind = try c.decode(Kind.self, forKey: .kind)
+        look = try c.decode(Look.self, forKey: .look)
+        face = (try? c.decodeIfPresent(EditorPDFSignatureFace.self, forKey: .face)) ?? .snellRoundhand
+        pen = (try? c.decodeIfPresent(EditorPDFPen.self, forKey: .pen)) ?? .medium
     }
 
     /// **Strokes from the pad, in its own points (y down), fitted to their own box** — `nil` when
     /// nothing was drawn. A flat stroke (a dash, an underline) keeps a box at least a fifth as tall
     /// as it is wide, so it is not placed a hair high.
-    public static func drawn(_ strokes: [[CGPoint]], kind: Kind) -> EditorPDFSignature? {
+    public static func drawn(_ strokes: [[CGPoint]], kind: Kind, pen: EditorPDFPen = .medium) -> EditorPDFSignature? {
         let points = strokes.flatMap { $0 }
         guard let first = points.first else { return nil }
         var box = points.dropFirst().reduce(CGRect(origin: first, size: .zero)) { $0.union(CGRect(origin: $1, size: .zero)) }
@@ -145,7 +266,36 @@ public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
         let normalized = strokes.filter { !$0.isEmpty }.map { stroke in
             stroke.map { CGPoint(x: ($0.x - box.minX) / box.width, y: ($0.y - box.minY) / box.height) }
         }
-        return EditorPDFSignature(kind: kind, look: .drawn(strokes: normalized, aspect: width / height))
+        return EditorPDFSignature(kind: kind, look: .drawn(strokes: normalized, aspect: width / height), pen: pen)
+    }
+
+    /// **The trackpad's wobble smoothed out** (TE91): each point averaged with its neighbours, then
+    /// its corners cut once, so the pen's line runs in gentle curves. The ends stay where they were
+    /// drawn, and a dot or a two-point dash is left as it is.
+    public static func smoothed(_ strokes: [[CGPoint]]) -> [[CGPoint]] {
+        strokes.map { stroke in
+            guard stroke.count >= 3 else { return stroke }
+            let reach = 3
+            let averaged = stroke.indices.map { i -> CGPoint in
+                if i == 0 || i == stroke.count - 1 { return stroke[i] }
+                let span = max(0, i - reach)...min(stroke.count - 1, i + reach)
+                let sum = stroke[span].reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.x, y: $0.y + $1.y) }
+                return CGPoint(x: sum.x / CGFloat(span.count), y: sum.y / CGFloat(span.count))
+            }
+            var cut = [averaged[0]]
+            for (a, b) in zip(averaged, averaged.dropFirst()) {
+                cut.append(CGPoint(x: 0.75 * a.x + 0.25 * b.x, y: 0.75 * a.y + 0.25 * b.y))
+                cut.append(CGPoint(x: 0.25 * a.x + 0.75 * b.x, y: 0.25 * a.y + 0.75 * b.y))
+            }
+            cut.append(averaged[averaged.count - 1])
+            return cut
+        }
+    }
+
+    /// **"AG" for "Abhishek Girish"** (TE94): the first letter of each word, at most three.
+    public static func initials(of name: String) -> String {
+        name.split(whereSeparator: \.isWhitespace).compactMap { $0.first(where: \.isLetter) }
+            .prefix(3).map { $0.uppercased() }.joined()
     }
 }
 
@@ -166,15 +316,18 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
     /// Text's point size, and a typed signature's. A drawn signature is sized by its rect.
     public var fontSize: CGFloat
     public var color: EditorPDFFillColor
+    /// Text's font (TE93). A typed signature's face is its signature's.
+    public var font: EditorPDFTextFont
 
     public init(id: UUID = UUID(), page: Int, rect: CGRect, content: Content, fontSize: CGFloat,
-                color: EditorPDFFillColor) {
+                color: EditorPDFFillColor, font: EditorPDFTextFont = .sans) {
         self.id = id
         self.page = page
         self.rect = rect
         self.content = content
         self.fontSize = fontSize
         self.color = color
+        self.font = font
     }
 
     /// The words this item draws, and whether in the script face — `nil` for a drawn signature.
@@ -187,10 +340,33 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
         }
     }
 
-    public var isSignature: Bool {
-        if case .signature = content { return true }
+    /// The face the toolkit is asked for: text's font, a typed signature's face.
+    var toolkitFont: FillSignFont? {
+        switch content {
+        case .text: return font.toolkit
+        case .signature(let signature): return signature.face.toolkit
+        }
+    }
+
+    /// **The face this item's words are drawn in, at `size`** — the toolkit's own choice, so the
+    /// screen draws what Save writes.
+    func nsFont(size: CGFloat) -> NSFont {
+        PDFToolkit.font(size: max(4, size), script: words?.script ?? false, font: toolkitFont)
+    }
+
+    /// A ✓, ✗ or • — text, but a mark keeps the system font: not every face has its glyph.
+    public var isMark: Bool {
+        if case .text(let string) = content { return EditorPDFFillMark(rawValue: string) != nil }
         return false
     }
+
+    /// The typed signature or set of initials this item is, or `nil`.
+    public var signature: EditorPDFSignature? {
+        if case .signature(let signature) = content { return signature }
+        return nil
+    }
+
+    public var isSignature: Bool { signature != nil }
 
     public var hasInk: Bool {
         switch content {
@@ -211,30 +387,50 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
         switch self.content {
         case .text(let string):
             content = .text(FillSignText(string: string, fontSize: fontSize, red: ink.red, green: ink.green,
-                                         blue: ink.blue))
+                                         blue: ink.blue, font: toolkitFont))
         case .signature(let signature):
             switch signature.look {
             case .typed(let string):
                 content = .text(FillSignText(string: string, fontSize: fontSize, red: ink.red, green: ink.green,
-                                             blue: ink.blue, isScript: true))
+                                             blue: ink.blue, isScript: true, font: toolkitFont))
             case .drawn(let strokes, _):
                 content = .signature(FillSignSignature(strokes: box.pageStrokes(strokes, in: rect), red: ink.red,
                                                        green: ink.green, blue: ink.blue,
-                                                       penWidthFraction: FillSignSignature.defaultPenWidthFraction))
+                                                       penWidthFraction: signature.pen.widthFraction))
             }
         }
         return FillSignItem(id: id, pageIndex: page, rect: pageRect, content: content)
     }
 
-    /// **The box words of `fontSize` need** in the face the toolkit draws them with — its
-    /// `scriptOrSystemFont`. The toolkit word-wraps inside the rect and draws only what fits, so a
-    /// box too small drops the end of the words (`wordsPlacedAtTheirMeasuredBoxComeOutWhole`).
-    /// Measured 2026-10-18, the exact measured box already comes out whole; the room over it is for
-    /// the screen — the typing field's own insets, and the selection ring kept off the glyphs.
-    public static func size(of string: String, fontSize: CGFloat, script: Bool) -> CGSize {
-        let font = PDFToolkit.scriptOrSystemFont(size: max(4, fontSize), script: script)
-        let measured = NSAttributedString(string: string.isEmpty ? "M" : string, attributes: [.font: font]).size()
+    /// **The box words of `fontSize` need** in the face the toolkit draws them with. The toolkit
+    /// word-wraps inside the rect and draws only what fits, so a box too small drops the end of the
+    /// words (`wordsPlacedAtTheirMeasuredBoxComeOutWhole`). Measured 2026-10-18, the exact measured
+    /// box already comes out whole; the room over it is for the screen — the typing field's own
+    /// insets, and the selection ring kept off the glyphs.
+    public static func size(of string: String, fontSize: CGFloat, script: Bool, font: FillSignFont? = nil) -> CGSize {
+        let measured = measure(string, fontSize: fontSize, script: script, font: font)
         return CGSize(width: ceil(measured.width + fontSize * 0.3 + 2), height: ceil(measured.height + 1))
+    }
+
+    /// This item's words' box at `fontSize`.
+    func wordsSize(fontSize: CGFloat) -> CGSize? {
+        words.map { Self.size(of: $0.string, fontSize: fontSize, script: $0.script, font: toolkitFont) }
+    }
+
+    static func measure(_ string: String, fontSize: CGFloat, script: Bool, font: FillSignFont?) -> CGSize {
+        let face = PDFToolkit.font(size: max(4, fontSize), script: script, font: font)
+        return NSAttributedString(string: string.isEmpty ? "M" : string, attributes: [.font: face]).size()
+    }
+
+    /// **The point size that sets `string` in `face` as wide as `reference` sets it at `size`** —
+    /// every face placed at one width (TE88), so Zapfino's loops don't make a bigger signature.
+    static func fittedSize(_ string: String, face: EditorPDFSignatureFace, matching reference: EditorPDFSignatureFace,
+                           at size: CGFloat) -> CGFloat {
+        guard face != reference else { return size }
+        let want = measure(string, fontSize: size, script: true, font: reference.toolkit).width
+        let got = measure(string, fontSize: size, script: true, font: face.toolkit).width
+        guard want > 0, got > 0 else { return size }
+        return max(4, (size * want / got * 10).rounded() / 10)
     }
 }
 
@@ -284,7 +480,8 @@ public final class EditorPDFSignatureStore: ObservableObject {
     static let limit = 6
 
     @Published public private(set) var saved: [EditorPDFSignature]
-    private let defaults: UserDefaults
+    /// Where they are kept — and the Add Signature sheet's last face, pen and smoothing.
+    let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -308,6 +505,18 @@ public final class EditorPDFSignatureStore: ObservableObject {
     }
 
     public func delete(_ id: UUID) { write(Self.read(defaults).filter { $0.id != id }) }
+
+    /// **A saved one restyled in place** (decision AS) — where it was in the list, under its id.
+    /// One deleted meanwhile stays deleted.
+    public func replace(_ signature: EditorPDFSignature) {
+        write(Self.read(defaults).map { $0.id == signature.id ? signature : $0 })
+    }
+
+    /// The Add Signature sheet's last face, pen and smoothing — remembered for next time (TE88, TE90,
+    /// TE91), on this Mac like the signatures.
+    public static let faceKey = "editorPDFSignatureFace"
+    public static let penKey = "editorPDFSignaturePen"
+    public static let smoothKey = "editorPDFSignatureSmoothing"
 
     private func write(_ signatures: [EditorPDFSignature]) {
         saved = signatures
@@ -340,6 +549,8 @@ public final class EditorPDFFillSign: ObservableObject {
     /// What the next item is drawn in, and what A− / A+ and the inks last chose.
     @Published public private(set) var color: EditorPDFFillColor = .blue
     @Published public private(set) var fontSize: CGFloat = EditorPDFFillSign.defaultFontSize
+    /// The next text's font, and what the Aa tool last chose for text (TE93).
+    @Published public private(set) var textFont: EditorPDFTextFont = .sans
     /// Why Fill & Sign is off for this file, or `nil` — said when its button is pressed.
     @Published public private(set) var refusal: String?
 
@@ -393,7 +604,8 @@ public final class EditorPDFFillSign: ObservableObject {
     /// A drawn signature's width when placed, and initials', in page points.
     static let signatureWidth: CGFloat = 150
     static let initialsWidth: CGFloat = 54
-    /// A typed signature's point size when placed, and typed initials'.
+    /// A typed signature's point size when placed, and typed initials' — in Snell Roundhand; every
+    /// other face is placed at the width Snell would take (TE88).
     static let signatureFontSize: CGFloat = 28
     static let initialsFontSize: CGFloat = 20
 
@@ -623,6 +835,7 @@ public final class EditorPDFFillSign: ObservableObject {
         endFieldEditing()
         let content: EditorPDFFillItem.Content
         var size: CGFloat = fontSize
+        var font = textFont
         let name: String
         switch armed {
         case .formFields:
@@ -636,15 +849,18 @@ public final class EditorPDFFillSign: ObservableObject {
             name = "Place Date"
         case .mark(let mark):
             content = .text(mark.rawValue)
+            font = .sans
             name = "Place Mark"
         case .signature(let signature):
             content = .signature(signature)
-            if case .typed = signature.look {
-                size = signature.kind == .signature ? Self.signatureFontSize : Self.initialsFontSize
+            if case .typed(let words) = signature.look {
+                size = EditorPDFFillItem.fittedSize(
+                    words, face: signature.face, matching: .snellRoundhand,
+                    at: signature.kind == .signature ? Self.signatureFontSize : Self.initialsFontSize)
             }
             name = "Place \(signature.kind.title)"
         }
-        var item = EditorPDFFillItem(page: page, rect: .zero, content: content, fontSize: size, color: color)
+        var item = EditorPDFFillItem(page: page, rect: .zero, content: content, fontSize: size, color: color, font: font)
         let extent = Self.extent(of: item)
         let origin: CGPoint
         if case .text = armed {
@@ -669,7 +885,7 @@ public final class EditorPDFFillSign: ObservableObject {
 
     /// The size an item takes: its words' box, or a drawn signature at its placing width.
     static func extent(of item: EditorPDFFillItem) -> CGSize {
-        if let words = item.words { return EditorPDFFillItem.size(of: words.string, fontSize: item.fontSize, script: words.script) }
+        if let size = item.wordsSize(fontSize: item.fontSize) { return size }
         guard case .signature(let signature) = item.content, case .drawn(_, let aspect) = signature.look else {
             return item.rect.size
         }
@@ -960,10 +1176,10 @@ public final class EditorPDFFillSign: ObservableObject {
         guard let index = items.firstIndex(where: { $0.id == id }), let box = box(items[index].page) else { return }
         let dragged = FillSignGeometry.resizedRect(anchor: anchor, corner: corner, minimumSide: FillSignGeometry.minimumSidePt)
         var item = items[index]
-        if let words = item.words {
-            let unit = EditorPDFFillItem.size(of: words.string, fontSize: 10, script: words.script).height / 10
+        if let unitBox = item.wordsSize(fontSize: 10) {
+            let unit = unitBox.height / 10
             item.fontSize = min(max(dragged.height / max(unit, 0.1), Self.fontSizes[0]), Self.fontSizes.last!)
-            let size = EditorPDFFillItem.size(of: words.string, fontSize: item.fontSize, script: words.script)
+            let size = item.wordsSize(fontSize: item.fontSize) ?? unitBox
             // Held by the top-left corner, where the words start.
             item.rect = CGRect(x: item.rect.minX, y: item.rect.maxY - size.height, width: size.width, height: size.height)
         } else {
@@ -1037,7 +1253,126 @@ public final class EditorPDFFillSign: ObservableObject {
         }
     }
 
+    /// **Add on the Add Signature sheet**: saved unless unticked — with initials made from a typed
+    /// signature in its face when asked (TE94) — chosen, so the next click places it, and its ink
+    /// the next item's (TE89). The palette's ink, not the selected item's: adding a signature
+    /// recolours nothing already placed.
+    public func add(_ signature: EditorPDFSignature, keep: Bool, makeInitials: Bool, ink: EditorPDFFillColor) {
+        if keep {
+            store.add(signature)
+            if makeInitials, offersInitials(with: signature.kind), case .typed(let words) = signature.look {
+                let initials = EditorPDFSignature.initials(of: words)
+                if !initials.isEmpty {
+                    store.add(EditorPDFSignature(kind: .initials, look: .typed(initials), face: signature.face))
+                }
+            }
+        }
+        color = ink
+        armed = .signature(signature)
+    }
+
+    /// **Whether Add Signature offers to make initials too** (TE94): for a signature, while no
+    /// initials are saved.
+    public func offersInitials(with kind: EditorPDFSignature.Kind) -> Bool {
+        kind == .signature && store.saved(.initials).isEmpty
+    }
+
     public var selected: EditorPDFFillItem? { selection.flatMap { id in items.first { $0.id == id } } }
+
+    // MARK: Style (TE92, TE93)
+
+    /// **What the Aa tool changes now**: the selected item's face, pen or font — or, with nothing
+    /// selected, the next text's font, as Size and Ink do.
+    public enum StyleTarget: Equatable, Sendable {
+        case nextText
+        case text(UUID)
+        case typedSignature(UUID)
+        case drawnSignature(UUID)
+        /// A ✓, ✗ or • — it keeps the system font.
+        case mark
+    }
+
+    public var styleTarget: StyleTarget {
+        guard let item = selected else { return .nextText }
+        if item.isMark { return .mark }
+        switch item.content {
+        case .text: return .text(item.id)
+        case .signature(let signature):
+            if case .typed = signature.look { return .typedSignature(item.id) }
+            return .drawnSignature(item.id)
+        }
+    }
+
+    /// The font the Aa tool ticks for text: the selected text's, else the next text's.
+    public var currentTextFont: EditorPDFTextFont {
+        if case .text = styleTarget, let item = selected { return item.font }
+        return textFont
+    }
+
+    /// A font for the selected text, and the next — one undo step, as Size's.
+    public func setTextFont(_ font: EditorPDFTextFont) {
+        if case .text(let id) = styleTarget {
+            change("Font") { items in
+                guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+                items[index].font = font
+                Self.resizeToWords(&items[index], in: box(items[index].page))
+            }
+        }
+        textFont = font
+    }
+
+    /// **Another face for the selected typed signature**, kept at the width it was placed at (TE88).
+    public func setFace(_ face: EditorPDFSignatureFace) {
+        guard case .typedSignature(let id) = styleTarget, let item = selected, var signature = item.signature,
+              case .typed(let words) = signature.look, signature.face != face else { return }
+        let size = EditorPDFFillItem.fittedSize(words, face: face, matching: signature.face, at: item.fontSize)
+        signature.face = face
+        restyle(id, to: signature, name: "Signature Style") { $0.fontSize = size }
+    }
+
+    /// Another pen for the selected drawn signature (TE92).
+    public func setPen(_ pen: EditorPDFPen) {
+        guard case .drawnSignature(let id) = styleTarget, var signature = selected?.signature, signature.pen != pen else {
+            return
+        }
+        signature.pen = pen
+        restyle(id, to: signature, name: "Signature Style") { _ in }
+    }
+
+    /// **Whether restyling the selected signature changes the saved one too** — decision AS,
+    /// 2026-10-19: it does, when it was saved; one placed without saving changes on the page only.
+    public var restyleChangesSaved: Bool {
+        guard let id = selected?.signature?.id else { return false }
+        return store.saved.contains { $0.id == id }
+    }
+
+    /// The placed signature restyled — and the saved one with it — as ONE undo step: ⌘Z puts both
+    /// back, so a face tried and undone leaves the next file's signature as it was.
+    private func restyle(_ id: UUID, to signature: EditorPDFSignature, name: String,
+                         _ adjust: (inout EditorPDFFillItem) -> Void) {
+        undoManager.beginUndoGrouping()
+        defer { undoManager.endUndoGrouping() }
+        if let saved = store.saved.first(where: { $0.id == signature.id }) {
+            store.replace(signature)
+            registerSaved(saved, name)
+        }
+        change(name) { items in
+            guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+            items[index].content = .signature(signature)
+            adjust(&items[index])
+            Self.resizeToWords(&items[index], in: box(items[index].page))
+        }
+    }
+
+    /// Puts `saved` back on undo, and what it replaced on redo.
+    private func registerSaved(_ saved: EditorPDFSignature, _ name: String) {
+        undoManager.registerUndo(withTarget: self) { fill in
+            guard let now = fill.store.saved.first(where: { $0.id == saved.id }) else { return }
+            fill.store.replace(saved)
+            fill.registerSaved(now, name)
+        }
+        undoManager.setActionName(name)
+    }
 
     private func resizeToWords(_ index: Int) {
         Self.resizeToWords(&items[index], in: box(items[index].page))
@@ -1045,8 +1380,7 @@ public final class EditorPDFFillSign: ObservableObject {
 
     /// Fits a text item's box to its words, held by its top-left corner.
     static func resizeToWords(_ item: inout EditorPDFFillItem, in box: EditorPDFPageBox?) {
-        guard let words = item.words else { return }
-        let size = EditorPDFFillItem.size(of: words.string, fontSize: item.fontSize, script: words.script)
+        guard let size = item.wordsSize(fontSize: item.fontSize) else { return }
         var rect = CGRect(x: item.rect.minX, y: item.rect.maxY - size.height, width: size.width, height: size.height)
         if let box { rect = FillSignGeometry.clamped(rect, in: box.displayBounds) }
         item.rect = rect
