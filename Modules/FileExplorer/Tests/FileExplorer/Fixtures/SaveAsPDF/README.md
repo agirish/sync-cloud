@@ -12,6 +12,7 @@ Read by `SaveAsPDFRenderTests` and `SaveAsPDFTests`. Each Office file here is on
 | `Deck.pptx` | python-pptx 1.0.2, the default template | three title-and-content slides, `SAVEASPDF-SLIDE-1`…`3` |
 | `Pictures.pptx` | python-pptx 1.0.2 + Pillow | two blank-layout slides, each one full-slide PNG and no text |
 | `PictureWords.pptx` | python-pptx 1.0.2 + Pillow 11.3, Arial drawn into 1920×1440 PNGs | two blank-layout slides, each one full-slide picture of words and no text: “Harvest moon festival” / “Tickets at the north gate”, “Lighthouse keeper rota” / “Lamps lit before dusk” — each title at x 160, y 260 px, the second line at y 960 |
+| `Mixed.pptx` | python-pptx 1.0.2 + Pillow 11.3, Arial 120 and 96 px into a 1920×1440 PNG | slide 1 title-and-content, “Mixed Deck” / `SAVEASPDF-MIXED-TEXT`; slide 2 blank layout, one full-slide picture of “Orchard harvest supper” (x 160, y 260 px) / “Cider pressed at noon” (y 960) and no text |
 | `FourPictures.docx` | python-docx 1.2.0 + Pillow 11.3 | 40 lines, then four 1920×1440 PNGs 6 in wide, `SAVEASPDF-FOUR-PICTURES-END` |
 | `FourPictures.xlsx` | xlsxwriter 3.2.9 + the same PNGs | `ROW-001`…`260` in column A, the pictures at 30 % in column B from rows 61, 121, 181 and 241, `SAVEASPDF-FOUR-PICTURES-END` |
 

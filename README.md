@@ -144,8 +144,8 @@ Not in the v5.5 release; this is what `main` does today, and it may change befor
   stays fillable. Nothing is written until **Save Filled Copy**, which writes
   `Lease (signed).pdf` beside the original.
 - **Save as PDF** on the right-click menu turns a Word, Excel or PowerPoint file, an RTF, a
-  Markdown note or a `.txt` into a PDF beside it. A deck whose slides are pictures has their
-  words recognised, so the PDF can still be searched.
+  Markdown note or a `.txt` into a PDF beside it. A slide that is a picture has its words
+  recognised, so the PDF can still be searched.
 
 ### 🤖 AI-assisted filing (optional)
 Organize's suggestions start from a fast, fully-offline engine (your existing folder names + filename

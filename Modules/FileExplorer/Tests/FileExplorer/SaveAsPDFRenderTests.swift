@@ -96,7 +96,7 @@ import PDFKit
     /// **Quick Look still writes HTML for each Office fixture** — the premise every route below
     /// stands on, pinned on its own so a macOS that changes it names the cause.
     @Test(arguments: ["Memo.docx", "Memo.doc", "Long.docx", "Budget.xlsx", "Wide.xlsx", "Deck.pptx", "Pictures.pptx",
-                     "FourPictures.docx", "FourPictures.xlsx"])
+                     "Mixed.pptx", "FourPictures.docx", "FourPictures.xlsx"])
     func quickLookStillWritesHTML(_ name: String) async throws {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("ql-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
@@ -260,7 +260,7 @@ import PDFKit
         let output = try await SaveAsPDFRender.render(try Self.fixture("Deck.pptx"))
         let document = try read(output)
         #expect(output.pageCount == 3)
-        #expect(!output.isPictures)
+        #expect(output.picturePages == 0)
         for index in 0..<3 {
             #expect(pageText(document, index).contains("SAVEASPDF-SLIDE-\(index + 1)"),
                     "page \(index + 1) reads: \(pageText(document, index))")
@@ -275,6 +275,7 @@ import PDFKit
         let output = try await SaveAsPDFRender.render(try Self.fixture("Pictures.pptx"))
         let document = try read(output)
         #expect(output.pageCount == 2)
+        #expect(output.picturePages == 2)
         #expect(output.isPictures)
         #expect(!output.isRecognised)
         let text = allText(document)
@@ -307,6 +308,28 @@ import PDFKit
         let lamps = try #require(document.findString("Lamps", withOptions: []).first)
         let line = lamps.bounds(for: page)
         #expect(line.midY > size.height * 0.25 && line.midY < size.height * 0.4, "the line is at \(line) on \(size)")
+    }
+
+    /// **A deck mixing a text slide with a picture of words reads the picture only** — the picture's
+    /// page gets its words, and the text slide's page reads exactly as the file's text made it,
+    /// with nothing recognised laid over it.
+    @Test func aMixedDeckReadsOnlyItsPictureSlides() async throws {
+        let path = try Self.fixture("Mixed.pptx")
+        let output = try await SaveAsPDFRender.render(path)
+        let document = try read(output)
+        #expect(output.pageCount == 2)
+        #expect(output.picturePages == 1)
+        #expect(!output.isPictures)
+        #expect(output.isRecognised)
+        #expect(occurrences(of: "SAVEASPDF-MIXED-TEXT", in: pageText(document, 0)) == 1, "page 1 reads: \(pageText(document, 0))")
+        #expect(!pageText(document, 0).contains("Orchard"))
+        #expect(pageText(document, 1).contains("Orchard harvest supper"), "page 2 reads: \(pageText(document, 1))")
+        #expect(pageText(document, 1).contains("Cider pressed at noon"), "page 2 reads: \(pageText(document, 1))")
+
+        let plain = try await SaveAsPDFRender.officePDF(path, kind: .presentation, settings: SaveAsPDFRender.Settings())
+        let before = PDFDocument(data: plain)?.page(at: 0)?.string ?? ""
+        #expect(before.contains("SAVEASPDF-MIXED-TEXT"))
+        #expect(pageText(document, 0) == before, "the text slide changed: \(pageText(document, 0))")
     }
 
     /// **The words are invisible** — each page draws pixel for pixel as it did without them.

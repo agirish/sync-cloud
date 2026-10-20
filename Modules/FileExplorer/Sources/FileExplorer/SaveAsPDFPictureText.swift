@@ -5,8 +5,8 @@ import Foundation
 import Vision
 
 /// **The words in a deck's slide pictures, read by Vision and laid invisibly over each page** — so a
-/// deck whose slides are pictures can still be searched and selected (R2, decision AO's "searchable
-/// text later").
+/// deck whose slides are pictures, all or some of them, can still be searched and selected (R2,
+/// decision AO's "searchable text later").
 ///
 /// Each page is drawn to a bitmap and read with `VNRecognizeTextRequest`; then the page is drawn
 /// again into a new PDF, its own content first and each recognised line over it in text render mode
@@ -32,16 +32,19 @@ enum PictureText {
         var box: CGRect
     }
 
-    /// `pdf` with every page's recognised words laid over it, or `nil` when no page had any —
-    /// nothing to add, and the caller keeps the PDF it has.
-    static func searchable(_ pdf: Data) -> Data? {
+    /// `pdf` with the recognised words of the pages in `reading` — counted from 0, every page when
+    /// `nil` — laid over them, or `nil` when none had any: nothing to add, and the caller keeps the
+    /// PDF it has. The other pages are carried over as they are, unread.
+    static func searchable(_ pdf: Data, reading: Set<Int>? = nil) -> Data? {
         guard let document = PDFComposer.document(pdf), document.numberOfPages > 0 else { return nil }
         var composer = PDFComposer()
         var found = false
         for number in 1...document.numberOfPages {
             guard let page = document.page(at: number) else { return nil }
             let paper = page.getBoxRect(.mediaBox).size
-            let lines = recognise(page)
+            // CoreGraphics counts pages from 1.
+            let isRead = reading?.contains(number - 1) ?? true
+            let lines = isRead ? recognise(page) : []
             found = found || !lines.isEmpty
             composer.add(page, paper: paper, into: CGRect(origin: .zero, size: paper)) { context in
                 draw(lines, in: context, paper: paper)

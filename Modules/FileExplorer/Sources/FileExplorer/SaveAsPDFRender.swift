@@ -9,12 +9,15 @@ import WebKit
 struct SaveAsPDFOutput: Sendable, Equatable {
     var data: Data
     var pageCount: Int
-    /// A deck whose pages carried no text a reader can select — its slides were pictures in the file
-    /// itself, so the PDF is pictures too. The banner says so (decision AO).
-    var isPictures: Bool
+    /// A deck's pages that carried no text a reader can select — slides that were pictures in the
+    /// file itself, so their pages are pictures too. The banner says so (decision AO).
+    var picturePages: Int
     /// Pictures whose words Vision read, now laid invisibly over them (``PictureText``) — the PDF
     /// can be searched, with a misread here and there, and the banner says that instead.
     var isRecognised: Bool
+
+    /// Every slide a picture.
+    var isPictures: Bool { pageCount > 0 && picturePages == pageCount }
 }
 
 /// Why a file could not be saved as PDF, in the reader's words — what follows "couldn't be saved
@@ -45,9 +48,10 @@ struct SaveAsPDFFailure: LocalizedError, Equatable {
 ///   Word falls back to the text system when Quick Look gives nothing.
 ///
 /// **No PDFKit here but one read in the lane.** Pages are counted and combined with CoreGraphics,
-/// which is not PDFKit (``PDFMenuEncryption`` measures the same distinction); whether a deck came
-/// out as pictures is asked of PDFKit through `PDFKitSerialAccess`, like every other parse. A deck
-/// that did gets its pictures' words read by Vision and laid over them (``PictureText``).
+/// which is not PDFKit (``PDFMenuEncryption`` measures the same distinction); which of a deck's
+/// pages came out as pictures is asked of PDFKit through `PDFKitSerialAccess`, like every other
+/// parse. Those pages, and only those, get their words read by Vision and laid over them
+/// (``PictureText``) — a deck can mix text slides with pictures.
 @MainActor
 enum SaveAsPDFRender {
 
@@ -71,20 +75,33 @@ enum SaveAsPDFRender {
         }
         let pages = pageCount(data)
         guard pages > 0 else { throw SaveAsPDFFailure.noPages }
-        var isPictures = false, isRecognised = false
+        var pictures: Set<Int> = [], isRecognised = false
         if kind == .presentation {
-            let text = await PDFKitSerialAccess.perform { [data] in PDFDocument(data: data)?.string ?? "" }
-            isPictures = text.allSatisfy(\.isWhitespace)
+            pictures = await Self.pagesWithoutText(data)
         }
-        if isPictures {
-            // Off the main actor: Vision blocks for every slide.
-            let read = await Task.detached(priority: .userInitiated) { [data] in PictureText.searchable(data) }.value
+        if !pictures.isEmpty {
+            // Off the main actor: Vision blocks for every slide it reads.
+            let read = await Task.detached(priority: .userInitiated) { [data, pictures] in
+                PictureText.searchable(data, reading: pictures)
+            }.value
             if let read {
                 data = read
                 isRecognised = true
             }
         }
-        return SaveAsPDFOutput(data: data, pageCount: pages, isPictures: isPictures, isRecognised: isRecognised)
+        return SaveAsPDFOutput(data: data, pageCount: pages, picturePages: pictures.count, isRecognised: isRecognised)
+    }
+
+    /// The pages, counted from 0, with no text a reader can select — a deck's slides that were
+    /// pictures in the file itself. Asked of PDFKit, in its lane. A PDF PDFKit cannot open is taken
+    /// as all pictures, as the whole-deck check before it took it.
+    static func pagesWithoutText(_ data: Data) async -> Set<Int> {
+        let texts: [String]? = await PDFKitSerialAccess.perform { [data] in
+            guard let document = PDFDocument(data: data) else { return nil }
+            return (0..<document.pageCount).map { document.page(at: $0)?.string ?? "" }
+        }
+        guard let texts else { return Set(0..<pageCount(data)) }
+        return Set(texts.indices.filter { texts[$0].allSatisfy(\.isWhitespace) })
     }
 
     // MARK: - Text and Markdown: Edit's Print render

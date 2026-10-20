@@ -172,10 +172,11 @@ public final class PaneSaveAsPDF: ObservableObject {
                 copy = try EditorPDFCopyWriter.write(output.data, wanting: wanted)
             }
             saved.append(.init(name: name, copy: copy, pageCount: output.pageCount,
-                               isPictures: output.isPictures, isRecognised: output.isRecognised))
+                               picturePages: output.picturePages, isRecognised: output.isRecognised))
             Logger.shared.info("\(writer) saved \(name) as \((copy as NSString).lastPathComponent) — "
                                + "\(output.pageCount) page\(output.pageCount == 1 ? "" : "s")"
-                               + (output.isPictures ? ", slides as pictures" : "")
+                               + (output.isPictures ? ", slides as pictures"
+                                  : output.picturePages > 0 ? ", \(output.picturePages) of the slides as pictures" : "")
                                + (output.isRecognised ? ", text recognised" : "")
                                + String(format: ", %.1f s", Date().timeIntervalSince(started)))
             host.didWrite(copy)
@@ -194,8 +195,11 @@ enum SaveAsPDFSummary {
         var name: String
         var copy: String
         var pageCount: Int
-        var isPictures: Bool
+        /// Slides that were pictures — all of them, some, or none.
+        var picturePages: Int
         var isRecognised: Bool
+
+        var isPictures: Bool { pageCount > 0 && picturePages == pageCount }
     }
 
     struct Failed: Equatable {
@@ -207,25 +211,37 @@ enum SaveAsPDFSummary {
 
     /// “A”, “A” and “B”, “A”, “B” and “C”, or “A”, “B”, “C” and 2 more.
     static func names(_ names: [String]) -> String {
-        let quoted = names.map { "“\($0)”" }
-        switch quoted.count {
+        list(names.map { "“\($0)”" })
+    }
+
+    /// The items as ``names(_:)`` lists them, as they are.
+    static func list(_ items: [String]) -> String {
+        switch items.count {
         case 0: return ""
-        case 1: return quoted[0]
-        case 2, 3: return quoted.dropLast().joined(separator: ", ") + " and " + quoted.last!
-        default: return quoted.prefix(3).joined(separator: ", ") + " and \(quoted.count - 3) more"
+        case 1: return items[0]
+        case 2, 3: return items.dropLast().joined(separator: ", ") + " and " + items.last!
+        default: return items.prefix(3).joined(separator: ", ") + " and \(items.count - 3) more"
         }
     }
 
     static func banner(total: Int, saved: [Saved], failed: [Failed], stoppedBefore: Int) -> SaveAsPDFBanner {
         var detail: [String] = []
-        // Read by Vision: searchable, with a misread here and there. Not read: no words at all.
-        let recognised = saved.filter { $0.isPictures && $0.isRecognised }
-        if !recognised.isEmpty {
-            detail.append(total == 1
+        // Read by Vision: searchable, with a misread here and there. A deck only partly pictures
+        // says how many of its slides were — the count Abhishek chose on 2026-10-19.
+        let recognised = saved.filter { $0.picturePages > 0 && $0.isRecognised }
+        if total == 1, let one = recognised.first {
+            detail.append(one.isPictures
                 ? "Its slides were pictures; their text was recognised so it can be searched, but may have mistakes."
-                : "Slides in \(names(recognised.map(\.name))) were pictures; their text was recognised so it can "
-                    + "be searched, but may have mistakes.")
+                : "\(one.picturePages) of its \(one.pageCount) slides "
+                    + (one.picturePages == 1 ? "was a picture; its" : "were pictures; their")
+                    + " text was recognised so it can be searched, but may have mistakes.")
+        } else if !recognised.isEmpty {
+            let decks = recognised.map { $0.isPictures ? "“\($0.name)”" : "“\($0.name)” (\($0.picturePages) of \($0.pageCount))" }
+            detail.append("Slides in \(list(decks)) were pictures; their text was recognised so it can "
+                          + "be searched, but may have mistakes.")
         }
+        // Not read: no words at all. Said of a deck that was all pictures; a text deck's slide of
+        // photos with no words in them is no news.
         let pictures = saved.filter { $0.isPictures && !$0.isRecognised }
         if !pictures.isEmpty {
             detail.append(total == 1
