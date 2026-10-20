@@ -2440,7 +2440,8 @@ struct SelectAllCommand: View {
         Button("Select All") {
             // The PDF reader's text, then the Pages grid's pages, then the pane's rows.
             TextEditingChord.route(editorAction: { $0.selectAll(nil) },
-                                   readerAction: { $0.selectAll(nil) },
+                                   // The page on screen, not the whole PDF — see `EditorPDFReaderSelection`.
+                                   readerAction: { EditorPDFReaderSelection.selectPagesOnScreen(in: $0) },
                                    fileAction: { SelectAllScope.selectAll(pages: pages?.run, pane: selectAll) })
         }
         .keyboardShortcut(AppChord.selectAll.key, modifiers: AppChord.selectAll.modifiers)

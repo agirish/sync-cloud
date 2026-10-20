@@ -299,6 +299,35 @@ extension PDFFixtures {
         #expect(held.tools.shownStamp == EditorFileStore.stamp(ofPath: locked), "the locked load did not set what it read")
     }
 
+    /// **A file replaced while the run waits for its lane turn writes nothing either.** The checks
+    /// above are made before the turn, and a duplicate scan or a pane's Compress can hold the lane
+    /// long after them. The file is replaced here as the run's turn begins: Rotate turned the new
+    /// file's page 2, and Fill & Sign's save — the same run — put its words by the old pages' boxes.
+    @Test func aFileReplacedWhileTheRunWaitsForTheLaneWritesNothing() async throws {
+        let file = path("Four.pdf")
+        PDFFixtures.write(file, pages: 4)
+        let tools = tools(file)
+        tools.shownStamp = EditorFileStore.stamp(ofPath: file)
+        tools.laneTurnHook = { PDFFixtures.write(file, pages: 5) }
+        #expect(await tools.run(.rotate(pages: [1], quarterTurns: 1)) == .failed(EditorPDFTools.changedReason("Four.pdf")))
+        #expect(files() == ["Four.pdf"], "a copy was written from a file replaced in the lane wait: \(files())")
+
+        let lease = path("Lease.pdf")
+        PDFFixtures.write(lease, pages: 2)
+        let pdf = EditorPDFDocument(settle: .seconds(600), isCloudOnly: { _ in false })
+        pdf.tools.isCloudOnly = { _ in false }
+        pdf.open(path: lease, log: { _ in })
+        for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
+        try #require(pdf.phase == .open)
+        pdf.fill.toggle()
+        let id = try #require(pdf.fill.place(at: CGPoint(x: 100, y: 500), page: 1))
+        pdf.fill.type("WOMBAT", into: id)
+        pdf.tools.laneTurnHook = { PDFFixtures.write(lease, pages: 3) }
+        #expect(await pdf.fill.save() == .failed(EditorPDFTools.changedReason("Lease.pdf")))
+        #expect(!files().contains { $0.hasPrefix("Lease (") }, "Fill & Sign wrote from the replaced file: \(files())")
+        #expect(pdf.fill.hasUnsavedChanges, "the refused save dropped the item")
+    }
+
     /// **Cancel or a leave while the copy is being written still writes nothing** — the button's
     /// help says "Stop — nothing is written" and the leave question "nothing is written". The copy
     /// landed anyway, with "Wrote …" after a Cancel.
@@ -1204,7 +1233,7 @@ extension PDFFixtures {
                                      kCGPDFContextCreator: "Microsoft Word"]
         let context = try #require(CGContext(URL(fileURLWithPath: file) as CFURL, mediaBox: &box, info as CFDictionary))
         context.beginPDFPage(nil); context.endPDFPage(); context.closePDF()
-        let read = await EditorPDFMetadataSheet.read(path: file)
+        let read = await EditorPDFMetadataSheet.read(path: file, isCloudOnly: { _ in false })
         guard case .success(let before) = read else { Issue.record("\(read)"); return }
         #expect(before.fields.title == "Quarterly" && before.fields.author == "A. Person" && !before.hasForm)
 
@@ -1282,7 +1311,25 @@ extension PDFFixtures {
         let tools = EditorPDFTools()
         tools.attach(path: path("not-there.pdf"), pageCount: 3, encryption: .none)
         tools.isCloudOnly = { _ in true }
-        #expect(await tools.run(.compress(.quality(0.35))) == .failed(EditorPDFDocument.notDownloadedReason))
+        #expect(await tools.run(.compress(.quality(0.35))) == .failed(EditorPDFTools.cloudOnlyReason("not-there.pdf")))
+    }
+
+    /// **Clean Metadata… does not download a file evicted since it opened** — its sheet reads the
+    /// file's fields by URL in the lane, and PDFKit opening the placeholder downloads it there. The
+    /// run already refused such a file; the sheet's read came first and did not.
+    @Test func cleanMetadataDoesNotOpenAFileEvictedSinceItOpened() async throws {
+        let file = path("Evicted.pdf")
+        PDFFixtures.write(file, pages: 2)
+        let opened = EditorFileStore.resolved(file)  // what the read hands PDFKit
+        let opens = PDFURLOpens.count(opened)
+        let read = await EditorPDFMetadataSheet.read(path: file, isCloudOnly: { _ in true })
+        guard case .failure(let error) = read else { Issue.record("an evicted file's fields were read"); return }
+        #expect((error as? LocalizedError)?.errorDescription == EditorPDFTools.cloudOnlyReason("Evicted.pdf"))
+        #expect(PDFURLOpens.count(opened) == opens, "PDFKit opened the evicted file")
+        guard case .success = await EditorPDFMetadataSheet.read(path: file, isCloudOnly: { _ in false }) else {
+            Issue.record("the control read failed"); return
+        }
+        #expect(PDFURLOpens.count(opened) > opens, "the control never opened the file, so the count proves nothing")
     }
 
     /// **A copy that has since gone is said to be gone** — the banner's Open does not silently do

@@ -222,6 +222,9 @@ public final class EditorPDFTools: ObservableObject {
     /// Called IN THE LANE before each of Compress's pages, with the run's cancel flag — the tests'
     /// way to cancel between two pages without racing the main actor. `nil` in the app.
     var laneProgressHook: (@Sendable (Int, Int, CancelFlag) -> Void)?
+    /// Called IN THE LANE as a run's turn begins, before anything is read — a test's way to change
+    /// the file while the run waits for the lane. `nil` in the app.
+    var laneTurnHook: (@Sendable () -> Void)?
     /// Called on the main actor as the copy's write is handed off — a test's way to cancel or
     /// leave while the bytes are being written, rather than racing the write for it.
     var writeStartedHook: (@MainActor () -> Void)?
@@ -462,7 +465,7 @@ public final class EditorPDFTools: ObservableObject {
 
         if isCloudOnly(path) {
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — not downloaded")
-            return end(.failed(EditorPDFDocument.notDownloadedReason))
+            return end(.failed(Self.cloudOnlyReason(name)))
         }
         if let refusal = EditorPDFToolEngine.refusal(tool, pageCount: pageCount) {
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — \(refusal)")
@@ -502,6 +505,7 @@ public final class EditorPDFTools: ObservableObject {
         let hook = laneProgressHook
         let result = await EditorPDFToolEngine.run(
             tool, input: input, staging: stagingRoot,
+            unchanged: shownStamp.map { (path, $0) }, turnStarted: laneTurnHook,
             progress: { [weak self] page, total in
                 hook?(page, total, flag)
                 Task { @MainActor in
@@ -522,6 +526,9 @@ public final class EditorPDFTools: ObservableObject {
         switch result {
         case .failure(let error) where error is CancellationError:
             return end(.cancelled)
+        case .failure(let error) where error is EditorPDFToolEngine.ChangedOnDisk:
+            Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — it changed on disk while the run waited for its turn")
+            return end(.failed(Self.changedReason(name)))
         case .failure(let error):
             // `.info`, not `.warning`: these are the toolkit's refusals — a wrong password, a
             // restricted file, an empty page range — answers about the file, not faults in the app.
@@ -567,6 +574,12 @@ public final class EditorPDFTools: ObservableObject {
 
     /// A second run while one is in flight — Edit's and a pane's alike.
     static let busyMessage = "Another tool is still running — try again when it has finished."
+
+    /// **A file evicted since it opened**, refused before the lane: its pages may still be on
+    /// screen, so this says what to do rather than the reader's "nothing here to read yet".
+    static func cloudOnlyReason(_ name: String) -> String {
+        "“\(name)” is only in the cloud now. Download it with File ▸ Download in a file pane, then try again."
+    }
 
     static func changedReason(_ name: String) -> String {
         "“\(name)” changed on disk since it was opened, so nothing was written. It reloads in a moment — then try again."

@@ -716,6 +716,33 @@ enum PDFTextFixtures {
         #expect(own.contains("zoomIn:") || own.contains("_setAutoSize:"), "PDFKit's menu has no view controls to remove: \(own)")
     }
 
+    /// **⌘A over the pages selects the page on screen** — the spread in a two-page layout — not the
+    /// whole PDF, whose every page PDFKit read on the main thread first (decided 2026-10-20).
+    @Test func selectAllTakesThePageOnScreen() throws {
+        let file = needles("select.pdf", pages: 6)
+        let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 600, height: 800))
+        let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
+        reader.document = document
+        let window = NSWindow(contentRect: reader.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = reader
+        defer { window.contentView = nil }
+        reader.displayMode = .singlePage
+        reader.layoutDocumentView()
+        reader.go(to: try #require(document.page(at: 2)))
+        EditorPDFReaderSelection.selectPagesOnScreen(in: reader)
+        let one = reader.currentSelection?.pages.map { document.index(for: $0) } ?? []
+        #expect(one == [2], "selected \(one)")
+        #expect(reader.currentSelection?.string?.contains("Page 3") == true)
+
+        reader.displayMode = .twoUp
+        reader.displaysAsBook = true
+        reader.layoutDocumentView()
+        reader.go(to: try #require(document.page(at: 3)))
+        EditorPDFReaderSelection.selectPagesOnScreen(in: reader)
+        let spread = reader.currentSelection?.pages.map { document.index(for: $0) }.sorted() ?? []
+        #expect(spread == [3, 4], "the cover-separately spread holding page 4 is 4–5: \(spread)")
+    }
+
     /// **The least vertical move that clears every piece**, inside the clear rect — or none.
     @Test func theClearingShiftsAreTheLeastMovesOutFirst() {
         let clear = CGRect(x: 0, y: 0, width: 400, height: 600)

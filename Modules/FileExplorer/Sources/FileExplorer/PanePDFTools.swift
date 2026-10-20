@@ -143,7 +143,7 @@ public final class PanePDFTools: ObservableObject {
         // which nobody asked for.
         if isCloudOnly(path) {
             tools.banner = EditorPDFToolBanner(
-                message: "“\((path as NSString).lastPathComponent)” is still in the cloud. Download it first.",
+                message: EditorPDFTools.cloudOnlyReason((path as NSString).lastPathComponent),
                 kind: .note)
             return
         }

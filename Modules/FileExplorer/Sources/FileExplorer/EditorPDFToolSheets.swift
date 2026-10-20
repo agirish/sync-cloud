@@ -313,7 +313,7 @@ struct EditorPDFMetadataSheet: View {
 
     private func read() async {
         guard let path = tools.path else { return }
-        switch await Self.read(path: path) {
+        switch await Self.read(path: path, isCloudOnly: tools.isCloudOnly) {
         case .success(let read):
             fields = read.fields
             hasForm = read.hasForm
@@ -322,13 +322,24 @@ struct EditorPDFMetadataSheet: View {
         }
     }
 
-    /// What the file says, and whether it has a form — one lane turn, by URL.
-    static func read(path: String) async -> Result<ReadFields, any Error> {
+    /// What the file says, and whether it has a form — one lane turn, by URL. **Never for a file
+    /// evicted since it opened**: the toolkit opening the placeholder downloads it, in the lane every
+    /// duplicate scan waits on, and nobody asked for that — the run refuses it the same way.
+    static func read(path: String, isCloudOnly: (String) -> Bool) async -> Result<ReadFields, any Error> {
+        if isCloudOnly(path) {
+            return .failure(Refusal(EditorPDFTools.cloudOnlyReason((path as NSString).lastPathComponent)))
+        }
         let url = URL(fileURLWithPath: EditorFileStore.resolved(path))
         return await PDFKitSerialAccess.perform {
             Result { ReadFields(fields: try PDFToolkit.readMetadata(inputURL: url),
                                 hasForm: PDFToolkit.hasInteractiveForm(at: url)) }
         }
+    }
+
+    /// A refusal made before the lane, in words for the sheet.
+    struct Refusal: LocalizedError {
+        let errorDescription: String?
+        init(_ reason: String) { errorDescription = reason }
     }
 
     struct ReadFields: Sendable {

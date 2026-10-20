@@ -396,7 +396,7 @@ import Testing
         let copy = CodeText(try declarationBody(of: "struct CopyCommand: View", in: commands))
         #expect(copy.contains("readerAction: { $0.copy(nil) }"), "⌘C over a PDF copies the file, not its text")
         let selectAll = CodeText(try declarationBody(of: "struct SelectAllCommand: View", in: commands))
-        #expect(selectAll.contains("readerAction: { $0.selectAll(nil) }"))
+        #expect(selectAll.contains("readerAction: { EditorPDFReaderSelection.selectPagesOnScreen(in: $0) }"))
         #expect(selectAll.contains("@FocusedValue(\\.pdfPagesSelectAll) private var pages"))
         #expect(selectAll.contains("fileAction: { SelectAllScope.selectAll(pages: pages?.run, pane: selectAll) }"))
         for item in ["struct CutCommand: View", "struct PasteCommand: View"] {

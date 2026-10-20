@@ -355,6 +355,28 @@ final class ReaderPDFView: PDFView {
     }
 }
 
+/// **Edit ▸ Select All over the pages: the text of the page on screen** — the spread, in a
+/// two-page layout — not the whole PDF (decided 2026-10-20). PDFKit reads every page's text on the
+/// main thread to select a whole document: on a 1,200-page PDF ⌘A held the app for seconds and ⌘C
+/// after it for tens of seconds, and that reading ran beside the lane's.
+public enum EditorPDFReaderSelection {
+    @MainActor
+    public static func selectPagesOnScreen(in view: PDFView) {
+        guard let document = view.document, let current = view.currentPage else { return }
+        let index = document.index(for: current)
+        guard index != NSNotFound else { return }
+        let twoUp = view.displayMode == .twoUp || view.displayMode == .twoUpContinuous
+        let spread = EditorPDFLayout.spread(containing: index, pageCount: document.pageCount, twoUp: twoUp,
+                                            coverSeparately: view.displaysAsBook)
+        var selection: PDFSelection?
+        for page in spread.compactMap(document.page(at:)) {
+            guard let text = page.selection(for: page.bounds(for: view.displayBox)) else { continue }
+            if let selection { selection.add(text) } else { selection = text }
+        }
+        view.setCurrentSelection(selection, animate: false)
+    }
+}
+
 /// **The find's matches over the reader's pages, from geometry alone.**
 ///
 /// The rects arrive from the lane in page space (``EditorPDFFind``) and are mapped here with

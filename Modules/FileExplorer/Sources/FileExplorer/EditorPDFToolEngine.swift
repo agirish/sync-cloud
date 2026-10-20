@@ -478,14 +478,29 @@ enum EditorPDFToolEngine {
 
     /// The run, through the lane. `perform` takes a closure that cannot throw, so the outcome
     /// crosses back as a `Result`.
+    ///
+    /// **`unchanged` is checked in the lane turn itself**, as the toolkit is about to read: a run
+    /// can wait a long while for its turn behind a duplicate scan or a pane's Compress, and a file
+    /// replaced in that wait was read afresh — Rotate turned the new file's page 2, Fill & Sign
+    /// put its items by the old pages' boxes. A file that no longer has that stamp throws
+    /// ``ChangedOnDisk`` and nothing is read.
     static func run(_ tool: EditorPDFTool, input: URL,
                     staging: URL = FileManager.default.temporaryDirectory,
+                    unchanged: (path: String, stamp: EditorFileStore.Stamp)? = nil,
+                    turnStarted: (@Sendable () -> Void)? = nil,
                     progress: (@Sendable (Int, Int) -> Void)? = nil,
                     isCancelled: (@Sendable () -> Bool)? = nil) async -> Result<Output, any Error> {
         await PDFKitSerialAccess.perform {
-            Result { try output(of: tool, input: input, staging: staging, progress: progress, isCancelled: isCancelled) }
+            turnStarted?()
+            if let unchanged, EditorFileStore.stamp(ofPath: unchanged.path) != unchanged.stamp {
+                return .failure(ChangedOnDisk())
+            }
+            return Result { try output(of: tool, input: input, staging: staging, progress: progress, isCancelled: isCancelled) }
         }
     }
+
+    /// The file a run was asked about changed before its lane turn came — see ``run(_:input:staging:unchanged:turnStarted:progress:isCancelled:)``.
+    struct ChangedOnDisk: Error {}
 
     /// What a run needs to know about a file before it offers anything — read in the lane the way
     /// ``EditorPDFDocument``'s load reads it, for a run started from a pane's menu, where no
