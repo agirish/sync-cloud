@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Events
 import PDFKit
 import Sync
 import SwiftUI
@@ -588,7 +589,14 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
     }
 
     /// Loads `file` with read access to its own folder — the bundle — and waits for it.
-    func load(_ file: URL, timeout: TimeInterval = 30) async -> Bool {
+    ///
+    /// **The timeout is a wedge guard, not a measure of a slow load**: a crashed web process ends the
+    /// wait at once (below), and a file on the disk with nothing to fetch never hangs on its own.
+    /// It counts wall-clock time *and* time queued for the main thread, which `didFinish` needs
+    /// too: with the whole FileExplorer package's tests sharing one main thread, a sub-second load
+    /// came back after 45 s, past the 30 s this was, and Word's page failed as unreadable (2026-10-19,
+    /// `docs/flaky-tests.md`, "A wedge guard that counts time spent waiting for the main thread").
+    func load(_ file: URL, timeout: TimeInterval = 120) async -> Bool {
         await withCheckedContinuation { continuation in
             loading = continuation
             web.loadFileURL(file, allowingReadAccessTo: file.deletingLastPathComponent())
@@ -614,20 +622,27 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
         return try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed])
     }
 
-    /// **Every picture decoded, so `createPDF` draws it** — or ten seconds, whichever is first. A
+    /// **Every picture decoded, so `createPDF` draws it** — or a minute, whichever is first. A
     /// page loaded is not its pictures decoded: a deck of two 1920 px slide pictures drew its second
     /// page blank on every run, and the same box drew whole two seconds later; a sheet's bands
     /// lost pictures the same way. Word's print drew every picture without it. `decode()` settles
     /// when a picture can be painted, and fails, settling too, for one that cannot.
+    ///
+    /// The minute guards against a decode that never settles; a cap that fires draws the pictures
+    /// still decoding blank, so it is said. It was ten seconds until a loaded machine took longer
+    /// than that and a picture deck's first slide came out blank, with no words to read (2026-10-19).
     func picturesDecoded() async {
-        _ = try? await web.callAsyncJavaScript("""
-            await Promise.race([
+        let decoded = try? await web.callAsyncJavaScript("""
+            return await Promise.race([
               Promise.all(Array.from(document.images).map(function (image) {
                 return image.decode().catch(function () {});
-              })),
-              new Promise(function (settle) { setTimeout(settle, 10000); })
+              })).then(function () { return true; }),
+              new Promise(function (settle) { setTimeout(function () { settle(false); }, 60000); })
             ])
-            """, contentWorld: .defaultClient)
+            """, contentWorld: .defaultClient) as? Bool
+        if decoded == false {
+            Logger.shared.warning("Save as PDF: pictures still decoding after a minute; drawing without them")
+        }
     }
 
     func pdf(of rect: CGRect) async throws -> Data {
@@ -670,6 +685,11 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
                  withError error: Error) {
+        finishLoading(false)
+    }
+
+    /// A web process that died never reports the load either way — fail now, not at the guard.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         finishLoading(false)
     }
 

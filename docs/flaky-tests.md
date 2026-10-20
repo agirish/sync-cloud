@@ -3760,3 +3760,59 @@ parameterised test runs.
 **Tell.** A wrap/no-wrap or present/absent test that measures a difference of two `fittingSize`
 readings fails by about 2pt with the numbers repeating. Check what the threshold is half of before
 blaming the layout.
+
+### 33. A wedge guard that counts time spent waiting for the main thread — FIXED
+
+**Symptom.** `SaveAsPDFRenderTests` red in the full FileExplorer run on CI, green under `--filter`
+and on the next two pushes. CI run 39359165278 at `ce8edee1` (2026-10-20, load average ~35):
+
+```
+✘ aOnePageMemoIsOnePageOfText() … Caught error: SaveAsPDFFailure(reason: "macOS couldn’t read it")
+✘ aOnePageMemoIsOnePageOfText() failed after 77.614 seconds with 1 issue.
+✘ aDeckOfPicturesOfWordsIsSearchable() … pageText(document, 0) → ""
+✘ aDeckOfPicturesOfWordsIsSearchable() failed after 11.120 seconds with 2 issues.
+```
+
+**Mechanism.** The suite is `@MainActor`, and in the full package run it shares the one main
+thread with every other main-actor suite. Each `await` in a render queues behind them. Even on
+**green** CI runs `plainTextKeepsItsCharacters` (no Quick Look, no WebKit; 0.002 s alone) took
+101 s, the memo took 37–42 s and the ten `qlmanage` calls 150 s, against 8 s for the whole suite
+alone. The render had two wall-clock guards that count that waiting:
+
+- **`WebPDFView.load` gave up at 30 s.** Its timer and WebKit's `didFinish` both need the main
+  thread; whichever gets it first decides. Reproduced 2026-10-19 (full package run, 20 `yes`
+  spinners, load 70–80): `qlmanage` took 1.0 s, then the load of the memo's one small local page
+  returned `false` after **45 s** and the test failed with CI's exact error after 90 s. `qlmanage`
+  itself stayed at 0.4–1.6 s throughout, so Quick Look is not the slow part.
+- **`picturesDecoded` capped the wait at 10 s**, and a cap that fires draws the pictures still
+  decoding blank. On a deck of picture slides that leaves no words for Vision to read. Setting the
+  cap to 0 reproduces CI's message exactly (`pageText(document, 0) → ""`), and the red's 11.1 s is
+  10 s plus the test's usual 1.5–2.3 s on green CI runs. That fits, but it was not caught in the
+  act: no run here logged the cap firing.
+
+**Fix.** Both guards are there for a wedge, not a slow load, so they cost nothing when the load
+succeeds: `load` now waits 120 s and ends at once if the web process dies
+(`webViewWebContentProcessDidTerminate`, which nothing handled before); `picturesDecoded` waits
+60 s and logs a warning when it gives up, rather than drawing blanks silently. **Proved** on the
+full package run with 20 spinners: the memo, red at 45 s before the fix, passed after 145 s in the
+first run after it, and a second run at load up to 145 went fully green (3,927 tests).
+
+**Still open: WebKit draws a decoded picture blank or in part.** In two full runs after the fix,
+picture tests failed with no cap warning and no Vision error in the test log, so the cap did not
+fire and `decode()` had resolved:
+
+- `aDeckOfPicturesOfWordsIsSearchable`: one slide's page empty, after 2.3 s once and 9.4 s once (a
+  different slide each time).
+- `everyPictureIsDrawnWhole("FourPictures.xlsx")`: `picture 3 of [824776, 824776, 442769, 821632]
+  is blank or cut`, so one picture was drawn at 54% of its area.
+
+So "decoded" is not "painted": `createPDF` can capture a picture before WebKit has finished drawing
+it. CI's 11.1 s deck red may be this too rather than the cap. Seen only in full loaded runs, and
+in the second one with the Mac on battery in Low Power Mode, cycling through maintenance sleep.
+Alone, the deck tests passed 15 of 15 times at load 115, and both suites pass alone. A fix would
+wait for a paint after the decode, for example two `requestAnimationFrame`s with a cap, since a
+hidden view's frames are throttled. It has not been tried.
+
+**Tell.** A Save as PDF test failing with "macOS couldn't read it" or a picture page's empty text,
+in a full run only. Before blaming Quick Look, compare the suite's duration with a
+`--filter` run: a gap of 50× or more means it is waiting for the main thread.
