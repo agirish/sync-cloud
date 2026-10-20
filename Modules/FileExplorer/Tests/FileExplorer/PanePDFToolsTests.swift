@@ -432,6 +432,20 @@ private struct PDFToolDelegate: FileActionDelegate {
         return batch
     }
 
+    /// **A batch's refusal reads as a single file's does** — a restricted file's Rotate said the
+    /// toolkit's "Password Protect → Remove password", a PDF Utils menu SyncCloud does not have.
+    @Test func aBatchRefusalIsInEditsWords() async throws {
+        let restricted = path("Statement.pdf")
+        PDFFixtures.writeRestricted(restricted)
+        let batch = batch(.rotate(quarterTurns: 1), [restricted])
+        await batch.run(.rotate(quarterTurns: 1))
+        guard case .failed(let reason) = batch.files[0].status else {
+            Issue.record("a restricted file's rotate did not fail: \(batch.files[0].status)"); return
+        }
+        #expect(!reason.contains("Password Protect"), "the batch sent the reader to PDF Utils: \(reason)")
+        #expect(reason.contains("PDF Tools ▸ Remove Password…"), "\(reason)")
+    }
+
     /// **N copies, N originals untouched, one parse at a time** — each file its own lane turn.
     @Test(arguments: [EditorPDFBatchTool.rotate(quarterTurns: 1), .compress(.quality(0.35)), .cleanMetadata])
     func aBatchWritesACopyOfEachAndTouchesNoOriginal(_ tool: EditorPDFBatchTool) async throws {
@@ -489,6 +503,52 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(batch.banner?.kind == .wrote(first))
         let noun = tool.copyNoun.one
         #expect(batch.banner?.message == "Cancelled. Wrote 1 \(noun) · 2 not done")
+    }
+
+    /// **A batch banner's doors go to the copies still there**, as Edit's banner's do — Reveal left
+    /// a trashed copy in its list, and Open opened a path that was gone.
+    @Test func aBatchBannersDoorsSkipCopiesThatAreGone() throws {
+        let kept = path("A (rotated).pdf"), gone = path("B (rotated).pdf")
+        PDFFixtures.write(kept, pages: 1)
+        let batch = batch(.rotate(quarterTurns: 1), [])
+        var revealed: [[String]] = []
+        batch.follow([kept, gone]) { revealed.append($0) }
+        #expect(revealed == [[kept]])
+        try FileManager.default.removeItem(atPath: kept)
+        batch.follow([kept]) { revealed.append($0) }
+        #expect(revealed.count == 1, "a door opened onto a copy that is gone")
+        #expect(batch.banner?.message == "“A (rotated).pdf” is no longer there — it was moved or deleted.")
+        // And the banner's buttons go through it.
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/PanePDFTools.swift"), encoding: .utf8)
+        #expect(!source.contains("batch.host.reveal(paths) }"), "Reveal skips follow()")
+        #expect(source.contains("batch.follow(paths) { batch.host.reveal($0) }"))
+    }
+
+    /// **Cancel while a file's copy is being written writes nothing for it** — one file's run takes
+    /// its copy back; a batch kept it, under "Cancelled.".
+    @Test func cancellingWhileACopyIsWrittenTakesItBack() async throws {
+        let paths = ["A.pdf", "B.pdf"].map(path)
+        for file in paths { PDFFixtures.write(file, pages: 2) }
+        let batch = batch(.rotate(quarterTurns: 1), paths)
+        batch.writeStartedHook = { [weak batch] in batch?.cancel() }
+        await batch.run(.rotate(quarterTurns: 1))
+        #expect(batch.files.map(\.status) == [.skipped(.cancelled), .skipped(.cancelled)])
+        #expect(files() == ["A.pdf", "B.pdf"], "a copy cancelled while it was written stayed: \(files())")
+    }
+
+    /// **A file moved away after it was chosen is said to be gone, by name** — not "PDFKit
+    /// couldn't read it", in a banner whose sheet, listing the files, has already closed.
+    @Test func aFileGoneMidBatchIsSaidToBeGoneByName() async throws {
+        let paths = ["A.pdf", "Gone.pdf"].map(path)
+        for file in paths { PDFFixtures.write(file, pages: 2) }
+        let batch = batch(.rotate(quarterTurns: 1), paths)
+        batch.fileStarted = { index in if index == 0 { try? FileManager.default.removeItem(atPath: paths[1]) } }
+        await batch.run(.rotate(quarterTurns: 1))
+        #expect(batch.files[1].status == .failed(EditorPDFBatch.goneReason))
+        #expect(batch.banner?.message.contains("1 failed: “Gone.pdf” — it is no longer there") == true,
+                "\(batch.banner?.message ?? "no banner")")
     }
 
     /// **A file that cannot run is skipped with its reason** — no smaller after Compress, locked to

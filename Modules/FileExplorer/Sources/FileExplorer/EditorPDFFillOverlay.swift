@@ -144,9 +144,10 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     override func mouseDown(with event: NSEvent) {
         guard let fill else { return }
         window?.makeFirstResponder(self)
-        // ⌃-click is a right-click: this method never hands the event on, so the menu is put up here.
-        if event.modifierFlags.contains(.control), let menu = menu(for: event) {
-            NSMenu.popUpContextMenu(menu, with: event, for: self)
+        // ⌃-click is a right-click: this method never hands the event on, so the menu is put up
+        // here — and away from an item, where there is no menu, it still places nothing.
+        if event.modifierFlags.contains(.control) {
+            if let menu = menu(for: event) { NSMenu.popUpContextMenu(menu, with: event, for: self) }
             return
         }
         let point = convert(event.locationInWindow, from: nil)

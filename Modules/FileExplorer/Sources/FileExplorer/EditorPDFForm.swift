@@ -62,8 +62,6 @@ public struct EditorPDFForm: Equatable, Sendable {
         return acroForm
     }
 
-    /// Whether the document declares form fields — the catalog alone, no page walked.
-    nonisolated static func declaresFields(_ document: PDFDocument) -> Bool { acroForm(of: document) != nil }
 
     /// **The reader never edits a field itself.** A click in a `PDFView` on a text widget puts
     /// PDFKit's own editor in it, and typing changes the ON-SCREEN document — measured 2026-10-18:
@@ -72,13 +70,39 @@ public struct EditorPDFForm: Equatable, Sendable {
     /// that off for the mouse, the keyboard and VoiceOver alike, and draws the same pixels (compared
     /// on the corpus form and a 535-field I-539). Called in the lane, before the document crosses to
     /// the main thread; the file itself is never touched.
+    ///
+    /// **Every widget, whatever the catalog says.** A page copy keeps its widgets and drops the
+    /// catalog's `/AcroForm` — Extract Pages… on a form makes exactly that file — and PDFKit still
+    /// reads each widget's field type and edits it on a click; the reader skipped such a file as
+    /// having no form. Only pages whose `/Annots` hold a widget are walked, found from the page
+    /// dictionaries without making PDFKit's annotation objects, so a long book with no form pays
+    /// one dictionary look per page.
     nonisolated static func lockWidgets(in document: PDFDocument) {
         // An owner who forbids form entry has done it already — and PDFKit logs every refused set.
         guard document.allowsFormFieldEntry else { return }
-        for index in 0..<document.pageCount {
+        for index in pagesWithWidgets(document) {
             for annotation in document.page(at: index)?.annotations ?? [] where annotation.type == "Widget" {
                 annotation.isReadOnly = true
             }
+        }
+    }
+
+    /// The zero-based pages whose `/Annots` hold a `/Widget` — read from CoreGraphics' page
+    /// dictionaries, which builds none of PDFKit's annotation objects.
+    nonisolated static func pagesWithWidgets(_ document: PDFDocument) -> [Int] {
+        guard let pdf = document.documentRef else { return [] }
+        return (0..<pdf.numberOfPages).filter { index in
+            guard let page = pdf.page(at: index + 1)?.dictionary else { return false }
+            var annots: CGPDFArrayRef?
+            guard CGPDFDictionaryGetArray(page, "Annots", &annots), let annots else { return false }
+            for item in 0..<CGPDFArrayGetCount(annots) {
+                var annot: CGPDFDictionaryRef?
+                var subtype: UnsafePointer<CChar>?
+                if CGPDFArrayGetDictionary(annots, item, &annot), let annot,
+                   CGPDFDictionaryGetName(annot, "Subtype", &subtype), let subtype,
+                   strcmp(subtype, "Widget") == 0 { return true }
+            }
+            return false
         }
     }
 

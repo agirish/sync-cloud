@@ -81,8 +81,10 @@ public struct EditorPDFToolsMenuEntry: Equatable {
     public static func entries(_ tools: EditorPDFTools) -> [EditorPDFToolsMenuEntry] {
         // **A sheet that is up counts as busy.** The menu bar's copy of this list stays live over
         // a window-modal sheet, and Rotate chosen there ran underneath an open Compress sheet,
-        // whose own Compress was then refused as "still running".
-        let idle = tools.running == nil && tools.sheet == nil
+        // whose own Compress was then refused as "still running". Fill & Sign's Add Signature
+        // sheet is one too: Rotate wrote a copy under it, and Compress… put a second sheet up
+        // over it.
+        let idle = tools.running == nil && tools.sheet == nil && tools.fill?.addingSignature == nil
         let pages = tools.offersPageTools && idle
         let selected = tools.order.filter(tools.selection.pages.contains)
         var out: [EditorPDFToolsMenuEntry] = []

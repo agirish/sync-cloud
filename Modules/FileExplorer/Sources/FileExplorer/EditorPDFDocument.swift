@@ -198,7 +198,7 @@ public final class EditorPDFDocument: ObservableObject {
             let facts = EditorPDFFacts.read(held.document, path: path)
             // The file on disk is still locked, so `formFields(at:)` listed nothing — but the
             // reader's unlocked copy has its widgets, and a click must not type into them either.
-            if EditorPDFForm.declaresFields(held.document) { EditorPDFForm.lockWidgets(in: held.document) }
+            EditorPDFForm.lockWidgets(in: held.document)
             return Unlocked(facts: facts,
                             outline: EditorPDFOutline.flatten(held.document),
                             thumbnailSource: copy(), findSource: copy())
@@ -316,7 +316,7 @@ public final class EditorPDFDocument: ObservableObject {
             // How the file is protected, for the tools — from the document just opened, not a
             // second parse of the file. A restricted-only file opens like any other.
             let facts = EditorPDFFacts.read(document, path: path)
-            if EditorPDFForm.declaresFields(document) { EditorPDFForm.lockWidgets(in: document) }
+            EditorPDFForm.lockWidgets(in: document)
             return .open(SendableDocument(document), facts,
                          EditorPDFOutline.flatten(document), encryption(of: document))
         }
@@ -449,14 +449,14 @@ public final class EditorPDFViewState: ObservableObject {
     /// How the pages are laid out — remembered across launches under
     /// ``EditorPDFSettings/layoutKey``.
     @Published public var layout: EditorPDFLayout {
-        didSet { if layout != oldValue { defaults.set(layout.rawValue, forKey: EditorPDFSettings.layoutKey) } }
+        didSet { if layout != oldValue, !rereading { defaults.set(layout.rawValue, forKey: EditorPDFSettings.layoutKey) } }
     }
     /// Whether a two-page layout shows the first page on its own — remembered under
     /// ``EditorPDFSettings/coverSeparatelyKey``. Kept while a single-page layout is chosen, so
     /// going back to two pages finds it as it was.
     @Published public var coverSeparately: Bool {
         didSet {
-            if coverSeparately != oldValue { defaults.set(coverSeparately, forKey: EditorPDFSettings.coverSeparatelyKey) }
+            if coverSeparately != oldValue, !rereading { defaults.set(coverSeparately, forKey: EditorPDFSettings.coverSeparatelyKey) }
         }
     }
     /// **Where the page and zoom capsule floats** — one of eight places over the canvas, remembered
@@ -464,14 +464,14 @@ public final class EditorPDFViewState: ObservableObject {
     /// canvas changes size with the window, and a place is the same place at every size.
     @Published public var capsulePlace: EditorPDFCapsulePlace {
         didSet {
-            if capsulePlace != oldValue { defaults.set(capsulePlace.rawValue, forKey: EditorPDFSettings.capsulePlaceKey) }
+            if capsulePlace != oldValue, !rereading { defaults.set(capsulePlace.rawValue, forKey: EditorPDFSettings.capsulePlaceKey) }
         }
     }
     /// **Where Fill & Sign's palette floats** (Phase 6b) — remembered under
     /// ``EditorPDFSettings/palettePlaceKey``, a place like the capsule's.
     @Published public var palettePlace: EditorPDFCapsulePlace {
         didSet {
-            if palettePlace != oldValue { defaults.set(palettePlace.rawValue, forKey: EditorPDFSettings.palettePlaceKey) }
+            if palettePlace != oldValue, !rereading { defaults.set(palettePlace.rawValue, forKey: EditorPDFSettings.palettePlaceKey) }
         }
     }
     /// **Whether the pages have the keyboard** — the page view first responder (or inside it) in
@@ -495,6 +495,9 @@ public final class EditorPDFViewState: ObservableObject {
     @Published public private(set) var pageFieldRequest = 0
     private var token = 0
     private let defaults: UserDefaults
+    nonisolated(unsafe) private var change: NSObjectProtocol?
+    /// Set while ``reread()`` takes the stored values, so taking them writes nothing back.
+    private var rereading = false
 
     /// Reads the remembered layout from `defaults` — the shared domain in the app, a scratch one
     /// in a test.
@@ -504,6 +507,29 @@ public final class EditorPDFViewState: ObservableObject {
         coverSeparately = EditorPDFSettings.coverSeparately(in: defaults)
         capsulePlace = EditorPDFSettings.capsulePlace(in: defaults)
         palettePlace = EditorPDFSettings.palettePlace(in: defaults)
+        // **Settings ▸ Reset All Settings reaches the open reader**: the layout and both places
+        // stayed as they were on screen and came back at their defaults only after a relaunch,
+        // while choosing the same place again wrote nothing. Each is read again on a change to the
+        // domain; one that already matches is left alone, so this never writes.
+        change = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reread() }
+            }
+    }
+
+    deinit { if let change { NotificationCenter.default.removeObserver(change) } }
+
+    private func reread() {
+        rereading = true
+        defer { rereading = false }
+        let layout = EditorPDFSettings.layout(in: defaults)
+        if layout != self.layout { self.layout = layout }
+        let cover = EditorPDFSettings.coverSeparately(in: defaults)
+        if cover != coverSeparately { coverSeparately = cover }
+        let capsule = EditorPDFSettings.capsulePlace(in: defaults)
+        if capsule != capsulePlace { capsulePlace = capsule }
+        let palette = EditorPDFSettings.palettePlace(in: defaults)
+        if palette != palettePlace { palettePlace = palette }
     }
 
     /// **The pages on screen together, zero-based** — the current page alone in a single-page

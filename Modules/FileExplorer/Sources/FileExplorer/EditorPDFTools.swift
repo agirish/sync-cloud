@@ -58,6 +58,18 @@ public enum EditorPDFToolSheet: Identifiable, Equatable, Sendable {
     case protect
     case removePassword
 
+    /// The sheet's own title, as the leave question names it.
+    public var title: String {
+        switch self {
+        case .pages(.extract, _): return "Extract Pages"
+        case .pages(.delete, _): return "Delete Pages"
+        case .compress: return "Compress"
+        case .metadata: return "Clean Metadata"
+        case .protect: return "Protect with Password"
+        case .removePassword: return "Remove Password"
+        }
+    }
+
     public var id: String {
         switch self {
         case .pages(let action, _): return "pages-\(action)"
@@ -349,9 +361,12 @@ public final class EditorPDFTools: ObservableObject {
     /// Back to the file's own order.
     public func resetArrangement() { arrangement = nil }
 
-    /// Whether leaving the file would lose something: a pending order, a run still in flight, or
-    /// items placed — or fields filled — with Fill & Sign and not saved.
-    public var hasWorkToLose: Bool { arrangement != nil || running != nil || fill?.hasUnsavedChanges == true }
+    /// Whether leaving the file would lose something: a pending order, a run still in flight, a
+    /// tool's sheet still waiting for its options — a password half-typed, as a pane's sheet is
+    /// asked about at ⌘Q — or items placed, or fields filled, with Fill & Sign and not saved.
+    public var hasWorkToLose: Bool {
+        arrangement != nil || running != nil || sheet != nil || fill?.hasUnsavedChanges == true
+    }
 
     /// **Asks before a pending reorder — or a run in flight — is lost** to opening another file,
     /// closing this one or quitting. True when there is nothing to lose or the reader said to go.
@@ -362,10 +377,11 @@ public final class EditorPDFTools: ObservableObject {
     public func mayLeave() -> Bool {
         guard hasWorkToLose, let path else { return true }
         // Placed items alone are Fill & Sign's own question, which can save them as well as drop them.
-        if arrangement == nil, running == nil, let fill { return fill.mayLeave() }
+        if arrangement == nil, running == nil, sheet == nil, let fill { return fill.mayLeave() }
         let go = confirmDiscardingArrangement()
         Logger.shared.info("Edit asked before leaving \(Self.logName(path)) with "
-                           + (running != nil ? "a tool running" : "a new page order not saved")
+                           + (running != nil ? "a tool running"
+                              : arrangement != nil ? "a new page order not saved" : "a tool's sheet open")
                            + (go ? " — the reader chose to leave" : " — the reader stayed"))
         return go
     }
@@ -607,7 +623,7 @@ public final class EditorPDFTools: ObservableObject {
     }
 
     /// The leave question, in the words of what would be lost.
-    static func leaveQuestion(running: String?, hasArrangement: Bool,
+    static func leaveQuestion(running: String?, hasArrangement: Bool, sheet: String? = nil,
                               placedItems: Int = 0, filledFields: Int = 0) -> (title: String, detail: String, go: String) {
         var placed = placedItems == 0 ? ""
             : " The \(placedItems == 1 ? "item" : "\(placedItems) items") placed with Fill & Sign \(placedItems == 1 ? "is" : "are") discarded too."
@@ -622,13 +638,19 @@ public final class EditorPDFTools: ObservableObject {
                         + " The original file is unchanged either way.",
                     "Stop and Leave")
         }
+        if !hasArrangement, let sheet {
+            return ("Close \(sheet)?",
+                    "\(sheet) is still waiting for its options. Leaving closes it, and nothing is written." + placed
+                        + " The original file is unchanged either way.",
+                    "Close and Leave")
+        }
         return ("Discard the new page order?",
                 "The pages were reordered but no copy was saved." + placed + " The original file is unchanged either way.",
                 "Discard")
     }
 
     func confirmDiscardWithAlert() -> Bool {
-        let question = Self.leaveQuestion(running: running?.tool, hasArrangement: arrangement != nil,
+        let question = Self.leaveQuestion(running: running?.tool, hasArrangement: arrangement != nil, sheet: sheet?.title,
                                           placedItems: fill?.unsaved.count ?? 0, filledFields: fill?.values.count ?? 0)
         let alert = NSAlert()
         alert.messageText = question.title

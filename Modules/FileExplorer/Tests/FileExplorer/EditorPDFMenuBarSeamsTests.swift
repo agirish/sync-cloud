@@ -21,6 +21,14 @@ import SwiftUI
         tools.sheet = .compress
         let live = EditorPDFToolsMenuEntry.entries(tools).filter(\.enabled).map(\.title)
         #expect(live.isEmpty, "live under a sheet: \(live)")
+        // Fill & Sign's Add Signature sheet is a sheet like a tool's.
+        tools.sheet = nil
+        let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: ScratchDefaults("EditorPDFMenuBarSeams")))
+        tools.fill = fill
+        try? #require(EditorPDFToolsMenuEntry.entries(tools).contains { $0.enabled })
+        fill.addingSignature = .signature
+        let underSignature = EditorPDFToolsMenuEntry.entries(tools).filter(\.enabled).map(\.title)
+        #expect(underSignature.isEmpty, "live under Add Signature: \(underSignature)")
     }
 
     @Test func everyGoToPageIsANewAsk() {

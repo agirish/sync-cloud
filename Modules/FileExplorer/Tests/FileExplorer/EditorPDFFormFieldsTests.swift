@@ -145,6 +145,10 @@ extension PDFFixtures {
             (.formFieldNotFillable("a"), fill), (.formValueNotAccepted(field: "a", value: "b"), fill),
             (.formFillFailed("a"), fill), (.textOnRotatedPage(pageNumber: 2), fill),
             (.permissionsForbidEditing(file), fill), (.permissionsForbidEditing(file), placing),
+            // The tools' own: a restricted file's Rotate and Delete, a locked file, Clean Metadata.
+            (.permissionsForbidEditing(file), .rotate(pages: [0], quarterTurns: 1)),
+            (.permissionsForbidEditing(file), .deletePages([0])),
+            (.encryptedInput(file), .compress(.quality(0.5))), (.metadataEncrypted, .cleanMetadata(.cleared)),
         ]
         for (error, tool) in cases {
             let reason = EditorPDFToolEngine.reason(error, tool: tool)
@@ -155,9 +159,9 @@ extension PDFFixtures {
         #expect(EditorPDFToolEngine.reason(.textOnRotatedPage(pageNumber: 2), tool: fill).contains("page 2"))
         #expect(EditorPDFToolEngine.reason(.permissionsForbidEditing(file), tool: fill).contains("doesn’t allow filling its form"))
         #expect(EditorPDFToolEngine.reason(.permissionsForbidEditing(file), tool: placing).contains("not adding text or signatures"))
-        // Every other tool keeps the toolkit's own words, as before 5c.
+        // Every other tool says what its owner forbids, and the menu that writes an unrestricted copy.
         #expect(EditorPDFToolEngine.reason(.permissionsForbidEditing(file), tool: .rotate(pages: [0], quarterTurns: 1))
-                == PDFOperationError.permissionsForbidEditing(file).errorDescription)
+                .contains("PDF Tools ▸ Remove Password…"))
         // A long value is not quoted whole.
         let long = String(repeating: "x", count: 300)
         #expect(EditorPDFToolEngine.reason(.formValueNotAccepted(field: "a", value: long), tool: fill).count < 120)
@@ -253,6 +257,40 @@ extension PDFFixtures {
         #expect(fill.values.isEmpty && fill.items.isEmpty)
         #expect(tools.banner?.message == "The file changed on disk, so the items you placed and the fields you filled were cleared.")
         #expect(await log.holds(containing: "Edit dropped 1 item placed and 1 field filled with Fill & Sign on reload.pdf in /tmp"))
+    }
+
+    /// **A reload that changed the form and the pages both says both** — the fields went first,
+    /// with a banner of their own, and the items' banner then replaced it with "the items you
+    /// placed" alone. And a text box opened and left empty is no work to report.
+    @Test func aReloadThatChangesTheFormAndThePagesNamesBoth() throws {
+        let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
+        let tools = EditorPDFTools()
+        fill.tools = tools
+        func form(_ page: Int) -> EditorPDFForm {
+            EditorPDFForm(fields: [FormField(name: "name", kind: .text(multiline: false), value: nil,
+                                             widgets: [FormField.Widget(pageIndex: page, rect: CGRect(x: 10, y: 10, width: 100, height: 20))])])
+        }
+        let page = EditorPDFPageBox(cropBox: CGRect(x: 0, y: 0, width: 612, height: 792), rotation: 0)
+        fill.attach(path: "/tmp/both.pdf", boxes: [page, page], encryption: .none, allowsFilling: true, form: form(1))
+        fill.toggle()
+        fill.beginFieldEditing("name")
+        fill.typeField("Ada")
+        fill.endFieldEditing()
+        fill.armed = .mark(.check)
+        try #require(fill.place(at: CGPoint(x: 300, y: 300), page: 0) != nil)
+        // Page 1 removed elsewhere: the field's widget moves to page 0, and the pages change.
+        fill.attach(path: "/tmp/both.pdf", boxes: [page], encryption: .none, allowsFilling: true, form: form(0))
+        #expect(fill.values.isEmpty && fill.items.isEmpty)
+        #expect(tools.banner?.message == "The file changed on disk, so the items you placed and the fields you filled were cleared.")
+
+        // An empty text box alone: dropped with the pages, and nothing said about it.
+        tools.banner = nil
+        fill.armed = .text
+        try #require(fill.place(at: CGPoint(x: 300, y: 300), page: 0) != nil)
+        try #require(fill.unsaved.isEmpty && !fill.items.isEmpty, "the open box is not an empty item")
+        fill.attach(path: "/tmp/both.pdf", boxes: [page, page], encryption: .none, allowsFilling: true, form: form(1))
+        #expect(fill.items.isEmpty)
+        #expect(tools.banner == nil, "an empty text box was reported as lost work: \(tools.banner?.message ?? "")")
     }
 
     /// **Every kind takes its value**: text, multiline, checkbox, radio, combo, list, and an
@@ -717,6 +755,27 @@ extension PDFFixtures {
         #expect(menuLines(turned) == ["✓ Fill & Sign", "(Save Filled Copy)"], "Save is live for what it would refuse")
     }
 
+    /// **A greyed Save says why** — the note card's sentence as the button's tooltip, where it said
+    /// what it would write. With nothing refused it says what it writes.
+    @Test func aRefusedSaveSaysWhyInItsTooltip() async throws {
+        let file = path("Turned help.pdf")
+        try PDFFixtures.writeRotatedForm(file)
+        let turned = try await open(file)
+        turned.fill.toggle()
+        #expect(turned.fill.saveHelp.hasPrefix("Write a copy"), "\(turned.fill.saveHelp)")
+        turned.fill.armed = .text
+        let id = try #require(turned.fill.place(at: CGPoint(x: 200, y: 200), page: 0))
+        turned.fill.type("Ada", into: id)
+        turned.fill.endEditing()
+        try #require(!turned.fill.canSave, "the turned page's text was not refused, so this proves nothing")
+        #expect(turned.fill.saveHelp == turned.fill.formNotes.first, "the tooltip is not the refusal: \(turned.fill.saveHelp)")
+        // And the pill uses it, in the app's accent.
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/EditorPDFFillPalette.swift"), encoding: .utf8)
+        #expect(source.contains(".help(fill.saveHelp)") && source.contains(".tint(accent)"))
+    }
+
     // MARK: The reader
 
     /// **A click in the reader never edits a field.** Before 5c a click on a text widget put
@@ -767,6 +826,30 @@ extension PDFFixtures {
         #expect(name.widgetStringValue == "Ada Quill", "a click and typing changed the reader's field")
         #expect(box.buttonWidgetState == .offState, "a click toggled the reader's checkbox")
         reader.document = nil
+    }
+
+    /// **A form's widgets are locked even where the catalog lost its `/AcroForm`** — the file
+    /// Extract Pages… makes of a form: a page copy keeps the widgets and drops the catalog's form,
+    /// PDFKit still edits them on a click, and the reader skipped such a file as having none.
+    @Test func widgetsWithoutACatalogFormAreLockedToo() async throws {
+        let source = path("W-9 source.pdf")
+        try PDFFixtures.writeForm(source)
+        let extracted = path("W-9 (page 1).pdf")
+        let original = try #require(PDFDocument(url: URL(fileURLWithPath: source)))
+        let copy = PDFDocument()
+        copy.insert(try #require(original.page(at: 0)?.copy() as? PDFPage), at: 0)
+        try #require(copy.write(to: URL(fileURLWithPath: extracted)))
+        let bytes = try Data(contentsOf: URL(fileURLWithPath: extracted))
+        try #require(bytes.range(of: Data("/AcroForm".utf8)) == nil, "the copy kept its catalog form, so this proves nothing")
+
+        let pdf = try await open(extracted)
+        let page = try #require(pdf.document?.page(at: 0))
+        let widgets = page.annotations.filter { $0.type == "Widget" }
+        try #require(!widgets.isEmpty, "the copy lost its widgets, so this proves nothing")
+        let editable = widgets.filter { !$0.isReadOnly }.count
+        #expect(editable == 0, "\(editable) of \(widgets.count) widgets are still editable in the reader")
+        let document = try #require(pdf.document)
+        #expect(EditorPDFForm.pagesWithWidgets(document) == [0])
     }
 
     // MARK: The overlay

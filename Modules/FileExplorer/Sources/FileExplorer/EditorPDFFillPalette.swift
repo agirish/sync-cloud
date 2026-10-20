@@ -528,10 +528,10 @@ struct EditorPDFFillSaveStack: View {
                                           : "Remove everything placed — ⌘Z brings it back")
             Button("Save Filled Copy") { Task { await fill.save() } }
                 .buttonStyle(.borderedProminent)
+                // The app's accent, as the Pages tab's Save Reordered Copy has it — not the system's.
+                .tint(accent)
                 .disabled(!fill.canSave || tools.running != nil)
-                .help(fill.usesFormPath
-                      ? "Write a copy beside the original with these values — its form stays fillable, and the original isn’t changed"
-                      : "Write a copy with these items beside the original — the original isn’t changed")
+                .help(fill.saveHelp)
         }
         .controlSize(.small)
         .scaledFont(.system(size: 11))

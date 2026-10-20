@@ -27,7 +27,7 @@ public struct EditorPDFFillSignMenuItems: View {
         ))
         // Greyed under a sheet too: the menu bar stays live over one, and the toggle's `clear()`
         // took the Add Signature sheet down with the strokes drawn in it.
-        .disabled(!fill.hasPages || fill.refusal != nil || sheetIsUp)
+        .disabled(!fill.hasPages || fill.refusal != nil || sheetIsUp || (fill.isOn && tools.running != nil))
         if let reason = fill.menuReason {
             Text(reason)
         }

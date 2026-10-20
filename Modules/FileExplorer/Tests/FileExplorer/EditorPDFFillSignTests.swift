@@ -182,6 +182,20 @@ extension PDFFixtures {
         #expect(EditorPDFSignature.drawn([[]], kind: .signature) == nil)
     }
 
+    /// **A tall, narrow drawing is placed no taller than its box is wide**, in its own shape — an
+    /// upright stroke came out five times as tall as wide: a 150 × 750 pt signature on a 792 pt page.
+    @Test func aTallDrawingIsPlacedNoTallerThanItIsWide() async throws {
+        let (pdf, _) = try await letter("Tall.pdf")
+        let fill = pdf.fill
+        fill.toggle()
+        let upright = try #require(EditorPDFSignature.drawn([[CGPoint(x: 50, y: 0), CGPoint(x: 51, y: 300)]], kind: .signature))
+        fill.armed = .signature(upright)
+        try #require(fill.place(at: CGPoint(x: 300, y: 400), page: 0) != nil)
+        let rect = try #require(fill.items.first?.rect)
+        #expect(rect.height <= EditorPDFFillSign.signatureWidth + 0.5, "placed \(rect.size)")
+        #expect(abs(rect.width / rect.height - 0.2) < 0.01, "lost its shape: \(rect.size)")
+    }
+
     /// **Saved signatures stay in this Mac's defaults**, newest first, each kind to its limit.
     @Test func savedSignaturesAreKeptPerKindAndSurviveARelaunch() {
         let store = EditorPDFSignatureStore(defaults: defaults)
@@ -220,6 +234,21 @@ extension PDFFixtures {
         let afterDelete = try JSONDecoder().decode([EditorPDFSignature].self,
                                                    from: try #require(scratch.data(forKey: EditorPDFSignatureStore.key)))
         #expect(afterDelete.isEmpty, "the delete wrote back signatures the reset removed: \(afterDelete)")
+    }
+
+    /// **A reset takes them from the open app at once** — not only from disk. The list held in
+    /// memory went on offering a removed signature in the Signature flyout, ready to place, until
+    /// a relaunch or the next add.
+    @Test func aResetTakesSavedSignaturesOffTheMenuAtOnce() throws {
+        let scratch = ScratchDefaults("EditorPDFSignatureResetLive")
+        let store = EditorPDFSignatureStore(defaults: scratch)
+        store.add(EditorPDFSignature(kind: .signature, look: .typed("Alex Morgan")))
+        store.add(EditorPDFSignature(kind: .initials, look: .typed("AM")))
+        try #require(store.saved.count == 2)
+        scratch.removePersistentDomain(forName: scratch.scratchSuiteName)
+        #expect(store.saved.isEmpty, "a reset left \(store.saved.count) saved signatures on offer")
+        #expect(store.saved(.signature).isEmpty && store.saved(.initials).isEmpty)
+        #expect(scratch.data(forKey: EditorPDFSignatureStore.key) == nil, "taking the reset wrote the list back")
     }
 
     // MARK: Placing
@@ -392,6 +421,28 @@ extension PDFFixtures {
         #expect(fill.isOn, "the toolbar went down over an item the copy does not carry")
         #expect(fill.items.map(\.id).contains(late), "the item placed during the save was cleared")
         #expect(fill.hasUnsavedChanges, "the leave question would no longer ask about it")
+    }
+
+    /// **Fill & Sign does not go off while its own save is writing** — turning it off asked whether
+    /// to save the very items being saved; Save was then refused as "still running", and Discard
+    /// cleared what the copy was taking.
+    @Test func itDoesNotTurnOffWhileTheSaveIsWriting() async throws {
+        let (pdf, _) = try await letter("Lease saving.pdf")
+        let fill = pdf.fill, tools = pdf.tools
+        fill.toggle()
+        let id = try #require(fill.place(at: CGPoint(x: 100, y: 500), page: 1))
+        fill.type("QUOLL", into: id)
+        var asked = 0
+        fill.askLeaving = { _, _ in asked += 1; return .discard }
+        let save = Task { await fill.save() }
+        for _ in 0..<10_000 where tools.running == nil { await Task.yield() }
+        try #require(tools.running != nil, "the save never began")
+        #expect(!fill.mayToggle)
+        fill.toggle()
+        #expect(asked == 0, "turning it off mid-save asked about the items being saved")
+        #expect(fill.isOn)
+        guard case .wrote = await save.value else { Issue.record("the save wrote nothing"); return }
+        #expect(!fill.isOn && fill.mayToggle)
     }
 
     /// **A signature or initials make it "(signed)"** — drawn or typed.
@@ -627,7 +678,8 @@ extension PDFFixtures {
         let save = Task { await fill.save() }
         for _ in 0..<10_000 where tools.running == nil { await Task.yield() }
         try #require(tools.running != nil, "the save never began")
-        #expect(menuLines(fill, tools) == ["✓ Fill & Sign", "(Save Filled Copy)"], "Save is live while the save runs")
+        // Both grey while it writes: turning it off then asked about the items being saved.
+        #expect(menuLines(fill, tools) == ["(✓ Fill & Sign)", "(Save Filled Copy)"], "a line is live while the save runs")
         guard case .wrote = await save.value else { Issue.record("the save wrote no copy"); return }
         #expect(menuLines(fill, tools) == ["Fill & Sign", "(Save Filled Copy)"], "the toolbar outlived the save")
     }
@@ -710,6 +762,11 @@ extension PDFFixtures {
             NSEvent.mouseEvent(with: type, location: reader.convert(point, to: nil), modifierFlags: [], timestamp: 0,
                                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
         }
+        // A ⌃-click is a right-click, and places nothing — away from an item there is no menu.
+        overlay.mouseDown(with: NSEvent.mouseEvent(with: .leftMouseDown, location: reader.convert(click, to: nil),
+                                                   modifierFlags: .control, timestamp: 0, windowNumber: window.windowNumber,
+                                                   context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+        #expect(pdf.fill.items.isEmpty, "a ⌃-click placed an item")
         overlay.mouseDown(with: event(.leftMouseDown, at: click))
         let placed = try #require(pdf.fill.items.first)
         #expect(abs(placed.rect.midX - 306) < 0.5 && abs(placed.rect.midY - 396) < 0.5, "placed at \(placed.rect)")

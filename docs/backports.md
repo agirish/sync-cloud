@@ -7884,3 +7884,32 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign in Edit (`fillSign=0`), so nothing to restyle | CLOSED — does not apply |
+
+---
+
+## The PDF reader's whole-product review, 1a to 6b — main only
+
+A run re-checks its file in its own lane turn, and Clean Metadata no longer downloads an evicted
+file; Select All takes the page on screen; ⌘G scrolls a match out from under the palette; Reset All
+Settings reaches the open reader and saved signatures; batches take back a copy cancelled mid-write
+and name what failed; a restricted file's refusal names the menu SyncCloud has; a form's widgets are
+locked without a catalog `/AcroForm`; the pages' right-click menu loses PDFKit's view controls; and
+smaller Fill & Sign and wording fixes. All in Edit's PDF reader, Fill & Sign and the pane PDF Tools,
+which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s pdfReader=%s pdfTools=%s paneTools=%s fillSign=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFPageView.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFTools.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PanePDFTools.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSign.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-20, against origin, before this landed:
+# main  pdfReader=1 pdfTools=1 paneTools=1 fillSign=1
+# v5.x, v4.x, v3.x, v2.x — 0 0 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF reader in Edit, no Fill & Sign and no pane PDF Tools, so nothing to fix | CLOSED — does not apply |

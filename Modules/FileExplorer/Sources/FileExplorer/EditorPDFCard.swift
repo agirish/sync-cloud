@@ -43,7 +43,7 @@ struct EditorPDFHeaderControls: View {
         HStack(spacing: 6) {
             if showsReaderActions {
                 EditorPDFFindButton(find: find, accent: accent, onAccent: onAccent, worded: rung.isWorded)
-                EditorPDFFillSignButton(fill: fill, accent: accent, onAccent: onAccent, worded: rung.isWorded)
+                EditorPDFFillSignButton(fill: fill, tools: tools, accent: accent, onAccent: onAccent, worded: rung.isWorded)
                     .chromeGlassClearance(.leading, rowSpacing: 6)
             }
             if showsTools {
@@ -137,6 +137,8 @@ struct EditorPDFFindButton: View {
 /// palette and save pill over the canvas on and off (Phase 6b), and is lit while it is on.
 struct EditorPDFFillSignButton: View {
     @ObservedObject var fill: EditorPDFFillSign
+    /// Observed for ``EditorPDFFillSign/mayToggle``: the button greys while a run writes.
+    @ObservedObject var tools: EditorPDFTools
     let accent: Color
     let onAccent: Color
     var worded: Bool
@@ -147,6 +149,7 @@ struct EditorPDFFillSignButton: View {
                                  accent: accent, onAccent: onAccent)
         }
         .modifier(EditorPDFActionStyle(accent: accent))
+        .disabled(!fill.mayToggle)
         .accessibilityLabel("Fill & Sign")
         .accessibilityValue(fill.isOn ? "On" : "Off")
         .help(fill.refusal == nil

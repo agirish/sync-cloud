@@ -468,6 +468,19 @@ extension PDFFixtures {
         #expect(asked == 1)
         _ = await run.value
         #expect(tools.mayLeave() && asked == 1, "asked again with nothing running")
+        // A tool's sheet still waiting for its options is asked about too — ⌘Q took a half-typed
+        // password with no question, where a pane's sheet asks.
+        let sheetTools = self.tools(path("Sheet.pdf"))
+        var sheetAsked = 0
+        sheetTools.confirmDiscardingArrangement = { sheetAsked += 1; return false }
+        sheetTools.sheet = .protect
+        #expect(!sheetTools.mayLeave() && sheetAsked == 1, "leaving over an open Protect sheet did not ask")
+        sheetTools.sheet = nil
+        #expect(sheetTools.mayLeave() && sheetAsked == 1)
+        let sheet = EditorPDFTools.leaveQuestion(running: nil, hasArrangement: false, sheet: "Protect with Password")
+        #expect(sheet.title == "Close Protect with Password?" && sheet.go == "Close and Leave")
+        #expect(sheet.detail.contains("nothing is written"))
+
         let question = EditorPDFTools.leaveQuestion(running: "Compress", hasArrangement: true)
         #expect(question.title == "Stop Compress?" && question.detail.contains("new page order is discarded too"))
         #expect(EditorPDFTools.leaveQuestion(running: nil, hasArrangement: true).go == "Discard")
@@ -880,7 +893,8 @@ extension PDFFixtures {
         #expect(!tools.offersMetadata && !tools.offersProtect)
 
         let outcome = await tools.run(.rotate(pages: [0], quarterTurns: 1))
-        let expected = PDFOperationError.permissionsForbidEditing(URL(fileURLWithPath: file)).errorDescription!
+        // In Edit's words: the toolkit's own sent the reader to PDF Utils' "Password Protect".
+        let expected = "“Statement.pdf”’s owner doesn’t allow changing its pages. " + EditorPDFToolEngine.removePasswordStep
         #expect(outcome == .failed(expected), "\(outcome)")
         #expect(tools.banner?.message == expected && tools.banner?.kind == .failure)
         #expect(files() == ["Statement.pdf"])

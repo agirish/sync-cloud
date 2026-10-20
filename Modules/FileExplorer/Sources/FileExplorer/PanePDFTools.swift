@@ -330,14 +330,14 @@ struct EditorPDFBatchBannerView: View {
                                           message: banner.message) {
                 switch banner.kind {
                 case .wrote(let path):
-                    Button("Open") { batch.host.open(path) }
+                    Button("Open") { batch.follow([path]) { batch.host.open($0[0]) } }
                         .controlSize(.small)
                         .help("Open the copy in Edit")
-                    Button("Reveal in Browse") { batch.host.reveal([path]) }
+                    Button("Reveal in Browse") { batch.follow([path]) { batch.host.reveal($0) } }
                         .controlSize(.small)
                         .help("Show the copy in Browse")
                 case .wroteSeveral(let paths):
-                    Button("Reveal in Browse") { batch.host.reveal(paths) }
+                    Button("Reveal in Browse") { batch.follow(paths) { batch.host.reveal($0) } }
                         .controlSize(.small)
                         .help("Show the copies in Browse")
                 case .note, .failure:
@@ -355,6 +355,24 @@ struct EditorPDFBatchBannerView: View {
                 .help("Dismiss")
             }
         }
+    }
+}
+
+extension EditorPDFBatch {
+    /// **The banner's doors go to the copies still there** — Edit's banner's rule
+    /// (``EditorPDFTools/follow(_:_:)``): a copy trashed or moved since is left out, and with none
+    /// left the banner says so instead of a door that does nothing.
+    func follow(_ paths: [String], _ door: ([String]) -> Void) {
+        let here = paths.filter { FileManager.default.fileExists(atPath: $0) }
+        guard !here.isEmpty else {
+            banner = EditorPDFToolBanner(
+                message: paths.count == 1
+                    ? "“\((paths[0] as NSString).lastPathComponent)” is no longer there — it was moved or deleted."
+                    : "The copies are no longer there — they were moved or deleted.",
+                kind: .note)
+            return
+        }
+        door(here)
     }
 }
 

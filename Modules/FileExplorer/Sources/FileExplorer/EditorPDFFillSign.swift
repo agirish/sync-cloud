@@ -482,10 +482,25 @@ public final class EditorPDFSignatureStore: ObservableObject {
     @Published public private(set) var saved: [EditorPDFSignature]
     /// Where they are kept — and the Add Signature sheet's last face, pen and smoothing.
     let defaults: UserDefaults
+    nonisolated(unsafe) private var change: NSObjectProtocol?
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         saved = Self.read(defaults)
+        // **Settings ▸ Reset All Settings takes them while the app runs**, not at the next launch:
+        // the list held here kept offering a removed signature to place, until a relaunch. Any
+        // change to the domain is looked at; only a list that differs from the stored one moves.
+        change = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reread() }
+            }
+    }
+
+    deinit { if let change { NotificationCenter.default.removeObserver(change) } }
+
+    private func reread() {
+        let stored = Self.read(defaults)
+        if stored != saved { saved = stored }
     }
 
     private static func read(_ defaults: UserDefaults) -> [EditorPDFSignature] {
@@ -623,6 +638,11 @@ public final class EditorPDFFillSign: ObservableObject {
     func attach(path: String, boxes: [EditorPDFPageBox], encryption: PDFEncryptionState, allowsFilling: Bool,
                 form: EditorPDFForm = .none, allowsFormEntry: Bool = true, allowsCommenting: Bool = true) {
         let reloaded = self.path == path
+        // **What there was before either drop below**, for the one banner that says it all: a
+        // reload that changed both the form and the pages cleared the fields first, and the items'
+        // banner then said only "the items you placed" over the fields' own. What the pill counts —
+        // a text box opened and left empty is no lost work.
+        let filledBefore = values.count, placedBefore = unsaved.count
         if self.path == path, boxes != self.boxes || form != self.form {
             // **The undo steps go with the pages and the form they were taken on** — with nothing
             // to drop now as well. A Discard, or a placement undone, left steps that ⌘Z then played
@@ -648,13 +668,23 @@ public final class EditorPDFFillSign: ObservableObject {
             // changed but kept every page as it was keeps its items.
             // `clear()` takes the filled fields too, so the log and the banner name them as well.
             let fields = values.isEmpty ? "" : " and \(Self.fields(values.count)) filled"
-            Logger.shared.info("Edit dropped \(Self.count(items.count)) placed\(fields) with Fill & Sign on "
-                               + "\(EditorPDFTools.logName(path)) — the file changed on disk")
+            if placedBefore > 0 || !values.isEmpty {
+                Logger.shared.info("Edit dropped \(Self.count(placedBefore)) placed\(fields) with Fill & Sign on "
+                                   + "\(EditorPDFTools.logName(path)) — the file changed on disk")
+            }
             clear()
-            tools?.banner = EditorPDFToolBanner(message: fields.isEmpty
-                                                    ? "The file changed on disk, so the items you placed were dropped."
-                                                    : "The file changed on disk, so the items you placed and the fields you filled were cleared.",
-                                                kind: .note)
+            switch (placedBefore > 0, filledBefore > 0) {
+            case (true, true):
+                tools?.banner = EditorPDFToolBanner(
+                    message: "The file changed on disk, so the items you placed and the fields you filled were cleared.",
+                    kind: .note)
+            case (true, false):
+                tools?.banner = EditorPDFToolBanner(
+                    message: "The file changed on disk, so the items you placed were dropped.", kind: .note)
+            case (false, _):
+                // Only an empty text box went — no work; the fields' own banner, if any, stands.
+                break
+            }
         } else if self.path != path {
             clear()
             isOn = false
@@ -695,8 +725,8 @@ public final class EditorPDFFillSign: ObservableObject {
     }
 
     func detach() {
-        if let path, !items.isEmpty {
-            Logger.shared.info("Edit discarded \(Self.count(items.count)) placed with Fill & Sign on "
+        if let path, !unsaved.isEmpty {
+            Logger.shared.info("Edit discarded \(Self.count(unsaved.count)) placed with Fill & Sign on "
                                + "\(EditorPDFTools.logName(path)) — the file was closed")
         }
         if let path, !values.isEmpty {
@@ -750,6 +780,7 @@ public final class EditorPDFFillSign: ObservableObject {
 
     /// The header's button. On arms Text (mockup 17); off with unsaved items asks first.
     public func toggle() {
+        guard mayToggle else { return }
         if isOn {
             guard mayLeave() else { return }
             clear()
@@ -769,6 +800,11 @@ public final class EditorPDFFillSign: ObservableObject {
     /// A file with pages to place on — what ``toggle()`` needs to turn on, and what File ▸ Fill &
     /// Sign is greyed without.
     var hasPages: Bool { path != nil && !boxes.isEmpty }
+
+    /// **Not off while a tool run is writing** — Save Filled Copy's own, most of all. Turning it off
+    /// then asked whether to save the items being saved: Save was refused as "still running", and
+    /// Discard cleared what the copy was taking. The button and File ▸ Fill & Sign grey with it.
+    public var mayToggle: Bool { !(isOn && tools?.running != nil) }
 
     /// **The refusal as a menu line** — the alert's own title for an owner's restriction, whose
     /// reason is two sentences; the tools' short reason for a file locked to open, which File ▸ PDF
@@ -890,7 +926,11 @@ public final class EditorPDFFillSign: ObservableObject {
             return item.rect.size
         }
         let width = signature.kind == .signature ? signatureWidth : initialsWidth
-        return CGSize(width: width, height: width / max(aspect, 0.2))
+        let natural = CGSize(width: width, height: width / max(aspect, 0.2))
+        // **A tall, narrow drawing keeps its shape, no taller than the box is wide** — initials
+        // drawn as one upright stroke came out 54 × 270 pt, a signature 150 × 750, most of a page.
+        guard natural.height > width else { return natural }
+        return CGSize(width: width * width / natural.height, height: width)
     }
 
     // MARK: Typing
@@ -982,6 +1022,17 @@ public final class EditorPDFFillSign: ObservableObject {
     }
 
     /// Whether Save Filled Copy has something to write and nothing the toolkit would refuse.
+    /// **Save Filled Copy's tooltip: why it is greyed, when a form would refuse it** — the note
+    /// card's sentence, where the greyed button said what it would write; otherwise what it writes.
+    public var saveHelp: String {
+        if let formProblem, !Self.isNothingYet(formProblem) {
+            return EditorPDFToolEngine.reason(formProblem, tool: .fillForm(values: values, items: []))
+        }
+        return usesFormPath
+            ? "Write a copy beside the original with these values — its form stays fillable, and the original isn’t changed"
+            : "Write a copy with these items beside the original — the original isn’t changed"
+    }
+
     public var canSave: Bool {
         // Never for a refused file — File ▸ Save Filled Copy is live exactly where the pill's is.
         guard hasUnsavedChanges, refusal == nil else { return false }

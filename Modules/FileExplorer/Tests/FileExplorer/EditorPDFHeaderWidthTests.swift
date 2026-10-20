@@ -101,7 +101,7 @@ import FileExplorerTestSupport
         #expect(rungs.map(\.isWorded) == [true, false])
         let source = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
         #expect(source.contains("EditorPDFFindButton(find: find, accent: accent, onAccent: onAccent, worded: rung.isWorded)"))
-        #expect(source.contains("EditorPDFFillSignButton(fill: fill, accent: accent, onAccent: onAccent, worded: rung.isWorded)"))
+        #expect(source.contains("EditorPDFFillSignButton(fill: fill, tools: tools, accent: accent, onAccent: onAccent, worded: rung.isWorded)"))
         #expect(source.contains("EditorPDFToolsMenu(tools: tools, accent: accent, onAccent: onAccent, worded: rung.isWorded)"))
     }
 

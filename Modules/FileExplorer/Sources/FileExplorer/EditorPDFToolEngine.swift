@@ -567,15 +567,19 @@ enum EditorPDFToolEngine {
 
     /// **What the reader is told when the toolkit refuses** — every `PDFOperationError`, in one
     /// exhaustive switch so a case a new toolkit adds fails to build here rather than reaching the
-    /// banner unread. Most read as the toolkit words them. Two do not, because they were written for
-    /// PDF Utils' windows: `permissionsForbidEditing` names page changes and Password Protect, and
-    /// for a form being filled the question is the owner's form-entry or comment permission; and
-    /// `textOnRotatedPage` points at a Fill & Sign that flattens, which in Edit is this very tool.
+    /// banner unread. Most read as the toolkit words them. Those written for PDF Utils' windows do
+    /// not: `permissionsForbidEditing`, `encryptedInput` and `metadataEncrypted` send the reader to a
+    /// "Password Protect → Remove password" SyncCloud has no such menu for — a restricted file's
+    /// Rotate and Delete, from Edit and from a pane's batch, said so — and for a form being filled
+    /// the question is the owner's form-entry or comment permission; and `textOnRotatedPage` points
+    /// at a Fill & Sign that flattens, which in Edit is this very tool.
     static func reason(_ error: PDFOperationError, tool: EditorPDFTool) -> String {
         switch error {
         case .permissionsForbidEditing(let url):
-            guard case .fillForm(let values, _) = tool else { return error.errorDescription ?? "" }
             let name = url.lastPathComponent
+            guard case .fillForm(let values, _) = tool else {
+                return "“\(name)”’s owner doesn’t allow changing its pages. \(removePasswordStep)"
+            }
             return values.isEmpty
                 ? "“\(name)”’s owner allows filling its form but not adding text or signatures to its pages, "
                     + "so only the fields can be saved."
@@ -584,6 +588,11 @@ enum EditorPDFToolEngine {
         case .textOnRotatedPage(let page):
             return "Typed text can’t go on page \(page) while the form stays fillable, because that page is rotated. "
                 + "Remove it, or sign there with a drawn signature instead."
+        case .encryptedInput(let url):
+            return "“\(url.lastPathComponent)” needs a password to open. PDF Tools ▸ Remove Password… writes an "
+                + "unlocked copy, which this tool can then use."
+        case .metadataEncrypted:
+            return "This PDF is password-protected, so its metadata can’t be cleaned. \(removePasswordStep)"
         case .formValueNotAccepted(let field, let value):
             // The toolkit's words, but a paragraph typed into a field is not quoted whole.
             let shown = value.count > 40 ? value.prefix(40) + "…" : Substring(value)
@@ -592,12 +601,15 @@ enum EditorPDFToolEngine {
              .pageRangeRequired, .cannotRemoveEveryPage, .fileAccessDenied, .noInputFiles, .noPagesSelected,
              .compressionFailed, .emptyPDF, .noRedactions, .redactionFailed, .watermarkTextRequired,
              .watermarkImageRequired, .watermarkFailed, .noFillSignItems, .fillSignFailed, .passwordRequired,
-             .incorrectPassword, .notEncrypted, .protectionFailed, .metadataEncrypted, .couldNotOpenImage,
-             .cropTooSmall, .ocrFailed, .encryptedInput, .couldNotEncodeOutput, .noFormValues,
+             .incorrectPassword, .notEncrypted, .protectionFailed, .couldNotOpenImage,
+             .cropTooSmall, .ocrFailed, .couldNotEncodeOutput, .noFormValues,
              .unknownFormField, .formFieldReadOnly, .formFieldNotFillable, .formFillFailed:
             return error.errorDescription ?? ""
         }
     }
+
+    /// What to do about an owner's restriction — the one menu both Edit and the panes have.
+    static let removePasswordStep = "PDF Tools ▸ Remove Password… can write an unrestricted copy if you know the password."
 
     /// A run's failure as the banner says it: the toolkit's refusal in Edit's words, anything else
     /// as its own description.

@@ -289,6 +289,12 @@ struct EditorPDFCapsule: View {
             .frame(width: Self.fieldWidth(pageCount: pageCount, twoUp: state.layout.isTwoUp))
             .focused($pageFieldFocused)
             .onSubmit { go() }
+            // Esc puts the number back and hands the keyboard to the pages, as Return does.
+            .onExitCommand {
+                typedPage = Self.pageText(state.visiblePages)
+                pageFieldFocused = false
+                state.requestFocus()
+            }
             .accessibilityLabel(state.layout.isTwoUp ? "Pages" : "Page")
             .accessibilityValue("\(typedPage) of \(pageCount)")
         let count = Text("of \(pageCount)")
@@ -326,29 +332,47 @@ struct EditorPDFCapsule: View {
     }
 
     private func go() {
-        guard let page = Self.page(typed: typedPage, pageCount: pageCount) else {
+        guard Self.go(typed: typedPage, pageCount: pageCount, state: state) else {
             typedPage = Self.pageText(state.visiblePages)
             return
         }
-        state.requestPage(page)
         pageFieldFocused = false
+    }
+
+    /// **Return in the page field: the page, and the keyboard back to the pages** — ⌃⌘L is Go to
+    /// Line's twin, whose popover hands the caret back to the text. Left in the field, ⌥← and ⌥→
+    /// did nothing and ⌘+ changed the whole app's text size. False for no number at all.
+    @discardableResult
+    static func go(typed: String, pageCount: Int, state: EditorPDFViewState) -> Bool {
+        guard let page = page(typed: typed, pageCount: pageCount) else { return false }
+        state.requestPage(page)
+        state.requestFocus()
+        return true
     }
 
     /// The zero-based page a typed number names, clamped into the document; `nil` for no number.
     /// The FIRST number counts, so a spread's own "6–7" sent back unchanged goes to 6 — the spread
     /// it already is.
     ///
-    /// Any script's digits count — a Japanese keyboard's "３" is 3 — and a number too long for `Int`
-    /// is past the last page, so it goes there rather than being ignored.
+    /// Any script's decimal digits count — a Japanese keyboard's "３" is 3, Arabic's "٣" too — and a
+    /// number too long for `Int` is past the last page, so it goes there rather than being ignored.
+    /// Only digits: "十二" or "Ⅻ" are numbers but not digits, and read one at a time "十二" was 102.
     static func page(typed: String, pageCount: Int) -> Int? {
-        let digits = typed.drop { $0.wholeNumberValue == nil }.prefix { $0.wholeNumberValue != nil }
+        let digits = typed.drop { digit($0) == nil }.prefix { digit($0) != nil }
         guard pageCount > 0, !digits.isEmpty else { return nil }
-        let number = digits.reduce(0) { sum, digit in
+        let number = digits.reduce(0) { sum, character in
             let (shifted, over) = sum.multipliedReportingOverflow(by: 10)
-            let (next, overAgain) = shifted.addingReportingOverflow(digit.wholeNumberValue ?? 0)
+            let (next, overAgain) = shifted.addingReportingOverflow(digit(character) ?? 0)
             return over || overAgain ? Int.max : next
         }
         return min(max(number, 1), pageCount) - 1
+    }
+
+    /// A decimal digit's value, in any script; `nil` for anything else.
+    private static func digit(_ character: Character) -> Int? {
+        guard character.unicodeScalars.count == 1, let scalar = character.unicodeScalars.first,
+              scalar.properties.numericType == .decimal else { return nil }
+        return character.wholeNumberValue
     }
 
     // MARK: The zoom

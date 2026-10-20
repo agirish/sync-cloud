@@ -235,6 +235,27 @@ import Sync
         #expect(EditorPDFViewState(defaults: defaults).capsulePlace == .bottom)
     }
 
+    /// **Settings ▸ Reset All Settings reaches an open reader** — the layout, Cover Page
+    /// Separately and both places go back to their defaults on screen as they do on disk, not at
+    /// the next launch; and taking them writes nothing back into the emptied domain.
+    @Test func aResetReachesTheOpenReader() {
+        let reset = ScratchDefaults("EditorPDFReaderReset")
+        let state = EditorPDFViewState(defaults: reset)
+        state.layout = .twoPages
+        state.coverSeparately = true
+        state.capsulePlace = .topLeading
+        state.palettePlace = .trailing
+        reset.removePersistentDomain(forName: reset.scratchSuiteName)
+        #expect(state.layout == EditorPDFSettings.layoutDefault)
+        #expect(state.coverSeparately == EditorPDFSettings.coverSeparatelyDefault)
+        #expect(state.capsulePlace == EditorPDFSettings.capsulePlaceDefault)
+        #expect(state.palettePlace == EditorPDFSettings.palettePlaceDefault)
+        #expect(reset.object(forKey: EditorPDFSettings.capsulePlaceKey) == nil, "taking the reset wrote the place back")
+        // And a choice after it is remembered as ever.
+        state.capsulePlace = .top
+        #expect(reset.string(forKey: EditorPDFSettings.capsulePlaceKey) == "top")
+    }
+
     /// **The place holds across a resize** — bottom right is still bottom right, 14pt in, in a
     /// wider and taller window: the capsule moves with the corner rather than staying at the points
     /// it was drawn at.

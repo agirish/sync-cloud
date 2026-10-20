@@ -584,6 +584,31 @@ enum PDFURLOpens {
         #expect(EditorPDFCapsule.page(typed: "99999999999999999999", pageCount: 10) == 9)
         #expect(EditorPDFCapsule.page(typed: "３", pageCount: 10) == 2)
         #expect(EditorPDFCapsule.page(typed: "", pageCount: 10) == nil)
+        // Decimal digits only: "٣" is 3, but "十二" (twelve) and "Ⅻ" are numbers, not digits — read
+        // one at a time "十二" went to page 102, the last page here.
+        #expect(EditorPDFCapsule.page(typed: "٣", pageCount: 200) == 2)
+        #expect(EditorPDFCapsule.page(typed: "十二", pageCount: 200) == nil)
+        #expect(EditorPDFCapsule.page(typed: "ⅩⅡ", pageCount: 200) == nil)
+        #expect(EditorPDFCapsule.page(typed: "1万", pageCount: 200) == 0)
+    }
+
+    /// **Return in the page field hands the keyboard back to the pages** — after ⌃⌘L, ⌥← and ⌥→
+    /// did nothing and ⌘+ changed the whole app's text size, the field still holding the caret.
+    @Test func goingToATypedPageGivesThePagesTheKeyboard() throws {
+        let state = EditorPDFViewState(defaults: ScratchDefaults("EditorPDFGoToPage"))
+        let focus = state.focusRequest
+        #expect(EditorPDFCapsule.go(typed: "4", pageCount: 10, state: state))
+        #expect(state.pageRequest?.value == 3)
+        #expect(state.focusRequest != focus, "the pages were not asked to take the keyboard")
+        let after = state.focusRequest
+        #expect(!EditorPDFCapsule.go(typed: "x", pageCount: 10, state: state))
+        #expect(state.focusRequest == after, "a field with no number gave the keyboard away")
+        // And the field's Return goes through it, as its Esc does.
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/EditorPDFCapsule.swift"), encoding: .utf8)
+        #expect(source.contains("guard Self.go(typed: typedPage, pageCount: pageCount, state: state) else {"))
+        #expect(source.contains(".onExitCommand {"))
     }
 
     /// **Row 2 says paper, size and text, and no version** — the version is in the tooltip on

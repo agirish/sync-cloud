@@ -315,6 +315,37 @@ final class ReaderPDFView: PDFView {
         super.keyDown(with: event)
     }
 
+    /// **PDFKit's own right-click menu, less its view controls.** Automatically Resize, the zooms,
+    /// Actual Size, the four display modes and the page turns changed the view behind the reader's
+    /// state: a layout picked there snapped back at the next update while the capsule showed the
+    /// other one, and Automatically Resize left PDFKit fitting on its own under the capsule's fit.
+    /// The capsule and its zoom menu hold every one of them. Look Up, Translate, Search and Copy stay.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let menu = super.menu(for: event) else { return nil }
+        Self.removeViewControls(from: menu)
+        return menu.items.isEmpty ? nil : menu
+    }
+
+    /// The actions of PDFKit's menu items that drive the view itself — public and private names, as
+    /// macOS 27's menu carries them. One a later PDFKit renames is left in, as it was before.
+    static let viewControlActions: Set<String> = [
+        "_setAutoSize:", "zoomIn:", "zoomOut:", "_setActualSize:", "_setSinglePage:", "_setSinglePageScrolling:",
+        "_setDoublePage:", "_setDoublePageScrolling:", "goToNextPage:", "goToPreviousPage:",
+    ]
+
+    static func removeViewControls(from menu: NSMenu) {
+        for item in menu.items.reversed() {
+            if let action = item.action, viewControlActions.contains(NSStringFromSelector(action)) { menu.removeItem(item) }
+        }
+        // The separators that stood between the groups that went: none doubled, none at either end.
+        var previousWasSeparator = true
+        for item in menu.items {
+            if item.isSeparatorItem, previousWasSeparator { menu.removeItem(item); continue }
+            previousWasSeparator = item.isSeparatorItem
+        }
+        while menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
+    }
+
     /// See `FitPagePDFView.clearInheritedBackground` — both writes are needed, for the same reason.
     func clearInheritedBackground() {
         backgroundColor = .clear
@@ -487,10 +518,7 @@ struct EditorPDFPageView: NSViewRepresentable {
         }
         if let request = reveal, let document, let page = document.page(at: request.value.pageIndex) {
             coordinator.revealToken = request.token
-            // A margin round the match, so it is not drawn hard against the edge it scrolled to —
-            // and no scroll at all for a match already in sight.
-            let wanted = request.value.rect.insetBy(dx: -24, dy: -48)
-            if !Self.isInSight(request.value.rect, on: page, in: view) { view.go(to: wanted, on: page) }
+            Self.reveal(request.value.rect, on: page, in: view)
         }
         if state.focusRequest != coordinator.focusToken {
             coordinator.focusToken = state.focusRequest
@@ -533,12 +561,69 @@ struct EditorPDFPageView: NSViewRepresentable {
         guard view.visiblePages.contains(page) else { return false }
         let shown = view.convert(rect, from: page)
         guard clearRect(of: view).contains(shown) else { return false }
-        guard let reader = view as? ReaderPDFView else { return true }
-        // From the canvas's top-left space into the view's: a `PDFView` is not flipped.
-        return !reader.coveredRects.contains { covered in
+        return !covered(in: view).contains { $0.intersects(shown) }
+    }
+
+    /// The floating pieces' rects in `view`'s own space — from the canvas's top-left space, as
+    /// SwiftUI lays them out; a `PDFView` is not flipped.
+    static func covered(in view: PDFView) -> [CGRect] {
+        guard let reader = view as? ReaderPDFView else { return [] }
+        return reader.coveredRects.map { covered in
             let y = view.isFlipped ? covered.minY : view.bounds.height - covered.maxY
-            return CGRect(x: covered.minX, y: y, width: covered.width, height: covered.height).intersects(shown)
+            return CGRect(x: covered.minX, y: y, width: covered.width, height: covered.height)
         }
+    }
+
+    /// **Shows `rect` on `page`, clear of the bands and the floating pieces** — with a margin, so it
+    /// is not drawn hard against the edge it scrolled to, and no scroll at all for a match already
+    /// in sight.
+    ///
+    /// **PDFKit's `go(to:on:)` does nothing for a rect already on screen** (PDFView.h), so a match
+    /// under Fill & Sign's palette in the middle of the canvas, or under a card pushed down from the
+    /// top, stayed under it at every ⌘G. What is still covered after it is scrolled out by hand, the
+    /// least distance up or down (``clearingShifts(of:clear:covered:)``).
+    static func reveal(_ rect: CGRect, on page: PDFPage, in view: PDFView) {
+        guard !isInSight(rect, on: page, in: view) else { return }
+        view.go(to: rect.insetBy(dx: -24, dy: -48), on: page)
+        guard !isInSight(rect, on: page, in: view), view.visiblePages.contains(page),
+              let reader = view as? ReaderPDFView, let scroll = reader.pagesScrollView else { return }
+        let shown = view.convert(rect, from: page)
+        let clip = scroll.contentView
+        let start = clip.bounds.origin
+        // The least move first; one the pages cannot scroll that far for (the top of page 1) is
+        // put back and the next tried.
+        for shift in clearingShifts(of: shown, clear: clearRect(of: view), covered: covered(in: view)) where shift != 0 {
+            // The clip-view point now under where the match should be drawn has to come to sit
+            // under the match: the difference, in the clip view's own space, whatever its flip and
+            // zoom.
+            let now = clip.convert(shown.origin, from: view)
+            let wanted = clip.convert(CGPoint(x: shown.minX, y: shown.minY + shift), from: view)
+            var bounds = clip.bounds
+            bounds.origin = CGPoint(x: start.x + now.x - wanted.x, y: start.y + now.y - wanted.y)
+            clip.scroll(to: clip.constrainBoundsRect(bounds).origin)
+            scroll.reflectScrolledClipView(clip)
+            if isInSight(rect, on: page, in: view) { return }
+            clip.scroll(to: start)
+            scroll.reflectScrolledClipView(clip)
+        }
+    }
+
+    /// **How far up (+) or down (−) `shown` could move to sit inside `clear` and clear of every
+    /// rect in `covered`**, the least distance first — empty when no vertical move does it. All in
+    /// one unflipped space. The pieces float at the canvas's sides and ends, so a match under one
+    /// comes out above or below it, 8pt clear.
+    static func clearingShifts(of shown: CGRect, clear: CGRect, covered: [CGRect]) -> [CGFloat] {
+        let margin: CGFloat = 8
+        var candidates: [CGFloat] = [0, clear.maxY - margin - shown.maxY, clear.minY + margin - shown.minY]
+        for piece in covered where piece.minX < shown.maxX && shown.minX < piece.maxX {
+            candidates += [piece.maxY + margin - shown.minY, piece.minY - margin - shown.maxY]
+        }
+        return candidates
+            .filter { shift in
+                let moved = shown.offsetBy(dx: 0, dy: shift)
+                return clear.contains(moved) && !covered.contains { $0.intersects(moved) }
+            }
+            .enumerated().sorted { (abs($0.element), $0.offset) < (abs($1.element), $1.offset) }.map(\.element)
     }
 
     /// `view`'s bounds less its ``ReaderPDFView/canvasInsets`` — a `PDFView` is not flipped, so the

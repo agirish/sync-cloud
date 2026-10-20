@@ -641,6 +641,98 @@ enum PDFTextFixtures {
         #expect(EditorPDFPageView.isInSight(match, on: first, in: reader), "a card clear of the match hid it")
     }
 
+    /// **A step to a match under a floating piece brings it out** — not only judges it covered.
+    /// PDFKit's `go(to:on:)` does nothing for a rect already on screen, so a match under Fill &
+    /// Sign's palette in the middle of the canvas stayed under it at every ⌘G.
+    @Test func aMatchUnderThePaletteIsScrolledClearOfIt() throws {
+        let file = needles("palette.pdf", pages: 6)
+        let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
+        let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 700, height: 900))
+        reader.displayMode = .singlePageContinuous
+        reader.autoScales = false
+        reader.scaleFactor = 1
+        reader.document = document
+        let window = NSWindow(contentRect: reader.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = reader
+        defer { window.contentView = nil }
+        reader.layoutDocumentView()
+        let first = try #require(document.page(at: 0))
+        reader.go(to: first)
+        // A match well inside the view, and a palette-shaped piece over it at the canvas's left.
+        let match = CGRect(x: 72, y: 500, width: 100, height: 20)
+        let drawn = reader.convert(match, from: first)
+        reader.coveredRects = [CGRect(x: 0, y: reader.bounds.height - drawn.midY - 120, width: drawn.maxX + 20, height: 240)]
+        try #require(!EditorPDFPageView.isInSight(match, on: first, in: reader), "the piece does not cover the match")
+        reader.go(to: match.insetBy(dx: -24, dy: -48), on: first)
+        try #require(!EditorPDFPageView.isInSight(match, on: first, in: reader),
+                     "PDFKit scrolled a visible rect after all, so this proves nothing")
+
+        EditorPDFPageView.reveal(match, on: first, in: reader)
+        #expect(EditorPDFPageView.isInSight(match, on: first, in: reader), "the match is still under the palette")
+        // The least move: just above or below the piece, not a jump to the page's top.
+        let moved = reader.convert(match, from: first)
+        #expect(abs(moved.midY - drawn.midY) < 200, "the match moved \(moved.midY - drawn.midY)pt for a 240pt piece")
+    }
+
+    /// **The pages' right-click menu keeps PDFKit's text items and drops its view controls** —
+    /// Automatically Resize, the zooms and the display modes changed the view behind the reader's
+    /// state, so a layout picked there snapped back while the capsule showed another.
+    @Test func theRightClickMenuHasNoViewControls() throws {
+        let file = needles("menu.pdf", pages: 2)
+        let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 600, height: 800))
+        reader.document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
+        let window = NSWindow(contentRect: reader.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = reader
+        defer { window.contentView = nil }
+        reader.layoutDocumentView()
+        let click = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 300, y: 400), modifierFlags: [],
+                                                    timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                                    eventNumber: 0, clickCount: 1, pressure: 1))
+        // Over a page with nothing selected PDFKit offers only its view controls — so no menu at all.
+        #expect(reader.menu(for: click) == nil)
+        // On selected text: Copy, and nothing that drives the view.
+        let page = try #require(reader.document?.page(at: 0))
+        let words = try #require(page.selection(for: page.bounds(for: .mediaBox)))
+        reader.go(to: page)
+        reader.setCurrentSelection(words, animate: false)
+        let onWords = reader.convert(reader.convert(CGPoint(x: words.bounds(for: page).midX, y: words.bounds(for: page).midY), from: page), to: nil)
+        let rightClick = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: onWords, modifierFlags: [],
+                                                         timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                                         eventNumber: 0, clickCount: 1, pressure: 1))
+        let menu = try #require(reader.menu(for: rightClick))
+        let actions = menu.items.compactMap { $0.action.map(NSStringFromSelector) }
+        #expect(actions.contains("copy:"), "Copy went too: \(actions)")
+        let left = actions.filter(ReaderPDFView.viewControlActions.contains)
+        #expect(left.isEmpty, "view controls still in the menu: \(left)")
+        #expect(menu.items.first?.isSeparatorItem == false && menu.items.last?.isSeparatorItem == false)
+        #expect(!zip(menu.items, menu.items.dropFirst()).contains { $0.isSeparatorItem && $1.isSeparatorItem })
+        // Control: PDFKit's own menu, as a plain PDFView gives it, does carry them.
+        let plain = PDFView(frame: reader.frame)
+        plain.document = reader.document
+        plain.setCurrentSelection(page.selection(for: page.bounds(for: .mediaBox)), animate: false)
+        window.contentView = plain
+        plain.layoutDocumentView()
+        let own = plain.menu(for: rightClick)?.items.compactMap { $0.action.map(NSStringFromSelector) } ?? []
+        #expect(own.contains("zoomIn:") || own.contains("_setAutoSize:"), "PDFKit's menu has no view controls to remove: \(own)")
+    }
+
+    /// **The least vertical move that clears every piece**, inside the clear rect — or none.
+    @Test func theClearingShiftsAreTheLeastMovesOutFirst() {
+        let clear = CGRect(x: 0, y: 0, width: 400, height: 600)
+        let shown = CGRect(x: 20, y: 290, width: 100, height: 20)
+        #expect(EditorPDFPageView.clearingShifts(of: shown, clear: clear, covered: []).first == 0)
+        let palette = CGRect(x: 0, y: 250, width: 60, height: 100)
+        // Out above the palette (350 + 8 − 290 = 68), then below it (250 − 8 − 310 = −68).
+        #expect(EditorPDFPageView.clearingShifts(of: shown, clear: clear, covered: [palette]).prefix(2) == [68, -68])
+        // Never into a second piece: above the palette is under the card.
+        let card = CGRect(x: 0, y: 352, width: 400, height: 60)
+        #expect(EditorPDFPageView.clearingShifts(of: shown, clear: clear, covered: [palette, card]).first == -68)
+        // A piece beside the match, not over it, moves nothing.
+        #expect(EditorPDFPageView.clearingShifts(of: shown, clear: clear, covered: [CGRect(x: 200, y: 280, width: 50, height: 50)]).first == 0)
+        // Nowhere to go.
+        #expect(EditorPDFPageView.clearingShifts(of: shown, clear: clear, covered: [clear]).isEmpty)
+    }
+
     /// **Esc in the pages closes the bar when it is up**, and goes on as before when it is not.
     @Test func escInThePagesClosesTheBar() throws {
         let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 200, height: 200))

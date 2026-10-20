@@ -149,6 +149,9 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
     /// Called as each file starts, before its lane turn is asked for — a test's way to cancel at a
     /// known file rather than racing the lane for it.
     var fileStarted: @MainActor (Int) -> Void = { _ in }
+    /// Called on the main actor as a file's copy is handed to the writer — a test's way to cancel
+    /// while the bytes are being written. `nil` in the app.
+    var writeStartedHook: (@MainActor () -> Void)?
     /// Whether a file's bytes are still only in the cloud — asked as each file starts, since the
     /// menu's answer can be a moment old and opening a placeholder in PDFKit would download it.
     var isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
@@ -207,6 +210,8 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         let path = files[index].path
         let input = URL(fileURLWithPath: EditorFileStore.resolved(path))
         if isCloudOnly(path) { return .skipped(.inTheCloud) }
+        // Moved or deleted since it was chosen: said as such, not as a file PDFKit couldn't read.
+        if EditorFileStore.stamp(ofPath: path) == nil { return .failed(Self.goneReason) }
         if case .compress(.target(let bytes)) = tool, let size = EditorFileStore.stamp(ofPath: path)?.size,
            size <= bytes {
             return .skipped(.alreadySmall)
@@ -236,10 +241,20 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
             return .skipped(.alreadySmall)
         case .output(.bytes(let data), let unrestricted):
             let suffix = tool.tool(pageCount: 0).suffix
+            writeStartedHook?()
             let written = await Task.detached(priority: .userInitiated) {
-                Result { try EditorPDFCopyWriter.write(data, besides: path, suffix: suffix) }
+                Result { try EditorPDFCopyWriter.writeStamped(data, besides: path, suffix: suffix) }
             }.value
-            switch written {
+            // **Cancel pressed while the copy was being written still means "write nothing for
+            // it"**, as one file's run already holds: the copy is taken back, if it is still the
+            // file this run made.
+            if case .success(let landed) = written, flag.isCancelled {
+                if EditorFileStore.stamp(ofPath: landed.path) == landed.stamp {
+                    try? FileManager.default.removeItem(atPath: landed.path)
+                }
+                return .skipped(.cancelled)
+            }
+            switch written.map(\.path) {
             case .failure(let error):
                 return .failed("Couldn’t write the copy — \(error.localizedDescription)")
             case .success(let copy):
@@ -253,6 +268,9 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
             }
         }
     }
+
+    /// A file moved or deleted after it was chosen.
+    nonisolated static let goneReason = "it is no longer there — it was moved or deleted"
 
     /// What one file's lane turn came back with.
     enum Turn: Sendable {
@@ -270,7 +288,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
                                      isCancelled: (@Sendable () -> Bool)?) -> Turn {
         if isCancelled?() == true { return .skipped(.cancelled) }
         guard let document = PDFDocument(url: input) else {
-            return .failed("PDFKit couldn’t read it")
+            return .failed(FileManager.default.fileExists(atPath: input.path) ? "PDFKit couldn’t read it" : goneReason)
         }
         if document.isLocked { return .skipped(.lockedToOpen) }
         if case .cleanMetadata = tool, document.isEncrypted { return .skipped(.passwordProtected) }
@@ -285,7 +303,8 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         } catch is CancellationError {
             return .skipped(.cancelled)
         } catch {
-            return .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            // In Edit's words, as a single file's run says it — not the toolkit's PDF Utils ones.
+            return .failed(EditorPDFToolEngine.reason(error, tool: edit))
         }
     }
 
@@ -354,7 +373,8 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
             host.didWrite(copy)
         }
         let message = Self.summary(files.map(\.status), tool: tool, cancelled: cancelled,
-                                   unrestricted: unrestrictedCopies)
+                                   unrestricted: unrestrictedCopies,
+                                   names: files.map { ($0.path as NSString).lastPathComponent })
         let kind: EditorPDFToolBanner.Kind
         switch copies.count {
         case 0: kind = files.contains { if case .failed = $0.status { return true }; return false } ? .failure : .note
@@ -370,17 +390,21 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
     ///
     /// `unrestricted` copies came from originals whose owner restricted editing, and do not carry
     /// the restrictions — "· 1 has no editing restrictions", right after what was written.
+    ///
+    /// `names` are the files' own, in the same order: a single failure names its file — the sheet
+    /// that listed them has gone by the time the banner says it.
     static func summary(_ statuses: [Status], tool: EditorPDFBatchTool, cancelled: Bool,
-                        unrestricted: Int = 0) -> String {
+                        unrestricted: Int = 0, names: [String] = []) -> String {
         var wrote = 0
         var skips: [(Skip, Int)] = []
         var failures: [String] = []
-        for status in statuses {
+        for (index, status) in statuses.enumerated() {
             switch status {
             case .wrote: wrote += 1
             case .skipped(let skip):
                 if let at = skips.firstIndex(where: { $0.0 == skip }) { skips[at].1 += 1 } else { skips.append((skip, 1)) }
-            case .failed(let message): failures.append(message)
+            case .failed(let message):
+                failures.append(names.indices.contains(index) ? "“\(names[index])” — \(message)" : message)
             case .waiting, .running: break
             }
         }
