@@ -62,7 +62,8 @@ Requires **macOS 26**, unchanged from the 5.x line.
   Text Size reads Zoom then — and go back to the app's text size once you click into the file pane
   or the sidebar. With a PDF open, the Text menu's `⌃⌘1`, `⌃⌘2` and `⌃⌘3` are Fit Page, Fit Width
   and Actual Size, with Zoom In and Zoom Out under them, and `⌃⌘L` is **Go to Page…**. `⌘C` copies
-  the text selected on a page, and `⌘A` selects all of it.
+  the text you have selected, and `⌘A` selects the text of the page on screen — the spread, in a
+  two-page layout.
 - **Find in a PDF.** `⌘F`, or Find in the header, opens a find card in the top-right corner of the
   pages; the capsule steps aside if it is there. Matches are tinted on the pages, a phrase broken
   across two lines is still found, and case and accents are ignored. `⌘G` and `⇧⌘G` step through
@@ -121,8 +122,8 @@ Requires **macOS 26**, unchanged from the 5.x line.
 - **Signatures stay on this Mac.** **Add Signature…** draws one with the trackpad or mouse — Fine,
   Medium or Bold, with the trackpad's wobble smoothed out — or types it in one of seven of the Mac's
   handwriting faces, each shown in your own name. Blue or Black ink is chosen in the sheet, on a pad
-  that stays paper-white in Dark Mode. Typing your first signature can save matching initials with
-  it. Restyling a saved signature on the page changes the saved one too. It is a picture of your
+  that stays paper-white in Dark Mode. Typing a signature while no initials are saved can save
+  matching initials with it. Restyling a saved signature on the page changes the saved one too. It is a picture of your
   signature, not a certificate-based digital one, and a saved one is kept on this Mac only — never
   synced, never written to the log.
 - **A PDF's own form fields.** A form with fields — a W-9, a visa form — opens Fill & Sign on **Form
@@ -137,7 +138,7 @@ Requires **macOS 26**, unchanged from the 5.x line.
   the PDF, opening another file or quitting asks first. A form's caveats, and anything Save would
   refuse, sit in a note under the pill. **File ▸ Fill & Sign** and **File ▸ Save Filled Copy** do
   the same from the menu bar.
-- **A PDF whose owner restricted editing gets no Fill & Sign, and says why** — File ▸ Fill & Sign is
+- **A PDF whose owner allows neither comments nor form filling gets no Fill & Sign, and says why** — File ▸ Fill & Sign is
   greyed with *This PDF doesn’t allow filling* under it, and the Fill & Sign button gives the
   reason. A form that allows filling but not adding to its pages fills its fields only.
 

@@ -38,7 +38,8 @@ struct EditorPDFAddSignatureSheet: View {
     }
 
     static let privacy = "This places a picture of your signature on the page. It isn’t a certificate-based digital "
-        + "signature. Saved signatures stay on this Mac as pen strokes, and are never synced or written to the log."
+        + "signature. Saved signatures stay on this Mac — drawn ones as pen strokes, typed ones as their words — "
+        + "and are never synced or written to the log."
 
     /// What paper is: the pad, the preview and the face tiles in both appearances.
     static let paper = Color.white
