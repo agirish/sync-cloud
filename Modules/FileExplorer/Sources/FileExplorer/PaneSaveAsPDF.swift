@@ -81,7 +81,7 @@ public final class PaneSaveAsPDF: ObservableObject {
     public var host = PaneSaveAsPDFHost()
     /// Settings ▸ Text size and the window's accent — what Edit's Print sets a note in.
     public var fontScale: CGFloat = 1
-    public var accent: Color = .accentColor
+    public var accent: Color = LiquidGlassHue.stored().accentColor
 
     /// The run's task — kept so a test can await it; nothing in the app does.
     private(set) var work: Task<Void, Never>?

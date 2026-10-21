@@ -82,11 +82,16 @@ struct AppearanceScreen: View {
     static let swatchLensChannel = SelectionLensChannel("setup.accent")
     /// A halo, like Settings' accent row: glass behind the swatch, showing only in the 3pt band
     /// outside it, with today's 2pt ring on the band's rim. `markerOpacity` 0 keeps the glass
-    /// untinted at every Tint — it rings a colour, so it must not wear one of its own. The ring is
-    /// `.tint` today and nothing in the app sets a tint, so it resolves to the accent colour.
+    /// untinted at every Tint — it rings a colour, so it must not wear one of its own.
+    ///
+    /// **The ring is Settings' neutral ink, not an accent.** It was `.tint`, which nothing in the
+    /// app sets, so it drew the SYSTEM accent: a blue ring round the Green swatch just picked.
+    /// Settings rings the same row in `HueOptionView.ringColor` for the same reason the glass
+    /// stays clear — a ring in one hue around a swatch of another contradicts what it marks.
+    static let ringColor = Color.primary.opacity(0.4)
     static let swatchLensStyle = SelectionLensStyle(
-        shape: .circle, color: .accentColor, markerOpacity: 0,
-        ring: .init(color: .accentColor, width: 2))
+        shape: .circle, color: ringColor, markerOpacity: 0,
+        ring: .init(color: ringColor, width: 2))
 
     private func swatch(_ offered: LiquidGlassHue) -> some View {
         let isSelected = selectedHueRaw == offered.rawValue
@@ -105,7 +110,7 @@ struct AppearanceScreen: View {
                     // Today's marker — in Frosted and Clear the row's lens draws the ring.
                     if isSelected {
                         SelectionLensTodayMarker {
-                            Circle().strokeBorder(.tint, lineWidth: 2)
+                            Circle().strokeBorder(Self.ringColor, lineWidth: 2)
                         }
                     }
                 }

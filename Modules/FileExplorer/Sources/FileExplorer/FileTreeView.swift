@@ -1946,7 +1946,7 @@ struct FileRowView: View {
     var otherPaneName: String = ""
     /// The pane's accent, for the “N matches” count. Passed rather than inherited — see
     /// `PaneSearchAnnotation.accent`.
-    var accent: Color = .accentColor
+    var accent: Color = LiquidGlassHue.stored().accentColor
     /// Whether the row carries its trailing detail: a folder's modification date, a file's size.
     ///
     /// False in Columns (see `ColumnRowView`), true in Tree — the line Finder draws: its List view

@@ -1113,6 +1113,7 @@ public struct LensWorkspaceView: View {
             // card whose 81pt this must not touch.
             if let documentSurveyCard, DocumentSurveyStrip.isShown(for: documentSurveyCard) {
                 DocumentSurveyStrip(state: documentSurveyCard,
+                                    accent: glassHue.accentColor,
                                     onResume: onResumeDocumentSurvey,
                                     onPause: onPauseDocumentSurvey,
                                     onStop: onStopDocumentSurvey)

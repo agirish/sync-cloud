@@ -1096,7 +1096,7 @@ private struct LogOperationGroupRow: View {
     var density: ListDensity = .comfortable
     /// The glass hue, forwarded rather than re-read from `@AppStorage`: this row renders once
     /// per folded run, and one storage observer per row is a lot of observers for one color.
-    var accent: Color = .accentColor
+    var accent: Color = LiquidGlassHue.stored().accentColor
     @State private var expanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 

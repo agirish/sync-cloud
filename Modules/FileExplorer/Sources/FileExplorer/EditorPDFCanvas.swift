@@ -179,9 +179,9 @@ struct EditorPDFReader: View {
     /// What Save Filled Copy runs through — the save pill greys Save while a tool runs.
     var tools: EditorPDFTools?
     var pageCount: Int = 0
-    var accent: Color = .accentColor
+    var accent: Color = LiquidGlassHue.stored().accentColor
     /// Fill & Sign's lit tool — see ``EditorWorkspaceView/accentFill``.
-    var accentFill: Color = AccentFill.deepened(.accentColor)
+    var accentFill: Color = LiquidGlassHue.stored().accentFillColor
     var onAccent: Color = .white
 
     @State private var canvas: CGSize = .zero

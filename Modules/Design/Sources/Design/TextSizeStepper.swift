@@ -15,22 +15,32 @@ import SwiftUI
 public struct TextSizeStepper: View {
     @Binding var size: FontSize
     /// Drawn in the chrome of a card, so the tint comes from the caller rather than the environment.
-    var tint: Color
+    /// nil: the hue the user picked (`StoredHueReader`).
+    var tint: Color?
 
-    public init(size: Binding<FontSize>, tint: Color = .accentColor) {
+    public init(size: Binding<FontSize>, tint: Color? = nil) {
         self._size = size
         self.tint = tint
     }
 
+    @ViewBuilder
     public var body: some View {
+        if let tint {
+            stepper(tint)
+        } else {
+            StoredHueReader { hue in stepper(hue.accentColor) }
+        }
+    }
+
+    private func stepper(_ tint: Color) -> some View {
         HStack(spacing: 2) {
-            step(to: size.smaller, glyph: 10, label: "Smaller text")
+            step(to: size.smaller, glyph: 10, label: "Smaller text", tint: tint)
             Text("A")
                 .font(.system(size: currentGlyphSize, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(minWidth: 20)
                 .accessibilityHidden(true)
-            step(to: size.bigger, glyph: 15, label: "Bigger text")
+            step(to: size.bigger, glyph: 15, label: "Bigger text", tint: tint)
         }
         // Frosted and Clear: one glass capsule for the whole stepper, as Finder pairs related
         // buttons (`ChromeGlass`); 3pt past the 20pt glyphs so it reads as a bar button.
@@ -49,7 +59,7 @@ public struct TextSizeStepper: View {
     }
 
     @ViewBuilder
-    private func step(to destination: FontSize?, glyph: CGFloat, label: String) -> some View {
+    private func step(to destination: FontSize?, glyph: CGFloat, label: String, tint: Color) -> some View {
         Button {
             if let destination { size = destination }
         } label: {

@@ -63,8 +63,13 @@ import SwiftUI
         }
     }
 
+    /// The hue the user picked, not SwiftUI's `Color.accentColor` — the SYSTEM accent, which this
+    /// returned until the scan in `AccentFillScanTests` caught it.
     @Test func testNeutralFollowsTheAppAccent() {
-        #expect(ProviderHue.neutral.tint == Color.accentColor)
+        #expect(ProviderHue.neutral.tint == LiquidGlassHue.stored().accentColor)
+        if LiquidGlassHue.stored() != .none {
+            #expect(ProviderHue.neutral.tint != Color.accentColor)
+        }
     }
 
     @Test func testSoftVariantIsTheTintAtChipOpacity() {

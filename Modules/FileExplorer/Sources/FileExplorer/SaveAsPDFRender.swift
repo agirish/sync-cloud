@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Design
 import Events
 import PDFKit
 import Sync
@@ -60,7 +61,7 @@ enum SaveAsPDFRender {
     struct Settings {
         var geometry: DocumentPDF.PageGeometry = .letter
         var fontScale: CGFloat = 1
-        var accent: Color = .accentColor
+        var accent: Color = LiquidGlassHue.stored().accentColor
     }
 
     static func render(_ path: String, settings: Settings = Settings()) async throws -> SaveAsPDFOutput {

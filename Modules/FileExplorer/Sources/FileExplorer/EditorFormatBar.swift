@@ -853,7 +853,7 @@ struct EditorFormatBar: View, Equatable {
 struct EditorStylePicker: View {
     let current: MarkdownEdits.HeadingLevel
     /// The window's hue, for the row under the pointer — the format bar's own (TE101).
-    var accent: Color = .accentColor
+    var accent: Color = LiquidGlassHue.stored().accentColor
     let onPick: (MarkupVerb) -> Void
 
     /// Each style's size and weight in the list — the headings in steps above the body's 13 points.
@@ -883,7 +883,7 @@ struct EditorStylePicker: View {
 private struct EditorStyleRow: View {
     let verb: MarkupVerb
     let isCurrent: Bool
-    var accent: Color = .accentColor
+    var accent: Color = LiquidGlassHue.stored().accentColor
     let action: () -> Void
     @State private var hovering = false
 

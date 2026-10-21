@@ -114,7 +114,7 @@ public struct PaneTabStrip: View {
     public init(items: [Item],
                 leadingInset: CGFloat = 0,
                 trailingInset: CGFloat = 0,
-                accent: Color = .accentColor,
+                accent: Color = LiquidGlassHue.stored().accentColor,
                 isActivePane: Bool = true,
                 onSelect: @escaping (UUID) -> Void,
                 onClose: @escaping (UUID) -> Void,

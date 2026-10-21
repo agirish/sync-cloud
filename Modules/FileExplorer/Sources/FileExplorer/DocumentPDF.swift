@@ -49,7 +49,7 @@ public enum DocumentPDF {
 
         public init(name: String, text: String, isMarkdown: Bool,
                     folder: String? = nil, fontScale: CGFloat = 1,
-                    accent: Color = .accentColor) {
+                    accent: Color = LiquidGlassHue.stored().accentColor) {
             self.name = name
             self.text = text
             self.isMarkdown = isMarkdown

@@ -168,9 +168,10 @@ import Design
         #expect(screen.contains(".selectionLensHost(Self.swatchLensChannel"))
         #expect(screen.contains(".selectionLensStop(Self.swatchLensChannel, id: offered)"))
         // Today's ring is the marker the halo replaces — drawn as well, it would ring the swatch twice.
+        // Settings' neutral ring, not `.tint`: nothing sets a tint, so that drew the SYSTEM accent.
         let marker = try #require(screen.range(of: "SelectionLensTodayMarker {"),
                                   "the setup swatch's ring is not wrapped as today's marker")
-        #expect(screen[marker.upperBound...].prefix(120).contains("strokeBorder(.tint, lineWidth: 2)"))
+        #expect(screen[marker.upperBound...].prefix(120).contains("strokeBorder(Self.ringColor, lineWidth: 2)"))
     }
 
     @Test func theSetupHaloIsNeverTintedAndMatchesTodaysRing() {

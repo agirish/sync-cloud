@@ -89,16 +89,17 @@ public enum ProviderHue: String, CaseIterable, Sendable {
 
     /// The full-strength brand hue, for tinting a provider's name text or glyph. Adaptive:
     /// light mode keeps the on-brand hex; dark mode uses the lifted variant so the text passes
-    /// contrast. `neutral` follows the user's chosen app accent in both appearances.
+    /// contrast. `neutral` follows the user's chosen app accent in both appearances — the stored
+    /// hue, read now (`LiquidGlassHue.stored`); `Color.accentColor` here was the SYSTEM accent.
     ///
     /// Cached per case: a dynamic `NSColor` is built once (not on every render), and a stable
     /// instance also lets `soft` stay `== tint.opacity(0.12)`.
-    public var tint: Color { Self.tintCache[self] ?? .accentColor }
+    public var tint: Color { Self.tintCache[self] ?? LiquidGlassHue.stored().accentColor }
 
     private static let tintCache: [ProviderHue: Color] = {
         var table: [ProviderHue: Color] = [:]
         for hue in allCases {
-            guard let brand = hue.brand else { continue } // neutral → .accentColor via the getter
+            guard let brand = hue.brand else { continue } // neutral → the stored hue, via the getter
             #if canImport(AppKit)
             table[hue] = Color(nsColor: NSColor(name: nil) { appearance in
                 let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua

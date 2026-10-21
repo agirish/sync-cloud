@@ -12,6 +12,8 @@ import SwiftUI
 /// the single source of both, so the two surfaces cannot come to describe one run differently.
 public struct DocumentSurveyStrip: View {
     let state: DocumentSurveyCardState
+    /// The hue the user picked, for the reading wash — the card's `accent`, so the two agree.
+    let accent: Color
     var onResume: (() -> Void)?
     var onPause: (() -> Void)?
     var onStop: (() -> Void)?
@@ -19,10 +21,12 @@ public struct DocumentSurveyStrip: View {
     @Environment(\.appFontScale) private var appFontScale
 
     public init(state: DocumentSurveyCardState,
+                accent: Color,
                 onResume: (() -> Void)? = nil,
                 onPause: (() -> Void)? = nil,
                 onStop: (() -> Void)? = nil) {
         self.state = state
+        self.accent = accent
         self.onResume = onResume
         self.onPause = onPause
         self.onStop = onStop
@@ -79,7 +83,7 @@ public struct DocumentSurveyStrip: View {
         case .running(_, _, _, _, let pause) where pause != nil:
             return AnyShapeStyle(Color.secondary.opacity(0.10))
         default:
-            return AnyShapeStyle(Color.accentColor.opacity(0.10))
+            return AnyShapeStyle(accent.opacity(0.10))
         }
     }
 

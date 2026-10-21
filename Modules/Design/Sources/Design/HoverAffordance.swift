@@ -316,13 +316,22 @@ public extension EnvironmentValues {
 /// sites used to reach for — and which is exactly why they had no hover state.
 public struct HoverAffordanceStyle: ButtonStyle {
     let variant: HoverAffordanceVariant
-    let tint: Color
+    /// nil: the hue the user picked, read where the button is drawn (`StoredHueReader`).
+    let tint: Color?
     let shape: HoverAffordanceShape
 
+    @ViewBuilder
     public func makeBody(configuration: Configuration) -> some View {
         // The hover flag needs `@State`, and a `ButtonStyle` isn't a `View` — hence the nested
         // body type. Standard SwiftUI shape, not a workaround.
-        HoverAffordanceBody(variant: variant, tint: tint, shape: shape, configuration: configuration)
+        if let tint {
+            HoverAffordanceBody(variant: variant, tint: tint, shape: shape, configuration: configuration)
+        } else {
+            StoredHueReader { hue in
+                HoverAffordanceBody(variant: variant, tint: hue.accentColor, shape: shape,
+                                    configuration: configuration)
+            }
+        }
     }
 }
 
@@ -404,10 +413,11 @@ public extension ButtonStyle where Self == HoverAffordanceStyle {
     /// - Parameters:
     ///   - variant: which treatment to wear; also picks the default hit shape.
     ///   - tint: the wash and ring color, normally the window's `LiquidGlassHue.accentColor`.
-    ///           Defaults to the system accent for controls that can't see the hue.
+    ///           nil, the default, reads the stored hue — never the system accent, which ignores
+    ///           the one the user picked.
     ///   - shape: overrides the variant's default hit shape.
     static func hoverAffordance(_ variant: HoverAffordanceVariant,
-                                tint: Color = .accentColor,
+                                tint: Color? = nil,
                                 shape: HoverAffordanceShape? = nil) -> HoverAffordanceStyle {
         HoverAffordanceStyle(variant: variant, tint: tint,
                              shape: shape ?? .default(for: variant))
@@ -481,7 +491,8 @@ public struct HoverTintModifier: ViewModifier {
 /// Apply it **above** any `.disabled(…)` on the button, so the modifier sits inside that scope
 /// and can read `isEnabled` — a greyed-out Back arrow must not lift.
 public struct ChromeHoverModifier: ViewModifier {
-    let tint: Color
+    /// nil: the hue the user picked, read where the control is drawn (`StoredHueReader`).
+    let tint: Color?
     /// Whether a selection lens sits under this control right now — its chosen item. Seated on the
     /// lens it does not lift: the lens is drawn by its host, outside the item, and stays put.
     let onLens: Bool
@@ -500,7 +511,16 @@ public struct ChromeHoverModifier: ViewModifier {
             .seated(onGlass || (onLens && lensMaterial != .today))
     }
 
+    @ViewBuilder
     public func body(content: Content) -> some View {
+        if let tint {
+            hovering(content, tint: tint)
+        } else {
+            StoredHueReader { hue in hovering(content, tint: hue.accentColor) }
+        }
+    }
+
+    private func hovering(_ content: Content, tint: Color) -> some View {
         content
             // A drawn wash, sized to the control's own frame. Capsule because that is the macOS
             // 26 Liquid Glass button shape; `.bordered`'s rounded rect will show a little of it
@@ -528,7 +548,7 @@ public extension View {
     ///
     /// - Parameter onLens: true for a selection-lens control's chosen item, which sits on the lens
     ///   in Frosted and Clear and so must not lift off it. Apply inside the lens's host.
-    func chromeHover(tint: Color = .accentColor, onLens: Bool = false) -> some View {
+    func chromeHover(tint: Color? = nil, onLens: Bool = false) -> some View {
         modifier(ChromeHoverModifier(tint: tint, onLens: onLens))
     }
 }
@@ -540,15 +560,25 @@ public extension View {
 /// pointer usually enters hundreds of points away from it. Moving it in step with the row's wash
 /// ties the two ends of the target together, so the row reads as one thing.
 public struct HoverChevron: View {
-    private let tint: Color
+    /// nil: the hue the user picked (`StoredHueReader`).
+    private let tint: Color?
     @Environment(\.hoverAffordancePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    public init(tint: Color = .accentColor) {
+    public init(tint: Color? = nil) {
         self.tint = tint
     }
 
+    @ViewBuilder
     public var body: some View {
+        if let tint {
+            chevron(tint)
+        } else {
+            StoredHueReader { hue in chevron(hue.accentColor) }
+        }
+    }
+
+    private func chevron(_ tint: Color) -> some View {
         Image(systemName: "chevron.right")
             .scaledFont(.caption)
             .foregroundStyle(phase.isEngaged ? AnyShapeStyle(tint) : AnyShapeStyle(.tertiary))

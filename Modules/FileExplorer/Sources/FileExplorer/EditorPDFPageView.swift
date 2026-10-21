@@ -1,4 +1,5 @@
 import AppKit
+import Design
 import PDFKit
 import SwiftUI
 
@@ -491,7 +492,7 @@ struct EditorPDFPageView: NSViewRepresentable {
     /// What floats over the pages outside those bands — see ``ReaderPDFView/coveredRects``.
     var coveredRects: [CGRect] = []
     /// The app's accent, for Fill & Sign's rings and field washes (``EditorPDFFillOverlay/accent``).
-    var accent: Color = .accentColor
+    var accent: Color = LiquidGlassHue.stored().accentColor
 
     final class Coordinator: NSObject {
         let state: EditorPDFViewState

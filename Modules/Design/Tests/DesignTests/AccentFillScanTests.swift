@@ -13,7 +13,7 @@ import Testing
 ///
 /// The failure this guards is a NEW fill written with the colour that is right next to it. Nothing
 /// rendered can see that — a test hands the view whatever colour it likes — so it is a source scan,
-/// like `SegmentedAccentTests.everySegmentedPickerInTheAppTakesTheAppAccent`. Three rules, over
+/// like `SegmentedAccentTests.everySegmentedPickerInTheAppTakesTheAppAccent`. Four rules, over
 /// the app's sources with comments stripped (Edit's first, where they began; then everything):
 ///
 /// 1. **No raw accent as a fill.** The argument of every `.fill(…)` and `.background(…)` — the
@@ -28,6 +28,10 @@ import Testing
 ///    blue at None (`ProminentAccent.swift`).
 /// 3. **No `controlAccentColor` at all.** It is the system's accent, not the app's, so anything
 ///    drawn in it ignores the hue the user picked.
+/// 4. **No SwiftUI `Color.accentColor` either** — the same system accent, drawn or as a default
+///    argument — outside `systemAccentExemptions`. Help's words, Settings' size tiles and a dozen
+///    colour defaults drew it in a green window until this rule found them. A colour parameter
+///    defaults to `LiquidGlassHue.stored()`, or to nil resolved through `StoredHueReader`.
 @Suite struct AccentFillScanTests {
 
     // MARK: The rules, on any source text
@@ -52,6 +56,11 @@ import Testing
     static let washes = [".opacity(", ".withAlphaComponent("]
 
     static let prominent = ".buttonStyle(.borderedProminent)"
+
+    /// SwiftUI's system accent: `Color.accentColor`, or `.accentColor` where a `Color` is inferred.
+    /// Not `hue.accentColor` or `(…).accentColor` — a property of something else.
+    static let systemAccent = try! NSRegularExpression(
+        pattern: #"((?<![A-Za-z0-9_])Color|(?<![A-Za-z0-9_)\]?!]))\.accentColor(?![A-Za-z0-9_])"#)
 
     static func findings(in source: String) -> [Finding] {
         let text = Array(stripComments(source))
@@ -101,6 +110,15 @@ import Testing
         for start in occurrences(of: "controlAccentColor", in: text) {
             found.append(Finding(rule: "controlAccentColor",
                                  snippet: snippet(text, max(0, start - 30), min(text.count - 1, start + 30))))
+        }
+
+        // Rule 4: SwiftUI's name for the same system accent.
+        let characters = joined as NSString
+        for match in systemAccent.matches(in: joined, range: range) {
+            let from = max(0, match.range.location - 40)
+            let to = min(characters.length, match.range.upperBound + 20)
+            found.append(Finding(rule: "system accent",
+                                 snippet: characters.substring(with: NSRange(location: from, length: to - from))))
         }
         return found
     }
@@ -251,13 +269,13 @@ import Testing
         #expect(rules(".fill(isOn ? AnyShapeStyle(accent) : AnyShapeStyle(.quaternary))") == ["raw accent fill"])
         #expect(rules(".selectionLensHost(c, selected: s, style: .fill(.capsule, color: accent))") == ["raw accent fill"])
         #expect(rules("SelectionLensTodayMarker { Capsule().fill(accent) }") == ["raw accent fill"])
-        #expect(rules(".fill(hovering ? Color.accentColor : .clear)") == ["raw accent fill"])
+        #expect(rules(".fill(hovering ? Color.accentColor : .clear)") == ["raw accent fill", "system accent"])
         #expect(rules(".fill(glassHue.accentColor)") == ["raw accent fill"])
         #expect(rules(".fill(\n    lit\n    ? accent\n    : .clear)") == ["raw accent fill"])
         // ...and kept: the fill, washes, a hairline inside a background, words, comments.
         #expect(rules(".background(isOn ? accentFill : .clear, in: RoundedRectangle(cornerRadius: 4))").isEmpty)
         #expect(rules(".selectionLensHost(c, selected: s, style: .fill(.capsule, color: accentFill))").isEmpty)
-        #expect(rules(".fill(AccentFill.deepened(.accentColor))").isEmpty)
+        #expect(rules(".fill(AccentFill.deepened(accent))").isEmpty)
         #expect(rules(".fill(accent.opacity(lit ? 0.14 : 0))").isEmpty)
         #expect(rules(".background(Capsule().fill(railIsHidden ? accent.opacity(0.18) : .clear))").isEmpty)
         #expect(rules("(open ? accent.withAlphaComponent(0.12) : NSColor.gray).setFill()").isEmpty)
@@ -288,11 +306,26 @@ import Testing
         #expect(rules("StorageSectionBar(section: $s, accentFill: glassHue.accentColor, onAccent: .white)")
                 == ["raw accent handed as accentFill"])
         #expect(rules("StorageSectionBar(section: $s, accentFill: glassHue.accentFillColor, onAccent: .white)").isEmpty)
-        #expect(rules("init(accentFill: Color = AccentFill.deepened(.accentColor))").isEmpty)
+        #expect(rules("init(accentFill: Color = LiquidGlassHue.stored().accentFillColor)").isEmpty)
 
         // Rule 3.
         #expect(rules("let accent = NSColor.controlAccentColor\naccent.setStroke()") == ["controlAccentColor"])
         #expect(rules("// NSColor.controlAccentColor is the system's").isEmpty)
+
+        // Rule 4, broken: words, a wash, a default argument, an inferred `.accentColor`, a deepened one.
+        #expect(rules(".foregroundStyle(Color.accentColor)") == ["system accent"])
+        #expect(rules(".background(Color.accentColor.opacity(0.10), in: Capsule())") == ["system accent"])
+        #expect(rules("init(tint: Color = .accentColor) {}") == ["system accent"])
+        #expect(rules("SelectionLensStyle(shape: .circle, color: .accentColor, markerOpacity: 0)") == ["system accent"])
+        #expect(rules("var accentFill: Color = AccentFill.deepened(.accentColor)") == ["system accent"])
+        #expect(rules("let c = SwiftUI.Color.accentColor") == ["system accent"])
+        // ...and kept: the app's hue, under every spelling it takes, and comments.
+        #expect(rules(".foregroundStyle(glassHue.accentColor)").isEmpty)
+        #expect(rules(".foregroundStyle((LiquidGlassHue(rawValue: raw) ?? .blue).accentColor)").isEmpty)
+        #expect(rules("init(tint: Color = LiquidGlassHue.stored().accentColor) {}").isEmpty)
+        #expect(rules("let c = hue?.accentColor ?? x; let d = hue!.accentColor; let e = hues[0].accentColor").isEmpty)
+        #expect(rules(".fill(accentColor.opacity(0.1))").isEmpty)
+        #expect(rules("// `Color.accentColor` is the SYSTEM accent").isEmpty)
     }
 
     // MARK: Edit
@@ -345,9 +378,17 @@ import Testing
         ("VisualPairModes.swift", ".fill(accent)", "Swipe's 1pt divider"),
     ]
 
-    /// **Every filled control in the app carries its label at AA, in the app's accent.** The three
+    /// A use of SwiftUI's system accent that is right, named with why. Each must match exactly one
+    /// finding, so a stale entry fails too.
+    static let systemAccentExemptions: [(file: String, fragment: String, why: String)] = [
+        ("LiquidGlassStyle.swift", "case .none: return Color.accentColor",
+         "the None hue means \"the Mac's accent\" — it is the one place the app asks for it"),
+    ]
+
+    /// **Every filled control in the app carries its label at AA, in the app's accent.** The four
     /// rules over every shipping source. Exempt from rule 1: the marks above, and nothing else — a
     /// fill whose label flips to dark ink on light hues is a second button family, not a fix.
+    /// Exempt from rule 4: `systemAccentExemptions`.
     @Test func theAppFillsWithTheDeepenedAccent() throws {
         var findings: [String] = []
         var exempted: [String: Int] = [:]
@@ -362,6 +403,11 @@ import Testing
                     exempted["\(mark.file) \(mark.fill)", default: 0] += 1
                     continue
                 }
+                if finding.rule == "system accent",
+                   let use = Self.systemAccentExemptions.first(where: { $0.file == name && finding.snippet.contains($0.fragment) }) {
+                    exempted["\(use.file) \(use.fragment)", default: 0] += 1
+                    continue
+                }
                 findings.append("\(name) — \(finding)")
             }
         }
@@ -369,12 +415,17 @@ import Testing
             A control fills with the RAW accent, paints the system's, or tints a prominent button past \
             `accentedProminent`. A white label on the raw accent is 2.7:1 on Green; fill with \
             `LiquidGlassHue.accentFillColor`, tint prominent buttons with `.accentedProminent(…)`, and \
-            keep the raw accent for washes, hairlines and words:
+            keep the raw accent for washes, hairlines and words. `Color.accentColor` is the SYSTEM \
+            accent: take the window's hue, or default to `LiquidGlassHue.stored()`:
             \(findings.joined(separator: "\n"))
             """)
         for mark in Self.markExemptions {
             let count = exempted["\(mark.file) \(mark.fill)", default: 0]
             #expect(count == 1, "the exemption for \(mark.why) (\(mark.file)) matched \(count) fills, not 1")
+        }
+        for use in Self.systemAccentExemptions {
+            let count = exempted["\(use.file) \(use.fragment)", default: 0]
+            #expect(count == 1, "the exemption for \(use.why) (\(use.file)) matched \(count) uses, not 1")
         }
         // A tripwire, so the scan cannot pass on files that no longer hold the buttons. 25 on
         // 2026-10-20: 23 outside Edit, and Edit's Save Filled Copy and Save Reordered Copy.

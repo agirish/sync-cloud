@@ -1520,7 +1520,7 @@ struct ColumnRowView: View {
     var searchContext: PaneSearchRowContext = .none
     var isLeftPane: Bool = true
     var otherPaneName: String = ""
-    var accent: Color = .accentColor
+    var accent: Color = LiquidGlassHue.stored().accentColor
 
     var body: some View {
         HStack(spacing: 6) {

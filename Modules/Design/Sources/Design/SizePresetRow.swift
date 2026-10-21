@@ -41,6 +41,10 @@ public struct SizePresetRow: View {
     @Binding private var fontSize: FontSize
     @Binding private var density: ListDensity
     private let style: Style
+    /// The chosen tile's words, wash and border wear the hue the user picked — on the setup sheet
+    /// that is the swatch just clicked, a row below.
+    @AppStorage(LiquidGlass.hueKey) private var hueRaw: String = LiquidGlassHue.blue.rawValue
+    private var accent: Color { (LiquidGlassHue(rawValue: hueRaw) ?? .blue).accentColor }
 
     public init(fontSize: Binding<FontSize>, density: Binding<ListDensity>, style: Style) {
         self._fontSize = fontSize
@@ -60,7 +64,7 @@ public struct SizePresetRow: View {
         }
         // Frosted and Clear: the chosen tile's wash and border as one glass lens that stretches
         // between tiles (RD46).
-        .selectionLensHost(Self.lensChannel, selected: selected, style: Self.lensStyle)
+        .selectionLensHost(Self.lensChannel, selected: selected, style: Self.lensStyle(accent: accent))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Size and spacing")
     }
@@ -70,9 +74,10 @@ public struct SizePresetRow: View {
     static let selectedBorder: CGFloat = 1.5
     /// The row's selection lens — see `SelectionLens`.
     static let lensChannel = SelectionLensChannel("size.presets")
-    static let lensStyle = SelectionLensStyle(
-        shape: .roundedRect(Radius.control), color: .accentColor, markerOpacity: selectedWash,
-        ring: .init(color: .accentColor, width: selectedBorder))
+    static func lensStyle(accent: Color) -> SelectionLensStyle {
+        SelectionLensStyle(shape: .roundedRect(Radius.control), color: accent, markerOpacity: selectedWash,
+                           ring: .init(color: accent, width: selectedBorder))
+    }
 
     private func tile(_ preset: SizePreset) -> some View {
         let isSelected = preset == selected
@@ -82,14 +87,14 @@ public struct SizePresetRow: View {
         } label: {
             VStack(spacing: style == .specimen ? 3 : 1) {
                 if style == .specimen {
-                    SizePresetSpecimen(preset: preset, isSelected: isSelected)
+                    SizePresetSpecimen(preset: preset, isSelected: isSelected, accent: accent)
                 }
                 Text("\(preset.fontSize.percent)%")
                     .scaledFont(.system(size: style == .specimen ? 10 : 12, weight: .semibold))
                 if style == .named {
                     Text(preset.densityName)
                         .scaledFont(.system(size: 10))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(isSelected ? accent : Color.secondary)
                 }
             }
             // **Shrink rather than truncate.** Five tiles each carrying an eleven-character word
@@ -99,7 +104,7 @@ public struct SizePresetRow: View {
             // width every tile draws at full size.
             .lineLimit(1)
             .minimumScaleFactor(Self.minimumLabelScale)
-            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+            .foregroundStyle(isSelected ? accent : Color.primary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, style == .specimen ? 4 : 6)
             .padding(.horizontal, 4)
@@ -110,7 +115,7 @@ public struct SizePresetRow: View {
                 if isSelected {
                     SelectionLensTodayMarker {
                         RoundedRectangle(cornerRadius: Radius.control)
-                            .fill(Color.accentColor.opacity(Self.selectedWash))
+                            .fill(accent.opacity(Self.selectedWash))
                     }
                 }
             }
@@ -118,7 +123,7 @@ public struct SizePresetRow: View {
                 if isSelected {
                     SelectionLensTodayMarker {
                         RoundedRectangle(cornerRadius: Radius.control)
-                            .strokeBorder(Color.accentColor, lineWidth: Self.selectedBorder)
+                            .strokeBorder(accent, lineWidth: Self.selectedBorder)
                     }
                 } else {
                     RoundedRectangle(cornerRadius: Radius.control)
@@ -146,6 +151,8 @@ public struct SizePresetRow: View {
 /// moves takes its label with it instead of quietly pointing at the wrong place.
 public struct FontSizeDetentLabels: View {
     private let selected: FontSize
+    @AppStorage(LiquidGlass.hueKey) private var hueRaw: String = LiquidGlassHue.blue.rawValue
+    private var accent: Color { (LiquidGlassHue(rawValue: hueRaw) ?? .blue).accentColor }
 
     public init(selected: FontSize) { self.selected = selected }
 
@@ -173,7 +180,7 @@ public struct FontSizeDetentLabels: View {
                     Text(size.presetName ?? "\(size.percent)%")
                         .scaledFont(.system(size: 9.5,
                                             weight: size == selected ? .semibold : .regular))
-                        .foregroundStyle(size == selected ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(size == selected ? accent : Color.secondary)
                         .fixedSize()
                 }
                 .position(x: Self.knobInset + Self.position(size.percent) * usable,
@@ -203,6 +210,8 @@ public struct FontSizeDetentLabels: View {
 public struct SizeSpacingPreview: View {
     private let fontSize: FontSize
     private let density: ListDensity
+    @AppStorage(LiquidGlass.hueKey) private var hueRaw: String = LiquidGlassHue.blue.rawValue
+    private var accent: Color { (LiquidGlassHue(rawValue: hueRaw) ?? .blue).accentColor }
 
     public init(fontSize: FontSize, density: ListDensity) {
         self.fontSize = fontSize
@@ -236,7 +245,7 @@ public struct SizeSpacingPreview: View {
                 ForEach(Self.rows, id: \.name) { row in
                     HStack(spacing: 8) {
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.accentColor.opacity(0.55))
+                            .fill(accent.opacity(0.55))
                             .frame(width: metrics.treeIconSize, height: metrics.treeIconSize)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(row.name)
@@ -267,6 +276,7 @@ public struct SizeSpacingPreview: View {
 struct SizePresetSpecimen: View {
     let preset: SizePreset
     let isSelected: Bool
+    let accent: Color
 
     /// The tile face's fixed height, so every `%` label in the row sits on one baseline no matter
     /// what the preset draws above it.
@@ -353,7 +363,7 @@ struct SizePresetSpecimen: View {
     private func bar(widthFraction: CGFloat) -> some View {
         GeometryReader { proxy in
             RoundedRectangle(cornerRadius: 0.5)
-                .fill(isSelected ? Color.accentColor.opacity(0.85) : Color.secondary.opacity(0.55))
+                .fill(isSelected ? accent.opacity(0.85) : Color.secondary.opacity(0.55))
                 .frame(width: proxy.size.width * widthFraction, height: Self.barHeight(for: preset))
         }
         .frame(height: Self.barHeight(for: preset))

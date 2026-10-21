@@ -836,13 +836,11 @@ extension HelpBook.Topic {
 extension HelpBook.Mood {
     /// The concrete color for a legend icon — the same semantic vocabulary the differences list
     /// uses (copyRight/copyLeft = the blue/purple direction tints, warning = a mismatch,
-    /// caution = the yellow name-conflict badge).
-    // Help stays on the system accent deliberately (C7): its accent flows through this non-View
-    // Mood table and the AccentLabelColor on-fill helper, so threading the glass hue isn't the
-    // trivial @AppStorage read the main-window sites get — and it's a standalone overlay surface.
-    var color: Color {
+    /// caution = the yellow name-conflict badge). `.accent` is the hue the user picked, handed in
+    /// by the article.
+    func color(accent: Color) -> Color {
         switch self {
-        case .accent: return .accentColor
+        case .accent: return accent
         case .warning: return SemanticColor.warning
         case .danger: return SemanticColor.error
         case .success: return SemanticColor.success
@@ -1029,9 +1027,13 @@ struct HelpView: View {
     @State private var selectedTopicID: String
     /// The part of the topic list on screen — for the selection lens.
     @State private var visibleTopics = SelectionLensVisibleRegion()
-    /// The open topic's fill: the SYSTEM accent, deepened — see `topicRow` for why it is not the
-    /// app's hue. Named once, because the selection lens wears it too.
-    static var topicFill: Color { AccentFill.deepened(.accentColor) }
+    /// Help wears the hue the user picked, like the card it sits on (`HelpOverlay` tints that).
+    /// It used to keep the SYSTEM accent (C7), when its on-fill label came from a helper that
+    /// could not take the hue; the row has paired a deepened fill with white since.
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
+    /// The open topic's fill: the hue, deepened. Named once, because the selection lens wears it too.
+    private var topicFill: Color { glassHue.accentFillColor }
     /// The topic list's selection lens — see `SelectionLens`.
     static let topicLensChannel = SelectionLensChannel("help.topics")
     @State private var query: String = ""
@@ -1234,7 +1236,7 @@ struct HelpView: View {
                 // is in the lens's own coordinates; a move to a topic off screen — a link from an
                 // article, a search — switches instantly.
                 .selectionLensHost(Self.topicLensChannel, selected: selectedTopicID,
-                                   style: .fill(.roundedRect(Radius.chip), color: Self.topicFill),
+                                   style: .fill(.roundedRect(Radius.chip), color: topicFill),
                                    visibleRegion: visibleTopics)
             }
             // Into the region, not `@State` — a state write re-rendered all of Help per scroll frame.
@@ -1273,7 +1275,7 @@ struct HelpView: View {
         // pairing a label with the RAW accent (white-on-Yellow, ~1.6:1). Rather than flip the label
         // dark on the light accents, this row now deepens its fill like every other solid accent
         // surface in the app, so the Help sidebar reads the same as the buttons beside it.
-        let accentFill = Self.topicFill
+        let accentFill = topicFill
         let onAccent = Color.white
         return Button {
             selectedTopicID = topic.id
@@ -1313,7 +1315,7 @@ struct HelpView: View {
         // rest wash the same shape they would fill if chosen.
         // `.filled` for the open topic at Solid; under the lens it takes `.row`, with no lift or
         // shadow to cast from a label that no longer has a fill under it (`SelectionLens`).
-        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: .accentColor, unselected: .row,
+        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: glassHue.accentColor, unselected: .row,
                                         shape: .roundedRect(6))
         // **Which topic is open is carried by ink and fill, and neither is audible.** Without this
         // every row announces as "<Title>, button" and the one that is open is indistinguishable
@@ -1333,6 +1335,7 @@ struct HelpView: View {
                 HelpArticleView(
                     topic: topic,
                     sectionTitle: HelpBook.sectionTitle(forTopicID: topic.id),
+                    accent: glassHue.accentColor,
                     onSelectRelated: { selectedTopicID = $0 }
                 )
                 .padding(24)
@@ -1354,6 +1357,8 @@ struct HelpView: View {
 struct HelpArticleView: View {
     let topic: HelpBook.Topic
     let sectionTitle: String?
+    /// The hue the user picked: the eyebrow, a tip's bulb and wash, an accent legend icon.
+    let accent: Color
     let onSelectRelated: (String) -> Void
 
     var body: some View {
@@ -1364,7 +1369,7 @@ struct HelpArticleView: View {
                         .scaledFont(.caption2.weight(.semibold))
                         .textCase(.uppercase)
                         .kerning(0.4)
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(accent)
                 }
                 Text(topic.title)
                     .scaledFont(.title2.weight(.semibold))
@@ -1410,14 +1415,14 @@ struct HelpArticleView: View {
         case .tip(let text):
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "lightbulb")
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(accent)
                 Text(text)
                     .scaledFont(.callout)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.well, style: .continuous))
+            .background(accent.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.well, style: .continuous))
 
         case .legend(let items):
             VStack(spacing: 0) {
@@ -1426,9 +1431,9 @@ struct HelpArticleView: View {
                     HStack(spacing: 10) {
                         Image(systemName: item.systemImage)
                             .scaledFont(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(item.mood.color)
+                            .foregroundStyle(item.mood.color(accent: accent))
                             .frame(width: 22, height: 22)
-                            .background(item.mood.color.opacity(0.14), in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+                            .background(item.mood.color(accent: accent).opacity(0.14), in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
                         HStack(spacing: 6) {
                             Text(item.title)
                                 .scaledFont(.callout.weight(.medium))

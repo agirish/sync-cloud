@@ -270,7 +270,7 @@ public extension View {
     /// exactly as before at Solid; in Frosted and Clear a glass `shape` behind it, and the hover wash
     /// takes the same shape. Left at `.glyph`'s rounded square, the wash's corners poked up to 2pt
     /// past a round glass on hover. `enabled: false` keeps today's button in every appearance.
-    func chromeGlassGlyphButton(tint: Color = .accentColor, shape: HoverAffordanceShape = .circle,
+    func chromeGlassGlyphButton(tint: Color? = nil, shape: HoverAffordanceShape = .circle,
                                 outset: CGFloat = 0, enabled: Bool = true) -> some View {
         modifier(ChromeGlassGlyphButton(tint: tint, shape: shape, outset: outset, enabled: enabled))
     }
@@ -321,7 +321,7 @@ private struct ChromeGlassClearance: ViewModifier {
 }
 
 private struct ChromeGlassGlyphButton: ViewModifier {
-    let tint: Color
+    let tint: Color?
     let shape: HoverAffordanceShape
     let outset: CGFloat
     let enabled: Bool

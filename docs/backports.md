@@ -8067,3 +8067,35 @@ done
 | `v5.x` | Both raw-accent fills with flipping labels, and Swipe/Difference on the system accent | RECORDED — not owed |
 | `v4.x` | Both raw-accent fills with flipping labels; no Swipe mode | RECORDED — not owed |
 | `v3.x` / `v2.x` | None of the three surfaces | CLOSED — does not apply |
+
+---
+
+## Nothing draws SwiftUI's system accent — main only
+
+`Color.accentColor` is the SYSTEM accent, so every view still drawing it ignored the hue picked in
+Settings: Settings' size tiles (words, wash, border, bars), the text-size slider's detent labels,
+Help (the open topic's fill, the article's eyebrow, tip and accent legend — C7 had left it on the
+system accent), the document survey strip's wash, the setup sheet's swatch ring (now Settings'
+neutral ring), and a neutral provider's name, documented as following the app accent. Untinted
+`hoverAffordance`, `chromeHover`, `HoverChevron`, `chromeGlassGlyphButton` and `TextSizeStepper`
+now read the stored hue where they are drawn (`StoredHueReader`); colour defaults that every caller
+already overrides fall back to `LiquidGlassHue.stored()`. `AccentFillScanTests` rule 4 bans
+`Color.accentColor` in app sources outside a named exemption list (`LiquidGlassHue.none`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  n=$(git grep -hE '(^|[^A-Za-z0-9_])Color\.accentColor|(^|[^]A-Za-z0-9_)?!])\.accentColor([^A-Za-z0-9_]|$)' \
+      origin/$l -- 'MacApp/*.swift' 'Modules/*/Sources/*.swift' | grep -vE '^\s*//' | wc -l | tr -d ' ')
+  printf '%-5s systemAccentLines=%s\n' "$l" "$n"
+done
+# measured 2026-10-21, against origin, before this landed (1 after: LiquidGlassHue.none):
+# main  systemAccentLines=38
+# v5.x  systemAccentLines=34
+# v4.x  systemAccentLines=26
+# v3.x  systemAccentLines=14
+# v2.x  systemAccentLines=12
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | System-accent words, washes and defaults beside the app's hue, fewer the older the line | RECORDED — not owed |
