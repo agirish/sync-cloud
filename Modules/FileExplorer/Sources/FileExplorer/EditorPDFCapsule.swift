@@ -23,12 +23,12 @@ public enum EditorPDFCapsulePlace: String, CaseIterable, Sendable {
     public var title: String {
         switch self {
         case .topLeading: return "Top Left"
-        case .top: return "Top Centre"
+        case .top: return "Top Center"
         case .topTrailing: return "Top Right"
         case .leading: return "Middle Left"
         case .trailing: return "Middle Right"
         case .bottomLeading: return "Bottom Left"
-        case .bottom: return "Bottom Centre"
+        case .bottom: return "Bottom Center"
         case .bottomTrailing: return "Bottom Right"
         }
     }
@@ -273,7 +273,17 @@ struct EditorPDFCapsule: View {
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
         .disabled(!state.canTurnPage(forward: forward))
         .accessibilityLabel(label)
-        .help(label)
+        .help(Self.pageStepHelp(forward: forward))
+    }
+
+    /// ⌥← and ⌥→, which turn the page from the keyboard (`ReaderPDFView.keyDown`) — named in the
+    /// tooltip because a narrow column drops these buttons on the strength of those keys (TE123).
+    /// Chords built here, not registered: the reader answers them itself, not a menu.
+    static let pageStepChords = (previous: AppChord(.leftArrow, .option), next: AppChord(.rightArrow, .option))
+
+    static func pageStepHelp(forward: Bool) -> String {
+        forward ? ShortcutHint.tooltip("Next page", pageStepChords.next.display)
+                : ShortcutHint.tooltip("Previous page", pageStepChords.previous.display)
     }
 
     /// "2 of 3", the number a field: type a page and Return. In a two-page layout it shows the
@@ -387,7 +397,13 @@ struct EditorPDFCapsule: View {
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
         .disabled(!state.canZoom(in: zoomingIn))
         .accessibilityLabel(label)
-        .help(label)
+        .help(Self.zoomStepHelp(in: zoomingIn))
+    }
+
+    /// ⌘+ and ⌘−, View ▸ Text Size's keys, which zoom the pages while they have the keyboard.
+    static func zoomStepHelp(in zoomingIn: Bool) -> String {
+        zoomingIn ? ShortcutHint.tooltip("Zoom in", AppChord.textBigger.display)
+                  : ShortcutHint.tooltip("Zoom out", AppChord.textSmaller.display)
     }
 
     /// The label that opens the view menu (mockup E): the fit, or the percentage — always the

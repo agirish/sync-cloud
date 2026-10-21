@@ -11,6 +11,11 @@ struct EditorPDFBatchSheet: View {
     @State private var typedMegabytes = "2"
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
+    /// The tool sheets' floor and opening width (`EditorPDFToolSheetView`), so a batch sheet opens
+    /// as a one-file sheet does (TE134).
+    static let minWidth: CGFloat = 400
+    static let idealWidth: CGFloat = 420
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title).scaledFont(.system(size: 13, weight: .semibold))

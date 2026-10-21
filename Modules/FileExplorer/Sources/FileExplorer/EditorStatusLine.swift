@@ -357,7 +357,7 @@ struct EditorStatusHeadings: Equatable {
     /// The index in ``outline`` of the heading holding the caret — `nil` above the first one,
     /// which is in no section (``MarkdownOutline/currentEntry(forLine:in:)``).
     var current: Int?
-    /// Whether the menu ends with "Show the Outline in the rail" — see
+    /// Whether the menu ends with "Show Outline in File List" — see
     /// ``offersRailOutline(showsRail:railTab:)``.
     var offersRailOutline: Bool
     var accent: Color
@@ -403,7 +403,7 @@ struct EditorStatusHeadings: Equatable {
 
     /// The tooltip: about the heading the caret is in when there is one, about the menu when not.
     var help: String {
-        currentEntry == nil ? "The document's headings — choose one to go to it"
+        currentEntry == nil ? "The document’s headings — choose one to go to it"
             : "The heading the caret is in — choose another to go to it"
     }
 
@@ -420,7 +420,7 @@ struct EditorStatusHeadings: Equatable {
         String(repeating: "\u{2003}", count: entry.depth) + name(entry)
     }
 
-    static let railOutlineTitle = "Show the Outline in the rail"
+    static let railOutlineTitle = "Show Outline in File List"
 
     /// **A menu item's tick, and what choosing it does** — on for the heading the caret is in, and
     /// set either way it goes to that heading: a click on the ticked one goes to it too.
@@ -468,7 +468,7 @@ struct EditorHeadingMenu: View {
         .padding(.horizontal, -4)
         .help(headings.help)
         .accessibilityLabel(headings.accessibilityName)
-        .accessibilityHint("Shows the document's headings")
+        .accessibilityHint("Shows the document’s headings")
     }
 
     /// **The menu, built from the outline as it stands**: every heading, lower levels stepped in

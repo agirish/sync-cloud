@@ -122,7 +122,7 @@ import Design
         #expect(EditorStatusHeadings.name(entry("Two\nlines", level: 1, line: 1)) == "Two lines")
         #expect(EditorStatusHeadings.name(entry("  ", level: 1, line: 1)) == "Untitled heading")
         #expect(try #require(make(pasta, caretLine: 16)).help.hasPrefix("The heading the caret is in"))
-        #expect(try #require(make([entry("Later", level: 2, line: 5)], caretLine: 2)).help.hasPrefix("The document's headings"))
+        #expect(try #require(make([entry("Later", level: 2, line: 5)], caretLine: 2)).help.hasPrefix("The document’s headings"))
     }
 
     // MARK: - The fit

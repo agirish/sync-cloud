@@ -85,8 +85,8 @@ public enum EditorFileStore {
     /// could not read has become U+FFFD, and writing it out would destroy the original bytes for
     /// good. So the file opens, and the editor says why it will not take a change.
     public static let lossyReason =
-        "Some of this file isn't valid text, so it's open for reading only — saving would replace "
-        + "the parts that couldn't be read."
+        "Some of this file isn’t valid text, so it’s open for reading only — saving would replace "
+        + "the parts that couldn’t be read."
 
     /// Opens a file for the editor, applying the read cap, the cloud-only check and the NUL sniff
     /// that `BoundedTextRead` already owns.
@@ -136,7 +136,7 @@ public enum EditorFileStore {
         switch outcome {
         case .tooLarge(let bytes): return tooLargeReason(bytes: bytes)
         case .binary: return notTextReason
-        case .text, .cloudOnly, .unreadable: return outcome.caption ?? "Couldn't be read."
+        case .text, .cloudOnly, .unreadable: return outcome.caption ?? "Couldn’t be read."
         }
     }
 
@@ -492,7 +492,7 @@ public enum EditorFileStore {
         // first time somebody saved it: still openable, still correct here, and a different file to
         // everything else that produced or consumes it.
         guard let bytes = encode(text, as: encoding) else {
-            throw Failure(message: "This file's text can't be written back as \(encoding.rawValue).")
+            throw Failure(message: "This file’s text can’t be written back as \(encoding.rawValue).")
         }
         return try writeUnordered(bytes: bytes, toPath: path)
     }
@@ -514,8 +514,8 @@ public enum EditorFileStore {
         // are lost" — prose describing an edited file while a folder is about to be destroyed.
         if let existing = try? fileManager.attributesOfItem(atPath: destination.path),
            (existing[.type] as? FileAttributeType) != .typeRegular {
-            throw Failure(message: "There's a folder called “\(destination.lastPathComponent)” "
-                + "here now, so this can't be saved over it.")
+            throw Failure(message: "There’s a folder called “\(destination.lastPathComponent)” "
+                + "here now, so this can’t be saved over it.")
         }
 
         let staged = destination.deletingLastPathComponent()
@@ -675,8 +675,8 @@ public enum EditorFileStore {
                         fileManager: FileManaging = FileManager.default) -> String? {
         let name = completedName(typed)
         guard !name.isEmpty else { return "Type a name for the file." }
-        guard !name.contains("/") else { return "A file name can't contain a slash." }
-        guard name != ".", name != ".." else { return "That isn't a file name." }
+        guard !name.contains("/") else { return "A file name can’t contain a slash." }
+        guard name != ".", name != ".." else { return "That isn’t a file name." }
         let path = (folder as NSString).appendingPathComponent(name)
         guard !fileManager.fileExists(atPath: path) else { return "“\(name)” already exists here." }
         return nil

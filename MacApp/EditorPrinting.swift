@@ -89,7 +89,7 @@ extension ContentView {
         let window = NSApp.keyWindow ?? NSApp.mainWindow
         let started = DocumentPrinting.prepare(job) { operation in
             guard let operation else {
-                syncManager.banner = .error("Couldn't prepare “\(job.name)” for printing.")
+                syncManager.banner = .error("Couldn’t prepare “\(job.name)” for printing.")
                 Logger.shared.warning("Editor print produced no pages for \(job.name)")
                 return
             }
@@ -112,7 +112,7 @@ extension ContentView {
     /// is AppKit's, on the main thread, which is the lane's documented exception for drawing.
     func printEditorPDF() {
         guard let operation = editorPDF.printOperation() else {
-            syncManager.banner = .error("Couldn't prepare “\(editorPDF.name)” for printing.")
+            syncManager.banner = .error("Couldn’t prepare “\(editorPDF.name)” for printing.")
             Logger.shared.warning("Editor print produced no operation for \(editorPDF.path ?? "") (PDF)")
             return
         }
@@ -149,7 +149,7 @@ extension ContentView {
         // that is seconds rather than milliseconds.
         guard let data = DocumentPDF.data(for: job,
                                           geometry: .from(NSPrintInfo.shared)) else {
-            syncManager.banner = .error("Couldn't render “\(job.name)” as a PDF.")
+            syncManager.banner = .error("Couldn’t render “\(job.name)” as a PDF.")
             Logger.shared.warning("Editor PDF export produced no pages for \(job.name)")
             return
         }
@@ -166,7 +166,7 @@ extension ContentView {
             // Banner rather than log-only, on the save path's own argument: a write the user asked
             // for that silently did nothing is the failure they will not notice until it matters.
             syncManager.banner = .error(
-                "Couldn't export “\(url.lastPathComponent)” — \(error.localizedDescription)")
+                "Couldn’t export “\(url.lastPathComponent)” — \(error.localizedDescription)")
         }
     }
 }

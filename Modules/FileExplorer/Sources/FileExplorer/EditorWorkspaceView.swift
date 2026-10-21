@@ -505,7 +505,7 @@ public struct EditorWorkspaceView: View {
     /// its keycap and tooltip, so the caption repeating it was a second copy of a control on the
     /// same screen — and a sentence with three ways in stopped being one sentence.
     ///
-    /// "From the rail" only while there is one. Without it the list is the source pane, or — under
+    /// "From the list" only while the rail is there. Without it the list is the source pane, or — under
     /// Expand — nothing at all until the header's lit Files button or the spine's rung brings it
     /// back, and this view cannot tell those two apart; a sentence that names neither is right in
     /// both. Both chords come from `AppChord`, so a rebinding moves the words with it. A static so
@@ -516,7 +516,7 @@ public struct EditorWorkspaceView: View {
         let open = "press \(AppChord.openInEditor.display) on a text file in Browse, Compare or Organize"
         guard hasFolder else { return "Pick a folder in the sidebar, then choose a file to edit — or \(open)." }
         return showsRail
-            ? "Choose a file from the rail — or \(open)."
+            ? "Choose a file from the list — or \(open)."
             : "Choose a file to edit — or \(open)."
     }
 
@@ -907,7 +907,8 @@ public struct EditorWorkspaceView: View {
                     }
                     .buttonStyle(.hoverAffordance(.glyph, tint: accent))
                     .accessibilityLabel("Find in this document")
-                    .help("Find and replace in this document")
+                    .shortcutKeycap(AppChord.findInPane.display)
+                    .help(ShortcutHint.tooltip("Find and replace in this document", AppChord.findInPane.display))
                 }
             }
             .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
@@ -2119,7 +2120,7 @@ public struct EditorWorkspaceView: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(accent)
-                .help(ShortcutHint.tooltip("Show the folder's files beside the document",
+                .help(ShortcutHint.tooltip("Show the folder’s files beside the document",
                                            AppChord.editorTextFiles.display))
             }
             if let download {

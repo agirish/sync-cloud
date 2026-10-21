@@ -95,7 +95,7 @@ struct EditorStatusGoToLine: Equatable {
             && a.accent == b.accent
     }
 
-    static let help = "Go to a line — \(AppChord.goToLine.display)"
+    static let help = ShortcutHint.tooltip("Go to Line", AppChord.goToLine.display)
 }
 
 /// The popover's field: a line, or `line:column`; Return goes, Escape closes.

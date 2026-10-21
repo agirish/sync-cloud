@@ -37,7 +37,7 @@ import FileExplorerTestSupport
         #expect(rail.contains("Button { onNewTextFile?() } label:"),
                 "the rail's ＋ opens the row itself — it skips ⌘N's move to Notes")
         #expect(!rail.contains("isNaming = true"), "the rail's ＋ sets isNaming directly again")
-        #expect(rail.contains("let destination = newFileFolderName ?? folderName"))
+        #expect(rail.contains("EditorWorkspaceView.newTextFileTitle(folderName: newFileFolderName ?? folderName)"))
         #expect(rail.contains("onCreate: onCreate, folderName: newFileFolderName)"))
     }
 

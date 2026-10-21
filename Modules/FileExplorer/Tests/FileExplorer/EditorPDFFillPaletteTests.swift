@@ -219,7 +219,7 @@ import Sync
         #expect(grip.accessibilityValue() as? String == "Bottom Right")
         let actions = try #require(grip.accessibilityCustomActions())
         #expect(actions.map(\.name) == EditorPDFCapsulePlace.allCases.map { "Move to \($0.title)" } + ["Reset Position"])
-        _ = actions.first { $0.name == "Move to Top Centre" }?.handler?()
+        _ = actions.first { $0.name == "Move to Top Center" }?.handler?()
         #expect(state.palettePlace == .top && state.capsulePlace == .bottom)
         _ = actions.last?.handler?()
         #expect(state.palettePlace == .leading)

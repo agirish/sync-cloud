@@ -27,11 +27,11 @@ enum EditorAlerts {
     }
 
     nonisolated static let unsavedInformativeText =
-        "If you don't save, the changes you made since the last save are lost."
+        "If you don’t save, the changes you made since the last save are lost."
 
     /// Save first (Return), Cancel second (Escape), Discard last — the platform's own order for
     /// this question, and the one that keeps the destructive answer off both default keys.
-    nonisolated static let unsavedButtonTitles = ["Save", "Cancel", "Don't Save"]
+    nonisolated static let unsavedButtonTitles = ["Save", "Cancel", "Don’t Save"]
 
     nonisolated static func answer(for response: NSApplication.ModalResponse) -> UnsavedAnswer {
         switch response {
@@ -108,7 +108,7 @@ enum EditorAlerts {
         _ divergence: EditorFileStore.Divergence) -> String {
         switch divergence {
         case .changed:
-            return "Saving replaces what's on disk with what's in the editor, and the other "
+            return "Saving replaces what’s on disk with what’s in the editor, and the other "
                 + "changes are lost."
         case .missing:
             return "It may have been moved or renamed — by Organize, or outside SyncCloud. "

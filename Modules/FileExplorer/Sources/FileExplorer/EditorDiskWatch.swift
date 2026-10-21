@@ -476,7 +476,7 @@ public final class EditorDiskWatch: ObservableObject {
                 Logger.shared.info("[edit] Save Again made the folder \(folder) again — it was gone with \(document.name) — to write it back")
             } catch {
                 Logger.shared.warning("[edit] Save Again could not make the folder \(folder) again: \(error.localizedDescription)")
-                return .failed("its folder “\((folder as NSString).lastPathComponent)” is gone and couldn't be made again (\(error.localizedDescription))")
+                return .failed("its folder “\((folder as NSString).lastPathComponent)” is gone and couldn’t be made again (\(error.localizedDescription))")
             }
         }
         return .write
@@ -784,9 +784,9 @@ public final class EditorDiskWatch: ObservableObject {
         let modified = stamp.modifiedAt.map { formatter.string(from: $0) } ?? "an unknown time"
         return "\(stamp.size) bytes, modified \(modified), inode \(stamp.fileID)"
     }
-    static let unreadableNotice = "Changed elsewhere — can't be read as text now"
+    static let unreadableNotice = "Changed elsewhere — can’t be read as text now"
     /// How the read-only reason over a kept text begins — the rest is the read's own refusal.
-    static let unreadableReasonLead = "The file on disk changed and can't be read as text now"
+    static let unreadableReasonLead = "The file on disk changed and can’t be read as text now"
 
     static func unreadableReason(_ refusal: String) -> String {
         // A full stop, not a dash: the refusal is a sentence of its own, and Edit's too-large one

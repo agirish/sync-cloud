@@ -590,9 +590,13 @@ import FileExplorerTestSupport
             #expect(caption.hasSuffix(".") && caption.dropLast().allSatisfy { $0 != "." },
                     "folder \(hasFolder), rail \(showsRail): “\(caption)” is not one sentence")
         }
-        #expect(EditorWorkspaceView.emptyCaption(hasFolder: true, showsRail: true).contains("from the rail"))
-        #expect(!EditorWorkspaceView.emptyCaption(hasFolder: true, showsRail: false).contains("rail"),
-                "with no rail on screen the caption sends the reader to one")
+        // "The list", never "the rail" — the code's word for it (TE120).
+        #expect(EditorWorkspaceView.emptyCaption(hasFolder: true, showsRail: true).contains("from the list —"))
+        #expect(!EditorWorkspaceView.emptyCaption(hasFolder: true, showsRail: false).contains("list"),
+                "with no list on screen the caption sends the reader to one")
+        for hasFolder in [true, false] { for showsRail in [true, false] {
+            #expect(!EditorWorkspaceView.emptyCaption(hasFolder: hasFolder, showsRail: showsRail).contains("rail"))
+        } }
         #expect(EditorWorkspaceView.emptyCaption(hasFolder: false, showsRail: true).hasPrefix("Pick a folder"))
         // The page draws THIS caption — a scan of the one call site, comments stripped.
         let code = try Self.headerSource()

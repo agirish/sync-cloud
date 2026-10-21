@@ -310,7 +310,8 @@ struct PanePDFBatchLayer: View {
             Color.clear.sheet(isPresented: $batch.showsSheet) {
                 EditorPDFBatchSheet(batch: batch)
                     .padding(20)
-                    .frame(width: 400)
+                    // A floor, not a fixed width — the tool sheets' own (TE134).
+                    .frame(minWidth: EditorPDFBatchSheet.minWidth, idealWidth: EditorPDFBatchSheet.idealWidth)
                     // Deepened: its default button lays a white label on the tint.
                     .tint(AccentFill.deepened(accent))
             }

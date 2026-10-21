@@ -65,6 +65,15 @@ struct TextPairDiff: Equatable {
     }
 
     let rows: [Row]
+
+    /// The largest line number either side shows — what the view sizes its number column for.
+    /// Each side's numbers rise down the rows, so the last row that has one has the largest; read
+    /// from the end, it stops after a few rows rather than walking a long file.
+    var largestLineNumber: Int {
+        let left = rows.last { $0.leftNumber != nil }?.leftNumber ?? 0
+        let right = rows.last { $0.rightNumber != nil }?.rightNumber ?? 0
+        return max(left, right)
+    }
     /// Contiguous runs of non-`same` rows, as ranges into `rows` — what ↑/↓ step between. A reader
     /// stepping through a diff means "the next thing that changed", which is a region, not a line:
     /// a twelve-line replacement is one thing that happened, and twelve stops for it is twelve

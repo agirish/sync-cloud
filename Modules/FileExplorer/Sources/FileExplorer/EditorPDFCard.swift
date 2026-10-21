@@ -132,6 +132,7 @@ struct EditorPDFFindButton: View {
         }
         .modifier(EditorPDFActionStyle(accent: accent))
         .accessibilityLabel("Find in this PDF")
+        .shortcutKeycap(AppChord.findInPane.display)
         .help(ShortcutHint.tooltip("Find in this PDF", AppChord.findInPane.display))
     }
 }
@@ -180,7 +181,10 @@ extension EditorPDFFillSignButton {
 /// — which would put a second ⌘+ in the window, answered before the menu bar's, whatever had the
 /// keyboard. This menu exists only while it is open, so its key equivalents are labels. The keys
 /// themselves are the menu bar's: View ▸ Text Size routes them to the PDF while the pages have
-/// the keyboard.
+/// the keyboard, and Text ▸ Fit Page and Fit Width are ⌃⌘1 and ⌃⌘2 (TE123).
+///
+/// **Actual Size is ticked at 100%**, by the rule that ticks the 100% stop below it — so it is
+/// ticked after a step or a pinch lands there too, and not while Fit Page or Fit Width holds it.
 @MainActor
 enum EditorPDFZoomMenu {
     static func menu(for state: EditorPDFViewState) -> NSMenu {
@@ -190,22 +194,22 @@ enum EditorPDFZoomMenu {
                   _ act: @escaping () -> Void) {
             let item = EditorClosureMenuItem(title: title, act: act)
             if let chord {
-                item.keyEquivalent = String(chord.key.character)
-                item.keyEquivalentModifierMask = .command
+                item.keyEquivalent = chord.appKitKeyEquivalent
+                item.keyEquivalentModifierMask = chord.appKitModifierMask
             }
             item.state = on ? .on : .off
             item.isEnabled = enabled
             menu.addItem(item)
         }
+        let ticked = EditorPDFZoom.tickedPreset(fit: state.fit, scale: state.scale)
         item("Zoom In", AppChord.textBigger, enabled: state.canZoom(in: true)) { state.zoom(in: true) }
         item("Zoom Out", AppChord.textSmaller, enabled: state.canZoom(in: false)) { state.zoom(in: false) }
-        item(EditorPDFFit.actual.title, AppChord.textDefaultSize) { state.fit = .actual }
+        item(EditorPDFFit.actual.title, AppChord.textDefaultSize, on: ticked == 1) { state.fit = .actual }
         menu.addItem(.separator())
         for fit in [EditorPDFFit.page, .width] {
-            item(fit.title, on: state.fit == fit) { state.fit = fit }
+            item(fit.title, fit.textMenuMode.chord, on: state.fit == fit) { state.fit = fit }
         }
         menu.addItem(.separator())
-        let ticked = EditorPDFZoom.tickedPreset(fit: state.fit, scale: state.scale)
         for preset in EditorPDFZoom.presets {
             item(EditorPDFZoom.percent(preset), on: preset == ticked) { state.zoom(to: preset) }
         }

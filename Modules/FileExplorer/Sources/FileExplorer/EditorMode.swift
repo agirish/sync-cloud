@@ -187,7 +187,7 @@ struct EditorModeBar: View {
         .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accentFill)
         // Once the word is shed the glyph is the only thing naming the mode, so the name has to
         // survive somewhere reachable — the tooltip for a mouse, the a11y label otherwise.
-        .help(candidate.title)
+        .help(ShortcutHint.tooltip(candidate.title, candidate.chord.display))
         .accessibilityLabel(candidate.title)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }

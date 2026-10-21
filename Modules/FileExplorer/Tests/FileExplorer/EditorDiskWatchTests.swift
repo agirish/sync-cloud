@@ -206,7 +206,7 @@ import EventsTestSupport
         #expect(rig.document.isReadOnly, "the last text could be saved over a file it no longer describes")
         #expect(rig.document.readOnlyReason?.hasPrefix(EditorDiskWatch.unreadableReasonLead) == true)
         // In Edit's own words, as two sentences rather than a dash run into a dash (TE103).
-        #expect(rig.document.readOnlyReason == "The file on disk changed and can't be read as text now. "
+        #expect(rig.document.readOnlyReason == "The file on disk changed and can’t be read as text now. "
                 + "This isn’t a text file, so Edit can’t open it. This is the last text that could be "
                 + "read, open for reading only until the file can be read again.")
         #expect(rig.watch.notice?.text == EditorDiskWatch.unreadableNotice, "it said Reloaded, and nothing was")

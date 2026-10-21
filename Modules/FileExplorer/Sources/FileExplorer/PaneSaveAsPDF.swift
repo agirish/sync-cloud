@@ -231,13 +231,13 @@ enum SaveAsPDFSummary {
         let recognised = saved.filter { $0.picturePages > 0 && $0.isRecognised }
         if total == 1, let one = recognised.first {
             detail.append(one.isPictures
-                ? "Its slides were pictures; their text was recognised so it can be searched, but may have mistakes."
+                ? "Its slides were pictures; their text was recognized so it can be searched, but may have mistakes."
                 : "\(one.picturePages) of its \(one.pageCount) slides "
                     + (one.picturePages == 1 ? "was a picture; its" : "were pictures; their")
-                    + " text was recognised so it can be searched, but may have mistakes.")
+                    + " text was recognized so it can be searched, but may have mistakes.")
         } else if !recognised.isEmpty {
             let decks = recognised.map { $0.isPictures ? "“\($0.name)”" : "“\($0.name)” (\($0.picturePages) of \($0.pageCount))" }
-            detail.append("Slides in \(list(decks)) were pictures; their text was recognised so it can "
+            detail.append("Slides in \(list(decks)) were pictures; their text was recognized so it can "
                           + "be searched, but may have mistakes.")
         }
         // Not read: no words at all. Said of a deck that was all pictures; a text deck's slide of

@@ -639,6 +639,18 @@ public enum EditorPDFFit: String, CaseIterable, Sendable {
         }
     }
 
+    /// The text mode whose chord this fit takes over while a PDF is open — Text ▸ Fit Page,
+    /// Fit Width and Actual Size are ⌃⌘1, ⌃⌘2 and ⌃⌘3, Source, Preview and Split's keys. The zoom
+    /// menu labels its fits with them; the app's `PDFPageVerbs.fit(for:)` is the other direction,
+    /// and a test holds the two to each other.
+    public var textMenuMode: EditorMode {
+        switch self {
+        case .page: return .edit
+        case .width: return .preview
+        case .actual: return .split
+        }
+    }
+
     /// The scale this fit asks for, for a spread of `spreadSize` in a view of `viewSize`.
     ///
     /// **A spread is what is on screen side by side** — one page in a single-page layout, so the

@@ -207,7 +207,7 @@ import FileExplorerTestSupport
         defer { chmod(source, 0o644) }
         let before = listing(folder(of: note))
         expectRefusal(EditorImageImport.importImages([.file(source)], forNote: note),
-                      in: folder(of: note), before: before, mentioning: "can't be read")
+                      in: folder(of: note), before: before, mentioning: "can’t be read")
     }
 
     /// A file of `bytes` — sparse, so a test of the limit costs no disk.
@@ -314,13 +314,13 @@ import FileExplorerTestSupport
         let note = try note()
         let before = listing(folder(of: note))
         expectRefusal(EditorImageImport.importImages([.png(png())], forNote: note, isWritable: { _ in false }),
-                      in: folder(of: note), before: before, mentioning: "can't be written to")
+                      in: folder(of: note), before: before, mentioning: "can’t be written to")
         // And an Images folder that cannot be written, named as such.
         try fm.createDirectory(atPath: folder(of: note) + "/Images", withIntermediateDirectories: false)
         let after = listing(folder(of: note))
         expectRefusal(EditorImageImport.importImages([.png(png())], forNote: note,
                                                      isWritable: { !$0.hasSuffix("/Images") }),
-                      in: folder(of: note), before: after, mentioning: "Images folder here can't be written")
+                      in: folder(of: note), before: after, mentioning: "Images folder here can’t be written")
     }
 
     /// **Images already in a read-only Images folder are linked where they are** — that writes
@@ -337,7 +337,7 @@ import FileExplorerTestSupport
                 == .wrote(files: [], madeFolder: nil, linked: ["Images/Pasta-2.png", "Images/Pasta-1.png"]))
         let elsewhere = try imageElsewhere()
         expectRefusal(EditorImageImport.importImages([.file(images + "/Pasta-1.png"), .file(elsewhere)], forNote: note),
-                      in: images, before: ["Pasta-1.png", "Pasta-2.png"], mentioning: "can't be written to")
+                      in: images, before: ["Pasta-1.png", "Pasta-2.png"], mentioning: "can’t be written to")
     }
 
     /// **The real permission, not the injected one** — a read-only folder on disk.
@@ -348,7 +348,7 @@ import FileExplorerTestSupport
         defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder) }
         let before = listing(folder)
         expectRefusal(EditorImageImport.importImages([.png(png())], forNote: note),
-                      in: folder, before: before, mentioning: "can't be written to")
+                      in: folder, before: before, mentioning: "can’t be written to")
     }
 
     /// **A cloud-only file is refused, not fetched** — copying it would download it on the main
@@ -381,7 +381,7 @@ import FileExplorerTestSupport
         try fm.createSymbolicLink(atPath: folder(of: note) + "/Images", withDestinationPath: folder(of: note) + "/Gone")
         let before = listing(folder(of: note))
         expectRefusal(EditorImageImport.importImages([.png(png())], forNote: note), in: folder(of: note), before: before,
-                      mentioning: "“Images” in this note's folder is an alias to a folder that isn't there any more")
+                      mentioning: "“Images” in this note’s folder is an alias to a folder that isn’t there any more")
         #expect(listing(folder(of: note)) == before)
     }
 
@@ -398,7 +398,7 @@ import FileExplorerTestSupport
         let note = try note()
         let before = listing(folder(of: note))
         expectRefusal(EditorImageImport.importImages([.file("/nonexistent/IMG.png")], forNote: note),
-                      in: folder(of: note), before: before, mentioning: "isn't there any more")
+                      in: folder(of: note), before: before, mentioning: "isn’t there any more")
     }
 
     // MARK: - Found by the 2026-10-04 review

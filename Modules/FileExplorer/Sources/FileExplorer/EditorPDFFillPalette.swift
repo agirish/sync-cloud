@@ -249,7 +249,7 @@ struct EditorPDFFillPalette: View {
         case .marks: return "Marks — ✓, ✗ or •, then click on the page to place it"
         case .signature, .initials: return "\(tool.title) — choose a saved one, or add one"
         case .style: return "Style — the font of the selected text, the face of a typed signature, the pen of a drawn one"
-        case .size: return "Text size — of the selected text, and of the next"
+        case .size: return "Text Size — of the selected text, and of the next"
         case .ink: return "Ink — of the selected item, and of the next"
         }
     }

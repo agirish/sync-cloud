@@ -237,14 +237,19 @@ struct EditorFileRailView: View {
                 EditorRailFolderMenu(name: contextName, trail: folderTrail, accent: accent,
                                      onGoTo: onGoToFolder)
             } else {
-                Image(systemName: pdf == nil ? "doc.text" : "doc.richtext")
-                    .scaledFont(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                Text(contextName)
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                // The tooltip is on the name, not the row: on Files the row's buttons say their own
+                // (TE132), and a row-wide tooltip showed the ＋'s sentence over the folder's name.
+                HStack(spacing: 5) {
+                    Image(systemName: pdf == nil ? "doc.text" : "doc.richtext")
+                        .scaledFont(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                    Text(contextName)
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .help(contextHelp)
             }
             Spacer(minLength: 0)
             if shownTab == .files {
@@ -330,13 +335,13 @@ struct EditorFileRailView: View {
         .frame(minHeight: 18)
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
-        .help(contextHelp)
     }
 
-    /// The context line's tooltip: where ＋ makes a file, or what the tab is listing.
+    /// The Pages and Outline tabs' name line's tooltip: what the tab is listing. Files has none —
+    /// its folder name is a menu with a tooltip of its own, and the ＋ names where it makes a file.
     private var contextHelp: String {
         switch shownTab {
-        case .files: return newFileDestination
+        case .files: return ""
         case .pages: return "The pages of the open PDF"
         case .outline: return pdf == nil ? "The headings in the open document" : "The bookmarks in the open PDF"
         }
@@ -359,11 +364,9 @@ struct EditorFileRailView: View {
     /// Where ＋ would put a new file, in the words the tooltip needs. **Answers the question the
     /// folder line is there to answer**: the rail is not the sidebar, and "new file" with no
     /// destination in sight is the one act here that writes to a folder the user has not looked at.
+    /// The header's ＋ says the same sentence (TE132): two ＋s on screen at once, one act, one name.
     private var newFileDestination: String {
-        let destination = newFileFolderName ?? folderName
-        return destination.isEmpty
-            ? "Pick a folder in the sidebar first"
-            : "New files are created in \(destination)"
+        EditorWorkspaceView.newTextFileTitle(folderName: newFileFolderName ?? folderName)
     }
 
     /// The folder's files: the naming row, the filter field, and the list — a Text Files section and
@@ -526,10 +529,10 @@ struct EditorFileRailView: View {
         // template produces, and the singular is not a corner — one PDF in a folder of its own is
         // an ordinary thing to be standing in.
         if otherFiles == 1 {
-            return "The one file in this folder isn’t one the editor opens. "
+            return "The one file in this folder isn’t one Edit opens. "
                 + "The + button makes a text file."
         }
-        return "None of the \(otherFiles) files in this folder are ones the editor opens. "
+        return "None of the \(otherFiles) files in this folder are ones Edit opens. "
             + "The + button makes a text file."
     }
 

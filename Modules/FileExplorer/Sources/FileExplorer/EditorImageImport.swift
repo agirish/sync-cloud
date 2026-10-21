@@ -77,10 +77,10 @@ public enum EditorImageImport {
             let name = (path as NSString).lastPathComponent
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory) else {
-                return .refused("“\(name)” isn't there any more, so it couldn't be added.")
+                return .refused("“\(name)” isn’t there any more, so it couldn’t be added.")
             }
             guard !isDirectory.boolValue else {
-                return .refused("“\(name)” is a folder, not an image, so it couldn't be added.")
+                return .refused("“\(name)” is a folder, not an image, so it couldn’t be added.")
             }
             // **Refused, not fetched.** Copying a cloud-only file reads it, which downloads it —
             // on the main thread, for as long as the provider takes, and a provider that does not
@@ -90,7 +90,7 @@ public enum EditorImageImport {
             }
             // Asked here, so an unreadable photo is not reported as one that "couldn't be saved".
             guard fileManager.isReadableFile(atPath: path) else {
-                return .refused("“\(name)” can't be read, so it couldn't be added. Check its permissions in Finder.")
+                return .refused("“\(name)” can’t be read, so it couldn’t be added. Check its permissions in Finder.")
             }
         }
 
@@ -120,8 +120,8 @@ public enum EditorImageImport {
         let writes = !incoming.isEmpty
         guard !writes || isWritable(folder.exists ? folder.path : noteFolder) else {
             return .refused(folder.exists
-                ? "The \(folder.name) folder here can't be written to, so the image couldn't be added."
-                : "This note's folder can't be written to, so the image couldn't be added.")
+                ? "The \(folder.name) folder here can’t be written to, so the image couldn’t be added."
+                : "This note’s folder can’t be written to, so the image couldn’t be added.")
         }
 
         // 3. Names, from the note's — `Pasta-1.jpg` — counting on from the highest number in the
@@ -140,7 +140,7 @@ public enum EditorImageImport {
                 try fileManager.createDirectory(atPath: folder.path, withIntermediateDirectories: false)
                 madeFolder = folder.path
             } catch {
-                return .refused("The \(folder.name) folder couldn't be made here — \(error.localizedDescription)")
+                return .refused("The \(folder.name) folder couldn’t be made here — \(error.localizedDescription)")
             }
         }
 
@@ -183,16 +183,16 @@ public enum EditorImageImport {
                     // does not link is the worst of both. Said as what it is: saved, then not checked.
                     if (try? fileManager.attributesOfItem(atPath: path)) != nil {
                         landed = name
-                        failure = "\(label) was saved in \(folder.name) and linked, but it couldn't be read "
+                        failure = "\(label) was saved in \(folder.name) and linked, but it couldn’t be read "
                             + "back straight afterwards — look at it before relying on it."
                     } else {
-                        failure = "\(label) couldn't be saved in \(folder.name) — \(error.localizedDescription)"
+                        failure = "\(label) couldn’t be saved in \(folder.name) — \(error.localizedDescription)"
                     }
                 }
                 break
             }
             if landed == nil {
-                failure = failure ?? "\(label) couldn't be saved in \(folder.name) — every name was taken."
+                failure = failure ?? "\(label) couldn’t be saved in \(folder.name) — every name was taken."
             }
             if let landed {
                 givenOut.record(number, for: givenOutKey)
@@ -202,7 +202,7 @@ public enum EditorImageImport {
             if let reason = failure {
                 // The images after it are not tried: say so, rather than leave them unmentioned.
                 let left = sources.count - index - 1
-                if left > 0 { failure = reason + (left == 1 ? " The image after it wasn't added." : " The \(left) images after it weren't added.") }
+                if left > 0 { failure = reason + (left == 1 ? " The image after it wasn’t added." : " The \(left) images after it weren’t added.") }
                 break
             }
         }
@@ -212,9 +212,9 @@ public enum EditorImageImport {
             // an EMPTY folder, so nothing anybody put there can go with it.
             if let madeFolder, rmdir(madeFolder) != 0 {
                 return .wrote(files: [], madeFolder: madeFolder, linked: [],
-                              failed: failure ?? "The image couldn't be saved.")
+                              failed: failure ?? "The image couldn’t be saved.")
             }
-            return .refused(failure ?? "The image couldn't be saved.")
+            return .refused(failure ?? "The image couldn’t be saved.")
         }
         return .wrote(files: written, madeFolder: madeFolder, linked: links, failed: failure)
     }
@@ -302,12 +302,12 @@ public enum EditorImageImport {
         guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory) else {
             // Listed, yet not there: an alias whose folder has gone (review IMG-10). "A file called
             // Images" sent the reader looking for a file that is not one.
-            return .failure(Refusal(message: "“\(name)” in this note's folder is an alias to a folder that isn't "
+            return .failure(Refusal(message: "“\(name)” in this note’s folder is an alias to a folder that isn’t "
                 + "there any more, so the image has nowhere to go. Remove the alias or put its folder back, "
                 + "then try again."))
         }
         guard isDirectory.boolValue else {
-            return .failure(Refusal(message: "There's a file called “\(name)” in this note's folder, so "
+            return .failure(Refusal(message: "There’s a file called “\(name)” in this note’s folder, so "
                 + "the image has nowhere to go. Rename that file, then try again."))
         }
         // Through a symlink to where it leads: `isCloudOnly` reads the link itself, and the folder

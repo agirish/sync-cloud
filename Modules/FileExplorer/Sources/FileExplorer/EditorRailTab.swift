@@ -141,7 +141,7 @@ struct EditorRailTabBar: View {
         // Frosted and Clear: a glass track, like the bar's other controls (`ChromeGlass`).
         .chromeGlassTrack()
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Rail contents")
+        .accessibilityLabel("File list")
     }
 
     private func segment(_ candidate: EditorRailTab) -> some View {

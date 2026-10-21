@@ -257,7 +257,7 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         // **Asked before anything is written** — see `imageCanGo`.
         let ns = buffer(of: view)
         guard Self.imageCanGo(count: sources.count, at: range, in: ns) else {
-            importer.report(.refused("An image can't go in a code block, raw HTML, a link definition or the "
+            importer.report(.refused("An image can’t go in a code block, raw HTML, a link definition or the "
                                      + "front matter — drop or paste it somewhere else in the note."))
             return false
         }

@@ -16,7 +16,7 @@ import FileExplorer
     // MARK: Leaving a document with unsaved changes
 
     @Test func theThreeButtonsAreInThePlatformsOrder() {
-        #expect(EditorAlerts.unsavedButtonTitles == ["Save", "Cancel", "Don't Save"])
+        #expect(EditorAlerts.unsavedButtonTitles == ["Save", "Cancel", "Don’t Save"])
     }
 
     /// The mapping, stated as a table over every response an `NSAlert` can hand back — including
@@ -42,7 +42,7 @@ import FileExplorer
         let responses: [NSApplication.ModalResponse] =
             [.alertFirstButtonReturn, .alertSecondButtonReturn, .alertThirdButtonReturn]
         let expected: [String: EditorAlerts.UnsavedAnswer] =
-            ["Save": .save, "Cancel": .cancel, "Don't Save": .discard]
+            ["Save": .save, "Cancel": .cancel, "Don’t Save": .discard]
         for (index, title) in EditorAlerts.unsavedButtonTitles.enumerated() {
             let answered = EditorAlerts.answer(for: responses[index])
             #expect(answered == expected[title],

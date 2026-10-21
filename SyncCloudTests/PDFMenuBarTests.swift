@@ -270,6 +270,10 @@ import Testing
         #expect(EditorMode.allCases.map(PDFPageVerbs.fit(for:)) == EditorPDFFit.allCases)
         #expect(EditorMode.allCases.map { PDFPageVerbs.fit(for: $0).title }
                 == ["Fit Page", "Fit Width", "Actual Size"])
+        // The zoom menu labels its fits with these chords from the other direction (TE123).
+        for mode in EditorMode.allCases {
+            #expect(PDFPageVerbs.fit(for: mode).textMenuMode == mode, "\(mode)")
+        }
         #expect(PDFPageVerbs.goToTitle(nil) == "Go to Line…")
         #expect(PDFPageVerbs.goToTitle(PDFPageVerbs(view: EditorPDFViewState(), goToPage: nil)) == "Go to Page…")
     }

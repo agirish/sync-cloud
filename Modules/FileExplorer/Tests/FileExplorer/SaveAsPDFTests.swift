@@ -261,12 +261,12 @@ private struct SaveDelegate: FileActionDelegate {
                                           picturePages: 6, isRecognised: true)
         let one = SaveAsPDFSummary.banner(total: 1, saved: [read], failed: [], stoppedBefore: 0)
         #expect(one.message == "Saved “Survey.pdf” · 6 pages")
-        #expect(one.detail == "Its slides were pictures; their text was recognised so it can be searched, but may have mistakes.")
+        #expect(one.detail == "Its slides were pictures; their text was recognized so it can be searched, but may have mistakes.")
 
         let blank = SaveAsPDFSummary.Saved(name: "Photos.pptx", copy: "/f/Photos.pdf", pageCount: 3,
                                            picturePages: 3, isRecognised: false)
         let batch = SaveAsPDFSummary.banner(total: 2, saved: [read, blank], failed: [], stoppedBefore: 0)
-        #expect(batch.detail == "Slides in “Survey.pptx” were pictures; their text was recognised so it can be searched, "
+        #expect(batch.detail == "Slides in “Survey.pptx” were pictures; their text was recognized so it can be searched, "
                 + "but may have mistakes. Slides in “Photos.pptx” were pictures, so their text can’t be selected or searched.")
     }
 
@@ -277,19 +277,19 @@ private struct SaveDelegate: FileActionDelegate {
                                              picturePages: 1, isRecognised: true)
         let one = SaveAsPDFSummary.banner(total: 1, saved: [council], failed: [], stoppedBefore: 0)
         #expect(one.message == "Saved “Council.pdf” · 50 pages")
-        #expect(one.detail == "1 of its 50 slides was a picture; its text was recognised so it can be searched, "
+        #expect(one.detail == "1 of its 50 slides was a picture; its text was recognized so it can be searched, "
                 + "but may have mistakes.")
 
         var three = council
         three.picturePages = 3
         #expect(SaveAsPDFSummary.banner(total: 1, saved: [three], failed: [], stoppedBefore: 0).detail
-                == "3 of its 50 slides were pictures; their text was recognised so it can be searched, but may have mistakes.")
+                == "3 of its 50 slides were pictures; their text was recognized so it can be searched, but may have mistakes.")
 
         let survey = SaveAsPDFSummary.Saved(name: "Survey.pptx", copy: "/f/Survey.pdf", pageCount: 6,
                                             picturePages: 6, isRecognised: true)
         let batch = SaveAsPDFSummary.banner(total: 2, saved: [survey, council], failed: [], stoppedBefore: 0)
         #expect(batch.detail == "Slides in “Survey.pptx” and “Council.pptx” (1 of 50) were pictures; their text was "
-                + "recognised so it can be searched, but may have mistakes.")
+                + "recognized so it can be searched, but may have mistakes.")
 
         var unread = council
         unread.isRecognised = false

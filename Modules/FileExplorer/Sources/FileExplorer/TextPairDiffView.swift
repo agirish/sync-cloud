@@ -21,7 +21,10 @@ struct TextPairDiffView: View {
     /// ``TextPairDiff/steppedRegion(from:direction:count:)``.
     @Binding var focusedRegion: Int?
 
+    @Environment(\.appFontScale) private var fontScale
+
     var body: some View {
+        let gutter = Self.gutterWidth(largestNumber: diff.largestLineNumber, scale: fontScale)
         VStack(alignment: .leading, spacing: 0) {
             summaryBar
             Divider()
@@ -29,7 +32,7 @@ struct TextPairDiffView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(diff.rows) { row in
-                            self.row(row).id(row.id)
+                            self.row(row, gutter: gutter).id(row.id)
                         }
                     }
                     .padding(.vertical, 4)
@@ -103,22 +106,22 @@ struct TextPairDiffView: View {
     // MARK: One row
 
     @ViewBuilder
-    private func row(_ row: TextPairDiff.Row) -> some View {
+    private func row(_ row: TextPairDiff.Row, gutter: CGFloat) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            side(number: row.leftNumber, text: row.left, segments: row.leftSegments)
+            side(number: row.leftNumber, text: row.left, segments: row.leftSegments, gutter: gutter)
             Divider()
-            side(number: row.rightNumber, text: row.right, segments: row.rightSegments)
+            side(number: row.rightNumber, text: row.right, segments: row.rightSegments, gutter: gutter)
         }
         .background(row.kind == .same ? Color.clear : tintRow(row.kind))
     }
 
     private func side(number: Int?, text: String?,
-                      segments: [TextPairDiff.Segment]?) -> some View {
+                      segments: [TextPairDiff.Segment]?, gutter: CGFloat) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Text(number.map(String.init) ?? "")
-                .scaledFont(.system(size: 10, design: .monospaced))
+                .scaledFont(.system(size: Self.gutterPointSize, design: .monospaced))
                 .foregroundStyle(.tertiary)
-                .frame(width: 34, alignment: .trailing)
+                .frame(width: gutter, alignment: .trailing)
             lineText(text, segments: segments)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
@@ -156,6 +159,24 @@ struct TextPairDiffView: View {
                 .scaledFont(.system(size: 11.5, design: .monospaced))
                 .foregroundStyle(.quaternary)
         }
+    }
+
+    // MARK: The line numbers
+
+    /// The line numbers' size at the default text size.
+    static let gutterPointSize: CGFloat = 10
+
+    /// **The line-number column, as wide as the largest number at the text size drawn** (TE134).
+    /// It was a fixed 34pt, which a five-digit number overran at Large and Largest and a seven-digit
+    /// one at every size, so a long file's numbers were cut. At least three digits wide, so a short
+    /// file's column does not shrink to almost nothing; the numbers are monospaced, so one digit's
+    /// width times the count is the width, plus a point for rounding.
+    static func gutterWidth(largestNumber: Int, scale: CGFloat) -> CGFloat {
+        let size = FontSize.scaledPointSize(gutterPointSize, scale: scale)
+        let font = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        let digit = ("0" as NSString).size(withAttributes: [.font: font]).width
+        let digits = max(String(max(largestNumber, 0)).count, 3)
+        return (CGFloat(digits) * digit).rounded(.up) + 1
     }
 
     // MARK: How much of a line is drawn

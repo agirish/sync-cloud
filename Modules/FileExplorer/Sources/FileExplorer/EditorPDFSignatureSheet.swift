@@ -41,6 +41,10 @@ struct EditorPDFAddSignatureSheet: View {
         + "signature. Saved signatures stay on this Mac — drawn ones as pen strokes, typed ones as their words — "
         + "and are never synced or written to the log."
 
+    /// The sheet's floor and the width it opens at (TE134) — the 440 it always had.
+    static let minWidth: CGFloat = 440
+    static let idealWidth: CGFloat = 440
+
     /// What paper is: the pad, the preview and the face tiles in both appearances.
     static let paper = Color.white
     static let paperEdge = Color(white: 0.72)
@@ -70,7 +74,7 @@ struct EditorPDFAddSignatureSheet: View {
             .fixedSize()
             if typing { typePane } else { drawPane }
             HStack(spacing: 8) {
-                Text("Ink").foregroundStyle(.secondary)
+                Text("Ink").scaledFont(.system(size: 11)).foregroundStyle(.secondary)
                 ForEach(EditorPDFFillColor.allCases, id: \.self) { swatch($0) }
             }
             Toggle("Save on this Mac for next time", isOn: $keep)
@@ -105,7 +109,10 @@ struct EditorPDFAddSignatureSheet: View {
             }
         }
         .padding(18)
-        .frame(width: 440)
+        // A floor, not a fixed width, as the tool sheets have (TE134). Measured 2026-10-20, the
+        // content needs 264pt at every text size — the pickers, toggles and buttons keep the
+        // system's size — so this opens at 440 at all of them; the floor is for what is added next.
+        .frame(minWidth: Self.minWidth, idealWidth: Self.idealWidth)
     }
 
     private var typePane: some View {
@@ -121,7 +128,7 @@ struct EditorPDFAddSignatureSheet: View {
                 .frame(maxWidth: .infinity, minHeight: 72)
                 .background(Self.paper, in: RoundedRectangle(cornerRadius: Radius.control))
                 .overlay(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(Self.paperEdge, style: StrokeStyle(dash: [4])))
-            Text("Style").foregroundStyle(.secondary)
+            Text("Style").scaledFont(.system(size: 11)).foregroundStyle(.secondary)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
                 ForEach(EditorPDFSignatureFace.allCases, id: \.self) { tile($0) }
             }
@@ -171,7 +178,7 @@ struct EditorPDFAddSignatureSheet: View {
             .background(Self.paper, in: RoundedRectangle(cornerRadius: Radius.control))
             .overlay(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(Self.paperEdge, style: StrokeStyle(dash: [4])))
             HStack(spacing: 10) {
-                Text("Pen").foregroundStyle(.secondary)
+                Text("Pen").scaledFont(.system(size: 11)).foregroundStyle(.secondary)
                 Picker("Pen", selection: $penRaw) {
                     ForEach(EditorPDFPen.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
                 }

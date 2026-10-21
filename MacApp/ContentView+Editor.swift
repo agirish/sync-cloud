@@ -1748,7 +1748,7 @@ extension ContentView {
             case .notMissing:
                 break
             case .failed(let why):
-                syncManager.banner = .error("Couldn't save “\(editorDocument.name)” — \(why)")
+                syncManager.banner = .error("Couldn’t save “\(editorDocument.name)” — \(why)")
             }
         }
     }
@@ -1757,7 +1757,7 @@ extension ContentView {
     /// large or not text. Nothing changed; the banner stays, and says so.
     private func reportDisksVersionUnreadable() {
         Logger.shared.info("[edit] Could not take the version of \(editorDocument.path ?? "") on disk — it cannot be read as text now")
-        syncManager.banner = .error("Couldn't read the version of “\(editorDocument.name)” on disk — your text is unchanged.")
+        syncManager.banner = .error("Couldn’t read the version of “\(editorDocument.name)” on disk — your text is unchanged.")
     }
 
     /// **After one of the app's own file operations** (`refreshSubject`'s epilogue): Edit's rail
@@ -1872,7 +1872,7 @@ extension ContentView {
             return .madeNow
         } catch {
             Logger.shared.error("[new-file] Couldn't make \(folder): \(error.localizedDescription)")
-            syncManager.banner = .error("Couldn't make the Notes folder — \(error.localizedDescription)")
+            syncManager.banner = .error("Couldn’t make the Notes folder — \(error.localizedDescription)")
             return .couldNotMake
         }
     }
@@ -1905,7 +1905,7 @@ extension ContentView {
             showCreatedFileInPane(path)
             return true
         } catch {
-            syncManager.banner = .error("Couldn't create the file — \(error.localizedDescription)")
+            syncManager.banner = .error("Couldn’t create the file — \(error.localizedDescription)")
             return false
         }
     }
