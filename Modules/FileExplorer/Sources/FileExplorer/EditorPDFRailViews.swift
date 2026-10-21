@@ -110,10 +110,7 @@ struct EditorPDFRailPages: View {
                 // so the handler that was here never ran.
                 .focusedValue(\.pdfPagesSelectAll, EditorPDFPagesSelectAll { tools.selectAll() })
                 .onKeyPress(keys: [.delete, .deleteForward]) { _ in
-                    let pages = tools.order.filter(tools.selection.pages.contains)
-                    guard !pages.isEmpty, tools.offersPageTools, tools.running == nil else { return .ignored }
-                    tools.sheet = .pages(.delete, prefill: EditorPDFPageMenu.rangeText(pages))
-                    return .handled
+                    tools.deleteSelectedPages() ? .handled : .ignored
                 }
                 .onAppear { proxy.scrollTo(view.currentPage, anchor: .center) }
                 // A switch of layout puts every cell somewhere new; the reader's page stays in view.
@@ -190,10 +187,12 @@ struct EditorPDFRailPages: View {
         return VStack(spacing: 4) {
             page(index, size: size)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 2)
+                    // The current page's ring sits just inside the cell's rounded wash, at its
+                    // corner radius less the gap — square corners 4 pt out poked past the wash.
+                    RoundedRectangle(cornerRadius: isCurrent ? EditorPDFPagesLayout.currentRingRadius : 2)
                         .strokeBorder(isCurrent ? accent : Color.primary.opacity(0.15),
                                       lineWidth: isCurrent ? 3 : 0.5)
-                        .padding(isCurrent ? -4 : 0)
+                        .padding(isCurrent ? -EditorPDFPagesLayout.currentRingOutset : 0)
                 }
             // The ORIGINAL number, also while the pages are reordered — it is what the reader
             // dragged, and the new order is written only on Save.
@@ -283,14 +282,14 @@ struct EditorPDFPageMenu: View {
             Text(reason)
         }
         Group {
-            Button("Rotate Left") { run(.rotate(pages: pages, quarterTurns: -1)) }
-            Button("Rotate Right") { run(.rotate(pages: pages, quarterTurns: 1)) }
-            Button("Rotate 180°") { run(.rotate(pages: pages, quarterTurns: 2)) }
+            Button(Self.rotateTitle(pages, "Left")) { run(.rotate(pages: pages, quarterTurns: -1)) }
+            Button(Self.rotateTitle(pages, "Right")) { run(.rotate(pages: pages, quarterTurns: 1)) }
+            Button(Self.rotateTitle(pages, "180°")) { run(.rotate(pages: pages, quarterTurns: 2)) }
             Divider()
             Button(Self.title("Delete", pages)) {
                 tools.sheet = .pages(.delete, prefill: EditorPDFPageMenu.rangeText(pages))
             }
-            .disabled(pages.count >= tools.pageCount)
+            .disabled(!tools.mayDelete(pages))
             Button(Self.title("Extract", pages)) {
                 tools.sheet = .pages(.extract, prefill: EditorPDFPageMenu.rangeText(pages))
             }
@@ -304,6 +303,11 @@ struct EditorPDFPageMenu: View {
 
     static func title(_ verb: String, _ pages: [Int]) -> String {
         pages.count == 1 ? "\(verb) Page \(pages[0] + 1)…" : "\(verb) \(pages.count) Pages…"
+    }
+
+    /// "Rotate 3 Pages Left" — the pages named as Delete and Extract name them, beside them.
+    static func rotateTitle(_ pages: [Int], _ way: String) -> String {
+        pages.count == 1 ? "Rotate Page \(pages[0] + 1) \(way)" : "Rotate \(pages.count) Pages \(way)"
     }
 
     /// "2-4, 7" for the field, one-based and in the order given — the copy name's runs, with a

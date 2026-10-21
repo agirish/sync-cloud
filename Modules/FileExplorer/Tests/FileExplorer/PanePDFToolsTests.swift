@@ -472,7 +472,7 @@ private struct PDFToolDelegate: FileActionDelegate {
             #expect(await log.holds(.info, containing: "PDF Tools in Compare wrote \((copy as NSString).lastPathComponent)"))
         }
         #expect(batch.banner?.kind == .wroteSeveral(copies))
-        #expect(batch.banner?.message.hasPrefix("Wrote 3 ") == true, "\(String(describing: batch.banner))")
+        #expect(batch.banner?.message.hasPrefix("Saved 3 ") == true, "\(String(describing: batch.banner))")
         // One folder, so the panes re-read once — not once per copy.
         #expect(reread.count == 1, "the panes re-read \(reread.count) times")
         #expect(PDFKitSerialAccess.peakConcurrentParses <= 1, "two parses ran at once")
@@ -502,7 +502,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(!files().contains { $0.contains(".tmp_") }, "a staging file was left: \(files())")
         #expect(batch.banner?.kind == .wrote(first))
         let noun = tool.copyNoun.one
-        #expect(batch.banner?.message == "Cancelled. Wrote 1 \(noun) · 2 not done")
+        #expect(batch.banner?.message == "Cancelled. Saved 1 \(noun) · 2 not done")
+        #expect(batch.banner?.detail == nil, "the files Cancel never reached were named: \(String(describing: batch.banner?.detail))")
     }
 
     /// **A batch banner's doors go to the copies still there**, as Edit's banner's do — Reveal left
@@ -547,23 +548,27 @@ private struct PDFToolDelegate: FileActionDelegate {
         batch.fileStarted = { index in if index == 0 { try? FileManager.default.removeItem(atPath: paths[1]) } }
         await batch.run(.rotate(quarterTurns: 1))
         #expect(batch.files[1].status == .failed(EditorPDFBatch.goneReason))
-        #expect(batch.banner?.message.contains("1 failed: “Gone.pdf” — it is no longer there") == true,
-                "\(batch.banner?.message ?? "no banner")")
+        #expect(batch.banner?.message == "Saved 1 rotated copy · 1 failed", "\(batch.banner?.message ?? "no banner")")
+        #expect(batch.banner?.detail == "“Gone.pdf” — \(EditorPDFBatch.goneReason)", "\(batch.banner?.detail ?? "no detail")")
     }
 
     /// **A file that cannot run is skipped with its reason** — no smaller after Compress, locked to
-    /// open — and the summary says each.
+    /// open — and the banner's detail names each, with its reason, after the sheet that showed them
+    /// has closed (TE113). The skipped files come first, so a run that named only the last could
+    /// not pass.
     @Test func noGainAndLockedFilesAreSkippedWithTheirReasons() async throws {
         let scan = path("Scan.pdf"), lean = path("Lean.pdf"), locked = path("Locked.pdf")
         PDFFixtures.writeScan(scan, pages: 2)
         PDFFixtures.write(lean, pages: 2)
         PDFFixtures.writeLocked(locked, password: "pw")
-        let batch = batch(.compress, [scan, lean, locked])
+        let batch = batch(.compress, [lean, locked, scan])
         await batch.run(.compress(.quality(0.85)))
-        #expect(batch.files[1].status == .skipped(.alreadySmall), "\(batch.files[1].status)")
-        #expect(batch.files[2].status == .skipped(.lockedToOpen), "\(batch.files[2].status)")
-        #expect(batch.banner?.message
-                == "Wrote 1 compressed copy · 1 skipped, already small · 1 skipped, locked with a password")
+        #expect(batch.files[0].status == .skipped(.alreadySmall), "\(batch.files[0].status)")
+        #expect(batch.files[1].status == .skipped(.lockedToOpen), "\(batch.files[1].status)")
+        #expect(batch.banner?.message == "Saved 1 compressed copy · 2 skipped")
+        #expect(batch.banner?.detail == "“Lean.pdf” — already small\n“Locked.pdf” — locked with a password",
+                "\(String(describing: batch.banner?.detail))")
+        #expect(!batch.showsSheet, "the sheet stayed up")
     }
 
     /// **A file evicted to the cloud since the menu was built is skipped, never opened** — PDFKit
@@ -577,7 +582,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         batch.isCloudOnly = { $0 == cloud }
         await batch.run(.rotate(quarterTurns: 1))
         #expect(batch.files[1].status == .skipped(.inTheCloud))
-        #expect(batch.banner?.message == "Wrote 1 rotated copy · 1 skipped, still in the cloud")
+        #expect(batch.banner?.message == "Saved 1 rotated copy · 1 skipped")
+        #expect(batch.banner?.detail == "“Cloud.pdf” — still in the cloud")
 
         let model = PanePDFTools()
         model.isCloudOnly = { $0 == cloud }
@@ -631,11 +637,11 @@ private struct PDFToolDelegate: FileActionDelegate {
         let batch = batch(.compress, [restricted, plain])
         batch.confirm = { _ in true }
         await batch.run(.compress(.quality(0.35)))
-        #expect(batch.banner?.message == "Wrote 2 compressed copies · 1 has no editing restrictions",
+        #expect(batch.banner?.message == "Saved 2 compressed copies · 1 has no editing restrictions",
                 "\(String(describing: batch.banner?.message))")
         #expect(EditorPDFBatch.summary([.wrote("a", sizes: nil), .wrote("b", sizes: nil)], tool: .compress(.quality(0.35)),
                                        cancelled: false, unrestricted: 2)
-                == "Wrote 2 compressed copies · 2 have no editing restrictions")
+                == "Saved 2 compressed copies · 2 have no editing restrictions")
     }
 
     /// Clean Metadata skips a password-protected file — the toolkit refuses one — and says so.
@@ -646,7 +652,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         let batch = batch(.cleanMetadata, [plain, restricted])
         await batch.run(.cleanMetadata)
         #expect(batch.files[1].status == .skipped(.passwordProtected))
-        #expect(batch.banner?.message == "Wrote 1 cleaned copy · 1 skipped, password-protected")
+        #expect(batch.banner?.message == "Saved 1 cleaned copy · 1 skipped")
+        #expect(batch.banner?.detail == "“Restricted.pdf” — password-protected")
     }
 
     /// **One form question for the batch, naming only the files with a form** — and turned down,

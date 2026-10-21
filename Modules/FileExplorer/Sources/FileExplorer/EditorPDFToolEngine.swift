@@ -43,6 +43,24 @@ public enum EditorPDFCompression: Equatable, Sendable {
         return Int((clamped * 1_000_000).rounded())
     }
 
+    /// The most a size target starts at, in megabytes — pdf-utils' default.
+    public static let startingCeiling = 2.0
+
+    /// **Compress's "Under [ ] MB", as the sheet opens** — about half the file, to one decimal
+    /// place, and never above 2 MB: always "2" left a file already under 2 MB with nothing to do
+    /// but "already under the 2 MB target — nothing was written". Not below the 0.1 MB floor
+    /// ``bytes(megabytes:)`` holds every target to. "2" when the size is not known.
+    public static func startingTarget(forSize bytes: Int?) -> String {
+        guard let bytes, bytes > 0 else { return figure(startingCeiling) }
+        let half = (Double(bytes) / 2 / 1_000_000 * 10).rounded() / 10
+        return figure(min(max(half, 0.1), startingCeiling))
+    }
+
+    /// "0.7", "1.5", "2" — the field's figure, with no trailing ".0".
+    private static func figure(_ megabytes: Double) -> String {
+        megabytes == megabytes.rounded() ? String(Int(megabytes)) : String(format: "%.1f", megabytes)
+    }
+
     /// A typed figure — "1.5", "2,5", "1,000", " 2 " — or `nil` for one that is not a positive
     /// number. A comma is a decimal point only where it can be one: alone, with at most two digits
     /// after it. "1,000" is a thousand, not one.
@@ -118,6 +136,40 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .removePassword: return "Remove Password"
         case .fillAndSign, .fillForm: return "Fill & Sign"
         case .arranged(_, let then): return then.title
+        }
+    }
+
+    /// **The run in words, for a sentence that names it** — "Stop rotating the pages?", "Compressing
+    /// was cancelled". Lower case: a sentence that starts with it capitalises it
+    /// (``EditorPDFTools/Running``). A bare title read "Stop Rotate?" and "Protect cancelled".
+    public var doing: String {
+        switch self {
+        case .rotate: return "rotating the pages"
+        case .deletePages: return "deleting the pages"
+        case .reorder: return "saving the new page order"
+        case .extract: return "extracting the pages"
+        case .compress: return "compressing"
+        case .cleanMetadata: return "cleaning the metadata"
+        case .protect: return "protecting with a password"
+        case .removePassword: return "removing the password"
+        case .fillAndSign, .fillForm: return "saving the filled copy"
+        case .arranged(_, let then): return then.doing
+        }
+    }
+
+    /// The leave question's sentence for a run still in flight — "The pages are still being rotated."
+    public var stillRunning: String {
+        switch self {
+        case .rotate: return "The pages are still being rotated."
+        case .deletePages: return "The pages are still being deleted."
+        case .reorder: return "The new page order is still being saved."
+        case .extract: return "The pages are still being extracted."
+        case .compress: return "This PDF is still being compressed."
+        case .cleanMetadata: return "The metadata is still being cleaned."
+        case .protect: return "The password is still being added."
+        case .removePassword: return "The password is still being removed."
+        case .fillAndSign, .fillForm: return "The filled copy is still being saved."
+        case .arranged(_, let then): return then.stillRunning
         }
     }
 

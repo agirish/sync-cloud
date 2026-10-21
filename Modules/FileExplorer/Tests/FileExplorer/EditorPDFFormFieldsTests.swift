@@ -432,7 +432,7 @@ extension PDFFixtures {
         #expect(EditorPDFFillSign.leaveQuestion(name: "Lease form.pdf", count: 3, fields: 2).detail
                 == "2 fields you filled and 1 item you placed aren’t saved. The original file hasn’t been changed.")
         #expect(EditorPDFFillSign.leaveQuestion(name: "x", count: 1, fields: 1).detail.hasPrefix("1 field you filled isn’t saved."))
-        #expect(EditorPDFTools.leaveQuestion(running: "Compress", hasArrangement: false, placedItems: 1, filledFields: 2)
+        #expect(EditorPDFTools.leaveQuestion(running: .init(.compress(.quality(0.6))), hasArrangement: false, placedItems: 1, filledFields: 2)
                 .detail.contains("The 2 fields filled with Fill & Sign are cleared too."))
     }
 

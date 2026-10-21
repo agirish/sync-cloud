@@ -37,6 +37,8 @@ public struct EditorPDFToolBanner: Equatable, Identifiable, Sendable {
     public let id = UUID()
     public var message: String
     public var kind: Kind
+    /// A second line under the sentence — a batch names each file it skipped or failed, and why.
+    public var detail: String?
 }
 
 /// How a run ended — what a sheet needs to decide whether to close.
@@ -199,7 +201,24 @@ public final class EditorPDFTools: ObservableObject {
     @Published public private(set) var progress: Progress?
 
     public struct Running: Equatable {
+        /// The tool's title — "Rotate", for the log.
         public var tool: String
+        /// "rotating the pages" — ``EditorPDFTool/doing``, for the sentences that name the run.
+        public var doing: String
+        /// "The pages are still being rotated." — the leave question's.
+        public var stillRunning: String
+        /// Whether the lane reports pages as it goes — Compress alone does.
+        public var reportsProgress: Bool
+
+        init(_ tool: EditorPDFTool) {
+            self.tool = tool.title
+            doing = tool.doing
+            stillRunning = tool.stillRunning
+            if case .compress = tool { reportsProgress = true } else { reportsProgress = false }
+        }
+
+        /// "Rotating the pages" — ``doing`` at the start of a sentence.
+        public var sentence: String { doing.prefix(1).uppercased() + doing.dropFirst() }
     }
 
     public struct Progress: Equatable, Sendable {
@@ -364,6 +383,24 @@ public final class EditorPDFTools: ObservableObject {
     /// Back to the file's own order.
     public func resetArrangement() { arrangement = nil }
 
+    /// **Whether Delete Pages is offered for `pages`** — none, where the sheet asks which, or a
+    /// selection. A copy keeps at least one page, so not on a one-page file and not with every page
+    /// selected. The one rule the Tools menu, the Pages tab's menu and its Delete key ask.
+    public func mayDelete(_ pages: [Int]) -> Bool {
+        guard offersPageTools, running == nil else { return false }
+        return pages.isEmpty ? pageCount > 1 : Set(pages).count < pageCount
+    }
+
+    /// **The Pages tab's Delete key**: the Delete Pages sheet for the selection, under the menus'
+    /// rule — where both grey the item out, the key does nothing too. True when a sheet was asked for.
+    @discardableResult
+    public func deleteSelectedPages() -> Bool {
+        let pages = order.filter(selection.pages.contains)
+        guard !pages.isEmpty, sheet == nil, mayDelete(pages) else { return false }
+        sheet = .pages(.delete, prefill: EditorPDFPageMenu.rangeText(pages))
+        return true
+    }
+
     /// Whether leaving the file would lose something: a pending order, a run still in flight, a
     /// tool's sheet still waiting for its options — a password half-typed, as a pane's sheet is
     /// asked about at ⌘Q — or items placed, or fields filled, with Fill & Sign and not saved.
@@ -454,7 +491,8 @@ public final class EditorPDFTools: ObservableObject {
                 banner = EditorPDFToolBanner(message: message, kind: .note)
             case .cancelled:
                 Logger.shared.info("\(writer) cancelled \(tool.title.lowercased()) of \(logName) — nothing written")
-                banner = EditorPDFToolBanner(message: "\(tool.title) cancelled — nothing was written.", kind: .note)
+                banner = EditorPDFToolBanner(message: "\(Running(tool).sentence) was cancelled — nothing was written.",
+                                             kind: .note)
             case .failed(let message):
                 if bannerFailures { banner = EditorPDFToolBanner(message: message, kind: .failure) }
             case .declined:
@@ -484,7 +522,7 @@ public final class EditorPDFTools: ObservableObject {
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — it changed on disk since it was read")
             return end(.failed(Self.changedReason(name)))
         }
-        running = Running(tool: tool.title)
+        running = Running(tool)
         progress = nil
         let flag = CancelFlag()
         cancelFlag = flag
@@ -588,7 +626,7 @@ public final class EditorPDFTools: ObservableObject {
     /// The banner's sentence for a copy that landed — sizes for Compress, and for a size target the
     /// reader missed, by how much; and for a restricted original, that the copy is not restricted.
     private func wroteMessage(_ copyName: String, tool: EditorPDFTool, before: Int?, after: Int?) -> String {
-        var message = "Wrote “\(copyName)”"
+        var message = "Saved “\(copyName)”"
         if let detail = tool.arrangedDetail { message += " — \(detail)" }
         if case .compress(let compression) = tool {
             message += Self.sizes(before: before, after: after).map { " — \($0)" } ?? ""
@@ -636,7 +674,7 @@ public final class EditorPDFTools: ObservableObject {
     }
 
     /// The leave question, in the words of what would be lost.
-    static func leaveQuestion(running: String?, hasArrangement: Bool, sheet: String? = nil,
+    static func leaveQuestion(running: Running?, hasArrangement: Bool, sheet: String? = nil,
                               placedItems: Int = 0, filledFields: Int = 0) -> (title: String, detail: String, go: String) {
         var placed = placedItems == 0 ? ""
             : " The \(placedItems == 1 ? "item" : "\(placedItems) items") placed with Fill & Sign \(placedItems == 1 ? "is" : "are") discarded too."
@@ -645,8 +683,8 @@ public final class EditorPDFTools: ObservableObject {
                 + "\(filledFields == 1 ? "is" : "are") cleared too."
         }
         if let running {
-            return ("Stop \(running)?",
-                    "\(running) is still running on this PDF. Leaving stops it, and nothing is written."
+            return ("Stop \(running.doing)?",
+                    "\(running.stillRunning) Leaving stops it, and nothing is written."
                         + (hasArrangement ? " The new page order is discarded too." : "") + placed
                         + " The original file is unchanged either way.",
                     "Stop and Leave")
@@ -663,7 +701,7 @@ public final class EditorPDFTools: ObservableObject {
     }
 
     func confirmDiscardWithAlert() -> Bool {
-        let question = Self.leaveQuestion(running: running?.tool, hasArrangement: arrangement != nil, sheet: sheet?.title,
+        let question = Self.leaveQuestion(running: running, hasArrangement: arrangement != nil, sheet: sheet?.title,
                                           placedItems: fill?.unsaved.count ?? 0, filledFields: fill?.values.count ?? 0)
         let alert = NSAlert()
         alert.messageText = question.title

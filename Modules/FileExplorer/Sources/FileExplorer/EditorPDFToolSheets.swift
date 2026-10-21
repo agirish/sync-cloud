@@ -37,7 +37,9 @@ struct EditorPDFToolSheetView: View {
     }
 }
 
-/// The shared parts of a tool sheet: a title, what it writes, the content, a failure, two buttons.
+/// The shared parts of a tool sheet: a title, what it writes, the content, a failure, two buttons
+/// — and while its run is in flight, a spinner and "Writing the copy…" beside them, since the
+/// banner that would say so is hidden while a sheet is up (``EditorPDFToolBannerView``).
 struct EditorPDFToolSheetFrame<Content: View>: View {
     @ObservedObject var tools: EditorPDFTools
     let title: String
@@ -45,8 +47,15 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
     let canRun: Bool
     let failure: String?
     let run: () -> Void
+    /// A sheet that draws its own progress — Compress's page row — and so not the spinner too.
+    var drawsOwnProgress = false
     @ViewBuilder let content: Content
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+
+    /// What the footer says while the run is in flight, or `nil`.
+    static func workingCaption(isRunning: Bool, drawsOwnProgress: Bool) -> String? {
+        isRunning && !drawsOwnProgress ? "Writing the copy…" : nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -63,6 +72,12 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
+                if let working = Self.workingCaption(isRunning: tools.running != nil, drawsOwnProgress: drawsOwnProgress) {
+                    ProgressView().controlSize(.small)
+                    Text(working)
+                        .scaledFont(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("Cancel") {
                     if tools.running != nil { tools.cancelRun() } else { tools.sheet = nil }
@@ -113,7 +128,7 @@ struct EditorPDFPageRangeSheet: View {
     var body: some View {
         let parsed = Self.parse(typed, action: action, pageCount: tools.pageCount, arrangement: tools.arrangement)
         EditorPDFToolSheetFrame(tools: tools, title: action == .extract ? "Extract Pages" : "Delete Pages",
-                                action: action == .extract ? "Extract" : "Delete",
+                                action: action == .extract ? "Save Extracted Copy" : "Save Copy Without Pages",
                                 canRun: parsed.pages != nil, failure: failure, run: { go(parsed.pages) }) {
             VStack(alignment: .leading, spacing: 6) {
                 TextField(action == .extract ? "Pages, e.g. 3-5, 1" : "Pages, e.g. 1, 4-6", text: $typed)
@@ -181,16 +196,17 @@ struct EditorPDFCompressSheet: View {
     @State private var byTarget = false
     @State private var quality = EditorPDFCompression.strengths[1].quality
     /// Typed as text and read on the button, not a `value:` field — that commits only on Return
-    /// or focus loss, so a click on Compress could run at the number the field held before.
-    @State private var typedMegabytes = "2"
+    /// or focus loss, so a click on Compress could run at the number the field held before. Set
+    /// from the file's size once it is read (``EditorPDFCompression/startingTarget(forSize:)``).
+    @State private var typedMegabytes = EditorPDFCompression.startingTarget(forSize: nil)
     @State private var failure: String?
     /// Read once when the sheet opens — the body redraws on every page of progress.
     @State private var size: Int?
 
     var body: some View {
-        EditorPDFToolSheetFrame(tools: tools, title: "Compress", action: "Compress",
+        EditorPDFToolSheetFrame(tools: tools, title: "Compress", action: "Save Compressed Copy",
                                 canRun: !byTarget || EditorPDFCompression.megabytes(typedMegabytes) != nil,
-                                failure: failure, run: go) {
+                                failure: failure, run: go, drawsOwnProgress: true) {
             VStack(alignment: .leading, spacing: 10) {
                 EditorPDFCompressControls(byTarget: $byTarget, quality: $quality,
                                           typedMegabytes: $typedMegabytes)
@@ -205,7 +221,10 @@ struct EditorPDFCompressSheet: View {
                 }
             }
         }
-        .task { size = tools.path.flatMap { EditorFileStore.stamp(ofPath: $0)?.size } }
+        .task {
+            size = tools.path.flatMap { EditorFileStore.stamp(ofPath: $0)?.size }
+            typedMegabytes = EditorPDFCompression.startingTarget(forSize: size)
+        }
     }
 
     private func go() {
@@ -275,35 +294,71 @@ struct EditorPDFProgressRow: View {
                     .scaledFont(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
             } else {
                 ProgressView().controlSize(.small)
-                Text("Waiting for the PDF reader…")
+                Text(EditorPDFFind.waitingCaption)
                     .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
             }
         }
     }
 }
 
-/// Clean Metadata…: the fields the file says, editable, or cleared all at once.
+/// **Clean Metadata's fields on one file** (decision AW, 2026-10-20). They open cleared — as a
+/// batch clears every file's — with what the file says greyed in each as its placeholder, so the
+/// reader sees what goes; Keep Current Values puts the file's back, Clear All clears them again.
+/// Opening filled made the button straight away write a "cleaned" copy that said all the same.
+struct EditorPDFMetadataForm: Equatable, Sendable {
+    /// What the file says — each field's placeholder, and what Keep Current Values puts back.
+    let current: PDFMetadataFields
+    /// What the copy will say.
+    var fields = PDFMetadataFields.cleared
+
+    init(current: PDFMetadataFields) {
+        self.current = current
+    }
+
+    mutating func keepCurrentValues() { fields = current }
+    mutating func clearAll() { fields = PDFMetadataFields.cleared }
+
+    /// Each button only while it would change something.
+    var canKeepCurrentValues: Bool { Self.editable(fields) != Self.editable(current) }
+    var canClearAll: Bool { !fields.isCleared }
+
+    /// The five fields a reader can type in — Producer and the dates are PDFKit's on every save.
+    static func editable(_ fields: PDFMetadataFields) -> [String] {
+        [fields.title, fields.author, fields.subject, fields.keywords, fields.creator]
+    }
+
+    /// A field's greyed placeholder: the file's value, or none where it has none.
+    static func prompt(_ value: String) -> Text? { value.isEmpty ? nil : Text(value) }
+}
+
+/// Clean Metadata…: the fields, opened cleared with the file's values greyed in them.
 struct EditorPDFMetadataSheet: View {
     @ObservedObject var tools: EditorPDFTools
-    @State private var fields: PDFMetadataFields?
+    @State private var form: EditorPDFMetadataForm?
     @State private var hasForm = false
     @State private var failure: String?
 
     var body: some View {
-        EditorPDFToolSheetFrame(tools: tools, title: "Clean Metadata", action: "Write Cleaned Copy",
-                                canRun: fields != nil, failure: failure, run: go) {
-            if let binding = Binding($fields) {
+        EditorPDFToolSheetFrame(tools: tools, title: "Clean Metadata", action: "Save Cleaned Copy",
+                                canRun: form != nil, failure: failure, run: go) {
+            if let binding = Binding($form) {
+                let current = binding.wrappedValue.current
                 VStack(alignment: .leading, spacing: 8) {
                     Form {
-                        TextField("Title", text: binding.title)
-                        TextField("Author", text: binding.author)
-                        TextField("Subject", text: binding.subject)
-                        TextField("Keywords", text: binding.keywords)
-                        TextField("Creator", text: binding.creator)
+                        TextField("Title", text: binding.fields.title, prompt: EditorPDFMetadataForm.prompt(current.title))
+                        TextField("Author", text: binding.fields.author, prompt: EditorPDFMetadataForm.prompt(current.author))
+                        TextField("Subject", text: binding.fields.subject, prompt: EditorPDFMetadataForm.prompt(current.subject))
+                        TextField("Keywords", text: binding.fields.keywords, prompt: EditorPDFMetadataForm.prompt(current.keywords))
+                        TextField("Creator", text: binding.fields.creator, prompt: EditorPDFMetadataForm.prompt(current.creator))
                     }
-                    Button("Clear All") { fields = PDFMetadataFields.cleared }
-                        .controlSize(.small)
-                    Text(Self.stampedLine(binding.wrappedValue))
+                    HStack(spacing: 8) {
+                        Button("Keep Current Values") { form?.keepCurrentValues() }
+                            .disabled(!binding.wrappedValue.canKeepCurrentValues)
+                        Button("Clear All") { form?.clearAll() }
+                            .disabled(!binding.wrappedValue.canClearAll)
+                    }
+                    .controlSize(.small)
+                    Text(Self.stampedLine(current))
                         .scaledFont(.system(size: 10)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     if hasForm {
@@ -330,7 +385,7 @@ struct EditorPDFMetadataSheet: View {
         guard let path = tools.path else { return }
         switch await Self.read(path: path, isCloudOnly: tools.isCloudOnly) {
         case .success(let read):
-            fields = read.fields
+            form = EditorPDFMetadataForm(current: read.fields)
             hasForm = read.hasForm
         case .failure(let error):
             failure = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -363,9 +418,9 @@ struct EditorPDFMetadataSheet: View {
     }
 
     private func go() {
-        guard let fields else { return }
+        guard let form else { return }
         failure = nil
-        Task { failure = await tools.runFromSheet(.cleanMetadata(fields)) }
+        Task { failure = await tools.runFromSheet(.cleanMetadata(form.fields)) }
     }
 }
 
@@ -383,7 +438,7 @@ struct EditorPDFProtectSheet: View {
     var body: some View {
         let strength = PasswordStrengthEstimator.estimate(password)
         let matches = !password.isEmpty && password == confirmation
-        EditorPDFToolSheetFrame(tools: tools, title: "Protect with Password", action: "Write Protected Copy",
+        EditorPDFToolSheetFrame(tools: tools, title: "Protect with Password", action: "Save Protected Copy",
                                 canRun: matches, failure: failure, run: go) {
             VStack(alignment: .leading, spacing: 8) {
                 Picker("", selection: $restrictEditing) {
@@ -453,7 +508,7 @@ struct EditorPDFRemovePasswordSheet: View {
 
     var body: some View {
         let locked = tools.encryption == .lockedToOpen
-        EditorPDFToolSheetFrame(tools: tools, title: "Remove Password", action: "Write Unlocked Copy",
+        EditorPDFToolSheetFrame(tools: tools, title: "Remove Password", action: "Save Unlocked Copy",
                                 canRun: !locked || !password.isEmpty, failure: failure, run: go) {
             VStack(alignment: .leading, spacing: 8) {
                 if locked {

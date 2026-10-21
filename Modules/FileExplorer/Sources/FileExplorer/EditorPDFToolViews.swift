@@ -104,9 +104,18 @@ public struct EditorPDFToolsMenuEntry: Equatable {
         }
         rotations(Array(0..<tools.pageCount), in: "Rotate All Pages")
         let prefill = EditorPDFPageMenu.rangeText(selected)
-        out.append(.init(title: "Extract Pages…", enabled: pages, action: .sheet(.pages(.extract, prefill: prefill)),
+        // Named for the selection as the rotate submenu is — "Extract 3 Selected Pages…" — and as
+        // the Pages tab's own menu names it; with none, the sheet asks which pages.
+        func pagesTitle(_ verb: String) -> String {
+            switch selected.count {
+            case 0: return "\(verb) Pages…"
+            case 1: return "\(verb) Page \(selected[0] + 1)…"
+            default: return "\(verb) \(selected.count) Selected Pages…"
+            }
+        }
+        out.append(.init(title: pagesTitle("Extract"), enabled: pages, action: .sheet(.pages(.extract, prefill: prefill)),
                          dividerBefore: true))
-        out.append(.init(title: "Delete Pages…", enabled: pages && tools.pageCount > 1,
+        out.append(.init(title: pagesTitle("Delete"), enabled: pages && tools.mayDelete(selected),
                          action: .sheet(.pages(.delete, prefill: prefill))))
         out.append(.init(title: "Compress…", enabled: pages, action: .sheet(.compress), dividerBefore: true))
         // A restricted file says why Clean Metadata is off in the item itself — a menu row does not
@@ -187,8 +196,10 @@ public struct EditorPDFToolsMenuItems: View {
 }
 
 /// **What the tools are doing or did**, across the top of the PDF card: a run in flight with
-/// Cancel — for the runs no sheet is showing, Rotate and Save Reordered Copy among them — or the
-/// last run's word, with Open and Reveal in Browse for a copy. ``EditorDiskBannerView``'s shape:
+/// Stop — for the runs no sheet is showing, Rotate and Save Reordered Copy among them — or the
+/// last run's word, with Open in Edit and Reveal in Browse for a copy. **Save as PDF's banner
+/// (``PaneSaveAsPDFLayer``) says its ending in the same words and order**: Saved, Open in Edit then
+/// Reveal in Browse, Stop, and the same icons. ``EditorDiskBannerView``'s shape:
 /// the sentence wraps rather than truncates, and the buttons go under it in a narrow column.
 struct EditorPDFToolBannerView: View {
     @ObservedObject var tools: EditorPDFTools
@@ -197,7 +208,7 @@ struct EditorPDFToolBannerView: View {
     var body: some View {
         if let running = tools.running, tools.sheet == nil {
             Self.strip(symbol: nil, tint: accent, message: Self.runningMessage(running, progress: tools.progress)) {
-                Button("Cancel") { tools.cancelRun() }
+                Button("Stop") { tools.cancelRun() }
                     .controlSize(.small)
                     .help("Stop — nothing is written")
             }
@@ -205,7 +216,7 @@ struct EditorPDFToolBannerView: View {
             Self.strip(symbol: Self.symbol(banner.kind), tint: banner.kind == .failure ? .red : accent,
                   message: banner.message) {
                 if case .wrote(let path) = banner.kind {
-                    Button("Open") { tools.follow(path) { tools.host.open($0) } }
+                    Button("Open in Edit") { tools.follow(path) { tools.host.open($0) } }
                         .controlSize(.small)
                         .help("Open the copy in Edit")
                     Button("Reveal in Browse") { tools.follow(path) { tools.host.reveal($0) } }
@@ -263,15 +274,22 @@ struct EditorPDFToolBannerView: View {
         .accessibilityElement(children: .contain)
     }
 
+    /// "Compressing — page 4 of 12". Before Compress's first page it is waiting its turn in the lane;
+    /// the tools that report no pages say only what they are doing — "waiting" would be said for
+    /// the whole run.
     static func runningMessage(_ running: EditorPDFTools.Running, progress: EditorPDFTools.Progress?) -> String {
-        guard let progress, progress.total > 0 else { return "\(running.tool) — waiting for the PDF reader…" }
-        return "\(running.tool) — page \(progress.page) of \(progress.total)"
+        guard running.reportsProgress else { return "\(running.sentence)…" }
+        guard let progress, progress.total > 0 else { return "\(running.sentence) — \(waitingWords)" }
+        return "\(running.sentence) — page \(progress.page) of \(progress.total)"
     }
+
+    /// Find's words for the same wait (``EditorPDFFind/waitingCaption``), in the middle of a sentence.
+    static let waitingWords = "waiting for other PDF work…"
 
     static func symbol(_ kind: EditorPDFToolBanner.Kind) -> String {
         switch kind {
         case .wrote, .wroteSeveral: return "checkmark.circle.fill"
-        case .note: return "info.circle"
+        case .note: return "info.circle.fill"
         case .failure: return "exclamationmark.triangle.fill"
         }
     }

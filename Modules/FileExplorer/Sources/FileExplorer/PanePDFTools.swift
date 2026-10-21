@@ -166,7 +166,7 @@ public final class PanePDFTools: ObservableObject {
                       probe: EditorPDFToolEngine.Probe) {
         let name = (path as NSString).lastPathComponent
         guard case .facts(let pageCount, let encryption) = probe else {
-            tools.banner = EditorPDFToolBanner(message: "PDFKit couldn’t read “\(name)”, so no tool can run on it. "
+            tools.banner = EditorPDFToolBanner(message: "Couldn’t read “\(name)” as a PDF, so no tool can run on it. "
                                                + "It may be damaged — Preview may still open it.",
                                                kind: .failure)
             return
@@ -319,41 +319,47 @@ struct PanePDFBatchLayer: View {
 }
 
 /// **A batch's ending**, in Edit's banner strip: the summary, Reveal in Browse over the copies it
-/// wrote — and Open as well when there is just one.
+/// wrote — and Open in Edit as well when there is just one — and under it, which files were
+/// skipped or failed and why, as Save as PDF's banner names its failures.
 struct EditorPDFBatchBannerView: View {
     @ObservedObject var batch: EditorPDFBatch
     let accent: Color
 
     var body: some View {
         if let banner = batch.banner {
-            EditorPDFToolBannerView.strip(symbol: EditorPDFToolBannerView.symbol(banner.kind),
-                                          tint: banner.kind == .failure ? .red : accent,
-                                          message: banner.message) {
-                switch banner.kind {
-                case .wrote(let path):
-                    Button("Open") { batch.follow([path]) { batch.host.open($0[0]) } }
-                        .controlSize(.small)
-                        .help("Open the copy in Edit")
-                    Button("Reveal in Browse") { batch.follow([path]) { batch.host.reveal($0) } }
-                        .controlSize(.small)
-                        .help("Show the copy in Browse")
-                case .wroteSeveral(let paths):
-                    Button("Reveal in Browse") { batch.follow(paths) { batch.host.reveal($0) } }
-                        .controlSize(.small)
-                        .help("Show the copies in Browse")
-                case .note, .failure:
-                    EmptyView()
+            VStack(alignment: .leading, spacing: 0) {
+                EditorPDFToolBannerView.strip(symbol: EditorPDFToolBannerView.symbol(banner.kind),
+                                              tint: banner.kind == .failure ? .red : accent,
+                                              message: banner.message) {
+                    switch banner.kind {
+                    case .wrote(let path):
+                        Button("Open in Edit") { batch.follow([path]) { batch.host.open($0[0]) } }
+                            .controlSize(.small)
+                            .help("Open the copy in Edit")
+                        Button("Reveal in Browse") { batch.follow([path]) { batch.host.reveal($0) } }
+                            .controlSize(.small)
+                            .help("Show the copy in Browse")
+                    case .wroteSeveral(let paths):
+                        Button("Reveal in Browse") { batch.follow(paths) { batch.host.reveal($0) } }
+                            .controlSize(.small)
+                            .help("Show the copies in Browse")
+                    case .note, .failure:
+                        EmptyView()
+                    }
+                    Button {
+                        batch.banner = nil
+                    } label: {
+                        Image(systemName: "xmark")
+                            .scaledFont(.system(size: 9, weight: .semibold))
+                            .frame(width: 16, height: 16)
+                    }
+                    .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+                    .accessibilityLabel("Dismiss")
+                    .help("Dismiss")
                 }
-                Button {
-                    batch.banner = nil
-                } label: {
-                    Image(systemName: "xmark")
-                        .scaledFont(.system(size: 9, weight: .semibold))
-                        .frame(width: 16, height: 16)
+                if let detail = banner.detail {
+                    PaneSaveAsPDFLayer.detailLine(detail)
                 }
-                .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-                .accessibilityLabel("Dismiss")
-                .help("Dismiss")
             }
         }
     }

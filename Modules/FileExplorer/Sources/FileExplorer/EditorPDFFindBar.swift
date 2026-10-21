@@ -112,8 +112,9 @@ struct EditorPDFFindBar: View {
         let label = forward ? "Next match" : "Previous match"
         return Button { find.step(forward: forward) } label: {
             Image(systemName: forward ? "chevron.right" : "chevron.left")
-                .scaledFont(.system(size: 9, weight: .semibold))
-                .frame(width: 18, height: 18)
+                // The capsule's page arrows' size, beside it (``EditorPDFCapsule``).
+                .scaledFont(.system(size: 10, weight: .semibold))
+                .frame(width: 20, height: 20)
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
         .disabled(find.matches.isEmpty)

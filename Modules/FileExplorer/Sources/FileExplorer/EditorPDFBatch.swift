@@ -30,7 +30,7 @@ public enum EditorPDFBatchTool: Equatable, Sendable {
         return tool(pageCount: 0).logDetail
     }
 
-    /// What the summary calls a copy: "Wrote 2 compressed copies".
+    /// What the summary calls a copy: "Saved 2 compressed copies".
     var copyNoun: (one: String, many: String) {
         switch self {
         case .rotate: return ("rotated copy", "rotated copies")
@@ -288,7 +288,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
                                      isCancelled: (@Sendable () -> Bool)?) -> Turn {
         if isCancelled?() == true { return .skipped(.cancelled) }
         guard let document = PDFDocument(url: input) else {
-            return .failed(FileManager.default.fileExists(atPath: input.path) ? "PDFKit couldn’t read it" : goneReason)
+            return .failed(FileManager.default.fileExists(atPath: input.path) ? "couldn’t read this PDF" : goneReason)
         }
         if document.isLocked { return .skipped(.lockedToOpen) }
         if case .cleanMetadata = tool, document.isEncrypted { return .skipped(.passwordProtected) }
@@ -373,58 +373,66 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
             host.didWrite(copy)
         }
         let message = Self.summary(files.map(\.status), tool: tool, cancelled: cancelled,
-                                   unrestricted: unrestrictedCopies,
-                                   names: files.map { ($0.path as NSString).lastPathComponent })
+                                   unrestricted: unrestrictedCopies)
         let kind: EditorPDFToolBanner.Kind
         switch copies.count {
         case 0: kind = files.contains { if case .failed = $0.status { return true }; return false } ? .failure : .note
         case 1: kind = .wrote(copies[0])
         default: kind = .wroteSeveral(copies)
         }
-        banner = EditorPDFToolBanner(message: message, kind: kind)
+        banner = EditorPDFToolBanner(message: message, kind: kind,
+                                     detail: Self.reasons(files.map { ($0.name, $0.status) }))
+        // The sheet goes; the reasons its rows showed stay in the banner's detail.
         showsSheet = false
     }
 
-    /// "Wrote 2 compressed copies · 1 skipped, already small" — what was written, then each reason
-    /// a file was skipped, then what failed.
+    /// "Saved 2 compressed copies · 1 skipped · 1 failed" — what was written, then how many were
+    /// skipped and how many failed; ``reasons(_:)`` says which, and why, on the line under it.
     ///
     /// `unrestricted` copies came from originals whose owner restricted editing, and do not carry
     /// the restrictions — "· 1 has no editing restrictions", right after what was written.
-    ///
-    /// `names` are the files' own, in the same order: a single failure names its file — the sheet
-    /// that listed them has gone by the time the banner says it.
     static func summary(_ statuses: [Status], tool: EditorPDFBatchTool, cancelled: Bool,
-                        unrestricted: Int = 0, names: [String] = []) -> String {
-        var wrote = 0
-        var skips: [(Skip, Int)] = []
-        var failures: [String] = []
-        for (index, status) in statuses.enumerated() {
+                        unrestricted: Int = 0) -> String {
+        var wrote = 0, skipped = 0, notDone = 0, failed = 0
+        for status in statuses {
             switch status {
             case .wrote: wrote += 1
-            case .skipped(let skip):
-                if let at = skips.firstIndex(where: { $0.0 == skip }) { skips[at].1 += 1 } else { skips.append((skip, 1)) }
-            case .failed(let message):
-                failures.append(names.indices.contains(index) ? "“\(names[index])” — \(message)" : message)
+            case .skipped(.cancelled): notDone += 1
+            case .skipped: skipped += 1
+            case .failed: failed += 1
             case .waiting, .running: break
             }
         }
         let noun = tool.copyNoun
-        var parts = [wrote == 0 ? "Wrote nothing" : "Wrote \(wrote) \(wrote == 1 ? noun.one : noun.many)"]
+        var parts = [wrote == 0 ? "Nothing was saved" : "Saved \(wrote) \(wrote == 1 ? noun.one : noun.many)"]
         if unrestricted > 0 {
             parts.append(unrestricted == 1 ? "1 has no editing restrictions" : "\(unrestricted) have no editing restrictions")
         }
-        for (skip, count) in skips where skip != .cancelled {
-            parts.append("\(count) skipped, \(skip.reason)")
-        }
-        if let notDone = skips.first(where: { $0.0 == .cancelled })?.1 {
-            parts.append("\(notDone) not done")
-        }
-        if failures.count == 1 {
-            parts.append("1 failed: \(failures[0])")
-        } else if failures.count > 1 {
-            parts.append("\(failures.count) failed — see the log")
-        }
+        if skipped > 0 { parts.append("\(skipped) skipped") }
+        if notDone > 0 { parts.append("\(notDone) not done") }
+        if failed > 0 { parts.append("\(failed) failed") }
         return (cancelled ? "Cancelled. " : "") + parts.joined(separator: " · ")
+    }
+
+    /// The most files ``reasons(_:)`` names before "and N more" — the banner floats over the panes.
+    static let reasonsShown = 5
+
+    /// **Which files were skipped or failed, and why** — "“Scan 3.pdf” — locked with a password", one
+    /// per line, in the batch's order: the rows of the sheet that closed, for what went wrong. The
+    /// files Cancel never reached are not named; the summary counts them as "not done".
+    static func reasons(_ files: [(name: String, status: Status)]) -> String? {
+        let lines = files.compactMap { file -> String? in
+            switch file.status {
+            case .skipped(.cancelled): return nil
+            case .skipped(let skip): return "“\(file.name)” — \(skip.reason)"
+            case .failed(let message): return "“\(file.name)” — \(message)"
+            case .waiting, .running, .wrote: return nil
+            }
+        }
+        guard !lines.isEmpty else { return nil }
+        let shown = lines.prefix(reasonsShown)
+        let more = lines.count - shown.count
+        return (shown + (more > 0 ? ["and \(more) more"] : [])).joined(separator: "\n")
     }
 }
 

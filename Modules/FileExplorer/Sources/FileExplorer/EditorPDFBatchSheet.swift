@@ -57,8 +57,8 @@ struct EditorPDFBatchSheet: View {
     private var actionTitle: String {
         switch batch.kind {
         case .rotate: return "Rotate"
-        case .compress: return "Compress \(batch.count) Copies"
-        case .cleanMetadata: return "Write \(batch.count) Cleaned Copies"
+        case .compress: return "Save \(batch.count) Compressed Copies"
+        case .cleanMetadata: return "Save \(batch.count) Cleaned Copies"
         }
     }
 
@@ -98,7 +98,7 @@ struct EditorPDFBatchSheet: View {
                     .scaledFont(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
             } else {
                 ProgressView().controlSize(.small)
-                Text("Waiting for the PDF reader…")
+                Text(EditorPDFFind.waitingCaption)
                     .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
             }
             ScrollView {

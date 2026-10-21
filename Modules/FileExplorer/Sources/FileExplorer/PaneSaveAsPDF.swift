@@ -325,13 +325,14 @@ struct PaneSaveAsPDFLayer: View {
                                                   tint: banner.kind == .failure ? .red : accent,
                                                   message: banner.message) {
                         switch banner.kind {
+                        // The PDF tools' banner's order (``EditorPDFToolBannerView``).
                         case .saved(let path):
-                            Button("Reveal in Browse") { model.host.reveal([path]) }
-                                .controlSize(.small)
-                                .help("Show the PDF in Browse")
                             Button("Open in Edit") { model.host.open(path) }
                                 .controlSize(.small)
                                 .help("Open the PDF in Edit")
+                            Button("Reveal in Browse") { model.host.reveal([path]) }
+                                .controlSize(.small)
+                                .help("Show the PDF in Browse")
                         case .savedSeveral(let paths):
                             Button("Reveal in Browse") { model.host.reveal(paths) }
                                 .controlSize(.small)
@@ -364,11 +365,13 @@ struct PaneSaveAsPDFLayer: View {
             : "Saving \(progress.total) files as PDF · \(progress.done + 1) of \(progress.total)"
     }
 
+    /// The PDF tools' banner's icons, so the two cannot drift.
     static func symbol(_ kind: SaveAsPDFBanner.Kind) -> String {
         switch kind {
-        case .saved, .savedSeveral: return "checkmark.circle.fill"
-        case .note: return "info.circle.fill"
-        case .failure: return "exclamationmark.triangle.fill"
+        case .saved(let path): return EditorPDFToolBannerView.symbol(.wrote(path))
+        case .savedSeveral(let paths): return EditorPDFToolBannerView.symbol(.wroteSeveral(paths))
+        case .note: return EditorPDFToolBannerView.symbol(.note)
+        case .failure: return EditorPDFToolBannerView.symbol(.failure)
         }
     }
 

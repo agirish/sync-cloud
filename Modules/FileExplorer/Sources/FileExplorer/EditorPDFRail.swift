@@ -136,6 +136,15 @@ public enum EditorPDFPagesLayout: String, CaseIterable, Sendable {
     static let sidePadding: CGFloat = 12
     static let columnGap: CGFloat = 10
     static let cellInset: CGFloat = 4
+    /// The current page's ring, this far out from the page: 1 pt inside the cell's edge, where the
+    /// selected wash's rounded corners are — 4 pt out, on the edge, its corners poked past them.
+    static let currentRingOutset: CGFloat = cellInset - 1
+    /// The wash's corner radius (``EditorFileRailView/rowShape``, 7 pt) less that 1 pt, so the two
+    /// curves run side by side.
+    static var currentRingRadius: CGFloat {
+        guard case .roundedRect(let wash) = EditorFileRailView.rowShape else { return 6 }
+        return wash - (cellInset - currentRingOutset)
+    }
     /// The narrowest a grid cell gets before the grid drops a column. Two columns always.
     static let minimumGridCell: CGFloat = 100
 

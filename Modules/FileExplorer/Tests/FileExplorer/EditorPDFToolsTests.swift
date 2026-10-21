@@ -510,8 +510,8 @@ extension PDFFixtures {
         #expect(sheet.title == "Close Protect with Password?" && sheet.go == "Close and Leave")
         #expect(sheet.detail.contains("nothing is written"))
 
-        let question = EditorPDFTools.leaveQuestion(running: "Compress", hasArrangement: true)
-        #expect(question.title == "Stop Compress?" && question.detail.contains("new page order is discarded too"))
+        let question = EditorPDFTools.leaveQuestion(running: .init(.compress(.quality(0.6))), hasArrangement: true)
+        #expect(question.title == "Stop compressing?" && question.detail.contains("new page order is discarded too"))
         #expect(EditorPDFTools.leaveQuestion(running: nil, hasArrangement: true).go == "Discard")
     }
 
@@ -619,7 +619,7 @@ extension PDFFixtures {
         #expect(outcome == .cancelled, "\(outcome)")
         #expect(reached.withLock { $0 } == 2, "the toolkit went on past the cancel, to page \(reached.withLock { $0 })")
         #expect(files() == ["Scan.pdf"], "a cancelled run left: \(files())")
-        #expect(tools.banner?.message == "Compress cancelled — nothing was written.")
+        #expect(tools.banner?.message == "Compressing was cancelled — nothing was written.")
         #expect(tools.running == nil)
     }
 
@@ -1157,6 +1157,15 @@ extension PDFFixtures {
         #expect(entries.first?.submenu == "Rotate 2 Selected Pages")
         #expect(entries.first?.action == .run(.rotate(pages: [0, 2], quarterTurns: -1)))
         #expect(entries.contains { $0.action == .sheet(.pages(.delete, prefill: "1, 3")) })
+        // Named for the selection, as the rotate submenu above them is (TE128).
+        #expect(enabled(plain).isSuperset(of: ["Extract 2 Selected Pages…", "Delete 2 Selected Pages…"]),
+                "\(enabled(plain).sorted())")
+        plain.click(1, .toggle)
+        #expect(EditorPDFToolsMenuEntry.entries(plain).contains { $0.title == "Delete 3 Selected Pages…" && !$0.enabled },
+                "every page selected still offers to delete them all")
+        plain.click(1, .plain)
+        #expect(enabled(plain).isSuperset(of: ["Extract Page 2…", "Delete Page 2…"]), "\(enabled(plain).sorted())")
+        plain.clearSelection()
 
         let locked = EditorPDFTools()
         locked.attach(path: "/a/locked.pdf", pageCount: 0, encryption: .lockedToOpen)
