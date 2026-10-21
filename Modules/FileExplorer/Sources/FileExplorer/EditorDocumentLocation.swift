@@ -99,8 +99,10 @@ public struct EditorDocumentLocation: Equatable, Sendable {
         /// A word that is not — a level the pane cannot reach, or the folded middle of a path none
         /// of whose levels it can.
         case text(String, help: String)
-        /// The folded middle of a long crumb, "…", as a menu of the levels it folds — each a door
-        /// where the pane can go, the pane breadcrumb's own folded middle. Shallowest first.
+        /// The folded middle of a long crumb, "…", as a menu of **every level of the path, the
+        /// document's folder first and ticked, climbing to the source** — Finder's path menu, and
+        /// the order the folder menu over the Files list already uses (TE133). Each is a door where
+        /// the pane can go.
         case folded([Segment], help: String)
         /// The glyph between two levels, the pane breadcrumb's own.
         case chevron
@@ -131,14 +133,15 @@ public struct EditorDocumentLocation: Equatable, Sendable {
                 if position > 0 { parts.append(.chevron) }
                 guard let index, segments.indices.contains(index) else {
                     // The folded middle says what it folds, in the tooltip — the whole path — and
-                    // lists it as a menu, so every level stays one click away as it is in the pane's
-                    // own breadcrumb. Words alone when no folded level is a door (another source's
-                    // path): a menu of items that do nothing would be a control that does nothing.
+                    // opens a menu of the whole path, deepest first (TE133), so every level stays
+                    // one click away, the folded ones included. Words alone when no folded level is
+                    // a door (another source's path): a menu that reaches nothing it hides would be
+                    // a control that adds nothing.
                     let before = rung[..<position].compactMap { $0 }.max() ?? -1
                     let after = rung[(position + 1)...].compactMap { $0 }.min() ?? segments.count
                     let folded = segments.indices.filter { $0 > before && $0 < after }.map { segments[$0] }
                     parts.append(folded.contains { $0.target != nil }
-                                 ? .folded(folded, help: help)
+                                 ? .folded(segments.reversed(), help: help)
                                  : .text("…", help: help))
                     continue
                 }
@@ -241,12 +244,26 @@ struct EditorLocationLabel: View {
             // button style takes the button style's label as drawn, so the "…" keeps the row's
             // 10pt text and the doors' hover wash rather than AppKit's pop-up chrome, which would
             // grow a row the header's pinned height depends on.
+            //
+            // The menu is the folder menu's over the Files list (`EditorRailFolderMenu`): the
+            // document's folder first and ticked, then up to the source, each with a folder glyph.
             Menu {
-                ForEach(Array(levels.enumerated()), id: \.offset) { _, level in
-                    if let target = level.target {
-                        Button(level.name) { onDoor(.goTo(target)) }
+                ForEach(Array(Self.foldedItems(levels).enumerated()), id: \.offset) { _, item in
+                    if item.isTicked {
+                        // Ticked, and still a door when the pane can go there: unlike the rail's
+                        // folder, the pane need not be showing the document's folder.
+                        Toggle(isOn: Binding(get: { true },
+                                             set: { _ in if let door = item.door { onDoor(door) } })) {
+                            Label(item.name, systemImage: "folder")
+                        }
+                        .disabled(item.door == nil)
                     } else {
-                        Text(level.name)
+                        Button {
+                            if let door = item.door { onDoor(door) }
+                        } label: {
+                            Label(item.name, systemImage: "folder")
+                        }
+                        .disabled(item.door == nil)
                     }
                 }
             } label: {
@@ -270,6 +287,23 @@ struct EditorLocationLabel: View {
             .padding(.horizontal, -4)
             .help(help)
             .accessibilityLabel(Self.accessibilityLabel(title: title, door: door))
+        }
+    }
+
+    /// One item of the folded middle's menu (TE133).
+    struct FoldedItem: Equatable {
+        let name: String
+        /// The document's folder — the first item, and the only ticked one.
+        let isTicked: Bool
+        /// Where a pick sends the pane, or `nil` for a level it cannot reach — drawn greyed.
+        let door: EditorDocumentLocation.Door?
+    }
+
+    /// The folded middle's menu, in drawn order — ``EditorDocumentLocation/Part/folded(_:help:)``'s
+    /// levels, which arrive deepest first. A function so the tick and the doors are testable.
+    static func foldedItems(_ levels: [EditorDocumentLocation.Segment]) -> [FoldedItem] {
+        levels.enumerated().map { index, level in
+            FoldedItem(name: level.name, isTicked: index == 0, door: level.target.map { .goTo($0) })
         }
     }
 

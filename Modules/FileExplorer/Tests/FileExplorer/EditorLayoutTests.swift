@@ -48,8 +48,7 @@ import FileExplorerTestSupport
             onOpen: { _ in },
             onCreate: { _ in true },
             onNewTextFile: nil, folderTrail: nil, onGoToFolder: nil,
-            rowActions: EditorRailRowActions(revealInBrowse: { _ in }, getInfo: { _ in },
-                                             quickLook: { _ in }))
+            rowActions: .inert)
     }
 
     private func heading(_ title: String, level: Int = 1, line: Int) -> MarkdownOutlineEntry {
@@ -451,7 +450,7 @@ import FileExplorerTestSupport
         // Every title in every segment of the widest bar there is — the three a PDF brings — rather
         // than the longest title by character count: "Pages" is shorter than "Outline" and not
         // necessarily narrower in every font, and the measurement is cheap.
-        let widestBar = EditorRailTab.shown(pdfIsOpen: true, pdfHasOutline: true)
+        let widestBar = EditorRailTab.shown(pdfIsOpen: true, pdfHasOutline: true, markdownIsOpen: false)
         #expect(widestBar.count == 3, "the PDF bar is the widest case and has \(widestBar.count) tabs")
         for scale in scales {
             for title in EditorRailTab.allCases {
@@ -506,17 +505,12 @@ import FileExplorerTestSupport
                 "four outline rows measured \(four.height) against one row's \(one.height)")
     }
 
-    /// **The two empties are different questions.** Nothing open, and something open with no
-    /// headings in it — a `.txt`, or a note that never types a `#`. The second is where "there are
-    /// none" is unhelpful, so it says what makes one.
-    @Test func theEmptyOutlineSaysWhichEmptyItIs() {
-        let noFile = EditorFileRailView.outlineEmptyCaption(hasDocument: false)
-        let noHeadings = EditorFileRailView.outlineEmptyCaption(hasDocument: true)
-        #expect(noFile != noHeadings, "both empties say the same thing: \(noFile)")
-        #expect(noFile.lowercased().contains("open"),
-                "the no-document caption does not say to open something: \(noFile)")
-        #expect(noHeadings.contains("#"),
-                "the no-headings caption does not say what makes a heading: \(noHeadings)")
+    /// **The empty outline is a note with no headings yet** — the only empty the tab can show since
+    /// it is offered only for Markdown (TE111) — so it says what makes one rather than "there are
+    /// none".
+    @Test func theEmptyOutlineSaysWhatMakesAHeading() {
+        #expect(EditorFileRailView.outlineEmptyCaption.contains("#"),
+                "the no-headings caption does not say what makes a heading: \(EditorFileRailView.outlineEmptyCaption)")
     }
 
     /// **The rail's four empties, kept apart.** No folder chosen; a filter that matched nothing; a
@@ -571,16 +565,23 @@ import FileExplorerTestSupport
 
     /// An empty outline is a caption, not a blank card.
     ///
-    /// **Asserted as a difference between the two captions, not as a height floor.** A floor is
-    /// what this was first written as — `> 60pt` — and the tabs and the context line clear that on
-    /// their own, so it passed with the caption replaced by an empty string. The two captions are
-    /// different lengths and wrap to different numbers of lines in a 232pt rail, so comparing them
-    /// is a measurement of the words themselves: blank either one and the heights collapse together.
+    /// **Asserted as a difference, not as a height floor.** A floor is what this was first written
+    /// as — `> 60pt` — and the tabs and the context line clear that on their own, so it passed with
+    /// the caption replaced by an empty string. It compared the two empties' captions while there
+    /// were two; since TE111 there is one (a note with no headings), so the rail's empty Outline tab
+    /// is measured against the same rail with that caption blanked: blank it in the source and the
+    /// heights collapse together.
     @Test func theEmptyOutlineTabDrawsTheCaptionAndNotJustSpace() {
-        let noHeadings = size(rail(entries: [entry("one.md")], tab: .outline))
-        let noFile = size(rail(entries: [], tab: .outline, selected: .some(nil)))
-        #expect(noHeadings.height > noFile.height,
-                "the two empty captions laid out to the same height — \(noHeadings.height) and \(noFile.height) — so at least one of them is not being drawn")
+        let drawn = size(rail(entries: [entry("one.md")], tab: .outline), width: EditorLayoutMetrics.railWidth)
+        let list = { (caption: String) in
+            EditorRailOutlineList(rows: [], currentIndex: nil, path: "/n/one.md", emptyCaption: caption,
+                                  outlineAnchors: .constant([:]), accent: .blue, onSelect: { _ in })
+        }
+        let captioned = size(list(EditorFileRailView.outlineEmptyCaption), width: EditorLayoutMetrics.railWidth)
+        let blank = size(list(""), width: EditorLayoutMetrics.railWidth)
+        #expect(captioned.height > blank.height + 10,
+                "the empty outline's caption laid out at \(captioned.height)pt against a blank one's \(blank.height)pt")
+        #expect(drawn.height >= captioned.height, "the rail's Outline tab is shorter than its own caption")
     }
 
     // MARK: The document header

@@ -196,12 +196,13 @@ extension ContentView {
         Logger.shared.info("[edit] Files list folded from \(door.rawValue)")
     }
 
-    /// **The rail tab as DRAWN** — the stored one, unless that is Pages with no PDF open
-    /// (`EditorRailTab.resolved`). The strip lights and acts on this, not on `editorRailTab`: the
-    /// stored Pages survives a note opening, and a strip reading it would light no button while
-    /// the rail showed Files.
+    /// **The rail tab as DRAWN** — the stored one, unless that is Pages with no PDF open, or
+    /// Outline with nothing to outline (`EditorRailTab.resolved`). The strip lights and acts on
+    /// this, not on `editorRailTab`: the stored Pages survives a note opening, and a strip reading
+    /// it would light no button while the rail showed Files.
     var editorRailShownTab: EditorRailTab {
-        EditorRailTab.resolved(editorRailTab, pdfIsOpen: editorPDF.path != nil, pdfHasOutline: editorPDFHasOutline)
+        EditorRailTab.resolved(editorRailTab, pdfIsOpen: editorPDF.path != nil, pdfHasOutline: editorPDFHasOutline,
+                               markdownIsOpen: EditorWorkspaceView.markdownIsOpen(editorDocument))
     }
 
     /// Whether the open PDF's bookmarks earn the Outline tab and its strip button (asked
@@ -551,11 +552,21 @@ extension ContentView {
                 // The rail row menu's Reveal in Browse: the same act as the header's, told which
                 // door it came through so the log can say so.
                 revealInBrowse: { path in revealInBrowse(path, from: .railRow) },
+                // Greyed where Browse cannot show the file (TE116) — the reveal's own reach.
+                revealInBrowseRefusal: { path in
+                    EditorRevealInBrowse.refusal(
+                        for: path, sourceRoot: (settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath)
+                },
                 // The two acts that need the window: the Info inspector, and the one Quick Look
                 // panel every other surface shares. `followsPane: false` — a rail row is not the
                 // pane's selection, so a pane click must not retarget a preview opened from here.
                 getInfo: { path in showInfo(for: path) },
-                quickLook: { path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) }),
+                quickLook: { path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) },
+                download: { path in downloadFromEdit(path) },
+                // Browse's own Rename and Delete (TE117): its prompt, its confirmation, its undo —
+                // and the open document answers them as it answers the same act from Browse.
+                rename: { path in actionHandler?.beginRename(Self.editorRailNode(path)) },
+                delete: { path in actionHandler?.confirmDelete([Self.editorRailNode(path)]) }),
             onToggleJustTheText: { toggleJustTheText() },
             // The header's ＋ IS ⌘N — the same closure, so it opens the row and bumps the focus
             // counter, and greys out on the same `nil` the menu item does.
@@ -581,11 +592,32 @@ extension ContentView {
         // The PDF tools' door to the window: what a written copy re-lists, and the banner's Open
         // and Reveal in Browse. Set on every appearance — the model outlives this view.
         .onAppear { editorPDF.tools.host = editorPDFToolHost }
+        // A new folder starts unfiltered (TE109) — on arrival too, for a folder changed in another
+        // workspace while this view did not exist.
+        .onChange(of: editorFolder, initial: true) { _, folder in noteEditorRailFolder(folder) }
         // The rail is re-listed on arrival and whenever the folder or the hidden-files preference
         // moves — `.task(id:)` restarts on either.
         .task(id: EditorRailKey(folder: editorFolder, showsHidden: syncManager.showHiddenFiles)) {
             await refreshEditorRail()
         }
+    }
+
+    /// **The rail's filter belongs to the folder it was typed in** (TE109). Kept across a trip to
+    /// another workspace and back, as `editorRailFilter`'s doc promises — but a filter typed in one
+    /// folder and still on in the next made that folder look empty ("No files here match…"), so
+    /// a different folder clears it and closes its field.
+    func noteEditorRailFolder(_ folder: String) {
+        if Self.railFilterClears(listedFolder: editorRailListedFolder, folder: folder) {
+            editorRailFilter = ""
+            editorRailFilterIsExpanded = false
+        }
+        editorRailListedFolder = folder
+    }
+
+    /// Whether the rail's filter goes on arriving at `folder` — any folder but the one it last
+    /// listed. The first listing has nothing typed to clear, so `nil` clearing is harmless.
+    static func railFilterClears(listedFolder: String?, folder: String) -> Bool {
+        listedFolder != folder
     }
 
     /// **What a PDF tool's copy does to the window** — Export as PDF's follow-up exactly: the rail
@@ -1038,6 +1070,49 @@ extension ContentView {
         }
         if showSetup || shouldAutoShowSetup {
             Logger.shared.info("[open] The file from outside the app opens under the setup form, which stays")
+        }
+    }
+
+    /// A rail row's file as the node Browse's Rename and Delete take — a file, by its path.
+    static func editorRailNode(_ path: String) -> FileNode {
+        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false)
+    }
+
+    /// **Download, from Edit** (TE96) — the Files list's row menu, the file name's menu and the
+    /// Download button on a refused card. Browse's own verb first (`CloudDownloadRequest`), so the
+    /// left pane's row watches its cloud badge clear as it does for Browse's Download; then the
+    /// fetch-then-open wait the external open uses (`ExternalOpen.fetch`), which also reaches the
+    /// providers Browse's verb cannot.
+    ///
+    /// **The file opens when it arrives only if Edit is still showing its refusal** — the rule
+    /// ``fetchExternalOpenFromCloud(_:)`` keeps: a reader who has moved on is not moved back. A row
+    /// that was not the open file is re-listed, so it stops being dim.
+    func downloadFromEdit(_ path: String) {
+        let name = ExternalOpen.name(path)
+        let opensOnArrival = editorOpenPath == path && editorOpenIsRefused
+        Logger.shared.info("[edit] Download of \(path) from Edit\(opensOnArrival ? " — it opens when it arrives" : "")")
+        // The pane Edit shows is the left one, in the window's layout — File ▸ Download's token.
+        CloudDownloadRequest.requestDownload(path: path, name: name,
+                                             from: PaneToken(isLeft: true, isSingleSource: layoutMode == .singleSource))
+        let note = OperationBanner.warning(opensOnArrival ? "Downloading “\(name)” — it opens here when it arrives."
+                                                          : "Downloading “\(name)”…")
+        syncManager.banner = note
+        Task { @MainActor in
+            let landed = await ExternalOpen.fetch(path)
+            await refreshEditorRail()
+            // Our own note goes; anything posted over it since is left alone.
+            if syncManager.banner?.id == note.id { syncManager.banner = nil }
+            guard landed else {
+                Logger.shared.warning("[edit] \(path) did not arrive from the cloud within a minute")
+                syncManager.banner = .error("Couldn’t download “\(name)”. Download it in Finder, then open it again.")
+                return
+            }
+            guard editorOpenPath == path, editorOpenIsRefused else {
+                Logger.shared.info("[edit] \(path) arrived from the cloud")
+                return
+            }
+            Logger.shared.info("[edit] \(path) arrived from the cloud — opening it")
+            openInEditor(path: path)
         }
     }
 

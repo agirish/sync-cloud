@@ -65,7 +65,8 @@ import FileExplorerTestSupport
     private func row(_ pdf: EditorPDFDocument, _ rung: EditorPDFHeaderControls.Rung) -> some View {
         let workspace = EditorWorkspaceView.fixture(pdf: pdf).readingSettings(from: defaults)
         return EditorDocumentHeader {
-            EditorPDFHeader(pdf: pdf, accent: .blue, onAccent: .white, onRevealInBrowse: { _ in }, onClose: {}) {
+            EditorPDFHeader(pdf: pdf, accent: .blue, onAccent: .white, onRevealInBrowse: { _ in },
+                            rowActions: .inert, onClose: {}) {
                 workspace.expandButton(worded: false)
             }
             .nameRow(rung)

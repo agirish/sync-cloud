@@ -50,6 +50,10 @@ struct EditorRailOutlineList: View {
     /// Read again for the row-height arithmetic — how many rows fit is a question about the app's
     /// text size as much as about the section's height.
     @Environment(\.appFontScale) private var fontScale
+    /// The list's keyboard focus, and the row its cursor is on (TE110, see ``EditorRailKeyboard``).
+    /// `nil` puts the cursor on the current row until an arrow moves it.
+    @FocusState private var focused: Bool
+    @State private var keyedRow: Int?
 
     var body: some View {
         if rows.isEmpty {
@@ -60,10 +64,12 @@ struct EditorRailOutlineList: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 4)
         } else {
+            ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, entry in
-                        row(entry, isCurrent: index == currentIndex)
+                        row(entry, isCurrent: index == currentIndex,
+                            isKeyed: focused && entry.id == (keyedRow ?? currentRow))
                             .id(entry.id)
                     }
                 }
@@ -72,6 +78,24 @@ struct EditorRailOutlineList: View {
                 .scrollTargetLayout()
                 .padding(.horizontal, 6)
                 .padding(.bottom, 8)
+            }
+            .focusable()
+            .focusEffectDisabled()
+            .focused($focused)
+            .overlay { EditorRailFocusRing(isOn: focused, accent: accent) }
+            .onKeyPress(keys: EditorRailKeyboard.arrows, phases: [.down, .repeat]) { press in
+                guard press.isPlainKeystroke else { return .ignored }
+                keyedRow = EditorRailKeyboard.step(from: keyedRow ?? currentRow, in: rows.map(\.id),
+                                                   by: EditorRailKeyboard.delta(for: press.key))
+                if let keyedRow { proxy.scrollTo(keyedRow) }
+                return .handled
+            }
+            .onKeyPress(keys: EditorRailKeyboard.commit, phases: .down) { press in
+                guard press.isPlainKeystroke,
+                      let entry = rows.first(where: { $0.id == (keyedRow ?? currentRow) }),
+                      !inert.contains(entry.id) else { return .ignored }
+                onSelect(entry)
+                return .handled
             }
             // **Both directions of one binding.** It accepts the row to open at, below, and it
             // reports the top row as the reader scrolls, which is what the recording reads.
@@ -101,6 +125,7 @@ struct EditorRailOutlineList: View {
                       let path, let top else { return }
                 outlineAnchors[path] = top
             }
+            }
         }
     }
 
@@ -123,10 +148,25 @@ struct EditorRailOutlineList: View {
                               outlineAnchors: .constant([:]), accent: .blue, onSelect: { _ in })
     }
 
-    func row(_ entry: MarkdownOutlineEntry, isCurrent: Bool) -> some View {
-        let title = entry.title.isEmpty ? noun.untitled : entry.title
+    /// The words a row draws: its title, or — for an empty `##` or a nameless bookmark — what it is.
+    static func shownTitle(_ entry: MarkdownOutlineEntry, noun: Noun) -> String {
+        entry.title.isEmpty ? noun.untitled : entry.title
+    }
+
+    /// What VoiceOver reads for a row — the DRAWN title, so an empty heading reads "Untitled
+    /// heading" as it does on screen, rather than its level and then nothing (TE139).
+    static func accessibilityLabel(_ entry: MarkdownOutlineEntry, noun: Noun) -> String {
+        let title = shownTitle(entry, noun: noun)
+        return noun == .heading ? "Heading level \(entry.level), \(title)" : "Bookmark, \(title)"
+    }
+
+    func row(_ entry: MarkdownOutlineEntry, isCurrent: Bool, isKeyed: Bool = false) -> some View {
+        let title = Self.shownTitle(entry, noun: noun)
         let goesNowhere = inert.contains(entry.id)
         return Button {
+            // The cursor follows a click (TE110), but focus does not: a heading sends the caret
+            // into the text, which takes the keys so typing goes where the reader was sent.
+            keyedRow = entry.id
             onSelect(entry)
         } label: {
             HStack(spacing: 0) {
@@ -153,13 +193,13 @@ struct EditorRailOutlineList: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .contentShape(EditorFileRailView.rowOutline)
+            .background { EditorRailKeyedRowMark(isOn: isKeyed && !isCurrent, accent: accent) }
         }
         .buttonStyle(.hoverAffordance(isCurrent ? .filled : .row,
                                       tint: accent, shape: EditorFileRailView.rowShape))
         .disabled(goesNowhere)
         .help(goesNowhere ? "\(title) — not a page in this file" : title)
-        .accessibilityLabel(noun == .heading ? "Heading level \(entry.level), \(entry.title)"
-                                             : "Bookmark, \(title)")
+        .accessibilityLabel(Self.accessibilityLabel(entry, noun: noun))
         .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
     }
 }

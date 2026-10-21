@@ -288,10 +288,12 @@ enum PDFURLOpens {
         #expect(pdf.loadsReturned == returned + 1, "the look at the evicted file started a load")
     }
 
-    /// **A refusal that only said what happened says what to do next** — a file still in the cloud,
-    /// one moved or deleted from under the reader. The damaged file's card has its own buttons.
+    /// **A refusal that only said what happened says what to do next** — one moved or deleted from
+    /// under the reader. The damaged file's card has its own buttons, and so, since TE96, does a
+    /// file still in the cloud: its Download is the next step, so no sentence sends the reader to
+    /// another pane for it.
     @Test func aRefusalSaysWhatToDoNext() {
-        #expect(EditorPDFBody.nextStep(for: EditorPDFDocument.notDownloadedReason)?.contains("File ▸ Download") == true)
+        #expect(EditorPDFBody.nextStep(for: EditorPDFDocument.notDownloadedReason) == nil)
         #expect(EditorPDFBody.nextStep(for: EditorPDFDocument.goneReason)?.contains("Browse") == true)
         #expect(EditorPDFBody.nextStep(for: EditorPDFDocument.unreadableReason) == nil)
     }
@@ -365,7 +367,7 @@ enum PDFURLOpens {
 
     /// **A PDF's header draws no location line** — the text header's "in Finance" or "iCloud ›
     /// Documents › …" crumbs (asked 2026-10-17: "it doesn't make sense"). Its second row says what
-    /// the file is; Reveal in Browse on the name is the way to where it lives. Read over the
+    /// the file is; the name's right-click menu is the way to where it lives. Read over the
     /// header's own body and its second row's, which close the file, so the text header's location
     /// line is untouched by this.
     @Test func thePDFHeaderDrawsNoLocationLine() throws {
@@ -376,7 +378,8 @@ enum PDFURLOpens {
         let header = String(card[start.upperBound..<card.endIndex])
         #expect(!header.contains("EditorLocationLabel"), "the PDF header draws the location crumbs again")
         #expect(!header.contains("EditorDocumentLocation"), "the PDF header takes a location again")
-        #expect(header.contains("Label(\"Reveal in Browse\""), "the PDF's name lost its way to where it lives")
+        // The name's menu is the Files list's own since TE112, Reveal in Browse first among its ways out.
+        #expect(header.contains("EditorRailRowMenu(path: path,"), "the PDF's name lost its way to where it lives")
         let workspace = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
         #expect(workspace.contains("EditorLocationLabel(location: location"), "the TEXT header lost its location line too")
     }

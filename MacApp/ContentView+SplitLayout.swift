@@ -444,7 +444,8 @@ extension ContentView {
         let provider = settings.availableProviders.first(where: { $0.id == leftProviderId })
         let name = provider?.displayName ?? "Source"
         let rungs = Self.spineRungs(workspace: selectedWorkspace, pdfIsOpen: editorPDF.path != nil,
-                                    pdfHasOutline: editorPDFHasOutline)
+                                    pdfHasOutline: editorPDFHasOutline,
+                                    markdownIsOpen: EditorWorkspaceView.markdownIsOpen(editorDocument))
         let railRungs = rungs.compactMap(\.railTab)
         let showsRailRungs = !railRungs.isEmpty
         // One card, one 34pt strip, for every workspace that draws a spine — the list's buttons
@@ -571,12 +572,14 @@ extension ContentView {
     /// The spine's rungs, top to bottom. Pure, so `EditorRailSpineTests` can pin that the list's
     /// buttons are Edit's alone. Edit draws them whether the list is showing or not — lit for the
     /// tab on screen — so the strip does not grow and shrink as the list opens and folds (TE77).
-    /// **One rung per rail tab, so a PDF adds Pages, and drops Outline when it has no contents** —
-    /// `EditorRailTab.shown(pdfIsOpen:pdfHasOutline:)` is the rule for both, so the strip and the
-    /// rail's tabs never disagree.
-    static func spineRungs(workspace: Workspace, pdfIsOpen: Bool = false, pdfHasOutline: Bool = false) -> [SpineRung] {
+    /// **One rung per rail tab, so a PDF adds Pages, and drops Outline when it has no contents —
+    /// as a text file does unless it is Markdown** (TE111). `EditorRailTab.shown` is the rule for
+    /// all three, so the strip and the rail's tabs never disagree.
+    static func spineRungs(workspace: Workspace, pdfIsOpen: Bool = false, pdfHasOutline: Bool = false,
+                           markdownIsOpen: Bool = false) -> [SpineRung] {
         guard workspace == .editor else { return [.sourcePane] }
-        return [.sourcePane] + EditorRailTab.shown(pdfIsOpen: pdfIsOpen, pdfHasOutline: pdfHasOutline).map { tab -> SpineRung in
+        return [.sourcePane] + EditorRailTab.shown(pdfIsOpen: pdfIsOpen, pdfHasOutline: pdfHasOutline,
+                                                   markdownIsOpen: markdownIsOpen).map { tab -> SpineRung in
             switch tab {
             case .files: return .textFiles
             case .pages: return .pages

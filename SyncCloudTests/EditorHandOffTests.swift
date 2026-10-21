@@ -328,6 +328,36 @@ import FileExplorer
                 "the rail row menu's Quick Look is not wired to the window's shared panel")
     }
 
+    /// **The four acts TE96, TE116 and TE117 added, wired to the app's own.** Download to Edit's
+    /// download (Browse's verb, then open on arrival); the greying to the reveal's own reach; Rename
+    /// and Delete to Browse's handler — its prompt, its confirmation — on a node for the row's file.
+    @Test func downloadRenameDeleteAndTheGreyingAreWired() throws {
+        let rail = try Self.railRowActions()
+        #expect(rail.passes("download", "{ path in downloadFromEdit(path) }"),
+                "the rail row menu's Download is not wired to Edit's download")
+        #expect(rail.passes("rename", "{ path in actionHandler?.beginRename(Self.editorRailNode(path)) }"),
+                "the rail row menu's Rename is not Browse's rename")
+        #expect(rail.passes("delete", "{ path in actionHandler?.confirmDelete([Self.editorRailNode(path)]) }"),
+                "the rail row menu's Delete is not Browse's confirmed delete")
+        let greying = try #require(rail.value("revealInBrowseRefusal"), "Reveal in Browse is never greyed")
+        #expect(CodeText(greying).contains("EditorRevealInBrowse.refusal(")
+                    && CodeText(greying).contains("settings.rootPath(for: leftProviderId)"),
+                "Reveal in Browse is greyed by something other than the reveal's own reach into the left source")
+    }
+
+    /// **Download opens the file only while Edit still shows its refusal**, and asks Browse's verb
+    /// first so the pane's cloud badge clears as it does from Browse.
+    @Test func downloadFromEditOpensOnlyTheStillRefusedFile() throws {
+        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        let body = CodeText(try declarationBody(of: "func downloadFromEdit(_ path: String) {", in: editor))
+        #expect(body.contains("CloudDownloadRequest.requestDownload(path: path, name: name,"),
+                "Edit's Download no longer asks through Browse's verb")
+        #expect(body.contains("await ExternalOpen.fetch(path)"), "Edit's Download no longer waits for the file")
+        #expect(body.contains("guard editorOpenPath == path, editorOpenIsRefused else {")
+                    && body.contains("openInEditor(path: path)"),
+                "Edit's Download opens a file the reader has moved on from, or never opens it")
+    }
+
     /// **Reveal in Browse leaves the open document alone** — the existing contract, now reachable
     /// from any rail row rather than only from the open file's header. ⌘4 must come back to the
     /// document exactly as it was, unsaved edits and all, so the verb may move the pane and the

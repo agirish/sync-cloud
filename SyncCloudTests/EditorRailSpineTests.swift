@@ -31,14 +31,18 @@ import Design
     /// Edit: one button per tab, under the pane's, whether the list is showing or not — the strip
     /// does not grow and shrink as the list opens and folds.
     @Test func editDrawsAButtonPerTabUnderThePaneRung() {
-        let rungs = ContentView.spineRungs(workspace: .editor)
+        let rungs = ContentView.spineRungs(workspace: .editor, markdownIsOpen: true)
         #expect(rungs == [.sourcePane, .textFiles, .outline])
-        #expect(rungs.compactMap(\.railTab) == EditorRailTab.shown(pdfIsOpen: false, pdfHasOutline: false),
+        #expect(rungs.compactMap(\.railTab) == EditorRailTab.shown(pdfIsOpen: false, pdfHasOutline: false,
+                                                                   markdownIsOpen: true),
                 "a rail tab has no button in the strip, or a button opens the wrong tab")
+        // A text file that is not Markdown has no Outline tab, and no button for it (TE111).
+        #expect(ContentView.spineRungs(workspace: .editor, markdownIsOpen: false) == [.sourcePane, .textFiles])
         // A PDF adds the Pages tab to the rail, and its button to the strip — the same rule.
         let withPDF = ContentView.spineRungs(workspace: .editor, pdfIsOpen: true, pdfHasOutline: true)
         #expect(withPDF == [.sourcePane, .textFiles, .pages, .outline])
-        #expect(withPDF.compactMap(\.railTab) == EditorRailTab.shown(pdfIsOpen: true, pdfHasOutline: true))
+        #expect(withPDF.compactMap(\.railTab) == EditorRailTab.shown(pdfIsOpen: true, pdfHasOutline: true,
+                                                                     markdownIsOpen: false))
         // …and a PDF without a contents drops Outline from both (asked 2026-10-17).
         #expect(ContentView.spineRungs(workspace: .editor, pdfIsOpen: true, pdfHasOutline: false)
                     == [.sourcePane, .textFiles, .pages])

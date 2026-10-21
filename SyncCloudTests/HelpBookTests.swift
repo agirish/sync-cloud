@@ -266,7 +266,7 @@ import Testing
             "Every one but Compare's list of differences also takes the file pane on the left",
         ]
         let backAndAround = [
-            "Reveal in Browse", "Get Info, Reveal in Finder and Quick Look",   // TE33, the rail's menu
+            "Reveal in Browse", "Get Info, Reveal in Finder, Quick Look, Rename and Delete",   // TE33, TE117
             "File ▸ Close Document", "The ＋ on the file name's row",          // TE46, TE45
             "“in Finance”", "“iCloud › Documents › Finance”",                   // TE43, both readings
             "“No document open”",                                               // the empty page

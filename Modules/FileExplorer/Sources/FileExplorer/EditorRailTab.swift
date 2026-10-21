@@ -21,7 +21,8 @@ import Design
 /// editor's view is rebuilt from nothing by every workspace switch.
 public enum EditorRailTab: String, CaseIterable, Sendable {
     case files
-    /// The open PDF's pages, as thumbnails — offered only while a PDF is open (``shown(pdfIsOpen:)``).
+    /// The open PDF's pages, as thumbnails — offered only while a PDF is open
+    /// (``shown(pdfIsOpen:pdfHasOutline:markdownIsOpen:)``).
     case pages
     case outline
 
@@ -56,17 +57,23 @@ public enum EditorRailTab: String, CaseIterable, Sendable {
     }
 
     /// The tabs the rail offers: **Files · Pages · Outline while a PDF is open, Files · Outline
-    /// otherwise.** Pages has nothing to show for a text file, and a tab that is always there and
-    /// usually empty is a tab people learn to ignore.
+    /// while a Markdown note is, Files alone otherwise.** Pages has nothing to show for a text file,
+    /// and a tab that is always there and usually empty is a tab people learn to ignore.
     ///
     /// **A PDF keeps Outline only when it has a contents worth the tab** — `pdfHasOutline`, see
     /// ``pdfOutlineIsWorthATab(_:)`` (asked 2026-10-17). It stayed for every PDF until then, saying
     /// "no bookmarks" when there were none, so that the tabs depended on the kind of file alone;
     /// in practice the PDFs people open here are statements and scans, whose outline is nothing or
     /// one entry their generator wrote ("Page Identifiers"), and the tab was a promise they broke.
-    /// A text file always has it: headings are the reader's own, and a note gains them as it grows.
-    public static func shown(pdfIsOpen: Bool, pdfHasOutline: Bool) -> [EditorRailTab] {
-        guard pdfIsOpen else { return [.files, .outline] }
+    ///
+    /// **A text file keeps it only when it is Markdown** (TE111) — `markdownIsOpen`, a Markdown
+    /// document open and read. Headings exist only there: a `.txt` or a `.yaml` got a tab that was
+    /// always empty, advising a `#` that makes nothing in that file. A note with no headings yet
+    /// keeps the tab, because headings are the reader's own and a note gains them as it grows. With
+    /// nothing open there is no outline to list either, so the tab goes until a note or a PDF with
+    /// bookmarks opens — the PDF rule, for the same reason.
+    public static func shown(pdfIsOpen: Bool, pdfHasOutline: Bool, markdownIsOpen: Bool) -> [EditorRailTab] {
+        guard pdfIsOpen else { return markdownIsOpen ? [.files, .outline] : [.files] }
         return pdfHasOutline ? [.files, .pages, .outline] : [.files, .pages]
     }
 
@@ -81,14 +88,17 @@ public enum EditorRailTab: String, CaseIterable, Sendable {
     }
 
     /// The tab to draw for a remembered one: **a tab that is not offered falls back to Files** —
-    /// Pages with no PDF open, Outline on a PDF without a contents.
+    /// Pages with no PDF open, Outline on a PDF without a contents or on a text file that is not
+    /// Markdown.
     ///
     /// **A display filter, not a write-back** — `EditorMode.resolved`'s rule, for its reason. The
     /// host keeps what was chosen; this only decides what is drawn. Writing `.files` back when a
     /// text file opened would make one Markdown note cost the reader their place: read PDFs on
     /// Pages, glance at a note, and the next PDF would open on Files.
-    public static func resolved(_ tab: EditorRailTab, pdfIsOpen: Bool, pdfHasOutline: Bool) -> EditorRailTab {
-        shown(pdfIsOpen: pdfIsOpen, pdfHasOutline: pdfHasOutline).contains(tab) ? tab : .files
+    public static func resolved(_ tab: EditorRailTab, pdfIsOpen: Bool, pdfHasOutline: Bool,
+                                markdownIsOpen: Bool) -> EditorRailTab {
+        shown(pdfIsOpen: pdfIsOpen, pdfHasOutline: pdfHasOutline, markdownIsOpen: markdownIsOpen).contains(tab)
+            ? tab : .files
     }
 }
 
@@ -106,12 +116,12 @@ public enum EditorRailTab: String, CaseIterable, Sendable {
 struct EditorRailTabBar: View {
 
     @Binding var tab: EditorRailTab
-    /// The segments to draw — ``EditorRailTab/shown(pdfIsOpen:)``, from the rail. **Also a seam for
-    /// one measurement.** The segments are equal, so what decides whether a word truncates is the
+    /// The segments to draw — ``EditorRailTab/shown(pdfIsOpen:pdfHasOutline:markdownIsOpen:)``,
+    /// from the rail. **Also a seam for one measurement.** The segments are equal, so what decides whether a word truncates is the
     /// WIDEST label in one segment — not the sum, which is what an ideal-width reading of the real
     /// bar would report. A test builds this with one title in every segment and measures that,
     /// which is the layout's actual worst case rather than a replica of it.
-    var tabs: [EditorRailTab] = EditorRailTab.shown(pdfIsOpen: false, pdfHasOutline: false)
+    var tabs: [EditorRailTab] = EditorRailTab.shown(pdfIsOpen: false, pdfHasOutline: false, markdownIsOpen: true)
     let accent: Color
     /// The label colour on the accent fill — deepened by the host so white text stays legible on
     /// every hue, the same value the mode capsule's selected segment uses.

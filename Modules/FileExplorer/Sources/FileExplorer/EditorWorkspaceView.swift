@@ -542,6 +542,12 @@ public struct EditorWorkspaceView: View {
 
     /// **Two cards in Cards; in Unified, two areas of the window's one region with a rule down it.**
     ///
+    /// Whether the open text document is a Markdown note that was read — what keeps the rail's
+    /// Outline tab (TE111). A refused note has no text and so no headings, whatever its name says.
+    public static func markdownIsOpen(_ document: EditorDocument) -> Bool {
+        document.isMarkdown && document.refusal == nil
+    }
+
     /// The rail and the document are two different things — a list of what you could open, and the
     /// thing you have open — and every pair of neighbours in this window says so the same way: two
     /// cards with a gutter between them in Cards, a hairline between them in Unified
@@ -575,6 +581,7 @@ public struct EditorWorkspaceView: View {
                                filter: $railFilter,
                                filterIsExpanded: $railFilterIsExpanded,
                                outline: outline,
+                               markdownIsOpen: Self.markdownIsOpen(document),
                                currentOutlineIndex: MarkdownOutline.currentEntry(forLine: caret.line,
                                                                                 in: outline),
                                outlineAnchors: $railOutlineAnchors,
@@ -684,7 +691,8 @@ public struct EditorWorkspaceView: View {
                 // 6b): the find card, Fill & Sign's palette and its save pill float over the pages
                 // (`EditorPDFReader`), and what the status line said is the header's row 2 and the
                 // capsule's.
-                EditorPDFBody(pdf: pdf, accent: accent, quickLook: railRowActions.quickLook)
+                EditorPDFBody(pdf: pdf, accent: accent, quickLook: railRowActions.quickLook,
+                              download: railRowActions.download)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 textBody
@@ -755,7 +763,8 @@ public struct EditorWorkspaceView: View {
         EditorDocumentHeader {
             if let pdf {
                 EditorPDFHeader(pdf: pdf, accent: accent, onAccent: onAccent,
-                                onRevealInBrowse: onRevealInBrowse, onClose: onCloseDocument) {
+                                onRevealInBrowse: onRevealInBrowse, rowActions: railRowActions,
+                                onClose: onCloseDocument) {
                     expandButton(worded: false)
                 }
             } else if document.path == nil { emptyHeaderContent } else { headerContent }
@@ -856,13 +865,13 @@ public struct EditorWorkspaceView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 // The way back. The hand-off into this workspace comes from a file row, so the
-                // filename is where a user looks to ask "where is this?" — and it is one item,
-                // on the one element that names the file.
+                // filename is where a user looks to ask "where is this?" — and it offers what the
+                // file's row in the list offers (TE112), with Reveal in Browse through the
+                // header's own door.
                 .contextMenu {
                     if let path = document.path {
-                        Button(action: { onRevealInBrowse(path) }) {
-                            Label("Reveal in Browse", systemImage: "folder")
-                        }
+                        EditorRailRowMenu(path: path, isCloudOnly: Self.isNotDownloaded(document.refusal),
+                                          actions: railRowActions.revealing(through: onRevealInBrowse))
                     }
                 }
             Spacer(minLength: 0)
@@ -1612,12 +1621,23 @@ public struct EditorWorkspaceView: View {
         var offset: Int
     }
 
+    /// Whether a refusal is the one for a file still in the cloud — the one a Download answers
+    /// (TE96). `BoundedTextRead`'s own sentence, read from there so a rewording cannot split them.
+    static func isNotDownloaded(_ refusal: String?) -> Bool {
+        refusal != nil && refusal == BoundedTextRead.Outcome.cloudOnly.caption
+    }
+
     @ViewBuilder
     private func documentBody(for document: EditorDocument) -> some View {
         if let refused = document.refusal {
             // The file was chosen and could not be opened — `BoundedTextRead`'s own prose, which is
-            // already written for a reader.
-            caption(refused)
+            // already written for a reader. A file still in the cloud gets the Download its row in
+            // Browse has (TE96); the host opens it when it arrives.
+            if let path = document.path, Self.isNotDownloaded(refused) {
+                caption(refused, download: { railRowActions.download(path) })
+            } else {
+                caption(refused)
+            }
         } else if document.path == nil {
             caption(Self.emptyCaption(hasFolder: !folder.isEmpty, showsRail: showsRail),
                     showTextFiles: folder.isEmpty ? nil : onShowTextFiles)
@@ -2073,7 +2093,9 @@ public struct EditorWorkspaceView: View {
 
     /// - Parameter showTextFiles: draws Show Text Files under the words (TE77) — the empty page's
     ///   way to the list while it is folded into the strip, which a first session opens into.
-    private func caption(_ text: String, showTextFiles: (() -> Void)? = nil) -> some View {
+    /// - Parameter download: draws Download under the words — a refused file still in the cloud.
+    private func caption(_ text: String, showTextFiles: (() -> Void)? = nil,
+                         download: (() -> Void)? = nil) -> some View {
         VStack(spacing: 12) {
             Spacer(minLength: 0)
             Text(text)
@@ -2092,9 +2114,29 @@ public struct EditorWorkspaceView: View {
                 .help(ShortcutHint.tooltip("Show the folder's files beside the document",
                                            AppChord.editorTextFiles.display))
             }
+            if let download {
+                Self.downloadButton(accent: accent, action: download)
+            }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+extension EditorWorkspaceView {
+    /// **Download, under a refusal for a file still in the cloud** (TE96) — the text card's and
+    /// the PDF card's, one view. Browse's word and glyph.
+    static let downloadTitle = "Download"
+    static let downloadHelp = "Download this file from the cloud, then open it here"
+
+    static func downloadButton(accent: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(downloadTitle, systemImage: "icloud.and.arrow.down")
+                .scaledFont(.system(size: 12, weight: .medium))
+        }
+        .buttonStyle(.bordered)
+        .tint(accent)
+        .help(downloadHelp)
     }
 }
 

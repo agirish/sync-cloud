@@ -1137,7 +1137,7 @@ import EventsTestSupport
                 railTab: .constant(.files), railOutlineAnchors: .constant([:]), undoManager: undo,
                 prefilledName: { "Untitled.md" }, refusal: { _ in nil }, onOpen: { _ in }, onCreate: { _ in true },
                 onRevealInBrowse: { _ in }, location: nil, onLocationDoor: { _ in },
-                railRowActions: EditorRailRowActions(revealInBrowse: { _ in }, getInfo: { _ in }, quickLook: { _ in }),
+                railRowActions: .inert,
                 onToggleJustTheText: {}, onNewTextFile: {}, onCloseDocument: {},
                 onPreviewLengthHold: { [weak self] in self?.holds.append($0) },
                 folderTrail: nil, onGoToFolder: nil)

@@ -337,6 +337,24 @@ import FileExplorer
         #expect(outside.log == ["Reveal in Browse from a rail row's menu: /elsewhere/a.md is outside the left source — Browse stays where it is"])
     }
 
+    /// **Reveal in Browse is greyed exactly where the reveal would go nowhere** (TE116) — the two
+    /// read one answer (`browseTarget`), so the item is live for every file the pane can move to
+    /// and greyed, with its reason, for one outside the left source: a file from Compare's right
+    /// side, or from another source. Mutation: answer `nil` always and the outside file is live.
+    @Test func revealInBrowseIsGreyedOnlyOutsideTheLeftSource() {
+        #expect(EditorRevealInBrowse.refusal(for: Self.file, sourceRoot: Self.root, links: [:]) == nil)
+        #expect(EditorRevealInBrowse.refusal(for: "/c/top.md", sourceRoot: Self.root, links: [:]) == nil,
+                "a file at the top of the source is greyed")
+        #expect(EditorRevealInBrowse.refusal(for: "/elsewhere/a.md", sourceRoot: Self.root, links: [:])
+                == EditorRevealInBrowse.outsideBrowseReason)
+        #expect(EditorRevealInBrowse.refusal(for: Self.file, sourceRoot: "", links: [:])
+                == EditorRevealInBrowse.outsideBrowseReason, "a pane with no source offers a reveal to nowhere")
+        // Through a folder the source links in from outside — iCloud Drive's Documents — the file
+        // is in the source and the reveal goes there.
+        #expect(EditorRevealInBrowse.refusal(for: "/home/Documents/x.md", sourceRoot: Self.root,
+                                             links: ["/c": ["Documents": "/home/Documents"]]) == nil)
+    }
+
     /// **Reveal in Browse from Edit ends with the file selected in Browse** — the notes' promise,
     /// driven through the functions the app runs, on a real manager over a real folder: the act
     /// (`EditorRevealInBrowse.reveal`), the debt as `owePaneSelection` records it (the workspace on

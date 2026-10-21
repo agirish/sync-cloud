@@ -168,6 +168,9 @@ struct ContentView: View {
     /// rebuilt from nothing by every workspace switch.
     @State var editorRailFilter = ""
     @State var editorRailFilterIsExpanded = false
+    /// The folder the rail last listed — the folder that filter was typed in. A different one clears
+    /// it (TE109): a filter carried into a new folder made the folder look empty.
+    @State var editorRailListedFolder: String?
     /// Which half of the rail is showing. **Here for the reason the filter is here**, and for one
     /// more: ⌘N puts it back on the files, and ⌘N is pressed from workspaces where the editor's
     /// view does not exist yet. Not persisted across launches — it describes a reading session,

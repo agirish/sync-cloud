@@ -29,8 +29,7 @@ extension EditorWorkspaceView {
         onShowWhatChanged: (() -> Void)? = nil,
         onRevealInBrowse: @escaping (String) -> Void = { _ in },
         location: EditorDocumentLocation? = nil,
-        railRowActions: EditorRailRowActions = EditorRailRowActions(revealInBrowse: { _ in },
-                                                                     getInfo: { _ in }, quickLook: { _ in }),
+        railRowActions: EditorRailRowActions = .inert,
         onNewTextFile: (() -> Void)? = {},
         paneShowsTabStrip: Bool = false,
         folderDisplayName: String? = nil,
@@ -76,5 +75,15 @@ extension EditorWorkspaceView {
             newFileFolderName: newFileFolderName,
             folderTrail: nil,
             onGoToFolder: nil)
+    }
+}
+
+public extension EditorRailRowActions {
+    /// Row acts that do nothing, for a test about something else — Reveal in Finder included, so a
+    /// test that performs every item never brings Finder forward on his screen.
+    static var inert: EditorRailRowActions {
+        EditorRailRowActions(revealInBrowse: { _ in }, revealInBrowseRefusal: { _ in nil },
+                             getInfo: { _ in }, quickLook: { _ in }, download: { _ in },
+                             rename: { _ in }, delete: { _ in }, revealInFinder: { _ in })
     }
 }

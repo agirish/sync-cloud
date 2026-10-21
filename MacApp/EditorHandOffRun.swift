@@ -340,6 +340,26 @@ enum EditorRevealInBrowse {
         owe(path)
     }
 
+    /// **Why Browse cannot show `path`, or `nil` when it can** (TE116) — the rail row menu's and the
+    /// header's reason for greying Reveal in Browse. Browse shows the left source, so a file outside
+    /// it — one opened from Compare's right side, or from another source — is one the reveal would
+    /// switch to Browse for and then leave unselected (`movePane`'s "Browse stays where it is").
+    static let outsideBrowseReason = "Not in the source Browse shows"
+
+    static func refusal(for path: String, sourceRoot: String,
+                        links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> String? {
+        browseTarget(for: path, sourceRoot: sourceRoot, links: links) == nil ? outsideBrowseReason : nil
+    }
+
+    /// The pane target of `path`'s folder in the left source, or `nil` outside it — the one answer
+    /// both the reveal and its greying read, so the item is never live where the act goes nowhere.
+    static func browseTarget(for path: String, sourceRoot: String,
+                             links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> String? {
+        let folder = (path as NSString).deletingLastPathComponent
+        guard !folder.isEmpty, !sourceRoot.isEmpty else { return nil }
+        return PaneLogic.relativePath(of: folder, under: sourceRoot, links: links)
+    }
+
     /// Moves the left pane, as Browse draws it, to the folder of `path` — or leaves it, when Browse
     /// already shows that folder or the folder is outside the left source. One `.info` line either
     /// way, naming the door. The workspace switch and the owed selection are the caller's.
@@ -353,8 +373,7 @@ enum EditorRevealInBrowse {
                          links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders,
                          log: (String) -> Void) {
         let folder = (path as NSString).deletingLastPathComponent
-        guard !folder.isEmpty, !sourceRoot.isEmpty,
-              let target = PaneLogic.relativePath(of: folder, under: sourceRoot, links: links) else {
+        guard let target = browseTarget(for: path, sourceRoot: sourceRoot, links: links) else {
             log("Reveal in Browse from \(door.name): \(path) is outside the left source — Browse stays where it is")
             return
         }

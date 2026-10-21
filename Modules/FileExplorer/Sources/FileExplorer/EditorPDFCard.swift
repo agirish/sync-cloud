@@ -259,6 +259,8 @@ struct EditorPDFBody: View {
     let accent: Color
     /// The one Quick Look panel every other surface shares — the host's.
     let quickLook: (String) -> Void
+    /// Browse's Download, for a file still in the cloud; the host opens it when it arrives (TE96).
+    let download: (String) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -290,22 +292,27 @@ struct EditorPDFBody: View {
             EditorPDFStateCard(symbol: "exclamationmark.triangle", title: reason,
                                message: "“\(pdf.name)” may be damaged or not really a PDF. Quick Look or Preview may still open it.") {
                 HStack(spacing: 8) {
-                    Button { quickLook(path) } label: { Label("Quick Look", systemImage: "eye") }
+                    // The Files list's Quick Look, word and glyph (TE112).
+                    Button { quickLook(path) } label: { Label("Quick Look", systemImage: "doc.viewfinder") }
                     Button("Open in Preview") { EditorPDFBody.openInPreview(path) }
                 }
                 .controlSize(.small)
             }
+        } else if reason == EditorPDFDocument.notDownloadedReason, let path = pdf.path {
+            // **Download here, not "go and find it in a pane"** (TE96): the card used to send the
+            // reader to another workspace for the one act this file is waiting on.
+            EditorPDFStateCard(symbol: "icloud", title: reason, message: nil) {
+                EditorWorkspaceView.downloadButton(accent: accent) { download(path) }
+                    .controlSize(.small)
+            }
         } else {
-            EditorPDFStateCard(symbol: reason == EditorPDFDocument.notDownloadedReason ? "icloud" : "doc",
-                               title: reason, message: Self.nextStep(for: reason)) { EmptyView() }
+            EditorPDFStateCard(symbol: "doc", title: reason, message: Self.nextStep(for: reason)) { EmptyView() }
         }
     }
 
     /// **What to do next, under a refusal that would otherwise say only what happened.**
     static func nextStep(for reason: String) -> String? {
         switch reason {
-        case EditorPDFDocument.notDownloadedReason:
-            return "Select it in a file pane and choose File ▸ Download, or Download on its right-click menu there, then open it again."
         case EditorPDFDocument.goneReason:
             return "Find it in Browse and open it again from there."
         default:
@@ -418,12 +425,14 @@ struct EditorPDFUnlockView: View {
 ///
 /// **No location line** — the text header's "in Finance" or "iCloud › Documents › …" crumbs are
 /// not drawn here (asked 2026-10-17: "it doesn't make sense"). A PDF's second row says only what
-/// it is; the name's right-click Reveal in Browse is the way to where it lives.
+/// it is; the name's right-click menu — the Files list's own — is the way to where it lives.
 struct EditorPDFHeader<Trailing: View>: View {
     @ObservedObject var pdf: EditorPDFDocument
     let accent: Color
     let onAccent: Color
     let onRevealInBrowse: (String) -> Void
+    /// The Files list's row menu, which the name's right-click offers too (TE112).
+    let rowActions: EditorRailRowActions
     let onClose: () -> Void
     @ViewBuilder let trailing: Trailing
 
@@ -455,11 +464,13 @@ struct EditorPDFHeader<Trailing: View>: View {
                 .scaledFont(.system(size: 13, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
+                // The file's row menu from the Files list (TE112), Reveal in Browse through the
+                // header's own door.
                 .contextMenu {
                     if let path = pdf.path {
-                        Button(action: { onRevealInBrowse(path) }) {
-                            Label("Reveal in Browse", systemImage: "folder")
-                        }
+                        EditorRailRowMenu(path: path,
+                                          isCloudOnly: pdf.refusal == EditorPDFDocument.notDownloadedReason,
+                                          actions: rowActions.revealing(through: onRevealInBrowse))
                     }
                 }
             Spacer(minLength: 0)

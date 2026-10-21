@@ -38,8 +38,7 @@ import Design
             outlineAnchors: Binding(get: { store.anchors }, set: { store.anchors = $0 }),
             onOpen: { _ in }, onCreate: { _ in true },
             onNewTextFile: nil, folderTrail: nil, onGoToFolder: nil,
-            rowActions: EditorRailRowActions(revealInBrowse: { _ in }, getInfo: { _ in },
-                                             quickLook: { _ in }))
+            rowActions: .inert)
         let host = NSHostingView(rootView: AnyView(rail))
         host.frame = NSRect(x: 0, y: 0, width: 232, height: 260)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],

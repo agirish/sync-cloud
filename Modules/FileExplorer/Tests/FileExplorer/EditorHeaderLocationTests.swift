@@ -147,22 +147,36 @@ import FileExplorerTestSupport
         #expect(workspace(doc, location: nil).folderName == "Finance")
     }
 
-    /// **The folded middle is a menu of exactly the levels it folds**, shallowest first, as the pane
-    /// breadcrumb's is — so no level of a long path is more than a click away — and its tooltip is
-    /// the whole path. It used to be the word "…" alone: the one part of the crumb that named
-    /// nothing and went nowhere. With no folded level the pane can reach (another source's path) it
-    /// stays a word. Mutations: `.text("…")` for every fold fails the first two; folding one level
-    /// too many or too few fails the second.
-    @Test func theFoldedMiddleIsAMenuOfTheLevelsItFolds() {
+    /// **The folded middle is a menu of the whole path, the document's folder first, climbing to
+    /// the source** — Finder's path menu, and the folder menu over the Files list (TE133) — so no
+    /// level of a long path is more than a click away, and its tooltip is the whole path. It was a
+    /// menu of the folded levels alone, shallowest first: the one menu in Edit that read top-down.
+    /// With no folded level the pane can reach (another source's path) it stays a word. Mutations:
+    /// `.text("…")` for every fold fails the first two; the folded levels alone, or top-first, fail
+    /// both.
+    @Test func theFoldedMiddleIsAMenuOfTheWholePathDeepestFirst() {
         let parts = Self.location(Self.finance, .crumb).parts(rung: [0, nil, 2])
-        #expect(parts[2] == .folded([.init(name: "Documents", target: "Documents")],
-                                    help: "iCloud › Documents › Finance"))
+        #expect(parts[2] == .folded(Self.finance.reversed(), help: "iCloud › Documents › Finance"))
         let deep = Self.location(Self.deep, .crumb).parts(rung: [0, nil, 3, 4])
-        #expect(deep[2] == .folded(Array(Self.deep[1...2]),
+        #expect(deep[2] == .folded(Self.deep.reversed(),
                                    help: Self.deep.map(\.name).joined(separator: " › ")))
         let wordsOnly = Self.deep.map { EditorDocumentLocation.Segment(name: $0.name, target: nil) }
         #expect(Self.location(wordsOnly, .crumb).parts(rung: [0, nil, 4])[2]
                 == .text("…", help: wordsOnly.map(\.name).joined(separator: " › ")))
+    }
+
+    /// **The menu's first item, the document's folder, is ticked; the rest climb unticked**, and
+    /// each is a door where the pane can go and greyed where it cannot (TE133). Mutation: tick
+    /// every item, or none, and this fails.
+    @Test func theFoldedMenuTicksTheDocumentsFolder() {
+        let items = EditorLocationLabel.foldedItems(Self.finance.reversed())
+        #expect(items == [
+            .init(name: "Finance", isTicked: true, door: .goTo("Documents/Finance")),
+            .init(name: "Documents", isTicked: false, door: .goTo("Documents")),
+            .init(name: "iCloud", isTicked: false, door: .goTo("")),
+        ])
+        let unreachable = EditorLocationLabel.foldedItems([.init(name: "Backup", target: nil)])
+        #expect(unreachable == [.init(name: "Backup", isTicked: true, door: nil)])
     }
 
     /// **The folded middle is drawn as a control, and costs the row no height.** A rung that folds

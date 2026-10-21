@@ -1397,7 +1397,7 @@ extension PDFFixtures {
                 let rows = NSHostingView(rootView: AnyView(
                     EditorDocumentHeader {
                         EditorPDFHeader(pdf: pdf, accent: .blue, onAccent: .white, onRevealInBrowse: { _ in },
-                                        onClose: {}) { EmptyView() }
+                                        rowActions: .inert, onClose: {}) { EmptyView() }
                     }
                     .environment(\.appFontScale, scale)
                     .frame(width: 520)))

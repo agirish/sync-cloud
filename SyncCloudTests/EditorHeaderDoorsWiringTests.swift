@@ -198,8 +198,9 @@ import FileExplorer
                     && spine.contains("rungTitle(tab, railDrawn: drawn, currentTab: editorRailShownTab)"),
                 "the strip lights or names its buttons by the stored tab, not the drawn one")
         #expect(spine.contains("Self.spineRungs(workspace: selectedWorkspace, pdfIsOpen: editorPDF.path != nil,")
-                    && spine.contains("pdfHasOutline: editorPDFHasOutline)"),
-                "the strip is not told a PDF is open, or whether it has a contents — its buttons and the rail's tabs disagree")
+                    && spine.contains("pdfHasOutline: editorPDFHasOutline,")
+                    && spine.contains("markdownIsOpen: EditorWorkspaceView.markdownIsOpen(editorDocument))"),
+                "the strip is not told a PDF is open, whether it has a contents, or whether a note is — its buttons and the rail's tabs disagree")
         #expect(try Self.memberBody("func runEditorRailRung(_ tab: EditorRailTab)", in: source)
                     .contains("currentTab: editorRailShownTab"),
                 "a strip click decides by the stored tab, not the drawn one")

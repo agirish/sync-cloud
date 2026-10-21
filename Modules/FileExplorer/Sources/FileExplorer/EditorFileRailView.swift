@@ -67,6 +67,10 @@ struct EditorFileRailView: View {
     /// The open document's headings, or empty when it has none — a `.txt`, or Markdown that never
     /// uses one. Empty means the whole section is absent rather than present and blank.
     var outline: [MarkdownOutlineEntry] = []
+    /// Whether a Markdown note is open and read — what keeps the Outline tab on a text file
+    /// (TE111, ``EditorRailTab/shown(pdfIsOpen:pdfHasOutline:markdownIsOpen:)``). Defaulted on, so
+    /// the previews and probes that draw an outline need not say so; the workspace always says.
+    var markdownIsOpen: Bool = true
     /// Which outline row the caret is inside, or `nil` when it is above the first heading.
     var currentOutlineIndex: Int?
     /// Where each document's outline was last scrolled to, keyed by path, as the source line of the
@@ -135,12 +139,21 @@ struct EditorFileRailView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The Files list's keyboard focus, and the row its cursor is on (TE110, see
+    /// ``EditorRailKeyboard``). `nil` puts the cursor on the open row until an arrow moves it.
+    @FocusState private var filesFocused: Bool
+    @State private var keyedPath: String?
+
     /// Grid or list for the Pages tab — one choice for every PDF, kept across launches.
     @AppStorage("editorPDFPagesLayout") private var pagesLayout: EditorPDFPagesLayout = .grid
 
     /// The tab drawn: the one chosen, unless it is not offered — Pages with no PDF open, Outline
-    /// on a PDF without a contents. See ``EditorRailTab/resolved(_:pdfIsOpen:pdfHasOutline:)``.
-    var shownTab: EditorRailTab { EditorRailTab.resolved(tab, pdfIsOpen: pdf != nil, pdfHasOutline: pdfHasOutline) }
+    /// on a PDF without a contents or a text file that is not Markdown. See
+    /// ``EditorRailTab/resolved(_:pdfIsOpen:pdfHasOutline:markdownIsOpen:)``.
+    var shownTab: EditorRailTab {
+        EditorRailTab.resolved(tab, pdfIsOpen: pdf != nil, pdfHasOutline: pdfHasOutline,
+                               markdownIsOpen: markdownIsOpen)
+    }
 
     /// Whether the open PDF's bookmarks earn the Outline tab (asked 2026-10-17).
     private var pdfHasOutline: Bool { EditorRailTab.pdfOutlineIsWorthATab(pdf?.outline ?? []) }
@@ -160,7 +173,8 @@ struct EditorFileRailView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             EditorRailTabBar(tab: tabBarSelection,
-                             tabs: EditorRailTab.shown(pdfIsOpen: pdf != nil, pdfHasOutline: pdfHasOutline),
+                             tabs: EditorRailTab.shown(pdfIsOpen: pdf != nil, pdfHasOutline: pdfHasOutline,
+                                                       markdownIsOpen: markdownIsOpen),
                              accent: accent, onAccent: onAccent)
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
@@ -248,6 +262,10 @@ struct EditorFileRailView: View {
                     } label: {
                         Image(systemName: "line.3.horizontal.decrease")
                             .scaledFont(.system(size: 11, weight: .semibold))
+                            // **Greyed where it shows** (TE138), the header ＋'s rule: `.disabled`
+                            // alone leaves a `.glyph` button drawn at full strength, so an empty
+                            // folder's filter looked pressable and did nothing.
+                            .foregroundStyle(entries.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
                             .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.hoverAffordance(filterIsExpanded ? .filled : .glyph, tint: accent))
@@ -360,28 +378,63 @@ struct EditorFileRailView: View {
                             // Named only when it is not the folder on the line above.
                             onCreate: onCreate, folderName: newFileFolderName)
         }
+        let shown = EditorRail.filtered(entries, matching: filter)
+        // In drawn order — section by section — which is the order the arrows walk.
+        let order = EditorRail.sections(shown).flatMap(\.rows)
         if filterIsExpanded {
             ExpandingSearchField(text: $filter, isExpanded: $filterIsExpanded,
                                  placeholder: "Filter by name")
                 .scaledFont(.system(size: 11))
                 .padding(.horizontal, 8)
                 .padding(.bottom, 6)
+                // ↩ in the filter opens the first match (TE110), and hands the keys to the list so
+                // ↓ goes on from there.
+                .onSubmit {
+                    guard let first = Self.firstMatch(entries, filter: filter) else { return }
+                    keyedPath = first.path
+                    filesFocused = true
+                    onOpen(first)
+                }
         }
-        let shown = EditorRail.filtered(entries, matching: filter)
         if shown.isEmpty && !isNaming {
             emptyCaption(anyEntries: !entries.isEmpty)
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(EditorRail.sections(shown)) { section in
-                        sectionHeading(section.title)
-                        ForEach(section.rows) { entry in row(entry) }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 1) {
+                        ForEach(EditorRail.sections(shown)) { section in
+                            sectionHeading(section.title)
+                            ForEach(section.rows) { entry in row(entry).id(entry.path) }
+                        }
                     }
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 8)
                 }
-                .padding(.horizontal, 6)
-                .padding(.bottom, 8)
+                .focusable()
+                .focusEffectDisabled()
+                .focused($filesFocused)
+                .overlay { EditorRailFocusRing(isOn: filesFocused, accent: accent) }
+                .onKeyPress(keys: EditorRailKeyboard.arrows, phases: [.down, .repeat]) { press in
+                    guard press.isPlainKeystroke else { return .ignored }
+                    keyedPath = EditorRailKeyboard.step(from: keyedPath ?? selectedPath, in: order.map(\.path),
+                                                        by: EditorRailKeyboard.delta(for: press.key))
+                    if let keyedPath { proxy.scrollTo(keyedPath) }
+                    return .handled
+                }
+                .onKeyPress(keys: EditorRailKeyboard.commit, phases: .down) { press in
+                    guard press.isPlainKeystroke,
+                          let entry = order.first(where: { $0.path == (keyedPath ?? selectedPath) })
+                    else { return .ignored }
+                    onOpen(entry)
+                    return .handled
+                }
             }
         }
+    }
+
+    /// The row ↩ in the filter opens: the first one drawn, or `nil` when nothing matches.
+    static func firstMatch(_ entries: [EditorRailEntry], filter: String) -> EditorRailEntry? {
+        EditorRail.sections(EditorRail.filtered(entries, matching: filter)).first?.rows.first
     }
 
     /// A section's heading — Text Files, PDFs — in the sidebar's section-heading style.
@@ -412,7 +465,7 @@ struct EditorFileRailView: View {
             EditorPDFRailOutline(pdf: pdf, view: pdf.view, outlineAnchors: $outlineAnchors, accent: accent)
         } else {
             EditorRailOutlineList(rows: outline, currentIndex: currentOutlineIndex, path: selectedPath,
-                                  emptyCaption: Self.outlineEmptyCaption(hasDocument: selectedPath != nil),
+                                  emptyCaption: Self.outlineEmptyCaption,
                                   outlineAnchors: $outlineAnchors, accent: accent,
                                   onSelect: onSelectHeading)
                 // One list per document — see `EditorRailOutlineList`'s `topRow`.
@@ -420,16 +473,12 @@ struct EditorFileRailView: View {
         }
     }
 
-    /// What the outline says when it has no rows — **two different questions, asked as a function
-    /// so the distinction is testable.** Nothing is open, or something is open and has no headings
-    /// in it; a `.txt` and a note that never types a `#` land in the second, and "there are none"
-    /// is unhelpful there in the way "The + button makes one" is unhelpful to a filter that matched
-    /// nothing. Same shape as ``emptyCaption(anyEntries:)``, one level up.
-    static func outlineEmptyCaption(hasDocument: Bool) -> String {
-        hasDocument
-            ? "No headings in this document. A line starting with # makes one."
-            : "Open a note or a PDF to see its outline."
-    }
+    /// What the outline says when it has no rows. **One case now** (TE111): the tab is offered only
+    /// while a Markdown note is open, so the empty list is always a note with no headings yet, and
+    /// "there are none" is unhelpful there in the way "The + button makes one" is unhelpful to a
+    /// filter that matched nothing. The other empty it used to tell apart — nothing open — no longer
+    /// draws the tab at all, and neither does a `.txt`, where the `#` advice was wrong.
+    static let outlineEmptyCaption = "No headings in this document. A line starting with # makes one."
 
     /// The step each outline level is drawn in by. Half the preview's, because the rail is 232pt
     /// wide and the words are what matter here.
@@ -443,8 +492,7 @@ struct EditorFileRailView: View {
     }
 
     /// What the rail says when it is listing nothing — **four different questions, asked as a
-    /// function so the distinctions are testable**, the shape ``outlineEmptyCaption(hasDocument:)``
-    /// and `PaneColumnsView.emptyCaption` both take.
+    /// function so the distinctions are testable**, the shape `PaneColumnsView.emptyCaption` takes.
     ///
     /// No folder chosen; a filter that matched nothing; a folder that really is empty; and a folder
     /// that is **full of files this editor does not open**. The last is the one that was missing,
@@ -523,9 +571,13 @@ struct EditorFileRailView: View {
 
     private func row(_ entry: EditorRailEntry) -> some View {
         let isSelected = entry.path == selectedPath
+        let isKeyed = filesFocused && entry.path == (keyedPath ?? selectedPath)
         let dot = Self.dotColour(rowPath: entry.path, selectedPath: selectedPath,
                                  status: documentStatus, accent: accent)
         return Button {
+            // A click puts the keys here too (TE110), as a click on a page does in the Pages tab.
+            keyedPath = entry.path
+            filesFocused = true
             onOpen(entry)
         } label: {
             HStack(spacing: 6) {
@@ -556,6 +608,7 @@ struct EditorFileRailView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .contentShape(Self.rowOutline)
+            .background { EditorRailKeyedRowMark(isOn: isKeyed && !isSelected, accent: accent) }
         }
         // **`.row`, and the shape passed explicitly to BOTH arms.**
         //
@@ -578,6 +631,6 @@ struct EditorFileRailView: View {
         // **On every row, dim ones included, and not gated on anything about the row.** A file
         // the editor refuses is the one most worth revealing or inspecting — see
         // ``EditorRailRowMenu``. The path is the ROW's, never `selectedPath`.
-        .contextMenu { EditorRailRowMenu(path: entry.path, actions: rowActions) }
+        .contextMenu { EditorRailRowMenu(path: entry.path, isCloudOnly: entry.isCloudOnly, actions: rowActions) }
     }
 }
