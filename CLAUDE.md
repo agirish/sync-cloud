@@ -16,6 +16,7 @@ bump.
 - Never run a command that discards uncommitted work (`COMMIT.md` §7).
 - One commit per change, unless a second clearly earns its place.
 - Refactors must be proven behaviour-preserving (§5).
+- Run every `xcodebuild`, `swift build` and `swift test` through `scripts/build-slot` (§7).
 
 ---
 
@@ -103,7 +104,7 @@ For a mechanical choice with a clear default, pick it, say so in the report, and
 - **Read [`docs/flaky-tests.md`](docs/flaky-tests.md) before blaming a commit for a red suite.** Cite
   a mechanism by its title, never its number — numbering differs per line.
 - **The self-hosted CI runner is this Mac.** Heavy local test runs cause load-sensitive flakes;
-  check `uptime` before treating a red as real.
+  check `uptime` before treating a red as real. §7 keeps the load down.
 
 ---
 
@@ -119,3 +120,29 @@ For a mechanical choice with a clear default, pick it, say so in the report, and
   access at first launch.
 - **The certificate expires 2026-12-01.** The skill signs through a renewal while both certificates
   share a name; with none, or two with different names, it installs ad-hoc and says so.
+
+---
+
+## 7. Builds share this Mac
+
+Every session, and the CI runner, builds on the same ten cores. More concurrent builds than that buy
+no throughput; they slow every build and make the timing-sensitive suites flake.
+
+- **Queue every heavy command for a slot:** `scripts/build-slot xcodebuild …`,
+  `scripts/build-slot swift test --package-path Modules/Sync …`. It waits for one of a machine-wide
+  number of slots (default **2**), runs the command untouched and passes its exit status through.
+  `xcodegen`, `git` and everything light run directly. A worktree without the script (a maintenance
+  line) uses the primary checkout's copy, `/Users/abhishek/Projects/SyncCloud/scripts/build-slot`.
+- **A wait is reported, never silent:** once a minute on stderr it names each holder's PID,
+  worktree and command. Run long builds in the background so a wait cannot hit the tool's timeout.
+  `scripts/build-slot --status` shows the holders.
+- **Changing the count:** `echo 3 > ~/Library/Caches/SyncCloud-build-slots/slots` for every
+  session, `BUILD_SLOTS=3` for one command. A killed or crashed holder frees its slot at once.
+- **Compile-only commands run at `nice` 10; tests never do**, because a slower test run is a
+  flakier one (`docs/flaky-tests.md`). The CI runner takes no slot.
+- **Iterate narrow, gate wide:** `--filter` or `-only-testing:` while working; the full
+  seven-package run and `xcodebuild test` only as the landing gate (`COMMIT.md` §4).
+- **Debug while iterating; Release only for the install** (`install-sync-cloud`).
+- **CPU-stress flake probes (`yes` spinners and the like) bypass the slots.** Run one only when
+  `scripts/build-slot --status` shows no holders and
+  `gh run list --status in_progress --limit 1` is empty.

@@ -1,0 +1,158 @@
+#!/bin/bash
+# Tests for scripts/build-slot. Runs against a private slot directory, so it never takes or waits
+# on the real machine-wide slots. Takes about half a minute; prints one line per check and exits
+# non-zero if any check fails.
+set -u
+SLOT="$(cd "$(dirname "$0")" && pwd)/build-slot"
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/build-slot-test.XXXXXX")
+export BUILD_SLOT_DIR="$WORK/slots"
+unset BUILD_SLOT_HELD BUILD_SLOT_TIMEOUT BUILD_SLOT_NICE
+failures=0
+
+check() {  # check <description> <command…>
+  local what=$1; shift
+  if "$@"; then echo "ok   - $what"; else echo "FAIL - $what"; failures=$((failures + 1)); fi
+}
+
+# wait_for <seconds> <command…>: poll until the command succeeds; macOS has no timeout(1).
+wait_for() {
+  local deadline=$((SECONDS + $1)); shift
+  until "$@"; do
+    [ "$SECONDS" -ge "$deadline" ] && return 1
+    sleep 0.2
+  done
+}
+
+held() { "$SLOT" --status | grep -q "^$1 of "; }
+alive() { kill -0 "$1" 2>/dev/null; }
+dead() { ! kill -0 "$1" 2>/dev/null; }
+
+# 1. N+1 concurrent invocations: never more than N run at once, the extra one waits and then runs.
+export BUILD_SLOTS=2
+for job in 1 2 3; do
+  "$SLOT" sh -c "echo + >> '$WORK/events'; sleep 3; echo - >> '$WORK/events'; echo done$job" \
+    > "$WORK/out$job" 2> "$WORK/err$job" &
+done
+wait
+peak=$(awk '/\+/ { n++; if (n > max) max = n } /-/ { n-- } END { print max }' "$WORK/events")
+check "3 jobs on 2 slots: peak concurrency is 2 (got $peak)" [ "$peak" = 2 ]
+check "3 jobs on 2 slots: all three ran" \
+  [ "$(cat "$WORK/out1" "$WORK/out2" "$WORK/out3" | sort | tr '\n' ' ')" = "done1 done2 done3 " ]
+check "3 jobs on 2 slots: exactly one waited, naming the holders" \
+  [ "$(cat "$WORK"/err? | grep -c 'all 2 slots held — \[1\] pid [0-9]*.*\[2\] pid')" = 1 ]
+check "3 jobs on 2 slots: the waiter reported getting its slot" \
+  [ "$(cat "$WORK"/err? | grep -c 'got slot [12] after waiting')" = 1 ]
+
+# 2. A holder killed with SIGKILL gives its slot back, though its record is left behind.
+export BUILD_SLOTS=1
+"$SLOT" sh -c "echo \$\$ > '$WORK/holder-child'; exec sleep 60" &
+holder=$!
+wait_for 10 held 1
+"$SLOT" echo waiter-ran > "$WORK/waiter-out" 2> "$WORK/waiter-err" &
+waiter=$!
+sleep 2
+check "SIGKILL: the waiter is still waiting while the holder lives" alive "$waiter"
+kill -KILL "$holder"
+check "SIGKILL: the waiter runs once the holder is killed" wait_for 10 dead "$waiter"
+check "SIGKILL: the waiter's command ran" [ "$(cat "$WORK/waiter-out")" = waiter-ran ]
+check "SIGKILL: the reclaimed slot now records the new holder, not the dead one" \
+  sh -c "! grep -q 'pid=$holder\$' '$BUILD_SLOT_DIR/slot-1'"
+kill "$(cat "$WORK/holder-child")" 2>/dev/null  # the orphaned sleep
+wait "$holder" 2>/dev/null
+
+# 3. Exit codes, signals and output pass through exactly.
+"$SLOT" true; check "exit 0 passes through" [ $? = 0 ]
+"$SLOT" false; check "exit 1 passes through" [ $? = 1 ]
+"$SLOT" sh -c 'exit 42'; check "exit 42 passes through" [ $? = 42 ]
+"$SLOT" no-such-command-xyz 2>/dev/null; check "a missing command exits 127" [ $? = 127 ]
+"$SLOT" sh -c 'kill -TERM $$'; check "a child killed by SIGTERM reads as 143" [ $? = 143 ]
+"$SLOT" sh -c 'printf "out\nline2"; printf "err" >&2' > "$WORK/stdout" 2> "$WORK/stderr"
+check "stdout passes through byte for byte" [ "$(od -c "$WORK/stdout")" = "$(printf 'out\nline2' | od -c)" ]
+check "stderr passes through byte for byte (no wrapper chatter without a wait)" \
+  [ "$(cat "$WORK/stderr")" = err ]
+check "stdin passes through" [ "$(echo piped | "$SLOT" cat)" = piped ]
+
+# 4. SIGTERM to the wrapper reaches the command, whose exit status still comes back.
+"$SLOT" sh -c 'trap "echo got-term; exit 7" TERM; sleep 60 & wait' > "$WORK/term-out" &
+wrapper=$!
+wait_for 10 held 1
+sleep 0.5
+kill -TERM "$wrapper"
+wait "$wrapper"; status=$?
+check "SIGTERM: forwarded to the command (exit $status, output '$(cat "$WORK/term-out")')" \
+  [ "$status" = 7 ] && [ "$(cat "$WORK/term-out")" = got-term ]
+check "SIGTERM: the slot is free afterwards" held 0
+
+# 5. A nested build-slot inside a held slot runs at once instead of waiting on its parent.
+"$SLOT" "$SLOT" echo nested > "$WORK/nested" &
+nested=$!
+check "nested invocation on 1 slot does not deadlock" wait_for 10 dead "$nested"
+check "nested invocation ran its command" [ "$(cat "$WORK/nested")" = nested ]
+
+# 6. BUILD_SLOT_TIMEOUT bounds the wait and exits 75.
+"$SLOT" sleep 60 &
+holder=$!
+wait_for 10 held 1
+BUILD_SLOT_TIMEOUT=2 "$SLOT" echo never 2> "$WORK/timeout-err"
+check "BUILD_SLOT_TIMEOUT gives up with exit 75" [ $? = 75 ]
+check "BUILD_SLOT_TIMEOUT says it gave up" grep -q 'gave up after' "$WORK/timeout-err"
+kill "$holder"; wait "$holder" 2>/dev/null
+
+# 7. Slot count from the slots file, and $BUILD_SLOTS overriding it.
+unset BUILD_SLOTS
+check "default slot count is 2" sh -c "'$SLOT' --status | grep -q '^0 of 2 slots'"
+echo 3 > "$BUILD_SLOT_DIR/slots"
+check "the slots file sets the count" sh -c "'$SLOT' --status | grep -q '^0 of 3 slots'"
+check "\$BUILD_SLOTS overrides the slots file" \
+  sh -c "BUILD_SLOTS=5 '$SLOT' --status | grep -q '^0 of 5 slots'"
+rm "$BUILD_SLOT_DIR/slots"
+
+# 8. Compile-only commands run niced; test runs never are. Fake tools print their own niceness.
+mkdir -p "$WORK/bin"
+for tool in xcodebuild swift; do
+  printf '#!/bin/sh\nps -o nice= -p $$ | tr -d " "\n' > "$WORK/bin/$tool"
+  chmod +x "$WORK/bin/$tool"
+done
+base=$(ps -o nice= -p $$ | tr -d ' ')
+nice_of() { PATH="$WORK/bin:$PATH" "$SLOT" "$@"; }
+check "xcodebuild build is niced by 10" [ "$(nice_of xcodebuild -scheme S build)" = $((base + 10)) ]
+check "xcodebuild build-for-testing is niced" [ "$(nice_of xcodebuild build-for-testing)" = $((base + 10)) ]
+check "xcodebuild test is not niced" [ "$(nice_of xcodebuild -scheme S test)" = "$base" ]
+check "xcodebuild test-without-building is not niced" \
+  [ "$(nice_of xcodebuild test-without-building)" = "$base" ]
+check "swift build is niced" [ "$(nice_of swift build --package-path X)" = $((base + 10)) ]
+check "swift test is not niced" [ "$(nice_of swift test --filter X)" = "$base" ]
+check "arch -arm64 swift test is not niced" [ "$(nice_of arch -arm64 swift test)" = "$base" ]
+check "BUILD_SLOT_NICE=0 turns niceness off" \
+  [ "$(BUILD_SLOT_NICE=0 nice_of xcodebuild build)" = "$base" ]
+
+# 9. Ctrl-C in a terminal reaches the command once: the terminal signals it directly, so the
+#    wrapper must not forward a second SIGINT. The child counts the SIGINTs it receives.
+ctrl_c=$(/usr/bin/python3 - "$SLOT" <<'EOF'
+import os, pty, sys, time
+child = ("import signal, time\nn = [0]\n"
+         "signal.signal(signal.SIGINT, lambda *a: n.__setitem__(0, n[0] + 1))\n"
+         "for _ in range(30): time.sleep(0.1)\nprint('sigints=%d' % n[0])")
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv(sys.argv[1], [sys.argv[1], "/usr/bin/python3", "-c", child])
+time.sleep(1)
+os.write(fd, b"\x03")
+out = b""
+while True:
+    try:
+        chunk = os.read(fd, 1024)
+    except OSError:
+        break
+    if not chunk:
+        break
+    out += chunk
+os.waitpid(pid, 0)
+print(out.decode().split("sigints=")[-1].strip())
+EOF
+)
+check "Ctrl-C in a terminal reaches the command exactly once (got $ctrl_c)" [ "$ctrl_c" = 1 ]
+
+rm -rf "$WORK"
+if [ "$failures" -gt 0 ]; then echo "$failures check(s) failed"; exit 1; fi
+echo "all checks passed"

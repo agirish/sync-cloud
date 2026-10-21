@@ -18,7 +18,8 @@ git -C /Users/abhishek/Projects/SyncCloud fetch origin
 git worktree add /Users/abhishek/Projects/SyncCloud-<task> -b <task> origin/main
 ```
 
-Run `xcodegen` in the new worktree before `xcodebuild`.
+Run `xcodegen` in the new worktree before `xcodebuild`. Run every `xcodebuild`, `swift build` and
+`swift test` through `scripts/build-slot` (`CLAUDE.md` §7).
 
 ## 2. Work
 
@@ -74,7 +75,8 @@ All must hold before landing:
    git log --format='%H %s' origin/main..HEAD |
      while read sha rest; do [ -z "$(git show --stat --format= $sha)" ] && echo "EMPTY: $sha $rest"; done
    ```
-3. **Tests are green locally** for every changed package and every package that depends on it.
+3. **Tests are green locally** for every changed package and every package that depends on it,
+   each run through `scripts/build-slot`.
 4. **An app change is installed and seen running** (`CLAUDE.md` §6).
 5. **Any `docs/backports.md` row is inside the squash** (`CLAUDE.md` §1).
 6. **You have read what will land:** `git log --oneline origin/main..HEAD` and

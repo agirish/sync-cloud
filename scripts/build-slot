@@ -1,0 +1,248 @@
+#!/usr/bin/python3
+"""Run a heavy build or test command in one of N machine-wide build slots.
+
+    scripts/build-slot xcodebuild -scheme SyncCloud -derivedDataPath .dd build
+    scripts/build-slot swift test --package-path Modules/Sync --filter Foo
+    scripts/build-slot --status
+
+Every Claude session on this Mac (and the self-hosted CI runner beside them) shares ten cores.
+More concurrent builds than that buy no throughput and make the timing-sensitive suites flake,
+so sessions queue here instead. A command waits until a slot is free, then runs with its
+stdin/stdout/stderr untouched; the wrapper exits with the command's exit status (or dies of the
+same signal).
+
+Slots are files under ~/Library/Caches/SyncCloud-build-slots/ held with flock(2). The kernel drops
+a lock the moment its holder dies — SIGKILL, a crash, a stopped session — so no slot ever has to be
+reclaimed by hand and a reused PID can never look like a live holder.
+
+Slot count: $BUILD_SLOTS, else the number in ~/Library/Caches/SyncCloud-build-slots/slots, else 2.
+$BUILD_SLOT_TIMEOUT: give up after this many seconds of waiting, exit 75 (default: wait forever,
+    reporting the holders once a minute on stderr).
+$BUILD_SLOT_NICE: nice increment for compile-only commands (default 10, 0 disables). Test runs
+    are never deprioritised — several suites are timing-sensitive (docs/flaky-tests.md).
+
+A command run under a slot sees BUILD_SLOT_HELD, so a nested build-slot runs at once instead of
+waiting on its own parent.
+"""
+
+import fcntl
+import os
+import signal
+import subprocess
+import sys
+import time
+
+SLOT_DIR = os.environ.get("BUILD_SLOT_DIR") or os.path.expanduser(
+    "~/Library/Caches/SyncCloud-build-slots")
+DEFAULT_SLOTS = 2
+POLL_SECONDS = 1.0
+REPORT_SECONDS = 60
+TIMEOUT_EXIT = 75  # EX_TEMPFAIL
+
+
+def note(message):
+    sys.stderr.write("build-slot: %s\n" % message)
+    sys.stderr.flush()
+
+
+def positive_int(text, source):
+    try:
+        value = int(text.strip())
+    except ValueError:
+        value = 0
+    if value < 1:
+        note("%s must be a whole number of at least 1, got %r" % (source, text))
+        sys.exit(2)
+    return value
+
+
+def slot_count():
+    if os.environ.get("BUILD_SLOTS"):
+        return positive_int(os.environ["BUILD_SLOTS"], "$BUILD_SLOTS")
+    path = os.path.join(SLOT_DIR, "slots")
+    try:
+        with open(path) as handle:
+            return positive_int(handle.read(), path)
+    except FileNotFoundError:
+        return DEFAULT_SLOTS
+
+
+def slot_path(index):
+    return os.path.join(SLOT_DIR, "slot-%d" % index)
+
+
+def try_lock(index, mode):
+    """Return an open fd holding the slot's lock, or None if someone else holds it."""
+    fd = os.open(slot_path(index), os.O_RDWR | os.O_CREAT, 0o644)  # not inherited (PEP 446)
+    try:
+        fcntl.flock(fd, mode | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        return None
+    return fd
+
+
+def duration(seconds):
+    seconds = int(seconds)
+    if seconds < 3600:
+        return "%dm%02ds" % divmod(seconds, 60)
+    return "%dh%02dm" % (seconds // 3600, seconds % 3600 // 60)
+
+
+def place(cwd):
+    marker = "/.claude/worktrees/"
+    if marker in cwd:
+        return cwd.split(marker, 1)[1].split("/", 1)[0]
+    home = os.path.expanduser("~")
+    return "~" + cwd[len(home):] if cwd.startswith(home) else cwd
+
+
+def holders(count):
+    """(slot, info) for every slot in 1...count whose lock is held right now."""
+    found = []
+    for index in range(1, count + 1):
+        fd = try_lock(index, fcntl.LOCK_SH)
+        if fd is not None:  # free: the probe got it, so let it go again at once
+            os.close(fd)
+            continue
+        info = {}
+        try:
+            with open(slot_path(index)) as handle:
+                for line in handle:
+                    key, _, value = line.rstrip("\n").partition("=")
+                    info[key] = value
+        except OSError:
+            pass
+        found.append((index, info))
+    return found
+
+
+def describe(index, info, width=70):
+    command = info.get("command", "?")
+    if len(command) > width:
+        command = command[:width - 1] + "…"
+    try:
+        held = duration(time.time() - float(info.get("started", "")))
+    except ValueError:
+        held = "?"
+    return "[%d] pid %s, %s, %s: %s" % (index, info.get("pid", "?"),
+                                       place(info.get("cwd", "?")), held, command)
+
+
+def acquire(count, command):
+    timeout = float(os.environ.get("BUILD_SLOT_TIMEOUT") or 0)
+    began = time.monotonic()
+    next_report = began
+    while True:
+        for index in range(1, count + 1):
+            fd = try_lock(index, fcntl.LOCK_EX)
+            if fd is None:
+                continue
+            record = "pid=%d\nstarted=%f\ncwd=%s\ncommand=%s\n" % (
+                os.getpid(), time.time(), os.getcwd(), " ".join(command))
+            os.ftruncate(fd, 0)
+            os.pwrite(fd, record.encode(), 0)
+            waited = time.monotonic() - began
+            if waited >= POLL_SECONDS:
+                note("got slot %d after waiting %s" % (index, duration(waited)))
+            return index, fd
+        now = time.monotonic()
+        if timeout and now - began >= timeout:
+            note("gave up after %s: all %d slots still held" % (duration(now - began), count))
+            sys.exit(TIMEOUT_EXIT)
+        if now >= next_report:
+            held = holders(count)
+            note("waiting %s, all %d slots held — %s" % (
+                duration(now - began), count,
+                "; ".join(describe(i, info) for i, info in held) or "holders just left"))
+            next_report = now + REPORT_SECONDS
+        time.sleep(POLL_SECONDS)
+
+
+def compile_only(command):
+    """True for a build that runs no tests, so a lower priority cannot starve a timing check."""
+    args = list(command)
+    if args and os.path.basename(args[0]) == "arch":  # arch -arm64 swift …
+        args = args[1:]
+        while args and args[0].startswith("-"):
+            args = args[1:]
+    if not args:
+        return False
+    tool = os.path.basename(args[0])
+    if tool == "xcodebuild":
+        return not ({"test", "test-without-building"} & set(args[1:]))
+    if tool == "swift":
+        return len(args) > 1 and args[1] == "build"
+    return False
+
+
+def tty_already_signalled():
+    """True when SIGINT came from Ctrl-C, which the terminal sends to the child as well."""
+    try:
+        tty = os.open("/dev/tty", os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        return os.tcgetpgrp(tty) == os.getpgrp()
+    except OSError:
+        return False
+    finally:
+        os.close(tty)
+
+
+def run(command, env, nice):
+    preexec = (lambda: os.nice(nice)) if nice else None
+    try:
+        child = subprocess.Popen(command, env=env, preexec_fn=preexec)
+    except FileNotFoundError:
+        note("%s: command not found" % command[0])
+        return 127
+    except PermissionError:
+        note("%s: permission denied" % command[0])
+        return 126
+
+    def forward(signum, _frame):
+        if signum == signal.SIGINT and tty_already_signalled():
+            return
+        try:
+            child.send_signal(signum)
+        except ProcessLookupError:
+            pass
+
+    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
+        signal.signal(signum, forward)
+    status = child.wait()
+    if status < 0:  # killed by a signal: die of the same one, so a calling shell sees that
+        sys.stdout.flush()
+        signal.signal(-status, signal.SIG_DFL)
+        os.kill(os.getpid(), -status)
+        return 128 - status
+    return status
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        sys.stdout.write(__doc__)
+        return 0 if argv else 2
+    os.makedirs(SLOT_DIR, exist_ok=True)
+    count = slot_count()
+    if argv[0] == "--status":
+        held = holders(count)
+        print("%d of %d slots held (%s)" % (len(held), count, SLOT_DIR))
+        for index, info in held:
+            print("  " + describe(index, info, width=200))
+        return 0
+    if argv[0] == "--":
+        argv = argv[1:]
+        if not argv:
+            note("no command given")
+            return 2
+    nice = int(os.environ.get("BUILD_SLOT_NICE", "10")) if compile_only(argv) else 0
+    if os.environ.get("BUILD_SLOT_HELD"):
+        return run(argv, os.environ, nice)
+    index, _fd = acquire(count, argv)  # _fd stays open, holding the slot until this process ends
+    return run(argv, dict(os.environ, BUILD_SLOT_HELD=str(index)), nice)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
