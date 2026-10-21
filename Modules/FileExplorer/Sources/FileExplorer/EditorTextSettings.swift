@@ -45,6 +45,16 @@ public enum EditorTextSettings {
     public static let drawsPageKey = "editorDrawsPage"
     public static let drawsPageDefault = false
 
+    /// Whether the caret's line is held at mid-height as you type and move — Text ▸ Typewriter
+    /// Scrolling (TE62). Source only; an editable Preview scrolls as it always has.
+    ///
+    /// **Off by default**, so nobody's editor starts moving under them. On, every keyboard move of
+    /// the caret centres its line — arrows too (decision BI) — while a click, a drag and the
+    /// trackpad leave the text where it is, and a Find match is shown as AppKit shows it. See
+    /// ``EditorTextView/scrollRangeToVisible(_:)``.
+    public static let typewriterScrollingKey = "editorTypewriterScrolling"
+    public static let typewriterScrollingDefault = false
+
     /// Whether the spell checker underlines as you type.
     ///
     /// **Off by default, and this is the half that had to be separated from the other.** Everything

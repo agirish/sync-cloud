@@ -3017,7 +3017,7 @@ struct UseSelectionForFindCommand: View {
 /// switch beside Autosave in the header, and Format Bar
 /// (TE52), the third preference about how the document is drawn, on its own key. Continue Lists (TE54) is the one
 /// about what Return WRITES, on its own key too, and only here: the context menu's switches are
-/// about drawing.
+/// about drawing. Typewriter Scrolling (TE62) is about how Source moves, and only here too.
 ///
 /// **Read and written through `@AppStorage` here, not through a published closure**, because that is
 /// what the context menu does too (`PlainTextEditor.Coordinator.toggleWrapping`): every mounted
@@ -3032,6 +3032,8 @@ struct EditorTextSettingCommands: View {
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling = EditorTextSettings.checksSpellingDefault
     @AppStorage(EditorTextSettings.drawsPageKey) private var drawsPage = EditorTextSettings.drawsPageDefault
     @AppStorage(EditorTextSettings.continuesListsKey) private var continuesLists = EditorTextSettings.continuesListsDefault
+    @AppStorage(EditorTextSettings.typewriterScrollingKey) private var typewriterScrolling
+        = EditorTextSettings.typewriterScrollingDefault
 
     var body: some View {
         Toggle("Wrap Lines", isOn: $wrapsLines)
@@ -3044,6 +3046,10 @@ struct EditorTextSettingCommands: View {
         // greys by the same rule.
         Toggle("Page", isOn: $drawsPage)
             .disabled(!(verbs.map { EditorWorkspaceView.pageSwitchApplies($0.mode) } ?? false))
+        // TE62. Here only, not on the right-click menu: it is about how the view moves, and the
+        // card that approved it named the Text menu.
+        Toggle("Typewriter Scrolling", isOn: $typewriterScrolling)
+            .disabled(verbs == nil)
         Toggle("Check Spelling While Typing", isOn: $checksSpelling)
             .disabled(verbs == nil)
         // Live wherever the others are: a preference, reachable from a `.txt` too, where it
@@ -3405,7 +3411,7 @@ struct EditorMenus: Commands {
             UseSelectionForFindCommand() // ⌘E
             GoToLineCommand()            // ⌃⌘L — the other way to a place in the text (TE61); Go to Page… in a PDF
             Divider()
-            EditorTextSettingCommands()  // Wrap Lines · Readable Line Length · Page · Check Spelling While Typing · Continue Lists, ticked
+            EditorTextSettingCommands()  // Wrap Lines · Readable Line Length · Page · Typewriter Scrolling · Check Spelling While Typing · Continue Lists, ticked
             Divider()
             AutosaveThisFileCommand()    // the header switch, as an item
         }

@@ -78,12 +78,17 @@ import AppKit
     /// scroll view and text view both, so a setting the factory starts giving its scroll view shows
     /// up here.
     @Test func aDocumentScrollViewIsTheFactorysPropertyForProperty() {
+        // The clip is ours (TE62), and AppKit's in every bound while typewriter scrolling is off —
+        // `EditorTypewriterScrollingTests` pins that; here it counts as the factory's own class.
+        func clipClass(_ scroll: NSScrollView) -> String {
+            scroll.contentView is EditorDocumentClipView ? "NSClipView" : "\(type(of: scroll.contentView))"
+        }
         func describe(_ scroll: NSScrollView) -> [String] {
             let view = scroll.documentView as? NSTextView
             return ["frame \(scroll.frame)", "mask \(scroll.autoresizingMask.rawValue)",
                     "border \(scroll.borderType.rawValue)", "scrollers \(scroll.hasVerticalScroller) \(scroll.hasHorizontalScroller)",
                     "autohides \(scroll.autohidesScrollers)", "draws \(scroll.drawsBackground) \(scroll.contentView.drawsBackground)",
-                    "background \(scroll.backgroundColor)", "clip \(type(of: scroll.contentView))",
+                    "background \(scroll.backgroundColor)", "clip \(clipClass(scroll))",
                     "insets \(scroll.automaticallyAdjustsContentInsets) \(scroll.contentInsets)",
                     "find \(scroll.findBarPosition.rawValue)", "lines \(scroll.verticalLineScroll) \(scroll.horizontalLineScroll)",
                     "elastic \(scroll.verticalScrollElasticity.rawValue) \(scroll.horizontalScrollElasticity.rawValue)",
@@ -98,6 +103,7 @@ import AppKit
         let ours = EditorTextView.scrollableTextView()
         #expect(ours is EditorDocumentScrollView)
         #expect(ours.documentView is EditorTextView, "the factory's own text view is not the one in our scroll view")
+        #expect(ours.contentView is EditorDocumentClipView)
         let factory = describe(EditorTextView.factoryScrollableTextView())
         let differences = zip(describe(ours), factory).filter { $0 != $1 }.map { "\($0.0) — factory \($0.1)" }
         #expect(differences.isEmpty, "the editor's scroll view differs from the factory's: \(differences)")

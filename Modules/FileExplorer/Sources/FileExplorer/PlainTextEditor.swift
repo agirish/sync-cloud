@@ -161,6 +161,8 @@ struct PlainTextEditor: NSViewRepresentable {
         = EditorTextSettings.wrapsDefault
     @AppStorage(EditorTextSettings.readableLineLengthKey) private var readableLineLength: Bool
         = EditorTextSettings.readableLineLengthDefault
+    @AppStorage(EditorTextSettings.typewriterScrollingKey) private var typewriterScrolling: Bool
+        = EditorTextSettings.typewriterScrollingDefault
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling: Bool
         = EditorTextSettings.checksSpellingDefault
     @AppStorage(EditorTextSettings.drawsPageKey) private var drawsPage: Bool
@@ -1026,6 +1028,8 @@ struct PlainTextEditor: NSViewRepresentable {
         // `setFrameSize` either way (mutation-tested). The view ignores a value it already has.
         (view as? EditorTextView)?.readableColumnWidth = readableColumn
         (view as? EditorTextView)?.drawsPage = drawsPage
+        // TE62. Here only, as the column is: SwiftUI runs this straight after building the view.
+        (view as? EditorTextView)?.typewriterScrolling = typewriterScrolling
         context.coordinator.source = source
         context.coordinator.onSelectionChange = onSelectionChange
         context.coordinator.onSelectionRangeCount = onSelectionRangeCount

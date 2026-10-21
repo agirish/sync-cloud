@@ -175,6 +175,9 @@ Requires **macOS 26**, unchanged from the 5.x line.
   hides the sidebar in Browse, Compare and Organize.
 - **Find Previous.** **Text ▸ Find Previous** (`⇧⌘G`) steps back through the find bar's matches, in
   a text file as in a PDF.
+- **Typewriter Scrolling.** **Text ▸ Typewriter Scrolling**, off to begin with, keeps the line you
+  are typing at mid-height in Source — arrow keys, Return, Go to Line and the end of the file too. A
+  click, the trackpad and a Find match scroll as before.
 - **Ticking a box in Preview is quick in a long note.** With Edit in Preview off, or in a note over
   256 KB, a tick rewrote and compared the whole note; it now changes only its own line. The last
   task in a 200 KB note went from 35 ms to 0.2 ms, and in a 4 MiB note from 808 ms to 3.7 ms.

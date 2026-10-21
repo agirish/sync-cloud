@@ -8129,3 +8129,27 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | Words and art on `.tint` — the setup's or the first-run tour's, the review marker, and on `v5.x`/`v4.x` more besides; whether a root tints them there is not checked | RECORDED — not owed |
+
+## Typewriter scrolling in Source (TE62) — main only
+
+**Text ▸ Typewriter Scrolling** (`editorTypewriterScrolling`, off by default) holds Source's caret
+line at mid-height. `EditorTextView.scrollRangeToVisible(_:)` centres a bare caret — no marked text,
+not from the mouse, not while Split's Preview leads a follow — and hands every other range to
+AppKit; Source's clip is now `EditorDocumentClipView`, whose bounds may run half a screen past the
+end of the text while on and are AppKit's in every bound while off. Edit in Preview is unchanged. A
+new feature, not a fix.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s textView=%s typewriter=%s\n' $l \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorTextView.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorTextSettings.swift 2>/dev/null | grep -c typewriterScrollingKey)"
+done
+# measured 2026-10-21, against origin, before this landed:
+# main  textView=1 typewriter=0
+# v5.x  textView=1 typewriter=0
+# v4.x, v3.x, v2.x  textView=0 typewriter=0
+```
+
+**Every maintenance line: checked — not owed.** A new switch, not a defect; `v4.x` and older have
+no `EditorTextView` to carry it.

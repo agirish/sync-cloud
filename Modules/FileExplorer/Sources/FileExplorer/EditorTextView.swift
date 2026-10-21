@@ -32,6 +32,12 @@ final class EditorTextView: NSTextView {
     override class func scrollableTextView() -> NSScrollView {
         let factory = factoryScrollableTextView()
         let scroll = EditorDocumentScrollView(frame: factory.frame)
+        // Ours, for typewriter scrolling's room below the last line — `super`'s in every bound while
+        // that is off (TE62).
+        let clip = EditorDocumentClipView(frame: factory.contentView.frame)
+        clip.copiesOnScroll = factory.contentView.copiesOnScroll
+        clip.backgroundColor = factory.contentView.backgroundColor
+        scroll.contentView = clip
         scroll.autoresizingMask = factory.autoresizingMask
         scroll.borderType = factory.borderType
         scroll.hasVerticalScroller = factory.hasVerticalScroller
@@ -382,6 +388,154 @@ final class EditorTextView: NSTextView {
         guard drawsPage else { return }
         NSColor.textBackgroundColor.setFill()
         pageRect.intersection(rect).fill()
+    }
+
+    // MARK: Typewriter scrolling (TE62)
+
+    /// **Whether the caret's line is held at mid-height** — Text ▸ Typewriter Scrolling, set by
+    /// `PlainTextEditor` on every pass. Off, this view scrolls exactly as AppKit's own does.
+    ///
+    /// On, the clip view lets the text scroll on past its end (``EditorDocumentClipView``), so the
+    /// last line can reach mid-height too; turned on, the caret's line is centred at once.
+    var typewriterScrolling = false {
+        didSet {
+            guard typewriterScrolling != oldValue else { return }
+            (enclosingScrollView?.contentView as? EditorDocumentClipView)?.allowsTypewriterOverscroll = typewriterScrolling
+            Logger.shared.info("[edit] Typewriter scrolling \(typewriterScrolling ? "on" : "off")")
+            if typewriterScrolling, window != nil, selectedRange().length == 0 {
+                scrollRangeToVisible(selectedRange())
+            }
+        }
+    }
+
+    /// Set across a click and the drag that follows it — AppKit's tracking loop runs inside
+    /// `mouseDown(with:)` until the button comes up, autoscroll included. Not
+    /// `NSEvent.pressedMouseButtons`, which is the hardware's state: a button held anywhere, for
+    /// anything, would have stopped the centring of a keystroke.
+    private var isTrackingMouse = false
+
+    override func mouseDown(with event: NSEvent) {
+        trackingMouse { super.mouseDown(with: event) }
+    }
+
+    /// Runs `body` as the mouse's: no scroll inside it is centred. Its own method so a test can
+    /// stand in for AppKit's tracking loop — a synthesized click through `super` ended the test
+    /// process outright (measured 2026-10-21).
+    func trackingMouse(_ body: () -> Void) {
+        isTrackingMouse = true
+        defer { isTrackingMouse = false }
+        body()
+    }
+
+    /// **The one door every caret scroll goes through, and the only place typewriter scrolling acts.**
+    ///
+    /// Typing, a Return, Delete, an arrow key, Page Down, undo, a paste, Go to Line and a heading
+    /// jump all end here with the caret's range. On, a bare caret's line is centred instead of
+    /// merely brought into view. Everything else is AppKit's, unchanged:
+    ///
+    /// - **A selection** (a Find match, a ⇧-arrow, an undone deletion) — normal scrolling, so a
+    ///   match is shown where AppKit shows it.
+    /// - **An input method composing** — the marked text must not move under the candidate window.
+    /// - **The mouse** — a click or a drag-select (decision BI): the text stays where the reader is
+    ///   pointing. Trackpad and wheel scrolling never come here at all, and nor does Split's
+    ///   Preview leading Source to a line — `scrollLineToTop` moves the clip, not the caret.
+    override func scrollRangeToVisible(_ range: NSRange) {
+        guard typewriterScrolling, range.length == 0, !hasMarkedText(),
+              !isTrackingMouse, centreLine(at: range.location) else {
+            super.scrollRangeToVisible(range)
+            return
+        }
+    }
+
+    /// Scrolls so the line holding `offset` sits at mid-height, at once — no animation, so it keeps
+    /// up with key repeat. `false` when there is nothing to measure, and AppKit scrolls instead.
+    ///
+    /// **Measured on TextKit 2's own fragment, laid out from the caret only** — never from the top of
+    /// the document, which on a 4 MiB file would be a full layout per keystroke. That is enough for
+    /// a caret far off screen too (Go to Line in a 6,000-line file lands centred, on its own line —
+    /// `aFarCaretInALongFileIsCentred`). Never `layoutManager` (see ``EditorTextSettings``).
+    @discardableResult
+    func centreLine(at offset: Int) -> Bool {
+        guard let scroll = enclosingScrollView else { return false }
+        let clip = scroll.contentView
+        guard let caret = caretRect(at: offset) else { return false }
+        let bounds = clip.bounds
+        let top = clip.contentInsets.top
+        var origin = bounds.origin
+        // The centre of what is on screen below any top inset.
+        origin.y = caret.midY - top - (bounds.height - top) / 2
+        // Unwrapped, the caret can be off to either side: bring it in, as AppKit would.
+        if caret.minX < bounds.minX { origin.x = max(0, caret.minX - EditorReadableColumn.baseInset.width) }
+        else if caret.maxX > bounds.maxX { origin.x = caret.maxX - bounds.width + EditorReadableColumn.baseInset.width }
+        let target = clip.constrainBoundsRect(NSRect(origin: origin, size: bounds.size)).origin
+        guard target != bounds.origin else { return true }
+        clip.scroll(to: target)
+        scroll.reflectScrolledClipView(clip)
+        return true
+    }
+
+    /// The insertion point at `offset`, in this view's coordinates — TextKit 2's own segment, the
+    /// rectangle AppKit draws the caret in. The empty line after a final line break included.
+    func caretRect(at offset: Int) -> NSRect? {
+        guard let manager = textLayoutManager, let content = textContentStorage,
+              let location = content.location(content.documentRange.location, offsetBy: offset) else { return nil }
+        let end = content.location(location, offsetBy: 1) ?? location
+        if let range = NSTextRange(location: location, end: end) { manager.ensureLayout(for: range) }
+        var found: CGRect?
+        manager.enumerateTextSegments(in: NSTextRange(location: location), type: .selection,
+                                      options: [.rangeNotRequired]) { _, frame, _, _ in
+            found = frame
+            return false
+        }
+        guard let found else { return nil }
+        let origin = textContainerOrigin
+        return NSRect(x: found.minX + origin.x, y: found.minY + origin.y,
+                      width: max(found.width, 1), height: found.height)
+    }
+}
+
+/// **Source's clip view: AppKit's, plus typewriter scrolling's room below the last line (TE62).**
+///
+/// On, the text may scroll on until its end sits at mid-height, so the last line can be centred
+/// like any other. **Room in the clip's bounds, not a content inset**: a bottom inset tells AppKit
+/// that half the screen is covered, and its own scrolls then avoid it — measured 2026-10-21, a Find
+/// match or a composing caret was pushed up to a fifth of the height. Here every point on screen
+/// stays visible to AppKit, and only how far the bounds may run changes.
+///
+/// **Off, every bound is `super`'s.** Only Source's scroll view has one; Preview's keeps AppKit's.
+final class EditorDocumentClipView: NSClipView {
+
+    var allowsTypewriterOverscroll = false {
+        didSet {
+            guard allowsTypewriterOverscroll != oldValue, !allowsTypewriterOverscroll else { return }
+            // Scrolled into the room as it goes: back to the end of the text.
+            let settled = constrainBoundsRect(bounds).origin
+            guard settled != bounds.origin else { return }
+            scroll(to: settled)
+            (superview as? NSScrollView)?.reflectScrolledClipView(self)
+        }
+    }
+
+    /// How far past the end of the text the bounds may run in a clip this tall: half of what is on
+    /// screen below any top inset — so the text's last line can sit at mid-height.
+    static func overscroll(height: CGFloat, topInset: CGFloat) -> CGFloat {
+        max(0, ((height - topInset) / 2).rounded())
+    }
+
+    /// AppKit's bounds, let run on past the end by ``overscroll(height:topInset:)`` while on —
+    /// worked out from the proposed height, so a resize carries it with no bookkeeping.
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var rect = super.constrainBoundsRect(proposedBounds)
+        guard allowsTypewriterOverscroll, let document = documentView,
+              proposedBounds.origin.y > rect.origin.y else { return rect }
+        // AppKit's own furthest, asked rather than worked out: it is not quite the text's height
+        // less the clip's (measured 6pt past it), and the room is added to whatever AppKit allows.
+        var furthest = proposedBounds
+        furthest.origin.y = document.frame.maxY + proposedBounds.height
+        let limit = super.constrainBoundsRect(furthest).origin.y
+            + Self.overscroll(height: proposedBounds.height, topInset: contentInsets.top)
+        rect.origin.y = max(rect.origin.y, min(proposedBounds.origin.y, limit))
+        return rect
     }
 }
 
