@@ -343,21 +343,25 @@ import Sync
         for n in 0..<12 { try placeText(fill, "Item \(n)") }
         #expect(fill.unsavedCaption == "1 field changed · 12 items not saved", "the premise: \(fill.unsavedCaption ?? "none")")
         #expect(fill.unsavedShortCaption == "1 field · 12 items")
+        let items = self.fill()
+        for n in 0..<12 { try placeText(items, "Item \(n)") }
+        #expect(items.unsavedShortCaption == "12 items")
         let room = EditorPDFHeaderWidthTests.column - 2 * EditorPDFFloating.inset
         for percent in FontSize.selectablePercents {
-            let stack = EditorPDFFillSaveStack(fill: fill, tools: EditorPDFTools(), accentFill: .blue)
-                .environment(\.appFontScale, FontSize(percent: percent).scale)
-            func width(_ proposed: CGFloat) -> CGFloat {
-                NSHostingController(rootView: stack).sizeThatFits(in: CGSize(width: proposed, height: 1000)).width
+            func width(_ fill: EditorPDFFillSign, _ proposed: CGFloat) -> CGFloat {
+                let stack = EditorPDFFillSaveStack(fill: fill, tools: EditorPDFTools(), accentFill: .blue)
+                    .environment(\.appFontScale, FontSize(percent: percent).scale)
+                return NSHostingController(rootView: stack).sizeThatFits(in: CGSize(width: proposed, height: 1000)).width
             }
-            #expect(width(room) <= room, "at \(percent)% the pill is \(width(room))pt, over the \(room)pt the narrowest column has")
+            #expect(width(fill, room) <= room, "at \(percent)% the pill is \(width(fill, room))pt, over the \(room)pt the narrowest column has")
             // With less room than the short words take, it drops them rather than squeezing its
             // buttons — a squeezed pill is as wide as it is let be, one with no words keeps its own
-            // width. The column holds the short words at every size, so it keeps them there.
-            let bare = width(205)
-            #expect(bare <= 205 && width(220) == bare,
-                    "at \(percent)% with 220pt and 205pt the pill is \(width(220))pt and \(bare)pt — it squeezed its buttons to keep words")
-            #expect(width(room) > bare, "at \(percent)% the pill dropped words the column had room for")
+            // width. Discard, Save Filled Copy and Done (TE98) take 260pt.
+            let bare = width(fill, 262)
+            #expect(bare <= 262 && width(fill, 300) == bare,
+                    "at \(percent)% with 300pt and 262pt the pill is \(width(fill, 300))pt and \(bare)pt — it squeezed its buttons to keep words")
+            // The narrowest column keeps a count of items: "12 items" beside the buttons.
+            #expect(width(items, room) > bare, "at \(percent)% the pill dropped words the column had room for")
         }
     }
 

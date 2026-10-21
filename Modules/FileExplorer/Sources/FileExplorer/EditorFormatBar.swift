@@ -710,7 +710,7 @@ struct EditorFormatBar: View, Equatable {
         .disabled(!offered)
         .fixedSize()
         .popover(isPresented: $showsStyles, arrowEdge: .bottom) {
-            EditorStylePicker(current: state.heading) { verb in
+            EditorStylePicker(current: state.heading, accent: accent) { verb in
                 showsStyles = false
                 onVerb(verb)
             }
@@ -852,6 +852,8 @@ struct EditorFormatBar: View, Equatable {
 /// bold down to Body, ticked at the level the selection is at, as Notes draws its Aa list.
 struct EditorStylePicker: View {
     let current: MarkdownEdits.HeadingLevel
+    /// The window's hue, for the row under the pointer — the format bar's own (TE101).
+    var accent: Color = .accentColor
     let onPick: (MarkupVerb) -> Void
 
     /// Each style's size and weight in the list — the headings in steps above the body's 13 points.
@@ -867,7 +869,7 @@ struct EditorStylePicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(EditorFormatBar.headingVerbs, id: \.self) { verb in
-                EditorStyleRow(verb: verb, isCurrent: EditorFormatBar.isCurrent(verb, current)) { onPick(verb) }
+                EditorStyleRow(verb: verb, isCurrent: EditorFormatBar.isCurrent(verb, current), accent: accent) { onPick(verb) }
             }
         }
         .padding(6)
@@ -876,11 +878,12 @@ struct EditorStylePicker: View {
 }
 
 /// One style in ``EditorStylePicker``: a tick where it is current, its name in its own size, the
-/// row filled in the accent under the pointer, as a menu item is — the SYSTEM accent, as a menu's
-/// highlight is, deepened so the white label on it clears AA (`AccentFill`).
+/// row filled in the accent under the pointer, as a menu item is — the window's hue, as the format
+/// bar's own (TE101), deepened so the white label on it clears AA (`AccentFill`).
 private struct EditorStyleRow: View {
     let verb: MarkupVerb
     let isCurrent: Bool
+    var accent: Color = .accentColor
     let action: () -> Void
     @State private var hovering = false
 
@@ -899,7 +902,8 @@ private struct EditorStyleRow: View {
             .foregroundStyle(hovering ? Color.white : Color.primary)
             .padding(.vertical, 4)
             .padding(.horizontal, 8)
-            .background(RoundedRectangle(cornerRadius: Radius.chip).fill(hovering ? AccentFill.deepened(.accentColor) : .clear))
+            // Deepened as every accent fill under a white label is, so a light hue still reads.
+            .background(RoundedRectangle(cornerRadius: Radius.chip).fill(hovering ? AccentFill.deepened(accent) : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

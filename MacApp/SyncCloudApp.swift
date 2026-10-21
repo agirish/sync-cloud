@@ -1303,7 +1303,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // **A PDF's pending page order or running tool is asked about first** — every route out of
         // the document in the window asks the same question (`settleEditorDocument`); ⌘Q is the
         // one that lives here. It only asks, so a later "Wait" below keeps the order where it was.
-        if let tools = Self.sharedPDFTools, !tools.mayLeave() {
+        // A filled copy saved from the question quits once it has landed (decision AX).
+        if let tools = Self.sharedPDFTools, !tools.mayLeave(thenRetry: { NSApp.terminate(nil) }) {
             Logger.shared.info("Quit cancelled — the open PDF has work that would be lost")
             return .terminateCancel
         }

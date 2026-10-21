@@ -50,7 +50,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     private var drag: Drag?
     private var tracking: NSTrackingArea?
     /// The app's accent, for the selection ring and the fields' wash and edge — the hue the user
-    /// picked, not the system's. Set by ``EditorPDFPageView`` from the workspace's raw accent: these
+    /// picked, not the system's (TE101). Set by ``EditorPDFPageView`` from the workspace's raw accent: these
     /// are rings and washes, with no label to carry, so they take the accent undeepened.
     /// System blue, the stock accent, only until the host hands it the app's.
     var accent: NSColor = .systemBlue {
@@ -218,8 +218,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
 
     override func magnify(with event: NSEvent) { reader?.magnify(with: event) }
 
-    /// **An item's right-click menu** (TE92): it is selected, and the menu offers what the palette's
-    /// Aa tool would for it — then Delete.
+    /// **An item's right-click menu** (TE92, TE140): it is selected, and the menu offers what the
+    /// palette's Style, Text Size and Ink tools would for it — then Delete.
     override func menu(for event: NSEvent) -> NSMenu? {
         guard isActive, let fill, let item = item(at: convert(event.locationInWindow, from: nil)) else { return nil }
         fill.endEditing()
@@ -254,7 +254,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             case 51, 117 where fill.selection != nil:
                 fill.deleteSelection()
                 return
-            case ReaderPDFView.escapeKeyCode where fill.escape():
+            // The reader's own Esc — the find card — goes before the palette does (TE98).
+            case ReaderPDFView.escapeKeyCode where fill.escape(first: { reader?.onEscape?() == true }):
                 return
             case 123 where fill.selection != nil: fill.nudge(dx: -step, dy: 0); revealSelection(); return
             case 124 where fill.selection != nil: fill.nudge(dx: step, dy: 0); revealSelection(); return
@@ -518,17 +519,22 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         tracking = area
     }
 
+    /// The corner handle's pointer: the system's own frame-resize cursor for a bottom-right corner.
+    static let resizeCursor = NSCursor.frameResize(position: .bottomRight, directions: .all)
+
     override func mouseMoved(with event: NSEvent) {
         guard isActive, let fill else { return }
         let point = convert(event.locationInWindow, from: nil)
         if handleHit(point) != nil {
-            NSCursor.crosshair.set()
+            // A diagonal resize, as a window's corner shows (TE136) — the crosshair is the placing
+            // tools' "click to place".
+            Self.resizeCursor.set()
         } else if item(at: point) != nil {
             NSCursor.openHand.set()
         } else if takesFieldClicks, let hit = fieldHit(at: point) {
-            switch fill.fieldRefusal(hit.field) == nil ? hit.field.kind : .pushButton {
+            switch fill.fieldRefusal(hit.field) == nil || fill.signs(hit.field) ? hit.field.kind : .pushButton {
             case .text: NSCursor.iBeam.set()
-            case .checkbox, .radio, .choice: NSCursor.pointingHand.set()
+            case .checkbox, .radio, .choice, .signature: NSCursor.pointingHand.set()
             default: NSCursor.arrow.set()
             }
         } else if fill.armed != nil, fill.armed != .formFields, pageIndex(at: point) != nil {
@@ -577,6 +583,10 @@ extension EditorPDFFillOverlay {
     func click(_ hit: FieldHit) {
         guard let fill else { return }
         fill.endEditing()
+        if fill.signs(hit.field) {
+            sign(hit)
+            return
+        }
         guard fill.fieldRefusal(hit.field) == nil else {
             fill.focusField(nil)
             return
@@ -590,6 +600,15 @@ extension EditorPDFFillOverlay {
             openMenu(hit.field, at: hit.widget)
         case .signature, .pushButton: fill.focusField(nil)
         }
+    }
+
+    /// **A signature field clicked: the Signature menu, at the field** (TE107) — choosing one places
+    /// it to fit the field; with none saved, the Add sheet, whose signature goes there.
+    func sign(_ hit: FieldHit) {
+        guard let fill, let target = fill.signingTarget(for: hit.widget), let rect = widgetRect(hit.widget) else { return }
+        fill.focusField(nil)
+        if fill.addFirst(.signature, signing: target) { return }
+        presentMenu(EditorPDFSignatureMenu.menu(for: fill, kind: .signature, signing: target), rect, self)
     }
 
     /// **A choice field's menu**: its options, the one it has ticked — and for a combo that takes a
@@ -712,7 +731,8 @@ extension EditorPDFFillOverlay {
         let scale = reader?.scaleFactor ?? 1
         for hit in shownWidgets {
             guard let rect = widgetRect(hit.widget), rect.intersects(dirtyRect.insetBy(dx: -4, dy: -4)) else { continue }
-            let open = fill.fieldRefusal(hit.field) == nil
+            // A signature field a click signs is tinted as one that takes a value (TE107).
+            let open = fill.fieldRefusal(hit.field) == nil || fill.signs(hit.field)
             let changed = fill.values[hit.field.name] != nil
             let box = NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5)
             if changed {

@@ -298,7 +298,7 @@ import FileExplorer
     /// the package (`PlainTextEditorBridgeTests`); `ContentView` cannot be built, so its call sites
     /// are read. Mutation: remove either `endComposition()`.
     @Test func leavingADocumentEndsTheCompositionFirst() throws {
-        let settle = CodeText(try declarationBody(of: "func settleEditorDocument(asksAboutPDFWork: Bool = true) -> Bool",
+        let settle = CodeText(try declarationBody(of: "func settleEditorDocument(asksAboutPDFWork: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool",
                                                   in: EditorHeaderDoorsWiringTests.editor()))
         let ends = try #require(settle.range(of: "editorDocument.buffer.source.endComposition()"),
                                 "leaving a document no longer ends the composition")

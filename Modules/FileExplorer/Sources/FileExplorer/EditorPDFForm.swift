@@ -152,12 +152,16 @@ public struct EditorPDFForm: Equatable, Sendable {
 
     // MARK: What a field says and takes
 
+    static let signFieldHint = "Signature field — click to sign it"
+    static let signFieldRefusal = "Signature field — this PDF’s owner doesn’t allow adding a signature to its pages"
     static let separateBoxValuesReason = "These boxes share one name with separate values, which can’t be set here"
 
-    /// Why a field takes no value, or `nil` for one that does — the overlay's hover words.
-    public static func refusal(_ field: FormField, allowsFormEntry: Bool) -> String? {
+    /// Why a field takes no value, or `nil` for one that does — the overlay's hover words. A
+    /// signature field takes none, but a click signs it where the owner lets signatures be placed
+    /// (TE107), and its words say so.
+    public static func refusal(_ field: FormField, allowsFormEntry: Bool, allowsPlacing: Bool = true) -> String? {
         switch field.kind {
-        case .signature: return "Signature field — use Signature in the Fill & Sign tools to sign the page"
+        case .signature: return allowsPlacing ? signFieldHint : signFieldRefusal
         case .pushButton: return "Button — it does nothing in a saved copy"
         default: break
         }

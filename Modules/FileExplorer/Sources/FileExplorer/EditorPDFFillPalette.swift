@@ -191,10 +191,10 @@ struct EditorPDFFillPalette: View {
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent, shape: .roundedRect(Radius.control)))
         .background(tool.flyout.map { EditorHeadingMenuAnchor.Probe(anchor: anchors.anchor($0)) })
-        .disabled(isDisabled(tool))
+        .disabled(Self.refusal(tool, fill: fill) != nil)
         .accessibilityLabel(tool.title)
         .accessibilityAddTraits(lit ? .isSelected : [])
-        .help(help(for: tool))
+        .help(Self.refusal(tool, fill: fill) ?? Self.hint(tool))
     }
 
     @ViewBuilder
@@ -229,18 +229,31 @@ struct EditorPDFFillPalette: View {
         return lastMark
     }
 
-    private func isDisabled(_ tool: Tool) -> Bool {
-        if tool == .formFields { return !fill.offersFormFields }
-        if tool == .style, fill.styleTarget == .mark { return true }
-        return tool.places && !fill.offersPlacing
+    /// **Why `tool` is greyed now, in its tooltip's words — or `nil` while it is live.** Style, Text
+    /// Size and Ink grey out where they could change nothing (TE108): a form field keeps the form's
+    /// own text style, a drawn signature has no text size, and on a form whose owner forbids adding
+    /// to its pages there is nothing they could style.
+    static func refusal(_ tool: Tool, fill: EditorPDFFillSign) -> String? {
+        switch tool {
+        case .formFields:
+            guard !fill.offersFormFields else { return nil }
+            return fill.allowsFormEntry ? "This form has no fields that can be filled here" : EditorPDFFillSign.noFormEntryReason
+        case .style, .size, .ink:
+            if !fill.offersPlacing { return EditorPDFFillSign.noCommentingReason }
+            // An item clicked keeps the field's focus ring; the tools are then the item's.
+            if fill.focusedField != nil, fill.selected == nil {
+                return "\(tool.title) — a form field keeps the form’s own text style"
+            }
+            if tool == .style, fill.styleTarget == .mark { return "Style — a mark keeps its own font" }
+            if tool == .size, case .drawnSignature = fill.styleTarget { return "Text Size — a drawn signature has no text size" }
+            return nil
+        case .select, .text, .date, .marks, .signature, .initials:
+            return tool.places && !fill.offersPlacing ? EditorPDFFillSign.noCommentingReason : nil
+        }
     }
 
-    private func help(for tool: Tool) -> String {
-        if tool == .formFields, !fill.offersFormFields {
-            return fill.allowsFormEntry ? "This form has no fields that can be filled here" : EditorPDFFillSign.noFormEntryReason
-        }
-        if tool.places, !fill.offersPlacing { return EditorPDFFillSign.noCommentingReason }
-        if tool == .style, fill.styleTarget == .mark { return "Style — a mark keeps its own font" }
+    /// What a live tool does, in its tooltip.
+    static func hint(_ tool: Tool) -> String {
         switch tool {
         case .formFields: return "Form Fields — click a field to fill it; Tab moves to the next"
         case .select: return "Select — click what you placed to move it; Delete removes it"
@@ -255,14 +268,22 @@ struct EditorPDFFillPalette: View {
     }
 
     private func act(_ tool: Tool) {
+        Self.press(tool, fill: fill, choseMark: { lastMark = $0 }, open: open)
+    }
+
+    /// **What pressing `tool` does**: arms it, or opens its flyout through `open` — except Signature
+    /// and Initials with none saved, which go straight to the Add sheet (TE141).
+    static func press(_ tool: Tool, fill: EditorPDFFillSign, choseMark: @escaping (EditorPDFFillMark) -> Void = { _ in },
+                      open: (Flyout, NSMenu) -> Void) {
         switch tool {
         case .formFields: fill.armed = .formFields
         case .select: fill.armed = nil
         case .text: fill.armed = .text
         case .date: fill.armed = .date
-        case .marks: open(.marks, EditorPDFFillFlyouts.marks(for: fill) { lastMark = $0 })
-        case .signature: open(.signature, EditorPDFSignatureMenu.menu(for: fill, kind: .signature))
-        case .initials: open(.initials, EditorPDFSignatureMenu.menu(for: fill, kind: .initials))
+        case .marks: open(.marks, EditorPDFFillFlyouts.marks(for: fill, chose: choseMark))
+        case .signature, .initials:
+            let kind: EditorPDFSignature.Kind = tool == .signature ? .signature : .initials
+            if !fill.addFirst(kind) { open(tool == .signature ? .signature : .initials, EditorPDFSignatureMenu.menu(for: fill, kind: kind)) }
         case .style: open(.style, EditorPDFFillFlyouts.style(for: fill))
         case .size: open(.size, EditorPDFFillFlyouts.size(for: fill))
         case .ink: open(.ink, EditorPDFFillFlyouts.ink(for: fill))
@@ -340,21 +361,57 @@ enum EditorPDFFillFlyouts {
         return menu
     }
 
-    /// **An item's right-click menu**: its style choices, then Delete.
+    /// **An item's right-click menu** (TE140) — what the palette's tools would change for it, each in
+    /// a submenu named as the tool is, then Delete. Text: Edit Text, then Font, Text Size and Ink; a
+    /// typed signature: Face and Ink; a drawn one: Pen and Ink; a mark: Ink.
     static func itemMenu(for fill: EditorPDFFillSign) -> NSMenu {
-        let menu = style(for: fill)
-        if !menu.items.isEmpty { menu.addItem(.separator()) }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        func submenu(_ title: String, _ items: [NSMenuItem]) {
+            let line = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            sub.autoenablesItems = false
+            items.forEach(sub.addItem)
+            line.submenu = sub
+            menu.addItem(line)
+        }
+        switch fill.styleTarget {
+        case .text(let id):
+            menu.addItem(EditorClosureMenuItem(title: editTextTitle) { fill.beginEditing(id) })
+            menu.addItem(.separator())
+            submenu("Font", styleItems(for: fill, headed: false))
+            submenu("Text Size", lines(of: size(for: fill)))
+        case .typedSignature:
+            submenu("Face", styleItems(for: fill, headed: false))
+        case .drawnSignature:
+            submenu("Pen", styleItems(for: fill, headed: false))
+        case .mark, .nextText:
+            break
+        }
+        if fill.styleTarget != .nextText { submenu("Ink", lines(of: ink(for: fill))) }
+        menu.addItem(.separator())
         menu.addItem(EditorClosureMenuItem(title: "Delete") { fill.deleteSelection() })
         return menu
     }
 
-    private static func styleItems(for fill: EditorPDFFillSign) -> [NSMenuItem] {
+    static let editTextTitle = "Edit Text"
+
+    /// A flyout's lines, taken out of it so another menu can hold them.
+    private static func lines(of menu: NSMenu) -> [NSMenuItem] {
+        let items = menu.items
+        menu.removeAllItems()
+        return items
+    }
+
+    /// The Aa tool's lines for what is selected — under a heading saying what they change, unless
+    /// they are a submenu whose name already does.
+    private static func styleItems(for fill: EditorPDFFillSign, headed: Bool = true) -> [NSMenuItem] {
         var out: [NSMenuItem] = []
         switch fill.styleTarget {
         case .typedSignature:
             guard let item = fill.selected, let signature = item.signature,
                   case .typed(let words) = signature.look else { return [] }
-            out.append(heading("Face of \(kindWord(signature.kind))"))
+            if headed { out.append(heading("Face of \(kindWord(signature.kind))")) }
             for face in EditorPDFSignatureFace.allCases {
                 let line = EditorClosureMenuItem(title: face.title) { fill.setFace(face) }
                 line.attributedTitle = faceTitle(words, face: face)
@@ -364,7 +421,7 @@ enum EditorPDFFillFlyouts {
             out += savedNote(fill, kind: signature.kind)
         case .drawnSignature:
             guard let signature = fill.selected?.signature else { return [] }
-            out.append(heading("Pen of \(kindWord(signature.kind))"))
+            if headed { out.append(heading("Pen of \(kindWord(signature.kind))")) }
             for pen in EditorPDFPen.allCases {
                 let line = EditorClosureMenuItem(title: pen.title) { fill.setPen(pen) }
                 line.image = penImage(pen)
@@ -373,7 +430,7 @@ enum EditorPDFFillFlyouts {
             }
             out += savedNote(fill, kind: signature.kind)
         case .text, .nextText:
-            out.append(heading(fill.styleTarget == .nextText ? "Font of the next text" : "Font of this text"))
+            if headed { out.append(heading(fill.styleTarget == .nextText ? "Font of the next text" : "Font of this text")) }
             let current = fill.currentTextFont
             for font in EditorPDFTextFont.allCases {
                 let line = EditorClosureMenuItem(title: font.title) { fill.setTextFont(font) }
@@ -489,6 +546,7 @@ struct EditorPDFFillSaveStack: View {
 
     /// The widest the note card grows before its lines wrap.
     static let noteWidth: CGFloat = 360
+    static let doneTitle = "Done"
 
     var body: some View {
         let showsPill = fill.isOn && fill.hasUnsavedChanges
@@ -539,6 +597,14 @@ struct EditorPDFFillSaveStack: View {
                 .tint(accentFill)
                 .disabled(!fill.canSave || tools.running != nil)
                 .help(fill.saveHelp)
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(width: 1, height: 14)
+                .accessibilityHidden(true)
+            // **A way out from where the work is** (TE98) — the header's button's own toggle, which
+            // asks about what isn't saved.
+            Button(Self.doneTitle) { fill.toggle() }
+                .help("Put Fill & Sign away — asks first about what isn’t saved. Esc does it too")
         }
         .controlSize(.small)
         .scaledFont(.system(size: 11))
@@ -571,23 +637,30 @@ struct EditorPDFFillSaveStack: View {
 /// **The Signature and Initials menus** (mockup 18): the saved ones, drawn — choosing one makes the
 /// next click place it — then Add…, and a submenu to delete a saved one. Built when pressed, as the
 /// zoom's menu is — the Signature and Initials tools' flyouts in the palette.
+///
+/// **Opened from a form's signature field** (`signing`, TE107) it signs that field: choosing one, or
+/// adding one, places it there.
 @MainActor
 enum EditorPDFSignatureMenu {
-    static func menu(for fill: EditorPDFFillSign, kind: EditorPDFSignature.Kind) -> NSMenu {
+    static func menu(for fill: EditorPDFFillSign, kind: EditorPDFSignature.Kind,
+                     signing target: EditorPDFFillSign.SigningTarget? = nil) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         let saved = fill.store.saved(kind)
-        let label = NSMenuItem(title: saved.isEmpty ? "No saved \(kind.title.lowercased()) yet" : "Saved on this Mac",
-                               action: nil, keyEquivalent: "")
+        let heading = target != nil ? signFieldTitle
+            : saved.isEmpty ? "No saved \(kind.title.lowercased()) yet" : "Saved on this Mac"
+        let label = NSMenuItem(title: heading, action: nil, keyEquivalent: "")
         label.isEnabled = false
         menu.addItem(label)
         for signature in saved {
-            menu.addItem(item(signature, among: saved) { fill.armed = .signature(signature) })
+            menu.addItem(item(signature, among: saved) {
+                if let target { fill.place(signature, in: target) } else { fill.armed = .signature(signature) }
+            })
         }
         menu.addItem(.separator())
-        menu.addItem(EditorClosureMenuItem(title: "Add \(kind.title)…") { fill.addingSignature = kind })
-        if !saved.isEmpty {
-            let delete = NSMenuItem(title: "Delete a Saved \(kind.title)", action: nil, keyEquivalent: "")
+        menu.addItem(EditorClosureMenuItem(title: "Add \(kind.title)…") { fill.startAdding(kind, signing: target) })
+        if !saved.isEmpty, target == nil {
+            let delete = NSMenuItem(title: deleteTitle(kind), action: nil, keyEquivalent: "")
             let submenu = NSMenu()
             for signature in saved {
                 // Asks first (decision BE).
@@ -597,6 +670,13 @@ enum EditorPDFSignatureMenu {
             menu.addItem(delete)
         }
         return menu
+    }
+
+    static let signFieldTitle = "Sign this field"
+
+    /// "Delete a Saved Signature", "Delete Saved Initials" (TE100) — initials are a plural.
+    static func deleteTitle(_ kind: EditorPDFSignature.Kind) -> String {
+        kind == .signature ? "Delete a Saved Signature" : "Delete Saved Initials"
     }
 
     /// A saved signature as a menu line: typed ones in the script face, drawn ones as a picture

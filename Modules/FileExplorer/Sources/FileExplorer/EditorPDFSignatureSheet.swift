@@ -81,14 +81,25 @@ struct EditorPDFAddSignatureSheet: View {
                 ForEach(EditorPDFFillColor.allCases, id: \.self) { swatch($0) }
             }
             Toggle("Save on this Mac for next time", isOn: $keep)
+            if keep, let full = Self.fullCaption(kind, store: fill.store) {
+                Text(full)
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if offersInitials {
                 Toggle(isOn: $makeInitials) {
                     HStack(spacing: 4) {
                         Text("Also make initials")
+                        // On a chip of paper, as the face tiles are: black ink on a dark sheet
+                        // was close to unreadable (TE135).
                         Text(initials.isEmpty ? "—" : initials)
                             .font(Font(PDFToolkit.font(size: 17, script: true, font: face.toolkit)))
                             .foregroundStyle(Color(nsColor: ink.nsColor))
-                            .padding(.trailing, 3)
+                            .padding(.horizontal, 5)
+                            .background(Self.paper, in: RoundedRectangle(cornerRadius: Radius.chip))
+                            .overlay(RoundedRectangle(cornerRadius: Radius.chip).strokeBorder(Color(white: 0.84)))
+                            .padding(.horizontal, 2)
                         Text("in this style")
                     }
                 }
@@ -108,6 +119,9 @@ struct EditorPDFAddSignatureSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Add") { add() }
                     .keyboardShortcut(.defaultAction)
+                    // The window's hue, deepened for its white label, as the tool sheets' default
+                    // buttons wear it (TE101).
+                    .tint(hue.accentFillColor)
                     .disabled(made == nil)
             }
         }
@@ -209,9 +223,18 @@ struct EditorPDFAddSignatureSheet: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .help(option.title)
-        .accessibilityLabel(option.title)
+        .help(option.inkTitle)
+        .accessibilityLabel(option.inkTitle)
         .accessibilityAddTraits(chosen ? .isSelected : [])
+    }
+
+    /// **What the sheet says when one more lets the oldest go** (TE100) — `nil` with room to spare.
+    static func fullCaption(_ kind: EditorPDFSignature.Kind, store: EditorPDFSignatureStore) -> String? {
+        guard store.isFull(kind) else { return nil }
+        let n = EditorPDFSignatureStore.limit
+        return kind == .signature
+            ? "You have \(n) saved signatures, the most Edit keeps. Adding this one replaces the oldest."
+            : "You have \(n) saved initials, the most Edit keeps. Adding these replaces the oldest."
     }
 
     private var made: EditorPDFSignature? {

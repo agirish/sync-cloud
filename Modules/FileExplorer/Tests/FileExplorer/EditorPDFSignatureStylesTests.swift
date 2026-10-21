@@ -159,7 +159,8 @@ import EventsTestSupport
         #expect(mark.font == .sans && mark.isMark)
         #expect(fill.styleTarget == .mark)
         #expect(EditorPDFFillFlyouts.style(for: fill).items.isEmpty)
-        #expect(EditorPDFFillFlyouts.itemMenu(for: fill).items.map(\.title) == ["Delete"])
+        // A mark's right-click menu: its ink, and Delete (TE140).
+        #expect(EditorPDFFillFlyouts.itemMenu(for: fill).items.map(\.title) == ["Ink", "", "Delete"])
         fill.armed = .date
         let date = try #require(fill.place(at: CGPoint(x: 300, y: 300), page: 0))
         #expect(fill.items.first { $0.id == date }?.font == .handwritten, "a date did not take the next text's font")
@@ -228,7 +229,8 @@ import EventsTestSupport
             EditorPDFFillItem.measure("Alex Morgan", fontSize: item.fontSize, script: true, font: item.toolkitFont).width
         }
         #expect(abs(width(restyled) - width(placed)) < 2, "the new face changed the signature's width")
-        #expect(fill.undoManager.undoActionName == "Signature Style")
+        // Undo names what changed (TE121): the face.
+        #expect(fill.undoManager.undoActionName == "Face")
 
         fill.undoManager.undo()
         #expect(fill.items.first { $0.id == placed.id } == placed)
@@ -269,20 +271,63 @@ import EventsTestSupport
         #expect(fill.items.first { $0.id == placed.id }?.signature?.pen == .bold)
         #expect(fill.items.first { $0.id == placed.id }?.rect == placed.rect, "a pen moved or resized the signature")
         #expect(fill.store.saved.first?.pen == .bold)
+        #expect(fill.undoManager.undoActionName == "Pen")
         fill.undoManager.undo()
         #expect(fill.items.first { $0.id == placed.id }?.signature?.pen == .medium && fill.store.saved.first?.pen == .medium)
     }
 
-    /// **The right-click menu is the Aa flyout and Delete** (TE92).
+    /// **A typed signature's right-click menu is Face ▸ and Ink ▸, then Delete** (TE92, TE140) — the
+    /// Face submenu holds the Aa flyout's faces, without the heading its name already says, and with
+    /// the line that the saved one changes too.
     @Test func anItemsRightClickMenuIsItsStylesThenDelete() throws {
         let fill = fill()
-        let placed = try place(fill, EditorPDFSignature(kind: .signature, look: .typed("Alex Morgan")))
+        let saved = EditorPDFSignature(kind: .signature, look: .typed("Alex Morgan"))
+        fill.store.add(saved)
+        let placed = try place(fill, saved)
         let menu = EditorPDFFillFlyouts.itemMenu(for: fill)
+        #expect(menu.items.map(\.title) == ["Face", "Ink", "", "Delete"])
+        let faces = try #require(menu.items.first?.submenu)
         let style = EditorPDFFillFlyouts.style(for: fill)
-        #expect(Array(menu.items.map(\.title).prefix(style.items.count)) == style.items.map(\.title))
-        #expect(menu.items.last?.title == "Delete")
+        #expect(faces.items.map(\.title) == Array(style.items.map(\.title).dropFirst()), "the Face submenu isn't the Aa flyout's lines")
+        #expect(faces.items.last?.title == EditorPDFFillFlyouts.changesSavedLine)
+        try fire(faces.items.first { $0.title.hasSuffix("Savoye") })
+        #expect(fill.items.first { $0.id == placed.id }?.signature?.face == .savoye)
+        let ink = try #require(menu.items.dropFirst().first?.submenu)
+        #expect(ink.items.map(\.title) == ["Blue", "Black"])
+        try fire(ink.items.last)
+        #expect(fill.items.first { $0.id == placed.id }?.color == .black)
         try fire(menu.items.last)
         #expect(!fill.items.contains { $0.id == placed.id })
+    }
+
+    /// **Placed text's right-click menu** (TE140): Edit Text, then Font ▸, Text Size ▸ and Ink ▸, then
+    /// Delete — each submenu's lines doing what the palette's tool does, and Edit Text starting the
+    /// typing a double-click starts. A drawn signature gets Pen ▸ and Ink ▸.
+    @Test func placedTextsRightClickMenuEditsStylesSizesAndInks() throws {
+        let fill = fill()
+        let id = try placeText(fill)
+        let menu = EditorPDFFillFlyouts.itemMenu(for: fill)
+        #expect(menu.items.map(\.title) == [EditorPDFFillFlyouts.editTextTitle, "", "Font", "Text Size", "Ink", "", "Delete"])
+        let fonts = try #require(menu.items[2].submenu)
+        #expect(fonts.items.map(\.title) == EditorPDFTextFont.allCases.map(\.title))
+        try fire(fonts.items.first { $0.title == "Serif" })
+        #expect(fill.items.first { $0.id == id }?.font == .serif)
+        let sizes = try #require(menu.items[3].submenu)
+        try fire(sizes.items.first { $0.title == "18 pt" })
+        #expect(fill.items.first { $0.id == id }?.fontSize == 18)
+        let inks = try #require(menu.items[4].submenu)
+        try fire(inks.items.first { $0.title == "Black" })
+        #expect(fill.items.first { $0.id == id }?.color == .black)
+        #expect(fill.editing == nil)
+        try fire(menu.items.first)
+        #expect(fill.editing == id, "Edit Text did not start the typing")
+
+        fill.endEditing()
+        let drawn = EditorPDFSignature(kind: .signature, look: .drawn(strokes: [[.zero, CGPoint(x: 1, y: 1)]], aspect: 3))
+        _ = try place(fill, drawn)
+        let pens = EditorPDFFillFlyouts.itemMenu(for: fill)
+        #expect(pens.items.map(\.title) == ["Pen", "Ink", "", "Delete"])
+        #expect(pens.items.first?.submenu?.items.map(\.title) == ["Fine", "Medium", "Bold"])
     }
 
     // MARK: The sheet's pieces

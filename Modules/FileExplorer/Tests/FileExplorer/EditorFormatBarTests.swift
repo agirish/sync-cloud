@@ -1259,7 +1259,7 @@ import EventsTestSupport
             .environment(\.appFontScale, 1))).fittingSize.height
         #expect(height > 4 * (13 + 8) + 12, "the picker lays out \(height)pt high — its styles are not drawn in their sizes")
         let bar = try Self.source("EditorFormatBar.swift")
-        #expect(Self.squeezed(bar).contains(Self.squeezed(".popover(isPresented: $showsStyles, arrowEdge: .bottom) {\nEditorStylePicker(current: state.heading) { verb in\nshowsStyles = false\nonVerb(verb)\n}")),
+        #expect(Self.squeezed(bar).contains(Self.squeezed(".popover(isPresented: $showsStyles, arrowEdge: .bottom) {\nEditorStylePicker(current: state.heading, accent: accent) { verb in\nshowsStyles = false\nonVerb(verb)\n}")),
                 "the Body menu does not open the picker, or the picker's choice does not reach onVerb")
         let picker = try Self.slice(bar, from: "struct EditorStylePicker: View", to: "private struct EditorStyleRow")
         #expect(picker.contains("isCurrent: EditorFormatBar.isCurrent(verb, current)"), "the picker ticks by something else")

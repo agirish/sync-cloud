@@ -95,12 +95,16 @@ public enum EditorPDFFillColor: String, CaseIterable, Codable, Sendable {
         return NSColor(srgbRed: c.red, green: c.green, blue: c.blue, alpha: 1)
     }
 
+    /// The Ink menu's line — "Blue", under a menu that already says Ink (TE126).
     public var title: String {
         switch self {
-        case .blue: return "Blue Ink"
-        case .black: return "Black Ink"
+        case .blue: return "Blue"
+        case .black: return "Black"
         }
     }
+
+    /// "Blue ink" — where nothing else on screen says Ink: the Add sheet's swatches.
+    public var inkTitle: String { "\(title) ink" }
 }
 
 /// **The Mac's own handwriting faces a typed signature can take** (TE88; decision AQ, 2026-10-19:
@@ -493,7 +497,8 @@ public enum EditorPDFFillMark: String, CaseIterable, Sendable {
 @MainActor
 public final class EditorPDFSignatureStore: ObservableObject {
     public static let key = "editorPDFSavedSignatures"
-    /// The most of each kind kept; adding past it lets the oldest go.
+    /// The most of each kind kept; adding past it lets the oldest go — said on the Add sheet first
+    /// (``isFull(_:)``, TE100).
     static let limit = 6
 
     @Published public private(set) var saved: [EditorPDFSignature]
@@ -525,6 +530,9 @@ public final class EditorPDFSignatureStore: ObservableObject {
     }
 
     public func saved(_ kind: EditorPDFSignature.Kind) -> [EditorPDFSignature] { saved.filter { $0.kind == kind } }
+
+    /// Whether adding one more of `kind` lets the oldest go.
+    public func isFull(_ kind: EditorPDFSignature.Kind) -> Bool { saved(kind).count >= Self.limit }
 
     /// Newest first. **Built on what is stored, not on what was read at launch**: Settings ▸ Reset
     /// All Settings empties the domain under a store that is already up, and the next add wrote the
@@ -577,7 +585,13 @@ public final class EditorPDFFillSign: ObservableObject {
     /// The item whose words are being typed, or `nil`.
     @Published public private(set) var editing: UUID?
     /// The Add Signature sheet, for signatures or for initials.
-    @Published public var addingSignature: EditorPDFSignature.Kind?
+    @Published public var addingSignature: EditorPDFSignature.Kind? {
+        // The sheet put away without Add: the field it was opened from is no longer being signed.
+        didSet { if addingSignature == nil { signing = nil } }
+    }
+    /// **The signature field being signed** (TE107): where the signature chosen from its menu — or
+    /// added on the sheet it opened — is placed, instead of arming the Signature tool.
+    @Published public var signing: SigningTarget?
     /// What the next item is drawn in, and what A− / A+ and the inks last chose.
     @Published public private(set) var color: EditorPDFFillColor = .blue
     @Published public private(set) var fontSize: CGFloat = EditorPDFFillSign.defaultFontSize
@@ -771,6 +785,7 @@ public final class EditorPDFFillSign: ObservableObject {
         editing = nil
         armed = nil
         addingSignature = nil
+        signing = nil
         gestureBefore = nil
         editBefore = nil
         values = [:]
@@ -835,15 +850,21 @@ public final class EditorPDFFillSign: ObservableObject {
         refusal.map { $0 == Self.restrictedReason || $0 == Self.nothingToFillReason ? Self.restrictedTitle : $0 }
     }
 
-    /// Esc: stops typing, then lets go of the selection, then of the tool.
+    /// **Esc: stops typing, then lets go of the selection, then of the tool — and with nothing left
+    /// to let go of, puts Fill & Sign away** (TE98) through ``toggle()``, which asks about unsaved
+    /// work. `first` is the reader's own Esc, tried before that last step: an open find card closes
+    /// before the palette goes.
     @discardableResult
-    public func escape() -> Bool {
+    public func escape(first: () -> Bool = { false }) -> Bool {
         if editingField != nil { endFieldEditing(); return true }
         if focusedField != nil { focusedField = nil; return true }
         if editing != nil { endEditing(); return true }
         if selection != nil { selection = nil; return true }
         if armed != nil { armed = nil; return true }
-        return false
+        if first() { return true }
+        guard isOn else { return false }
+        toggle()
+        return true
     }
 
     // MARK: Counting
@@ -979,6 +1000,64 @@ public final class EditorPDFFillSign: ObservableObject {
             name = "Place \(signature.kind.title)"
         }
         return (EditorPDFFillItem(page: page, rect: .zero, content: content, fontSize: size, color: color, font: font), name)
+    }
+
+    // MARK: Signing a form's signature field (TE107)
+
+    /// A form's signature field, in the display space of its page — where its signature goes.
+    public struct SigningTarget: Equatable, Sendable {
+        public var page: Int
+        public var rect: CGRect
+    }
+
+    /// **Whether a click on `field` signs it**: a signature field, on a file whose owner lets
+    /// signatures be placed on its pages.
+    public func signs(_ field: FormField) -> Bool { isOn && field.kind == .signature && offersPlacing }
+
+    /// The box a signature put in `widget` fills, or `nil` for a page the file doesn't have.
+    public func signingTarget(for widget: FormField.Widget) -> SigningTarget? {
+        box(widget.pageIndex).map { SigningTarget(page: widget.pageIndex, rect: $0.displayRect(page: widget.rect)) }
+    }
+
+    /// **`signature` placed in a signature field** — as big as the field's box takes it, keeping its
+    /// shape, at the box's left edge and centred on its height. An ordinary item from then on: it
+    /// moves, resizes and deletes as one placed with the Signature tool does.
+    @discardableResult
+    public func place(_ signature: EditorPDFSignature, in target: SigningTarget) -> UUID? {
+        guard isOn, offersPlacing, let box = box(target.page), target.rect.width > 0, target.rect.height > 0 else {
+            return nil
+        }
+        endEditing()
+        endFieldEditing()
+        let field = target.rect
+        var item = EditorPDFFillItem(page: target.page, rect: .zero, content: .signature(signature),
+                                     fontSize: Self.signatureFontSize, color: color)
+        let size: CGSize
+        switch signature.look {
+        case .typed:
+            item.fontSize = Self.fittedFontSize(of: item, in: field.size)
+            size = item.wordsSize(fontSize: item.fontSize) ?? field.size
+        case .drawn(_, let aspect):
+            let shape = max(aspect, 0.2)
+            let width = min(field.width, field.height * shape)
+            size = CGSize(width: width, height: width / shape)
+        }
+        item.rect = FillSignGeometry.clamped(CGRect(x: field.minX, y: field.midY - size.height / 2,
+                                                    width: size.width, height: size.height), in: box.displayBounds)
+        change("Place \(signature.kind.title)") { $0.append(item) }
+        selection = item.id
+        return item.id
+    }
+
+    /// The largest point size, in half points, whose words' box fits inside `room` — at least 4,
+    /// the smallest the words are drawn.
+    static func fittedFontSize(of item: EditorPDFFillItem, in room: CGSize) -> CGFloat {
+        guard let unit = item.wordsSize(fontSize: 10), unit.width > 0, unit.height > 0 else { return item.fontSize }
+        var size = max(4, (10 * min(room.width / unit.width, room.height / unit.height) * 2).rounded(.down) / 2)
+        while size > 4, let box = item.wordsSize(fontSize: size), box.width > room.width || box.height > room.height {
+            size -= 0.5
+        }
+        return min(size, fontSizes.last!)
     }
 
     /// The size an item takes: its words' box, or a drawn signature at its placing width.
@@ -1129,7 +1208,7 @@ public final class EditorPDFFillSign: ObservableObject {
 
     /// Why `field` takes no value here, or `nil`.
     public func fieldRefusal(_ field: FormField) -> String? {
-        EditorPDFForm.refusal(field, allowsFormEntry: allowsFormEntry)
+        EditorPDFForm.refusal(field, allowsFormEntry: allowsFormEntry, allowsPlacing: offersPlacing)
     }
 
     private func fillableField(_ name: String) -> FormField? {
@@ -1407,6 +1486,7 @@ public final class EditorPDFFillSign: ObservableObject {
     /// signature in its face when asked (TE94) — chosen, so the next click places it, and its ink
     /// the next item's (TE89). The palette's ink, not the selected item's: adding a signature
     /// recolours nothing already placed.
+    /// **Opened from a signature field, it is placed in that field** (TE107) instead.
     public func add(_ signature: EditorPDFSignature, keep: Bool, makeInitials: Bool, ink: EditorPDFFillColor) {
         if keep {
             store.add(signature)
@@ -1418,7 +1498,28 @@ public final class EditorPDFFillSign: ObservableObject {
             }
         }
         color = ink
-        armed = .signature(signature)
+        if let target = signing {
+            signing = nil
+            place(signature, in: target)
+        } else {
+            armed = .signature(signature)
+        }
+    }
+
+    /// **The Signature or Initials tool pressed, or a signature field clicked, with none of `kind`
+    /// saved**: the Add sheet, straight away (TE141) — there is nothing for a menu to offer but Add.
+    /// `true` when it opened. From a field, what is added is placed in it.
+    @discardableResult
+    public func addFirst(_ kind: EditorPDFSignature.Kind, signing target: SigningTarget? = nil) -> Bool {
+        guard store.saved(kind).isEmpty else { return false }
+        startAdding(kind, signing: target)
+        return true
+    }
+
+    /// The Add sheet for `kind` — for a field, when `target` names one.
+    public func startAdding(_ kind: EditorPDFSignature.Kind, signing target: SigningTarget? = nil) {
+        addingSignature = kind
+        signing = target
     }
 
     /// **Delete a Saved Signature asks first** (decision BE, 2026-10-20): it took effect on the
@@ -1500,7 +1601,7 @@ public final class EditorPDFFillSign: ObservableObject {
               case .typed(let words) = signature.look, signature.face != face else { return }
         let size = EditorPDFFillItem.fittedSize(words, face: face, matching: signature.face, at: item.fontSize)
         signature.face = face
-        restyle(id, to: signature, name: "Signature Style") { $0.fontSize = size }
+        restyle(id, to: signature, name: "Face") { $0.fontSize = size }
     }
 
     /// Another pen for the selected drawn signature (TE92).
@@ -1509,7 +1610,7 @@ public final class EditorPDFFillSign: ObservableObject {
             return
         }
         signature.pen = pen
-        restyle(id, to: signature, name: "Signature Style") { _ in }
+        restyle(id, to: signature, name: "Pen") { _ in }
     }
 
     /// **Whether restyling the selected signature changes the saved one too** — decision AS,
@@ -1652,10 +1753,15 @@ public final class EditorPDFFillSign: ObservableObject {
     // MARK: Leaving
 
     /// **Asks before unsaved items are lost** — closing the PDF, opening another file, leaving
-    /// Edit or quitting (``EditorPDFTools/mayLeave()`` asks this). Save Filled Copy starts the
-    /// save and STAYS: the leave is a question the save cannot answer in time, and leaving while it
-    /// runs would cancel it. The banner then says where the copy went, and the next leave goes.
-    public func mayLeave() -> Bool {
+    /// Edit or quitting (``EditorPDFTools/mayLeave(thenRetry:)`` asks this).
+    ///
+    /// **Save Filled Copy saves, then leaves** (decision AX, 2026-10-20). The leave is a question
+    /// the save cannot answer in time, and leaving while it runs would cancel it — so the answer is
+    /// still "stay", and once the copy has landed with nothing changed meanwhile, `retry` asks for
+    /// the leave again, which then goes: nothing is left to ask about. A save that fails, is
+    /// declined or is cancelled stays on the PDF with its banner, as does one the reader placed
+    /// more on while it ran; `retry` is not called.
+    public func mayLeave(thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool {
         endEditing()
         endFieldEditing()
         guard hasUnsavedChanges, let path else { return true }
@@ -1675,7 +1781,12 @@ public final class EditorPDFFillSign: ObservableObject {
         case .discard: return true
         case .cancel: return false
         case .save:
-            Task { await save() }
+            Task {
+                let outcome = await save()
+                guard let retry, case .wrote = outcome, !hasUnsavedChanges, self.path == path else { return }
+                Logger.shared.info("Edit left \(EditorPDFTools.logName(path)) once its filled copy was written")
+                retry()
+            }
             return false
         }
     }

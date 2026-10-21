@@ -457,7 +457,7 @@ import FileExplorer
                                ("openDocument", "editorOpenPath"),
                                ("isRefused", "editorOpenIsRefused"),
                                ("paneFolder", "{ leftPaneFolder(in: .editor) }"),
-                               ("settle", "{ settleEditorDocument() }"),
+                               ("settle", "{ settleEditorDocument(thenRetry: { handOffToEditor(path, pane: pane) }) }"),
                                ("endNaming", "{ editorIsNaming = false }"),
                                ("showEdit", "{ if selectedWorkspace != .editor { selectedWorkspace = .editor } }"),
                                ("load", "{ loadIntoEditor(path: $0) }"),

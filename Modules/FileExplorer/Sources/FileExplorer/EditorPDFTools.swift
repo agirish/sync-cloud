@@ -228,7 +228,7 @@ public final class EditorPDFTools: ObservableObject {
 
     /// Set by the app; a no-op otherwise, so a test can run a tool without a window.
     public var host = EditorPDFToolHost()
-    /// Fill & Sign's unsaved items are work a leave can lose too — asked about in ``mayLeave()``,
+    /// Fill & Sign's unsaved items are work a leave can lose too — asked about in ``mayLeave(thenRetry:)``,
     /// which every route out of the PDF already asks.
     weak var fill: EditorPDFFillSign?
     /// Who a run's log lines say ran the tool — "Edit" for the reader's own tools; a run from a
@@ -256,7 +256,7 @@ public final class EditorPDFTools: ObservableObject {
     /// Asks whether to go ahead despite `warning` — a native alert in the app, a canned answer in a
     /// test. `toolTitle` is the tool's own title, which `detailLines` names.
     var confirm: @MainActor (OutputFidelityWarning, String) -> Bool = { EditorPDFTools.confirmWithAlert($0, toolTitle: $1) }
-    /// Asks whether a pending reorder or a run in flight may be lost — see ``mayLeave()``.
+    /// Asks whether a pending reorder or a run in flight may be lost — see ``mayLeave(thenRetry:)``.
     lazy var confirmDiscardingArrangement: @MainActor () -> Bool = { [unowned self] in self.confirmDiscardWithAlert() }
 
     private var cancelFlag: CancelFlag?
@@ -301,7 +301,7 @@ public final class EditorPDFTools: ObservableObject {
 
     func detach() {
         if let path {
-            // Asked about first where it can be (``mayLeave()``); said here either way, since a
+            // Asked about first where it can be (``mayLeave(thenRetry:)``); said here either way, since a
             // close from elsewhere — the file deleted, an external open — asks nobody.
             if let running {
                 Logger.shared.info("Edit cancelled \(running.tool.lowercased()) of \(Self.logName(path)) — the file was closed")
@@ -414,10 +414,13 @@ public final class EditorPDFTools: ObservableObject {
     /// **It only asks; it drops nothing.** The order and the run go when the file really closes
     /// (``detach()``), which every leave that happens calls — so a leave that fails after the
     /// answer (⌘N's file could not be made, a later quit question was answered Wait) keeps both.
-    public func mayLeave() -> Bool {
+    ///
+    /// `retry` is the leave asked for, run again once Fill & Sign's Save Filled Copy has written the
+    /// copy (``EditorPDFFillSign/mayLeave(thenRetry:)``) — the save's answer is "stay" until then.
+    public func mayLeave(thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool {
         guard hasWorkToLose, let path else { return true }
         // Placed items alone are Fill & Sign's own question, which can save them as well as drop them.
-        if arrangement == nil, running == nil, sheet == nil, let fill { return fill.mayLeave() }
+        if arrangement == nil, running == nil, sheet == nil, let fill { return fill.mayLeave(thenRetry: retry) }
         let go = confirmDiscardingArrangement()
         Logger.shared.info("Edit asked before leaving \(Self.logName(path)) with "
                            + (running != nil ? "a tool running"

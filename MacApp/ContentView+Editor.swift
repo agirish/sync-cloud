@@ -720,7 +720,7 @@ extension ContentView {
             if selectsInPane { owePaneSelection(path) }
             return
         }
-        guard settleEditorDocument() else { return }
+        guard settleEditorDocument(thenRetry: { openInEditor(path: path, selectsInPane: selectsInPane) }) else { return }
         // Choosing a file is the answer to the question the naming row was asking, so the row goes
         // with it. Left open it sat above a document the user was by then editing, with no way to
         // dismiss it short of Esc and nothing on screen saying so.
@@ -770,13 +770,15 @@ extension ContentView {
     /// lost — so that, and only that, still asks. Callers must honour a `false`.
     ///
     /// - Returns: `false` when the caller must do nothing at all.
+    /// - Parameter retry: the route itself, run again once Fill & Sign's Save Filled Copy — chosen
+    ///   in the leave question — has written the copy, so the save goes on to leave (decision AX).
     @discardableResult
-    func settleEditorDocument(asksAboutPDFWork: Bool = true) -> Bool {
+    func settleEditorDocument(asksAboutPDFWork: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool {
         // **What a PDF can lose: a pending reorder, or a tool still running** — asked here because
         // every route out of the document asks this. Asked only: the order and the run go when the
         // PDF really closes, so a route that fails after the answer (⌘N's file could not be made)
         // keeps both. Not for a window close, which the PDF outlives — nothing of it is at risk.
-        if asksAboutPDFWork { guard editorPDF.tools.mayLeave() else { return false } }
+        if asksAboutPDFWork { guard editorPDF.tools.mayLeave(thenRetry: retry) else { return false } }
         // **A word being composed is committed first** (UND-5), so it is in the buffer for the
         // question, the flush and the history below — never left in a storage put away without it.
         editorDocument.buffer.source.endComposition()
@@ -880,7 +882,7 @@ extension ContentView {
             openDocument: editorOpenPath, isRefused: editorOpenIsRefused,
             // The folder the pane will show IN EDIT, whichever workspace this is pressed from.
             paneFolder: { leftPaneFolder(in: .editor) },
-            settle: { settleEditorDocument() },
+            settle: { settleEditorDocument(thenRetry: { handOffToEditor(path, pane: pane) }) },
             endNaming: { editorIsNaming = false },
             showEdit: { if selectedWorkspace != .editor { selectedWorkspace = .editor } },
             load: { loadIntoEditor(path: $0) },
@@ -1170,7 +1172,7 @@ extension ContentView {
     func closeEditorDocument() {
         // A PDF has nothing to settle but a pending reorder; its own close releases its pages.
         if editorPDF.path != nil {
-            guard editorPDF.tools.mayLeave() else { return }
+            guard editorPDF.tools.mayLeave(thenRetry: { closeEditorDocument() }) else { return }
             EditorOpenRoute.closePDF(editorPDF,
                                      paneSelection: { syncManager.selectedLeftPaths },
                                      setPaneSelection: { syncManager.selectedLeftPaths = $0 },
@@ -1885,7 +1887,10 @@ extension ContentView {
     @discardableResult
     func createTextFile(named name: String) -> Bool {
         let (folder, refusal) = newTextFileDestination
-        guard settleEditorDocument() else { return false }
+        // A retry after a filled copy was saved: the naming row is still open, so it closes here.
+        guard settleEditorDocument(thenRetry: { if createTextFile(named: name) { editorIsNaming = false } }) else {
+            return false
+        }
         // Made at ⌘N already; again here for a Notes deleted while the name was being typed.
         if refusal != nil, makeNotesFolder(folder) == .couldNotMake { return false }
         do {

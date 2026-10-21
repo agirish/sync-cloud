@@ -12,17 +12,29 @@ import FileExplorer
     /// **Every route out of the PDF asks before a pending order or a running tool is lost** — and
     /// asks FIRST, before anything about the text document, which is empty while a PDF is open.
     @Test func everyRouteOutOfThePDFAsksFirst() throws {
-        let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true) -> Bool")
-        let ask = try #require(settle.range(of: "if asksAboutPDFWork { guard editorPDF.tools.mayLeave() else { return false } }"),
+        let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
+        let ask = try #require(settle.range(of: "if asksAboutPDFWork { guard editorPDF.tools.mayLeave(thenRetry: retry) else { return false } }"),
                                "settleEditorDocument no longer asks about the PDF's pending work")
         let compose = try #require(settle.range(of: "editorDocument.buffer.source.endComposition()"))
         #expect(ask.lowerBound < compose.lowerBound, "the PDF is asked about after the text document")
 
         let close = try EditorDiskWatchWiringTests.body("func closeEditorDocument()")
-        let closeAsk = try #require(close.range(of: "guard editorPDF.tools.mayLeave() else { return }"),
+        let closeAsk = try #require(close.range(of: "guard editorPDF.tools.mayLeave(thenRetry: { closeEditorDocument() }) else { return }"),
                                     "closing a PDF no longer asks about its pending work")
         let closePDF = try #require(close.range(of: "EditorOpenRoute.closePDF(editorPDF,"))
         #expect(closeAsk.lowerBound < closePDF.lowerBound)
+    }
+
+    /// **Save Filled Copy in the leave question saves, then leaves** (decision AX): every route out of
+    /// the PDF hands the question itself, to be run again once the copy has landed — the file opened,
+    /// the hand-off, ⌘N's new file, the close and the quit each retry as themselves.
+    @Test func everyRouteOutOfThePDFRetriesItselfAfterASavedFill() throws {
+        let open = try EditorDiskWatchWiringTests.body("func openInEditor(path: String, selectsInPane: Bool = false)")
+        #expect(open.contains("guard settleEditorDocument(thenRetry: { openInEditor(path: path, selectsInPane: selectsInPane) }) else { return }"))
+        let create = try EditorDiskWatchWiringTests.body("func createTextFile(named name: String) -> Bool")
+        #expect(create.contains("guard settleEditorDocument(thenRetry: { if createTextFile(named: name) { editorIsNaming = false } }) else {"))
+        let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
+        #expect(settle.contains("mayLeave(thenRetry: retry)"))
     }
 
     /// **A window close does not ask** — the PDF belongs to the app and outlives the window, so its
@@ -35,7 +47,7 @@ import FileExplorer
     /// **⌘Q asks too**, from the delegate, which holds the tools the window adopted.
     @Test func quittingAsksAboutThePDF() throws {
         let app = CodeText(try EditorDiskWatchWiringTests.source("SyncCloudApp.swift"))
-        #expect(app.contains("if let tools = Self.sharedPDFTools, !tools.mayLeave() {"))
+        #expect(app.contains("if let tools = Self.sharedPDFTools, !tools.mayLeave(thenRetry: { NSApp.terminate(nil) }) {"))
         #expect(app.contains("return .terminateCancel"))
         let view = CodeText(try EditorDiskWatchWiringTests.source("ContentView.swift"))
         #expect(view.contains("SyncCloudAppDelegate.shared?.adoptPDFTools(editorPDF.tools)"),

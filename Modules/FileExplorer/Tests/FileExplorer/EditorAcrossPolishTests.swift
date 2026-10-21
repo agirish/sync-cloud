@@ -133,11 +133,15 @@ import Testing
     /// capitalised: Date's used to say "Date · …" and Text Size's "Text size — …".
     @Test func thePalettesTooltipsReadNameDashWhatItDoes() throws {
         let palette = try Self.source("EditorPDFFillPalette.swift")
-        let start = try #require(palette.range(of: "private func help(for tool: Tool) -> String {"))
-        let body = palette[start.upperBound...]
-        let end = try #require(body.range(of: "\n    }\n"))
-        let cases = body[..<end.lowerBound].split(separator: "\n").filter { $0.contains("return \"") }
-        try #require(cases.count >= 10, "not reading the palette's tooltips: \(cases.count)")
+        // What a live tool says (`hint`), and why a greyed one is greyed (`refusal`, TE108).
+        var cases: [Substring] = []
+        for head in ["static func hint(_ tool: Tool) -> String {", "static func refusal(_ tool: Tool, fill: EditorPDFFillSign) -> String? {"] {
+            let start = try #require(palette.range(of: head))
+            let body = palette[start.upperBound...]
+            let end = try #require(body.range(of: "\n    }\n"))
+            cases += body[..<end.lowerBound].split(separator: "\n").filter { $0.contains("return \"") }
+        }
+        try #require(cases.count >= 12, "not reading the palette's tooltips: \(cases.count)")
         for line in cases {
             #expect(line.contains(" — ") && !line.contains(" · "), "\(line)")
         }
