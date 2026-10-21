@@ -91,7 +91,7 @@ public enum EditorDiskChange: Equatable, Sendable {
 /// The banner over the document while a change from elsewhere waits for an answer (TE59).
 public enum EditorDiskBanner: Equatable, Sendable {
     /// The file changed while the buffer held typing that is not on disk — Compare, Keep Mine,
-    /// Use the Disk's.
+    /// Use Disk Version.
     case changed
     /// The file is gone — Close, Save Again.
     case deleted
@@ -163,7 +163,7 @@ enum EditorDiskResponse: Equatable {
 /// - **Nothing typed since the last save: reload, quietly**, as the smallest edit to the shared
 ///   storage (so Source, Split and Edit in Preview all follow, and the caret stays put), with the
 ///   undo history emptied — after a reload ⌘Z does nothing. The status line says so briefly.
-/// - **Typing not on disk: a banner, and no reload** — Compare, Keep Mine, Use the Disk's. The
+/// - **Typing not on disk: a banner, and no reload** — Compare, Keep Mine, Use Disk Version. The
 ///   history stays intact while it is up. The host stops autosave for as long as it stands
 ///   (``onBannerChange``), so nothing is written over either version while the question is open.
 /// - **Moved or renamed: followed** — the document, its undo history, its caret and the host's
@@ -221,7 +221,7 @@ public final class EditorDiskWatch: ObservableObject {
     /// When a download of which path was last asked for — so a provider that answers and still
     /// leaves the file in the cloud is asked again a patience later, not in a loop.
     private var lastDownload: (path: String, at: ContinuousClock.Instant)?
-    /// The file whose version on disk "Use the Disk's" is waiting to take once it has downloaded.
+    /// The file whose version on disk "Use Disk Version" is waiting to take once it has downloaded.
     private var useDisksWhenDownloaded: String?
     /// Paths whose download read is out on ``downloadQueue`` — at most one each.
     private var readsOut: Set<String> = []
@@ -381,7 +381,7 @@ public final class EditorDiskWatch: ObservableObject {
             }
             setBanner(kind)
             // **A newer version still in the cloud is fetched while the question stands**, so Compare
-            // and Use the Disk's have something to read when they are pressed.
+            // and Use Disk Version have something to read when they are pressed.
             if kind == .changed, isCloudOnly(path) { download(path) }
             return .asked(kind)
         case .reload:
@@ -658,7 +658,7 @@ public final class EditorDiskWatch: ObservableObject {
         guard downloading == path else { return }
         downloading = nil
         reconcile()
-        // Use the Disk's was pressed while the version was in the cloud: take it now it is here.
+        // Use Disk Version was pressed while the version was in the cloud: take it now it is here.
         if useDisksWhenDownloaded == path, document?.path == path, banner == .changed, !isCloudOnly(path) {
             useDisksWhenDownloaded = nil
             if useDisksVersion() == .unreadable {
@@ -681,7 +681,7 @@ public final class EditorDiskWatch: ObservableObject {
         showNotice(Self.followedNotice(from: old, to: new))
     }
 
-    /// What a press on "Use the Disk's" came to.
+    /// What a press on "Use Disk Version" came to.
     public enum UseDisksOutcome: Equatable, Sendable {
         /// The buffer is the version on disk now.
         case used
@@ -691,7 +691,7 @@ public final class EditorDiskWatch: ObservableObject {
         case unreadable
     }
 
-    /// **"Use the Disk's"**: the buffer becomes the file's version as ONE step ⌘Z takes back, so the
+    /// **"Use Disk Version"**: the buffer becomes the file's version as ONE step ⌘Z takes back, so the
     /// typing can come back. A version still in the cloud is fetched first and taken when it lands
     /// (``UseDisksOutcome/downloading``); one that cannot be read as editable text changes nothing,
     /// and the banner stays.
@@ -702,7 +702,7 @@ public final class EditorDiskWatch: ObservableObject {
             useDisksWhenDownloaded = path
             lastDownload = nil      // asked for by a press, not by a look: never held back
             download(path)
-            Logger.shared.info("[edit] Use the Disk's for \(path) waits for the version on disk to download")
+            Logger.shared.info("[edit] Use Disk Version for \(path) waits for the version on disk to download")
             return .downloading
         }
         guard case .editable(let text, let stamp, let encoding) = EditorFileStore.open(path: path) else {
@@ -725,7 +725,7 @@ public final class EditorDiskWatch: ObservableObject {
         return .used
     }
 
-    /// **⌘Z of "Use the Disk's" puts the question back, not only the typing.** The other version is
+    /// **⌘Z of "Use Disk Version" puts the question back, not only the typing.** The other version is
     /// still on disk, so the typing must not reach it without Keep Mine's consent — and with only
     /// the text undone, the document recorded the disk's version as saved, the banner was gone and
     /// the host's autosave stop with it: the next autosave wrote the typing over the other version
@@ -747,7 +747,7 @@ public final class EditorDiskWatch: ObservableObject {
         // file open; a stack that is no longer the current one has nothing on screen to act on.
         guard let document, let path = document.path, undoStore?.current === undoManager else { return }
         document.restore(mine)
-        Logger.shared.info("[edit] Took back Use the Disk's for \(path) — the typing is back, and so is the question: the other version is still on disk")
+        Logger.shared.info("[edit] Took back Use Disk Version for \(path) — the typing is back, and so is the question: the other version is still on disk")
         setBanner(.changed)
         undoManager.registerUndo(withTarget: self) { [weak undoManager] watch in
             guard let undoManager else { return }
@@ -786,8 +786,8 @@ public final class EditorDiskWatch: ObservableObject {
             + "reading only until the file can be read again."
     }
     static let usedDisksNotice = "Using the version on disk — ⌘Z brings yours back"
-    /// Edit ▸ Undo's word for "Use the Disk's".
-    static let useDisksActionName = "Use the Disk's Version"
+    /// Edit ▸ Undo's word for Use Disk Version — the button's own (TE97).
+    static let useDisksActionName = EditorDiskVerbs.useDiskVersion
 
     static func followedNotice(from old: String, to new: String) -> String {
         let oldFolder = (old as NSString).deletingLastPathComponent

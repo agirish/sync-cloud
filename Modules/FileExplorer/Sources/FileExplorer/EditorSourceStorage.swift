@@ -174,7 +174,7 @@ public final class EditorSourceStorage: NSObject {
     /// - Parameters:
     ///   - range: UTF-16, in the storage as it stands.
     ///   - verbatim: **`true` writes `string` exactly, carriage returns and all, and converts
-    ///     nothing** — for "Use the Disk's" (TE59), whose whole point is that the buffer becomes the
+    ///     nothing** — for "Use Disk Version" (TE59), whose whole point is that the buffer becomes the
     ///     file's bytes, so a CRLF file taken from disk must not be turned into an LF edit on the way
     ///     in. Its undo is verbatim too, so ⌘Z puts the typing back as it was.
     public func replace(_ range: NSRange, with string: String, undoManager: UndoManager?,
@@ -289,7 +289,7 @@ public final class EditorSourceStorage: NSObject {
     }
 
     /// Replaces the whole text with `string` as ONE step ⌘Z can take back, written verbatim —
-    /// "Use the Disk's" (TE59). The smallest edit, for the reason ``takeDiskText(_:)`` gives.
+    /// "Use Disk Version" (TE59). The smallest edit, for the reason ``takeDiskText(_:)`` gives.
     func replaceAll(with string: String, undoManager: UndoManager?, actionName: String) {
         let edit = Self.smallestEdit(from: textStorage.string, to: string)
         guard edit.range.length > 0 || !edit.text.isEmpty else { return }

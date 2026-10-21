@@ -1288,7 +1288,7 @@ extension ContentView {
     /// **Carried rather than recomputed, because the answer has to come back to the same path that
     /// asked.** `explicit` is what ⌘S and the header's door have in common and the autosave timer
     /// does not: a write the user asked for logs at INFO and one the debounce made logs at DEBUG,
-    /// and the overlay's Save Anyway must land in the right one. See `writeEditorDocument`.
+    /// and the overlay's Keep Mine… must land in the right one. See `writeEditorDocument`.
     struct EditorDivergenceReview: Equatable {
         var divergence: EditorFileStore.Divergence
         var explicit: Bool
@@ -1296,7 +1296,7 @@ extension ContentView {
         ///
         /// The overlay leads the window's overlay chain and its scrim absorbs clicks, but the menu
         /// bar is still live — File ▸ Open and ⌘N can hand the editor another file while two
-        /// versions of this one are on screen. Without this, the foot's Save Anyway would write
+        /// versions of this one are on screen. Without this, the foot's Keep Mine… would write
         /// whatever document happened to be open by then, on the strength of a diff of a different
         /// file. The answer is refused instead: see ``answerEditorDivergenceDiff(_:)``.
         var path: String
@@ -1314,9 +1314,17 @@ extension ContentView {
                                path: String, explicit: Bool) -> Bool {
         switch answer {
         case .saveAnyway:
+            // **Keep Mine… asks before it writes, through every door** (TE97) — the banner, the ⌘S
+            // alert and the comparison sheet's foot all land here, so the consent is asked once,
+            // in one place. Declining is Cancel: nothing written, and autosave stays stopped.
+            if EditorAlerts.keepMineAsks(for: divergence),
+               !EditorAlerts.confirmKeepMine(name: editorDocument.name) {
+                editorAutosaveStop = .diverged(divergence)
+                return false
+            }
             return writeEditorDocument(explicit: explicit)
         case .reloadFromDisk:
-            // **With the TE59 banner up, the reload is "Use the Disk's"** — the same answer, as one
+            // **With the TE59 banner up, the reload is "Use Disk Version"** — the same answer, as one
             // step ⌘Z takes back, so the typing the question was about can still come back. Every
             // door onto this answer (the alert, the diff's foot) gets the safer of the two.
             if editorDiskWatch.banner == .changed {
@@ -1358,7 +1366,7 @@ extension ContentView {
         editorDivergenceReview = nil
         // **The answer is about the file the diff showed, and only that one.** The menu bar stays
         // live behind the scrim, so another document can have been opened while the overlay was up
-        // — and then Save Anyway would overwrite it on the strength of a comparison of something
+        // — and then Keep Mine… would overwrite it on the strength of a comparison of something
         // else. Dropping the answer is the safe end: nothing is written, and the stop on whatever
         // is open now still says what it says.
         guard editorDocument.path == review.path else {
@@ -1532,7 +1540,7 @@ extension ContentView {
         if selectedWorkspace == .compare { payOwedComparisonIfNeeded() }
     }
 
-    /// "Reload from Disk": throw the buffer away and re-read the file.
+    /// "Use Disk Version" without the banner: throw the buffer away and re-read the file.
     ///
     /// **The only route in this app that discards typing on purpose**, which is why it is a named
     /// function rather than a call to `loadIntoEditor` at two call sites: the thing worth stating
@@ -1599,7 +1607,7 @@ extension ContentView {
     /// reads, set from the banner so the two can never disagree: while a change from elsewhere is
     /// waiting for an answer, nothing is written over either version.
     ///
-    /// Cleared only when the disk agrees with the document again — a reload, Use the Disk's, Keep
+    /// Cleared only when the disk agrees with the document again — a reload, Use Disk Version, Keep
     /// Mine, Save Again — and not merely because the banner went with a file being closed, which
     /// settles the stop its own way.
     func editorDiskBannerDidChange(_ banner: EditorDiskBanner?) {
@@ -1631,10 +1639,11 @@ extension ContentView {
             editorDiskBannerDidChange(editorDiskWatch.banner)
             showEditorDivergenceDiff()
         case .keepMine:
-            // **The same consent the save-over-divergence alert asks for**: the other changes are
-            // lost, said in words, with the destructive button off Return.
-            guard EditorAlerts.confirmKeepMine(name: editorDocument.name) else { return }
-            writeEditorDocument(explicit: true)
+            // **The same answer as the alert's and the sheet's Keep Mine…** (TE97), so it asks the
+            // same consent in the same place: the other changes are lost, said in words, with the
+            // destructive button off Return.
+            guard let path = editorDocument.path else { return }
+            applyDivergenceAnswer(.saveAnyway, divergence: .changed, path: path, explicit: true)
         case .useDisks:
             if editorDiskWatch.useDisksVersion() == .unreadable { reportDisksVersionUnreadable() }
         case .close:
@@ -1653,7 +1662,7 @@ extension ContentView {
         }
     }
 
-    /// "Use the Disk's" found nothing it could put in the buffer — the file is now unreadable, too
+    /// "Use Disk Version" found nothing it could put in the buffer — the file is now unreadable, too
     /// large or not text. Nothing changed; the banner stays, and says so.
     private func reportDisksVersionUnreadable() {
         Logger.shared.info("[edit] Could not take the version of \(editorDocument.path ?? "") on disk — it cannot be read as text now")

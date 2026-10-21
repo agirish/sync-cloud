@@ -66,7 +66,7 @@ enum EditorDivergenceColumns {
 /// line diff the Compare workspace draws, and the same three verbs at the foot so the decision is
 /// made while looking at the difference.
 ///
-/// **Nothing here writes.** The foot's Save Anyway is the alert's Save Anyway — the identical
+/// **Nothing here writes.** The foot's Keep Mine… is the alert's Keep Mine… — the identical
 /// answer travelling back through `onAnswer` to the one place in `ContentView+Editor` that acts on
 /// it — not a second write path. Dismissing (Escape, ⏎, a click on the scrim) is `cancel`, which is
 /// exactly what the alert's Cancel does: change nothing, and leave autosave stopped.
@@ -78,15 +78,22 @@ public struct EditorDivergenceDiffOverlay: View {
 
     @ObservedObject private var document: EditorDocument
     private let now: () -> Date
+    private let takingDiskIsUndoable: Bool
     private let onAnswer: (EditorDivergenceVerdict) -> Void
 
     /// `now` is injectable for the reason every clock in this repo is: "written 2m ago" is a claim
     /// about a duration, and a test that had to wait two minutes to assert it would not be written.
+    ///
+    /// `takingDiskIsUndoable` is whether Use Disk Version is the one ⌘Z takes back — true while the
+    /// disk banner stands (TE59), where the host takes the version as an undoable step rather than
+    /// reloading over the buffer. Only the tooltip reads it: the answer is the host's either way.
     public init(document: EditorDocument,
                 now: @escaping () -> Date = Date.init,
+                takingDiskIsUndoable: Bool = false,
                 onAnswer: @escaping (EditorDivergenceVerdict) -> Void) {
         self.document = document
         self.now = now
+        self.takingDiskIsUndoable = takingDiskIsUndoable
         self.onAnswer = onAnswer
     }
 
@@ -255,7 +262,14 @@ public struct EditorDivergenceDiffOverlay: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// **The same three verbs the alert offered, in the same order.**
+    /// What Use Disk Version's tooltip promises — that ⌘Z brings the typing back only where it does.
+    static func useDiskVersionHelp(undoable: Bool) -> String {
+        undoable ? "Take the version on the right — ⌘Z brings yours back."
+            : "Take the version on the right and lose what you typed."
+    }
+
+    /// **The same three verbs the alert offered, in the same order**, in the banner's words (TE97,
+    /// ``EditorDiskVerbs``).
     ///
     /// Nothing here is `.borderedProminent`, and that is the point of the surface: two of the three
     /// discard something in opposite directions and the third resolves nothing, so there is no verb
@@ -268,12 +282,13 @@ public struct EditorDivergenceDiffOverlay: View {
                 .buttonStyle(.bordered)
                 .help("Change nothing. Autosave stays stopped until you settle this.")
             Button(role: .destructive) { onAnswer(.reloadFromDisk) } label: {
-                Text("Reload from Disk")
+                Text(EditorDiskVerbs.useDiskVersion)
             }
             .buttonStyle(.bordered)
-            .help("Take the version on the right and lose what you typed.")
+            .help(Self.useDiskVersionHelp(undoable: takingDiskIsUndoable))
+            // Asks before it writes — the host's `applyDivergenceAnswer`, as from the banner.
             Button(role: .destructive) { onAnswer(.saveAnyway) } label: {
-                Text("Save Anyway")
+                Text(EditorDiskVerbs.keepMine)
             }
             .buttonStyle(.bordered)
             .help("Keep the version on the left and lose what arrived on disk.")

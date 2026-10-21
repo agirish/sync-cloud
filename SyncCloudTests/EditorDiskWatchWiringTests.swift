@@ -62,19 +62,45 @@ import FileExplorer
                 "the look after the app's own operation does not say whose move it follows")
     }
 
-    /// **Keep Mine asks first** — the consent the save-over-divergence alert asks for — and the
-    /// confirm button is the destructive one, off Return.
+    /// **Keep Mine… asks first, through every door** (TE97) — the banner, the ⌘S alert and the
+    /// comparison sheet's foot all reach `applyDivergenceAnswer`'s `.saveAnyway` arm, and the consent
+    /// is asked there, before the write. The sheet's used to write without asking.
+    ///
+    /// Mutation: drop the consent from `.saveAnyway`, or route the banner's Keep Mine… straight to
+    /// `writeEditorDocument`, and this fails.
     @Test func keepMineAsksBeforeItWrites() throws {
-        let answer = try Self.body("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)")
-        let keep = try #require(answer.range(of: "case .keepMine:"))
-        let ask = try #require(answer.range(of: "EditorAlerts.confirmKeepMine(name: editorDocument.name)"))
-        let write = try #require(answer.range(of: "writeEditorDocument(explicit: true)"))
-        #expect(keep.lowerBound < ask.lowerBound && ask.lowerBound < write.lowerBound,
-                "Keep Mine writes before it asks")
+        let apply = try Self.body("func applyDivergenceAnswer(")
+        let keep = try #require(apply.range(of: "case .saveAnyway:"))
+        let asks = try #require(apply.range(of: "EditorAlerts.keepMineAsks(for: divergence)"))
+        let ask = try #require(apply.range(of: "!EditorAlerts.confirmKeepMine(name: editorDocument.name)"))
+        let declined = try #require(apply.range(of: "editorAutosaveStop = .diverged(divergence) return false"))
+        let write = try #require(apply.range(of: "return writeEditorDocument(explicit: explicit)"))
+        #expect(keep.lowerBound < asks.lowerBound && asks.lowerBound < ask.lowerBound
+                && ask.lowerBound < declined.lowerBound && declined.lowerBound < write.lowerBound,
+                "Keep Mine… writes before it asks")
+        // The banner's Keep Mine… is the same answer, not a write of its own.
+        let banner = try Self.body("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)")
+        let bannerKeep = try #require(banner.range(of: "case .keepMine:"))
+        let routed = try #require(banner.range(of: "applyDivergenceAnswer(.saveAnyway, divergence: .changed, path: path, explicit: true)"))
+        let next = try #require(banner.range(of: "case .useDisks:"))
+        #expect(bannerKeep.lowerBound < routed.lowerBound && routed.lowerBound < next.lowerBound)
+        #expect(!banner.normalized[bannerKeep.lowerBound..<next.lowerBound].contains("writeEditorDocument"),
+                "the banner's Keep Mine… writes on its own path again")
+        // The sheet's foot comes back through `answerEditorDivergenceDiff` into the same function.
+        let foot = try Self.body("func answerEditorDivergenceDiff(_ verdict: EditorDivergenceVerdict)")
+        #expect(foot.contains("applyDivergenceAnswer(EditorAlerts.divergenceAnswer(for: verdict),"))
         #expect(EditorAlerts.keepMineButtonTitles == ["Keep Mine", "Cancel"])
         #expect(EditorAlerts.keepMineInformativeText.contains("the other changes are lost"))
         #expect(EditorAlerts.isConfirmed(.alertFirstButtonReturn))
         #expect(!EditorAlerts.isConfirmed(.alertSecondButtonReturn), "Cancel was read as consent")
+    }
+
+    /// **The sheet says ⌘Z brings the typing back only where it does** — with the banner up, where
+    /// Use Disk Version is the undoable take (TE97).
+    @Test func theSheetIsToldWhetherTakingTheDiskIsUndoable() throws {
+        let view = try Self.source("ContentView.swift")
+        let call = try CallArguments(of: "EditorDivergenceDiffOverlay(", in: normalizedCode(view))
+        #expect(call.passes("takingDiskIsUndoable", "editorDiskWatch.banner == .changed"))
     }
 
     /// **Save Again looks before it writes** — a file back at the path is not written over.
@@ -90,7 +116,7 @@ import FileExplorer
                 "a folder that could not be made again fails silently")
     }
 
-    /// The diff's Reload from Disk, with the banner up, is Use the Disk's — the undoable one.
+    /// The diff's Use Disk Version, with the banner up, is the banner's — the undoable one.
     @Test func reloadFromDiskUnderTheBannerIsTheUndoableOne() throws {
         let apply = try Self.body("func applyDivergenceAnswer(")
         let reload = try #require(apply.range(of: "case .reloadFromDisk:"))

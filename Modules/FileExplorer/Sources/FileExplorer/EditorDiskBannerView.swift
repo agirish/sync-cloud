@@ -17,6 +17,19 @@ public enum EditorDiskBannerAction: Equatable, Sendable {
     case saveAgain
 }
 
+/// **The three answers to "the file changed on disk", in one set of words** (TE97) — the banner, the
+/// ⌘S alert (`EditorAlerts.divergenceButtonTitles`) and the comparison sheet's foot all read them
+/// here, so the banner's Compare… opens a sheet whose buttons are the banner's own.
+///
+/// **Keep Mine… carries an ellipsis everywhere** because it always asks "Replace the version on
+/// disk with yours?" before it writes, wherever it is pressed. Compare… opens the sheet. Use Disk
+/// Version does what it says at once.
+public enum EditorDiskVerbs {
+    public static let compare = "Compare…"
+    public static let keepMine = "Keep Mine…"
+    public static let useDiskVersion = "Use Disk Version"
+}
+
 /// **The banner in the document card while a change from elsewhere waits for an answer** (TE59).
 ///
 /// In the card, above the text and with the read-only banner's shape, rather than an alert: the
@@ -41,9 +54,9 @@ struct EditorDiskBannerView: View {
 
     static func title(_ action: EditorDiskBannerAction) -> String {
         switch action {
-        case .compare: return "Compare"
-        case .keepMine: return "Keep Mine"
-        case .useDisks: return "Use the Disk's"
+        case .compare: return EditorDiskVerbs.compare
+        case .keepMine: return EditorDiskVerbs.keepMine
+        case .useDisks: return EditorDiskVerbs.useDiskVersion
         case .close: return "Close"
         case .saveAgain: return "Save Again"
         }

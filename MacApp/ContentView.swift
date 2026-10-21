@@ -1247,7 +1247,10 @@ struct ContentView: View {
             // Escape and a click on the scrim answer Cancel, which is exactly what the alert's
             // Cancel does, so it is never a surface somebody is stuck behind.
             if editorDivergenceReview != nil {
+                // Use Disk Version is the undoable take while the banner stands — see
+                // `applyDivergenceAnswer` — and its tooltip says ⌘Z brings the typing back only then.
                 EditorDivergenceDiffOverlay(document: editorDocument,
+                                            takingDiskIsUndoable: editorDiskWatch.banner == .changed,
                                             onAnswer: { answerEditorDivergenceDiff($0) })
             } else if pendingDestination != nil {
                 destinationOverlay

@@ -351,7 +351,7 @@ public final class EditorDocument: ObservableObject {
         diskStamp = stamp
     }
 
-    /// **"Use the Disk's"** (TE59): the buffer already holds the file's newer text — put there as a
+    /// **"Use Disk Version"** (TE59): the buffer already holds the file's newer text — put there as a
     /// step ⌘Z can take back — and this records that it is what is on disk.
     func adoptDisk(text: String, stamp: EditorFileStore.Stamp, encoding: BoundedTextRead.TextEncoding) {
         savedText = text
@@ -362,7 +362,7 @@ public final class EditorDocument: ObservableObject {
     }
 
     /// **What the document records about the file on disk** — everything ``adoptDisk(text:stamp:encoding:)``
-    /// moves, as one value, so "Use the Disk's" can be taken back whole by ⌘Z (TE59).
+    /// moves, as one value, so "Use Disk Version" can be taken back whole by ⌘Z (TE59).
     struct DiskRecord {
         var savedText: String
         var stamp: EditorFileStore.Stamp?
@@ -374,7 +374,7 @@ public final class EditorDocument: ObservableObject {
         DiskRecord(savedText: savedText, stamp: stamp, diskStamp: diskStamp, encoding: encoding)
     }
 
-    /// Puts back a record taken earlier — the undo and redo of "Use the Disk's".
+    /// Puts back a record taken earlier — the undo and redo of "Use Disk Version".
     func restore(_ record: DiskRecord) {
         savedText = record.savedText
         stamp = record.stamp

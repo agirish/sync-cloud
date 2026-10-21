@@ -11,6 +11,16 @@ import FileExplorerTestSupport
 
     // MARK: The left column
 
+    /// **TE97: Use Disk Version says ⌘Z brings the typing back only where it does** — while the
+    /// banner stands, where the host's take is one undoable step; elsewhere it reloads over the
+    /// buffer and the typing is gone.
+    @Test func useDiskVersionPromisesUndoOnlyWhereThereIsOne() {
+        #expect(EditorDivergenceDiffOverlay.useDiskVersionHelp(undoable: true)
+                == "Take the version on the right — ⌘Z brings yours back.")
+        #expect(EditorDivergenceDiffOverlay.useDiskVersionHelp(undoable: false)
+                == "Take the version on the right and lose what you typed.")
+    }
+
     @Test func theEditorColumnCountsTheBufferSWords() {
         #expect(EditorDivergenceColumns.editor(words: 1_204) == "In the editor · 1,204 words")
     }

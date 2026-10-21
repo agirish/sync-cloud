@@ -969,4 +969,12 @@ import EventsTestSupport
         #expect(EditorDiskBannerView.actions(for: .deleted, canSaveAgain: true) == [.close, .saveAgain])
         #expect(EditorDiskBannerView.actions(for: .deleted, canSaveAgain: false) == [.close])
     }
+
+    /// **TE97: the banner's words are the ⌘S alert's and the sheet's** — Compare… and Keep Mine…
+    /// with the ellipsis their next step earns, and Use Disk Version, which is also Undo's name.
+    @Test func theBannerSpeaksTheSameWordsAsTheAlertAndTheSheet() {
+        #expect(EditorDiskBannerView.actions(for: .changed, canSaveAgain: true).map(EditorDiskBannerView.title)
+                == ["Compare…", "Keep Mine…", "Use Disk Version"])
+        #expect(EditorDiskWatch.useDisksActionName == "Use Disk Version")
+    }
 }

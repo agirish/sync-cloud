@@ -51,11 +51,12 @@ enum EditorAlerts {
         return answer(for: alert.runModal())
     }
 
-    // MARK: - Keep Mine (TE59)
+    // MARK: - Keep Mine (TE59, TE97)
 
-    /// The banner's Keep Mine writes the buffer over a version that arrived from elsewhere — the
-    /// save-over-divergence case — so it asks the same way: what is lost, in words, and the
-    /// destructive answer off Return.
+    /// Keep Mine… writes the buffer over a version that arrived from elsewhere, so it asks first:
+    /// what is lost, in words, and the destructive answer off Return. **Wherever it is pressed** —
+    /// the banner, the ⌘S alert, the comparison sheet's foot (TE97): the sheet's used to write
+    /// without asking what the banner's asked. See ``keepMineAsks(for:)``.
     nonisolated static func keepMineMessage(name: String) -> String {
         "Replace the version of “\(name)” on disk with yours?"
     }
@@ -64,8 +65,17 @@ enum EditorAlerts {
         "It was changed somewhere else while you were typing. Keeping yours writes it over that "
         + "version, and the other changes are lost."
 
-    /// Keep Mine first, Cancel second — Cancel holds Return and Escape.
+    /// Keep Mine first, Cancel second — Cancel holds Return and Escape. No ellipsis here: this is
+    /// the question the ellipsis on Keep Mine… promised, and its answer writes.
     nonisolated static let keepMineButtonTitles = ["Keep Mine", "Cancel"]
+
+    /// **Whether writing the buffer asks "Replace the version on disk with yours?" first** — for a
+    /// file that CHANGED, where there is another version to lose. A file that is no longer there has
+    /// nothing at its path to replace; its Save Anyway writes it back where it was, and the alert
+    /// that offered it already said so.
+    nonisolated static func keepMineAsks(for divergence: EditorFileStore.Divergence) -> Bool {
+        divergence == .changed
+    }
 
     static func confirmKeepMine(name: String) -> Bool {
         let alert = NSAlert()
@@ -108,10 +118,11 @@ enum EditorAlerts {
 
     /// What the user can do about a file that moved under the buffer.
     enum DivergenceAnswer: Equatable {
-        /// Overwrite what is on disk with the buffer.
+        /// Overwrite what is on disk with the buffer — Keep Mine… for a file that changed, which
+        /// asks first (``keepMineAsks(for:)``), and Save Anyway for one that is gone.
         case saveAnyway
-        /// Throw the buffer away and re-read the file. **Only offered for `.changed`** — see
-        /// ``divergenceButtonTitles(for:)``.
+        /// Throw the buffer away and take the file — Use Disk Version. **Only offered for
+        /// `.changed`** — see ``divergenceButtonTitles(for:)``.
         case reloadFromDisk
         /// **Not an answer: a detour.** Show the reader what actually arrived, and then ask the
         /// same three questions again at the foot of the diff. **Only offered for `.changed`** —
@@ -143,14 +154,18 @@ enum EditorAlerts {
     }
 
     /// **Four buttons for a file that CHANGED, two for one that is GONE**, and the difference is
-    /// not tidiness. "Reload from Disk" answers "keep theirs, drop mine" — a real answer when there
-    /// is a their-version to read — and "Show What Changed…" opens that version beside the buffer.
+    /// not tidiness. "Use Disk Version" answers "keep theirs, drop mine" — a real answer when there
+    /// is a their-version to read — and "Compare…" opens that version beside the buffer.
+    ///
+    /// **The changed file's words are the banner's** (TE97, `EditorDiskVerbs`), so the question
+    /// reads the same wherever it is asked. The gone file keeps Save Anyway: there is no "mine"
+    /// against a "theirs" there, only a file to write back.
     /// For a file that has been moved or renamed there is nothing at that path to reload OR to
     /// show, so either would be a button that cannot do what it says.
     ///
     /// Both non-cancel *answers* are destructive in opposite directions — one discards what
     /// arrived, the other discards what you typed — so Cancel is the safe landing and neither of
-    /// the others keeps Return. "Show What Changed…" discards nothing and writes nothing, so it is
+    /// the others keeps Return. "Compare…" discards nothing and writes nothing, so it is
     /// neither; see ``DivergenceAnswer/isDestructive``.
     ///
     /// **Cancel stays last in both lists**, which is what makes "every other response is Cancel"
@@ -158,7 +173,8 @@ enum EditorAlerts {
     nonisolated static func divergenceButtonTitles(
         for divergence: EditorFileStore.Divergence) -> [String] {
         switch divergence {
-        case .changed: return ["Save Anyway", "Reload from Disk", "Show What Changed…", "Cancel"]
+        case .changed: return [EditorDiskVerbs.keepMine, EditorDiskVerbs.useDiskVersion,
+                               EditorDiskVerbs.compare, "Cancel"]
         case .missing: return ["Save Anyway", "Cancel"]
         }
     }
@@ -176,11 +192,11 @@ enum EditorAlerts {
     }
 
     /// **The one place a button position becomes an answer**, and it has to be read against the
-    /// same divergence the titles were built from: "Reload from Disk" is the second button for a
+    /// same divergence the titles were built from: "Use Disk Version" is the second button for a
     /// changed file and does not exist for a missing one, where the second button is Cancel.
     /// Reading the position without the case is how the safe answer becomes the destructive one.
     ///
-    /// **Adding "Show What Changed…" moved nothing.** It went in at position three — after both
+    /// **Adding "Compare…" moved nothing.** It went in at position three — after both
     /// real answers and before Cancel — so `.saveAnyway` is still the first button and
     /// `.reloadFromDisk` still the second, and Cancel still falls through to the default. That is
     /// deliberate: a new button inserted ahead of an existing one silently redefines every position
@@ -232,7 +248,7 @@ enum EditorAlerts {
         //
         // **Which buttons those are is read from the MAPPING, not from their titles.** This used to
         // strip Return from everything not titled "Cancel", which was the same set right up until a
-        // button arrived that is neither destructive nor Cancel: "Show What Changed…" would have
+        // button arrived that is neither destructive nor Cancel: "Compare…" would have
         // been styled as a destructive action for opening a read-only diff. Asking
         // `divergenceAnswer` means the styling can only ever land on the positions the click is
         // actually read as destructive.
