@@ -274,12 +274,11 @@ struct EditorPDFToolBannerView: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// "Compressing — page 4 of 12". Before Compress's first page it is waiting its turn in the lane;
-    /// the tools that report no pages say only what they are doing — "waiting" would be said for
-    /// the whole run.
+    /// "Compressing — page 4 of 12". Until its lane turn begins, any run is waiting behind other PDF
+    /// work and says so; after it, the tools that report no pages say only what they are doing.
     static func runningMessage(_ running: EditorPDFTools.Running, progress: EditorPDFTools.Progress?) -> String {
-        guard running.reportsProgress else { return "\(running.sentence)…" }
-        guard let progress, progress.total > 0 else { return "\(running.sentence) — \(waitingWords)" }
+        guard running.started else { return "\(running.sentence) — \(waitingWords)" }
+        guard running.reportsProgress, let progress, progress.total > 0 else { return "\(running.sentence)…" }
         return "\(running.sentence) — page \(progress.page) of \(progress.total)"
     }
 

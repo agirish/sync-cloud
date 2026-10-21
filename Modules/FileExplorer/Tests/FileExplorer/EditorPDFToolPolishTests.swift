@@ -119,6 +119,8 @@ import Sync
         #expect(EditorPDFToolSheetFrame<EmptyView>.workingCaption(isRunning: true, drawsOwnProgress: false) == "Writing the copy…")
         #expect(EditorPDFToolSheetFrame<EmptyView>.workingCaption(isRunning: false, drawsOwnProgress: false) == nil)
         #expect(EditorPDFToolSheetFrame<EmptyView>.workingCaption(isRunning: true, drawsOwnProgress: true) == nil)
+        #expect(EditorPDFToolSheetFrame<EmptyView>.workingCaption(isRunning: true, started: false, drawsOwnProgress: false)
+                == "Waiting for other PDF work…")
     }
 
     /// **A sheet that was silent while its run worked now spins** — Extract's, hosted, read while the
@@ -264,10 +266,17 @@ import Sync
         // A rotate in the dragged order is still a rotate.
         #expect(EditorPDFTool.arranged(order: [1, 0], then: .rotate(pages: [0], quarterTurns: 1)).doing == "rotating the pages")
 
-        #expect(EditorPDFToolBannerView.runningMessage(rotate, progress: nil) == "Rotating the pages…",
+        // Before its lane turn, any run is waiting; after it, a tool that reports no pages says
+        // only what it is doing.
+        #expect(EditorPDFToolBannerView.runningMessage(rotate, progress: nil) == "Rotating the pages — waiting for other PDF work…")
+        var turned = rotate
+        turned.started = true
+        #expect(EditorPDFToolBannerView.runningMessage(turned, progress: nil) == "Rotating the pages…",
                 "a tool that reports no pages said it was waiting for the whole run")
-        let compress = EditorPDFTools.Running(.compress(.quality(0.6)))
+        var compress = EditorPDFTools.Running(.compress(.quality(0.6)))
         #expect(EditorPDFToolBannerView.runningMessage(compress, progress: nil) == "Compressing — waiting for other PDF work…")
+        compress.started = true
+        #expect(EditorPDFToolBannerView.runningMessage(compress, progress: nil) == "Compressing…")
         #expect(EditorPDFToolBannerView.runningMessage(compress, progress: .init(page: 4, total: 12))
                 == "Compressing — page 4 of 12")
     }

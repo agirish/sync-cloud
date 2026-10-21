@@ -558,10 +558,13 @@ enum EditorPDFToolEngine {
     /// can wait a long while for its turn behind a duplicate scan or a pane's Compress, and a file
     /// replaced in that wait was read afresh — Rotate turned the new file's page 2, Fill & Sign
     /// put its items by the old pages' boxes. A file that no longer has that stamp throws
-    /// ``ChangedOnDisk`` and nothing is read.
+    /// ``ChangedOnDisk`` and nothing is read. So is a file **evicted in that wait** — eviction keeps
+    /// the stamp, and the toolkit opening the placeholder would download it inside the lane:
+    /// ``CloudOnly``.
     static func run(_ tool: EditorPDFTool, input: URL,
                     staging: URL = FileManager.default.temporaryDirectory,
                     unchanged: (path: String, stamp: EditorFileStore.Stamp)? = nil,
+                    isCloudOnly: (@Sendable (String) -> Bool)? = nil,
                     turnStarted: (@Sendable () -> Void)? = nil,
                     progress: (@Sendable (Int, Int) -> Void)? = nil,
                     isCancelled: (@Sendable () -> Bool)? = nil) async -> Result<Output, any Error> {
@@ -570,12 +573,16 @@ enum EditorPDFToolEngine {
             if let unchanged, EditorFileStore.stamp(ofPath: unchanged.path) != unchanged.stamp {
                 return .failure(ChangedOnDisk())
             }
+            if isCloudOnly?(input.path) == true { return .failure(CloudOnly()) }
             return Result { try output(of: tool, input: input, staging: staging, progress: progress, isCancelled: isCancelled) }
         }
     }
 
-    /// The file a run was asked about changed before its lane turn came — see ``run(_:input:staging:unchanged:turnStarted:progress:isCancelled:)``.
+    /// The file a run was asked about changed before its lane turn came — see ``run(_:input:staging:unchanged:isCloudOnly:turnStarted:progress:isCancelled:)``.
     struct ChangedOnDisk: Error {}
+
+    /// The file went cloud-only before the run's lane turn came — see ``run(_:input:staging:unchanged:isCloudOnly:turnStarted:progress:isCancelled:)``.
+    struct CloudOnly: Error {}
 
     /// What a run needs to know about a file before it offers anything — read in the lane the way
     /// ``EditorPDFDocument``'s load reads it, for a run started from a pane's menu, where no

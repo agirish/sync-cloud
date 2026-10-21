@@ -3788,7 +3788,9 @@ alone. The render had two wall-clock guards that count that waiting:
   decoding blank. On a deck of picture slides that leaves no words for Vision to read. Setting the
   cap to 0 reproduces CI's message exactly (`pageText(document, 0) → ""`), and the red's 11.1 s is
   10 s plus the test's usual 1.5–2.3 s on green CI runs. That fits, but it was not caught in the
-  act: no run here logged the cap firing.
+  act: no run here logged the cap firing. *Correction, 2026-10-21:* this cap is not a main-thread
+  guard at all — its `setTimeout` runs in the web process, which the app's busy main thread does not
+  slow — and the blanks it was blamed for turned out to be the background decodes below.
 
 **Fix.** Both guards are there for a wedge, not a slow load, so they cost nothing when the load
 succeeds: `load` now waits 120 s and ends at once if the web process dies
@@ -3945,8 +3947,10 @@ All Settings still reaches an open reader at once; a post from any other thread 
 reread and returns. `aWriteOffTheMainThreadNeverWaitsForTheReader` and `…ForTheSignatures` hold main
 while another thread writes. Put back on `queue: .main`, both fail at 5 s; with the off-main branch
 dropped, both fail at 15 s waiting for the reread. `noDefaultsObserverMakesItsWriterWait` (app
-target) fails on any `didChangeNotification` observer not registered `queue: nil`, anywhere in
-`MacApp` or a package's `Sources`. (2) The test's writer is a `Thread` of its own. With the
+target) fails on any `addObserver` that names `UserDefaults.didChangeNotification` and is not
+registered `queue: nil`, anywhere in `MacApp` or a package's `Sources`. It reads only that argument
+list: a name held in a constant, a Combine `publisher(for:)`, KVO on `UserDefaults`, or a `queue:
+nil` block that waits on main inside slip past it (none exist today, checked 2026-10-21). (2) The test's writer is a `Thread` of its own. With the
 `[glass]` line's observer put back on `queue: .main` it still fails at 5 s, the thread having
 started at 0 ms.
 

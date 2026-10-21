@@ -32,7 +32,8 @@ public struct EditorPDFFillSignMenuItems: View {
             Text(reason)
         }
         EditorPDFFillToolMenu(fill: fill, store: fill.store, live: fill.isOn && !sheetIsUp)
-        Button("Save Filled Copy") { Task { await fill.save() } }
+        // The pill's own words: "Save Corrected Copy" when the copy holds corrections alone.
+        Button(fill.saveTitle) { Task { await fill.save() } }
             .disabled(!fill.canSave || tools.running != nil || sheetIsUp)
     }
 }
@@ -119,7 +120,7 @@ struct EditorPDFFillToolMenu: View {
             Button("Add \(kind.title)…") { fill.addingSignature = kind }
                 .disabled(!live)
             if !saved.isEmpty {
-                Menu("Delete a Saved \(kind.title)") {
+                Menu(EditorPDFSignatureMenu.deleteTitle(kind)) {
                     ForEach(saved) { signature in
                         Button { fill.deleteSaved(signature) } label: { label(signature, among: saved) }
                             .disabled(!live)

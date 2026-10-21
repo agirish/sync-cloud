@@ -108,7 +108,7 @@ enum EditorAlerts {
         _ divergence: EditorFileStore.Divergence) -> String {
         switch divergence {
         case .changed:
-            return "Saving replaces what’s on disk with what’s in the editor, and the other "
+            return "Keeping yours replaces what’s on disk with what’s in Edit, and the other "
                 + "changes are lost."
         case .missing:
             return "It may have been moved or renamed — by Organize, or outside SyncCloud. "

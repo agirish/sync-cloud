@@ -640,7 +640,12 @@ public final class EditorPDFFillSign: ObservableObject {
     /// The Add Signature sheet, for signatures or for initials.
     @Published public var addingSignature: EditorPDFSignature.Kind? {
         // The sheet put away without Add: the field it was opened from is no longer being signed.
-        didSet { if addingSignature == nil { signing = nil } }
+        // And File ▸ PDF Tools, which observes only the tools, greys under this sheet
+        // (`EditorPDFToolsMenuEntry.entries`) — so the tools are told it moved.
+        didSet {
+            if addingSignature == nil { signing = nil }
+            if (oldValue == nil) != (addingSignature == nil) { tools?.objectWillChange.send() }
+        }
     }
     /// **The signature field being signed** (TE107): where the signature chosen from its menu — or
     /// added on the sheet it opened — is placed, instead of arming the Signature tool.
@@ -757,9 +762,10 @@ public final class EditorPDFFillSign: ObservableObject {
             // **A reload whose pages are no longer the ones the items were placed on.** A file that
             // changed but kept every page as it was keeps its items.
             // `clear()` takes the filled fields too, so the log and the banner name them as well.
-            let fields = values.isEmpty ? "" : " and \(Self.fields(values.count)) filled"
-            if placedBefore > 0 || !values.isEmpty {
-                Logger.shared.info("Edit dropped \(Self.count(placedBefore)) placed\(fields) with Fill & Sign on "
+            let lost = [placedBefore > 0 ? "\(Self.count(placedBefore)) placed" : nil,
+                        values.isEmpty ? nil : "\(Self.fields(values.count)) filled"].compactMap { $0 }
+            if !lost.isEmpty {
+                Logger.shared.info("Edit dropped \(lost.joined(separator: " and ")) with Fill & Sign on "
                                    + "\(EditorPDFTools.logName(path)) — the file changed on disk")
             }
             clear()
@@ -771,8 +777,12 @@ public final class EditorPDFFillSign: ObservableObject {
             case (true, false):
                 tools?.banner = EditorPDFToolBanner(
                     message: "The file changed on disk, so the items you placed were dropped.", kind: .note)
-            case (false, _):
-                // Only an empty text box went — no work; the fields' own banner, if any, stands.
+            case (false, true):
+                // The pages changed and the form did not: `clear()` took the fields all the same.
+                tools?.banner = EditorPDFToolBanner(
+                    message: "The file changed on disk, so the fields you filled were cleared.", kind: .note)
+            case (false, false):
+                // Only an empty text box went — no work.
                 break
             }
         } else if self.path != path {
@@ -800,6 +810,23 @@ public final class EditorPDFFillSign: ObservableObject {
             clear()
             tools?.banner = EditorPDFToolBanner(
                 message: "The file changed on disk and no longer allows filling, so Fill & Sign’s unsaved work — \(lost) — was dropped.",
+                kind: .note)
+        }
+        if refusal == nil, reloaded, form.hasFields, items.contains(where: \.isCorrection) {
+            // **A reload that now has a form takes the corrections** (decision AV): Replace is off
+            // on a form, so the save refused them every time, and only Discard got out.
+            let corrections = items.filter(\.isCorrection).count
+            Logger.shared.info("Edit dropped \(corrections == 1 ? "1 correction" : "\(corrections) corrections") with "
+                               + "Fill & Sign on \(EditorPDFTools.logName(path)) — the file changed on disk and now has a fillable form")
+            if let editing, items.contains(where: { $0.id == editing && $0.isCorrection }) {
+                self.editing = nil
+                editBefore = nil
+            }
+            items.removeAll(where: \.isCorrection)
+            if let selection, !items.contains(where: { $0.id == selection }) { self.selection = nil }
+            undoManager.removeAllActions()
+            tools?.banner = EditorPDFToolBanner(
+                message: "The file changed on disk and now has a fillable form, so your corrections were dropped.",
                 kind: .note)
         }
         if refusal != nil { isOn = false }
@@ -1235,8 +1262,14 @@ public final class EditorPDFFillSign: ObservableObject {
         endEditing()
         endFieldEditing()
         replaceNote = nil
-        // Words already corrected open their correction again, rather than a second patch on the first.
-        if let existing = items.first(where: { $0.page == pick.page && ($0.correction?.cover.intersects(pick.wordsRect) ?? false) }) {
+        // Words already corrected open their correction again, rather than a second patch on the
+        // first — on the same line: a cover a font's full height tall reaches the next line in
+        // single-spaced text, and that line is words of its own.
+        if let existing = items.first(where: { item in
+            guard item.page == pick.page, let correction = item.correction else { return false }
+            return abs(correction.baseline - pick.baseline) < max(1, pick.fontSize / 2)
+                && correction.cover.minX < pick.wordsRect.maxX && pick.wordsRect.minX < correction.cover.maxX
+        }) {
             beginEditing(existing.id)
             return existing.id
         }
@@ -1675,7 +1708,8 @@ public final class EditorPDFFillSign: ObservableObject {
                 items[index].fontSize = next
                 Self.resizeToWords(&items[index], in: box(items[index].page))
             }
-            if selected?.isSignature == false { fontSize = next }
+            // A correction's size is the covered words', not the next text's — as its font is.
+            if selected?.isSignature == false, selected?.isCorrection == false { fontSize = next }
         } else {
             fontSize = next
         }
@@ -1934,7 +1968,11 @@ public final class EditorPDFFillSign: ObservableObject {
     private func change(_ name: String, _ body: (inout [EditorPDFFillItem]) -> Void) {
         let before = items
         body(&items)
-        if items != before { register(before, name) }
+        // **Inside an open box, the box's own step takes it**: ``endEditing()`` registers one step
+        // against `editBefore`, and Esc on a correction puts `editBefore` back. A step of its own
+        // here — Text Size chosen while retyping — held the half-typed words, so ⌘Z after Esc
+        // brought back the correction Esc had cancelled.
+        if items != before, editing == nil || editBefore == nil { register(before, name) }
     }
 
     private func register(_ before: [EditorPDFFillItem], _ name: String) {

@@ -56,7 +56,7 @@ public final class PanePDFTools: ObservableObject {
     private(set) var work: Task<Void, Never>?
     /// Whether a file's bytes are still only in the cloud, asked again when the request is made —
     /// a test's to answer.
-    var isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
+    var isCloudOnly: @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
 
     public init() {}
 
@@ -377,7 +377,8 @@ extension EditorPDFBatch {
                 message: paths.count == 1
                     ? "“\((paths[0] as NSString).lastPathComponent)” is no longer there — it was moved or deleted."
                     : "The copies are no longer there — they were moved or deleted.",
-                kind: .note)
+                // The files it skipped or failed, and why, still stand.
+                kind: .note, detail: banner?.detail)
             return
         }
         door(here)

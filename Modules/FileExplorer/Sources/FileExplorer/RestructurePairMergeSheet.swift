@@ -349,6 +349,7 @@ struct RestructurePairMergeSheet: View {
             Button("Save for later…") { if let manifest { export(manifest) } }
                 .scaledFont(.system(size: 11))
                 .keyboardShortcut(.defaultAction)
+                .accentedProminent()
                 .disabled(manifest == nil || applying || landed)
                 .help(Self.exportHelp)
             if let onApply {

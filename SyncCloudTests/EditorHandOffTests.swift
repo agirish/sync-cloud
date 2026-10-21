@@ -352,7 +352,11 @@ import FileExplorer
         let body = CodeText(try declarationBody(of: "func downloadFromEdit(_ path: String) {", in: editor))
         #expect(body.contains("CloudDownloadRequest.requestDownload(path: path, name: name,"),
                 "Edit's Download no longer asks through Browse's verb")
-        #expect(body.contains("await ExternalOpen.fetch(path)"), "Edit's Download no longer waits for the file")
+        #expect(body.contains("await ExternalOpen.fetch(path, timeout: Self.editDownloadWait)"),
+                "Edit's Download no longer waits for the file, or waits only the external open's minute")
+        // Download was asked for here, and the note promises the file opens when it arrives: a
+        // minute called a large file on a slow link a failure while it went on downloading.
+        #expect(ContentView.editDownloadWait >= .seconds(300))
         #expect(body.contains("guard editorOpenPath == path, editorOpenIsRefused else {")
                     && body.contains("openInEditor(path: path)"),
                 "Edit's Download opens a file the reader has moved on from, or never opens it")

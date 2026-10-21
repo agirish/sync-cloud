@@ -1090,6 +1090,8 @@ extension ContentView {
     /// **The file opens when it arrives only if Edit is still showing its refusal** — the rule
     /// ``fetchExternalOpenFromCloud(_:)`` keeps: a reader who has moved on is not moved back. A row
     /// that was not the open file is re-listed, so it stops being dim.
+    static let editDownloadWait: Duration = .seconds(600)
+
     func downloadFromEdit(_ path: String) {
         let name = ExternalOpen.name(path)
         let opensOnArrival = editorOpenPath == path && editorOpenIsRefused
@@ -1101,12 +1103,15 @@ extension ContentView {
                                                           : "Downloading “\(name)”…")
         syncManager.banner = note
         Task { @MainActor in
-            let landed = await ExternalOpen.fetch(path)
+            // **Ten minutes, not the external open's one**: Download was asked for here, and the note
+            // promises the file opens when it arrives — a large file on a slow link took longer than
+            // a minute, and was called a failure while it went on downloading.
+            let landed = await ExternalOpen.fetch(path, timeout: Self.editDownloadWait)
             await refreshEditorRail()
             // Our own note goes; anything posted over it since is left alone.
             if syncManager.banner?.id == note.id { syncManager.banner = nil }
             guard landed else {
-                Logger.shared.warning("[edit] \(path) did not arrive from the cloud within a minute")
+                Logger.shared.warning("[edit] \(path) did not arrive from the cloud within ten minutes")
                 syncManager.banner = .error("Couldn’t download “\(name)”. Download it in Finder, then open it again.")
                 return
             }

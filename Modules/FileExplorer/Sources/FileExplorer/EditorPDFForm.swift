@@ -74,12 +74,15 @@ public struct EditorPDFForm: Equatable, Sendable {
             guard CGPDFDictionaryGetString(dictionary, key, &string), let string else { return nil }
             return CGPDFStringCopyTextString(string) as String?
         }
+        // Each node once: a `/Kids` that names a node twice, looping back, doubled the walk at every
+        // level down to the depth cap — 2^32 visits, in the lane.
+        var visited: Set<UInt> = []      // each node's address: CGPDF hands one object the same reference
         func walk(_ array: CGPDFArrayRef, parent: String?, depth: Int) {
             // A form whose kids loop back on themselves stops here.
             guard depth < 32 else { return }
             for index in 0..<CGPDFArrayGetCount(array) {
                 var node: CGPDFDictionaryRef?
-                guard CGPDFArrayGetDictionary(array, index, &node), let node else { continue }
+                guard CGPDFArrayGetDictionary(array, index, &node), let node, visited.insert(unsafeBitCast(node, to: UInt.self)).inserted else { continue }
                 let name = text(node, "T").map { partial in parent.map { "\($0).\(partial)" } ?? partial } ?? parent
                 if let name, out[name] == nil,
                    let description = text(node, "TU")?.trimmingCharacters(in: .whitespacesAndNewlines),

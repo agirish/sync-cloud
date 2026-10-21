@@ -52,8 +52,9 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     /// What the footer says while the run is in flight, or `nil`.
-    static func workingCaption(isRunning: Bool, drawsOwnProgress: Bool) -> String? {
-        isRunning && !drawsOwnProgress ? "Writing the copy…" : nil
+    static func workingCaption(isRunning: Bool, started: Bool = true, drawsOwnProgress: Bool) -> String? {
+        guard isRunning, !drawsOwnProgress else { return nil }
+        return started ? "Writing the copy…" : "Waiting for other PDF work…"
     }
 
     var body: some View {
@@ -71,7 +72,8 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
-                if let working = Self.workingCaption(isRunning: tools.running != nil, drawsOwnProgress: drawsOwnProgress) {
+                if let working = Self.workingCaption(isRunning: tools.running != nil, started: tools.running?.started == true,
+                                                      drawsOwnProgress: drawsOwnProgress) {
                     ProgressView().controlSize(.small)
                     Text(working)
                         .scaledFont(.system(size: 11))

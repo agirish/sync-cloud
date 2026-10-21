@@ -3500,7 +3500,7 @@ struct FilingSpendHistorySheet: View {
                 // lives in `FileExplorer`'s `FilingSpendHistoryView` and has to say the same.
                 Text("Cloud AI Spend").scaledFont(.headline)
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).shortcutKeycap("⏎")
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).shortcutKeycap("⏎").accentedProminent()
             }
             .padding()
             Divider()

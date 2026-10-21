@@ -389,6 +389,63 @@ enum ReplaceFixtures {
         #expect(fill.items.first?.correction?.words == "21 Apr")
     }
 
+    /// **The line under a corrected one is a line of its own**, in tightly set text. A pick
+    /// reopened any correction whose cover touched its words' box — a box the font's size tall,
+    /// which in lines set under about 1.1 em apart, as invoices and forms often are, reaches the
+    /// cover above — so the second line could never be corrected.
+    @Test func theLineUnderACorrectedOneIsCorrectedOnItsOwn() async throws {
+        let file = path("Tight.pdf")
+        ReplaceFixtures.write(file, lines: [
+            .init(text: "14 March 2026", at: CGPoint(x: 260, y: 600), font: "Helvetica", color: Self.dark),
+            .init(text: "15 April 2026", at: CGPoint(x: 260, y: 585.5), font: "Helvetica", color: Self.dark),
+        ], ground: .none)
+        let (pdf, first, _) = try await correcting(file)
+        let fill = pdf.fill
+        fill.type("21 March 2026", into: first)
+        fill.endEditing()
+        guard case .success(let below) = try pick(file, at: CGPoint(x: 300, y: 589)) else { Issue.record("refused"); return }
+        #expect(below.words == "15 April 2026", "the click picked other words — this tests nothing")
+        try #require(fill.items.first?.correction?.cover.intersects(below.wordsRect) == true,
+                     "the lines are not close enough to touch — this tests nothing")
+        let second = fill.beginCorrection(below)
+        #expect(second != nil && second != first, "the line below reopened the one above")
+        #expect(fill.items.count == 2)
+    }
+
+    /// **Esc after a style change while retyping leaves nothing to undo.** Text Size chosen with the
+    /// box open took an undo step of its own, holding the half-typed words, so ⌘Z after Esc brought
+    /// back the correction Esc had cancelled.
+    @Test func escAfterAStyleChangeLeavesNoStepThatBringsItBack() async throws {
+        let (pdf, id, _) = try await correcting(invoice())
+        let fill = pdf.fill
+        fill.type("21", into: id)
+        fill.setFontSize(18)
+        fill.cancelEditing()
+        #expect(fill.items.isEmpty)
+        #expect(!fill.undoManager.canUndo, "an undo step outlived the Esc: \(fill.undoManager.undoActionName)")
+        if fill.undoManager.canUndo { fill.undoManager.undo() }
+        #expect(fill.items.isEmpty, "⌘Z after Esc brought the cancelled correction back")
+    }
+
+    /// **A reload that now has a form drops the corrections, and says so.** Replace is off on a
+    /// form, so the save refused them on every try and only Discard got out.
+    @Test func aReloadThatGainsAFormDropsTheCorrections() async throws {
+        let (pdf, id, _) = try await correcting(invoice())
+        let fill = pdf.fill
+        fill.type("21 March 2026", into: id)
+        fill.endEditing()
+        try #require(fill.items.count == 1)
+        let path = try #require(pdf.path)
+        let field = FormField(name: "name", kind: .text(multiline: false), value: nil,
+                              widgets: [FormField.Widget(pageIndex: 0, rect: CGRect(x: 10, y: 10, width: 100, height: 20))])
+        let log = LogCapture()
+        fill.attach(path: path, boxes: fill.boxes, encryption: .none, allowsFilling: true,
+                    form: EditorPDFForm(fields: [field]))
+        #expect(fill.items.isEmpty && !fill.hasUnsavedChanges)
+        #expect(pdf.tools.banner?.message == "The file changed on disk and now has a fillable form, so your corrections were dropped.")
+        #expect(await log.holds(containing: "Edit dropped 1 correction with Fill & Sign on Invoice.pdf"))
+    }
+
     /// **Return with the words as they were changes nothing**: the correction goes.
     @Test func placingTheWordsAsTheyWereLeavesNothing() async throws {
         let (pdf, _, _) = try await correcting(invoice())
@@ -407,9 +464,11 @@ enum ReplaceFixtures {
         func item() -> EditorPDFFillItem { fill.items.first { $0.id == id }! }
         func baseline() -> CGFloat { item().rect.maxY - EditorPDFFillSign.baselineOffset(item().nsFont(size: item().fontSize)) }
 
+        let nextTextSize = fill.fontSize
         fill.setFontSize(18)
         #expect(item().fontSize == 18)
         #expect(abs(baseline() - 600) < 0.01 && abs(item().rect.minX - pick.left) < 0.01, "a new size moved the words")
+        #expect(fill.fontSize == nextTextSize, "a correction's size became the next text's")
 
         fill.setColor(.blue)
         #expect(item().ink == EditorPDFRGB(red: 26 / 255, green: 61 / 255, blue: 143 / 255))

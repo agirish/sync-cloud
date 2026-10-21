@@ -230,6 +230,29 @@ extension PDFFixtures {
         #expect(plain.fill.formNotes.isEmpty)
     }
 
+    /// **A form whose `/Kids` name a node twice, looping back, is walked once per node.** The walk
+    /// doubled at every level down to its depth cap — 2^32 visits, in the PDF lane.
+    @Test func aFormWhoseKidsLoopBackIsWalkedOnce() throws {
+        let body = """
+            %PDF-1.4
+            1 0 obj << /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >> endobj
+            2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+            3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >> endobj
+            4 0 obj << /T (a) /TU (Loop) /Kids [4 0 R 4 0 R] >> endobj
+            trailer << /Root 1 0 R >>
+            %%EOF
+            """
+        let provider = try #require(CGDataProvider(data: Data(body.utf8) as CFData))
+        // The document held: its catalog and every dictionary in it go with it.
+        let document = try #require(CGPDFDocument(provider))
+        let catalog = try #require(document.catalog)
+        var acroForm: CGPDFDictionaryRef?
+        try #require(CGPDFDictionaryGetDictionary(catalog, "AcroForm", &acroForm))
+        let form = try #require(acroForm)
+        #expect(EditorPDFForm.descriptions(in: form) == ["a": "Loop"])
+        withExtendedLifetime(document) {}
+    }
+
     // MARK: Editing
 
     /// **A reload whose pages changed drops the filled fields with the items — and says so.** It
@@ -257,6 +280,33 @@ extension PDFFixtures {
         #expect(fill.values.isEmpty && fill.items.isEmpty)
         #expect(tools.banner?.message == "The file changed on disk, so the items you placed and the fields you filled were cleared.")
         #expect(await log.holds(containing: "Edit dropped 1 item placed and 1 field filled with Fill & Sign on reload.pdf in /tmp"))
+    }
+
+    /// **Filled fields that go with an empty text box are said.** The pages changed and the form did
+    /// not, so the fields' own banner never ran; `clear()` took the values all the same, and the
+    /// items' banner, seeing no placed work, said nothing — and the log counted "0 items placed".
+    @Test func aPageChangeThatClearsOnlyFieldsSaysSo() async throws {
+        let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
+        let tools = EditorPDFTools()
+        fill.tools = tools
+        let field = FormField(name: "name", kind: .text(multiline: false), value: nil,
+                              widgets: [FormField.Widget(pageIndex: 0, rect: CGRect(x: 10, y: 10, width: 100, height: 20))])
+        let form = EditorPDFForm(fields: [field])
+        let page = EditorPDFPageBox(cropBox: CGRect(x: 0, y: 0, width: 612, height: 792), rotation: 0)
+        fill.attach(path: "/tmp/fields-only.pdf", boxes: [page, page], encryption: .none, allowsFilling: true, form: form)
+        fill.toggle()
+        fill.beginFieldEditing("name")
+        fill.typeField("Ada")
+        fill.endFieldEditing()
+        fill.armed = .text
+        try #require(fill.place(at: CGPoint(x: 300, y: 300), page: 0) != nil)
+        try #require(fill.values.count == 1 && fill.unsaved.isEmpty && !fill.items.isEmpty)
+
+        let log = LogCapture()
+        fill.attach(path: "/tmp/fields-only.pdf", boxes: [page], encryption: .none, allowsFilling: true, form: form)
+        #expect(fill.values.isEmpty && fill.items.isEmpty)
+        #expect(tools.banner?.message == "The file changed on disk, so the fields you filled were cleared.")
+        #expect(await log.holds(containing: "Edit dropped 1 field filled with Fill & Sign on fields-only.pdf in /tmp"))
     }
 
     /// **A reload that changed the form and the pages both says both** — the fields went first,

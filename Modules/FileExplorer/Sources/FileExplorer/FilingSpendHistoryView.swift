@@ -14,7 +14,7 @@ struct FilingSpendHistoryView: View {
             HStack {
                 Text("Cloud AI Spend").scaledFont(.headline)
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).shortcutKeycap("⏎")
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).shortcutKeycap("⏎").accentedProminent()
             }
             .padding()
 

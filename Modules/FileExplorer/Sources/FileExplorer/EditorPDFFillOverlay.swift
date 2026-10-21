@@ -1071,7 +1071,10 @@ extension EditorPDFFillOverlay {
             element.setAccessibilityRoleDescription("placed item")
             element.setAccessibilityLabel(item.spokenName(among: fill.store.saved))
             element.setAccessibilitySelected(fill.selection == id)
-            element.setAccessibilityHelp("Press to select it; then the arrow keys move it and Delete removes it")
+            // A correction stays over the words it covers: Return retypes it, and the arrows don't move it.
+            element.setAccessibilityHelp(item.isCorrection
+                                         ? "Press to select it; then Return retypes it and Delete removes it"
+                                         : "Press to select it; then the arrow keys move it and Delete removes it")
             element.setAccessibilityFrameInParentSpace(viewRect(item) ?? .zero)
             var actions = [NSAccessibilityCustomAction(name: "Delete") { [weak self] in
                 guard let fill = self?.fill, fill.items.contains(where: { $0.id == id }) else { return false }
@@ -1079,7 +1082,8 @@ extension EditorPDFFillOverlay {
                 fill.deleteSelection()
                 return true
             }]
-            if case .text = item.content {
+            // A text box, or a correction — retyped as Return and a double-click retype it.
+            if item.words != nil, !item.isSignature {
                 actions.insert(NSAccessibilityCustomAction(name: "Edit Text") { [weak self] in
                     guard let self, let fill = self.fill, fill.items.contains(where: { $0.id == id }) else { return false }
                     self.window?.makeFirstResponder(self)

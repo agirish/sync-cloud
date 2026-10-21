@@ -694,6 +694,7 @@ struct PaneBarCustomizeSheet: View {
             Button("Done") { dismiss() }
                 .keyboardShortcut(.defaultAction)
                 .shortcutKeycap("⏎")
+                .accentedProminent()
         }
         .padding(.top, 16)
     }

@@ -26,6 +26,11 @@ import Testing
 ///    Untinted, it paints the SYSTEM accent in a window that follows the app's; tinted with the raw
 ///    accent, AppKit lays its white label on 2.7:1. The seam picks the deepened fill, and the stock
 ///    blue at None (`ProminentAccent.swift`).
+///    A `.keyboardShortcut(.defaultAction)` button fills with the tint too, so a file that has one
+///    must tint somewhere — on the button or the sheet's root — with `.accentedProminent` or draw it
+///    as `.actionBar`. Six such files painted the system blue beside the user's hue (2026-10-21). A
+///    file can only be read whole here, so a root tinted in ANOTHER file is named in
+///    ``hostTintedDefaults``.
 /// 3. **No `controlAccentColor` at all.** It is the system's accent, not the app's, so anything
 ///    drawn in it ignores the hue the user picked.
 /// 4. **No SwiftUI `Color.accentColor` either** — the same system accent, drawn or as a default
@@ -104,6 +109,13 @@ import Testing
             } else if !names.contains("accentedProminent") {
                 found.append(Finding(rule: "untinted .borderedProminent", snippet: site))
             }
+        }
+
+        // Rule 2, for default buttons: the file tints them somewhere.
+        if !occurrences(of: ".keyboardShortcut(.defaultAction)", in: text).isEmpty,
+           occurrences(of: ".accentedProminent(", in: text).isEmpty,
+           occurrences(of: ".actionBar(", in: text).isEmpty {
+            found.append(Finding(rule: "untinted default button", snippet: ".keyboardShortcut(.defaultAction)"))
         }
 
         // Rule 3: the system accent, drawn.
@@ -308,6 +320,12 @@ import Testing
         #expect(rules("StorageSectionBar(section: $s, accentFill: glassHue.accentFillColor, onAccent: .white)").isEmpty)
         #expect(rules("init(accentFill: Color = LiquidGlassHue.stored().accentFillColor)").isEmpty)
 
+        // Rule 2, default buttons.
+        #expect(rules("Button(\"Done\") { dismiss() }.keyboardShortcut(.defaultAction)") == ["untinted default button"])
+        #expect(rules("Button(\"Done\") { dismiss() }.keyboardShortcut(.defaultAction).accentedProminent()").isEmpty)
+        #expect(rules("VStack { Button(\"Go\") {}.keyboardShortcut(.defaultAction) }.accentedProminent()").isEmpty)
+        #expect(rules("// no .keyboardShortcut(.defaultAction) here").isEmpty)
+
         // Rule 3.
         #expect(rules("let accent = NSColor.controlAccentColor\naccent.setStroke()") == ["controlAccentColor"])
         #expect(rules("// NSColor.controlAccentColor is the system's").isEmpty)
@@ -336,7 +354,12 @@ import Testing
         var fills = 0
         for file in try Self.editSources() {
             let source = try String(contentsOf: file, encoding: .utf8)
-            findings += Self.findings(in: source).map { "\(file.lastPathComponent) — \($0)" }
+            findings += Self.findings(in: source)
+                .filter { finding in
+                    !(finding.rule == "untinted default button"
+                      && Self.hostTintedDefaults.contains { $0.file == file.lastPathComponent })
+                }
+                .map { "\(file.lastPathComponent) — \($0)" }
             fills += Self.occurrences(of: "accentFill", in: Array(Self.stripComments(source))).count
         }
         #expect(findings.isEmpty, """
@@ -385,6 +408,11 @@ import Testing
          "the None hue means \"the Mac's accent\" — it is the one place the app asks for it"),
     ]
 
+    /// Files whose default button is tinted by a root in another file, or never drawn by SwiftUI.
+    static let hostTintedDefaults: [(file: String, why: String)] = [
+        ("EditorPDFBatchSheet.swift", "PanePDFTools tints the batch sheet's root"),
+    ]
+
     /// **Every filled control in the app carries its label at AA, in the app's accent.** The four
     /// rules over every shipping source. Exempt from rule 1: the marks above, and nothing else — a
     /// fill whose label flips to dark ink on light hues is a second button family, not a fix.
@@ -398,6 +426,10 @@ import Testing
             prominent += Self.occurrences(of: Self.prominent, in: Array(Self.stripComments(source))).count
             for finding in Self.findings(in: source) {
                 let name = file.lastPathComponent
+                if finding.rule == "untinted default button", Self.hostTintedDefaults.contains(where: { $0.file == name }) {
+                    exempted["default \(name)", default: 0] += 1
+                    continue
+                }
                 if finding.rule == "raw accent fill",
                    let mark = Self.markExemptions.first(where: { $0.file == name && finding.snippet.hasPrefix($0.fill) }) {
                     exempted["\(mark.file) \(mark.fill)", default: 0] += 1
@@ -426,6 +458,9 @@ import Testing
         for use in Self.systemAccentExemptions {
             let count = exempted["\(use.file) \(use.fragment)", default: 0]
             #expect(count == 1, "the exemption for \(use.why) (\(use.file)) matched \(count) uses, not 1")
+        }
+        for host in Self.hostTintedDefaults {
+            #expect(exempted["default \(host.file)"] == 1, "the exemption for \(host.why) (\(host.file)) matched nothing")
         }
         // A tripwire, so the scan cannot pass on files that no longer hold the buttons. 25 on
         // 2026-10-20: 23 outside Edit, and Edit's Save Filled Copy and Save Reordered Copy.

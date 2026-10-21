@@ -237,6 +237,9 @@ enum EditorPDFReplace {
 
     // MARK: Measuring them
 
+    /// More characters than a line across the widest page holds at a size anyone reads.
+    static let maxLineCharacters = 400
+
     /// **The pick for `selection` on `page`**, or why Replace refuses it — every check made here
     /// rather than after the reader has typed.
     static func pick(_ selection: PDFSelection, page: PDFPage, index: Int, box: EditorPDFPageBox,
@@ -247,6 +250,10 @@ enum EditorPDFReplace {
         let raw = (selection.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return .failure(.noText) }
         guard selection.pages.count == 1 else { return .failure(.severalLines) }
+        // **More than any one printed line holds, refused before a glyph is read**: below, every
+        // character is a `PDFSelection` of its own, on main for the right-click menu — thousands of
+        // them after ⌘A, only to grey Replace Text….
+        guard raw.count <= maxLineCharacters else { return .failure(.severalLines) }
         let marks = glyphs(of: selection, on: page).filter { !$0.isSpace && !$0.bounds.isEmpty }
         guard let first = marks.first, let last = marks.last else { return .failure(.noText) }
         // One line as printed: every glyph shares half its height with the first. PDFKit's own

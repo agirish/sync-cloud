@@ -72,7 +72,7 @@ enum BoundedTextRead {
                     + "\(FileSyncManager.formatBytes(maxBytes)))."
             case .cloudOnly: return "Not downloaded — there is nothing here to read yet."
             case .binary: return "Nothing readable as text here — the preview shows it properly."
-            case .unreadable: return "Couldn't be read."
+            case .unreadable: return "Couldn’t be read."
             }
         }
     }

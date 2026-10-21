@@ -1279,6 +1279,7 @@ struct RestructurePlanSheet: View {
             }
                 .scaledFont(.system(size: 11, weight: .semibold))
                 .keyboardShortcut(.defaultAction)
+                .accentedProminent()
                 .disabled(group.isEmpty
                           ? ((try? plan.get()) == nil || applying || isApplied)
                           : (group.allSatisfy { (try? $0.result.get()) == nil }

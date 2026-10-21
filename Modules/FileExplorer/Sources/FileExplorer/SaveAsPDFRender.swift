@@ -560,6 +560,8 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
     let web: WKWebView
     private let window: NSWindow
     private var loading: CheckedContinuation<Bool, Never>?
+    /// The web process died: nothing it draws from here on can be trusted, so the draws refuse.
+    private var terminated = false
 
     /// A view that can reach nothing but files — see ``offline()``.
     static func make(width: CGFloat, height: CGFloat = 1000) async -> WebPDFView {
@@ -632,7 +634,11 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
             loading = continuation
             web.loadFileURL(file, allowingReadAccessTo: file.deletingLastPathComponent())
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
-                MainActor.assumeIsolated { self?.finishLoading(false) }
+                MainActor.assumeIsolated {
+                    guard let self, self.loading != nil else { return }
+                    Logger.shared.warning("Save as PDF: the page didn’t load in \(Int(timeout)) s; giving up on it")
+                    self.finishLoading(false)
+                }
             }
         }
     }
@@ -676,10 +682,13 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
             """, contentWorld: .defaultClient) as? Bool
         if decoded == false {
             Logger.shared.warning("Save as PDF: pictures still decoding after a minute; drawing without them")
+        } else if decoded == nil {
+            Logger.shared.warning("Save as PDF: couldn’t ask the page whether its pictures were decoded")
         }
     }
 
     func pdf(of rect: CGRect) async throws -> Data {
+        guard !terminated else { throw SaveAsPDFFailure.quickLookGaveNothing }
         let configuration = WKPDFConfiguration()
         configuration.rect = rect
         return try await web.pdf(configuration: configuration)
@@ -687,6 +696,7 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
 
     /// WebKit's print of the page, to a file, against the hidden window.
     func print(_ info: NSPrintInfo) async throws -> Data {
+        guard !terminated else { throw SaveAsPDFFailure.quickLookGaveNothing }
         let operation = web.printOperation(with: info)
         operation.view?.frame = web.bounds
         return try await SaveAsPDFRender.savePrint(operation, info: info) {
@@ -722,8 +732,11 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
         finishLoading(false)
     }
 
-    /// A web process that died never reports the load either way — fail now, not at the guard.
+    /// A web process that died never reports the load either way — fail now, not at the guard. One
+    /// that dies after the load leaves a view that would draw blank, so the draws refuse too.
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        Logger.shared.warning("Save as PDF: the web process drawing the file quit")
+        terminated = true
         finishLoading(false)
     }
 

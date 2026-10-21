@@ -202,7 +202,7 @@ public struct EditorDivergenceDiffOverlay: View {
                 // **The consequence, in the alert's own words.** This overlay replaces the alert on
                 // screen, so dropping the sentence that says what each verb costs would mean the
                 // decision is made with less in front of the reader than before, not more.
-                Text("Saving replaces what’s on disk with what’s in the editor, and the other changes are lost.")
+                Text("Keeping yours replaces what’s on disk with what’s in Edit, and the other changes are lost.")
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

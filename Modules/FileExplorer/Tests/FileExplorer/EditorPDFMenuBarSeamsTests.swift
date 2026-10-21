@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import SwiftUI
+import Combine
 @testable import FileExplorer
 
 /// **What the menu bar reaches in the PDF reader** — the seams Text ▸ Go to Page… and Edit ▸ Select
@@ -25,10 +26,18 @@ import SwiftUI
         tools.sheet = nil
         let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: ScratchDefaults("EditorPDFMenuBarSeams")))
         tools.fill = fill
-        try? #require(EditorPDFToolsMenuEntry.entries(tools).contains { $0.enabled })
+        fill.tools = tools      // as `EditorPDFDocument` wires them
+        #expect(EditorPDFToolsMenuEntry.entries(tools).contains { $0.enabled })
+        // The menu bar's items observe the tools alone, so they must hear the sheet come and go —
+        // or they keep the list they drew before it, live.
+        var told = 0
+        let heard = tools.objectWillChange.sink { told += 1 }
         fill.addingSignature = .signature
         let underSignature = EditorPDFToolsMenuEntry.entries(tools).filter(\.enabled).map(\.title)
         #expect(underSignature.isEmpty, "live under Add Signature: \(underSignature)")
+        fill.addingSignature = nil
+        heard.cancel()
+        #expect(told == 2, "the tools heard Add Signature come and go \(told) times, not 2")
     }
 
     @Test func everyGoToPageIsANewAsk() {

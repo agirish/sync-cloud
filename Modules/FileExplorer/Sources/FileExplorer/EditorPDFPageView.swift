@@ -127,7 +127,9 @@ final class ReaderPDFView: PDFView {
               let document, let page = selection.pages.first else { return nil }
         let index = document.index(for: page)
         let outcome: Result<EditorPDFReplacePick, EditorPDFReplaceRefusal>
-        if let box = fill.box(index) {
+        if fill.replaceRefusal != nil {
+            outcome = .failure(.noText)     // the file's refusal is the one said; nothing to measure
+        } else if let box = fill.box(index) {
             outcome = EditorPDFReplace.pick(selection, page: page, index: index, box: box, widgets: EditorPDFReplace.widgets(on: page))
         } else {
             outcome = .failure(.noText)
@@ -401,6 +403,11 @@ final class ReaderPDFView: PDFView {
 /// two-page layout — not the whole PDF (decided 2026-10-20). PDFKit reads every page's text on the
 /// main thread to select a whole document: on a 1,200-page PDF ⌘A held the app for seconds and ⌘C
 /// after it for tens of seconds, and that reading ran beside the lane's.
+///
+/// **Still on main, beside the lane** — one spread's text now, not 1,200 pages'. A selection the
+/// reader makes in its mounted view is the view's own work, as its drawing is, and is outside
+/// `PDFKitSerialAccess` the same way: routed through the lane, ⌘A would wait behind a duplicate
+/// scan for minutes.
 public enum EditorPDFReaderSelection {
     @MainActor
     public static func selectPagesOnScreen(in view: PDFView) {

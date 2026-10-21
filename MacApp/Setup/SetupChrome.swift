@@ -146,6 +146,7 @@ struct SetupFooter: View {
             }
             Button(primaryTitle, action: onPrimary)
                 .keyboardShortcut(.defaultAction)
+                .accentedProminent()
                 .shortcutKeycap("return")
                 .disabled(isPrimaryDisabled)
         }

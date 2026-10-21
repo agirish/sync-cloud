@@ -209,6 +209,9 @@ public final class EditorPDFTools: ObservableObject {
         public var stillRunning: String
         /// Whether the lane reports pages as it goes — Compress alone does.
         public var reportsProgress: Bool
+        /// Whether its lane turn has begun. Until then it is waiting behind other PDF work — a
+        /// duplicate scan can hold the lane for minutes — and says so, rather than that it is busy.
+        public var started = false
 
         init(_ tool: EditorPDFTool) {
             self.tool = tool.title
@@ -237,7 +240,8 @@ public final class EditorPDFTools: ObservableObject {
     /// Whether the file is only in the cloud now — evicted since it opened. The toolkit opens it
     /// by URL in the lane, and a dataless file downloads synchronously on whatever thread asks,
     /// which is the lane every duplicate scan waits on; so a run refuses it, as the open does.
-    var isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
+    /// Asked again in the lane turn, since a run can wait there long enough for an eviction.
+    var isCloudOnly: @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
     /// Called IN THE LANE before each of Compress's pages, with the run's cancel flag — the tests'
     /// way to cancel between two pages without racing the main actor. `nil` in the app.
     var laneProgressHook: (@Sendable (Int, Int, CancelFlag) -> Void)?
@@ -546,7 +550,14 @@ public final class EditorPDFTools: ObservableObject {
         let hook = laneProgressHook
         let result = await EditorPDFToolEngine.run(
             tool, input: input, staging: stagingRoot,
-            unchanged: shownStamp.map { (path, $0) }, turnStarted: laneTurnHook,
+            unchanged: shownStamp.map { (path, $0) }, isCloudOnly: isCloudOnly,
+            turnStarted: { [weak self, turnHook = laneTurnHook] in
+                turnHook?()
+                Task { @MainActor in
+                    guard let self, generation == self.generation else { return }
+                    self.running?.started = true
+                }
+            },
             progress: { [weak self] page, total in
                 hook?(page, total, flag)
                 Task { @MainActor in
@@ -570,6 +581,9 @@ public final class EditorPDFTools: ObservableObject {
         case .failure(let error) where error is EditorPDFToolEngine.ChangedOnDisk:
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — it changed on disk while the run waited for its turn")
             return end(.failed(Self.changedReason(name)))
+        case .failure(let error) where error is EditorPDFToolEngine.CloudOnly:
+            Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — it went cloud-only while the run waited for its turn")
+            return end(.failed(Self.cloudOnlyReason(name)))
         case .failure(let error):
             // `.info`, not `.warning`: these are the toolkit's refusals — a wrong password, a
             // restricted file, an empty page range — answers about the file, not faults in the app.

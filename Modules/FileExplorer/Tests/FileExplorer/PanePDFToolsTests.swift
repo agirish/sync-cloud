@@ -516,9 +516,12 @@ private struct PDFToolDelegate: FileActionDelegate {
         batch.follow([kept, gone]) { revealed.append($0) }
         #expect(revealed == [[kept]])
         try FileManager.default.removeItem(atPath: kept)
+        batch.banner = EditorPDFToolBanner(message: "Rotated 1 file · 1 skipped", kind: .wroteSeveral([kept]),
+                                           detail: "C.pdf: it’s locked")
         batch.follow([kept]) { revealed.append($0) }
         #expect(revealed.count == 1, "a door opened onto a copy that is gone")
         #expect(batch.banner?.message == "“A (rotated).pdf” is no longer there — it was moved or deleted.")
+        #expect(batch.banner?.detail == "C.pdf: it’s locked", "the files the batch skipped, and why, went with the door")
         // And the banner's buttons go through it.
         let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()

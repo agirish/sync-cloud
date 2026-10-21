@@ -328,6 +328,21 @@ extension PDFFixtures {
         #expect(pdf.fill.hasUnsavedChanges, "the refused save dropped the item")
     }
 
+    /// **A file evicted while the run waits for its lane turn is not read either.** Eviction keeps
+    /// the stamp, so the stamp check passes it; the toolkit opening the placeholder would download
+    /// it inside the lane every duplicate scan waits on.
+    @Test func aFileEvictedWhileTheRunWaitsForTheLaneIsNotRead() async throws {
+        let file = path("Four.pdf")
+        PDFFixtures.write(file, pages: 4)
+        let tools = tools(file)
+        tools.shownStamp = EditorFileStore.stamp(ofPath: file)
+        let evicted = OSAllocatedUnfairLock(initialState: false)
+        tools.isCloudOnly = { _ in evicted.withLock { $0 } }
+        tools.laneTurnHook = { evicted.withLock { $0 = true } }
+        #expect(await tools.run(.rotate(pages: [1], quarterTurns: 1)) == .failed(EditorPDFTools.cloudOnlyReason("Four.pdf")))
+        #expect(files() == ["Four.pdf"], "a copy was written from a file evicted in the lane wait: \(files())")
+    }
+
     /// **Cancel or a leave while the copy is being written still writes nothing** — the button's
     /// help says "Stop — nothing is written" and the leave question "nothing is written". The copy
     /// landed anyway, with "Wrote …" after a Cancel.
