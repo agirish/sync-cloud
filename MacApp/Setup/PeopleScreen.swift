@@ -99,7 +99,8 @@ struct PeopleScreen: View {
         Button {
             model.addProposedPerson(candidate)
         } label: {
-            SetupChip(mark: .add, title: candidate.name, detail: parentDetail(candidate))
+            SetupChip(mark: .add, title: candidate.name, detail: parentDetail(candidate),
+                      accent: hue.accentColor)
         }
         .buttonStyle(.hoverAffordance(.segment))
         .disabled(model.rosterIsReadOnly)

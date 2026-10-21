@@ -25,7 +25,7 @@ struct SummaryScreen: View {
                 HStack(spacing: 7) {
                     Image(systemName: "checkmark.circle.fill")
                         .scaledFont(.system(size: 19))
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(hue.accentColor)
                     Text("You're all set").scaledFont(.title2.weight(.semibold))
                 }
                 Text("Here is what SyncCloud will do. Change any of it in Settings.")
@@ -110,7 +110,7 @@ struct SummaryScreen: View {
         HStack(spacing: 10) {
             Image(systemName: symbol)
                 .scaledFont(.caption)
-                .foregroundStyle(.tint)
+                .foregroundStyle(hue.accentColor)
                 .frame(width: 16)
             Text(text)
                 .scaledFont(.callout)

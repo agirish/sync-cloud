@@ -13,7 +13,7 @@ import Testing
 ///
 /// The failure this guards is a NEW fill written with the colour that is right next to it. Nothing
 /// rendered can see that — a test hands the view whatever colour it likes — so it is a source scan,
-/// like `SegmentedAccentTests.everySegmentedPickerInTheAppTakesTheAppAccent`. Four rules, over
+/// like `SegmentedAccentTests.everySegmentedPickerInTheAppTakesTheAppAccent`. Five rules, over
 /// the app's sources with comments stripped (Edit's first, where they began; then everything):
 ///
 /// 1. **No raw accent as a fill.** The argument of every `.fill(…)` and `.background(…)` — the
@@ -37,6 +37,11 @@ import Testing
 ///    argument — outside `systemAccentExemptions`. Help's words, Settings' size tiles and a dozen
 ///    colour defaults drew it in a green window until this rule found them. A colour parameter
 ///    defaults to `LiquidGlassHue.stored()`, or to nil resolved through `StoredHueReader`.
+/// 5. **No ShapeStyle `.tint` either.** With no `.tint(…)` above it, it IS the system accent, and
+///    whether one is above it is a fact about some other file — or about whether a `List` or
+///    `Table` row host passes it down. The guided setup drew 22 words and glyphs in `.tint` under
+///    a root that set none, so they stayed the Mac's blue on a Coral sheet (2026-10-21). Name the
+///    hue's `accentColor` instead.
 @Suite struct AccentFillScanTests {
 
     // MARK: The rules, on any source text
@@ -66,6 +71,11 @@ import Testing
     /// Not `hue.accentColor` or `(…).accentColor` — a property of something else.
     static let systemAccent = try! NSRegularExpression(
         pattern: #"((?<![A-Za-z0-9_])Color|(?<![A-Za-z0-9_)\]?!]))\.accentColor(?![A-Za-z0-9_])"#)
+
+    /// SwiftUI's tint as a style: `.tint` where a `ShapeStyle` is inferred, `.tint.opacity(…)`,
+    /// `TintShapeStyle()`. Not the `.tint(…)` modifier, nor `hue.tint` — a property of something else.
+    static let tintStyle = try! NSRegularExpression(
+        pattern: #"(?<![A-Za-z0-9_)\]?!])\.tint(?![A-Za-z0-9_(])|(?<![A-Za-z0-9_])TintShapeStyle(?![A-Za-z0-9_])|(?<![A-Za-z0-9_])ShapeStyle\.tint(?![A-Za-z0-9_(])"#)
 
     static func findings(in source: String) -> [Finding] {
         let text = Array(stripComments(source))
@@ -130,6 +140,14 @@ import Testing
             let from = max(0, match.range.location - 40)
             let to = min(characters.length, match.range.upperBound + 20)
             found.append(Finding(rule: "system accent",
+                                 snippet: characters.substring(with: NSRange(location: from, length: to - from))))
+        }
+
+        // Rule 5: the same system accent, as the tint nothing set.
+        for match in tintStyle.matches(in: joined, range: range) {
+            let from = max(0, match.range.location - 40)
+            let to = min(characters.length, match.range.upperBound + 20)
+            found.append(Finding(rule: "tint style",
                                  snippet: characters.substring(with: NSRange(location: from, length: to - from))))
         }
         return found
@@ -344,6 +362,20 @@ import Testing
         #expect(rules("let c = hue?.accentColor ?? x; let d = hue!.accentColor; let e = hues[0].accentColor").isEmpty)
         #expect(rules(".fill(accentColor.opacity(0.1))").isEmpty)
         #expect(rules("// `Color.accentColor` is the SYSTEM accent").isEmpty)
+
+        // Rule 5, broken: words, a wash through AnyShapeStyle, a fill, the type by name.
+        #expect(rules(".foregroundStyle(.tint)") == ["tint style"])
+        #expect(rules(".foregroundStyle(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))") == ["tint style"])
+        #expect(rules(".fill(AnyShapeStyle(.tint.opacity(isDeepest ? 1 : 0.45)))") == ["tint style"])
+        #expect(rules("Capsule().fill(.tint)") == ["tint style"])
+        #expect(rules(".foregroundStyle(TintShapeStyle())") == ["tint style"])
+        #expect(rules("let s: some ShapeStyle = ShapeStyle.tint") == ["tint style"])
+        // ...and kept: the modifier, a property named tint, comments.
+        #expect(rules(".tint(glassHue.accentColor)").isEmpty)
+        #expect(rules(".tint(SegmentedAccent.tint(for: hue))").isEmpty)
+        #expect(rules(".foregroundStyle(ProviderHue.classify(name).tint)").isEmpty)
+        #expect(rules(".fill(hue?.tint.opacity(0.2) ?? .clear); .foregroundStyle(section.tint)").isEmpty)
+        #expect(rules(".foregroundStyle(hue.accentColor) // was .foregroundStyle(.tint)").isEmpty)
     }
 
     // MARK: Edit
@@ -388,7 +420,8 @@ import Testing
     // MARK: The whole app
 
     /// A raw-accent fill that is right, named with why: a mark with no label on it, or a swatch that
-    /// IS the hue. Each must still match exactly one finding, so a stale entry fails too.
+    /// IS the hue. Each must still match exactly one finding — an entry listed twice, two — so a
+    /// stale entry fails too.
     static let markExemptions: [(file: String, fill: String, why: String)] = [
         ("AppearanceScreen.swift", ".fill(offered.accentColor)", "setup's hue swatch shows the hue itself"),
         ("SettingsView.swift", ".fill(hue.accentColor)", "Settings' hue swatch shows the hue itself"),
@@ -399,6 +432,8 @@ import Testing
          "the survey's 5pt progress bar"),
         ("DifferencesView.swift", ".fill(glassHue.accentColor)", "the 7pt dot beside \"Reviewing N of M\""),
         ("VisualPairModes.swift", ".fill(accent)", "Swipe's 1pt divider"),
+        ("SetupArtwork.swift", ".fill(AnyShapeStyle(accent))", "the Edit tour page's 7pt heading rule"),
+        ("SetupArtwork.swift", ".fill(AnyShapeStyle(accent))", "the Edit tour page's 2pt caret"),
     ]
 
     /// A use of SwiftUI's system accent that is right, named with why. Each must match exactly one
@@ -413,7 +448,7 @@ import Testing
         ("EditorPDFBatchSheet.swift", "PanePDFTools tints the batch sheet's root"),
     ]
 
-    /// **Every filled control in the app carries its label at AA, in the app's accent.** The four
+    /// **Every filled control in the app carries its label at AA, in the app's accent.** The five
     /// rules over every shipping source. Exempt from rule 1: the marks above, and nothing else — a
     /// fill whose label flips to dark ink on light hues is a second button family, not a fix.
     /// Exempt from rule 4: `systemAccentExemptions`.
@@ -448,12 +483,14 @@ import Testing
             `accentedProminent`. A white label on the raw accent is 2.7:1 on Green; fill with \
             `LiquidGlassHue.accentFillColor`, tint prominent buttons with `.accentedProminent(…)`, and \
             keep the raw accent for washes, hairlines and words. `Color.accentColor` is the SYSTEM \
-            accent: take the window's hue, or default to `LiquidGlassHue.stored()`:
+            accent, and so is a `.tint` nothing set: take the window's hue, or default to \
+            `LiquidGlassHue.stored()`:
             \(findings.joined(separator: "\n"))
             """)
         for mark in Self.markExemptions {
             let count = exempted["\(mark.file) \(mark.fill)", default: 0]
-            #expect(count == 1, "the exemption for \(mark.why) (\(mark.file)) matched \(count) fills, not 1")
+            let listed = Self.markExemptions.filter { $0.file == mark.file && $0.fill == mark.fill }.count
+            #expect(count == listed, "the exemption for \(mark.why) (\(mark.file)) matched \(count) fills, not \(listed)")
         }
         for use in Self.systemAccentExemptions {
             let count = exempted["\(use.file) \(use.fragment)", default: 0]

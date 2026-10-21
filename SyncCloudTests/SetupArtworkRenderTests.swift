@@ -36,10 +36,13 @@ import AppKit
     /// control test below exists rather than an assumption that `onAppear` ran.
     @MainActor
     static func render(_ art: SetupArt.Art) throws -> NSBitmapImageRep {
-        try render(SetupIllustration(art: art, leftName: "iCloud", rightName: "Dropbox"), named: "\(art)")
+        try render(SetupIllustration(art: art, leftName: "iCloud", rightName: "Dropbox", accent: Self.accent), named: "\(art)")
     }
 
-    /// Renders any view the way `render(_:)` renders a page: same size, same tint, same scale.
+    /// The accent every page is handed: blue, which `ink` tells from the grey ramp.
+    static let accent = Color.blue
+
+    /// Renders any view the way `render(_:)` renders a page: same size, same scale.
     ///
     /// **Into a bitmap this function allocates and clears — never the renderer's own image.**
     /// `ImageRenderer`'s `nsImage` and `cgImage` come back in a buffer it recycles between renders
@@ -57,7 +60,7 @@ import AppKit
     @MainActor
     static func render(_ content: some View, named name: String) throws -> NSBitmapImageRep {
         let scale: CGFloat = 2
-        let renderer = ImageRenderer(content: content.frame(width: 260, height: 120).tint(.blue))
+        let renderer = ImageRenderer(content: content.frame(width: 260, height: 120))
         var image: CGImage?
         renderer.render(rasterizationScale: scale) { size, draw in
             let width = Int((size.width * scale).rounded(.up))
@@ -83,7 +86,7 @@ import AppKit
         let classify = PixelMemo(bitmap) { colour -> (painted: Bool, tinted: Bool) in
             guard let colour, colour.alphaComponent > 0.02 else { return (false, false) }
             guard let rgb = colour.usingColorSpace(.deviceRGB) else { return (true, false) }
-            // Blue tint against a grey ramp: a real hue separates its channels.
+            // Blue accent against a grey ramp: a real hue separates its channels.
             return (true, rgb.blueComponent - rgb.redComponent > 0.15)
         }
         var painted = 0
@@ -145,7 +148,8 @@ import AppKit
         let blanks: [(String, AnyView)] = [
             ("a body that draws nothing", AnyView(Color.clear)),
             ("art whose reveal never ran",
-             AnyView(SetupIllustration(art: .duplicates, leftName: "iCloud", rightName: "Dropbox").opacity(0))),
+             AnyView(SetupIllustration(art: .duplicates, leftName: "iCloud", rightName: "Dropbox",
+                                     accent: Self.accent).opacity(0))),
         ]
         for (name, blank) in blanks {
             let before = try autoreleasepool { Self.ink(try Self.render(.duplicates)).painted }
@@ -225,7 +229,7 @@ import AppKit
     @Test(arguments: SetupArt.Art.allCases)
     func testEveryTourPageRevealsWhenItAppears(art: SetupArt.Art) throws {
         for reduceMotion in [false, true] {
-            let page = SetupIllustration(art: art, leftName: "iCloud", rightName: "Dropbox")
+            let page = SetupIllustration(art: art, leftName: "iCloud", rightName: "Dropbox", accent: Self.accent)
                 .environment(\._accessibilityReduceMotion, reduceMotion)
             let before = try Self.render(page.environment(\.setupArtReveals, false), named: "\(art) before its reveal")
             let revealed = try Self.render(page, named: "\(art)")

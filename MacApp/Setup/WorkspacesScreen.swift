@@ -35,7 +35,7 @@ struct WorkspacesScreen: View {
                 HStack(spacing: 6) {
                     Image(systemName: Workspace.filing.symbol)
                         .scaledFont(.caption)
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(hue.accentColor)
                     Text(Workspace.filing.title).scaledFont(.callout.weight(.semibold))
                     ShortcutKeycap(Self.chord(for: .filing))
                     Spacer(minLength: 0)
@@ -94,7 +94,7 @@ struct WorkspacesScreen: View {
             HStack(spacing: 5) {
                 Image(systemName: entry.workspace.symbol)
                     .scaledFont(.caption)
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(hue.accentColor)
                 Text(entry.workspace.title).scaledFont(.callout.weight(.semibold))
                 Spacer(minLength: 0)
                 ShortcutKeycap(Self.chord(for: entry.workspace))

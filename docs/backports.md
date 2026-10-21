@@ -8099,3 +8099,33 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | System-accent words, washes and defaults beside the app's hue, fewer the older the line | RECORDED — not owed |
+
+## Nothing draws an unset `.tint` — main only
+
+ShapeStyle `.tint` with no `.tint(…)` above it is the same SYSTEM accent, and nothing above the
+guided setup set one, so its words and glyphs stayed the Mac's blue on a Coral sheet: the welcome
+card's numbers, the tour pages' lit marks, the Why panels' examples, ticked and `+` chips, the
+Learn, Workspaces and Summary glyphs, and the Structure tree's root folder. Each now names the hue's
+raw accent (`SetupIllustration` and `SetupChip` are handed it). No root `.tint` was added, so the
+setup sheet's switches stay as Settings' do. The compare-pick badge and the review table's
+"Reviewing" marker, which relied on a `List`/`Table` row host passing a tint down, are handed the
+accent too. `AccentFillScanTests` rule 5 bans the ShapeStyle `.tint` in app sources, with no
+exemptions.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  n=$(git grep -hE '(^|[^]A-Za-z0-9_)?!])\.tint([^A-Za-z0-9_(]|$)|TintShapeStyle' \
+      origin/$l -- 'MacApp/*.swift' 'Modules/*/Sources/*.swift' | grep -vE '^\s*//' | wc -l | tr -d ' ')
+  printf '%-5s tintStyleLines=%s\n' "$l" "$n"
+done
+# measured 2026-10-21, against origin, before this landed (0 after):
+# main  tintStyleLines=22
+# v5.x  tintStyleLines=23
+# v4.x  tintStyleLines=16
+# v3.x  tintStyleLines=5
+# v2.x  tintStyleLines=5
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | Words and art on `.tint` — the setup's or the first-run tour's, the review marker, and on `v5.x`/`v4.x` more besides; whether a root tints them there is not checked | RECORDED — not owed |

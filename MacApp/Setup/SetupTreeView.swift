@@ -128,7 +128,7 @@ struct SetupTreeView: View {
 
     private var rootRow: some View {
         HStack(spacing: 6) {
-            Image(systemName: "folder.fill").scaledFont(.caption).foregroundStyle(.tint)
+            Image(systemName: "folder.fill").scaledFont(.caption).foregroundStyle(hue.accentColor)
             Text(rootName).scaledFont(.callout.weight(.semibold))
             Text(rootSubtitle).scaledFont(.caption2).foregroundStyle(.tertiary)
             Spacer(minLength: 0)

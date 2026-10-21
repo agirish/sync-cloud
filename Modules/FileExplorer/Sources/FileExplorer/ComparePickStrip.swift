@@ -113,11 +113,13 @@ public struct ComparePickStrip: View {
 /// find that undo.
 struct ComparePickBadge: View {
     let fonts: PaneRowFonts
+    /// The pane's accent, passed rather than read from `.tint` — see `PaneSearchAnnotation.accent`.
+    let accent: Color
 
     var body: some View {
         Image(systemName: PaneGlyph.compare)
             .font(fonts.cloudBadge)
-            .foregroundStyle(.tint)
+            .foregroundStyle(accent)
             .help("Armed for comparison — click another file to compare, or click this row again to cancel")
             .accessibilityLabel("Armed for comparison")
     }

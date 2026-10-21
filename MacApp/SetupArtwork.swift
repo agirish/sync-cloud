@@ -109,16 +109,19 @@ struct SetupIllustration: View {
     let art: SetupArt.Art
     let leftName: String
     let rightName: String
+    /// The sheet's accent. Handed in, because the `.tint` these drew in was never set above them —
+    /// so it was the SYSTEM accent, and a Coral sheet showed the Mac's blue.
+    let accent: Color
 
     var body: some View {
         switch art {
-        case .welcome:  WelcomeArt()
-        case .browse:   BrowseArt()
+        case .welcome:  WelcomeArt(accent: accent)
+        case .browse:   BrowseArt(accent: accent)
         case .compare:  CompareArt(leftName: leftName, rightName: rightName)
-        case .transfer: TransferArt(leftName: leftName, rightName: rightName)
-        case .duplicates: DuplicatesArt()
-        case .filing:   FilingArt()
-        case .edit:     EditArt()
+        case .transfer: TransferArt(leftName: leftName, rightName: rightName, accent: accent)
+        case .duplicates: DuplicatesArt(accent: accent)
+        case .filing:   FilingArt(accent: accent)
+        case .edit:     EditArt(accent: accent)
         }
     }
 }
@@ -128,9 +131,8 @@ private struct WelcomeArt: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
     @State private var breathe = false
-    // The welcome halo breathes in the user-selected glass hue, matching the app accent (C7).
-    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
-    private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
+    /// The welcome halo breathes in the user-selected glass hue, matching the app accent (C7).
+    let accent: Color
 
     private let providers = ["icloud", "googledrive", "dropbox", "onedrive"]
 
@@ -143,7 +145,7 @@ private struct WelcomeArt: View {
                 .background(
                     Circle()
                         .fill(RadialGradient(
-                            colors: [hueAccent.opacity(breathe ? 0.38 : 0.22), hueAccent.opacity(0)],
+                            colors: [accent.opacity(breathe ? 0.38 : 0.22), accent.opacity(0)],
                             center: .center, startRadius: 4, endRadius: 62))
                         .frame(width: 118, height: 118)
                         .scaleEffect(breathe ? 1.06 : 0.98)
@@ -179,6 +181,7 @@ private struct WelcomeArt: View {
 /// and the one thing a new user needs to expect is that clicking a folder opens a column beside it
 /// instead of expanding it in place. A folder icon would have said "files", which they knew.
 private struct BrowseArt: View {
+    let accent: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
 
@@ -218,7 +221,7 @@ private struct BrowseArt: View {
                     // The deepest column's lit row is the selection; the shallower ones are the
                     // trail behind it, so they carry the tint at half strength.
                     .fill(row == litRow
-                          ? AnyShapeStyle(.tint.opacity(isDeepest ? 1 : 0.45))
+                          ? AnyShapeStyle(accent.opacity(isDeepest ? 1 : 0.45))
                           : AnyShapeStyle(Color.secondary.opacity(0.35)))
                     .frame(width: row == Self.rowsPerColumn - 1 ? 22 : 30, height: 5)
             }
@@ -284,6 +287,7 @@ private struct CompareArt: View {
 private struct TransferArt: View {
     let leftName: String
     let rightName: String
+    let accent: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var drift = false
 
@@ -293,12 +297,12 @@ private struct TransferArt: View {
             VStack(spacing: 7) {
                 Image(systemName: "doc.text.fill")
                     .scaledFont(.system(size: 30))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(accent)
                     .offset(x: drift ? 7 : -7)
                 HStack(spacing: 3) {
                     Image(systemName: "arrow.left").scaledFont(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                     Rectangle().fill(Color.secondary.opacity(0.3)).frame(width: 26, height: 1.5)
-                    Image(systemName: "arrow.right").scaledFont(.system(size: 9, weight: .bold)).foregroundStyle(.tint)
+                    Image(systemName: "arrow.right").scaledFont(.system(size: 9, weight: .bold)).foregroundStyle(accent)
                 }
             }
             folder(name: rightName)
@@ -325,6 +329,7 @@ private struct TransferArt: View {
 /// A fanned stack of identical documents with the keeper checked — duplicate detection. The
 /// duplicates fan out and the check pops in on appear.
 private struct DuplicatesArt: View {
+    let accent: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
 
@@ -363,12 +368,13 @@ private struct DuplicatesArt: View {
     private func doc(tinted: Bool) -> some View {
         Image(systemName: "doc.fill")
             .scaledFont(.system(size: 54))
-            .foregroundStyle(tinted ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary.opacity(0.55)))
+            .foregroundStyle(tinted ? AnyShapeStyle(accent) : AnyShapeStyle(Color.secondary.opacity(0.55)))
     }
 }
 
 /// Loose documents dropping down into sorted folders — automatic filing.
 private struct FilingArt: View {
+    let accent: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
 
@@ -407,7 +413,7 @@ private struct FilingArt: View {
     private func folder(tinted: Bool) -> some View {
         Image(systemName: "folder.fill")
             .scaledFont(.system(size: 30))
-            .foregroundStyle(tinted ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary.opacity(0.5)))
+            .foregroundStyle(tinted ? AnyShapeStyle(accent) : AnyShapeStyle(Color.secondary.opacity(0.5)))
     }
 }
 
@@ -417,6 +423,7 @@ private struct FilingArt: View {
 /// text-size change and both appearance modes, and it must paint something at any size the render
 /// suite asks it for.
 private struct EditArt: View {
+    let accent: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
     @State private var caretOn = false
@@ -424,7 +431,7 @@ private struct EditArt: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             // The heading, in the tint: Markdown's one visible structure.
-            Capsule().fill(AnyShapeStyle(.tint)).frame(width: 62, height: 7)
+            Capsule().fill(AnyShapeStyle(accent)).frame(width: 62, height: 7)
             ForEach(0..<4, id: \.self) { index in
                 HStack(spacing: 4) {
                     Capsule()
@@ -433,7 +440,7 @@ private struct EditArt: View {
                     if index == 3 {
                         // The caret sits at the end of the last line, where typing would be.
                         Rectangle()
-                            .fill(AnyShapeStyle(.tint))
+                            .fill(AnyShapeStyle(accent))
                             .frame(width: 2, height: 12)
                             .opacity(caretOn ? 1 : 0.15)
                     }

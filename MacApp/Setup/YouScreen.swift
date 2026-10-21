@@ -106,7 +106,7 @@ struct YouScreen: View {
         Button {
             model.toggleForm(form)
         } label: {
-            SetupChip(mark: .tick(ticked), title: form, isFilled: ticked)
+            SetupChip(mark: .tick(ticked), title: form, isFilled: ticked, accent: hue.accentColor)
         }
         .buttonStyle(.hoverAffordance(.segment))
         .accessibilityLabel("\(form), \(ticked ? "used" : "not used")")
@@ -129,7 +129,7 @@ struct YouWhy: View {
                         .foregroundStyle(.secondary)
                     Text(firstName.isEmpty ? "yours" : firstName)
                         .scaledFont(.caption.weight(.medium))
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(hue.accentColor)
                 }
                 .accessibilityHidden(true)
                 Text("Organize reads the names printed on a document to tell whose it is. It needs "

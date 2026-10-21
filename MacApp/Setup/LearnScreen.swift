@@ -26,7 +26,7 @@ struct LearnScreen: View {
             HStack(spacing: 11) {
                 Image(systemName: "folder")
                     .scaledFont(.system(size: 22))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(hue.accentColor)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.walkRoot == nil ? "No folder chosen yet" : model.walkRootName)
                         .scaledFont(.callout.weight(.medium))
@@ -63,7 +63,7 @@ struct LearnScreen: View {
                         Text(row.screen.number.map(String.init) ?? "·")
                             .scaledFont(.caption.weight(.semibold))
                             .monospacedDigit()
-                            .foregroundStyle(.tint)
+                            .foregroundStyle(hue.accentColor)
                             .frame(width: 14, alignment: .trailing)
                         Text(Self.preview(of: row.screen)).scaledFont(.callout)
                     }
@@ -140,7 +140,7 @@ struct LearnWhy: View {
                             Image(systemName: "arrow.right")
                                 .scaledFont(.system(size: 7))
                                 .foregroundStyle(.tertiary)
-                            Text(example.1).scaledFont(.caption2).foregroundStyle(.tint)
+                            Text(example.1).scaledFont(.caption2).foregroundStyle(hue.accentColor)
                         }
                     }
                 }

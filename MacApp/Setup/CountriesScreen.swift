@@ -128,7 +128,8 @@ struct CountriesScreen: View {
         return Button {
             model.toggleCountry(value)
         } label: {
-            SetupChip(mark: .tick(ticked), title: value, detail: detail, isFilled: ticked)
+            SetupChip(mark: .tick(ticked), title: value, detail: detail, isFilled: ticked,
+                      accent: hue.accentColor)
         }
         .buttonStyle(.hoverAffordance(.segment))
         .help(help)
@@ -162,7 +163,7 @@ struct CountriesWhy: View {
                     Text(folderName).scaledFont(.caption.weight(.semibold))
                     Group {
                         Text("Finance").padding(.leading, 8)
-                        Text("US · IN").padding(.leading, 18).foregroundStyle(.tint)
+                        Text("US · IN").padding(.leading, 18).foregroundStyle(hue.accentColor)
                         Text("School").padding(.leading, 8)
                     }
                     .scaledFont(.caption2)

@@ -2120,7 +2120,7 @@ struct FileRowView: View {
             // a cloud-only badge for exactly as long as the pick is armed, trading one fact for
             // another.
             if isArmedForCompare {
-                ComparePickBadge(fonts: fonts)
+                ComparePickBadge(fonts: fonts, accent: accent)
                     .padding(.leading, gap)
             }
             // Zero minimum: in a zero-spaced stack a spacer that yields costs nothing at all.

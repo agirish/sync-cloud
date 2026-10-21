@@ -486,6 +486,9 @@ struct SetupChip<Trailing: View>: View {
     var detail: String?
     /// Whether the chip's ground is the heavier one. The tick's own state, where there is one.
     var isFilled = false
+    /// The sheet's accent, for a lit tick and the `+` — handed in, because a `.tint` nothing set
+    /// is the system's.
+    var accent: Color = LiquidGlassHue.stored().accentColor
     @ViewBuilder var trailing: () -> Trailing
 
     /// The chip's metrics, shared so a fifth caller cannot quietly pick its own.
@@ -517,11 +520,11 @@ struct SetupChip<Trailing: View>: View {
         case .tick(let on):
             Image(systemName: on ? "checkmark.circle.fill" : "circle")
                 .scaledFont(.caption)
-                .foregroundStyle(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                .foregroundStyle(on ? AnyShapeStyle(accent) : AnyShapeStyle(.tertiary))
         case .add:
             Image(systemName: "plus.circle")
                 .scaledFont(.caption)
-                .foregroundStyle(.tint)
+                .foregroundStyle(accent)
         case .person:
             Image(systemName: "person.crop.circle")
                 .scaledFont(.caption)
@@ -531,8 +534,9 @@ struct SetupChip<Trailing: View>: View {
 }
 
 extension SetupChip where Trailing == EmptyView {
-    init(mark: Mark, title: String, detail: String? = nil, isFilled: Bool = false) {
-        self.init(mark: mark, title: title, detail: detail, isFilled: isFilled,
+    init(mark: Mark, title: String, detail: String? = nil, isFilled: Bool = false,
+         accent: Color = LiquidGlassHue.stored().accentColor) {
+        self.init(mark: mark, title: title, detail: detail, isFilled: isFilled, accent: accent,
                   trailing: { EmptyView() })
     }
 }

@@ -1410,13 +1410,13 @@ public struct DifferencesView: View {
                 .width(min: 80, ideal: 150)
             TableColumn("Size") { DifferenceSizeCell(difference: $0, compact: compact) }
                 .width(min: 70, ideal: 90)
-            TableColumn("Status") { ReviewStatusCell(difference: $0, session: session) }
+            TableColumn("Status") { ReviewStatusCell(difference: $0, session: session, accent: glassHue.accentColor) }
                 .width(min: 96, ideal: 140)
         }
         .scrollContentBackground(.hidden)
         .tableStyle(.inset(alternatesRowBackgrounds: false))
         .listDensity(listDensity)
-        // The status cell's "Reviewing" marker and the selection highlight follow the app hue.
+        // The selection highlight follows the app hue (the status cell is handed it).
         .tint(glassHue.accentColor)
         .contextMenu(forSelectionType: FileDifference.ID.self) { ids in
             // Inspection only mid-review: no ignore toggle (it edits the live list, not the
@@ -2513,6 +2513,9 @@ private struct DifferenceSizeCell: View {
 private struct ReviewStatusCell: View {
     let difference: FileDifference
     let session: ReviewSession
+    /// The window's accent, for the "Reviewing" marker — passed rather than read from `.tint`, so it
+    /// does not depend on the table's row host passing that down (`AccentFillScanTests`, rule 5).
+    let accent: Color
 
     var body: some View {
         Group {
@@ -2527,7 +2530,7 @@ private struct ReviewStatusCell: View {
                 }
             } else if difference.id == session.current?.id {
                 Label("Reviewing", systemImage: "arrow.left.circle.fill")
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(accent)
             } else {
                 Text("Pending")
                     .foregroundStyle(.tertiary)

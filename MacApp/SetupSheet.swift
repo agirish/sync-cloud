@@ -334,7 +334,7 @@ struct SetupSheet: View {
         case .welcome:
             frame(title: "Set up SyncCloud", primary: "Get started",
                   skip: ("Not now", { onDismiss() })) {
-                WelcomeScreen(paneNames: paneNames)
+                WelcomeScreen(paneNames: paneNames, hue: glassHue)
             }
 
         case .locations:
@@ -421,7 +421,7 @@ struct SetupSheet: View {
     func screenBody(_ screen: SetupFlow.Screen,
                     outlineRows: [SetupFlow.OutlineRow] = SetupFlow.outline) -> some View {
         switch screen {
-        case .welcome: WelcomeScreen(paneNames: paneNames, rows: outlineRows)
+        case .welcome: WelcomeScreen(paneNames: paneNames, hue: glassHue, rows: outlineRows)
         case .locations: LocationsScreen(model: model, settings: settings, hue: glassHue)
         case .learn: LearnScreen(model: model, settings: settings, hue: glassHue)
         case .you: YouScreen(model: model, hue: glassHue, firstFieldFocused: $firstFieldFocused)

@@ -9,6 +9,7 @@ import SwiftUI
 /// rather than literals written here.
 struct WelcomeScreen: View {
     let paneNames: (String, String)
+    let hue: LiquidGlassHue
     /// What the card promises the sheet will ask. **Injectable for one reason**: the only test that
     /// can prove this list is *drawn* rather than merely declared is one that renders the card twice
     /// and finds it shorter without the rows. Three tests asserted the table while nothing drew it
@@ -37,7 +38,8 @@ struct WelcomeScreen: View {
                         // overflow is what you saw. Framed at the box the drawings were designed
                         // against, they scale as a set.
                         SetupIllustration(art: panel.art,
-                                          leftName: paneNames.0, rightName: paneNames.1)
+                                          leftName: paneNames.0, rightName: paneNames.1,
+                                          accent: hue.accentColor)
                             .frame(width: SetupSheet.panelArtBox.width,
                                    height: SetupSheet.panelArtBox.height)
                             .scaleEffect(SetupSheet.panelArtScale)
@@ -63,7 +65,7 @@ struct WelcomeScreen: View {
                         Text(row.screen.number.map(String.init) ?? "·")
                             .scaledFont(.caption.weight(.semibold))
                             .monospacedDigit()
-                            .foregroundStyle(.tint)
+                            .foregroundStyle(hue.accentColor)
                             .frame(width: 14, alignment: .trailing)
                         Text(row.detail).scaledFont(.callout)
                     }
