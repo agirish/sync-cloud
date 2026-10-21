@@ -33,6 +33,18 @@ public enum EditorTextSettings {
     public static let readableLineLengthKey = "editorReadableLineLength"
     public static let readableLineLengthDefault = false
 
+    /// Whether Source's text sits on a page — the system's text background, white in Light Mode
+    /// and dark grey in Dark Mode — rather than straight on the window's glass. The switch beside
+    /// Autosave under the file name, and Text ▸ Page.
+    ///
+    /// **Only the editable area**: with Readable Line Length on, the page is the centred column and
+    /// its 14pt margins, and the window shows on either side as it always has; off, it spans the
+    /// editor. Source only — Preview is a rendering with its own look (decided 2026-10-21).
+    ///
+    /// **Off by default**, so nobody's editor changes colour under them.
+    public static let drawsPageKey = "editorDrawsPage"
+    public static let drawsPageDefault = false
+
     /// Whether the spell checker underlines as you type.
     ///
     /// **Off by default, and this is the half that had to be separated from the other.** Everything

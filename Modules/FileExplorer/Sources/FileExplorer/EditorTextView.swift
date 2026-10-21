@@ -347,6 +347,41 @@ final class EditorTextView: NSTextView {
         defer { isSettingReadableInset = false }
         textContainerInset = NSSize(width: inset, height: textContainerInset.height)
         onReadableInset?(inset)
+        if drawsPage { needsDisplay = true }
+    }
+
+    // MARK: The page — see `EditorTextSettings.drawsPageKey`
+
+    /// Whether the text sits on a page of the system's text background. Set by `PlainTextEditor`
+    /// on every pass; the view ignores a value it already has.
+    var drawsPage = false {
+        didSet {
+            guard drawsPage != oldValue else { return }
+            needsDisplay = true
+            // Once per change, never per draw. No sizes: the first change arrives from
+            // `updateNSView` before the view has a frame, and "0pt of a 0pt editor" would mislead.
+            Logger.shared.info("[edit] Page \(drawsPage ? "on" : "off") under the Source text")
+        }
+    }
+
+    /// **The page under the text: the column and the margins the text always keeps**, so the
+    /// glyphs never touch its edge. With no readable cap the inset is ``EditorReadableColumn/baseInset``
+    /// and the page is the whole view; with one, it narrows by what the cap added to each side.
+    static func pageRect(in bounds: NSRect, horizontalInset: CGFloat) -> NSRect {
+        let side = max(0, horizontalInset - EditorReadableColumn.baseInset.width)
+        return bounds.insetBy(dx: min(side, bounds.width / 2), dy: 0)
+    }
+
+    var pageRect: NSRect { Self.pageRect(in: bounds, horizontalInset: textContainerInset.width) }
+
+    /// Drawn here rather than through `drawsBackground`, which can only fill the whole view.
+    /// `textBackgroundColor` is resolved against the view's own appearance, so the page follows
+    /// Light and Dark Mode and the text's default colour stays readable on it.
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        guard drawsPage else { return }
+        NSColor.textBackgroundColor.setFill()
+        pageRect.intersection(rect).fill()
     }
 }
 

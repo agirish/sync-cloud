@@ -40,14 +40,15 @@ import Testing
     }
 
     /// The Text menu, in the roadmap's order: the modes and Expand (TE48), the find bar's pair, the
-    /// drawing switches — Readable Line Length (TE51) beside Wrap Lines — and Continue Lists (TE54), the autosave
+    /// drawing switches — Readable Line Length (TE51) beside Wrap Lines, then Page — and Continue Lists (TE54), the autosave
     /// switch. **Neither Find… nor
     /// Save**, which stay in Edit and File — one action, one item, so no chord is registered twice.
     @Test func theTextMenuIsInTheRoadmapsOrder() throws {
         let text = Self.titles(try Self.menu("Text"))
         #expect(text == ["Source", "Preview", "Split", "Expand", "Edit in Preview (Experimental)",
                          "Find Next", "Find Previous", "Use Selection for Find", "Go to Line…",
-                         "Wrap Lines", "Readable Line Length", "Check Spelling While Typing", "Continue Lists",
+                         "Wrap Lines", "Readable Line Length", "Page", "Check Spelling While Typing",
+                         "Continue Lists",
                          "Autosave This File"],
                 "the Text menu reads \(text)")
         // Expand sits with the modes, before the first divider — not in a group of its own.
@@ -115,6 +116,8 @@ import Testing
         // Readable Line Length (TE51) likewise: a preference about drawing, not a verb.
         #expect(try Self.item("Readable Line Length", in: "Text").keyEquivalent.isEmpty,
                 "Readable Line Length has acquired a key")
+        // Page likewise: a preference about drawing.
+        #expect(try Self.item("Page", in: "Text").keyEquivalent.isEmpty, "Page has acquired a key")
         // Continue Lists likewise: a preference, not a verb.
         #expect(try Self.item("Continue Lists", in: "Text").keyEquivalent.isEmpty, "Continue Lists has acquired a key")
         // Edit in Preview too (TE67): ⌥ is barred and ⌃⌘ is spent.

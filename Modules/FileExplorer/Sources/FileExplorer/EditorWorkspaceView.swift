@@ -337,6 +337,8 @@ public struct EditorWorkspaceView: View {
     @AppStorage(EditorTextSettings.editsInPreviewKey) private var editsInPreviewPreference: Bool
         = EditorTextSettings.editsInPreviewDefault
     @AppStorage(EditorTextSettings.editsInPreviewIntroSeenKey) private var editsInPreviewIntroSeen = false
+    /// The page under Source's text — the switch beside Autosave, and Text ▸ Page.
+    @AppStorage(EditorTextSettings.drawsPageKey) private var drawsPage: Bool = EditorTextSettings.drawsPageDefault
     /// The pill's one-time "experimental" popover — see ``PreviewEditToggle/showsIntro``.
     @State private var showsPreviewEditIntro = false
     /// Whether this note is too long to edit in Preview, as decided when Preview was opened for it.
@@ -1039,32 +1041,60 @@ public struct EditorWorkspaceView: View {
                 Text("·").foregroundStyle(.tertiary)
                 autosaveSwitch
             }
-            // **Where the file lives — after the switch, so the switch never moves.** The folder's
-            // name is the one thing on the left of this row whose width depends on the file, and
-            // before the switch it would slide the switch sideways from one folder to the next,
-            // the same reason the status word is at the far end.
+            // **Page, then where the file lives — one slot of this row, so a Page that steps aside
+            // leaves no gap.** A slot of its own held the row's 6pt on both sides even with
+            // nothing in it, doubling the space before the location at exactly the width where
+            // the row is short of it (measured with a probe: 112pt against 106).
             //
-            // **It takes the gap the `Spacer` held**, rather than sitting beside one: two views
-            // flexible without limit split the leftover width between them, and the crumb would
-            // have had half the room it could use.
+            // **Page comes after Autosave, so Autosave never moves**, and before the location for
+            // the reason Autosave is: the crumb's width depends on the file. Offered on a
+            // read-only file too — a page changes nothing on disk.
             //
-            // **And it yields first — `layoutPriority(-1)`.** At the same priority as its
-            // neighbours it was offered a share of the row before they had theirs, and at 135% in
-            // the narrowest column "Autosave" was handed less than its own width and wrapped onto
-            // a second line, growing a header that is pinned to the pane's toolbar card. Below
-            // them it is sized from what the kind, the switch and the status word leave — the
-            // location folds and truncates (``EditorLocationLabel``) where those words cannot.
-            if let location {
-                HStack(spacing: 6) {
-                    Text("·").foregroundStyle(.tertiary).fixedSize()
-                    EditorLocationLabel(location: location, accent: accent, onDoor: onLocationDoor)
+            // **It yields before everything but the location**: the slot is `-1`, so it is offered
+            // what the kind, Autosave and the status word leave; inside it Page, at a fixed size,
+            // is measured first and drawn whole or not at all — measured, at 260pt and 135% the
+            // row wrapped "Autosave" onto a second line with it in. Text ▸ Page is the way to it
+            // then.
+            HStack(spacing: 0) {
+                if Self.showsPageSwitch(hasPath: document.path != nil, wasRefused: document.refusal != nil) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) {
+                            Text("·").foregroundStyle(.tertiary)
+                            pageSwitch
+                        }
+                        .padding(.trailing, 6)
+                        .fixedSize()
+                        Color.clear.frame(width: 0, height: 0)
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.trailing, 8)
-                .layoutPriority(-1)
-            } else {
-                Spacer(minLength: 8)
+                // **Where the file lives — after the switch, so the switch never moves.** The folder's
+                // name is the one thing on the left of this row whose width depends on the file, and
+                // before the switch it would slide the switch sideways from one folder to the next,
+                // the same reason the status word is at the far end.
+                //
+                // **It takes the gap the `Spacer` held**, rather than sitting beside one: two views
+                // flexible without limit split the leftover width between them, and the crumb would
+                // have had half the room it could use.
+                //
+                // **And it yields first — `layoutPriority(-1)`.** At the same priority as its
+                // neighbours it was offered a share of the row before they had theirs, and at 135% in
+                // the narrowest column "Autosave" was handed less than its own width and wrapped onto
+                // a second line, growing a header that is pinned to the pane's toolbar card. Below
+                // them it is sized from what the kind, the switch and the status word leave — the
+                // location folds and truncates (``EditorLocationLabel``) where those words cannot.
+                if let location {
+                    HStack(spacing: 6) {
+                        Text("·").foregroundStyle(.tertiary).fixedSize()
+                        EditorLocationLabel(location: location, accent: accent, onDoor: onLocationDoor)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.trailing, 8)
+                    .layoutPriority(-1)
+                } else {
+                    Spacer(minLength: 8)
+                }
             }
+            .layoutPriority(-1)
             // **The far end, so the left never moves.** The word is the only thing in this row
             // whose width changes — `unsaved — ⌘S`, `not saving`, a stop's own sentence — and on
             // the left it would shove the switch sideways every time the state changed. Here it
@@ -1313,6 +1343,44 @@ public struct EditorWorkspaceView: View {
     /// are two doors onto one setting, and they have to be withheld by the same rule.
     public static func showsAutosaveSwitch(hasPath: Bool, wasRefused: Bool, isReadOnly: Bool) -> Bool {
         hasPath && !wasRefused && !isReadOnly
+    }
+
+    /// **Wherever there is text to put on a page** — a file read in, whether or not it can be
+    /// written. Not on a refusal, which shows a caption and no text view.
+    public static func showsPageSwitch(hasPath: Bool, wasRefused: Bool) -> Bool {
+        hasPath && !wasRefused
+    }
+
+    /// **Greyed in Preview**, where there is no Source on screen for the page to go under — rather
+    /// than withheld, so the location beside it does not jump with every mode change.
+    public static func pageSwitchApplies(_ resolvedMode: EditorMode) -> Bool { resolvedMode != .preview }
+
+    /// The page switch: Autosave's own shape and track, on ``EditorTextSettings/drawsPageKey``.
+    @ViewBuilder
+    private var pageSwitch: some View {
+        let applies = Self.pageSwitchApplies(resolvedMode)
+        Button {
+            drawsPage.toggle()
+            Logger.shared.info("[edit] Page \(drawsPage ? "on" : "off") from the header")
+        } label: {
+            HStack(spacing: 5) {
+                Text("Page")
+                    .scaledFont(.system(size: 10, weight: .medium))
+                    .foregroundStyle(drawsPage ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                AutosaveSwitchTrack(isOn: drawsPage, fill: accentFill)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!applies)
+        .opacity(applies ? 1 : 0.45)
+        // Autosave's pattern: the state, then what a click does.
+        .help(!applies ? "Page is for Source — switch to Source or Split to see it"
+              : drawsPage ? "Page is on — click to draw the text straight on the window"
+                          : "Page is off — click to put the text on a page, white in Light Mode and dark in Dark Mode")
+        .accessibilityLabel("Page behind the text")
+        .accessibilityValue(drawsPage ? "On" : "Off")
+        .accessibilityAddTraits(drawsPage ? [.isButton, .isSelected] : .isButton)
     }
 
     /// The autosave switch, beside the word whose meaning it changes.

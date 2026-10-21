@@ -301,6 +301,42 @@ import FileExplorerTestSupport
         }
     }
 
+    /// **In the narrowest column the meta row stays one line at every text size** — Autosave and
+    /// Page side by side, the location folding first. The rows' height is the 520pt test's
+    /// measure, at the column's guaranteed 260pt.
+    @Test func theMetaRowFitsTheNarrowestColumnAtEveryTextSize() throws {
+        for doc in [try document(named: "note.md"), try document(named: "note.txt")] {
+            for scale in scales {
+                let view = workspace(doc, location: Self.location(Self.deep, .crumb))
+                let rows = host(EditorDocumentHeader { view.headerContent }
+                                    .environment(\.appFontScale, scale), width: 260)
+                #expect(rows.fittingSize.height <= LiquidGlass.headerHeight,
+                        "\(doc.name) at \(scale): the rows need \(rows.fittingSize.height)pt in a \(LiquidGlass.headerHeight)pt card at 260pt")
+                let wide = host(EditorDocumentHeader { view.headerContent }
+                                    .environment(\.appFontScale, scale), width: 900)
+                #expect(abs(rows.fittingSize.height - wide.fittingSize.height) < 0.51,
+                        "\(doc.name) at \(scale): a row wrapped at 260pt — \(rows.fittingSize.height)pt against \(wide.fittingSize.height)pt")
+            }
+        }
+    }
+
+    /// **The Page switch is drawn wherever it fits, and steps aside only where it does not** —
+    /// counted in controls on a plain-text header with no location, whose only other controls do
+    /// not change in number with the width. Without this the rule above passes by never drawing it.
+    @Test func thePageSwitchIsDrawnWhereItFitsAndStepsAsideWhereItDoesNot() throws {
+        let doc = try document(named: "note.txt")
+        let view = workspace(doc, location: nil)
+        func count(width: CGFloat, scale: CGFloat) -> Int {
+            controls(in: host(EditorDocumentHeader { view.headerContent }
+                                .environment(\.appFontScale, scale), width: width))
+        }
+        let wide = count(width: 900, scale: 1)
+        #expect(count(width: 520, scale: 1) == wide, "the switch stepped aside in a 520pt column")
+        #expect(count(width: 520, scale: 1.35) == wide, "the switch stepped aside at 135% in a 520pt column")
+        #expect(count(width: 260, scale: 1.35) == wide - 1,
+                "at 260pt and 135% the header draws \(count(width: 260, scale: 1.35)) controls against \(wide)")
+    }
+
     // MARK: Two cards
 
     /// Mounts the whole workspace in a surface style, and answers where the text view's scroll view

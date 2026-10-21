@@ -163,6 +163,8 @@ struct PlainTextEditor: NSViewRepresentable {
         = EditorTextSettings.readableLineLengthDefault
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling: Bool
         = EditorTextSettings.checksSpellingDefault
+    @AppStorage(EditorTextSettings.drawsPageKey) private var drawsPage: Bool
+        = EditorTextSettings.drawsPageDefault
     @AppStorage(EditorTextSettings.continuesListsKey) private var continuesLists: Bool
         = EditorTextSettings.continuesListsDefault
 
@@ -1023,6 +1025,7 @@ struct PlainTextEditor: NSViewRepresentable {
         // wrapping does not matter — the width that wrapping resets re-centres the column through
         // `setFrameSize` either way (mutation-tested). The view ignores a value it already has.
         (view as? EditorTextView)?.readableColumnWidth = readableColumn
+        (view as? EditorTextView)?.drawsPage = drawsPage
         context.coordinator.source = source
         context.coordinator.onSelectionChange = onSelectionChange
         context.coordinator.onSelectionRangeCount = onSelectionRangeCount
