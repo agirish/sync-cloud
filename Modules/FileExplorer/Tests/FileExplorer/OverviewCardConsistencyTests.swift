@@ -491,6 +491,16 @@ import Design
         let rep = try #require(render(page, width: width, fontScale: scale))
         let pixels = CGFloat(rep.pixelsWide) / width
         let ground = try #require(rep.colorAt(x: rep.pixelsWide - 3, y: rep.pixelsHigh - 3))
+        // The walk reads each pixel as one 32-bit word and asks `colorAt` once per distinct word —
+        // a render has under 150 colours. Calling `colorAt` per pixel, over every column, cost
+        // 2–2.8 million calls a render and 13 s for the five; in loaded full-package runs it held
+        // the main thread for 45 minutes and more, twice.
+        let data = try #require(rep.bitmapData.map(UnsafeRawPointer.init))
+        try #require(rep.bitsPerPixel == 32 && !rep.isPlanar,
+                     "the render is not 32-bit interleaved, so a pixel cannot be read as one word")
+        let bytesPerRow = rep.bytesPerRow
+        var verdicts: [UInt32: Bool] = [:]
+        var last: (key: UInt32, verdict: Bool)?
 
         /// Whether this pixel is **button fill** rather than text or a hairline.
         ///
@@ -508,19 +518,31 @@ import Design
         /// ground and would have to be restated for a dark one. `lensCard()`'s own light/dark
         /// behaviour is pinned in `DesignSnapshotTests`, not here.
         func isButtonFill(_ x: Int, _ y: Int) -> Bool {
+            let key = data.loadUnaligned(fromByteOffset: y * bytesPerRow + x * 4, as: UInt32.self)
+            if let last, last.key == key { return last.verdict }
+            if let verdict = verdicts[key] { last = (key, verdict); return verdict }
             guard let c = rep.colorAt(x: x, y: y) else { return false }
             let delta = max(abs(c.redComponent - ground.redComponent),
                             max(abs(c.greenComponent - ground.greenComponent),
                                 abs(c.blueComponent - ground.blueComponent)))
-            return delta > 0.02 && delta < 0.35
+            let verdict = delta > 0.02 && delta < 0.35
+            verdicts[key] = verdict
+            last = (key, verdict)
+            return verdict
         }
         // A capsule is at least this wide even for the shortest verb on the page; no glyph is.
         let solid = Int(8 * pixels)
         // Start inside the card: the page insets every card by 14pt, so anything at or beyond that
         // is the card's own edge and not a control on it.
         let from = Int((width - 18) * pixels)
+        // Rows whose rightmost button reaches the gutter — every card's action row, and nothing
+        // else, since this fixture draws no ledger strip (`Ledger()` is empty) and a count pill
+        // always sits left of the verbs it accompanies.
+        let gutter = width - 140
 
-        /// The trailing edge of the rightmost button on this row, in points.
+        /// The trailing edge of the rightmost button on this row, in points. The walk gives up once
+        /// it is past the gutter with no button under way, since any it found further on would end
+        /// short of the gutter.
         func trailingEdge(_ y: Int) -> CGFloat? {
             var run = 0
             var end: Int?
@@ -531,14 +553,11 @@ import Design
                     if run >= solid, let end { return CGFloat(end + 1) / pixels }
                 } else {
                     run = 0
+                    if CGFloat(x + 1) / pixels <= gutter { return nil }
                 }
             }
             return nil
         }
-        // Rows whose rightmost button reaches the gutter — every card's action row, and nothing
-        // else, since this fixture draws no ledger strip (`Ledger()` is empty) and a count pill
-        // always sits left of the verbs it accompanies.
-        let gutter = width - 140
         let rows = (0..<rep.pixelsHigh).map { trailingEdge($0).flatMap { $0 > gutter ? $0 : nil } }
         var bands: [[CGFloat]] = []
         for row in rows {

@@ -3816,3 +3816,34 @@ hidden view's frames are throttled. It has not been tried.
 **Tell.** A Save as PDF test failing with "macOS couldn't read it" or a picture page's empty text,
 in a full run only. Before blaming Quick Look, compare the suite's duration with a
 `--filter` run: a gap of 50× or more means it is waiting for the main thread.
+
+### 34. A pixel probe that calls `colorAt` per pixel, so load stretches it into a hang — FIXED
+
+**Symptom.** A full FileExplorer `swift test` stops making progress: one core at 100%, no test
+output for 45–70 minutes and more, at load averages of 60–145 (twice, 2026-10-19 and 10-20). It
+looks like [mechanism 8](#8-the-wait-that-hangs-instead-of-failing), but `sample` shows the main
+thread inside `OverviewCardConsistencyTests.assertVerbsLineUp(width:scale:)`, in its
+`isButtonFill` / `trailingEdge` walk and `-[NSBitmapImageRep colorAtX:y:]` below it, not in a
+wait. In other loaded runs the same test finished.
+
+**Mechanism.** Not a hang: the walk is two bounded loops with no wait in them. It was simply a
+lot of work for a Debug build. Each of its five renders walked every row (2,660–3,290 at 2×) from
+the card's trailing edge to x = 0, calling `colorAt` on each pixel: 2.0–2.8 million calls a
+render, 11.7 million for the two tests, about 13 s of CPU alone at load 30. Under 20 `yes`
+spinners (load ~65) the two tests took 104 s. That stretch is ~5×; the 45-minute stalls needed
+far more, and they were not reproduced here. A live `sample` of a loaded full run caught the test
+inside `colorAt`, partly in `@synchronized` (`id2data`) and `CFString` hashing, so its per-call
+cost likely grows in a full run's process. It left the test within about 4 minutes in that run.
+
+**Fix.** Ask `colorAt` once per distinct colour and stop walking a row once it is past the
+gutter. The walk reads each pixel as one 32-bit word and caches the verdict per word (a render
+has 26–137 colours); a row with no button under way past `width - 140` ends there, since any
+edge further left was discarded anyway. That is 0.6–0.76 million cheap reads a render instead of
+2–2.8 million `colorAt` calls: 0.06–0.17 s a render instead of 2.1–4.5 s, and 1.1 s for both
+tests under 20 spinners instead of 104 s. **Proved** behaviour-preserving: the old walk and the
+new one were run on the same five renders and gave identical rows (214 action rows each). A
+12pt mutation of the hosted `Set up…` fails old and new alike, at the same values.
+
+**Tell.** No output, one core pegged, and `sample` names a test's own pixel loop rather than a
+`Task.yield` or a lock. Count the calls before blaming the machine: a probe that calls
+`colorAt` per pixel over a full render costs 1–2 µs a call in Debug, before load.

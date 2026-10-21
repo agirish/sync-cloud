@@ -15,7 +15,9 @@ conclusion.
 No output, log frozen mid-line — often right after `Build complete!` — no test named, one core
 pegged near 100%? **Nothing below applies.** Go to
 [mechanism 8](flaky-tests.md#8-the-wait-that-hangs-instead-of-failing); `sample <pid>` is the only
-truth, because neither the log nor a live pid will say which test is stuck. **At 0% CPU instead**,
+truth, because neither the log nor a live pid will say which test is stuck. If `sample` puts the main
+thread in a test's own pixel loop under `colorAt` rather than in a wait, it is not a hang but
+[a probe that load stretches](flaky-tests.md#34-a-pixel-probe-that-calls-colorat-per-pixel-so-load-stretches-it-into-a-hang--fixed). **At 0% CPU instead**,
 with dozens of tests in flight, it is not a spin but a deadlock: `sample` it, and if the main thread
 waits on a mutex under `NSSpellCheckerCheckString`, go to
 [A spell check and a defaults change from another process deadlock a SwiftUI focus move](flaky-tests.md#30-a-spell-check-and-a-defaults-change-from-another-process-deadlock-a-swiftui-focus-move--fixed).
