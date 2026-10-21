@@ -1,0 +1,120 @@
+#!/bin/bash
+# Tests for scripts/build-slot-hook: feeds it Bash tool calls as Claude Code does and checks which
+# it refuses. Prints one line per case; exits non-zero if any case fails.
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd)"
+HOOK="${BUILD_SLOT_HOOK:-$HERE/build-slot-hook}"  # override to test a modified copy
+REPO="$(dirname "$HERE")"
+failures=0
+
+call() {  # call <command> [cwd] [tool]: the hook's exit status; its stderr goes to $WORK/err
+  /usr/bin/python3 -c 'import json, sys
+print(json.dumps({"tool_name": sys.argv[3], "tool_input": {"command": sys.argv[1]},
+                  "cwd": sys.argv[2], "hook_event_name": "PreToolUse"}))' \
+    "$1" "${2:-$REPO}" "${3:-Bash}" | "$HOOK" 2> "$WORK/err"
+}
+expect() {  # expect block|allow <command> [cwd]
+  local want=$1 got; shift
+  call "$@"; got=$([ $? = 2 ] && echo block || echo allow)
+  local shown=${1//$'\n'/⏎}
+  if [ "$got" = "$want" ]; then echo "ok   - $want: $shown"
+  else echo "FAIL - wanted $want, got $got: $shown"; failures=$((failures + 1)); fi
+}
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/build-slot-hook-test.XXXXXX")
+
+# Heavy and unwrapped: refused.
+expect block 'xcodebuild -project SyncCloud.xcodeproj -scheme SyncCloud -configuration Release -derivedDataPath .dd build'
+expect block "xcodebuild test -project SyncCloud.xcodeproj -scheme SyncCloud -destination 'platform=macOS' -derivedDataPath .dd"
+expect block 'xcodebuild -scheme SyncCloud'
+expect block 'xcodebuild build-for-testing -scheme SyncCloud'
+expect block 'xcodebuild test-without-building -scheme SyncCloud -only-testing:SyncCloudTests/Foo'
+expect block '/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild build'
+expect block 'swift test --package-path Modules/Sync --filter Foo'
+expect block 'swift build'
+expect block 'swift run synccloud --help-me'
+expect block 'swift-test'
+expect block 'arch -arm64 swift test --package-path Modules/Sync'
+expect block 'cd Modules/Sync && swift test 2>&1 | tail -20'
+expect block 'TZ=America/Los_Angeles swift test --filter logRows'
+expect block 'time xcodebuild build'
+expect block 'nice -n 10 xcodebuild build'
+expect block 'caffeinate -i swift test'
+expect block 'env -i FOO=1 swift build'
+expect block 'xcrun --sdk macosx swift build'
+expect block 'timeout 300 swift test'
+expect block "bash -c 'swift test --package-path Modules/Sync'"
+expect block 'bash -lc "cd Modules/Sync; xcodebuild test"'
+expect block 'echo "$(xcodebuild build)"'
+expect block 'echo `xcodebuild build`'
+expect block 'eval "swift test"'
+expect block '(cd Modules/Sync; swift test)'
+expect block 'for p in Modules/Sync Modules/Events; do swift test --package-path "$p"; done'
+expect block 'if true; then xcodebuild build; fi'
+expect block 'swift build && scripts/build-slot swift test'
+expect block $'git status\nswift test'
+expect block 'xcodebuild test > log.txt 2>&1'
+expect block $'cat > notes <<EOF\nxcodebuild build\nEOF\nswift test'
+expect block 'swift test & sleep 1; wait'
+
+# Wrapped, light, or only mentioning a build: allowed.
+expect allow 'scripts/build-slot xcodebuild -project SyncCloud.xcodeproj -scheme SyncCloud -derivedDataPath .dd build'
+expect allow '/Users/abhishek/Projects/SyncCloud/scripts/build-slot swift test --package-path Modules/Sync'
+expect allow 'cd Modules/Sync && ../../scripts/build-slot swift test --filter X'
+expect allow 'BUILD_SLOTS=3 scripts/build-slot xcodebuild build'
+expect allow "scripts/build-slot --exclusive bash -c 'for i in 1 2; do (yes > /dev/null &); done; arch -arm64 swift test; pkill -x yes'"
+expect allow 'scripts/build-slot --status'
+expect allow $'scripts/build-slot xcodebuild -project SyncCloud.xcodeproj -scheme SyncCloud \\\n           -configuration "$CONFIG" -derivedDataPath .dd build'
+expect allow 'xcodegen'
+expect allow 'git commit -m "Run xcodebuild test through the wrapper"'
+expect allow "grep -rn 'xcodebuild test' docs CLAUDE.md"
+expect allow 'cat CLAUDE.md | grep "swift test"'
+expect allow 'echo "swift build"'
+expect allow 'swift --version'
+expect allow 'swift package resolve'
+expect allow 'swift package describe --type json'
+expect allow 'swift build --help'
+expect allow 'xcodebuild -version'
+expect allow 'xcodebuild -list -project SyncCloud.xcodeproj'
+expect allow 'xcodebuild -showBuildSettings -scheme SyncCloud'
+expect allow 'xcodebuild clean -scheme SyncCloud'
+expect allow 'xcrun -f xcodebuild'
+expect allow "pgrep -fl 'xcodebuild|swift-frontend|xctest' | grep -v actions-runner"
+expect allow "ps -axo pid,command | grep xcodebuild"
+expect allow "pkill -f 'swift test'"
+expect allow 'which swift xcodebuild'
+expect allow $'cat > msg <<\'EOF\'\nxcodebuild test\nswift build\nEOF\ngit commit -F msg'
+expect allow $'cat <<-EOF > msg\n\tswift test\n\tEOF'
+expect allow $'# then: xcodebuild build\ngit status'
+expect allow 'gh run list --branch main --limit 3'
+expect allow 'git log --grep "swift test" --oneline'
+expect allow "sed -n '/xcodebuild test/p' docs/ci.md"
+expect allow 'xcodebuild build "'                              # unparsable: never block on doubt
+expect allow 'xcodebuild build' /tmp                           # not a SyncCloud checkout
+call 'xcodebuild build' "$REPO" Read; check=$?
+[ "$check" = 0 ] && echo "ok   - allow: a tool other than Bash" || { echo "FAIL - a tool other than Bash"; failures=$((failures + 1)); }
+echo 'not json' | "$HOOK" 2>/dev/null; check=$?
+[ "$check" = 0 ] && echo "ok   - allow: unreadable input" || { echo "FAIL - unreadable input"; failures=$((failures + 1)); }
+
+# The refusal names the command to run instead: this checkout's wrapper, or, in a checkout
+# without one (a maintenance line), the primary checkout's.
+call 'cd Modules/Sync && swift test --filter Foo' "$REPO/Modules"
+if grep -q "^    $REPO/scripts/build-slot swift test --filter Foo\$" "$WORK/err"; then
+  echo "ok   - the refusal names this checkout's wrapper and the exact command"
+else echo "FAIL - refusal text: $(cat "$WORK/err")"; failures=$((failures + 1)); fi
+old_line=$(mktemp -d "$REPO/.hook-test-checkout.XXXXXX")
+touch "$old_line/.git"
+call 'xcodebuild test -scheme SyncCloud' "$old_line"
+if grep -q "^    $HOME/Projects/SyncCloud/scripts/build-slot xcodebuild test -scheme SyncCloud\$" "$WORK/err"; then
+  echo "ok   - in a checkout without the wrapper, the refusal names the primary checkout's"
+else echo "FAIL - maintenance-line refusal text: $(cat "$WORK/err")"; failures=$((failures + 1)); fi
+rm -rf "$old_line"
+
+started=$(/usr/bin/python3 -c 'import time; print(time.time())')
+for _ in 1 2 3 4 5 6 7 8 9 10; do call 'git status' > /dev/null; done
+per_call=$(/usr/bin/python3 -c "import time; print(int((time.time() - $started) * 100))")
+if [ "$per_call" -lt 200 ]; then echo "ok   - fast: ${per_call} ms a call, input building included"
+else echo "FAIL - slow: ${per_call} ms a call"; failures=$((failures + 1)); fi
+
+rm -rf "$WORK"
+if [ "$failures" -gt 0 ]; then echo "$failures case(s) failed"; exit 1; fi
+echo "all cases passed"

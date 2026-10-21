@@ -134,6 +134,10 @@ no throughput; they slow every build and make the timing-sensitive suites flake.
   exit status untouched. `xcodegen`, `git` and everything light run directly. A worktree without
   the script (a maintenance line) uses the primary checkout's copy,
   `/Users/abhishek/Projects/SyncCloud/scripts/build-slot`.
+- **A hook enforces it.** `.claude/settings.json` runs `scripts/build-slot-hook` before every Bash
+  call; it refuses an unwrapped `xcodebuild` build or test, `swift build`, `swift test` or
+  `swift run` and names the exact command to rerun. Light commands, and text that only mentions
+  a build, pass.
 - **A wait is reported, never silent:** at once and then once a minute on stderr, with your place
   in line and each holder's PID, worktree and command. Run long builds in the background so a wait
   cannot hit the tool's timeout. `scripts/build-slot --status` shows the holders and the queue.
@@ -142,7 +146,8 @@ no throughput; they slow every build and make the timing-sensitive suites flake.
 - **Stopping a wrapped command ends what it started**, such as the test helper a killed
   `swift test` can orphan (`docs/flaky-triage.md`). Killing the wrapper with `SIGKILL` skips this.
 - **Compile-only commands run at `nice` 10; tests never do**, because a slower test run is a
-  flakier one (`docs/flaky-tests.md`). The CI runner takes no slot.
+  flakier one (`docs/flaky-tests.md`). The CI runner takes no slot, by decision: its verdict is
+  never queued behind a session's build.
 - **Iterate narrow, gate wide:** `--filter` or `-only-testing:` while working; the full
   seven-package run and `xcodebuild test` only as the landing gate (`COMMIT.md` §4).
 - **Debug while iterating; Release only for the install** (`install-sync-cloud`).

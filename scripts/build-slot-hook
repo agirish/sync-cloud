@@ -1,0 +1,321 @@
+#!/usr/bin/python3
+"""Claude Code PreToolUse hook: refuse a heavy build or test run that skips scripts/build-slot.
+
+Reads the Bash tool call as JSON on stdin. If the command, run from inside a SyncCloud checkout,
+would start `xcodebuild` (a build, test or archive action), `swift build`, `swift test` or
+`swift run` other than through build-slot, it exits 2 with a message naming the exact command to
+run instead; Claude Code refuses the call and shows the message to the session. Everything else
+exits 0: light commands (`xcodegen`, `git`, `xcodebuild -version`, `swift package …`, a grep or a
+commit message that merely mentions xcodebuild), and any command it cannot parse — a hook bug must
+never stop a session's work.
+
+The command is parsed as shell, not searched as text: quotes, comments, heredoc bodies and
+redirections are skipped, and `$( … )`, backticks, `( … )`, `sh -c '…'` and `eval` are looked
+inside. Prefixes such as `VAR=x`, `time`, `env`, `nice`, `arch -arm64`, `caffeinate`, `xcrun` and
+`cd … &&` are seen through. A script file the command runs is not opened.
+
+Registered in the repository's .claude/settings.json, so it reaches every session whose checkout
+includes that file; a session reads its hooks when it starts. A command aimed at a checkout without
+the wrapper (a maintenance line) is pointed at the primary checkout's copy. Tests:
+scripts/test-build-slot-hook.
+"""
+
+import json
+import os
+import sys
+
+PRIMARY = os.path.expanduser("~/Projects/SyncCloud")
+PRIMARY_SLOT = os.path.join(PRIMARY, "scripts", "build-slot")
+
+XCODEBUILD_ACTIONS = {"build", "build-for-testing", "test", "test-without-building", "archive",
+                      "analyze", "install", "installsrc", "docbuild"}
+XCODEBUILD_INFO = {"-version", "-showsdks", "-list", "-showBuildSettings", "-help", "-usage",
+                   "-showdestinations", "-resolvePackageDependencies", "-checkFirstLaunchStatus",
+                   "-runFirstLaunch", "-exportArchive", "-exportLocalizations",
+                   "-importLocalizations", "-showTestPlans", "-downloadPlatform",
+                   "-downloadAllPlatforms", "-create-xcframework", "-showComponent", "clean"}
+SWIFT_HEAVY = {"build", "test", "run"}
+RESERVED = {"!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until",
+            "time", "nohup", "command", "builtin", "sudo"}
+SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
+
+
+class Unparsed(Exception):
+    pass
+
+
+def matching(text, start, opener, closer):
+    """Index just past the closer matching the opener at text[start - 1], quote-aware."""
+    depth, i = 1, start
+    while i < len(text):
+        char = text[i]
+        if char == "\\":
+            i += 2
+            continue
+        if char in "'\"":
+            end = text.find(char, i + 1)
+            if end < 0:
+                raise Unparsed()
+            i = end + 1
+            continue
+        if char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    raise Unparsed()
+
+
+def simple_commands(script, depth=0):
+    """Every simple command in a shell script, as a list of words, nested ones included."""
+    if depth > 8:
+        raise Unparsed()
+    commands, words, word = [], [], None
+    heredocs, redirect = [], False
+    i, n = 0, len(script)
+
+    def end_word():
+        nonlocal word, redirect
+        if word is not None:
+            if redirect:
+                redirect = False
+            else:
+                words.append(word)
+        word = None
+
+    def end_command():
+        nonlocal words
+        end_word()
+        if words:
+            commands.append(words)
+        words = []
+
+    def nested(text):
+        commands.extend(simple_commands(text, depth + 1))
+
+    while i < n:
+        char = script[i]
+        if char == "\\":
+            if i + 1 < n and script[i + 1] == "\n":
+                i += 2
+                continue
+            word = (word or "") + script[i + 1:i + 2]
+            i += 2
+        elif char in " \t":
+            end_word()
+            i += 1
+        elif char == "\n":
+            end_command()
+            i += 1
+            for delimiter, strip_tabs in heredocs:  # skip each body up to its delimiter line
+                while i < n:
+                    end = script.find("\n", i)
+                    end = n if end < 0 else end
+                    line = script[i:end]
+                    i = end + 1
+                    if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                        break
+            heredocs = []
+        elif char == "#" and word is None:
+            end = script.find("\n", i)
+            i = n if end < 0 else end
+        elif char == "'":
+            end = script.find("'", i + 1)
+            if end < 0:
+                raise Unparsed()
+            word = (word or "") + script[i + 1:end]
+            i = end + 1
+        elif char == '"':
+            j, text = i + 1, ""
+            while j < n and script[j] != '"':
+                if script[j] == "\\":
+                    text += script[j + 1:j + 2]
+                    j += 2
+                elif script.startswith("$(", j) and not script.startswith("$((", j):
+                    end = matching(script, j + 2, "(", ")")
+                    nested(script[j + 2:end - 1])
+                    text += script[j:end]
+                    j = end
+                elif script[j] == "`":
+                    end = script.find("`", j + 1)
+                    if end < 0:
+                        raise Unparsed()
+                    nested(script[j + 1:end])
+                    text += script[j:end + 1]
+                    j = end + 1
+                else:
+                    text += script[j]
+                    j += 1
+            if j >= n:
+                raise Unparsed()
+            word = (word or "") + text
+            i = j + 1
+        elif script.startswith("$'", i):
+            j = i + 2
+            while j < n and script[j] != "'":
+                j += 2 if script[j] == "\\" else 1
+            word = (word or "") + script[i + 2:j]
+            i = j + 1
+        elif script.startswith("$((", i):
+            end = matching(script, i + 3, "(", ")")
+            word = (word or "") + script[i:end + 1]
+            i = end + 1
+        elif script.startswith("$(", i):
+            end = matching(script, i + 2, "(", ")")
+            nested(script[i + 2:end - 1])
+            word = (word or "") + "$(…)"
+            i = end
+        elif char == "`":
+            end = script.find("`", i + 1)
+            if end < 0:
+                raise Unparsed()
+            nested(script[i + 1:end])
+            word = (word or "") + "`…`"
+            i = end + 1
+        elif script.startswith("<<", i) and not script.startswith("<<<", i):
+            end_word()
+            i += 2
+            strip_tabs = script.startswith("-", i)
+            i += 1 if strip_tabs else 0
+            while i < n and script[i] in " \t":
+                i += 1
+            j = i
+            while j < n and script[j] not in " \t\n;&|<>()":
+                j += 1
+            heredocs.append((script[i:j].replace("'", "").replace('"', "").replace("\\", ""),
+                             strip_tabs))
+            i = j
+        elif char in "<>" or (char == "&" and script.startswith("&>", i)):
+            if word is not None and word.isdigit():
+                word = None  # the fd number in 2>
+            end_word()
+            i += 1
+            while i < n and script[i] in "<>&|":
+                i += 1
+            redirect = True
+            if script[i - 1] == "&" and i < n and (script[i].isdigit() or script[i] == "-"):
+                i += 1  # >&2, >&-
+                redirect = False
+        elif char in ";&|()":
+            end_command()
+            i += 1
+        else:
+            word = (word or "") + char
+            i += 1
+    end_command()
+    return commands
+
+
+def strip_prefixes(words):
+    """The words from the program actually run on: assignments, runners and keywords dropped."""
+    i = 0
+    while i < len(words):
+        word = words[i]
+        name = os.path.basename(word)
+        if "=" in word and word.split("=", 1)[0].replace("_", "a").isalnum() and \
+                not word[0].isdigit():
+            i += 1
+        elif word in RESERVED or name == "time":
+            i += 1
+            while i < len(words) and words[i].startswith("-"):
+                i += 1
+        elif name in ("env", "nice", "arch", "caffeinate", "exec", "stdbuf", "timeout",
+                      "gtimeout", "xcrun"):
+            if name == "xcrun" and any(w in ("-f", "--find") for w in words[i + 1:i + 4]):
+                return []
+            i += 1
+            while i < len(words) and (words[i].startswith("-") or "=" in words[i]
+                                      or (name in ("timeout", "gtimeout") and
+                                          words[i][:1].isdigit())):
+                takes_value = words[i] in ("-n", "-u", "-t", "-w", "-sdk", "--sdk", "-toolchain",
+                                           "--toolchain", "-s", "-a")
+                i += 2 if takes_value else 1
+        else:
+            return words[i:]
+    return []
+
+
+def offences(words, depth=0):
+    """The heavy, unwrapped commands this simple command runs."""
+    words = strip_prefixes(words)
+    if not words:
+        return []
+    tool = os.path.basename(words[0])
+    args = words[1:]
+    if tool in SHELLS:  # sh -c '…', bash -lc '…'
+        for index, arg in enumerate(args):
+            if arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:]:
+                return check(args[index + 1], depth + 1) if index + 1 < len(args) else []
+        return []
+    if tool == "eval":
+        return check(" ".join(args), depth + 1)
+    if tool == "xcodebuild":
+        if XCODEBUILD_ACTIONS & set(args):
+            return [words]
+        if any(arg in XCODEBUILD_INFO for arg in args):
+            return []
+        return [words]  # no action given: xcodebuild builds
+    if tool in ("swift-build", "swift-test", "swift-run"):
+        return [] if any(a in ("--help", "-h", "--version") for a in args) else [words]
+    if tool == "swift" and args and args[0] in SWIFT_HEAVY:
+        return [] if any(a in ("--help", "-h") for a in args) else [words]
+    return []
+
+
+def check(script, depth=0):
+    if depth > 8:
+        raise Unparsed()
+    found = []
+    for words in simple_commands(script, depth):
+        found.extend(offences(words, depth))
+    return found
+
+
+def in_synccloud(path):
+    real = os.path.realpath(path)
+    return real == PRIMARY or real.startswith(PRIMARY + "/") or real.startswith(PRIMARY + "-")
+
+
+def wrapper_for(cwd):
+    """This checkout's build-slot, or the primary checkout's for a line that lacks one."""
+    directory = os.path.realpath(cwd)
+    while directory != os.path.dirname(directory):
+        candidate = os.path.join(directory, "scripts", "build-slot")
+        if os.path.exists(os.path.join(directory, ".git")):
+            return candidate if os.access(candidate, os.X_OK) else PRIMARY_SLOT
+        directory = os.path.dirname(directory)
+    return PRIMARY_SLOT
+
+
+def main():
+    try:
+        call = json.load(sys.stdin)
+        if call.get("tool_name") != "Bash":
+            return 0
+        command = call.get("tool_input", {}).get("command", "")
+        cwd = call.get("cwd") or os.getcwd()
+        if not in_synccloud(cwd):
+            return 0
+        found = check(command)
+    except Exception:  # unparsable or unexpected input: never block on a hook bug
+        return 0
+    if not found:
+        return 0
+    slot = wrapper_for(cwd)
+    shown = "; ".join(" ".join(words) for words in found)
+    sys.stderr.write(
+        "Blocked: `%s` runs a build or tests outside the machine-wide build queue "
+        "(CLAUDE.md §7). Rerun it through the wrapper, unchanged otherwise:\n\n"
+        "    %s %s\n\n"
+        "It waits for a free slot (reporting who holds them), then runs the command with its "
+        "output and exit status untouched. Use the Bash tool's run_in_background for anything "
+        "long, so a wait cannot hit the tool timeout. For several builds in one command, wrap "
+        "each, or wrap the whole script: %s bash -c '…'.\n"
+        % (shown, slot, shown, slot))
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
