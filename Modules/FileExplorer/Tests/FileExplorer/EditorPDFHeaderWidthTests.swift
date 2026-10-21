@@ -65,7 +65,7 @@ import FileExplorerTestSupport
     private func row(_ pdf: EditorPDFDocument, _ rung: EditorPDFHeaderControls.Rung) -> some View {
         let workspace = EditorWorkspaceView.fixture(pdf: pdf).readingSettings(from: defaults)
         return EditorDocumentHeader {
-            EditorPDFHeader(pdf: pdf, accent: .blue, onAccent: .white, onRevealInBrowse: { _ in },
+            EditorPDFHeader(pdf: pdf, accent: .blue, accentFill: .blue, onAccent: .white, onRevealInBrowse: { _ in },
                             rowActions: .inert, onClose: {}) {
                 workspace.expandButton(worded: false)
             }
@@ -101,9 +101,9 @@ import FileExplorerTestSupport
         #expect(rungs == [.worded, .glyphs])
         #expect(rungs.map(\.isWorded) == [true, false])
         let source = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
-        #expect(source.contains("EditorPDFFindButton(find: find, accent: accent, onAccent: onAccent, worded: rung.isWorded)"))
-        #expect(source.contains("EditorPDFFillSignButton(fill: fill, tools: tools, accent: accent, onAccent: onAccent, worded: rung.isWorded)"))
-        #expect(source.contains("EditorPDFToolsMenu(tools: tools, accent: accent, onAccent: onAccent, worded: rung.isWorded)"))
+        #expect(source.contains("EditorPDFFindButton(find: find, accent: accent, accentFill: accentFill, onAccent: onAccent, worded: rung.isWorded)"))
+        #expect(source.contains("EditorPDFFillSignButton(fill: fill, tools: tools, accent: accent, accentFill: accentFill, onAccent: onAccent, worded: rung.isWorded)"))
+        #expect(source.contains("EditorPDFToolsMenu(tools: tools, accent: accent, accentFill: accentFill, onAccent: onAccent, worded: rung.isWorded)"))
     }
 
     /// **The actions keep their width when the row is short of it** — the name gives way instead.
@@ -114,7 +114,7 @@ import FileExplorerTestSupport
         for rung in EditorPDFHeaderControls.Rung.allCases {
             let controls = EditorPDFHeaderControls(find: pdf.find, fill: pdf.fill, tools: pdf.tools,
                                                    showsReaderActions: true, showsTools: true,
-                                                   accent: .blue, onAccent: .white, rung: rung)
+                                                   accent: .blue, accentFill: .blue, onAccent: .white, rung: rung)
             let ideal = width(controls, scale: 1)
             let short = NSHostingController(rootView: controls)
                 .sizeThatFits(in: CGSize(width: ideal - 40, height: 100)).width
@@ -157,7 +157,7 @@ import FileExplorerTestSupport
     @Test func theHeaderChoosesAmongTheRungs() throws {
         let source = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
         #expect(source.contains("ForEach(EditorPDFHeaderControls.Rung.allCases, id: \\.self) { rung in"))
-        #expect(source.contains("accent: accent, onAccent: onAccent, rung: rung)"), "the actions are not drawn at the chosen rung")
+        #expect(source.contains("accent: accent, accentFill: accentFill, onAccent: onAccent, rung: rung)"), "the actions are not drawn at the chosen rung")
     }
 
     /// **No "PDF" tag beside the name, and no page, zoom or layout control in the header** — the

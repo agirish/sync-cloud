@@ -21,6 +21,8 @@ struct EditorPDFHeaderControls: View {
     /// Tools: open, or locked — Remove Password is the one tool a file locked to open can take.
     var showsTools: Bool
     let accent: Color
+    /// What a lit action fills with — see ``EditorWorkspaceView/accentFill``.
+    let accentFill: Color
     let onAccent: Color
     /// How many words the actions draw — the header's row picks it (``EditorPDFHeader``).
     var rung: Rung = .worded
@@ -42,12 +44,12 @@ struct EditorPDFHeaderControls: View {
     var body: some View {
         HStack(spacing: 6) {
             if showsReaderActions {
-                EditorPDFFindButton(find: find, accent: accent, onAccent: onAccent, worded: rung.isWorded)
-                EditorPDFFillSignButton(fill: fill, tools: tools, accent: accent, onAccent: onAccent, worded: rung.isWorded)
+                EditorPDFFindButton(find: find, accent: accent, accentFill: accentFill, onAccent: onAccent, worded: rung.isWorded)
+                EditorPDFFillSignButton(fill: fill, tools: tools, accent: accent, accentFill: accentFill, onAccent: onAccent, worded: rung.isWorded)
                     .chromeGlassClearance(.leading, rowSpacing: 6)
             }
             if showsTools {
-                EditorPDFToolsMenu(tools: tools, accent: accent, onAccent: onAccent, worded: rung.isWorded)
+                EditorPDFToolsMenu(tools: tools, accent: accent, accentFill: accentFill, onAccent: onAccent, worded: rung.isWorded)
                     .chromeGlassClearance(showsReaderActions ? .leading : [], rowSpacing: 6)
             }
         }
@@ -59,13 +61,13 @@ struct EditorPDFHeaderControls: View {
 }
 
 /// **A file action's label**: its glyph, its word while the rung keeps it, and Tools' chevron —
-/// lit in the accent while what it opens is up.
+/// lit in the deepened accent while what it opens is up, so its white label clears AA.
 struct EditorPDFActionLabel: View {
     let symbol: String
     var word: String?
     var chevron = false
     var isOn = false
-    let accent: Color
+    let accentFill: Color
     let onAccent: Color
 
     var body: some View {
@@ -88,7 +90,7 @@ struct EditorPDFActionLabel: View {
         .frame(minWidth: 18)
         .frame(height: 18)
         .foregroundStyle(isOn ? AnyShapeStyle(onAccent) : AnyShapeStyle(.primary))
-        .background(isOn ? accent : .clear, in: RoundedRectangle(cornerRadius: Radius.chip))
+        .background(isOn ? accentFill : .clear, in: RoundedRectangle(cornerRadius: Radius.chip))
         .contentShape(RoundedRectangle(cornerRadius: Radius.chip))
     }
 }
@@ -119,13 +121,14 @@ struct EditorPDFActionStyle: ViewModifier {
 struct EditorPDFFindButton: View {
     @ObservedObject var find: EditorPDFFind
     let accent: Color
+    let accentFill: Color
     let onAccent: Color
     var worded: Bool
 
     var body: some View {
         Button { find.show() } label: {
             EditorPDFActionLabel(symbol: "magnifyingglass", word: worded ? "Find" : nil, isOn: find.isShown,
-                                 accent: accent, onAccent: onAccent)
+                                 accentFill: accentFill, onAccent: onAccent)
         }
         .modifier(EditorPDFActionStyle(accent: accent))
         .accessibilityLabel("Find in this PDF")
@@ -140,13 +143,14 @@ struct EditorPDFFillSignButton: View {
     /// Observed for ``EditorPDFFillSign/mayToggle``: the button greys while a run writes.
     @ObservedObject var tools: EditorPDFTools
     let accent: Color
+    let accentFill: Color
     let onAccent: Color
     var worded: Bool
 
     var body: some View {
         Button { fill.toggle() } label: {
             EditorPDFActionLabel(symbol: "signature", word: worded ? "Fill & Sign" : nil, isOn: fill.isOn,
-                                 accent: accent, onAccent: onAccent)
+                                 accentFill: accentFill, onAccent: onAccent)
         }
         .modifier(EditorPDFActionStyle(accent: accent))
         .disabled(!fill.mayToggle)
@@ -257,6 +261,9 @@ enum EditorPDFViewMenu {
 struct EditorPDFBody: View {
     @ObservedObject var pdf: EditorPDFDocument
     let accent: Color
+    /// Fill & Sign's lit tool and Save Filled Copy — see ``EditorWorkspaceView/accentFill``.
+    let accentFill: Color
+    let onAccent: Color
     /// The one Quick Look panel every other surface shares — the host's.
     let quickLook: (String) -> Void
     /// Browse's Download, for a file still in the cloud; the host opens it when it arrives (TE96).
@@ -278,7 +285,8 @@ struct EditorPDFBody: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .open:
             EditorPDFReader(document: pdf.document, state: pdf.view, find: pdf.find, fill: pdf.fill,
-                            tools: pdf.tools, pageCount: pdf.facts?.pageCount ?? 0, accent: accent)
+                            tools: pdf.tools, pageCount: pdf.facts?.pageCount ?? 0, accent: accent,
+                            accentFill: accentFill, onAccent: onAccent)
         case .locked:
             EditorPDFUnlockView(pdf: pdf, accent: accent)
         case .refused(let reason):
@@ -429,6 +437,7 @@ struct EditorPDFUnlockView: View {
 struct EditorPDFHeader<Trailing: View>: View {
     @ObservedObject var pdf: EditorPDFDocument
     let accent: Color
+    let accentFill: Color
     let onAccent: Color
     let onRevealInBrowse: (String) -> Void
     /// The Files list's row menu, which the name's right-click offers too (TE112).
@@ -477,7 +486,7 @@ struct EditorPDFHeader<Trailing: View>: View {
             EditorPDFHeaderControls(find: pdf.find, fill: pdf.fill, tools: pdf.tools,
                                     showsReaderActions: pdf.phase == .open && (pdf.facts?.pageCount ?? 0) > 0,
                                     showsTools: showsTools,
-                                    accent: accent, onAccent: onAccent, rung: rung)
+                                    accent: accent, accentFill: accentFill, onAccent: onAccent, rung: rung)
             // The file's actions on one side, the window's on the other (mockup C).
             if showsTools {
                 Rectangle()
@@ -490,7 +499,7 @@ struct EditorPDFHeader<Trailing: View>: View {
             // in a text file's name row, which a plain-text file reserves the same way — under the
             // ×, at no width. In a ZStack rather than in the row, so it adds no spacing either.
             ZStack {
-                EditorModeBar(mode: .constant(.edit), accent: accent, onAccent: onAccent)
+                EditorModeBar(mode: .constant(.edit), accentFill: accentFill, onAccent: onAccent)
                     .environment(\.selectionLensAppearance, .today)
                     .hidden()
                     .frame(width: 0)
@@ -516,7 +525,7 @@ struct EditorPDFHeader<Trailing: View>: View {
                 HStack(spacing: 5) {
                     Text("Autosave")
                         .scaledFont(.system(size: 10, weight: .medium))
-                    AutosaveSwitchTrack(isOn: false, accent: accent)
+                    AutosaveSwitchTrack(isOn: false, fill: accentFill)
                 }
                 .fixedSize()
                 .hidden()

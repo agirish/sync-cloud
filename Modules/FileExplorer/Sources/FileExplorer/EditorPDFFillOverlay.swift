@@ -49,6 +49,13 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     }
     private var drag: Drag?
     private var tracking: NSTrackingArea?
+    /// The app's accent, for the selection ring and the fields' wash and edge — the hue the user
+    /// picked, not the system's. Set by ``EditorPDFPageView`` from the workspace's raw accent: these
+    /// are rings and washes, with no label to carry, so they take the accent undeepened.
+    /// System blue, the stock accent, only until the host hands it the app's.
+    var accent: NSColor = .systemBlue {
+        didSet { if accent != oldValue { needsDisplay = true } }
+    }
 
     private enum Drag {
         case move(id: UUID, page: Int, start: CGPoint, from: CGRect)
@@ -392,7 +399,6 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             }
         }
         if let selected = fill.selected, shown.contains(selected.page), let rect = viewRect(selected) {
-            let accent = NSColor.controlAccentColor
             accent.setStroke()
             let ring = NSBezierPath(rect: rect.insetBy(dx: -2, dy: -2))
             ring.lineWidth = 1.5
@@ -631,7 +637,6 @@ extension EditorPDFFillOverlay {
     /// covered and drawn with its new value, and the keyboard's field ringed.
     func drawFields(_ dirtyRect: NSRect) {
         guard let fill, fill.form.hasFields else { return }
-        let accent = NSColor.controlAccentColor
         let scale = reader?.scaleFactor ?? 1
         for hit in shownWidgets {
             guard let rect = widgetRect(hit.widget), rect.intersects(dirtyRect.insetBy(dx: -4, dy: -4)) else { continue }

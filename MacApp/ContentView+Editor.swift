@@ -509,6 +509,7 @@ extension ContentView {
             showsRail: showsRail,
             railIsHidden: editorIsExpanded,
             accent: glassHue.accentColor,
+            accentFill: glassHue.accentFillColor,
             onAccent: glassHue.onAccentLabelColor,
             mode: $editorMode,
             splitFraction: $editorSplitFraction,

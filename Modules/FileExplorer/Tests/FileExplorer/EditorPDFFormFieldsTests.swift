@@ -769,11 +769,11 @@ extension PDFFixtures {
         turned.fill.endEditing()
         try #require(!turned.fill.canSave, "the turned page's text was not refused, so this proves nothing")
         #expect(turned.fill.saveHelp == turned.fill.formNotes.first, "the tooltip is not the refusal: \(turned.fill.saveHelp)")
-        // And the pill uses it, in the app's accent.
+        // And the pill uses it, in the app's accent, deepened for Save's white label.
         let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/FileExplorer/EditorPDFFillPalette.swift"), encoding: .utf8)
-        #expect(source.contains(".help(fill.saveHelp)") && source.contains(".tint(accent)"))
+        #expect(source.contains(".help(fill.saveHelp)") && source.contains(".tint(accentFill)"))
     }
 
     // MARK: The reader

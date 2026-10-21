@@ -7913,3 +7913,36 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF reader in Edit, no Fill & Sign and no pane PDF Tools, so nothing to fix | CLOSED — does not apply |
+
+---
+
+## Edit's lit controls fill with the deepened accent — main only
+
+Edit filled its lit controls with the raw accent under a white label — 2.66:1 measured on Green
+against the 4.5:1 the rest of the app keeps with `LiquidGlassHue.accentFillColor`. The mode
+capsule, the rail's tabs, the Autosave switch, the PDF header's lit actions, Fill & Sign's lit tool,
+Save Filled Copy, Save Reordered Copy and the PDF tool sheets' default button now take the deepened
+fill; the Body menu's hovered style deepens the system accent; Fill & Sign's rings and field washes
+take the app's accent instead of `controlAccentColor`. `EditAccentFillScanTests` (Design) keeps
+the raw accent out of Edit's fills.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  f=Modules/FileExplorer/Sources/FileExplorer; raw=0
+  for x in EditorMode.swift EditorRailTab.swift EditorWorkspaceView.swift; do
+    c=$(git show origin/$l:$f/$x 2>/dev/null | grep -cE 'fill\(accent\)|color: accent\)|AnyShapeStyle\(accent\) : AnyShapeStyle\(\.quaternary')
+    raw=$((raw + ${c:-0}))
+  done
+  printf '%-5s editMode=%s rawFills=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- $f/EditorMode.swift | wc -l | tr -d ' ')" "$raw"
+done
+# measured 2026-10-20, against origin, before this landed:
+# main  editMode=1 rawFills=5
+# v5.x  editMode=1 rawFills=5
+# v4.x, v3.x, v2.x — editMode=0 rawFills=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The mode capsule, rail tabs and Autosave switch on the raw accent (`rawFills=5`); `AccentFill` is there to take | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace (`editMode=0`), so nothing to fill | CLOSED — does not apply |

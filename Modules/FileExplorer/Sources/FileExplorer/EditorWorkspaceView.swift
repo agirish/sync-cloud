@@ -151,9 +151,13 @@ public struct EditorWorkspaceView: View {
     /// Passed straight through to the rail's empty caption — see
     /// ``EditorFileRailView/otherFileCount``. Defaulted for the same reason it is defaulted there.
     var otherFileCount: Int?
+    /// The raw accent — for washes, hairlines, accent-coloured words and hover tints.
     let accent: Color
-    /// The label colour on the accent fill — deepened by the host so white text stays legible on
-    /// every hue, the same value the workspace bar's selected segment uses.
+    /// The accent deepened until a white label on it clears WCAG AA
+    /// (`LiquidGlassHue.accentFillColor`) — what every lit control fills with. The raw accent under
+    /// a white label is 2.7:1 on Green; `EditAccentFillScanTests` keeps it out of Edit's fills.
+    let accentFill: Color
+    /// The label colour on `accentFill`, the same value the workspace bar's selected segment uses.
     let onAccent: Color
     /// Source / Preview / Split. Held by the host so it survives the workspace being torn down.
     @Binding var mode: EditorMode
@@ -356,6 +360,7 @@ public struct EditorWorkspaceView: View {
                 showsRail: Bool,
                 railIsHidden: Bool,
                 accent: Color,
+                accentFill: Color,
                 onAccent: Color,
                 mode: Binding<EditorMode>,
                 splitFraction: Binding<CGFloat>,
@@ -429,6 +434,7 @@ public struct EditorWorkspaceView: View {
         self.onNewTextFile = onNewTextFile
         self.onCloseDocument = onCloseDocument
         self.accent = accent
+        self.accentFill = accentFill
         self.onAccent = onAccent
         self._mode = mode
         self._splitFraction = splitFraction
@@ -570,6 +576,7 @@ public struct EditorWorkspaceView: View {
                                otherFileCount: otherFileCount,
                                selectedPath: pdf?.path ?? document.path,
                                accent: accent,
+                               accentFill: accentFill,
                                onAccent: onAccent,
                                tab: $railTab,
                                isNaming: $isNaming,
@@ -691,7 +698,8 @@ public struct EditorWorkspaceView: View {
                 // 6b): the find card, Fill & Sign's palette and its save pill float over the pages
                 // (`EditorPDFReader`), and what the status line said is the header's row 2 and the
                 // capsule's.
-                EditorPDFBody(pdf: pdf, accent: accent, quickLook: railRowActions.quickLook,
+                EditorPDFBody(pdf: pdf, accent: accent, accentFill: accentFill, onAccent: onAccent,
+                              quickLook: railRowActions.quickLook,
                               download: railRowActions.download)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -762,7 +770,7 @@ public struct EditorWorkspaceView: View {
     var header: some View {
         EditorDocumentHeader {
             if let pdf {
-                EditorPDFHeader(pdf: pdf, accent: accent, onAccent: onAccent,
+                EditorPDFHeader(pdf: pdf, accent: accent, accentFill: accentFill, onAccent: onAccent,
                                 onRevealInBrowse: onRevealInBrowse, rowActions: railRowActions,
                                 onClose: onCloseDocument) {
                     expandButton(worded: false)
@@ -919,9 +927,9 @@ public struct EditorWorkspaceView: View {
             // hold a capsule-shaped gap at the end of every plain-text header, and truncate the
             // file name earlier for nothing.
             if let rung = reading.capsule {
-                EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent, forcedRung: rung)
+                EditorModeBar(mode: $mode, accentFill: accentFill, onAccent: onAccent, forcedRung: rung)
             } else {
-                EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
+                EditorModeBar(mode: $mode, accentFill: accentFill, onAccent: onAccent)
                     // A reservation, never seen: Solid, so it runs no lens of its own on a mode
                     // change and draws no glass track — its height is the same in every appearance.
                     .environment(\.selectionLensAppearance, .today)
@@ -1185,7 +1193,7 @@ public struct EditorWorkspaceView: View {
             }
             // The capsule's height, reserved the way a plain-text header reserves it — and,
             // like that one, drawn at Solid, so it runs no lens of its own.
-            EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
+            EditorModeBar(mode: $mode, accentFill: accentFill, onAccent: onAccent)
                 .environment(\.selectionLensAppearance, .today)
                 .hidden()
                 .frame(width: 0)
@@ -1225,7 +1233,7 @@ public struct EditorWorkspaceView: View {
             HStack(spacing: 5) {
                 Text("Autosave")
                     .scaledFont(.system(size: 10, weight: .medium))
-                AutosaveSwitchTrack(isOn: false, accent: accent)
+                AutosaveSwitchTrack(isOn: false, fill: accentFill)
             }
             .fixedSize()
             .hidden()
@@ -1336,7 +1344,7 @@ public struct EditorWorkspaceView: View {
                 Text("Autosave")
                     .scaledFont(.system(size: 10, weight: .medium))
                     .foregroundStyle(isOn ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-                AutosaveSwitchTrack(isOn: isOn, accent: accent)
+                AutosaveSwitchTrack(isOn: isOn, fill: accentFill)
             }
             .contentShape(Rectangle())
         }
@@ -2148,7 +2156,8 @@ extension EditorWorkspaceView {
 struct AutosaveSwitchTrack: View {
 
     let isOn: Bool
-    let accent: Color
+    /// The on track's fill — the deepened accent, as every solid accent surface takes.
+    let fill: Color
 
     @Environment(\.appFontScale) private var scale
 
@@ -2177,7 +2186,7 @@ struct AutosaveSwitchTrack: View {
         let knob = height - inset * 2
 
         Capsule()
-            .fill(isOn ? AnyShapeStyle(accent) : AnyShapeStyle(.quaternary))
+            .fill(isOn ? AnyShapeStyle(fill) : AnyShapeStyle(.quaternary))
             .overlay {
                 // The off track needs an edge, or against a light ground it reads as a gap in the
                 // row rather than as a control that is switched off.

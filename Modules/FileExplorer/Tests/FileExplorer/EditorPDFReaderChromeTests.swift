@@ -590,7 +590,7 @@ import Sync
                 "the bands are not the capsule's alone")
         // What floats over the pages is what "a match in sight" keeps clear of: the card, the pill,
         // the palette, and the capsule once it has slid off its band — not the capsule at its place.
-        #expect(canvas.contains("coveredRects: frames.covered)"), "the page view is not told what floats over it")
+        #expect(canvas.contains("coveredRects: frames.covered, accent: accent)"), "the page view is not told what floats over it")
         let canvasSize = CGSize(width: 700, height: 800)
         let card = CGSize(width: 330, height: 30), pill = CGSize(width: 200, height: 28)
         let row = CGSize(width: 260, height: 30)

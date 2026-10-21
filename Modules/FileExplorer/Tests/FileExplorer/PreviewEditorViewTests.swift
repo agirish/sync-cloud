@@ -1131,7 +1131,7 @@ import EventsTestSupport
         private func workspace(_ mode: EditorMode) -> EditorWorkspaceView {
             EditorWorkspaceView(
                 document: document, autosavePolicy: EditorAutosavePolicy(), folder: "/n", entries: [],
-                showsRail: false, railIsHidden: false, accent: .blue, onAccent: .white,
+                showsRail: false, railIsHidden: false, accent: .blue, accentFill: .blue, onAccent: .white,
                 mode: .constant(mode), splitFraction: .constant(0.5), isNaming: .constant(false),
                 typedName: .constant(""), railFilter: .constant(""), railFilterIsExpanded: .constant(false),
                 railTab: .constant(.files), railOutlineAnchors: .constant([:]), undoManager: undo,

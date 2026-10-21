@@ -876,7 +876,8 @@ struct EditorStylePicker: View {
 }
 
 /// One style in ``EditorStylePicker``: a tick where it is current, its name in its own size, the
-/// row washed in the accent under the pointer, as a menu item is.
+/// row filled in the accent under the pointer, as a menu item is — the SYSTEM accent, as a menu's
+/// highlight is, deepened so the white label on it clears AA (`AccentFill`).
 private struct EditorStyleRow: View {
     let verb: MarkupVerb
     let isCurrent: Bool
@@ -898,7 +899,7 @@ private struct EditorStyleRow: View {
             .foregroundStyle(hovering ? Color.white : Color.primary)
             .padding(.vertical, 4)
             .padding(.horizontal, 8)
-            .background(RoundedRectangle(cornerRadius: Radius.chip).fill(hovering ? Color.accentColor : .clear))
+            .background(RoundedRectangle(cornerRadius: Radius.chip).fill(hovering ? AccentFill.deepened(.accentColor) : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

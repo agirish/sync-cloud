@@ -112,7 +112,9 @@ public enum EditorMode: String, CaseIterable, Sendable {
 struct EditorModeBar: View {
 
     @Binding var mode: EditorMode
-    let accent: Color
+    /// The selected segment's fill, and its lens and hover — the deepened accent, so the white
+    /// label on it clears AA (`LiquidGlassHue.accentFillColor`).
+    let accentFill: Color
     let onAccent: Color
     /// Forces a rung. `nil` picks by width, which is what the hidden height reservation relies on.
     ///
@@ -146,7 +148,7 @@ struct EditorModeBar: View {
             }
         }
         // Frosted and Clear: one glass lens that glides between modes (RD46).
-        .selectionLensHost(Self.lensChannel, selected: mode, style: .fill(.capsule, color: accent))
+        .selectionLensHost(Self.lensChannel, selected: mode, style: .fill(.capsule, color: accentFill))
         .padding(2)
         // Frosted and Clear: a glass track, like the bar's other controls (`ChromeGlass`).
         .chromeGlassTrack()
@@ -176,13 +178,13 @@ struct EditorModeBar: View {
             .padding(.horizontal, labelled ? 8 : 6)
             .padding(.vertical, 3)
             .background {
-                if isSelected { SelectionLensTodayMarker { Capsule().fill(accent) } }
+                if isSelected { SelectionLensTodayMarker { Capsule().fill(accentFill) } }
             }
             .selectionLensStop(Self.lensChannel, id: candidate)
             .contentShape(Capsule())
         }
         // `.filled` for the chosen mode at Solid; under the lens, `.segment` (`SelectionLens`).
-        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accent)
+        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accentFill)
         // Once the word is shed the glyph is the only thing naming the mode, so the name has to
         // survive somewhere reachable — the tooltip for a mouse, the a11y label otherwise.
         .help(candidate.title)

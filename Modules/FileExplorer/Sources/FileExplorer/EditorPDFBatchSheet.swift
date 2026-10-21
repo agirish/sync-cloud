@@ -9,6 +9,7 @@ struct EditorPDFBatchSheet: View {
     @State private var byTarget = false
     @State private var quality = EditorPDFCompression.strengths[1].quality
     @State private var typedMegabytes = "2"
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -28,6 +29,8 @@ struct EditorPDFBatchSheet: View {
                     if batch.isRunning { batch.cancel() } else { batch.showsSheet = false }
                 }
                 .keyboardShortcut(.cancelAction)
+                // Its words keep the raw accent — see `EditorPDFToolSheetFrame`.
+                .tint((LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor)
                 if !isRotate {
                     Button(actionTitle, action: go)
                         .keyboardShortcut(.defaultAction)

@@ -35,6 +35,7 @@ import FileExplorerTestSupport
             entries: entries,
             selectedPath: selected ?? entries.first?.path,
             accent: .blue,
+            accentFill: .blue,
             onAccent: .white,
             tab: .constant(tab),
             isNaming: .constant(naming),
@@ -256,7 +257,7 @@ import FileExplorerTestSupport
 
     private func capsule(_ rung: EditorModeBar.Rung, mode: EditorMode = .split,
                          scale: CGFloat = 1) -> CGSize {
-        size(EditorModeBar(mode: .constant(mode), accent: .blue, onAccent: .white, forcedRung: rung)
+        size(EditorModeBar(mode: .constant(mode), accentFill: .blue, onAccent: .white, forcedRung: rung)
             .environment(\.appFontScale, scale))
     }
 
@@ -456,7 +457,7 @@ import FileExplorerTestSupport
             for title in EditorRailTab.allCases {
                 let bar = EditorRailTabBar(tab: .constant(.files),
                                            tabs: Array(repeating: title, count: widestBar.count),
-                                           accent: .blue, onAccent: .white)
+                                           accentFill: .blue, onAccent: .white)
                     .environment(\.appFontScale, scale)
                 let measured = size(bar).width
                 #expect(measured <= available,
@@ -623,10 +624,10 @@ import FileExplorerTestSupport
     /// under-reserves, and the two headers diverge again with nothing failing.
     @Test func bothCapsuleRungsAreTheSameHeight() {
         for scale in scales {
-            let labelled = size(EditorModeBar(mode: .constant(.edit), accent: .blue,
+            let labelled = size(EditorModeBar(mode: .constant(.edit), accentFill: .blue,
                                               onAccent: .white, forcedRung: .labelled)
                                 .environment(\.appFontScale, scale))
-            let glyph = size(EditorModeBar(mode: .constant(.edit), accent: .blue,
+            let glyph = size(EditorModeBar(mode: .constant(.edit), accentFill: .blue,
                                            onAccent: .white, forcedRung: .glyphOnly)
                              .environment(\.appFontScale, scale))
             #expect(abs(labelled.height - glyph.height) < 0.51,
@@ -642,9 +643,9 @@ import FileExplorerTestSupport
     /// test above would go green only because both headers had lost the reservation together.
     @Test func aZeroWidthHiddenCapsuleStillReservesItsHeight() {
         for scale in scales {
-            let visible = size(EditorModeBar(mode: .constant(.edit), accent: .blue, onAccent: .white)
+            let visible = size(EditorModeBar(mode: .constant(.edit), accentFill: .blue, onAccent: .white)
                                 .environment(\.appFontScale, scale))
-            let reserved = size(EditorModeBar(mode: .constant(.edit), accent: .blue, onAccent: .white)
+            let reserved = size(EditorModeBar(mode: .constant(.edit), accentFill: .blue, onAccent: .white)
                                 .hidden().frame(width: 0)
                                 .environment(\.appFontScale, scale))
             #expect(abs(visible.height - reserved.height) < 0.51,

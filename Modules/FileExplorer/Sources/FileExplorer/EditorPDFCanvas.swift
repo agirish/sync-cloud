@@ -180,6 +180,9 @@ struct EditorPDFReader: View {
     var tools: EditorPDFTools?
     var pageCount: Int = 0
     var accent: Color = .accentColor
+    /// Fill & Sign's lit tool and Save Filled Copy — see ``EditorWorkspaceView/accentFill``.
+    var accentFill: Color = AccentFill.deepened(.accentColor)
+    var onAccent: Color = .white
 
     @State private var canvas: CGSize = .zero
     /// The capsule as it is drawn now, and its last-measured size in each form — the drop measures
@@ -203,7 +206,7 @@ struct EditorPDFReader: View {
                                   return true
                               },
                               canvasInsets: EditorPDFFloating.canvasInsets(place: state.capsulePlace, capsule: capsule.now),
-                              coveredRects: frames.covered)
+                              coveredRects: frames.covered, accent: accent)
             if let dragging {
                 let measured = dragging == .capsule ? capsule : palette
                 EditorPDFSnapTargets(row: measured.row, upright: measured.upright, canvas: canvas,
@@ -212,6 +215,7 @@ struct EditorPDFReader: View {
             }
             if let fill {
                 EditorPDFFillPalette(fill: fill, state: state, place: state.palettePlace, accent: accent,
+                                     accentFill: accentFill, onAccent: onAccent,
                                      onDrag: { moved in
                                          dragging = .palette
                                          drag = moved
@@ -232,7 +236,7 @@ struct EditorPDFReader: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: state.palettePlace.alignment)
                     .padding(EditorPDFFloating.inset)
                 if let tools {
-                    EditorPDFFillSaveStack(fill: fill, tools: tools, accent: accent, onSize: { saveStack = $0 })
+                    EditorPDFFillSaveStack(fill: fill, tools: tools, accentFill: accentFill, onSize: { saveStack = $0 })
                         .offset(x: frames.saveStack.minX - frames.saveStackDocked.minX,
                                 y: frames.saveStack.minY - frames.saveStackDocked.minY)
                         .designAnimation(.easeOut(duration: 0.2), value: find.isShown)

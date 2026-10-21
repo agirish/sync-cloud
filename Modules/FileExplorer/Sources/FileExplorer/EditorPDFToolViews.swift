@@ -20,6 +20,7 @@ import Sync
 struct EditorPDFToolsMenu: View {
     @ObservedObject var tools: EditorPDFTools
     let accent: Color
+    let accentFill: Color
     let onAccent: Color
     /// "Tools" beside the wrench, while the header's rung keeps the word.
     var worded = true
@@ -29,7 +30,7 @@ struct EditorPDFToolsMenu: View {
             EditorPDFToolsMenuItems(tools: tools)
         } label: {
             EditorPDFActionLabel(symbol: "wrench.and.screwdriver", word: worded ? "Tools" : nil, chevron: true,
-                                 accent: accent, onAccent: onAccent)
+                                 accentFill: accentFill, onAccent: onAccent)
         }
         .menuStyle(.button)
         .modifier(EditorPDFActionStyle(accent: accent))
@@ -38,7 +39,7 @@ struct EditorPDFToolsMenu: View {
         .help("PDF tools — each writes a new copy and leaves this file as it is")
         .accessibilityLabel("PDF Tools")
         .sheet(item: $tools.sheet) { sheet in
-            EditorPDFToolSheetView(tools: tools, sheet: sheet, accent: accent)
+            EditorPDFToolSheetView(tools: tools, sheet: sheet, accentFill: accentFill)
         }
     }
 }

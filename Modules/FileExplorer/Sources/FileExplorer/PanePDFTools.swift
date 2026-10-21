@@ -289,7 +289,7 @@ struct PanePDFSingleLayer: View {
         }
         .background {
             Color.clear.sheet(item: $tools.sheet) { sheet in
-                EditorPDFToolSheetView(tools: tools, sheet: sheet, accent: accent)
+                EditorPDFToolSheetView(tools: tools, sheet: sheet, accentFill: AccentFill.deepened(accent))
             }
         }
     }
@@ -311,7 +311,8 @@ struct PanePDFBatchLayer: View {
                 EditorPDFBatchSheet(batch: batch)
                     .padding(20)
                     .frame(width: 400)
-                    .tint(accent)
+                    // Deepened: its default button lays a white label on the tint.
+                    .tint(AccentFill.deepened(accent))
             }
         }
     }

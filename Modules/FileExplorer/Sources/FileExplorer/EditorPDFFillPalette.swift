@@ -21,7 +21,11 @@ struct EditorPDFFillPalette: View {
     /// Not observed: the palette reads only its own place, which the canvas hands it.
     let state: EditorPDFViewState
     let place: EditorPDFCapsulePlace
+    /// The tools' hover tint.
     let accent: Color
+    /// The lit tool's fill — see ``EditorWorkspaceView/accentFill`` — and the ink on it.
+    let accentFill: Color
+    let onAccent: Color
     var onDrag: (CGSize) -> Void = { _ in }
     var onDrop: (CGSize) -> Void = { _ in }
     /// The palette's size as drawn, and `.zero` once it goes — what the canvas keeps the other
@@ -178,10 +182,10 @@ struct EditorPDFFillPalette: View {
         return Button { act(tool) } label: {
             face(tool)
                 .frame(width: Self.toolSide, height: Self.toolSide)
-                .foregroundStyle(lit ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-                .background(lit ? accent : .clear, in: RoundedRectangle(cornerRadius: Radius.control))
+                .foregroundStyle(lit ? AnyShapeStyle(onAccent) : AnyShapeStyle(.primary))
+                .background(lit ? accentFill : .clear, in: RoundedRectangle(cornerRadius: Radius.control))
                 .overlay(alignment: .bottomTrailing) {
-                    if tool.flyout != nil { FlyoutCorner(lit: lit) }
+                    if tool.flyout != nil { FlyoutCorner(lit: lit, onAccent: onAccent) }
                 }
                 .contentShape(Rectangle())
         }
@@ -282,6 +286,7 @@ struct EditorPDFFillPalette: View {
     /// The small triangle in a flyout tool's corner, as Acrobat's and the mockup's.
     private struct FlyoutCorner: View {
         let lit: Bool
+        let onAccent: Color
 
         var body: some View {
             Path { path in
@@ -290,7 +295,7 @@ struct EditorPDFFillPalette: View {
                 path.addLine(to: CGPoint(x: 0, y: 5))
                 path.closeSubpath()
             }
-            .fill(lit ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+            .fill(lit ? AnyShapeStyle(onAccent) : AnyShapeStyle(.secondary))
             .frame(width: 5, height: 5)
             .padding(3)
             .accessibilityHidden(true)
@@ -477,7 +482,8 @@ enum EditorPDFFillFlyouts {
 struct EditorPDFFillSaveStack: View {
     @ObservedObject var fill: EditorPDFFillSign
     @ObservedObject var tools: EditorPDFTools
-    let accent: Color
+    /// Save Filled Copy's tint. AppKit lays a white label on it, so it is the deepened accent.
+    let accentFill: Color
     /// The stack's size as drawn, and `.zero` once it goes.
     var onSize: (CGSize) -> Void = { _ in }
 
@@ -528,8 +534,9 @@ struct EditorPDFFillSaveStack: View {
                                           : "Remove everything placed — ⌘Z brings it back")
             Button("Save Filled Copy") { Task { await fill.save() } }
                 .buttonStyle(.borderedProminent)
-                // The app's accent, as the Pages tab's Save Reordered Copy has it — not the system's.
-                .tint(accent)
+                // The app's accent, deepened, as the Pages tab's Save Reordered Copy has it — not
+                // the system's, and not the raw one, which leaves the white label at 2.7:1 on Green.
+                .tint(accentFill)
                 .disabled(!fill.canSave || tools.running != nil)
                 .help(fill.saveHelp)
         }

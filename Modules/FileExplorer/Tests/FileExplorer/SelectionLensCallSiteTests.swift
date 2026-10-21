@@ -230,15 +230,15 @@ import Sync
     @Test(.machinePinned(.pixelSampling))
     func editsModeCapsuleHostsItsLens() {
         Self.expectLensOnTodaysMarker(
-            first: EditorModeBar(mode: .constant(.edit), accent: Self.markerGreen, onAccent: .white, forcedRung: .labelled),
-            last: EditorModeBar(mode: .constant(.split), accent: Self.markerGreen, onAccent: .white, forcedRung: .labelled))
+            first: EditorModeBar(mode: .constant(.edit), accentFill: Self.markerGreen, onAccent: .white, forcedRung: .labelled),
+            last: EditorModeBar(mode: .constant(.split), accentFill: Self.markerGreen, onAccent: .white, forcedRung: .labelled))
     }
 
     @Test(.machinePinned(.pixelSampling))
     func editsModeCapsuleHostsItsLensOnTheGlyphRungToo() {
         Self.expectLensOnTodaysMarker(
-            first: EditorModeBar(mode: .constant(.edit), accent: Self.markerGreen, onAccent: .white, forcedRung: .glyphOnly),
-            last: EditorModeBar(mode: .constant(.split), accent: Self.markerGreen, onAccent: .white, forcedRung: .glyphOnly))
+            first: EditorModeBar(mode: .constant(.edit), accentFill: Self.markerGreen, onAccent: .white, forcedRung: .glyphOnly),
+            last: EditorModeBar(mode: .constant(.split), accentFill: Self.markerGreen, onAccent: .white, forcedRung: .glyphOnly))
     }
 
     @Test(.machinePinned(.pixelSampling))
@@ -253,8 +253,8 @@ import Sync
     @Test(.machinePinned(.pixelSampling))
     func editsRailTabsHostTheirLens() {
         Self.expectLensOnTodaysMarker(
-            first: EditorRailTabBar(tab: .constant(.files), accent: Self.markerGreen, onAccent: .white).frame(width: 232),
-            last: EditorRailTabBar(tab: .constant(.outline), accent: Self.markerGreen, onAccent: .white).frame(width: 232))
+            first: EditorRailTabBar(tab: .constant(.files), accentFill: Self.markerGreen, onAccent: .white).frame(width: 232),
+            last: EditorRailTabBar(tab: .constant(.outline), accentFill: Self.markerGreen, onAccent: .white).frame(width: 232))
     }
 
     // MARK: - RD46.13 · Restructure's crowding chips

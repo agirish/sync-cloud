@@ -1396,7 +1396,7 @@ extension PDFFixtures {
             for scale in FontSize.allCases.map(\.scale) {
                 let rows = NSHostingView(rootView: AnyView(
                     EditorDocumentHeader {
-                        EditorPDFHeader(pdf: pdf, accent: .blue, onAccent: .white, onRevealInBrowse: { _ in },
+                        EditorPDFHeader(pdf: pdf, accent: .blue, accentFill: .blue, onAccent: .white, onRevealInBrowse: { _ in },
                                         rowActions: .inert, onClose: {}) { EmptyView() }
                     }
                     .environment(\.appFontScale, scale)

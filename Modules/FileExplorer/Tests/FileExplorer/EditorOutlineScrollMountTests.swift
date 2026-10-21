@@ -29,7 +29,7 @@ import Design
             entries: [EditorRailEntry(path: "/a/one.md", name: "one.md", size: 10,
                                       isCloudOnly: false)],
             selectedPath: "/a/one.md",
-            accent: .blue, onAccent: .white,
+            accent: .blue, accentFill: .blue, onAccent: .white,
             tab: .constant(.outline),
             isNaming: .constant(false), typedName: .constant(""),
             prefilledName: { "Untitled.md" }, refusal: { _ in nil },

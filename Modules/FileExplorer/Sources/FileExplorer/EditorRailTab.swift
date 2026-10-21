@@ -122,9 +122,10 @@ struct EditorRailTabBar: View {
     /// bar would report. A test builds this with one title in every segment and measures that,
     /// which is the layout's actual worst case rather than a replica of it.
     var tabs: [EditorRailTab] = EditorRailTab.shown(pdfIsOpen: false, pdfHasOutline: false, markdownIsOpen: true)
-    let accent: Color
-    /// The label colour on the accent fill — deepened by the host so white text stays legible on
-    /// every hue, the same value the mode capsule's selected segment uses.
+    /// The selected segment's fill, and its lens and hover — the deepened accent, as the mode
+    /// capsule's (`LiquidGlassHue.accentFillColor`).
+    let accentFill: Color
+    /// The label colour on `accentFill`, the same value the mode capsule's selected segment uses.
     let onAccent: Color
 
     /// The bar's selection lens in Frosted and Clear — see `SelectionLens`.
@@ -135,7 +136,7 @@ struct EditorRailTabBar: View {
             ForEach(Array(tabs.enumerated()), id: \.offset) { segment($0.element) }
         }
         // Frosted and Clear: one glass lens that glides between the segments (RD46).
-        .selectionLensHost(Self.lensChannel, selected: tab, style: .fill(.capsule, color: accent))
+        .selectionLensHost(Self.lensChannel, selected: tab, style: .fill(.capsule, color: accentFill))
         .padding(2)
         // Frosted and Clear: a glass track, like the bar's other controls (`ChromeGlass`).
         .chromeGlassTrack()
@@ -163,13 +164,13 @@ struct EditorRailTabBar: View {
             // natural widths would put the seams between them off-centre.
             .frame(maxWidth: .infinity)
             .background {
-                if isSelected { SelectionLensTodayMarker { Capsule().fill(accent) } }
+                if isSelected { SelectionLensTodayMarker { Capsule().fill(accentFill) } }
             }
             .selectionLensStop(Self.lensChannel, id: candidate)
             .contentShape(Capsule())
         }
         // `.filled` for the chosen half at Solid; under the lens, `.segment` (`SelectionLens`).
-        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accent)
+        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accentFill)
         .accessibilityLabel(candidate.title)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }

@@ -256,7 +256,7 @@ import FileExplorerTestSupport
                      actions: EditorRailRowActions) -> EditorFileRailView {
         EditorFileRailView(
             folderName: "Notes", entries: entries, selectedPath: selectedPath, accent: .blue,
-            onAccent: .white, tab: .constant(.files), isNaming: .constant(false),
+            accentFill: .blue, onAccent: .white, tab: .constant(.files), isNaming: .constant(false),
             typedName: .constant(""), prefilledName: { "" }, refusal: { _ in nil },
             filter: .constant(""), filterIsExpanded: .constant(false),
             outlineAnchors: .constant([:]), onOpen: { _ in }, onCreate: { _ in true },

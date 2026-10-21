@@ -149,8 +149,8 @@ import Design
 
     /// Both states are the same size, or the row would shift sideways every time it was pressed.
     @Test func bothStatesMeasureTheSame() {
-        let on = size(AutosaveSwitchTrack(isOn: true, accent: .blue), scale: 1)
-        let off = size(AutosaveSwitchTrack(isOn: false, accent: .blue), scale: 1)
+        let on = size(AutosaveSwitchTrack(isOn: true, fill: .blue), scale: 1)
+        let off = size(AutosaveSwitchTrack(isOn: false, fill: .blue), scale: 1)
         #expect(on == off, "the switch changes size when it is toggled: \(on) then \(off)")
     }
 }

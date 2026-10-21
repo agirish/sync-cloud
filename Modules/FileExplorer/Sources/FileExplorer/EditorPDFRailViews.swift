@@ -58,6 +58,8 @@ struct EditorPDFRailPages: View {
     @ObservedObject var thumbnails: EditorPDFThumbnails
     @ObservedObject var tools: EditorPDFTools
     let accent: Color
+    /// Save Reordered Copy's fill — see ``EditorWorkspaceView/accentFill``.
+    let accentFill: Color
     var layout: EditorPDFPagesLayout = .grid
     var railWidth: CGFloat = EditorLayoutMetrics.railWidth
 
@@ -75,7 +77,7 @@ struct EditorPDFRailPages: View {
 
     var body: some View {
         if let facts = pdf.facts, pdf.phase == .open, facts.pageCount > 0 {
-            if tools.arrangement != nil, tools.offersPageTools { EditorPDFReorderBar(tools: tools, accent: accent) }
+            if tools.arrangement != nil, tools.offersPageTools { EditorPDFReorderBar(tools: tools, accentFill: accentFill) }
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 12) {
@@ -312,7 +314,9 @@ struct EditorPDFPageMenu: View {
 /// **The pending reorder's bar**, above the pages: nothing is written until Save.
 struct EditorPDFReorderBar: View {
     @ObservedObject var tools: EditorPDFTools
-    let accent: Color
+    /// Save's fill: AppKit lays a white label on a prominent button's tint, so it takes the
+    /// deepened accent.
+    let accentFill: Color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -322,7 +326,7 @@ struct EditorPDFReorderBar: View {
                 Button("Reset") { tools.resetArrangement() }
                 Button("Save Reordered Copy") { Task { await tools.saveArrangement() } }
                     .buttonStyle(.borderedProminent)
-                    .tint(accent)
+                    .tint(accentFill)
             }
             .controlSize(.small)
             .disabled(tools.running != nil)

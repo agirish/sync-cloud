@@ -46,6 +46,7 @@ extension EditorWorkspaceView {
             showsRail: showsRail,
             railIsHidden: railIsHidden,
             accent: .blue,
+            accentFill: .blue,
             onAccent: .white,
             mode: .constant(mode),
             splitFraction: .constant(0.5),

@@ -10,7 +10,10 @@ import Sync
 struct EditorPDFToolSheetView: View {
     @ObservedObject var tools: EditorPDFTools
     let sheet: EditorPDFToolSheet
-    let accent: Color
+    /// The sheet's tint. Its default button is AppKit's, which lays a white label on the tint, so
+    /// this is the deepened accent (`LiquidGlassHue.accentFillColor`), as are the radios' fills.
+    /// Cancel's words take the raw accent back (``EditorPDFToolSheetFrame``).
+    let accentFill: Color
 
     var body: some View {
         Group {
@@ -30,7 +33,7 @@ struct EditorPDFToolSheetView: View {
         .padding(20)
         // A floor, not a fixed width: at the Large text size the radio rows and captions need more.
         .frame(minWidth: 400, idealWidth: 420)
-        .tint(accent)
+        .tint(accentFill)
     }
 }
 
@@ -43,6 +46,7 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
     let failure: String?
     let run: () -> Void
     @ViewBuilder let content: Content
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -64,6 +68,12 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
                     if tools.running != nil { tools.cancelRun() } else { tools.sheet = nil }
                 }
                 .keyboardShortcut(.cancelAction)
+                // **Cancel's words keep the raw accent.** The sheet is tinted with the deepened fill,
+                // for the default button's white label and the radios' dots; Cancel draws the tint as
+                // TEXT: on Green's dark bezel the deepened one measures 3.4:1, the raw one 5.8:1. (On
+                // the light bezel the raw one is 2.3:1, as it was before the fill — a matter of
+                // accent-coloured words, not of fills.)
+                .tint((LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor)
                 Button(action, action: run)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canRun || tools.running != nil)

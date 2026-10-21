@@ -449,6 +449,8 @@ struct EditorPDFPageView: NSViewRepresentable {
     var canvasInsets = NSEdgeInsetsZero
     /// What floats over the pages outside those bands — see ``ReaderPDFView/coveredRects``.
     var coveredRects: [CGRect] = []
+    /// The app's accent, for Fill & Sign's rings and field washes (``EditorPDFFillOverlay/accent``).
+    var accent: Color = .accentColor
 
     final class Coordinator: NSObject {
         let state: EditorPDFViewState
@@ -511,6 +513,7 @@ struct EditorPDFPageView: NSViewRepresentable {
     }
 
     private func update(_ view: ReaderPDFView, coordinator: Coordinator) {
+        view.fillOverlay.accent = NSColor(accent)
         view.canvasInsets = canvasInsets
         view.coveredRects = coveredRects
         Self.applyLayout(state.layout, coverSeparately: state.coverSeparately, to: view)

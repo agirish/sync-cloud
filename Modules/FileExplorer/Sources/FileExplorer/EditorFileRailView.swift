@@ -24,7 +24,9 @@ struct EditorFileRailView: View {
     var otherFileCount: Int?
     let selectedPath: String?
     let accent: Color
-    /// The label colour on the accent fill, for the selected tab. See ``EditorRailTabBar/onAccent``.
+    /// What the selected tab and Save Reordered Copy fill with. See ``EditorWorkspaceView/accentFill``.
+    let accentFill: Color
+    /// The label colour on `accentFill`, for the selected tab. See ``EditorRailTabBar/onAccent``.
     let onAccent: Color
     /// Which half of the rail is showing. A binding for the reason ``filter`` is one — and because
     /// ⌘N reaches in from outside to put it back on ``EditorRailTab/files``.
@@ -175,7 +177,7 @@ struct EditorFileRailView: View {
             EditorRailTabBar(tab: tabBarSelection,
                              tabs: EditorRailTab.shown(pdfIsOpen: pdf != nil, pdfHasOutline: pdfHasOutline,
                                                        markdownIsOpen: markdownIsOpen),
-                             accent: accent, onAccent: onAccent)
+                             accentFill: accentFill, onAccent: onAccent)
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
                 .padding(.bottom, 6)
@@ -185,6 +187,7 @@ struct EditorFileRailView: View {
             case .pages:
                 if let pdf {
                     EditorPDFRailPages(pdf: pdf, view: pdf.view, thumbnails: pdf.thumbnails, tools: pdf.tools, accent: accent,
+                                       accentFill: accentFill,
                                        layout: pagesLayout, railWidth: width)
                 }
             case .outline: outlineSection

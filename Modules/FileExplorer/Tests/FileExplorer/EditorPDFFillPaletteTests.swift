@@ -85,7 +85,8 @@ import Sync
     private func inWindow(_ view: NSView) -> CGRect { view.convert(view.bounds, to: nil) }
 
     private func palette(_ fill: EditorPDFFillSign, at place: EditorPDFCapsulePlace) -> EditorPDFFillPalette {
-        EditorPDFFillPalette(fill: fill, state: EditorPDFViewState(defaults: defaults), place: place, accent: .blue)
+        EditorPDFFillPalette(fill: fill, state: EditorPDFViewState(defaults: defaults), place: place, accent: .blue,
+                             accentFill: .blue, onAccent: .white)
     }
 
     // MARK: The tools
@@ -344,7 +345,7 @@ import Sync
         #expect(fill.unsavedShortCaption == "1 field · 12 items")
         let room = EditorPDFHeaderWidthTests.column - 2 * EditorPDFFloating.inset
         for percent in FontSize.selectablePercents {
-            let stack = EditorPDFFillSaveStack(fill: fill, tools: EditorPDFTools(), accent: .blue)
+            let stack = EditorPDFFillSaveStack(fill: fill, tools: EditorPDFTools(), accentFill: .blue)
                 .environment(\.appFontScale, FontSize(percent: percent).scale)
             func width(_ proposed: CGFloat) -> CGFloat {
                 NSHostingController(rootView: stack).sizeThatFits(in: CGSize(width: proposed, height: 1000)).width
@@ -365,7 +366,7 @@ import Sync
     @Test func thePillHoldsTheCountAndGoesWhenNothingIsLeftToSave() throws {
         let fill = fill()
         let tools = EditorPDFTools()
-        func stack() -> CGSize { size(EditorPDFFillSaveStack(fill: fill, tools: tools, accent: .blue)) }
+        func stack() -> CGSize { size(EditorPDFFillSaveStack(fill: fill, tools: tools, accentFill: .blue)) }
         #expect(stack() == .zero, "the pill is up with nothing placed")
         try placeText(fill)
         let one = stack()
@@ -393,7 +394,7 @@ import Sync
             try? await Task.sleep(for: .milliseconds(5))
         }
         try #require(phases.first == .open)
-        func stack() -> CGSize { size(EditorPDFFillSaveStack(fill: pdf.fill, tools: pdf.tools, accent: .blue)) }
+        func stack() -> CGSize { size(EditorPDFFillSaveStack(fill: pdf.fill, tools: pdf.tools, accentFill: .blue)) }
         #expect(stack() == .zero, "the card is up with Fill & Sign off")
         pdf.fill.toggle()
         try #require(pdf.fill.formNotes == [EditorPDFFillSign.xfaNote] && !pdf.fill.hasUnsavedChanges)
