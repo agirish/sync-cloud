@@ -251,6 +251,31 @@ extension PDFFixtures {
         #expect(scratch.data(forKey: EditorPDFSignatureStore.key) == nil, "taking the reset wrote the list back")
     }
 
+    /// **A write to the signatures' domain from another thread never waits for the main thread**,
+    /// and the list still follows it — the reader's twin (`EditorPDFReaderChromeTests`).
+    @Test func aWriteOffTheMainThreadNeverWaitsForTheSignatures() async throws {
+        let scratch = ScratchDefaults("EditorPDFSignatureOffMain")
+        let store = EditorPDFSignatureStore(defaults: scratch)
+        store.add(EditorPDFSignature(kind: .signature, look: .typed("Alex Morgan")))
+        try #require(store.saved.count == 1)
+        let written = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            scratch.removePersistentDomain(forName: scratch.scratchSuiteName)
+            written.signal()
+        }
+        #expect(holdingTheMainThread(until: written) == .success,
+                "a background write to the signatures' defaults waited on the main thread")
+        let end = Date().addingTimeInterval(15)
+        while !store.saved.isEmpty, Date() < end { try? await Task.sleep(nanoseconds: 8_000_000) }
+        #expect(store.saved.isEmpty, "a reset from another thread left \(store.saved.count) signatures on offer")
+    }
+
+    /// Blocks the main thread — this test runs on it — until `done` is signalled or five seconds
+    /// pass. Synchronous, because a wait in an async test would hand the main thread back.
+    private func holdingTheMainThread(until done: DispatchSemaphore) -> DispatchTimeoutResult {
+        done.wait(timeout: .now() + 5)
+    }
+
     // MARK: Placing
 
     @Test func turningItOnChoosesTextAndAClickPlacesWordsToType() async throws {

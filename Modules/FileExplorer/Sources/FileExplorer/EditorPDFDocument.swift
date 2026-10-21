@@ -511,10 +511,7 @@ public final class EditorPDFViewState: ObservableObject {
         // stayed as they were on screen and came back at their defaults only after a relaunch,
         // while choosing the same place again wrote nothing. Each is read again on a change to the
         // domain; one that already matches is left alone, so this never writes.
-        change = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reread() }
-            }
+        change = observeDefaultsChanges(of: defaults) { [weak self] in self?.reread() }
     }
 
     deinit { if let change { NotificationCenter.default.removeObserver(change) } }

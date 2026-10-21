@@ -113,6 +113,11 @@ import Design
     /// hung for good (2026-10-03, `FilingSpendStore`). Here the main thread is held while another
     /// thread writes a default; with the old observer the write cannot finish until the hold ends,
     /// and the hold gives up after five seconds and says so.
+    ///
+    /// The writer is a thread of its own, not a block on a global queue. This test starts in a full
+    /// run's opening burst, when source scans fill every user-initiated thread of the pool, and a
+    /// default-QoS block waited up to 3.9 s for a thread there, once more than 5 s, before its
+    /// 10 ms write began (2026-10-20). That timed the pool, not the write.
     @Test @MainActor func aDefaultsWriteOffTheMainThreadNeverWaitsForIt() throws {
         let line = GlassLogLine()
         line.start()
@@ -120,13 +125,34 @@ import Design
         let suite = "SelectionLensWiringTests.glassLine-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(suite) }
         let written = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
+        Thread.detachNewThread {
             UserDefaults(suiteName: suite)?.set(1, forKey: "probe")
             written.signal()
         }
         // The main thread, held — as a lock holder's main-thread waiter would hold it.
         #expect(written.wait(timeout: .now() + 5) == .success,
                 "a background defaults write waited on the main thread — a lock held across one deadlocks")
+    }
+
+    /// **No defaults observer anywhere makes its writer wait.** The test above holds the main thread
+    /// only against the `[glass]` line, and the next observer added with `queue: .main` would park
+    /// every background write to its domain on the main thread without failing it: 9d170742's two,
+    /// on the PDF reader's layout and its saved signatures, did, and every scratch-suite wipe in an
+    /// app-target run then waited for main (2026-10-20). Each observer of the notification must run
+    /// on the posting thread — `queue: nil` — and hop to the main actor without waiting.
+    @Test func noDefaultsObserverMakesItsWriterWait() throws {
+        var observers = 0
+        var queued: [String] = []
+        for (path, text) in try Self.everySource() where text.contains("UserDefaults.didChangeNotification") {
+            for arguments in argumentLists(of: ".addObserver", in: sourceCodeOnly(text))
+            where arguments.contains("UserDefaults.didChangeNotification") {
+                observers += 1
+                if !arguments.contains("queue: nil") { queued.append(path) }
+            }
+        }
+        // The `[glass]` line's, and FileExplorer's `observeDefaultsChanges`.
+        #expect(observers >= 2, "only \(observers) defaults observers found — the reader is broken")
+        #expect(queued.isEmpty, "a defaults observer that makes its writer wait for a queue: \(queued)")
     }
 
     @Test func helpsOpenTopicIsDarkOnGlass() throws {

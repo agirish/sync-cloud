@@ -3906,3 +3906,57 @@ new one were run on the same five renders and gave identical rows (214 action ro
 **Tell.** No output, one core pegged, and `sample` names a test's own pixel loop rather than a
 `Task.yield` or a lock. Count the calls before blaming the machine: a probe that calls
 `colorAt` per pixel over a full render costs 1–2 µs a call in Debug, before load.
+
+### 35. A main-queue defaults observer parks every scratch-suite wipe on the main thread — FIXED
+
+**Symptom.** Only the app-target step red, one test, at its 5 s hold:
+
+```
+✘ aDefaultsWriteOffTheMainThreadNeverWaitsForIt() … Expectation failed: written.wait(timeout: .now() + 5) == .success
+✘ aDefaultsWriteOffTheMainThreadNeverWaitsForIt() failed after 7.775 seconds with 1 issue.
+```
+
+CI runs 39515171126 (`d82ea67b`) and 39543590981 (`8956ef9f`), 2026-10-20. Green alone in 0.04 s.
+It starts 0.07 s into the run, with ~1,680 tests, and the main-actor tests around it "pass after
+7–8 s" because they waited out its hold.
+
+**Mechanism — two of them, one real.**
+
+1. **Real, and deadlock-shaped.** 9d170742 made the PDF reader's layout (`EditorPDFViewState`) and
+   its saved signatures (`EditorPDFSignatureStore`) follow their defaults with `queue: .main`. A
+   queue-based observer makes the poster wait until main has run it. Some observe `.standard` in
+   the app host: `PDFFillSignCommand.idle`, a static that lives for the run once built, and the
+   default-argument instances `ShortcutCommandsTests` and `PDFMenuBarTests` make. `wipeDefaultsSuite` calls
+   `UserDefaults.standard.removePersistentDomain(forName:)`, which posts the change with `.standard`
+   as its object. So every scratch-suite wipe off the main thread waited for main. A `sample` at
+   the 5 s mark (load ~170) found 11 stacks `wipeDefaultsSuite → postNotificationName →
+   -[NSOperation waitUntilFinished]`, holding all ten user-initiated threads of the cooperative
+   pool. It was not the test's own write: a write to a fresh suite posts with that suite as the
+   object, and an observer filtered on another instance never sees it (measured in a probe).
+2. **Load timing, in the harness.** The test wrote from a `DispatchQueue.global()` block, a
+   default-QoS pool thread. Its timestamps showed the block **never started** in 5 s in all three
+   red runs, and with (1) fixed it still waited 0–3.9 s for a thread, once more than 5 s. Samples
+   1 s in found the ten user-initiated threads CPU-busy with the opening burst's source scans, and
+   GCD admits no default-QoS block while higher QoS fills every core. The write itself took 5–20 ms.
+
+**Fix.** (1) Both observers go through `observeDefaultsChanges(of:_:)` in FileExplorer, which
+observes on the posting thread: a post on main rereads on the spot, as before, so Settings ▸ Reset
+All Settings still reaches an open reader at once; a post from any other thread schedules the
+reread and returns. `aWriteOffTheMainThreadNeverWaitsForTheReader` and `…ForTheSignatures` hold main
+while another thread writes. Put back on `queue: .main`, both fail at 5 s; with the off-main branch
+dropped, both fail at 15 s waiting for the reread. `noDefaultsObserverMakesItsWriterWait` (app
+target) fails on any `didChangeNotification` observer not registered `queue: nil`, anywhere in
+`MacApp` or a package's `Sources`. (2) The test's writer is a `Thread` of its own. With the
+`[glass]` line's observer put back on `queue: .main` it still fails at 5 s, the thread having
+started at 0 ms.
+
+**Proved.** Before: 3 of 3 full app-target runs red at load 90–170. With (1) only: 6 of 7 green
+at load 30–135, the block starting 0–3.9 s late, and 1 red (a run that also `sample`d the host 1 s in). With both: 5 of 5 green at load
+34–124, three of them under 20 `yes` spinners; the writer started at 0 ms every time and its write
+took 8–28 ms. Not run on an idle machine: other sessions kept the load above 30 throughout.
+
+**Tell.** A test that holds the main thread fails, and `sample` shows pool threads in
+`_CFXNotificationPost → -[NSOperation waitUntilFinished]`: something observes a notification with
+`queue: .main` that is posted off main. Find the observer by the notification name in the frames
+above the post. A block on a global queue that never starts is the pool, not the code under test;
+timestamp the block's first line before blaming what it calls.

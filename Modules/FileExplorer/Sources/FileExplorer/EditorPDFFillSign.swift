@@ -512,10 +512,7 @@ public final class EditorPDFSignatureStore: ObservableObject {
         // **Settings ▸ Reset All Settings takes them while the app runs**, not at the next launch:
         // the list held here kept offering a removed signature to place, until a relaunch. Any
         // change to the domain is looked at; only a list that differs from the stored one moves.
-        change = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reread() }
-            }
+        change = observeDefaultsChanges(of: defaults) { [weak self] in self?.reread() }
     }
 
     deinit { if let change { NotificationCenter.default.removeObserver(change) } }

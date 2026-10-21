@@ -256,6 +256,36 @@ import Sync
         #expect(reset.string(forKey: EditorPDFSettings.capsulePlaceKey) == "top")
     }
 
+    /// **A write to the reader's domain from another thread never waits for the main thread**, and
+    /// the reader still takes it. Observed with `queue: .main`, the writer waited until main ran the
+    /// reread: every scratch-suite wipe in a test run waits on main that way, and with main busy
+    /// they held the whole cooperative pool (2026-10-20). Here main is held while another thread
+    /// writes; the hold gives up after five seconds and says so.
+    @Test func aWriteOffTheMainThreadNeverWaitsForTheReader() async {
+        let defaults = ScratchDefaults("EditorPDFReaderOffMain")
+        let state = EditorPDFViewState(defaults: defaults)
+        state.capsulePlace = .topLeading
+        let written = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            defaults.removeObject(forKey: EditorPDFSettings.capsulePlaceKey)
+            written.signal()
+        }
+        #expect(holdingTheMainThread(until: written) == .success,
+                "a background write to the reader's defaults waited on the main thread")
+        let end = Date().addingTimeInterval(15)
+        while state.capsulePlace != EditorPDFSettings.capsulePlaceDefault, Date() < end {
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        #expect(state.capsulePlace == EditorPDFSettings.capsulePlaceDefault,
+                "a write from another thread never reached the open reader")
+    }
+
+    /// Blocks the main thread — this test runs on it — until `done` is signalled or five seconds
+    /// pass. Synchronous, because a wait in an async test would hand the main thread back.
+    private func holdingTheMainThread(until done: DispatchSemaphore) -> DispatchTimeoutResult {
+        done.wait(timeout: .now() + 5)
+    }
+
     /// **The place holds across a resize** — bottom right is still bottom right, 14pt in, in a
     /// wider and taller window: the capsule moves with the corner rather than staying at the points
     /// it was drawn at.
