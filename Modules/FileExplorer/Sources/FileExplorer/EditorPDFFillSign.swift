@@ -1288,6 +1288,14 @@ public final class EditorPDFFillSign: ObservableObject {
         replaceNote = refusal.reason
     }
 
+    /// **Return with Replace chosen and nothing to retype**: Replace has no spot of its own to use,
+    /// as the other tools do — it needs the words — so the note card says how to pick them.
+    public func explainReplaceFromKeyboard() {
+        replaceNote = Self.replaceByKeyboardNote
+    }
+
+    static let replaceByKeyboardNote = "Click or drag across the words to replace."
+
     /// **Right-click ▸ Replace Text…**: Fill & Sign on, with Replace chosen and these words picked.
     public func replace(_ pick: EditorPDFReplacePick) {
         guard replaceRefusal == nil, hasPages else { return }

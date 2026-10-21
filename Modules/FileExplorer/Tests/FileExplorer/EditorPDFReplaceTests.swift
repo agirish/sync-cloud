@@ -737,6 +737,24 @@ enum ReplaceFixtures {
         reader.fillSign = nil
     }
 
+    /// **Return with Replace chosen and nothing selected says how to pick words** — in the note card
+    /// and to VoiceOver. It did nothing at all: Replace has no spot of its own, as the other tools do.
+    @Test func returnWithReplaceAndNothingSelectedSaysHowToPick() async throws {
+        let pdf = try await open(invoice())
+        let (_, reader) = reader(pdf)
+        pdf.fill.toggle()
+        pdf.fill.armed = .replace
+        var heard: [String] = []
+        reader.fillOverlay.announce = { heard.append($0) }
+        #expect(reader.fillOverlay.returnPressed(), "Return with Replace chosen was not taken")
+        #expect(pdf.fill.replaceNotes == ["Click or drag across the words to replace."])
+        #expect(heard == ["Click or drag across the words to replace."])
+        #expect(pdf.fill.items.isEmpty)
+        pdf.fill.armed = .text
+        #expect(pdf.fill.replaceNotes.isEmpty, "the note outlived Replace")
+        reader.fillSign = nil
+    }
+
     /// **Right-click ▸ Replace Text… turns Fill & Sign on with the words picked** — and is greyed,
     /// its reason under it, for words across two lines or on a form.
     @Test func rightClickReplaceTextTurnsFillAndSignOn() async throws {

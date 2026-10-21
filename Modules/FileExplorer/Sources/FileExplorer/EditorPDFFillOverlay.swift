@@ -378,8 +378,23 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             fill.beginEditing(item.id)
             return true
         }
+        // Replace covers words, and Return has none to give it: said, in the card and aloud, rather
+        // than nothing happening at all.
+        if fill.armed == .replace, fill.replaceRefusal == nil {
+            fill.explainReplaceFromKeyboard()
+            announce(EditorPDFFillSign.replaceByKeyboardNote)
+            return true
+        }
         guard let armed = fill.armed, armed != .formFields, let spot = keyboardSpot() else { return false }
         return fill.placeFromKeyboard(around: spot.point, page: spot.page) != nil
+    }
+
+    /// Said to VoiceOver — a seam, so a test can hear it.
+    var announce: (String) -> Void = { text in
+        guard let app = NSApp else { return }
+        NSAccessibility.post(element: app.mainWindow ?? app, notification: .announcementRequested,
+                             userInfo: [.announcement: text,
+                                        .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
 
     /// **Where Return places**: the middle of what can be seen of the page in the middle of the
