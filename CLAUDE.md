@@ -129,20 +129,23 @@ Every session, and the CI runner, builds on the same ten cores. More concurrent 
 no throughput; they slow every build and make the timing-sensitive suites flake.
 
 - **Queue every heavy command for a slot:** `scripts/build-slot xcodebuild …`,
-  `scripts/build-slot swift test --package-path Modules/Sync …`. It waits for one of a machine-wide
-  number of slots (default **2**), runs the command untouched and passes its exit status through.
-  `xcodegen`, `git` and everything light run directly. A worktree without the script (a maintenance
-  line) uses the primary checkout's copy, `/Users/abhishek/Projects/SyncCloud/scripts/build-slot`.
-- **A wait is reported, never silent:** once a minute on stderr it names each holder's PID,
-  worktree and command. Run long builds in the background so a wait cannot hit the tool's timeout.
-  `scripts/build-slot --status` shows the holders.
+  `scripts/build-slot swift test --package-path Modules/Sync …`. Commands wait first come, first
+  served for one of a machine-wide number of slots (default **2**), then run with their output and
+  exit status untouched. `xcodegen`, `git` and everything light run directly. A worktree without
+  the script (a maintenance line) uses the primary checkout's copy,
+  `/Users/abhishek/Projects/SyncCloud/scripts/build-slot`.
+- **A wait is reported, never silent:** at once and then once a minute on stderr, with your place
+  in line and each holder's PID, worktree and command. Run long builds in the background so a wait
+  cannot hit the tool's timeout. `scripts/build-slot --status` shows the holders and the queue.
 - **Changing the count:** `echo 3 > ~/Library/Caches/SyncCloud-build-slots/slots` for every
   session, `BUILD_SLOTS=3` for one command. A killed or crashed holder frees its slot at once.
+- **Stopping a wrapped command ends what it started**, such as the test helper a killed
+  `swift test` can orphan (`docs/flaky-triage.md`). Killing the wrapper with `SIGKILL` skips this.
 - **Compile-only commands run at `nice` 10; tests never do**, because a slower test run is a
   flakier one (`docs/flaky-tests.md`). The CI runner takes no slot.
 - **Iterate narrow, gate wide:** `--filter` or `-only-testing:` while working; the full
   seven-package run and `xcodebuild test` only as the landing gate (`COMMIT.md` §4).
 - **Debug while iterating; Release only for the install** (`install-sync-cloud`).
-- **CPU-stress flake probes (`yes` spinners and the like) bypass the slots.** Run one only when
-  `scripts/build-slot --status` shows no holders and
-  `gh run list --status in_progress --limit 1` is empty.
+- **Run a CPU-stress flake probe (`yes` spinners and the like) under
+  `scripts/build-slot --exclusive`**, which waits its turn, then holds every slot, so no session
+  builds beside it. Check `gh run list --status in_progress --limit 1` first: CI takes no slot.

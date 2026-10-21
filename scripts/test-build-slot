@@ -1,12 +1,12 @@
 #!/bin/bash
 # Tests for scripts/build-slot. Runs against a private slot directory, so it never takes or waits
-# on the real machine-wide slots. Takes about half a minute; prints one line per check and exits
-# non-zero if any check fails.
+# on the real machine-wide slots. Takes about a minute and a half; prints one line per check and
+# exits non-zero if any check fails.
 set -u
 SLOT="$(cd "$(dirname "$0")" && pwd)/build-slot"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/build-slot-test.XXXXXX")
 export BUILD_SLOT_DIR="$WORK/slots"
-unset BUILD_SLOT_HELD BUILD_SLOT_TIMEOUT BUILD_SLOT_NICE
+unset BUILD_SLOT_HELD BUILD_SLOT_TIMEOUT BUILD_SLOT_NICE BUILD_SLOTS
 failures=0
 
 check() {  # check <description> <command…>
@@ -19,95 +19,299 @@ wait_for() {
   local deadline=$((SECONDS + $1)); shift
   until "$@"; do
     [ "$SECONDS" -ge "$deadline" ] && return 1
-    sleep 0.2
+    sleep 0.1
   done
 }
 
 held() { "$SLOT" --status | grep -q "^$1 of "; }
+waiting() { "$SLOT" --status | grep -q " held, $1 waiting"; }
 alive() { kill -0 "$1" 2>/dev/null; }
 dead() { ! kill -0 "$1" 2>/dev/null; }
+gone() { ! pgrep -f "$1" > /dev/null; }
+same() { [ "$1" = "$2" ]; }
+# A background job of a non-interactive bash starts with SIGINT ignored; these undo that, and put
+# a command in a process group of its own. Background them only: they exec, so $! is the wrapper.
+int_default() { exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV or die "$!"' "$@"; }
+own_group() { exec perl -e 'setpgrp(0, 0); exec @ARGV or die "$!"' "$@"; }
+main=$$
+( trap 'kill "$timer" 2>/dev/null; exit' TERM
+  sleep 600 > /dev/null 2>&1 &  # never holds a caller's pipe open, even orphaned
+  timer=$!
+  wait "$timer"
+  echo "FAIL - the tests hung; killed after 10 minutes"; pkill -P "$main"; kill "$main" ) &
+watchdog=$!
+disown "$watchdog"  # so a bare `wait` below never waits on it
 
-# 1. N+1 concurrent invocations: never more than N run at once, the extra one waits and then runs.
+# 1. Many invocations started at once never exceed N holders, sampled throughout, and all run.
 export BUILD_SLOTS=2
-for job in 1 2 3; do
-  "$SLOT" sh -c "echo + >> '$WORK/events'; sleep 3; echo - >> '$WORK/events'; echo done$job" \
-    > "$WORK/out$job" 2> "$WORK/err$job" &
+for round in 1 2; do
+  rm -f "$WORK/go"
+  for job in $(seq 12); do
+    ( while [ ! -e "$WORK/go" ]; do sleep 0.01; done
+      exec "$SLOT" sh -c "echo + >> '$WORK/events'; sleep 0.3; echo - >> '$WORK/events'" ) &
+  done
+  ( while true; do "$SLOT" --status | head -1 >> "$WORK/samples"; done ) &
+  sampler=$!
+  sleep 1
+  touch "$WORK/go"
+  until [ "$(grep -c -- - "$WORK/events" 2>/dev/null || true)" = $((round * 12)) ]; do sleep 0.2; done
+  kill "$sampler"; wait "$sampler" 2>/dev/null
 done
 wait
 peak=$(awk '/\+/ { n++; if (n > max) max = n } /-/ { n-- } END { print max }' "$WORK/events")
-check "3 jobs on 2 slots: peak concurrency is 2 (got $peak)" [ "$peak" = 2 ]
-check "3 jobs on 2 slots: all three ran" \
-  [ "$(cat "$WORK/out1" "$WORK/out2" "$WORK/out3" | sort | tr '\n' ' ')" = "done1 done2 done3 " ]
-check "3 jobs on 2 slots: exactly one waited, naming the holders" \
-  [ "$(cat "$WORK"/err? | grep -c 'all 2 slots held — \[1\] pid [0-9]*.*\[2\] pid')" = 1 ]
-check "3 jobs on 2 slots: the waiter reported getting its slot" \
-  [ "$(cat "$WORK"/err? | grep -c 'got slot [12] after waiting')" = 1 ]
+sampled=$(awk '{ if ($1 > max) max = $1 } END { print max }' "$WORK/samples")
+check "24 jobs started at once on 2 slots: never more than 2 running (peak $peak)" same "$peak" 2
+check "24 jobs started at once: --status never saw more than 2 held ($(wc -l < "$WORK/samples" | tr -d ' ') samples, max $sampled)" same "$sampled" 2
+check "24 jobs started at once: every job ran" same "$(grep -c + "$WORK/events")" 24
 
-# 2. A holder killed with SIGKILL gives its slot back, though its record is left behind.
+# 2. Waiters are served first come, first served, and a waiter names the holders.
 export BUILD_SLOTS=1
+"$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" &
+gate=$!
+wait_for 10 held 1
+for job in 1 2 3 4 5; do
+  "$SLOT" sh -c "echo W$job >> '$WORK/order'; sleep 0.2" 2> "$WORK/fifo-err$job" &
+  wait_for 10 waiting "$job"
+done
+touch "$WORK/release"
+wait
+check "FIFO: 5 queued waiters ran in arrival order ($(tr '\n' ' ' < "$WORK/order"))" \
+  same "$(tr '\n' ' ' < "$WORK/order")" "W1 W2 W3 W4 W5 "
+check "FIFO: the first waiter was told it was first in line, and who held the slot" \
+  grep -q 'first in line; 1 of 1 slots held — \[1\] pid [0-9]*, [^,]*, [0-9]*m[0-9]*s: sh -c' \
+  "$WORK/fifo-err1"
+check "FIFO: the fifth waiter was told 4 were ahead" grep -q '4 ahead in line' "$WORK/fifo-err5"
+check "FIFO: each waiter reported getting its slot" \
+  same "$(cat "$WORK"/fifo-err? | grep -c 'got slot 1 after waiting')" 5
+
+# 2b. --exclusive waits for the holders to finish, holds every slot, and nobody slips past it.
+export BUILD_SLOTS=2
+rm -f "$WORK/release" "$WORK/order"
+"$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" &
+gate=$!
+wait_for 10 held 1
+"$SLOT" --exclusive sh -c "echo E-start >> '$WORK/order'; sleep 1.5; echo E-end >> '$WORK/order'" \
+  2> "$WORK/excl-err" &
+excl=$!
+wait_for 10 waiting 1
+"$SLOT" sh -c "echo N >> '$WORK/order'" &
+normal=$!
+wait_for 10 waiting 2
+sleep 1.5
+check "--exclusive: a newcomer behind it does not take the free slot" same "$(cat "$WORK/order" 2>/dev/null)" ""
+check "--exclusive: its wait says it is waiting for every slot" grep -q 'for every slot, first in line' "$WORK/excl-err"
+touch "$WORK/release"
+wait_for 10 grep -q E-start "$WORK/order"
+check "--exclusive: holds both slots while it runs" held 2
+wait "$gate" "$excl" "$normal"
+check "--exclusive: ran alone, then the newcomer ($(tr '\n' ' ' < "$WORK/order"))" \
+  same "$(tr '\n' ' ' < "$WORK/order")" "E-start E-end N "
+export BUILD_SLOTS=1
+
+# 3. Reclaim: whatever kills a holder frees its slot; nothing frees a live one.
 "$SLOT" sh -c "echo \$\$ > '$WORK/holder-child'; exec sleep 60" &
 holder=$!
 wait_for 10 held 1
-"$SLOT" echo waiter-ran > "$WORK/waiter-out" 2> "$WORK/waiter-err" &
+"$SLOT" echo waiter-ran > "$WORK/waiter-out" &
 waiter=$!
 sleep 2
-check "SIGKILL: the waiter is still waiting while the holder lives" alive "$waiter"
+check "SIGKILL: the waiter waits while the holder lives" alive "$waiter"
 kill -KILL "$holder"
-check "SIGKILL: the waiter runs once the holder is killed" wait_for 10 dead "$waiter"
-check "SIGKILL: the waiter's command ran" [ "$(cat "$WORK/waiter-out")" = waiter-ran ]
-check "SIGKILL: the reclaimed slot now records the new holder, not the dead one" \
-  sh -c "! grep -q 'pid=$holder\$' '$BUILD_SLOT_DIR/slot-1'"
+check "SIGKILL of the holder: the waiter runs" wait_for 10 dead "$waiter"
+check "SIGKILL of the holder: the waiter's command ran" same "$(cat "$WORK/waiter-out")" waiter-ran
 kill "$(cat "$WORK/holder-child")" 2>/dev/null  # the orphaned sleep
 wait "$holder" 2>/dev/null
 
-# 3. Exit codes, signals and output pass through exactly.
-"$SLOT" true; check "exit 0 passes through" [ $? = 0 ]
-"$SLOT" false; check "exit 1 passes through" [ $? = 1 ]
-"$SLOT" sh -c 'exit 42'; check "exit 42 passes through" [ $? = 42 ]
-"$SLOT" no-such-command-xyz 2>/dev/null; check "a missing command exits 127" [ $? = 127 ]
-"$SLOT" sh -c 'kill -TERM $$'; check "a child killed by SIGTERM reads as 143" [ $? = 143 ]
-"$SLOT" sh -c 'printf "out\nline2"; printf "err" >&2' > "$WORK/stdout" 2> "$WORK/stderr"
-check "stdout passes through byte for byte" [ "$(od -c "$WORK/stdout")" = "$(printf 'out\nline2' | od -c)" ]
-check "stderr passes through byte for byte (no wrapper chatter without a wait)" \
-  [ "$(cat "$WORK/stderr")" = err ]
-check "stdin passes through" [ "$(echo piped | "$SLOT" cat)" = piped ]
+bash -c "'$SLOT' sleep 30.4; :" &
+parent=$!
+wait_for 10 held 1
+kill -KILL "$parent"; wait "$parent" 2>/dev/null
+sleep 0.5
+check "SIGKILL of the holder's parent shell: the live build keeps its slot" held 1
+pkill -f 'sleep 30.4'
+check "...and frees it when the build ends" wait_for 10 held 0
 
-# 4. SIGTERM to the wrapper reaches the command, whose exit status still comes back.
-"$SLOT" sh -c 'trap "echo got-term; exit 7" TERM; sleep 60 & wait' > "$WORK/term-out" &
+own_group "$SLOT" sleep 30.5 &
+group=$!
+wait_for 10 held 1
+kill -KILL -- "-$group"; wait "$group" 2>/dev/null
+check "SIGKILL of the whole process group: slot freed" wait_for 10 held 0
+check "SIGKILL of the whole process group: the build is gone too" gone 'sleep 30.5'
+
+printf 'pid=%d\nstarted=0\ncwd=/\ncommand=stale\n' $$ > "$BUILD_SLOT_DIR/slot-1"
+"$SLOT" true 2> "$WORK/reuse-err"
+check "a stale record naming a live, unrelated PID does not hold the slot" \
+  same "$(cat "$WORK/reuse-err")" ""
+
+"$SLOT" sleep 30.6 2> "$WORK/heal-err" &
+holder=$!
+wait_for 10 held 1
+rm -rf "$BUILD_SLOT_DIR"
+sleep 3
+BUILD_SLOT_TIMEOUT=2 "$SLOT" echo should-not-run > "$WORK/heal-out" 2>/dev/null
+check "slot directory deleted under a holder: the holder re-takes it, so a newcomer still waits" \
+  same "$?:$(cat "$WORK/heal-out")" "75:"
+check "slot directory deleted under a holder: the holder says so" grep -q 're-took slot 1' "$WORK/heal-err"
+kill "$holder"; wait "$holder" 2>/dev/null
+
+# 4. Release paths: every way a holder ends frees the slot and leaves nothing running.
+for sig in INT TERM HUP; do
+  int_default "$SLOT" sleep 31.$((${#sig})) 2>/dev/null &
+  wrapper=$!
+  wait_for 10 held 1
+  kill -"$sig" "$wrapper"; wait "$wrapper"; status=$?
+  check "SIG$sig to the wrapper: command killed the same way (exit $status)" \
+    same "$status" $((128 + $(kill -l "$sig")))
+  check "SIG$sig to the wrapper: slot freed, command gone" \
+    eval "wait_for 10 held 0 && gone 'sleep 31.${#sig}'"
+done
+"$SLOT" sh -c 'exit 9'
+check "a non-zero exit frees the slot" held 0
+"$SLOT" sh -c 'trap "" TERM; sleep 2; exit 4' &
 wrapper=$!
 wait_for 10 held 1
-sleep 0.5
+sleep 0.3
 kill -TERM "$wrapper"
+sleep 1
+check "a command that ignores SIGTERM keeps running, and keeps its slot" eval "alive $wrapper && held 1"
 wait "$wrapper"; status=$?
-check "SIGTERM: forwarded to the command (exit $status, output '$(cat "$WORK/term-out")')" \
-  [ "$status" = 7 ] && [ "$(cat "$WORK/term-out")" = got-term ]
-check "SIGTERM: the slot is free afterwards" held 0
+check "...then exits normally (exit $status) and frees the slot" eval "[ $status = 4 ] && held 0"
+"$SLOT" sh -c '(trap "" TERM; exec sleep 33.3) & exec sleep 60' 2> "$WORK/orphan-err" &
+wrapper=$!
+wait_for 10 held 1
+sleep 0.3
+kill -TERM "$wrapper"; wait "$wrapper"
+check "stopping a build ends what it left running, even a process ignoring SIGTERM" gone 'sleep 33.3'
+check "...and says what it ended" \
+  grep -q 'ending what the command left running: [0-9]* sleep' "$WORK/orphan-err"
+"$SLOT" sh -c '(exec sleep 33.4) &' 2> "$WORK/daemon-err"
+sleep 0.5
+check "a command that exits normally keeps what it started in the background" \
+  eval "pgrep -f 'sleep 33.4' > /dev/null && [ ! -s '$WORK/daemon-err' ]"
+pkill -f 'sleep 33.4'
+"$SLOT" sh -c "while [ ! -e '$WORK/release2' ]; do sleep 0.05; done" &
+gate=$!
+wait_for 10 held 1
+int_default "$SLOT" true 2> "$WORK/int-wait-err" &
+waiter=$!
+wait_for 10 waiting 1
+kill -INT "$waiter"; wait "$waiter"; status=$?
+check "SIGINT while waiting: dies of it (exit $status), no traceback" \
+  eval "[ $status = 130 ] && ! grep -q Traceback '$WORK/int-wait-err'"
+check "SIGINT while waiting: its queue entry is gone" waiting 0
+touch "$WORK/release2"; wait "$gate"
 
-# 5. A nested build-slot inside a held slot runs at once instead of waiting on its parent.
+# 5. Pass-through: exit codes, signals, output, input, arguments, streaming.
+"$SLOT" true; check "exit 0 passes through" same $? 0
+"$SLOT" false; check "exit 1 passes through" same $? 1
+"$SLOT" sh -c 'exit 42'; check "exit 42 passes through" same $? 42
+"$SLOT" no-such-command-xyz 2>/dev/null; check "a missing command exits 127" same $? 127
+"$SLOT" sh -c 'kill -TERM $$'; check "a command killed by SIGTERM reads as 143" same $? 143
+reports() { ls ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -ci python; }
+before=$(reports)
+"$SLOT" sh -c 'kill -ABRT $$'; status=$?
+sleep 3
+check "a command killed by SIGABRT reads as 134" same "$status" 134
+check "...and files no crash report for python3 (before $before, after $(reports))" same "$(reports)" "$before"
+"$SLOT" sh -c 'printf "out\nline2"; printf "err" >&2' > "$WORK/stdout" 2> "$WORK/stderr"
+check "stdout passes through byte for byte" same "$(od -c < "$WORK/stdout")" "$(printf 'out\nline2' | od -c)"
+check "stderr passes through, separately, with no wrapper chatter" same "$(cat "$WORK/stderr")" err
+check "stdin passes through" same "$(echo piped | "$SLOT" cat)" piped
+args=('a b' '"double"' "it's" '*' '$HOME' '' $'two\nlines' $'\xff')
+check "arguments with spaces, quotes, globs, newlines, empty and non-UTF-8 bytes arrive intact" \
+  same "$("$SLOT" printf '[%s]' "${args[@]}" | od -c)" "$(printf '[%s]' "${args[@]}" | od -c)"
+"$SLOT" sh -c 'echo first; sleep 3; echo second' > "$WORK/stream" &
+streamer=$!
+sleep 1.5
+check "output streams as it is written, not when the command ends" same "$(cat "$WORK/stream")" first
+wait "$streamer"
+"$SLOT" sh -c $'sleep 30.7\n:' 2>/dev/null &
+holder=$!
+wait_for 10 held 1
+check "a newline in the command stays on the holder's one --status line" \
+  eval "'$SLOT' --status | grep -q 'sh -c sleep 30.7\\\\n:$'"
+kill "$holder"; wait "$holder" 2>/dev/null
+"$SLOT" /usr/bin/python3 -c 'import signal; print(signal.getsignal(signal.SIGINT) is signal.SIG_IGN)' \
+  > "$WORK/ign" &
+wait $!
+/usr/bin/python3 -c 'import signal; print(signal.getsignal(signal.SIGINT) is signal.SIG_IGN)' \
+  > "$WORK/ign-direct" &
+wait $!
+check "a SIGINT the caller ignores stays ignored in the command, as when run directly" \
+  same "$(cat "$WORK/ign")/$(cat "$WORK/ign-direct")" True/True
+
+# 6. Nesting: a command under a slot that calls build-slot again runs at once.
 "$SLOT" "$SLOT" echo nested > "$WORK/nested" &
 nested=$!
 check "nested invocation on 1 slot does not deadlock" wait_for 10 dead "$nested"
-check "nested invocation ran its command" [ "$(cat "$WORK/nested")" = nested ]
+check "nested invocation ran its command" same "$(cat "$WORK/nested")" nested
 
-# 6. BUILD_SLOT_TIMEOUT bounds the wait and exits 75.
-"$SLOT" sleep 60 &
+# 7. Waits are bounded on request; the slot count and its overrides; a lowered count.
+"$SLOT" sleep 30.8 &
 holder=$!
 wait_for 10 held 1
 BUILD_SLOT_TIMEOUT=2 "$SLOT" echo never 2> "$WORK/timeout-err"
-check "BUILD_SLOT_TIMEOUT gives up with exit 75" [ $? = 75 ]
+check "BUILD_SLOT_TIMEOUT gives up with exit 75" same $? 75
 check "BUILD_SLOT_TIMEOUT says it gave up" grep -q 'gave up after' "$WORK/timeout-err"
 kill "$holder"; wait "$holder" 2>/dev/null
-
-# 7. Slot count from the slots file, and $BUILD_SLOTS overriding it.
 unset BUILD_SLOTS
-check "default slot count is 2" sh -c "'$SLOT' --status | grep -q '^0 of 2 slots'"
+check "default slot count is 2" eval "'$SLOT' --status | grep -q '^0 of 2 slots'"
 echo 3 > "$BUILD_SLOT_DIR/slots"
-check "the slots file sets the count" sh -c "'$SLOT' --status | grep -q '^0 of 3 slots'"
-check "\$BUILD_SLOTS overrides the slots file" \
-  sh -c "BUILD_SLOTS=5 '$SLOT' --status | grep -q '^0 of 5 slots'"
+check "the slots file sets the count" eval "'$SLOT' --status | grep -q '^0 of 3 slots'"
+check "\$BUILD_SLOTS overrides the slots file" eval "BUILD_SLOTS=5 '$SLOT' --status | grep -q '^0 of 5 slots'"
+"$SLOT" sleep 30.9 & h1=$!
+"$SLOT" sleep 30.9 & h2=$!
+"$SLOT" sleep 30.9 & h3=$!
+wait_for 10 held 3
+BUILD_SLOTS=2 BUILD_SLOT_TIMEOUT=2 "$SLOT" echo never 2>/dev/null
+check "lowering the count below the running builds makes newcomers wait" same $? 75
+check "...and --status still shows every running build" eval "BUILD_SLOTS=2 '$SLOT' --status | grep -q '^3 of 2 slots'"
+kill "$h1" "$h2" "$h3"; wait "$h1" "$h2" "$h3" 2>/dev/null
+echo garbage > "$BUILD_SLOT_DIR/slots"
+check "a garbled slots file falls back to 2, with a warning" \
+  eval "'$SLOT' --status 2>&1 | grep -q 'using 2' && '$SLOT' --status 2>/dev/null | grep -q '^0 of 2'"
 rm "$BUILD_SLOT_DIR/slots"
+BUILD_SLOTS=abc "$SLOT" true 2>/dev/null
+check "a garbled \$BUILD_SLOTS refuses with exit 2" same $? 2
 
-# 8. Compile-only commands run niced; test runs never are. Fake tools print their own niceness.
+# 8. A damaged or unusable slot directory.
+/usr/bin/python3 -c "
+import fcntl, os, sys, time
+fd = os.open('$BUILD_SLOT_DIR/slot-1', os.O_RDWR | os.O_CREAT | os.O_TRUNC)
+os.write(fd, b'\xff\xfe\x00pid=\ngarbage')
+fcntl.flock(fd, fcntl.LOCK_EX)
+sys.stdout.write('locked\n'); sys.stdout.flush()
+time.sleep(30)" > "$WORK/corrupt" &
+corrupt=$!
+wait_for 10 grep -q locked "$WORK/corrupt"
+check "a held slot with a garbled record still shows in --status" \
+  eval "'$SLOT' --status 2>&1 | grep -q '^  \[1\] pid ?, ?, ?: ?'"
+BUILD_SLOTS=1 BUILD_SLOT_TIMEOUT=2 "$SLOT" true 2> "$WORK/corrupt-err"
+check "...and in a waiter's report, without a traceback" \
+  eval "grep -q 'slots held — \[1\] pid ?' '$WORK/corrupt-err' && ! grep -q Traceback '$WORK/corrupt-err'"
+kill "$corrupt"; wait "$corrupt" 2>/dev/null
+mkdir -p "$WORK/readonly"; chmod 500 "$WORK/readonly"
+BUILD_SLOT_DIR="$WORK/readonly" "$SLOT" sh -c 'echo ran; exit 3' > "$WORK/ro-out" 2> "$WORK/ro-err"
+status=$?
+chmod 700 "$WORK/readonly"
+check "an unwritable slot directory: the command still runs, exit kept ($status)" \
+  eval "[ $status = 3 ] && [ \"\$(cat '$WORK/ro-out')\" = ran ]"
+check "an unwritable slot directory: a warning says it ran without a slot" \
+  grep -q 'running without a slot' "$WORK/ro-err"
+/usr/bin/python3 -c "
+import fcntl, os, time
+fd = os.open('$BUILD_SLOT_DIR/mutex', os.O_RDWR | os.O_CREAT)
+fcntl.flock(fd, fcntl.LOCK_EX)
+open('$WORK/mutex-held', 'w').close()
+time.sleep(12)" &
+stuck=$!
+wait_for 10 test -e "$WORK/mutex-held"
+"$SLOT" true 2> "$WORK/mutex-err"
+check "a stuck mutex holder is reported, not waited on silently" \
+  grep -q 'waiting 0m1[0-9]s on .*mutex, held by pid' "$WORK/mutex-err"
+wait "$stuck"
+
+# 9. Compile-only commands run niced; test runs never are. Fake tools print their own niceness.
 mkdir -p "$WORK/bin"
 for tool in xcodebuild swift; do
   printf '#!/bin/sh\nps -o nice= -p $$ | tr -d " "\n' > "$WORK/bin/$tool"
@@ -115,19 +319,17 @@ for tool in xcodebuild swift; do
 done
 base=$(ps -o nice= -p $$ | tr -d ' ')
 nice_of() { PATH="$WORK/bin:$PATH" "$SLOT" "$@"; }
-check "xcodebuild build is niced by 10" [ "$(nice_of xcodebuild -scheme S build)" = $((base + 10)) ]
-check "xcodebuild build-for-testing is niced" [ "$(nice_of xcodebuild build-for-testing)" = $((base + 10)) ]
-check "xcodebuild test is not niced" [ "$(nice_of xcodebuild -scheme S test)" = "$base" ]
-check "xcodebuild test-without-building is not niced" \
-  [ "$(nice_of xcodebuild test-without-building)" = "$base" ]
-check "swift build is niced" [ "$(nice_of swift build --package-path X)" = $((base + 10)) ]
-check "swift test is not niced" [ "$(nice_of swift test --filter X)" = "$base" ]
-check "arch -arm64 swift test is not niced" [ "$(nice_of arch -arm64 swift test)" = "$base" ]
-check "BUILD_SLOT_NICE=0 turns niceness off" \
-  [ "$(BUILD_SLOT_NICE=0 nice_of xcodebuild build)" = "$base" ]
+check "xcodebuild build is niced by 10" same "$(nice_of xcodebuild -scheme S build)" $((base + 10))
+check "xcodebuild build-for-testing is niced" same "$(nice_of xcodebuild build-for-testing)" $((base + 10))
+check "xcodebuild test is not niced" same "$(nice_of xcodebuild -scheme S test)" "$base"
+check "xcodebuild test-without-building is not niced" same "$(nice_of xcodebuild test-without-building)" "$base"
+check "swift build is niced" same "$(nice_of swift build --package-path X)" $((base + 10))
+check "swift test is not niced" same "$(nice_of swift test --filter X)" "$base"
+check "arch -arm64 swift test is not niced" same "$(nice_of arch -arm64 swift test)" "$base"
+check "BUILD_SLOT_NICE=0 turns niceness off" same "$(BUILD_SLOT_NICE=0 nice_of xcodebuild build)" "$base"
 
-# 9. Ctrl-C in a terminal reaches the command once: the terminal signals it directly, so the
-#    wrapper must not forward a second SIGINT. The child counts the SIGINTs it receives.
+# 10. Ctrl-C in a terminal reaches the command once: the terminal signals it directly, so the
+#     wrapper must not forward a second SIGINT. The child counts the SIGINTs it receives.
 ctrl_c=$(/usr/bin/python3 - "$SLOT" <<'EOF'
 import os, pty, sys, time
 child = ("import signal, time\nn = [0]\n"
@@ -151,8 +353,9 @@ os.waitpid(pid, 0)
 print(out.decode().split("sigints=")[-1].strip())
 EOF
 )
-check "Ctrl-C in a terminal reaches the command exactly once (got $ctrl_c)" [ "$ctrl_c" = 1 ]
+check "Ctrl-C in a terminal reaches the command exactly once (got $ctrl_c)" same "$ctrl_c" 1
 
+kill "$watchdog" 2>/dev/null
 rm -rf "$WORK"
 if [ "$failures" -gt 0 ]; then echo "$failures check(s) failed"; exit 1; fi
 echo "all checks passed"

@@ -3,17 +3,22 @@
 
     scripts/build-slot xcodebuild -scheme SyncCloud -derivedDataPath .dd build
     scripts/build-slot swift test --package-path Modules/Sync --filter Foo
+    scripts/build-slot --exclusive sh -c '<CPU-stress flake probe>'
     scripts/build-slot --status
 
 Every Claude session on this Mac (and the self-hosted CI runner beside them) shares ten cores.
 More concurrent builds than that buy no throughput and make the timing-sensitive suites flake,
-so sessions queue here instead. A command waits until a slot is free, then runs with its
-stdin/stdout/stderr untouched; the wrapper exits with the command's exit status (or dies of the
-same signal).
+so sessions queue here instead. A command waits its turn, first come first served, then runs
+with its stdin/stdout/stderr untouched; the wrapper exits with the command's exit status, or dies
+of the same signal.
 
 Slots are files under ~/Library/Caches/SyncCloud-build-slots/ held with flock(2). The kernel drops
 a lock the moment its holder dies — SIGKILL, a crash, a stopped session — so no slot ever has to be
-reclaimed by hand and a reused PID can never look like a live holder.
+reclaimed by hand and a reused PID can never look like a live holder. Waiters queue the same way.
+
+--exclusive waits its turn like any other command, then takes every slot, so nothing else built
+by a session runs beside it (a CPU-stress probe's measurement is its own). Everyone queued behind
+it waits.
 
 Slot count: $BUILD_SLOTS, else the number in ~/Library/Caches/SyncCloud-build-slots/slots, else 2.
 $BUILD_SLOT_TIMEOUT: give up after this many seconds of waiting, exit 75 (default: wait forever,
@@ -22,7 +27,11 @@ $BUILD_SLOT_NICE: nice increment for compile-only commands (default 10, 0 disabl
     are never deprioritised — several suites are timing-sensitive (docs/flaky-tests.md).
 
 A command run under a slot sees BUILD_SLOT_HELD, so a nested build-slot runs at once instead of
-waiting on its own parent.
+waiting on its own parent. The wrapper keeps a list of the command's descendants (every
+HEAL_SECONDS, and again the moment a stop signal arrives); when the command dies of a signal, or the
+wrapper is being stopped, any of them still running is ended, TERM then KILL, because a killed
+`swift test` can orphan a spinning test helper (docs/flaky-triage.md). A normal exit ends nothing. If the slot directory cannot be used at all, the command runs without
+a slot after a warning: a broken cache directory must not stop every build on the machine.
 """
 
 import fcntl
@@ -34,10 +43,19 @@ import time
 
 SLOT_DIR = os.environ.get("BUILD_SLOT_DIR") or os.path.expanduser(
     "~/Library/Caches/SyncCloud-build-slots")
+QUEUE_DIR = os.path.join(SLOT_DIR, "queue")
 DEFAULT_SLOTS = 2
 POLL_SECONDS = 1.0
+HEAL_SECONDS = 2.0
 REPORT_SECONDS = 60
+MUTEX_REPORT_SECONDS = 10
 TIMEOUT_EXIT = 75  # EX_TEMPFAIL
+FORWARDED = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)
+# A command killed by one of these is re-killed on the wrapper, so a calling shell sees the same
+# death. The core-dumping signals (SIGABRT, SIGSEGV, …) come back as exit 128+n instead: re-raising
+# them would file a crash report for python3 itself.
+RERAISED = {signal.SIGHUP, signal.SIGINT, signal.SIGKILL, signal.SIGPIPE, signal.SIGALRM,
+            signal.SIGTERM, signal.SIGUSR1, signal.SIGUSR2, signal.SIGVTALRM, signal.SIGPROF}
 
 
 def note(message):
@@ -45,41 +63,164 @@ def note(message):
     sys.stderr.flush()
 
 
-def positive_int(text, source):
+def env_number(name, default, minimum):
+    text = os.environ.get(name)
+    if not text:
+        return default
     try:
         value = int(text.strip())
     except ValueError:
-        value = 0
-    if value < 1:
-        note("%s must be a whole number of at least 1, got %r" % (source, text))
+        value = minimum - 1
+    if value < minimum:
+        note("$%s must be a whole number of at least %d, got %r" % (name, minimum, text))
         sys.exit(2)
     return value
 
 
 def slot_count():
     if os.environ.get("BUILD_SLOTS"):
-        return positive_int(os.environ["BUILD_SLOTS"], "$BUILD_SLOTS")
+        return env_number("BUILD_SLOTS", DEFAULT_SLOTS, 1)
     path = os.path.join(SLOT_DIR, "slots")
     try:
-        with open(path) as handle:
-            return positive_int(handle.read(), path)
+        with open(path, errors="replace") as handle:
+            text = handle.read()
     except FileNotFoundError:
         return DEFAULT_SLOTS
+    try:
+        if int(text.strip()) >= 1:
+            return int(text.strip())
+    except ValueError:
+        pass
+    note("%s should hold a whole number of at least 1, got %r; using %d" % (
+        path, text, DEFAULT_SLOTS))
+    return DEFAULT_SLOTS
 
 
 def slot_path(index):
     return os.path.join(SLOT_DIR, "slot-%d" % index)
 
 
-def try_lock(index, mode):
-    """Return an open fd holding the slot's lock, or None if someone else holds it."""
-    fd = os.open(slot_path(index), os.O_RDWR | os.O_CREAT, 0o644)  # not inherited (PEP 446)
+def try_lock(path, create=True):
+    """An open fd holding an exclusive lock on path, or None if someone else holds it."""
+    flags = os.O_RDWR | (os.O_CREAT if create else 0)
+    fd = os.open(path, flags, 0o644)  # never inherited by the command (PEP 446)
     try:
-        fcntl.flock(fd, mode | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         os.close(fd)
         return None
+    except OSError:
+        os.close(fd)
+        raise
     return fd
+
+
+class Mutex:
+    """Serialises every look at the slots and the queue. Held for milliseconds at a time."""
+
+    def __enter__(self):
+        path = os.path.join(SLOT_DIR, "mutex")
+        self.fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+        began = time.monotonic()
+        next_report = began + MUTEX_REPORT_SECONDS
+        while True:
+            try:
+                fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= next_report:  # its holder is stopped (^Z) or wedged
+                    note("waiting %s on %s, held by pid %s" % (
+                        duration(time.monotonic() - began), path, read_text(path).strip() or "?"))
+                    next_report += MUTEX_REPORT_SECONDS
+                time.sleep(0.02)
+        try:
+            os.ftruncate(self.fd, 0)
+            os.pwrite(self.fd, str(os.getpid()).encode(), 0)
+        except OSError:
+            pass
+        return self
+
+    def __exit__(self, *_):
+        os.close(self.fd)
+
+
+def read_text(path):
+    try:
+        with open(path, errors="replace") as handle:
+            return handle.read()
+    except OSError:
+        return ""
+
+
+def read_record(index):
+    record = {}
+    for line in read_text(slot_path(index)).splitlines():
+        key, _, value = line.partition("=")
+        record[key] = value
+    return record
+
+
+def write_record(fd, command):
+    shown = " ".join(command).replace("\\", "\\\\").replace("\n", "\\n")
+    text = "pid=%d\nstarted=%f\ncwd=%s\ncommand=%s\n" % (
+        os.getpid(), time.time(), os.getcwd(), shown)
+    try:  # only ever read for display, so a full disk costs the record, never the slot
+        os.ftruncate(fd, 0)
+        os.pwrite(fd, text.encode("utf-8", "surrogateescape"), 0)
+    except OSError:
+        pass
+
+
+def survey(count):
+    """Under the mutex: (held, free). held lists (index, record) for every held slot, numbered
+    past count too, so lowering the count never hides a running build; free maps each free index
+    up to count to an fd now holding it, which the caller must keep or close."""
+    indices = set(range(1, count + 1))
+    for name in os.listdir(SLOT_DIR):
+        if name.startswith("slot-") and name[5:].isdigit():
+            indices.add(int(name[5:]))
+    held, free = [], {}
+    for index in sorted(indices):
+        try:
+            fd = try_lock(slot_path(index), create=index <= count)
+        except FileNotFoundError:  # a spare slot file deleted since the listing
+            continue
+        if fd is None:
+            held.append((index, read_record(index)))
+        elif index <= count:
+            free[index] = fd
+        else:
+            os.close(fd)
+    return held, free
+
+
+def close_all(fds):
+    for fd in fds.values():
+        os.close(fd)
+
+
+def live_waiters(mine=None):
+    """Under the mutex: how many live waiters queued before mine (all of them if mine is None).
+    A dead waiter's entry is unlocked, and is removed here."""
+    ahead = 0
+    try:
+        names = sorted(os.listdir(QUEUE_DIR))
+    except FileNotFoundError:
+        return 0
+    for name in names:
+        if name == mine:
+            break
+        path = os.path.join(QUEUE_DIR, name)
+        try:
+            fd = try_lock(path, create=False)
+        except FileNotFoundError:
+            continue
+        if fd is None:
+            ahead += 1
+        else:
+            os.unlink(path)
+            os.close(fd)
+    return ahead
 
 
 def duration(seconds):
@@ -97,66 +238,112 @@ def place(cwd):
     return "~" + cwd[len(home):] if cwd.startswith(home) else cwd
 
 
-def holders(count):
-    """(slot, info) for every slot in 1...count whose lock is held right now."""
-    found = []
-    for index in range(1, count + 1):
-        fd = try_lock(index, fcntl.LOCK_SH)
-        if fd is not None:  # free: the probe got it, so let it go again at once
-            os.close(fd)
-            continue
-        info = {}
-        try:
-            with open(slot_path(index)) as handle:
-                for line in handle:
-                    key, _, value = line.rstrip("\n").partition("=")
-                    info[key] = value
-        except OSError:
-            pass
-        found.append((index, info))
-    return found
-
-
-def describe(index, info, width=70):
-    command = info.get("command", "?")
+def describe(index, record, width=70):
+    command = record.get("command", "?")
     if len(command) > width:
         command = command[:width - 1] + "…"
     try:
-        held = duration(time.time() - float(info.get("started", "")))
+        held = duration(time.time() - float(record.get("started", "")))
     except ValueError:
         held = "?"
-    return "[%d] pid %s, %s, %s: %s" % (index, info.get("pid", "?"),
-                                       place(info.get("cwd", "?")), held, command)
+    return "[%d] pid %s, %s, %s: %s" % (index, record.get("pid", "?"),
+                                       place(record.get("cwd", "?")), held, command)
 
 
-def acquire(count, command):
-    timeout = float(os.environ.get("BUILD_SLOT_TIMEOUT") or 0)
+def acquire(count, command, exclusive):
+    """Queue, then take a slot once fewer waiters are ahead than there are free slots — or, if
+    exclusive, every slot, once nobody is ahead and nothing is held. Returns {index: fd}."""
+    timeout = env_number("BUILD_SLOT_TIMEOUT", 0, 0)
     began = time.monotonic()
     next_report = began
-    while True:
-        for index in range(1, count + 1):
-            fd = try_lock(index, fcntl.LOCK_EX)
-            if fd is None:
-                continue
-            record = "pid=%d\nstarted=%f\ncwd=%s\ncommand=%s\n" % (
-                os.getpid(), time.time(), os.getcwd(), " ".join(command))
-            os.ftruncate(fd, 0)
-            os.pwrite(fd, record.encode(), 0)
-            waited = time.monotonic() - began
-            if waited >= POLL_SECONDS:
-                note("got slot %d after waiting %s" % (index, duration(waited)))
-            return index, fd
-        now = time.monotonic()
-        if timeout and now - began >= timeout:
-            note("gave up after %s: all %d slots still held" % (duration(now - began), count))
-            sys.exit(TIMEOUT_EXIT)
-        if now >= next_report:
-            held = holders(count)
-            note("waiting %s, all %d slots held — %s" % (
-                duration(now - began), count,
-                "; ".join(describe(i, info) for i, info in held) or "holders just left"))
-            next_report = now + REPORT_SECONDS
-        time.sleep(POLL_SECONDS)
+    entry = entry_path = entry_fd = None
+    try:
+        os.makedirs(QUEUE_DIR, exist_ok=True)
+        with Mutex():  # entries are made and locked under the mutex, so none is pruned half-made
+            entry = "%020d-%d" % (time.time_ns(), os.getpid())
+            entry_path = os.path.join(QUEUE_DIR, entry)
+            entry_fd = os.open(entry_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o644)
+            fcntl.flock(entry_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:  # a full disk: no place in line, so wait behind everyone, slots still honoured
+        entry = None
+    try:
+        while True:
+            with Mutex():
+                ahead = live_waiters(entry)
+                held, free = survey(count)
+                if exclusive and not ahead and not held and len(free) == count:
+                    taken = free
+                elif not exclusive and free and ahead < count - len(held):
+                    index = min(free)
+                    taken = {index: free.pop(index)}
+                    close_all(free)
+                else:
+                    taken = None
+                    close_all(free)
+                if taken:
+                    for fd in taken.values():
+                        write_record(fd, command)
+                    waited = time.monotonic() - began
+                    if waited >= POLL_SECONDS:
+                        note("got slot %s after waiting %s" % (
+                            ",".join(map(str, sorted(taken))), duration(waited)))
+                    return taken
+            now = time.monotonic()
+            if timeout and now - began >= timeout:
+                note("gave up after %s: %d of %d slots held, %d waiting ahead" % (
+                    duration(now - began), len(held), count, ahead))
+                sys.exit(TIMEOUT_EXIT)
+            if now >= next_report:
+                line = "first in line" if not ahead else "%d ahead in line" % ahead
+                note("waiting %s%s, %s; %d of %d slots held — %s" % (
+                    duration(now - began), " for every slot" if exclusive else "", line,
+                    len(held), count,
+                    "; ".join(describe(i, record) for i, record in held) or "none"))
+                next_report = now + REPORT_SECONDS
+            time.sleep(POLL_SECONDS)
+    finally:
+        if entry_fd is not None:
+            try:
+                os.unlink(entry_path)
+            except FileNotFoundError:
+                pass
+            os.close(entry_fd)
+
+
+class Holding:
+    """The held slots. If a slot's file is deleted (a cache sweep), a newcomer could lock a fresh
+    file of the same name and exceed the count, so every HEAL_SECONDS each is checked to still be
+    the file it locked, and a lost one is replaced by a free slot."""
+
+    def __init__(self, count, command, slots):
+        self.count, self.command, self.slots = count, command, slots
+
+    def heal(self):
+        lost = []
+        for index, fd in self.slots.items():
+            try:
+                if os.stat(slot_path(index)).st_ino == os.fstat(fd).st_ino:
+                    continue
+            except FileNotFoundError:
+                pass
+            lost.append(index)
+        if not lost:
+            return
+        try:
+            os.makedirs(SLOT_DIR, exist_ok=True)
+            with Mutex():
+                _, free = survey(self.count)
+                for index in lost:
+                    os.close(self.slots.pop(index))
+                    if free:  # else newcomers took every slot; nothing to retake
+                        new = min(free)
+                        self.slots[new] = free.pop(new)
+                        write_record(self.slots[new], self.command)
+                        note("slot directory was removed under a running build; "
+                             "re-took slot %d" % new)
+                close_all(free)
+        except OSError:
+            pass
 
 
 def compile_only(command):
@@ -177,7 +364,7 @@ def compile_only(command):
 
 
 def tty_already_signalled():
-    """True when SIGINT came from Ctrl-C, which the terminal sends to the child as well."""
+    """True when SIGINT came from Ctrl-C, which the terminal sends to the command as well."""
     try:
         tty = os.open("/dev/tty", os.O_RDONLY)
     except OSError:
@@ -190,7 +377,90 @@ def tty_already_signalled():
         os.close(tty)
 
 
-def run(command, env, nice):
+def process_table():
+    """{pid: (ppid, start time, command name)} for every process on the machine."""
+    try:
+        listing = subprocess.run(["ps", "-axo", "pid=,ppid=,lstart=,comm="],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 errors="replace").stdout
+    except OSError:
+        return {}
+    table = {}
+    for line in listing.splitlines():
+        fields = line.split(None, 7)  # pid, ppid, five lstart words, comm
+        if len(fields) == 8 and fields[0].isdigit() and fields[1].isdigit():
+            table[int(fields[0])] = (int(fields[1]), " ".join(fields[2:7]), fields[7])
+    return table
+
+
+def descendants(root, table=None):
+    """{pid: (start time, command name)} for root's live descendants, root excluded."""
+    table = process_table() if table is None else table
+    children = {}
+    for pid, (ppid, _, _) in table.items():
+        children.setdefault(ppid, []).append(pid)
+    found, frontier = {}, list(children.get(root, []))
+    while frontier:
+        pid = frontier.pop()
+        if pid not in found:
+            found[pid] = table[pid][1:]
+            frontier.extend(children.get(pid, []))
+    return found
+
+
+def end_leftovers(seen):
+    """End every process in seen that is still the same process (start times match), and
+    anything it has since started."""
+    def alive():
+        table = process_table()
+        pids = [pid for pid, (start, _) in seen.items()
+                if pid in table and table[pid][1] == start]
+        for pid in list(pids):
+            pids.extend(descendants(pid, table))
+        return sorted(set(pids)), table
+
+    pids, table = alive()
+    if not pids:
+        return
+    note("ending what the command left running: %s" % ", ".join(
+        "%d %s" % (pid, os.path.basename(table[pid][2])) for pid in pids))
+    for signum in (signal.SIGTERM, signal.SIGKILL):
+        for pid in pids:
+            try:
+                os.kill(pid, signum)
+            except (ProcessLookupError, PermissionError):
+                pass
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            pids, _ = alive()
+            if not pids:
+                return
+            time.sleep(0.1)
+
+
+def run(command, env, nice, holding=None):
+    # Only the outermost run tracks descendants; a nested one's are already in its parent's tree.
+    state = {"child": None, "pending": [], "signalled": False, "seen": {}}
+
+    def forward(signum, _frame):
+        state["signalled"] = True
+        if state["child"] is None:
+            state["pending"].append(signum)
+            return
+        if holding:  # catch whatever started since the last look, before anything is orphaned
+            state["seen"].update(descendants(state["child"].pid))
+        if signum == signal.SIGINT and tty_already_signalled():
+            return
+        try:
+            state["child"].send_signal(signum)
+        except ProcessLookupError:
+            pass
+
+    # Installed before the spawn so no signal lands in between. exec resets a caught signal to its
+    # default in the command; a signal the caller ignored is left alone, and stays ignored there.
+    for signum in FORWARDED:
+        if signal.getsignal(signum) is not signal.SIG_IGN:
+            signal.signal(signum, forward)
     preexec = (lambda: os.nice(nice)) if nice else None
     try:
         child = subprocess.Popen(command, env=env, preexec_fn=preexec)
@@ -200,48 +470,75 @@ def run(command, env, nice):
     except PermissionError:
         note("%s: permission denied" % command[0])
         return 126
-
-    def forward(signum, _frame):
-        if signum == signal.SIGINT and tty_already_signalled():
-            return
+    state["child"] = child
+    for signum in state["pending"]:
+        forward(signum, None)
+    while True:
         try:
-            child.send_signal(signum)
-        except ProcessLookupError:
-            pass
-
-    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
-        signal.signal(signum, forward)
-    status = child.wait()
-    if status < 0:  # killed by a signal: die of the same one, so a calling shell sees that
-        sys.stdout.flush()
-        signal.signal(-status, signal.SIG_DFL)
-        os.kill(os.getpid(), -status)
-        return 128 - status
+            status = child.wait(timeout=HEAL_SECONDS if holding else None)
+            break
+        except subprocess.TimeoutExpired:
+            holding.heal()
+            state["seen"].update(descendants(child.pid))
+    if holding and (status < 0 or state["signalled"]):
+        end_leftovers(state["seen"])
+    if status < 0:
+        signum = -status
+        if signum in RERAISED:
+            sys.stdout.flush()
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+        return 128 + signum
     return status
 
 
+def status():
+    try:
+        os.makedirs(SLOT_DIR, exist_ok=True)
+        count = slot_count()
+        with Mutex():
+            held, free = survey(count)
+            close_all(free)
+            waiting = live_waiters()
+    except OSError as error:
+        note("cannot use %s: %s" % (SLOT_DIR, error))
+        return 1
+    print("%d of %d slots held, %d waiting (%s)" % (len(held), count, waiting, SLOT_DIR))
+    for index, record in held:
+        print("  " + describe(index, record, width=200))
+    return 0
+
+
 def main(argv):
+    if signal.getsignal(signal.SIGINT) is signal.default_int_handler:
+        signal.signal(signal.SIGINT, signal.SIG_DFL)  # die of ^C while waiting, no traceback
     if not argv or argv[0] in ("-h", "--help"):
         sys.stdout.write(__doc__)
         return 0 if argv else 2
-    os.makedirs(SLOT_DIR, exist_ok=True)
-    count = slot_count()
     if argv[0] == "--status":
-        held = holders(count)
-        print("%d of %d slots held (%s)" % (len(held), count, SLOT_DIR))
-        for index, info in held:
-            print("  " + describe(index, info, width=200))
-        return 0
-    if argv[0] == "--":
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # quiet under `--status | head -1`
+        return status()
+    exclusive = argv[0] == "--exclusive"
+    if exclusive:
         argv = argv[1:]
-        if not argv:
-            note("no command given")
-            return 2
-    nice = int(os.environ.get("BUILD_SLOT_NICE", "10")) if compile_only(argv) else 0
+    if argv and argv[0] == "--":
+        argv = argv[1:]
+    if not argv:
+        note("no command given")
+        return 2
+    nice = env_number("BUILD_SLOT_NICE", 10, 0) if compile_only(argv) else 0
     if os.environ.get("BUILD_SLOT_HELD"):
         return run(argv, os.environ, nice)
-    index, _fd = acquire(count, argv)  # _fd stays open, holding the slot until this process ends
-    return run(argv, dict(os.environ, BUILD_SLOT_HELD=str(index)), nice)
+    try:
+        os.makedirs(SLOT_DIR, exist_ok=True)
+        count = slot_count()
+        slots = acquire(count, argv, exclusive)
+    except OSError as error:
+        note("cannot use %s (%s); running without a slot" % (SLOT_DIR, error))
+        return run(argv, os.environ, nice)
+    holding = Holding(count, argv, slots)  # its fds hold the slots until this process ends
+    held = ",".join(map(str, sorted(slots)))
+    return run(argv, dict(os.environ, BUILD_SLOT_HELD=held), nice, holding)
 
 
 if __name__ == "__main__":

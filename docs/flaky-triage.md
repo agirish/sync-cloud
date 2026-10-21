@@ -200,10 +200,11 @@ Suspected flakes are worth confirming rather than assumed. Load the machine, run
 machine that also runs CI.
 
 ```bash
-for i in $(seq 1 6); do (yes > /dev/null &); done
-uptime
-arch -arm64 swift test --filter <Suite>
-pkill -x yes; pgrep -x yes || echo "clean"
+scripts/build-slot --exclusive bash -c '   # no session builds beside the probe (CLAUDE.md §7)
+  for i in $(seq 1 6); do (yes > /dev/null &); done
+  uptime
+  arch -arm64 swift test --package-path Modules/<Package> --filter <Suite>
+  pkill -x yes; pgrep -x yes || echo "clean"'
 ```
 
 Use CPU spin, not `sleep`, when validating that a timing test can actually fail — a sleeping process

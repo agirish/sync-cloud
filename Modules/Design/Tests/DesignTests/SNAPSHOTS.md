@@ -31,9 +31,9 @@ verbatim in all four test targets — keep the copies in sync.
 After an intentional visual change, re-record the affected suite and commit the new PNGs:
 
 ```sh
-cd Modules/<Package>
-SNAPSHOT_TESTING_RECORD=all swift test --filter <Suite>SnapshotTests   # exits "failed": recording always reports
-swift test --filter <Suite>SnapshotTests                               # must pass against the fresh references
+cd Modules/<Package>     # build-slot: CLAUDE.md §7
+SNAPSHOT_TESTING_RECORD=all ../../scripts/build-slot swift test --filter <Suite>SnapshotTests   # exits "failed": recording always reports
+../../scripts/build-slot swift test --filter <Suite>SnapshotTests                               # must pass against the fresh references
 ```
 
 Eyeball the regenerated PNGs (`open` the paths the recording run prints) before committing —
