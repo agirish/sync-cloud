@@ -199,9 +199,20 @@ def close_all(fds):
         os.close(fd)
 
 
+def stopped(pid):
+    """True if pid is stopped (^Z, SIGSTOP), so a waiter cannot hold up the line behind it."""
+    try:
+        state = subprocess.run(["ps", "-o", "state=", "-p", str(pid)], stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, errors="replace").stdout
+    except OSError:
+        return False
+    return state.strip().startswith("T")
+
+
 def live_waiters(mine=None):
     """Under the mutex: how many live waiters queued before mine (all of them if mine is None).
-    A dead waiter's entry is unlocked, and is removed here."""
+    A dead waiter's entry is unlocked, and is removed here; a stopped one is passed over until it
+    resumes, when it has its place back."""
     ahead = 0
     try:
         names = sorted(os.listdir(QUEUE_DIR))
@@ -216,7 +227,9 @@ def live_waiters(mine=None):
         except FileNotFoundError:
             continue
         if fd is None:
-            ahead += 1
+            pid = name.rpartition("-")[2]
+            if not (pid.isdigit() and stopped(int(pid))):
+                ahead += 1
         else:
             os.unlink(path)
             os.close(fd)

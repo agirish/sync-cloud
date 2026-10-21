@@ -84,6 +84,36 @@ check "FIFO: the fifth waiter was told 4 were ahead" grep -q '4 ahead in line' "
 check "FIFO: each waiter reported getting its slot" \
   same "$(cat "$WORK"/fifo-err? | grep -c 'got slot 1 after waiting')" 5
 
+# A command run again and again in a loop must not re-take the slot ahead of a queued waiter
+# (seen: a Dashboard run looping on one slot kept a waiter out for 51 minutes).
+rm -f "$WORK/order"
+( for i in 1 2 3 4 5; do "$SLOT" sh -c "echo loop$i >> '$WORK/order'; sleep 0.5"; done ) 2>/dev/null &
+looper=$!
+wait_for 10 grep -q loop1 "$WORK/order"
+"$SLOT" sh -c "echo waiter >> '$WORK/order'" 2>/dev/null
+wait "$looper"
+check "a looping holder does not re-take the slot ahead of a waiter ($(tr '\n' ' ' < "$WORK/order"))" \
+  same "$(sed -n 2p "$WORK/order")" waiter
+
+# A stopped waiter (^Z) is passed over, and gets its place back when it resumes.
+rm -f "$WORK/order" "$WORK/release"
+"$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" &
+gate=$!
+wait_for 10 held 1
+"$SLOT" sh -c "echo A >> '$WORK/order'" 2>/dev/null &
+stopped_waiter=$!
+wait_for 10 waiting 1
+kill -STOP "$stopped_waiter"
+"$SLOT" sh -c "echo B >> '$WORK/order'; sleep 1" 2>/dev/null &
+behind=$!
+sleep 1.5
+touch "$WORK/release"
+wait "$gate"
+check "a stopped waiter does not hold up the one behind it" wait_for 10 grep -q B "$WORK/order"
+kill -CONT "$stopped_waiter"
+wait "$stopped_waiter" "$behind"
+check "...and runs once it resumes ($(tr '\n' ' ' < "$WORK/order"))" same "$(tr '\n' ' ' < "$WORK/order")" "B A "
+
 # 2b. --exclusive waits for the holders to finish, holds every slot, and nobody slips past it.
 export BUILD_SLOTS=2
 rm -f "$WORK/release" "$WORK/order"
