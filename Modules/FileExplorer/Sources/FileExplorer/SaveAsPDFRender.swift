@@ -237,12 +237,17 @@ enum SaveAsPDFRender {
                                    bottom: geometry.content.minY, right: paper.width - geometry.content.maxX)
         }
         web.resize(width: paper.width - margins.left - margins.right)
+        // The print draws a picture still decoding blank too: on CI, a document's first picture.
+        await web.picturesDecoded()
         return try await web.print(printInfo(paper: paper, margins: margins))
     }
 
     /// **A deck: one page per slide**, each page the slide's own box drawn as vector — the slide's
     /// text stays text, and a slide that is a picture stays the picture at its full size.
-    static func slidesPDF(_ html: URL) async throws -> Data {
+    ///
+    /// `pause` waits between the decode and the drawing — for tests, which stand in a loaded
+    /// machine's delays with it.
+    static func slidesPDF(_ html: URL, pause: Duration = .zero) async throws -> Data {
         let web = await WebPDFView.make(width: 1024)
         defer { web.close() }
         guard await web.load(html) else { throw SaveAsPDFFailure.quickLookGaveNothing }
@@ -257,6 +262,7 @@ enum SaveAsPDFRender {
         guard !boxes.isEmpty else { throw SaveAsPDFFailure.noPages }
         web.resize(width: (boxes.map(\.maxX).max() ?? 1024) + 16, height: (boxes.map(\.maxY).max() ?? 768) + 16)
         await web.picturesDecoded()
+        if pause > .zero { try await Task.sleep(for: pause) }
         var composer = PDFComposer()
         for box in boxes {
             let slide = try await web.pdf(of: box)
@@ -561,6 +567,28 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
 
     private static var offlineRules: WKContentRuleList?
 
+    /// **Every picture `decoding = 'sync'` from the moment the parser adds it**, before anything is
+    /// painted. A large picture left at `auto` is decoded in the background when the view paints it:
+    /// first, and again after WebKit has let go of it, a second after drawing it. A background
+    /// decode still queued when `createPDF` or the print draws the picture makes it draw that picture
+    /// blank, because WebKit never decodes one picture on two threads. Set after the load, as it
+    /// first was, it came too late for the paints the load had made: `decode()` settles when *any*
+    /// decode of the picture finishes, so it could settle on such a paint's while its own was still
+    /// queued (2026-10-20, `docs/flaky-tests.md`, "A wedge guard that counts time spent waiting for
+    /// the main thread"). The app's own script, in the app's world, which the page's scripts setting
+    /// does not govern.
+    static let syncPictures = """
+        new MutationObserver(function (changes) {
+          changes.forEach(function (change) {
+            change.addedNodes.forEach(function (node) {
+              if (node.nodeType !== 1) return;
+              if (node.tagName === 'IMG') node.decoding = 'sync';
+              node.querySelectorAll('img').forEach(function (image) { image.decoding = 'sync'; });
+            });
+          });
+        }).observe(document, { childList: true, subtree: true });
+        """
+
     /// **Every request off the disk blocked** — a navigation is refused by the policy below, and a
     /// picture or stylesheet a page names by URL by this list, which WebKit applies to every load.
     /// Compiled once per process.
@@ -575,6 +603,8 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
     private init(width: CGFloat, height: CGFloat, rules: WKContentRuleList?) {
         let configuration = WKWebViewConfiguration()
         if let rules { configuration.userContentController.add(rules) }
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: Self.syncPictures, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .defaultClient))
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
         configuration.preferences.shouldPrintBackgrounds = true
@@ -622,15 +652,18 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
         return try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed])
     }
 
-    /// **Every picture decoded, so `createPDF` draws it** — or a minute, whichever is first. A
-    /// page loaded is not its pictures decoded: a deck of two 1920 px slide pictures drew its second
-    /// page blank on every run, and the same box drew whole two seconds later; a sheet's bands
-    /// lost pictures the same way. Word's print drew every picture without it. `decode()` settles
-    /// when a picture can be painted, and fails, settling too, for one that cannot.
+    /// **Every picture decoded, so `createPDF` and the print draw it** — or a minute, whichever is
+    /// first. A page loaded is not its pictures decoded: a deck of two 1920 px slide pictures drew
+    /// its second page blank on every run, and the same box drew whole two seconds later; a sheet's
+    /// bands lost pictures the same way, and Word's print its first picture, on CI only. `decode()`
+    /// settles when a picture can be painted, and fails, settling too, for one that cannot.
     ///
     /// The minute guards against a decode that never settles; a cap that fires draws the pictures
     /// still decoding blank, so it is said. It was ten seconds until a loaded machine took longer
     /// than that and a picture deck's first slide came out blank, with no words to read (2026-10-19).
+    ///
+    /// **Not enough on its own**: a decode WebKit queues in the background is still drawn blank
+    /// after this settles. ``syncPictures`` keeps any from being queued.
     func picturesDecoded() async {
         let decoded = try? await web.callAsyncJavaScript("""
             return await Promise.race([

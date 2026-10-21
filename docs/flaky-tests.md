@@ -3797,25 +3797,84 @@ succeeds: `load` now waits 120 s and ends at once if the web process dies
 full package run with 20 spinners: the memo, red at 45 s before the fix, passed after 145 s in the
 first run after it, and a second run at load up to 145 went fully green (3,927 tests).
 
-**Still open: WebKit draws a decoded picture blank or in part.** In two full runs after the fix,
-picture tests failed with no cap warning and no Vision error in the test log, so the cap did not
-fire and `decode()` had resolved:
+**The picture blanks: a snapshot that lands on WebKit's own background decode — FIXED
+2026-10-20.** In two full runs after the guard fix, picture tests failed with no cap warning, so
+`decode()` had resolved:
 
 - `aDeckOfPicturesOfWordsIsSearchable`: one slide's page empty, after 2.3 s once and 9.4 s once (a
   different slide each time).
 - `everyPictureIsDrawnWhole("FourPictures.xlsx")`: `picture 3 of [824776, 824776, 442769, 821632]
-  is blank or cut`, so one picture was drawn at 54% of its area.
+  is blank or cut`. Picture 3 spans two of the sheet's bands, and one band drew it blank: 54%.
 
-So "decoded" is not "painted": `createPDF` can capture a picture before WebKit has finished drawing
-it. CI's 11.1 s deck red may be this too rather than the cap. Seen only in full loaded runs, and
-in the second one with the Mac on battery in Low Power Mode, cycling through maintenance sleep.
-Alone, the deck tests passed 15 of 15 times at load 115, and both suites pass alone. A fix would
-wait for a paint after the decode, for example two `requestAnimationFrame`s with a cap, since a
-hidden view's frames are throttled. It has not been tried.
+*Mechanism.* `createPDF` paints with `PaintBehavior::Snapshotting`, which decodes synchronously,
+but WebKit never decodes one frame on two threads: when a background decode of the picture is
+already queued, the snapshot draws **nothing** for it
+(`BitmapImageSource::nativeImageAtIndexCacheIfNeeded`, "Never decode the same frame from two
+different threads"). The queued decode comes from the hidden view's own paint: WebKit lets go of a
+decoded picture soon after it last drew it, and an `<img>` left at `decoding = auto` that is large
+is then asked for again in the background, at the size it is drawn. A loaded machine leaves seconds
+between the decode and the snapshot, and that is enough.
+
+*Caught in the act.* A probe logging each captured page's image XObjects and dark pixels showed it
+(2026-10-20):
+
+- In a loaded full run (load up to 64, green), the sheet's pictures 3 and 4 went into the PDF at
+  864 × 648 rather than their own 1920 × 1440: re-decoded at the drawn size between the decode and
+  the snapshot, in time that run.
+- Alone, at no load, a 3 s pause between the decode and the capture made it happen: the deck's
+  first slide came out with no image and no dark pixels, Vision read 0 lines, and the test failed
+  with CI's exact message; the second slide went in at 1440 × 1080. Only the first capture after
+  the decode is exposed: in four rounds of captures from one view, every later one drew the
+  re-decoded picture.
+
+*The same queue behind a resolved `decode()`.* With `decoding = 'sync'` set in `picturesDecoded`,
+after the load, pictures still came out blank under load with `decode()` resolved and every
+picture `sync`: `FourPictures.docx`'s first picture as on CI, the sheet's four at once, and in a
+full run `recognisedTextDrawsNothing`'s first slide. The load's own paints had already queued
+background decodes at the drawn size, and `decode()` does not wait for its own: WebKit settles
+every waiting `decode()` when *any* decode of the picture finishes
+(`BitmapImageSource::imageFrameAtIndexAvailable` → `callDecodeCallbacks`). So it settled on the
+paint's decode while its own, full size, was still queued, and a queued full-size decode blanks a
+snapshot of any size. This is also how Word's print lost picture 1 on CI (runs 39519472205 and
+39525805411, `[0, 526892, 528570, 526892]`), by the same rule as far as the source shows: it is
+the first picture below the view's 1000 px, alone on printed page 2.
+
+*Fix.* A document-start user script in the app's world, `WebPDFView.syncPictures`, sets
+`decoding = 'sync'` on every `<img>` as the parser adds it, before anything is painted, so no
+paint ever queues a background decode; `picturesDecoded`'s own decode is then the only one, and
+`pagePDF` waits for it before printing too. Tests: `everyPictureIsSyncOnceLoaded`, and
+`aPictureSlideDrawnLateIsStillDrawn`, which renders the deck five times with a 3 s pause before
+drawing. **Mutation-checked:** without `decoding = 'sync'`, 19 of 20 paused renders across four
+runs drew a blank slide, and with the script removed both tests fail (five of five renders
+blank); with it, none of 15. `aMixedDeckReadsOnlyItsPictureSlides`, red on CI at `8a3b503a` (run
+39535439483) with its picture slide unread, is the same route.
+
+Measured on the four picture tests (`everyPictureIsDrawnWhole` for Word and the sheet, and three
+picture-deck tests) under 30 `yes` spinners, with other sessions' builds pushing load to 80–310
+(2026-10-20):
+
+| Build | Word: picture 1 blank | Sheet: all four blank | Deck slide unread |
+|---|---|---|---|
+| `sync` set after the load, no wait before Word's print | 1–2 of 16 (CI's exact numbers once) | 2 of 16 | not run |
+| `sync` set after the load, Word waits | 1 of 42 | 0 of 42 | not run |
+| `sync` from document start (shipped), load 63–180 | 0 of 30 | 0 of 30 | 0 of 90 (three tests × 30) |
+
+Not two `requestAnimationFrame`s: a paint after the decode is what queues the background decode,
+so waiting for one does not help, and a window that is never shown throttles its frames.
+
+**Also seen, not explained.** One loaded full run (load 60–110, on battery) wedged: four tests,
+`everyPictureIsDrawnWhole` among them, started and never ended, the process idle at 0% CPU with
+every thread parked, for 50 minutes until killed. WebKit's log showed the Word print it was in
+had finished and its page closed. The same run failed `aOnePageMemoIsOnePageOfText` and
+`anOldWordFileIsText` with "macOS couldn't read it" after 241–292 s: the load guard's 120 s, at a
+load above the 145 it was proved at.
 
 **Tell.** A Save as PDF test failing with "macOS couldn't read it" or a picture page's empty text,
 in a full run only. Before blaming Quick Look, compare the suite's duration with a
-`--filter` run: a gap of 50× or more means it is waiting for the main thread.
+`--filter` run: a gap of 50× or more means it is waiting for the main thread. A picture blank or
+cut with no cap warning means a picture was drawn with a background decode queued: one not set
+`sync` by `syncPictures` — a picture drawn as a CSS background, which the attribute does not
+cover — or a view made without it.
 
 ### 34. A pixel probe that calls `colorAt` per pixel, so load stretches it into a hang — FIXED
 

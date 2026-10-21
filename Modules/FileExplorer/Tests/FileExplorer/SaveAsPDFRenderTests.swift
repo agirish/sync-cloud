@@ -223,8 +223,8 @@ import PDFKit
     /// **Every picture lower down a Word document or a sheet is drawn, and drawn whole.** The four
     /// are the same size, each its own hue, so their areas summed over every page match however the
     /// pages fall. Before the sheet waited for its pictures to decode it drew one to three of them,
-    /// changing run to run; Word's print drew all four on every run measured, and is here so a change
-    /// of route is caught.
+    /// changing run to run. Word's print drew all four on every run measured here, but on CI twice
+    /// drew its first picture blank (2026-10-20), so it waits for them too.
     @Test(arguments: ["FourPictures.docx", "FourPictures.xlsx"])
     func everyPictureIsDrawnWhole(_ name: String) async throws {
         let output = try await SaveAsPDFRender.render(try Self.fixture(name))
@@ -308,6 +308,46 @@ import PDFKit
         let lamps = try #require(document.findString("Lamps", withOptions: []).first)
         let line = lamps.bounds(for: page)
         #expect(line.midY > size.height * 0.25 && line.midY < size.height * 0.4, "the line is at \(line) on \(size)")
+    }
+
+    /// **Every picture is `decoding = 'sync'` once the page has loaded**, before anything has asked
+    /// it to decode — ``WebPDFView/syncPictures``, run as the parser adds each one, so no paint of
+    /// the load's queues a background decode for `createPDF` or the print to draw blank.
+    @Test func everyPictureIsSyncOnceLoaded() async throws {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("ql-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let html = try #require(await QuickLookHTML.preview(of: try Self.fixture("PictureWords.pptx"), into: scratch))
+        let web = await WebPDFView.make(width: 1024)
+        defer { web.close() }
+        try #require(await web.load(html))
+        let modes = try await web.json(
+            "JSON.stringify(Array.from(document.images).map(function (image) { return image.decoding; }))") as? [String]
+        #expect(modes == ["sync", "sync"])
+    }
+
+    /// **A picture slide drawn seconds after its picture decoded is still drawn.** WebKit lets go of
+    /// a decoded picture soon after it last drew it, and the hidden view's next paint asks for it
+    /// again in the background; a `createPDF` while that is under way draws the picture blank
+    /// (2026-10-20, `docs/flaky-tests.md`, "A wedge guard that counts time spent waiting for the main
+    /// thread"). A loaded machine waits that long now and then; the pause waits it every time.
+    ///
+    /// **Five renders, because each has one chance.** Only a view's first drawing after the decode
+    /// can come out blank. Without `decoding = 'sync'`, 19 of 20 renders did (2026-10-20).
+    @Test func aPictureSlideDrawnLateIsStillDrawn() async throws {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("ql-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let html = try #require(await QuickLookHTML.preview(of: try Self.fixture("PictureWords.pptx"), into: scratch))
+        for render in 1...5 {
+            let data = try await SaveAsPDFRender.slidesPDF(html, pause: .seconds(3))
+            let document = try #require(PDFComposer.document(data))
+            try #require(document.numberOfPages == 2)
+            for number in 1...2 {
+                let lines = PictureText.recognise(try #require(document.page(at: number))).map(\.text)
+                #expect(lines.count == 2, "render \(render): slide \(number) reads \(lines)")
+            }
+        }
     }
 
     /// **A deck mixing a text slide with a picture of words reads the picture only** — the picture's
