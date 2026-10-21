@@ -111,6 +111,41 @@ final class ReaderPDFView: PDFView {
         }
     }
 
+    // MARK: Replace Text… (TE82)
+
+    /// **Replace Text… on the pages' right-click menu, for the words selected** (``menu(for:)``) —
+    /// Fill & Sign on, Replace chosen, those words picked. Greyed, with the reason as a line under
+    /// it, where Replace would say no: the words cross a line, or the file or the page refuses it.
+    static let replaceTitle = "Replace Text…"
+
+    /// Replace Text… for `selection`, live or greyed with its reason under it — `nil` with no words
+    /// selected or no pages to place on.
+    @MainActor
+    static func replaceItems(fill: EditorPDFFillSign, selection: PDFSelection, document: PDFDocument?) -> [NSMenuItem]? {
+        guard fill.hasPages, !(selection.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let document, let page = selection.pages.first else { return nil }
+        let index = document.index(for: page)
+        let outcome: Result<EditorPDFReplacePick, EditorPDFReplaceRefusal>
+        if let box = fill.box(index) {
+            outcome = EditorPDFReplace.pick(selection, page: page, index: index, box: box, widgets: EditorPDFReplace.widgets(on: page))
+        } else {
+            outcome = .failure(.noText)
+        }
+        let reason: String?
+        switch (fill.replaceRefusal, outcome) {
+        case (let file?, _): reason = file
+        case (nil, .failure(let refusal)): reason = refusal.reason
+        case (nil, .success): reason = nil
+        }
+        guard let reason else {
+            guard case .success(let pick) = outcome else { return nil }
+            return [EditorClosureMenuItem(title: replaceTitle) { fill.replace(pick) }]
+        }
+        // No action: the menu greys them both.
+        return [NSMenuItem(title: replaceTitle, action: nil, keyEquivalent: ""),
+                NSMenuItem(title: reason, action: nil, keyEquivalent: "")]
+    }
+
     /// **While Fill & Sign is up, the keyboard goes to its overlay** whenever it would come here —
     /// the overlay answers ⌘Z with Fill & Sign's own stack, and hands every other key back.
     func handKeyboardToFill() {
@@ -319,10 +354,16 @@ final class ReaderPDFView: PDFView {
     /// Actual Size, the four display modes and the page turns changed the view behind the reader's
     /// state: a layout picked there snapped back at the next update while the capsule showed the
     /// other one, and Automatically Resize left PDFKit fitting on its own under the capsule's fit.
-    /// The capsule and its zoom menu hold every one of them. Look Up, Translate, Search and Copy stay.
+    /// The capsule and its zoom menu hold every one of them. Look Up, Translate, Search and Copy stay
+    /// — and with words selected, Replace Text… (TE82) goes under them.
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let menu = super.menu(for: event) else { return nil }
+        let menu = super.menu(for: event) ?? NSMenu()
         Self.removeViewControls(from: menu)
+        if let fill = fillSign, let selection = currentSelection,
+           let items = Self.replaceItems(fill: fill, selection: selection, document: document) {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            items.forEach(menu.addItem)
+        }
         return menu.items.isEmpty ? nil : menu
     }
 

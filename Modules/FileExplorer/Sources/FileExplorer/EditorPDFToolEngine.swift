@@ -93,8 +93,9 @@ public enum EditorPDFTool: Equatable, Sendable {
     case cleanMetadata(PDFMetadataFields)
     case protect(restrictEditing: Bool, password: EditorPDFSecret)
     case removePassword(EditorPDFSecret)
-    /// What Fill & Sign placed, as the toolkit draws it — ``EditorPDFFillSign/save()``.
-    case fillAndSign([FillSignItem])
+    /// What Fill & Sign placed, as the toolkit draws it — ``EditorPDFFillSign/save()`` — and the
+    /// zero-based pages then made pictures, so the words corrections cover there go (TE85).
+    case fillAndSign([FillSignItem], pictures: [Int] = [])
     /// **Fill & Sign on a file with its own form** (Phase 5c): the values typed into its fields, by
     /// fully qualified name, and what was placed — filled in place by `fillFormData`, so the copy's
     /// form stays fillable and the placed items become annotations rather than page content.
@@ -185,10 +186,11 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .cleanMetadata: return "metadata cleaned"
         case .protect: return "protected"
         case .removePassword: return "unlocked"
-        // "(signed)" when it carries a signature or initials, drawn or typed; "(filled)" for text,
-        // dates and marks alone (decided with the 5b mockups).
-        case .fillAndSign(let items), .fillForm(_, let items):
-            return items.contains(where: Self.isSigned) ? "signed" : "filled"
+        // "(signed)" when it carries a signature or initials, drawn or typed; "(corrected)" when it
+        // carries a correction (TE84); "(filled)" for text, dates and marks alone (decided with the
+        // 5b mockups).
+        case .fillAndSign(let items, _), .fillForm(_, let items):
+            return items.contains(where: Self.isSigned) ? "signed" : items.contains(where: \.isPatch) ? "corrected" : "filled"
         // "Invoice (reordered, rotated).pdf" — the reorder's word, then the tool's.
         case .arranged(_, let then): return "\(Self.reorder([]).suffix), \(then.suffix)"
         }
@@ -251,11 +253,17 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .cleanMetadata(let fields): return fields.isCleared ? "clean metadata (all cleared)" : "clean metadata"
         case .protect(let restrict, _): return restrict ? "protect (restrict editing)" : "protect (lock to open)"
         case .removePassword: return "remove password"
-        case .fillAndSign(let items):
-            // Counts only — the words and the strokes are the reader's, and never logged.
+        case .fillAndSign(let items, let pictures):
+            // Counts only — the words and the strokes are the reader's, and never logged. A
+            // correction is two of the toolkit's items, its patch and its words: counted once.
             let signatures = items.filter(Self.isSigned).count
-            return "fill and sign (\(EditorPDFFillSign.count(items.count))"
-                + (signatures == 0 ? ")" : signatures == 1 ? ", 1 signature)" : ", \(signatures) signatures)")
+            let corrections = items.filter(\.isPatch).count
+            let others = items.count - 2 * corrections
+            var parts = others > 0 || corrections == 0 ? [EditorPDFFillSign.count(others)] : []
+            if corrections > 0 { parts.append(EditorPDFFillSign.corrections(corrections)) }
+            if signatures > 0 { parts.append(signatures == 1 ? "1 signature" : "\(signatures) signatures") }
+            if !pictures.isEmpty { parts.append("\(EditorPDFCopyName.pageList(pictures)) made a picture") }
+            return "fill and sign (\(parts.joined(separator: ", ")))"
         case .fillForm(let values, let items):
             // Counts only, as above: never a field's name, which can say what the form is about.
             let signatures = items.filter(Self.isSigned).count
@@ -288,6 +296,7 @@ public enum EditorPDFTool: Equatable, Sendable {
         switch item.content {
         case .signature: return true
         case .text(let text): return text.isScript
+        case .patch: return false
         }
     }
 }
@@ -492,8 +501,22 @@ enum EditorPDFToolEngine {
                 options: .addPassword(restrictEditing: restrict, password: password.reveal())))
         case .removePassword(let password):
             return .bytes(try PDFToolkit.removePasswordData(inputURL: input, password: password.reveal()))
-        case .fillAndSign(let items):
-            return .bytes(try PDFToolkit.fillAndSignData(inputURL: input, items: items))
+        case .fillAndSign(let items, let pictures):
+            let filled = try PDFToolkit.fillAndSignData(inputURL: input, items: items)
+            guard !pictures.isEmpty else { return .bytes(filled) }
+            // **Then the chosen pages made pictures** (decision AK): the toolkit's redaction with
+            // no marks, rasterizing just those pages, so the words their patches cover go from the
+            // copy. It reads by URL, so the filled bytes are staged as `.arranged`'s are.
+            if isCancelled?() == true { throw CancellationError() }
+            let folder = staging.appendingPathComponent("SyncCloud-pdf-tool-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let middle = folder.appendingPathComponent("staged.pdf")
+            try filled.write(to: middle, options: .withoutOverwriting)
+            // 4000 px on the longest side: the toolkit's own default for a redacted page.
+            let options = PDFRedactionExportOptions(stripAnnotationsFromUnredactedPages: false, maxPixelDimension: 4000,
+                                                    forceRasterizePages: Set(pictures))
+            return .bytes(try PDFToolkit.redactData(inputURL: middle, marks: [], options: options))
         case .fillForm(let values, let items):
             return .bytes(try PDFToolkit.fillFormData(inputURL: input, values: values, items: items))
         case .arranged(let order, let then):
@@ -612,10 +635,10 @@ enum EditorPDFToolEngine {
         case .extract(let pages):
             if pages.isEmpty { return PDFOperationError.noPagesSelected.errorDescription }
             return outOfRange(pages, pageCount: pageCount)
-        case .fillAndSign(let items):
+        case .fillAndSign(let items, let pictures):
             // The toolkit throws both; said here first so the lane never runs for them.
             guard items.contains(where: \.hasInk) else { return PDFOperationError.noFillSignItems.errorDescription }
-            return outOfRange(items.map(\.pageIndex), pageCount: pageCount)
+            return outOfRange(items.map(\.pageIndex) + pictures, pageCount: pageCount)
         case .fillForm(let values, let items):
             let inked = items.filter(\.hasInk)
             guard !values.isEmpty || !inked.isEmpty else { return reason(PDFOperationError.noFormValues, tool: tool) }

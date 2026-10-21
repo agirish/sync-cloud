@@ -481,7 +481,8 @@ extension PDFFixtures {
         #expect(leaves(offMenu).count > 15 && live.isEmpty, "live with Fill & Sign off: \(live)")
         fill.toggle()
         let lines = try toolLines()
-        #expect(lines == ["[on] Form Fields", "Select", "Text", "Date", "—", "✓  Check Mark", "✗  Cross", "•  Dot", "—",
+        // Replace greyed: the file has a fillable form (decision AV).
+        #expect(lines == ["[on] Form Fields", "Select", "Text", "(Replace)", "Date", "—", "✓  Check Mark", "✗  Cross", "•  Dot", "—",
                           "Signature", "Initials", "—", "Ink", "Text Size"], "\(lines)")
         fill.armed = .mark(.cross)
         let lit = try toolLines()

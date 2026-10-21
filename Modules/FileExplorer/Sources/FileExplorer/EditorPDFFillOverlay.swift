@@ -61,10 +61,17 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     /// What VoiceOver was last told is on screen, and where the keyboard is.
     var announcedTargets: [EditorPDFFillAccessibilityElement.Target] = []
     var announcedTarget: EditorPDFFillAccessibilityElement.Target?
+    /// **The words Replace would pick** — the line under the pointer, or the words dragged across —
+    /// outlined dashed (TE82). Display space, on `page`.
+    private(set) var replaceOutline: (page: Int, rect: CGRect)?
+    /// The line under the retype box: the font, and whether it is the original's (TE83).
+    private(set) var retypeHint: EditorPDFRetypeHint?
 
     private enum Drag {
         case move(id: UUID, page: Int, start: CGPoint, from: CGRect)
         case resize(id: UUID, page: Int, anchor: CGPoint)
+        /// Replace's pointer went down off any item: a click picks the line, a drag the words across.
+        case pick(page: Int, start: CGPoint, view: CGPoint, selection: PDFSelection?)
     }
 
     static let handleRadius: CGFloat = 4.5
@@ -79,6 +86,12 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             return nil
         }
         return convert(reader.convert(box.pageRect(display: item.rect), from: page), from: reader)
+    }
+
+    /// A display-space rect of page `index` in this view.
+    func viewRect(display rect: CGRect, page index: Int) -> CGRect? {
+        guard let reader, let fill, let page = reader.document?.page(at: index), let box = fill.box(index) else { return nil }
+        return convert(reader.convert(box.pageRect(display: rect), from: page), from: reader)
     }
 
     func viewPoint(display point: CGPoint, page index: Int) -> CGPoint? {
@@ -107,7 +120,11 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         guard let fill else { return nil }
         let shown = shownPages
         return fill.items.reversed().first { item in
-            shown.contains(item.page) && (viewRect(item)?.insetBy(dx: -3, dy: -3).contains(point) ?? false)
+            guard shown.contains(item.page) else { return false }
+            // A correction is its words and its patch: a click on the old words' place past the
+            // end of shorter new ones is still on it.
+            if let cover = item.correction.flatMap({ viewRect(display: $0.cover, page: item.page) }), cover.contains(point) { return true }
+            return viewRect(item)?.insetBy(dx: -3, dy: -3).contains(point) ?? false
         }
     }
 
@@ -115,7 +132,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     /// space). On the corner itself, a check mark at 50% — 8pt square — was all handle, and every
     /// drag of it resized instead of moving it.
     func handle(of item: EditorPDFFillItem) -> CGPoint? {
-        guard let corner = viewPoint(display: CGPoint(x: item.rect.maxX, y: item.rect.minY), page: item.page),
+        // A correction keeps the old words' size until Text Size changes it, and stays over them.
+        guard !item.isCorrection, let corner = viewPoint(display: CGPoint(x: item.rect.maxX, y: item.rect.minY), page: item.page),
               let rect = viewRect(item) else { return nil }
         let dx = corner.x - rect.midX, dy = corner.y - rect.midY
         let length = max(hypot(dx, dy), 0.001)
@@ -167,17 +185,22 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             fill.beginGesture()
             drag = .resize(id: item.id, page: item.page, anchor: CGPoint(x: item.rect.minX, y: item.rect.maxY))
         } else if let item = item(at: point) {
-            if event.clickCount == 2, case .text = item.content {
+            if event.clickCount == 2, item.words != nil, !item.isSignature {
                 fill.beginEditing(item.id)
                 return
             }
             fill.select(item.id)
+            // A correction is picked, not dragged: it stays over the words it covers.
+            if item.isCorrection { return }
             fill.beginGesture()
             if let start = displayPoint(view: point, page: item.page) {
                 drag = .move(id: item.id, page: item.page, start: start, from: item.rect)
             }
         } else if takesFieldClicks, let hit = fieldHit(at: point) {
             click(hit)
+        } else if fill.armed == .replace, let page = pageIndex(at: point), let at = pagePoint(view: point, page: page) {
+            fill.endEditing()
+            drag = .pick(page: page, start: at, view: point, selection: nil)
         } else if fill.armed != nil, fill.armed != .formFields, let page = pageIndex(at: point),
                   let at = displayPoint(view: point, page: page) {
             fill.place(at: at, page: page)
@@ -198,13 +221,84 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         case .resize(let id, let page, let anchor):
             guard let now = displayPoint(view: point, page: page) else { return }
             fill.resizeLive(id, anchor: anchor, corner: now)
+        case .pick(let page, let start, let view, _):
+            // A drag of a few points is a click that wobbled.
+            guard hypot(point.x - view.x, point.y - view.y) > 3, let pdfPage = reader?.document?.page(at: page),
+                  let now = pagePoint(view: point, page: page), let box = fill.box(page) else { return }
+            let selection = pdfPage.selection(from: start, to: now)
+            self.drag = .pick(page: page, start: start, view: view, selection: selection)
+            replaceOutline = selection.map { (page, box.displayRect(page: $0.bounds(for: pdfPage))) }
+            needsDisplay = true
         }
     }
 
     override func mouseUp(with event: NSEvent) {
         guard let drag else { return }
         self.drag = nil
-        if case .resize = drag { fill?.endGesture("Resize") } else { fill?.endGesture("Move") }
+        switch drag {
+        case .resize: fill?.endGesture("Resize")
+        case .move: fill?.endGesture("Move")
+        case .pick(let page, let start, _, let selection):
+            pick(selection, at: start, page: page)
+        }
+    }
+
+    // MARK: Replace (TE82)
+
+    /// The page point (PDF user space) under a point in this view.
+    func pagePoint(view point: CGPoint, page index: Int) -> CGPoint? {
+        guard let reader, let page = reader.document?.page(at: index) else { return nil }
+        return reader.convert(convert(point, to: reader), to: page)
+    }
+
+    /// **The words a click or a drag with Replace picked, opened for retyping** — or, when Replace
+    /// says no, why, in the note card. A click picks the line under it; a drag, the words across.
+    func pick(_ dragged: PDFSelection?, at start: CGPoint, page index: Int) {
+        guard let fill, let reader, let page = reader.document?.page(at: index), let box = fill.box(index) else { return }
+        replaceOutline = nil
+        needsDisplay = true
+        guard let selection = dragged ?? EditorPDFReplace.line(at: start, on: page, box: box) else {
+            // Off any words: a page with none says so; elsewhere the click just misses.
+            if !EditorPDFReplace.hasText(page) { fill.refuseReplace(.noText) }
+            return
+        }
+        switch EditorPDFReplace.pick(selection, page: page, index: index, box: box, widgets: EditorPDFReplace.widgets(on: page)) {
+        case .success(let pick): fill.beginCorrection(pick)
+        case .failure(let refusal): fill.refuseReplace(refusal)
+        }
+    }
+
+    /// The line Replace would pick under `point` — kept while the pointer stays on it, so a move
+    /// along a line reads the page once.
+    private func updateReplaceOutline(at point: CGPoint) {
+        guard let fill, fill.armed == .replace, fill.editing == nil, drag == nil, item(at: point) == nil,
+              let index = pageIndex(at: point), let page = reader?.document?.page(at: index), let box = fill.box(index),
+              let at = pagePoint(view: point, page: index) else {
+            if replaceOutline != nil { replaceOutline = nil; needsDisplay = true }
+            return
+        }
+        if let outline = replaceOutline, outline.page == index, outline.rect.insetBy(dx: -1, dy: -1).contains(box.displayPoint(page: at)) {
+            return
+        }
+        // Words under the pointer at all — one small selection — before the line is measured.
+        let under = page.selection(for: CGRect(x: at.x - 6, y: at.y - 2, width: 12, height: 4))?.string ?? ""
+        let rect = under.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil : EditorPDFReplace.line(at: at, on: page, box: box).map { box.displayRect(page: $0.bounds(for: page)) }
+        replaceOutline = rect.map { (index, $0) }
+        needsDisplay = true
+    }
+
+    /// The outline, dashed in the accent, a little off the glyphs.
+    private func drawReplaceOutline() {
+        guard let outline = replaceOutline, let fill, fill.armed == .replace, fill.editing == nil,
+              let low = viewPoint(display: CGPoint(x: outline.rect.minX, y: outline.rect.minY), page: outline.page),
+              let high = viewPoint(display: CGPoint(x: outline.rect.maxX, y: outline.rect.maxY), page: outline.page) else { return }
+        let rect = CGRect(x: min(low.x, high.x), y: min(low.y, high.y), width: abs(high.x - low.x), height: abs(high.y - low.y))
+        let path = NSBezierPath(rect: rect.insetBy(dx: -2, dy: -2))
+        path.lineWidth = 1
+        path.setLineDash([3, 2], count: 2, phase: 0)
+        accent.setStroke()
+        path.stroke()
     }
 
     /// Scrolling and pinching over the pages while a tool is chosen still move the pages.
@@ -279,7 +373,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     /// another, just below it.
     func returnPressed() -> Bool {
         guard let fill, fill.editing == nil else { return false }
-        if let item = fill.selected, case .text = item.content, item.id != fill.lastPlaced {
+        // A text box, or a correction (TE83) — its words retyped in the box over them.
+        if let item = fill.selected, item.words != nil, !item.isSignature, item.id != fill.lastPlaced {
             fill.beginEditing(item.id)
             return true
         }
@@ -360,7 +455,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         }
         switch selector {
         case #selector(NSResponder.cancelOperation(_:)):
-            fill?.endEditing()
+            // A correction's Esc leaves the page as it was (TE83); text's keeps what was typed.
+            fill?.cancelEditing()
             return true
         // **Tab in a text box goes on round the ring**, as in a form's field (decision BB): unanswered,
         // it ended the typing and took the keyboard out of the pages to the window's next view.
@@ -389,6 +485,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
                 field.removeFromSuperview()
                 if hadKeyboard { window?.makeFirstResponder(self) }
             }
+            layoutRetypeHint(for: nil, under: .zero)
             return
         }
         let field = self.field ?? {
@@ -408,12 +505,45 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         let text = item.words?.string ?? ""
         if field.stringValue != text { field.stringValue = text }
         field.font = item.nsFont(size: item.fontSize * reader.scaleFactor)
-        field.textColor = item.color.nsColor
-        field.frame = rect.insetBy(dx: 0, dy: -2).integral
+        field.textColor = item.ink.nsColor
+        field.placeholderString = item.isCorrection ? "" : "Type"
+        // A correction's box sits exactly over the words: the field's own inset moved left, so its
+        // first letter lands where the old one was.
+        let inset = item.isCorrection ? Self.fieldTextInset : 0
+        field.frame = rect.offsetBy(dx: -inset, dy: 0).insetBy(dx: 0, dy: -2).integral
         if field.currentEditor() == nil { window?.makeFirstResponder(field) }
+        layoutRetypeHint(for: item, under: field.frame)
+    }
+
+    /// How far right of its frame a borderless field draws its text.
+    static let fieldTextInset: CGFloat = 2
+
+    /// **The line under the retype box** (TE83): which font the new words use, and whether it is
+    /// the original — or gone when no correction is being typed.
+    private func layoutRetypeHint(for item: EditorPDFFillItem?, under frame: CGRect) {
+        guard let item, let correction = item.correction else {
+            retypeHint?.removeFromSuperview()
+            retypeHint = nil
+            return
+        }
+        let hint = retypeHint ?? {
+            let made = EditorPDFRetypeHint()
+            addSubview(made)
+            retypeHint = made
+            return made
+        }()
+        hint.lines = EditorPDFRetypeHint.lines(for: item, correction: correction)
+        let size = hint.fittingSize
+        // Below the box — above it when the box is near the bottom of the view.
+        let y = isFlipped ? frame.maxY + 4 : frame.minY - 4 - size.height
+        let below = isFlipped ? y + size.height <= bounds.maxY : y >= bounds.minY
+        let placed = below ? y : (isFlipped ? frame.minY - 4 - size.height : frame.maxY + 4)
+        hint.frame = CGRect(x: max(bounds.minX + 4, min(frame.minX, bounds.maxX - size.width - 4)), y: placed,
+                            width: size.width, height: size.height).integral
     }
 
     func refresh() {
+        if fill?.armed != .replace, replaceOutline != nil { replaceOutline = nil }
         guard isActive else {
             if field != nil { layoutField() }
             if formEditor != nil { layoutFormEditor() }
@@ -457,13 +587,21 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         let shown = shownPages
         let scale = reader.scaleFactor
         drawFields(dirtyRect)
+        // Patches first, under every item on their page — as the copy draws them — and under the
+        // retype box too, so the old words are hidden while the new ones are typed.
+        for item in fill.items where shown.contains(item.page) {
+            guard let correction = item.correction, let cover = viewRect(display: correction.cover, page: item.page) else { continue }
+            correction.patch.nsColor.setFill()
+            NSBezierPath(rect: cover).fill()
+        }
+        drawReplaceOutline()
         for item in fill.items where shown.contains(item.page) && item.id != fill.editing {
             guard let rect = viewRect(item) else { continue }
             if let words = item.words {
                 let font = item.nsFont(size: item.fontSize * scale)
                 let paragraph = NSMutableParagraphStyle()
                 paragraph.lineBreakMode = .byWordWrapping
-                NSAttributedString(string: words.string, attributes: [.font: font, .foregroundColor: item.color.nsColor,
+                NSAttributedString(string: words.string, attributes: [.font: font, .foregroundColor: item.ink.nsColor,
                                                                       .paragraphStyle: paragraph]).draw(in: rect)
             } else if case .signature(let signature) = item.content, case .drawn(let strokes, _) = signature.look {
                 drawStrokes(strokes, of: item, width: signature.pen.widthFraction
@@ -529,8 +667,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             // A diagonal resize, as a window's corner shows (TE136) — the crosshair is the placing
             // tools' "click to place".
             Self.resizeCursor.set()
-        } else if item(at: point) != nil {
-            NSCursor.openHand.set()
+        } else if let item = item(at: point) {
+            (item.isCorrection ? NSCursor.arrow : NSCursor.openHand).set()
         } else if takesFieldClicks, let hit = fieldHit(at: point) {
             switch fill.fieldRefusal(hit.field) == nil || fill.signs(hit.field) ? hit.field.kind : .pushButton {
             case .text: NSCursor.iBeam.set()
@@ -538,8 +676,9 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             default: NSCursor.arrow.set()
             }
         } else if fill.armed != nil, fill.armed != .formFields, pageIndex(at: point) != nil {
-            (fill.armed == .text ? NSCursor.iBeam : NSCursor.crosshair).set()
+            (fill.armed == .text || fill.armed == .replace ? NSCursor.iBeam : NSCursor.crosshair).set()
         }
+        updateReplaceOutline(at: point)
     }
 }
 

@@ -98,7 +98,8 @@ import Sync
     /// window's hue (TE101). The pill's buttons are SwiftUI, so the call is read.
     @Test func thePillEndsWithDoneAndItsSaveWearsTheHue() throws {
         let palette = try source("EditorPDFFillPalette.swift")
-        let save = try #require(palette.range(of: #"Button("Save Filled Copy") { Task { await fill.save() } }"#))
+        // Its title is "Save Corrected Copy" when only corrections are placed (TE84).
+        let save = try #require(palette.range(of: #"Button(fill.saveTitle) { Task { await fill.save() } }"#))
         let done = try #require(palette.range(of: "Button(Self.doneTitle) { fill.toggle() }"), "the pill has no Done")
         #expect(save.upperBound < done.lowerBound, "Done is not after Save Filled Copy")
         let between = palette[save.upperBound..<done.lowerBound]

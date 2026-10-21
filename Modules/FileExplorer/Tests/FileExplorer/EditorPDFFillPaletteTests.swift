@@ -91,13 +91,16 @@ import Sync
 
     // MARK: The tools
 
-    /// **Select, Text, Date, Marks, Signature, Initials, then style (Aa, between Initials and Text
-    /// Size — Signature Styles TE93), size and ink** (mockup F) — and Form Fields first, on a file
-    /// with fields of its own and there only.
+    /// **Select, Text, Replace (after Text — Cover and Retype TE82), Date, Marks, Signature,
+    /// Initials, then style (Aa, between Initials and Text Size — Signature Styles TE93), size and
+    /// ink** (mockup F) — and Form Fields first, on a file with fields of its own and there only.
     @Test func theToolsAreInTheMockupsOrderWithFormFieldsFirstOnAForm() {
-        let flat: [EditorPDFFillPalette.Tool] = [.select, .text, .date, .marks, .signature, .initials, .style, .size, .ink]
+        let flat: [EditorPDFFillPalette.Tool] = [.select, .text, .replace, .date, .marks, .signature, .initials, .style, .size, .ink]
         #expect(EditorPDFFillPalette.tools(for: fill()) == flat)
         #expect(EditorPDFFillPalette.tools(for: fill(form: true)) == [.formFields] + flat)
+        // A form's row leaves Replace out — it is off there, and the row must fit the narrowest column.
+        #expect(EditorPDFFillPalette.tools(for: fill(form: true), upright: false) == [.formFields] + flat.filter { $0 != .replace })
+        #expect(EditorPDFFillPalette.tools(for: fill(), upright: false) == flat)
         // The ones that open a flyout carry its corner triangle; the rest arm on a click.
         #expect(EditorPDFFillPalette.Tool.allCases.filter { $0.flyout != nil } == [.marks, .signature, .initials, .style, .size, .ink])
     }
@@ -243,11 +246,13 @@ import Sync
     /// **As a row, it fits the narrowest document column**, at every text size and with Form Fields
     /// — the bound 5b's toolbar kept (`EditorPDFHeaderWidthTests.column`).
     @Test func theRowFitsTheNarrowestColumnAtEveryTextSize() {
-        let form = fill(form: true)
         let room = EditorPDFHeaderWidthTests.column - 2 * EditorPDFFloating.inset
-        for percent in FontSize.selectablePercents {
-            let row = size(palette(form, at: .bottomLeading), scale: FontSize(percent: percent).scale).width
-            #expect(row <= room, "at \(percent)% the row is \(row)pt, over the \(room)pt the narrowest column has")
+        // A form's row, and a flat file's, which carries Replace.
+        for filled in [fill(form: true), fill()] {
+            for percent in FontSize.selectablePercents {
+                let row = size(palette(filled, at: .bottomLeading), scale: FontSize(percent: percent).scale).width
+                #expect(row <= room, "at \(percent)% the row is \(row)pt, over the \(room)pt the narrowest column has")
+            }
         }
     }
 

@@ -111,7 +111,7 @@ Requires **macOS 26**, unchanged from the 5.x line.
 ### Fill & Sign
 
 - **Fill & Sign, in the PDF's header, floats a palette of tools at the left of the page**, and the
-  page stays where it was: **Select**, **Text**, **Date** — today, in your Mac's short format —
+  page stays where it was: **Select**, **Text**, **Replace**, **Date** — today, in your Mac's short format —
   **Marks** for ✓, ✗ and •, **Signature** and **Initials**, then **Aa**, **Text Size** and **Ink**.
   A tool with a small triangle opens its choices beside it. The palette moves like the page capsule:
   drag its grip to any edge or corner, or right-click it for Move To, and it stays where you put it.
@@ -145,6 +145,15 @@ Requires **macOS 26**, unchanged from the 5.x line.
   presses every field and placed item — a field by its form's own description — and tells saved
   drawn signatures apart by number and pen. **Add Signature…** opens on Type, and deleting a saved
   signature asks first.
+- **Replace retypes a few words on a page.** Choose **Replace** in the palette and click a line of
+  words, or drag across some, or select words and right-click for **Replace Text…**. A box opens
+  over them, holding them, in their size and colour, and in their own font when your Mac has it;
+  the line under it says "Same font" or names the stand-in. Return places the correction, Esc
+  leaves the page as it was. Save Corrected Copy writes "(corrected)": the new words are drawn over
+  a patch in the page's colour. The old words are still in the copy under the patch, where search
+  and copy find them; the note under the pill says so and offers to make that page a picture,
+  which takes them out. Replace says why when it can't: a page with no text, words on two lines, a
+  page whose text doesn't sit where it is printed, and any PDF with a fillable form.
 - **A PDF whose owner allows neither comments nor form filling gets no Fill & Sign, and says why** — File ▸ Fill & Sign is
   greyed with *This PDF doesn’t allow filling* under it, and the Fill & Sign button gives the
   reason. A form that allows filling but not adding to its pages fills its fields only.

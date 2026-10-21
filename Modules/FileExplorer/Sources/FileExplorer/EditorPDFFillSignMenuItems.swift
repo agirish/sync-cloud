@@ -62,6 +62,7 @@ struct EditorPDFFillToolMenu: View {
                 .disabled(!live)
             let places = live && fill.offersPlacing
             tool("Text", .text).disabled(!places)
+            tool("Replace", .replace).disabled(!live || fill.replaceRefusal != nil)
             tool("Date", .date).disabled(!places)
             Divider()
             // The Marks flyout's own lines.

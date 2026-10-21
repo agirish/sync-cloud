@@ -7,7 +7,7 @@ import Design
 /// Acrobat's do, instead of a toolbar row that pushed the pages down. Turning Fill & Sign on leaves
 /// the page where it was.
 ///
-/// Select, Text, Date, Marks, Signature and Initials, then style, size and ink — with Form Fields first on
+/// Select, Text, Replace, Date, Marks, Signature and Initials, then style, size and ink — with Form Fields first on
 /// a file that has fields of its own. A tool with a corner triangle opens a flyout beside it, lined
 /// up with it, and that tool is the one lit while its flyout is open (``isLit(_:armed:flyout:)``).
 /// What a tool does is its tooltip; the toolbar's line of words went with the toolbar (decided
@@ -64,6 +64,8 @@ struct EditorPDFFillPalette: View {
         case formFields
         case select
         case text
+        /// **Replace** (TE82): a click picks the line of words under it to retype.
+        case replace
         case date
         case marks
         case signature
@@ -83,7 +85,7 @@ struct EditorPDFFillPalette: View {
             case .style: return .style
             case .size: return .size
             case .ink: return .ink
-            case .formFields, .select, .text, .date: return nil
+            case .formFields, .select, .text, .replace, .date: return nil
             }
         }
 
@@ -92,6 +94,7 @@ struct EditorPDFFillPalette: View {
             case .formFields: return "Form Fields"
             case .select: return "Select"
             case .text: return "Text"
+            case .replace: return "Replace"
             case .date: return "Date"
             case .marks: return "Marks"
             case .signature: return EditorPDFSignature.Kind.signature.title
@@ -103,7 +106,9 @@ struct EditorPDFFillPalette: View {
         }
 
         /// Whether the file's owner lets this tool put something on the page.
-        var places: Bool { self == .text || self == .date || self == .marks || self == .signature || self == .initials }
+        var places: Bool {
+            self == .text || self == .replace || self == .date || self == .marks || self == .signature || self == .initials
+        }
     }
 
     enum Flyout: Hashable {
@@ -116,9 +121,13 @@ struct EditorPDFFillPalette: View {
     }
 
     /// **The tools this file gets**: Form Fields first, only on a file with fields of its own
-    /// (mockup 19), then the rest.
-    static func tools(for fill: EditorPDFFillSign) -> [Tool] {
+    /// (mockup 19), then the rest. Replace is off on a form (decision AV): in a column it is there,
+    /// greyed, its tooltip saying why; in a row along the top or bottom it is left out, since the
+    /// row with Form Fields and Replace both is wider than the narrowest column
+    /// (`theRowFitsTheNarrowestColumnAtEveryTextSize`). Right-click ▸ Replace Text… still says why.
+    static func tools(for fill: EditorPDFFillSign, upright: Bool = true) -> [Tool] {
         Tool.allCases.filter { $0 != .formFields || fill.form.hasFields }
+            .filter { $0 != .replace || upright || !fill.form.hasFields }
     }
 
     /// **Which tool is lit.** While a flyout is open its tool, and no other — the chosen tool goes
@@ -128,7 +137,7 @@ struct EditorPDFFillPalette: View {
         if let flyout { return tool.flyout == flyout }
         switch (tool, armed) {
         case (.select, nil): return true
-        case (.formFields, .formFields?), (.text, .text?), (.date, .date?), (.marks, .mark?): return true
+        case (.formFields, .formFields?), (.text, .text?), (.replace, .replace?), (.date, .date?), (.marks, .mark?): return true
         case (.signature, .signature(let signature)?): return signature.kind == .signature
         case (.initials, .signature(let signature)?): return signature.kind == .initials
         default: return false
@@ -156,7 +165,7 @@ struct EditorPDFFillPalette: View {
         let layout = upright ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 2))
         return layout {
             EditorPDFGripHandle(state: state, piece: .palette, upright: upright, onDrag: onDrag, onDrop: onDrop)
-            ForEach(Self.tools(for: fill), id: \.self) { tool in
+            ForEach(Self.tools(for: fill, upright: upright), id: \.self) { tool in
                 if tool == .style { divider(upright) }
                 button(tool)
                 if tool == .formFields { divider(upright) }
@@ -203,6 +212,7 @@ struct EditorPDFFillPalette: View {
         case .formFields: glyph("character.textbox")
         case .select: glyph("cursorarrow")
         case .text: glyph("character.cursor.ibeam")
+        case .replace: glyph("rectangle.and.pencil.and.ellipsis")
         case .date: glyph("calendar")
         case .marks:
             Text(shownMark.rawValue).scaledFont(.system(size: 14, weight: .bold))
@@ -247,6 +257,9 @@ struct EditorPDFFillPalette: View {
             if tool == .style, fill.styleTarget == .mark { return "Style — a mark keeps its own font" }
             if tool == .size, case .drawnSignature = fill.styleTarget { return "Text Size — a drawn signature has no text size" }
             return nil
+        case .replace:
+            // Off on a form (decision AV), and wherever Fill & Sign may not add to the pages.
+            return fill.replaceRefusal.map { "Replace — \($0)" }
         case .select, .text, .date, .marks, .signature, .initials:
             return tool.places && !fill.offersPlacing ? EditorPDFFillSign.noCommentingReason : nil
         }
@@ -258,6 +271,8 @@ struct EditorPDFFillPalette: View {
         case .formFields: return "Form Fields — click a field to fill it; Tab moves to the next"
         case .select: return "Select — click what you placed to move it; Delete removes it"
         case .text: return "Text — click on the page to type"
+        case .replace:
+            return "Replace — click a line of words, or drag across some, to retype them. The copy covers the old words with a patch."
         case .date: return "Date — click to place today’s date"
         case .marks: return "Marks — ✓, ✗ or •, then click on the page to place it"
         case .signature, .initials: return "\(tool.title) — choose a saved one, or add one"
@@ -279,6 +294,7 @@ struct EditorPDFFillPalette: View {
         case .formFields: fill.armed = .formFields
         case .select: fill.armed = nil
         case .text: fill.armed = .text
+        case .replace: fill.armed = .replace
         case .date: fill.armed = .date
         case .marks: open(.marks, EditorPDFFillFlyouts.marks(for: fill, chose: choseMark))
         case .signature, .initials:
@@ -381,6 +397,11 @@ enum EditorPDFFillFlyouts {
             menu.addItem(.separator())
             submenu("Font", styleItems(for: fill, headed: false))
             submenu("Text Size", lines(of: size(for: fill)))
+        case .correction(let id):
+            menu.addItem(EditorClosureMenuItem(title: retypeTitle) { fill.beginEditing(id) })
+            menu.addItem(.separator())
+            submenu("Font", styleItems(for: fill, headed: false))
+            submenu("Text Size", lines(of: size(for: fill)))
         case .typedSignature:
             submenu("Face", styleItems(for: fill, headed: false))
         case .drawnSignature:
@@ -395,6 +416,8 @@ enum EditorPDFFillFlyouts {
     }
 
     static let editTextTitle = "Edit Text"
+    /// A correction's: its words, retyped in the box over them.
+    static let retypeTitle = "Retype"
 
     /// A flyout's lines, taken out of it so another menu can hold them.
     private static func lines(of menu: NSMenu) -> [NSMenuItem] {
@@ -436,6 +459,24 @@ enum EditorPDFFillFlyouts {
                 let line = EditorClosureMenuItem(title: font.title) { fill.setTextFont(font) }
                 line.attributedTitle = NSAttributedString(string: font.title, attributes: [.font: font.font(size: 14)])
                 line.state = current == font ? .on : .off
+                out.append(line)
+            }
+        case .correction:
+            guard let item = fill.selected, let correction = item.correction else { return [] }
+            if headed { out.append(heading("Font of this correction")) }
+            if let installed = correction.installedFont {
+                let name = EditorPDFFontMatch.shownName(installed)
+                let line = EditorClosureMenuItem(title: "Original — \(name)") { fill.useOriginalFont() }
+                if let face = NSFont(name: installed, size: 14) {
+                    line.attributedTitle = NSAttributedString(string: "Original — \(name)", attributes: [.font: face])
+                }
+                line.state = correction.isSameFont ? .on : .off
+                out.append(line)
+            }
+            for font in EditorPDFTextFont.allCases {
+                let line = EditorClosureMenuItem(title: font.title) { fill.setTextFont(font) }
+                line.attributedTitle = NSAttributedString(string: font.title, attributes: [.font: font.font(size: 14)])
+                line.state = !correction.isSameFont && item.font == font ? .on : .off
                 out.append(line)
             }
         case .mark:
@@ -512,18 +553,31 @@ enum EditorPDFFillFlyouts {
     static func ink(for fill: EditorPDFFillSign) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
+        // A correction's own ink first: the covered words' (TE83).
+        let correction = fill.selected?.correction
+        if let correction {
+            let item = EditorClosureMenuItem(title: originalInkTitle) { fill.useOriginalInk() }
+            item.image = swatch(correction.ink.nsColor)
+            item.state = correction.keepsOriginalInk ? .on : .off
+            menu.addItem(item)
+        }
         for ink in EditorPDFFillColor.allCases {
             let item = EditorClosureMenuItem(title: ink.title) { fill.setColor(ink) }
-            item.image = swatch(ink)
-            item.state = fill.color == ink ? .on : .off
+            item.image = swatch(ink.nsColor)
+            // A correction's palette ink is ticked only once chosen over its own.
+            let current: EditorPDFFillColor?
+            if let correction { current = correction.keepsOriginalInk ? nil : fill.selected?.color } else { current = fill.color }
+            item.state = current == ink ? .on : .off
             menu.addItem(item)
         }
         return menu
     }
 
-    private static func swatch(_ ink: EditorPDFFillColor) -> NSImage {
+    static let originalInkTitle = "Original ink"
+
+    private static func swatch(_ color: NSColor) -> NSImage {
         NSImage(size: CGSize(width: 12, height: 12), flipped: false) { rect in
-            ink.nsColor.setFill()
+            color.setFill()
             NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5)).fill()
             NSColor.separatorColor.setStroke()
             NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5)).stroke()
@@ -550,11 +604,12 @@ struct EditorPDFFillSaveStack: View {
 
     var body: some View {
         let showsPill = fill.isOn && fill.hasUnsavedChanges
-        let notes = fill.isOn ? fill.formNotes : []
-        if showsPill || !notes.isEmpty {
+        let notes = fill.isOn ? fill.formNotes + fill.replaceNotes : []
+        let corrections = fill.isOn ? fill.correctionNotes : []
+        if showsPill || !notes.isEmpty || !corrections.isEmpty {
             VStack(spacing: EditorPDFFloating.gap) {
                 if showsPill { pill }
-                if !notes.isEmpty { card(notes) }
+                if !notes.isEmpty || !corrections.isEmpty { card(notes, corrections: corrections) }
             }
             .onGeometryChange(for: CGSize.self) { $0.size } action: { onSize($0) }
             .onDisappear { onSize(.zero) }
@@ -590,7 +645,7 @@ struct EditorPDFFillSaveStack: View {
                 .disabled(fill.items.isEmpty && fill.values.isEmpty)
                 .help(fill.usesFormPath ? "Remove everything placed and clear the fields you filled — ⌘Z brings it back"
                                           : "Remove everything placed — ⌘Z brings it back")
-            Button("Save Filled Copy") { Task { await fill.save() } }
+            Button(fill.saveTitle) { Task { await fill.save() } }
                 .buttonStyle(.borderedProminent)
                 // The app's accent, deepened, as the Pages tab's Save Reordered Copy has it — not
                 // the system's, and not the raw one, which leaves the white label at 2.7:1 on Green.
@@ -615,12 +670,28 @@ struct EditorPDFFillSaveStack: View {
         .help(caption == nil ? (fill.unsavedCaption ?? "") : "")
     }
 
-    private func card(_ notes: [String]) -> some View {
+    /// The card: what Save would refuse and the file's caveats, then each corrected page's line —
+    /// the covered words are still in the copy — with the button that makes the page a picture
+    /// (TE85, decision AK).
+    private func card(_ notes: [String], corrections: [EditorPDFCorrectionNote]) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             ForEach(notes, id: \.self) { note in
                 Label(note, systemImage: "exclamationmark.triangle")
                     .labelStyle(.titleAndIcon)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(corrections) { note in
+                VStack(alignment: .leading, spacing: 5) {
+                    Label(note.line, systemImage: note.pictured ? "photo" : "eye")
+                        .labelStyle(.titleAndIcon)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(note.button) { fill.setPicture(note.page, !note.pictured) }
+                        .controlSize(.small)
+                        .help(note.pictured
+                              ? "Save this page with its text, the covered words still under their patches"
+                              : "Save this page as a picture: the covered words go, and so does its selectable text")
+                }
+                .padding(.top, notes.isEmpty && note.id == corrections.first?.id ? 0 : 4)
             }
         }
         .scaledFont(.system(size: 10))

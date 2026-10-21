@@ -63,7 +63,7 @@ let package = Package(
         // tool's copy contains (0.1.0 → 0.1.1 was the difference between keeping a file's
         // bookmarks on macOS 27 and dropping them), and that should arrive as a commit someone
         // reviewed, not as whatever a resolve happened to fetch. pdf-utils pins the same tag.
-        .package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.3.0")
+        .package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.4.0")
     ],
     targets: [
         .target(

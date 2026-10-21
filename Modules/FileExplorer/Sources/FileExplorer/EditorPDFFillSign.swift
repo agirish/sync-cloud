@@ -324,6 +324,8 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
         /// Typed text, a date, or a mark — all drawn as text, which is all the toolkit's text is.
         case text(String)
         case signature(EditorPDFSignature)
+        /// New words over a patch hiding old ones (TE83).
+        case correction(EditorPDFCorrection)
     }
 
     public let id: UUID
@@ -353,6 +355,7 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
     public var words: (string: String, script: Bool)? {
         switch content {
         case .text(let string): return (string, false)
+        case .correction(let correction): return (correction.words, false)
         case .signature(let signature):
             if case .typed(let string) = signature.look { return (string, true) }
             return nil
@@ -364,7 +367,26 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
         switch content {
         case .text: return font.toolkit
         case .signature(let signature): return signature.face.toolkit
+        case .correction(let correction):
+            if correction.isSameFont, let name = correction.installedFont { return .named(name) }
+            return font.toolkit
         }
+    }
+
+    /// The correction this item is, or `nil`.
+    public var correction: EditorPDFCorrection? {
+        if case .correction(let correction) = content { return correction }
+        return nil
+    }
+
+    public var isCorrection: Bool { correction != nil }
+
+    /// **The ink the words are drawn in**: the palette's — or a correction's original, until the
+    /// Ink tool chooses another.
+    public var ink: EditorPDFRGB {
+        if let correction, correction.keepsOriginalInk { return correction.ink }
+        let c = color.components
+        return EditorPDFRGB(red: c.red, green: c.green, blue: c.blue)
     }
 
     /// **The face this item's words are drawn in, at `size`** — the toolkit's own choice, so the
@@ -394,6 +416,8 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
         case .text(let string):
             if let mark = EditorPDFFillMark(rawValue: string) { return mark.title }
             return string.isEmpty ? "Text, empty" : "Text, \(string)"
+        case .correction(let correction):
+            return correction.words.isEmpty ? "Correction, words removed" : "Correction, \(correction.words)"
         case .signature(let signature):
             if case .typed(let words) = signature.look { return "\(signature.kind.title), \(words)" }
             return signature.spokenName(among: saved)
@@ -403,6 +427,8 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
     public var hasInk: Bool {
         switch content {
         case .text(let string): return !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // The patch draws, words or none: retyped to nothing, it takes the words out.
+        case .correction: return true
         case .signature(let signature):
             switch signature.look {
             case .typed(let string): return !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -411,14 +437,34 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
         }
     }
 
-    /// **What the toolkit draws for this item**, on a page turned as `box` says.
+    /// **What the toolkit draws for this item**, on a page turned as `box` says — a correction's
+    /// patch first, then its words.
+    public func toolkitItems(on box: EditorPDFPageBox) -> [FillSignItem] {
+        guard let correction else { return [toolkitItem(on: box)] }
+        let patch = FillSignItem(id: Self.patchID(id), pageIndex: page, rect: box.pageRect(display: correction.cover),
+                                 content: .patch(FillSignPatch(red: correction.patch.red, green: correction.patch.green,
+                                                               blue: correction.patch.blue)))
+        return [patch, toolkitItem(on: box)]
+    }
+
+    /// The patch's id: the item's, its first byte turned over — the same every save.
+    static func patchID(_ id: UUID) -> UUID {
+        var bytes = id.uuid
+        bytes.0 ^= 0xFF
+        return UUID(uuid: bytes)
+    }
+
+    /// **What the toolkit draws for this item's words or strokes**, on a page turned as `box` says.
     public func toolkitItem(on box: EditorPDFPageBox) -> FillSignItem {
-        let ink = color.components
+        let ink = self.ink
         let pageRect = box.pageRect(display: rect)
         let content: FillSignItem.Content
         switch self.content {
         case .text(let string):
             content = .text(FillSignText(string: string, fontSize: fontSize, red: ink.red, green: ink.green,
+                                         blue: ink.blue, font: toolkitFont))
+        case .correction(let correction):
+            content = .text(FillSignText(string: correction.words, fontSize: fontSize, red: ink.red, green: ink.green,
                                          blue: ink.blue, font: toolkitFont))
         case .signature(let signature):
             switch signature.look {
@@ -472,6 +518,8 @@ public enum EditorPDFFillTool: Equatable, Sendable {
     /// Sign opens on when the file has fields it can fill.
     case formFields
     case text
+    /// A click picks the line of words under it to retype (TE82).
+    case replace
     case date
     case mark(EditorPDFFillMark)
     case signature(EditorPDFSignature)
@@ -578,7 +626,15 @@ public final class EditorPDFFillSign: ObservableObject {
     @Published public private(set) var items: [EditorPDFFillItem] = []
     @Published public var selection: UUID?
     /// What the next click places, or `nil`.
-    @Published public var armed: EditorPDFFillTool?
+    @Published public var armed: EditorPDFFillTool? {
+        didSet { if armed != .replace { replaceNote = nil } }
+    }
+    /// **Why the last click with Replace picked nothing** (TE87) — said in the note card until the
+    /// next pick, or another tool.
+    @Published public private(set) var replaceNote: String?
+    /// **The pages to save as pictures** (TE85, decision AK): the words corrections cover there go
+    /// from the copy, and so does every other word's text on the page.
+    @Published public private(set) var pictures: Set<Int> = []
     /// The item whose words are being typed, or `nil`.
     @Published public private(set) var editing: UUID?
     /// The Add Signature sheet, for signatures or for initials.
@@ -637,7 +693,8 @@ public final class EditorPDFFillSign: ObservableObject {
     /// Asks what to do with unsaved items — an alert in the app, a canned answer in a test. `count`
     /// is the items placed and the fields changed together.
     lazy var askLeaving: @MainActor (_ name: String, _ count: Int) -> LeaveAnswer = { [unowned self] name, count in
-        EditorPDFFillSign.alertLeaving(name: name, count: count, fields: self.values.count)
+        EditorPDFFillSign.alertLeaving(name: name, count: count, fields: self.values.count,
+                                       corrected: self.onlyCorrections)
     }
 
     public enum LeaveAnswer: Sendable { case save, discard, cancel }
@@ -752,8 +809,7 @@ public final class EditorPDFFillSign: ObservableObject {
     /// unsaved: the words for the banner when the file goes from under the reader.
     var unsavedWork: String? {
         // What the pill counts: an item with nothing in it yet — text box just opened — is not work.
-        let placed = unsaved.count
-        let parts = (placed == 0 ? [] : [Self.count(placed)]) + (values.isEmpty ? [] : [Self.fields(values.count)])
+        let parts = placedParts + (values.isEmpty ? [] : [Self.fields(values.count)])
         return parts.isEmpty ? nil : parts.joined(separator: " and ")
     }
 
@@ -778,6 +834,8 @@ public final class EditorPDFFillSign: ObservableObject {
 
     private func clear() {
         items = []
+        pictures = []
+        replaceNote = nil
         selection = nil
         editing = nil
         armed = nil
@@ -879,20 +937,36 @@ public final class EditorPDFFillSign: ObservableObject {
         let n = unsaved.count, f = values.count
         switch (f, n) {
         case (0, 0): return nil
-        case (0, _): return "\(Self.count(n)) not saved"
+        case (0, _): return "\(placed) not saved"
         case (_, 0): return "\(Self.fields(f)) changed"
-        default: return "\(Self.fields(f)) changed · \(Self.count(n)) not saved"
+        default: return "\(Self.fields(f)) changed · \(placed) not saved"
         }
     }
 
     /// The same, shorter, for a pill with less room — "2 fields · 1 item".
     public var unsavedShortCaption: String? {
-        let n = unsaved.count, f = values.count
-        let parts = (f == 0 ? [] : [Self.fields(f)]) + (n == 0 ? [] : [Self.count(n)])
+        let f = values.count
+        let parts = (f == 0 ? [] : [Self.fields(f)]) + placedParts
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    /// "2 items", "1 correction", "2 items and 1 correction" — what is placed, corrections apart (TE84).
+    private var placed: String { placedParts.joined(separator: " and ") }
+
+    private var placedParts: [String] {
+        let corrections = unsaved.filter(\.isCorrection).count, others = unsaved.count - corrections
+        return (others == 0 ? [] : [Self.count(others)]) + (corrections == 0 ? [] : [Self.corrections(corrections)])
+    }
+
+    /// **Only corrections to save** — the pill's button says Save Corrected Copy, and the copy is
+    /// named "(corrected)" (TE84).
+    public var onlyCorrections: Bool { values.isEmpty && !unsaved.isEmpty && unsaved.allSatisfy(\.isCorrection) }
+
+    /// The save pill's button.
+    public var saveTitle: String { onlyCorrections ? "Save Corrected Copy" : "Save Filled Copy" }
+
     nonisolated static func count(_ n: Int) -> String { n == 1 ? "1 item" : "\(n) items" }
+    nonisolated static func corrections(_ n: Int) -> String { n == 1 ? "1 correction" : "\(n) corrections" }
     nonisolated static func fields(_ n: Int) -> String { n == 1 ? "1 field" : "\(n) fields" }
 
     // MARK: Placing
@@ -974,8 +1048,9 @@ public final class EditorPDFFillSign: ObservableObject {
         var font = textFont
         let name: String
         switch armed {
-        case .formFields:
-            // Fields are filled, not placed on: the overlay sends a click on one to it.
+        case .formFields, .replace:
+            // Fields are filled, not placed on: the overlay sends a click on one to it. Replace
+            // picks words, through ``beginCorrection(_:)``.
             return nil
         case .text:
             content = .text("")
@@ -1075,7 +1150,8 @@ public final class EditorPDFFillSign: ObservableObject {
 
     /// Starts typing into a placed text item — a double-click.
     public func beginEditing(_ id: UUID) {
-        guard let item = items.first(where: { $0.id == id }), case .text = item.content else { return }
+        guard let item = items.first(where: { $0.id == id }) else { return }
+        if case .signature = item.content { return }
         endEditing()
         // **One thing types at a time**: a form field left typing took the keyboard straight back,
         // and the text box closed as it opened.
@@ -1089,8 +1165,14 @@ public final class EditorPDFFillSign: ObservableObject {
     /// The words as typed, every keystroke — the box grows with them. No undo step per key: the
     /// whole session is one, taken by ``endEditing()``.
     public func type(_ string: String, into id: UUID) {
-        guard let index = items.firstIndex(where: { $0.id == id }), case .text = items[index].content else { return }
-        items[index].content = .text(string)
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        switch items[index].content {
+        case .text: items[index].content = .text(string)
+        case .correction(var correction):
+            correction.words = string
+            items[index].content = .correction(correction)
+        case .signature: return
+        }
         resizeToWords(index)
     }
 
@@ -1098,15 +1180,145 @@ public final class EditorPDFFillSign: ObservableObject {
     public func endEditing() {
         guard let id = editing else { return }
         editing = nil
-        if let index = items.firstIndex(where: { $0.id == id }), !items[index].hasInk {
-            items.remove(at: index)
-            if selection == id { selection = nil }
+        let wasNew = editBefore.map { before in !before.contains { $0.id == id } } ?? false
+        if let index = items.firstIndex(where: { $0.id == id }) {
+            // A correction placed with its words as they were changes nothing: it goes, as Esc's would.
+            let unchanged = items[index].correction.map { wasNew && $0.words == $0.covered } ?? false
+            if !items[index].hasInk || unchanged {
+                items.remove(at: index)
+                if selection == id { selection = nil }
+            }
         }
         guard let before = editBefore else { return }
         editBefore = nil
-        let wasNew = !before.contains { $0.id == id }
-        if items != before { register(before, wasNew ? "Place Text" : items.contains { $0.id == id } ? "Typing" : "Delete") }
+        let correcting = (items + before).contains { $0.id == id && $0.isCorrection }
+        let placed = correcting ? "Replace Text" : "Place Text"
+        if items != before { register(before, wasNew ? placed : items.contains { $0.id == id } ? "Typing" : "Delete") }
     }
+
+    /// **Esc in a correction's retype box**: the page as it was before the box opened — a new
+    /// correction goes, one being retyped keeps its words. Text's Esc keeps what was typed
+    /// (``endEditing()``).
+    public func cancelEditing() {
+        guard let id = editing else { return }
+        guard items.first(where: { $0.id == id })?.isCorrection == true, let before = editBefore else {
+            endEditing()
+            return
+        }
+        editing = nil
+        editBefore = nil
+        items = before
+        if !items.contains(where: { $0.id == id }) { selection = nil }
+    }
+
+    // MARK: Replace (TE82–TE87)
+
+    /// **Why Replace is off for this file**, or `nil` (TE87): Fill & Sign's own refusal, an owner who
+    /// forbids adding to the pages, or a fillable form — where Fill & Sign keeps what is placed as
+    /// notes another app can delete, so a correction would peel off (decision AV, 2026-10-20).
+    public var replaceRefusal: String? {
+        if let refusal { return refusal }
+        if form.hasFields { return Self.formReplaceReason }
+        if !offersPlacing { return Self.noCommentingReason + "." }
+        return nil
+    }
+
+    static let formReplaceReason = "This PDF has a fillable form. Corrections would be saved as notes another app "
+        + "can delete, so Replace is off here."
+
+    /// **The words a click or a right-click picked, opened for retyping** (TE83): a box exactly
+    /// over them, holding them, in their size and ink — and their font when this Mac has it. Return
+    /// places the correction, Esc leaves the page as it was; the two are one undo step.
+    @discardableResult
+    public func beginCorrection(_ pick: EditorPDFReplacePick) -> UUID? {
+        guard isOn, replaceRefusal == nil, let box = box(pick.page) else { return nil }
+        endEditing()
+        endFieldEditing()
+        replaceNote = nil
+        // Words already corrected open their correction again, rather than a second patch on the first.
+        if let existing = items.first(where: { $0.page == pick.page && ($0.correction?.cover.intersects(pick.wordsRect) ?? false) }) {
+            beginEditing(existing.id)
+            return existing.id
+        }
+        var item = EditorPDFFillItem(page: pick.page, rect: pick.wordsRect, content: .correction(EditorPDFCorrection(pick)),
+                                     fontSize: pick.fontSize, color: color, font: pick.standIn)
+        Self.resizeToWords(&item, in: box)
+        editBefore = items
+        items.append(item)
+        editing = item.id
+        selection = item.id
+        return item.id
+    }
+
+    /// A click with Replace that picked nothing, and why — said in the note card.
+    public func refuseReplace(_ refusal: EditorPDFReplaceRefusal) {
+        replaceNote = refusal.reason
+    }
+
+    /// **Right-click ▸ Replace Text…**: Fill & Sign on, with Replace chosen and these words picked.
+    public func replace(_ pick: EditorPDFReplacePick) {
+        guard replaceRefusal == nil, hasPages else { return }
+        if !isOn { isOn = true }
+        armed = .replace
+        beginCorrection(pick)
+    }
+
+    /// The pages that carry a correction not yet saved, in order.
+    public var correctedPages: [Int] { Array(Set(unsaved.filter(\.isCorrection).map(\.page))).sorted() }
+
+    /// **The note card's lines for the corrections** (TE85): per page, the covered words are still in
+    /// the copy, with the button that makes the page a picture — or, once chosen, that it will be one.
+    public var correctionNotes: [EditorPDFCorrectionNote] {
+        correctedPages.map { page in
+            let number = page + 1
+            if pictures.contains(page) {
+                return EditorPDFCorrectionNote(
+                    page: page,
+                    line: "Page \(number) will be saved as a picture, so the words you covered are gone from the copy, "
+                        + "and its text can’t be searched or copied.",
+                    button: "Keep Page \(number) as Text", pictured: true)
+            }
+            let corrections = unsaved.compactMap { $0.page == page ? $0.correction : nil }
+            if corrections.count == 1 {
+                return EditorPDFCorrectionNote(
+                    page: page,
+                    line: "“\(Self.quoted(corrections[0].covered))” is still in the copy, under the patch. Search and copy will find it.",
+                    button: "Remove It: Make Page \(number) a Picture", pictured: false)
+            }
+            return EditorPDFCorrectionNote(
+                page: page,
+                line: "The \(corrections.count) passages you covered on page \(number) are still in the copy, under their patches. "
+                    + "Search and copy will find them.",
+                button: "Remove Them: Make Page \(number) a Picture", pictured: false)
+        }
+    }
+
+    /// Words quoted in a note: a long passage is cut.
+    static func quoted(_ words: String) -> String { words.count > 40 ? String(words.prefix(40)) + "…" : words }
+
+    /// **The note card's warnings for Replace**: why the last click picked nothing, and a patch on a
+    /// ground that isn't plain.
+    public var replaceNotes: [String] {
+        var out: [String] = []
+        if let replaceNote { out.append(replaceNote) }
+        if unsaved.contains(where: { $0.correction.map { !$0.plainBackground } ?? false }) {
+            out.append(Self.patternedNote)
+        }
+        return out
+    }
+
+    static let patternedNote = "The background here isn’t plain, so the patch will show."
+
+    /// **The note card's button**: a page to save as a picture, or back as text — one undo step.
+    public func setPicture(_ page: Int, _ on: Bool) {
+        guard on != pictures.contains(page) else { return }
+        let before = pictures
+        if on { pictures.insert(page) } else { pictures.remove(page) }
+        register(items, values, before, on ? "Make Page a Picture" : "Keep Page as Text")
+    }
+
+    /// The pages saved as pictures: those chosen that still carry a correction.
+    var picturesToSave: [Int] { pictures.intersection(correctedPages).sorted() }
 
     // MARK: Form fields (Phase 5c)
 
@@ -1170,6 +1382,7 @@ public final class EditorPDFFillSign: ObservableObject {
         if let formProblem, !Self.isNothingYet(formProblem) {
             return EditorPDFToolEngine.reason(formProblem, tool: .fillForm(values: values, items: []))
         }
+        if onlyCorrections { return "Write a copy with these corrections beside the original — the original isn’t changed" }
         return usesFormPath
             ? "Write a copy beside the original with these values — its form stays fillable, and the original isn’t changed"
             : "Write a copy with these items beside the original — the original isn’t changed"
@@ -1392,14 +1605,17 @@ public final class EditorPDFFillSign: ObservableObject {
 
     /// Moves an item to `rect`, kept on its page — every step of a drag, without undo steps.
     public func moveLive(_ id: UUID, to rect: CGRect) {
-        guard let index = items.firstIndex(where: { $0.id == id }), let box = box(items[index].page) else { return }
+        // A correction stays over the words it covers.
+        guard let index = items.firstIndex(where: { $0.id == id }), !items[index].isCorrection,
+              let box = box(items[index].page) else { return }
         items[index].rect = FillSignGeometry.clamped(rect, in: box.displayBounds)
     }
 
     /// **Resizes from the corner handle** — the far corner dragged to `corner`, the other one held.
     /// Words take the point size that fills the new height; a drawn signature keeps its shape.
     public func resizeLive(_ id: UUID, anchor: CGPoint, corner: CGPoint) {
-        guard let index = items.firstIndex(where: { $0.id == id }), let box = box(items[index].page) else { return }
+        guard let index = items.firstIndex(where: { $0.id == id }), !items[index].isCorrection,
+              let box = box(items[index].page) else { return }
         let dragged = FillSignGeometry.resizedRect(anchor: anchor, corner: corner, minimumSide: FillSignGeometry.minimumSidePt)
         var item = items[index]
         if let unitBox = item.wordsSize(fontSize: 10) {
@@ -1426,7 +1642,8 @@ public final class EditorPDFFillSign: ObservableObject {
 
     /// The arrow keys: a point at a time, ten with ⇧.
     public func nudge(dx: CGFloat, dy: CGFloat) {
-        guard let id = selection, let item = items.first(where: { $0.id == id }), let box = box(item.page) else { return }
+        guard let id = selection, let item = items.first(where: { $0.id == id }), !item.isCorrection,
+              let box = box(item.page) else { return }
         change("Move") { items in
             guard let index = items.firstIndex(where: { $0.id == id }) else { return }
             items[index].rect = FillSignGeometry.clamped(item.rect.offsetBy(dx: dx, dy: dy), in: box.displayBounds)
@@ -1476,6 +1693,21 @@ public final class EditorPDFFillSign: ObservableObject {
         change("Ink") { items in
             guard let index = items.firstIndex(where: { $0.id == id }) else { return }
             items[index].color = color
+            if case .correction(var correction) = items[index].content {
+                correction.keepsOriginalInk = false
+                items[index].content = .correction(correction)
+            }
+        }
+    }
+
+    /// **The Ink tool's "Original" for a selected correction**: back to the covered words' ink.
+    public func useOriginalInk() {
+        guard let id = selection else { return }
+        change("Ink") { items in
+            guard let index = items.firstIndex(where: { $0.id == id }), case .correction(var correction) = items[index].content
+            else { return }
+            correction.keepsOriginalInk = true
+            items[index].content = .correction(correction)
         }
     }
 
@@ -1561,6 +1793,8 @@ public final class EditorPDFFillSign: ObservableObject {
         case drawnSignature(UUID)
         /// A ✓, ✗ or • — it keeps the system font.
         case mark
+        /// A correction: its original's face while this Mac has it, or an Aa font.
+        case correction(UUID)
     }
 
     public var styleTarget: StyleTarget {
@@ -1568,6 +1802,7 @@ public final class EditorPDFFillSign: ObservableObject {
         if item.isMark { return .mark }
         switch item.content {
         case .text: return .text(item.id)
+        case .correction: return .correction(item.id)
         case .signature(let signature):
             if case .typed = signature.look { return .typedSignature(item.id) }
             return .drawnSignature(item.id)
@@ -1577,11 +1812,24 @@ public final class EditorPDFFillSign: ObservableObject {
     /// The font the Aa tool ticks for text: the selected text's, else the next text's.
     public var currentTextFont: EditorPDFTextFont {
         if case .text = styleTarget, let item = selected { return item.font }
+        if case .correction = styleTarget, let item = selected { return item.font }
         return textFont
     }
 
-    /// A font for the selected text, and the next — one undo step, as Size's.
+    /// A font for the selected text, and the next — one undo step, as Size's. A correction takes
+    /// it in place of its original's face; the next text's font stays as it was.
     public func setTextFont(_ font: EditorPDFTextFont) {
+        if case .correction(let id) = styleTarget {
+            change("Font") { items in
+                guard let index = items.firstIndex(where: { $0.id == id }), case .correction(var correction) = items[index].content
+                else { return }
+                correction.keepsOriginalFont = false
+                items[index].content = .correction(correction)
+                items[index].font = font
+                Self.resizeToWords(&items[index], in: box(items[index].page))
+            }
+            return
+        }
         if case .text(let id) = styleTarget {
             change("Font") { items in
                 guard let index = items.firstIndex(where: { $0.id == id }) else { return }
@@ -1590,6 +1838,18 @@ public final class EditorPDFFillSign: ObservableObject {
             }
         }
         textFont = font
+    }
+
+    /// **The Aa tool's "Original" for a selected correction**: back to the covered words' own face.
+    public func useOriginalFont() {
+        guard case .correction(let id) = styleTarget else { return }
+        change("Font") { items in
+            guard let index = items.firstIndex(where: { $0.id == id }), case .correction(var correction) = items[index].content,
+                  correction.installedFont != nil else { return }
+            correction.keepsOriginalFont = true
+            items[index].content = .correction(correction)
+            Self.resizeToWords(&items[index], in: box(items[index].page))
+        }
     }
 
     /// **Another face for the selected typed signature**, kept at the width it was placed at (TE88).
@@ -1649,12 +1909,24 @@ public final class EditorPDFFillSign: ObservableObject {
         Self.resizeToWords(&items[index], in: box(items[index].page))
     }
 
-    /// Fits a text item's box to its words, held by its top-left corner.
+    /// Fits a text item's box to its words, held by its top-left corner — a correction's by the
+    /// covered words' baseline and left edge, so its words sit where theirs did at any size.
     static func resizeToWords(_ item: inout EditorPDFFillItem, in box: EditorPDFPageBox?) {
         guard let size = item.wordsSize(fontSize: item.fontSize) else { return }
+        if let correction = item.correction {
+            let top = correction.baseline + baselineOffset(item.nsFont(size: item.fontSize))
+            item.rect = CGRect(x: correction.left, y: top - size.height, width: size.width, height: size.height)
+            return
+        }
         var rect = CGRect(x: item.rect.minX, y: item.rect.maxY - size.height, width: size.width, height: size.height)
         if let box { rect = FillSignGeometry.clamped(rect, in: box.displayBounds) }
         item.rect = rect
+    }
+
+    /// How far below the top of its box the toolkit draws a line's baseline: `NSStringDrawing`'s
+    /// layout, which both the copy and the screen use.
+    static func baselineOffset(_ font: NSFont) -> CGFloat {
+        NSLayoutManager().defaultBaselineOffset(for: font)
     }
 
     // MARK: Undo
@@ -1666,25 +1938,33 @@ public final class EditorPDFFillSign: ObservableObject {
     }
 
     private func register(_ before: [EditorPDFFillItem], _ name: String) {
-        register(before, values, name)
+        register(before, values, pictures, name)
     }
 
-    /// **One undo step for items and field values together** — placing and filling share the one
-    /// ⌘Z stack, so a step back is a step back whichever was done last.
     private func register(_ before: [EditorPDFFillItem], _ beforeValues: [String: FormFieldValue], _ name: String) {
+        register(before, beforeValues, pictures, name)
+    }
+
+    /// **One undo step for items, field values and the pages made pictures together** — placing,
+    /// filling and the note card's button share the one ⌘Z stack, so a step back is a step back
+    /// whichever was done last.
+    private func register(_ before: [EditorPDFFillItem], _ beforeValues: [String: FormFieldValue],
+                          _ beforePictures: Set<Int>, _ name: String) {
         undoManager.beginUndoGrouping()
         defer { undoManager.endUndoGrouping() }
         undoManager.registerUndo(withTarget: self) { fill in
             let after = fill.items
             let afterValues = fill.values
+            let afterPictures = fill.pictures
             fill.editing = nil
             fill.editBefore = nil
             fill.editingField = nil
             fill.fieldEditBefore = nil
             fill.items = before
             fill.values = beforeValues
+            fill.pictures = beforePictures
             if let selection = fill.selection, !before.contains(where: { $0.id == selection }) { fill.selection = nil }
-            fill.register(after, afterValues, name)
+            fill.register(after, afterValues, afterPictures, name)
         }
         undoManager.setActionName(name)
     }
@@ -1703,12 +1983,18 @@ public final class EditorPDFFillSign: ObservableObject {
         endEditing()
         endFieldEditing()
         guard let tools else { return .failed("No PDF is open.") }
-        let savedItems = items, savedValues = values
+        let savedItems = items, savedValues = values, savedPictures = pictures
         let placed = unsaved
-        let toolkit = placed.compactMap { item in box(item.page).map { item.toolkitItem(on: $0) } }
+        let toolkit = placed.flatMap { item in box(item.page).map { item.toolkitItems(on: $0) } ?? [] }
         let path = self.path
         let tool: EditorPDFTool
-        if usesFormPath {
+        if usesFormPath, placed.contains(where: \.isCorrection) {
+            // Replace is off on a form (decision AV): a correction kept as a note would peel off. One
+            // here came from before the file, reloaded, had a form.
+            let reason = Self.formReplaceReason
+            tools.banner = EditorPDFToolBanner(message: reason, kind: .failure)
+            return .failed(reason)
+        } else if usesFormPath {
             // **A file with its own form is filled in place** — `fillFormData`, so the copy's form
             // stays fillable — and what the toolkit would refuse is said before a lane turn.
             tool = .fillForm(values: values, items: toolkit)
@@ -1720,11 +2006,11 @@ public final class EditorPDFFillSign: ObservableObject {
                 return .failed(reason)
             }
         } else {
-            tool = .fillAndSign(toolkit)
+            tool = .fillAndSign(toolkit, pictures: picturesToSave)
         }
         let outcome = await tools.run(tool)
         if case .wrote = outcome, self.path == path {
-            if items == savedItems, values == savedValues {
+            if items == savedItems, values == savedValues, pictures == savedPictures {
                 clear()
                 isOn = false
             } else if let path {
@@ -1739,10 +2025,13 @@ public final class EditorPDFFillSign: ObservableObject {
     public func discard() {
         endEditing()
         endFieldEditing()
-        let before = items, beforeValues = values
+        let before = items, beforeValues = values, beforePictures = pictures
         items.removeAll()
         values = [:]
-        if items != before || values != beforeValues { register(before, beforeValues, "Discard") }
+        pictures = []
+        if items != before || values != beforeValues || pictures != beforePictures {
+            register(before, beforeValues, beforePictures, "Discard")
+        }
         selection = nil
         focusedField = nil
     }
@@ -1763,9 +2052,9 @@ public final class EditorPDFFillSign: ObservableObject {
         endFieldEditing()
         guard hasUnsavedChanges, let path else { return true }
         let answer = askLeaving((path as NSString).lastPathComponent, unsaved.count + values.count)
-        let what = values.isEmpty ? "\(Self.count(unsaved.count)) placed"
+        let what = values.isEmpty ? "\(placed) placed"
             : unsaved.isEmpty ? "\(Self.fields(values.count)) filled"
-            : "\(Self.fields(values.count)) filled and \(Self.count(unsaved.count)) placed"
+            : "\(Self.fields(values.count)) filled and \(placed) placed"
         Logger.shared.info("Edit asked before leaving \(EditorPDFTools.logName(path)) with \(what) "
                            + "with Fill & Sign — " + {
                                switch answer {
@@ -1797,24 +2086,27 @@ public final class EditorPDFFillSign: ObservableObject {
         alert.runModal()
     }
 
-    /// `count` is everything unsaved, `fields` the part of it that is changed fields.
-    static func leaveQuestion(name: String, count: Int, fields: Int = 0) -> (title: String, detail: String) {
+    /// `count` is everything unsaved, `fields` the part of it that is changed fields; `corrected`
+    /// says every one of them is a correction.
+    static func leaveQuestion(name: String, count: Int, fields: Int = 0, corrected: Bool = false) -> (title: String, detail: String) {
         let items = count - fields
         let what: String
         switch (fields, items) {
+        case (0, _) where corrected: what = items == 1 ? "1 correction you made isn’t" : "\(items) corrections you made aren’t"
         case (0, _): what = items == 1 ? "1 item you placed isn’t" : "\(items) items you placed aren’t"
         case (_, 0): what = fields == 1 ? "1 field you filled isn’t" : "\(fields) fields you filled aren’t"
         default: what = "\(Self.fields(fields)) you filled and \(Self.count(items)) you placed aren’t"
         }
-        return ("Save the filled copy of “\(name)”?", "\(what) saved. The original file hasn’t been changed.")
+        return ("Save the \(corrected ? "corrected" : "filled") copy of “\(name)”?",
+                "\(what) saved. The original file hasn’t been changed.")
     }
 
-    static func alertLeaving(name: String, count: Int, fields: Int = 0) -> LeaveAnswer {
-        let question = leaveQuestion(name: name, count: count, fields: fields)
+    static func alertLeaving(name: String, count: Int, fields: Int = 0, corrected: Bool = false) -> LeaveAnswer {
+        let question = leaveQuestion(name: name, count: count, fields: fields, corrected: corrected)
         let alert = NSAlert()
         alert.messageText = question.title
         alert.informativeText = question.detail
-        alert.addButton(withTitle: "Save Filled Copy")
+        alert.addButton(withTitle: corrected ? "Save Corrected Copy" : "Save Filled Copy")
         alert.addButton(withTitle: fields == 0 ? "Discard Items" : "Discard Changes")
         alert.addButton(withTitle: "Cancel")
         switch alert.runModal() {

@@ -7971,3 +7971,30 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign in Edit (`fillSign=0`), so nothing to reach by keyboard | CLOSED — does not apply |
+
+---
+
+## Cover and Retype: Replace in Fill & Sign — main only
+
+Fill & Sign's palette gains Replace (TE82–TE87): a click picks the line of words under the pointer,
+or a drag the words across, and a right-click on selected words offers Replace Text…. A retype box
+opens over them in their size, ink and — read off the page's content stream, not PDFKit — their
+own face when the Mac has it; Save Corrected Copy draws the new words over a patch the colour of
+the page, "(corrected)" beside the original, and the note card offers to make a corrected page a
+picture through the toolkit's redaction. Replace is off on a PDF with a fillable form (decision AV).
+pdf-toolkit moves to 0.4.0 for the patch item (`FillSignItem.Content.patch`). All of it extends the
+Fill & Sign `main` alone has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s fillSign=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSign.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-20, against origin, before this landed:
+# main  fillSign=1
+# v5.x, v4.x, v3.x, v2.x — fillSign=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign in Edit (`fillSign=0`), so nothing to add Replace to | CLOSED — does not apply |
