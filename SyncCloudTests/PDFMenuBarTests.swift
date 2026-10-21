@@ -68,14 +68,95 @@ import Testing
         let file = try Self.file()
         let titles = Self.titles(file)
         let tools = try #require(titles.firstIndex(of: "PDF Tools"), "File has no PDF Tools submenu")
-        #expect(Array(titles[(tools + 1)...].prefix(2)) == ["Fill & Sign", "Save Filled Copy"],
+        #expect(Array(titles[(tools + 1)...].prefix(3)) == ["Fill & Sign", "Fill & Sign Tool", "Save Filled Copy"],
                 "Fill & Sign does not follow PDF Tools: \(titles[tools...])")
         file.update()
-        for item in file.items[(tools + 1)...].prefix(2) {
+        for item in file.items[(tools + 1)...].prefix(3) where item.submenu == nil {
             #expect(!item.isEnabled, "File ▸ \(item.title) is live with no PDF open")
             #expect(item.keyEquivalent.isEmpty, "File ▸ \(item.title) carries a chord")
             #expect(item.state == .off, "File ▸ \(item.title) is ticked with no PDF open")
         }
+        // Fill & Sign Tool's lines grey one by one: a disabled `Menu` leaves its lines live.
+        func walk(_ menu: NSMenu) -> [NSMenuItem] {
+            menu.update()
+            return menu.items.flatMap { item in [item] + (item.submenu.map(walk) ?? []) }
+        }
+        let toolLines = walk(try #require(file.items[tools + 2].submenu)).filter { !$0.isSeparatorItem && $0.submenu == nil }
+        #expect(toolLines.count >= 15, "found \(toolLines.count) lines — this check would be vacuous")
+        for line in toolLines {
+            #expect(!line.isEnabled, "File ▸ Fill & Sign Tool ▸ \(line.title) is live with no PDF open")
+            #expect(line.keyEquivalent.isEmpty, "File ▸ Fill & Sign Tool ▸ \(line.title) carries a chord")
+        }
+    }
+
+    /// **File ▸ Fill & Sign Tool's lines, chosen through AppKit, do what the palette's tools do**
+    /// (decision AZ) — the keyboard's way to a tool, which Return then places. Over a real open
+    /// PDF, drawn by `NSHostingMenu` as the menu bar draws it; the test host is the app, so its items
+    /// fire. Its lines and ticks are `EditorPDFFillKeyboardTests`'.
+    @Test func theToolMenuChoosesWhatThePaletteDoes() async throws {
+        let folder = NSTemporaryDirectory() + "pdf-fill-tools-" + UUID().uuidString
+        let suite = "PDFMenuBarTests-" + UUID().uuidString
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(atPath: folder)
+            UserDefaults.standard.removePersistentDomain(forName: suite)
+        }
+        let file = (folder as NSString).appendingPathComponent("Lease.pdf")
+        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let context = try #require(CGContext(URL(fileURLWithPath: file) as CFURL, mediaBox: &box, nil))
+        context.beginPDFPage(nil)
+        context.endPDFPage()
+        context.closePDF()
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: try #require(UserDefaults(suiteName: suite)))
+        pdf.open(path: file, log: { _ in })
+        for _ in 0..<1000 where pdf.phase == .loading {
+            await PDFKitSerialAccess.perform {}
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(pdf.phase == .open)
+        defer { pdf.close() }
+        let fill = pdf.fill
+        let saved = EditorPDFSignature(kind: .signature, look: .typed("Ada Quill"))
+        fill.store.add(saved)
+        defer { fill.store.delete(saved.id) }
+        fill.toggle()
+        try #require(fill.isOn)
+
+        /// Chooses `path`'s last line, through each submenu on the way, as AppKit chooses it.
+        func choose(_ path: String...) throws {
+            let menu = NSHostingMenu(rootView: EditorPDFFillSignMenuItems(fill: fill, tools: pdf.tools))
+            menu.update()
+            var at = try #require(menu.items.first { $0.title == "Fill & Sign Tool" }?.submenu)
+            for step in path.dropLast() {
+                at.update()
+                at = try #require(at.items.first { $0.title == step }?.submenu, "no submenu \(step)")
+            }
+            at.update()
+            let index = try #require(at.items.firstIndex { $0.title == path.last }, "no line \(path) in \(Self.titles(at))")
+            at.performActionForItem(at: index)
+        }
+        try choose("Text")
+        #expect(fill.armed == .text)
+        try choose("Date")
+        #expect(fill.armed == .date)
+        try choose("✗  Cross")
+        #expect(fill.armed == .mark(.cross))
+        try choose("Select")
+        #expect(fill.armed == nil)
+        try choose("Signature", "Ada Quill")
+        #expect(fill.armed == .signature(saved))
+        try choose("Ink", EditorPDFFillColor.black.title)
+        #expect(fill.color == .black)
+        try choose("Text Size", "18 pt")
+        #expect(fill.fontSize == 18)
+        try choose("Signature", "Add Signature…")
+        #expect(fill.addingSignature == .signature)
+        fill.addingSignature = nil
+        var asked: [String] = []
+        fill.confirmDeletingSaved = { _, name in asked.append(name); return false }
+        try choose("Signature", "Delete a Saved Signature", "Ada Quill")
+        #expect(asked == ["Ada Quill"], "Delete a Saved Signature didn't ask")
+        #expect(fill.store.saved == [saved])
     }
 
     /// **Each line, chosen through AppKit, does what its control does** — the toggle puts the

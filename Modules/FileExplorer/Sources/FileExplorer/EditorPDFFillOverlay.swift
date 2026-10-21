@@ -56,6 +56,11 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     var accent: NSColor = .systemBlue {
         didSet { if accent != oldValue { needsDisplay = true } }
     }
+    /// VoiceOver's elements, by what each stands for — see ``EditorPDFFillAccessibilityElement``.
+    var accessibilityElements: [EditorPDFFillAccessibilityElement.Target: EditorPDFFillAccessibilityElement] = [:]
+    /// What VoiceOver was last told is on screen, and where the keyboard is.
+    var announcedTargets: [EditorPDFFillAccessibilityElement.Target] = []
+    var announcedTarget: EditorPDFFillAccessibilityElement.Target?
 
     private enum Drag {
         case move(id: UUID, page: Int, start: CGPoint, from: CGRect)
@@ -226,15 +231,20 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        if let fill, fill.form.hasFields, flags.subtracting(.shift).isEmpty {
-            // Tab and ⇧Tab walk the form's fields; Space and Return act on the one the keyboard is on.
-            if event.keyCode == Self.tabKeyCode, fill.offersFormFields {
+        if let fill, flags.subtracting(.shift).isEmpty {
+            // Tab and ⇧Tab walk the form's fields, then what is placed (decision BB); Space and
+            // Return act on the field the keyboard is on.
+            if event.keyCode == Self.tabKeyCode, !fill.tabStops.isEmpty {
                 fill.focusNext(forward: !flags.contains(.shift))
+                revealSelection()
                 return
             }
             if flags.isEmpty, [Self.spaceKeyCode, Self.returnKeyCode].contains(event.keyCode),
                let name = fill.focusedField, fill.editingField == nil, let field = fill.form.field(named: name) {
                 if case .choice = field.kind { openMenu(field) } else { fill.activateFocused() }
+                return
+            }
+            if flags.isEmpty, [Self.returnKeyCode, Self.enterKeyCode].contains(event.keyCode), returnPressed() {
                 return
             }
         }
@@ -246,10 +256,10 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
                 return
             case ReaderPDFView.escapeKeyCode where fill.escape():
                 return
-            case 123 where fill.selection != nil: fill.nudge(dx: -step, dy: 0); return
-            case 124 where fill.selection != nil: fill.nudge(dx: step, dy: 0); return
-            case 125 where fill.selection != nil: fill.nudge(dx: 0, dy: -step); return
-            case 126 where fill.selection != nil: fill.nudge(dx: 0, dy: step); return
+            case 123 where fill.selection != nil: fill.nudge(dx: -step, dy: 0); revealSelection(); return
+            case 124 where fill.selection != nil: fill.nudge(dx: step, dy: 0); revealSelection(); return
+            case 125 where fill.selection != nil: fill.nudge(dx: 0, dy: -step); revealSelection(); return
+            case 126 where fill.selection != nil: fill.nudge(dx: 0, dy: step); revealSelection(); return
             default: break
             }
         }
@@ -259,6 +269,36 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     static let tabKeyCode: UInt16 = 48
     static let spaceKeyCode: UInt16 = 49
     static let returnKeyCode: UInt16 = 36
+    /// The keypad's Enter.
+    static let enterKeyCode: UInt16 = 76
+
+    /// **Return on the pages** (decision BA, 2026-10-20): a text box Tab or a click is on is typed
+    /// into, as a double-click does; otherwise the chosen tool's item goes in the middle of what can
+    /// be seen of the page — and the one just placed that way is not typed into but followed by
+    /// another, just below it.
+    func returnPressed() -> Bool {
+        guard let fill, fill.editing == nil else { return false }
+        if let item = fill.selected, case .text = item.content, item.id != fill.lastPlaced {
+            fill.beginEditing(item.id)
+            return true
+        }
+        guard let armed = fill.armed, armed != .formFields, let spot = keyboardSpot() else { return false }
+        return fill.placeFromKeyboard(around: spot.point, page: spot.page) != nil
+    }
+
+    /// **Where Return places**: the middle of what can be seen of the page in the middle of the
+    /// view, clear of the floating bands — as the page and a point in its display space.
+    func keyboardSpot() -> (page: Int, point: CGPoint)? {
+        guard let reader, let document = reader.document else { return nil }
+        let clear = EditorPDFPageView.clearRect(of: reader)
+        guard let page = reader.page(for: CGPoint(x: clear.midX, y: clear.midY), nearest: true) else { return nil }
+        let index = document.index(for: page)
+        let pageRect = reader.convert(page.bounds(for: reader.displayBox), from: page)
+        let seen = pageRect.intersection(clear)
+        let middle = seen.isEmpty ? CGPoint(x: pageRect.midX, y: pageRect.midY) : CGPoint(x: seen.midX, y: seen.midY)
+        guard let point = displayPoint(view: convert(middle, from: reader), page: index) else { return nil }
+        return (index, point)
+    }
 
     override var undoManager: UndoManager? { fill?.undoManager ?? super.undoManager }
 
@@ -297,9 +337,11 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             switch selector {
             case #selector(NSResponder.insertTab(_:)):
                 fill.focusNext(forward: true)
+                revealSelection()
                 return true
             case #selector(NSResponder.insertBacktab(_:)):
                 fill.focusNext(forward: false)
+                revealSelection()
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
                 fill.endFieldEditing()
@@ -315,11 +357,23 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
                 return false
             }
         }
-        if selector == #selector(NSResponder.cancelOperation(_:)) {
+        switch selector {
+        case #selector(NSResponder.cancelOperation(_:)):
             fill?.endEditing()
             return true
+        // **Tab in a text box goes on round the ring**, as in a form's field (decision BB): unanswered,
+        // it ended the typing and took the keyboard out of the pages to the window's next view.
+        case #selector(NSResponder.insertTab(_:)):
+            fill?.focusNext(forward: true)
+            revealSelection()
+            return true
+        case #selector(NSResponder.insertBacktab(_:)):
+            fill?.focusNext(forward: false)
+            revealSelection()
+            return true
+        default:
+            return false
         }
-        return false
     }
 
     /// The typing field, over the item being typed into — its words at the page's scale, in the
@@ -345,6 +399,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             made.cell?.isScrollable = true
             made.delegate = self
             made.placeholderString = "Type"
+            made.setAccessibilityLabel("Text")
             addSubview(made)
             self.field = made
             return made
@@ -363,6 +418,9 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             if formEditor != nil { layoutFormEditor() }
             removeAllToolTips()
             revealedField = nil
+            accessibilityElements = [:]
+            announcedTargets = []
+            announcedTarget = nil
             // Put away with the keyboard here: back to the pages, where ⌘Z is the window's again.
             if let reader, let window, window.firstResponder === self { window.makeFirstResponder(reader) }
             needsDisplay = true
@@ -375,7 +433,20 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         layoutField()
         layoutFormEditor()
         layoutToolTips()
+        announceFocus()
         needsDisplay = true
+    }
+
+    /// **The selected item scrolled into sight** — after Tab onto one off screen, or an arrow that
+    /// moves one out of sight. The keyboard's only: a click selects what is under the pointer, and a
+    /// scroll then would move the page under a drag.
+    func revealSelection() {
+        guard let fill, let reader, let item = fill.selected,
+              let page = reader.document?.page(at: item.page), let box = fill.box(item.page) else { return }
+        let rect = box.pageRect(display: item.rect)
+        if !EditorPDFPageView.isInSight(rect, on: page, in: reader) {
+            reader.go(to: rect.insetBy(dx: -24, dy: -48), on: page)
+        }
     }
 
     // MARK: Drawing
@@ -601,6 +672,7 @@ extension EditorPDFFillOverlay {
             if editor.stringValue != text { editor.stringValue = text }
         }
         formEditorField = name
+        editor.setAccessibilityLabel(fill.form.label(of: field))
         editor.frame = rect.integral
         if editor.currentEditor() == nil { window?.makeFirstResponder(editor) }
     }
@@ -700,5 +772,199 @@ extension EditorPDFFillOverlay {
         case .signature, .pushButton:
             break
         }
+    }
+}
+
+// MARK: - VoiceOver
+
+/// **One field's widget or one placed item, as VoiceOver sees it** — the overlay draws both, so
+/// nothing else names them: PDFKit's own widgets are read-only on the reader
+/// (``EditorPDFForm/lockWidgets(in:)``) and Fill & Sign's items are not in the document at all.
+/// Kept per target across refreshes, so VoiceOver's cursor stays on the same element as values change.
+final class EditorPDFFillAccessibilityElement: NSAccessibilityElement {
+    enum Target: Hashable {
+        /// A field's widget, by the field's name and the widget's place in its list.
+        case widget(String, Int)
+        case item(UUID)
+    }
+
+    let target: Target
+    weak var overlay: EditorPDFFillOverlay?
+
+    init(target: Target, overlay: EditorPDFFillOverlay) {
+        self.target = target
+        self.overlay = overlay
+        super.init()
+        setAccessibilityParent(overlay)
+    }
+
+    override func accessibilityPerformPress() -> Bool { overlay?.press(target) ?? false }
+
+    override func isAccessibilityFocused() -> Bool { overlay?.focusedTarget == target }
+}
+
+extension EditorPDFFillOverlay {
+    /// **The overlay is a group VoiceOver walks** while Fill & Sign is up — its fields' widgets on
+    /// the pages on screen, in the form's order, then the items placed there, in placing order. A
+    /// field being typed into is its typing field instead, and so is a text box.
+    override func isAccessibilityElement() -> Bool { isActive }
+    override func accessibilityRole() -> NSAccessibility.Role? { .group }
+    override func accessibilityLabel() -> String? { "Fill & Sign" }
+
+    override func accessibilityChildren() -> [Any]? {
+        guard isActive else { return [] }
+        var typing: NSTextField? = formEditor
+        return accessibilityTargets().map { (target: EditorPDFFillAccessibilityElement.Target) -> Any in
+            // A field shown twice — on two pages — is typed into once, at its first widget.
+            if case .widget(let name, _) = target, name == fill?.editingField, let editor = typing {
+                typing = nil
+                return editor
+            }
+            if case .item(let id) = target, id == fill?.editing, let field { return field }
+            return accessibilityElement(for: target)
+        }
+    }
+
+    /// The property is not main-actor isolated, but AppKit asks it on the main thread only.
+    override var accessibilityFocusedUIElement: Any? {
+        nonisolated(unsafe) var focused: Any?
+        MainActor.assumeIsolated { focused = focusedElement() }
+        return focused
+    }
+
+    /// The typing field while one is up, else the element Tab is on, else the group.
+    func focusedElement() -> Any {
+        if let editor = formEditor, fill?.editingField != nil { return editor }
+        if let field, fill?.editing != nil { return field }
+        if let target = focusedTarget { return accessibilityElement(for: target) }
+        return self
+    }
+
+    /// What VoiceOver walks, in its order: the widgets on screen, then the items on screen.
+    func accessibilityTargets() -> [EditorPDFFillAccessibilityElement.Target] {
+        guard let fill, isActive else { return [] }
+        let shown = shownPages
+        let widgets = shownWidgets.compactMap { hit -> EditorPDFFillAccessibilityElement.Target? in
+            hit.field.widgets.firstIndex(of: hit.widget).map { .widget(hit.field.name, $0) }
+        }
+        return widgets + fill.items.filter { shown.contains($0.page) }.map { .item($0.id) }
+    }
+
+    /// The element the keyboard is on: the field's first widget on screen, or the selected item.
+    var focusedTarget: EditorPDFFillAccessibilityElement.Target? {
+        guard let fill else { return nil }
+        switch fill.tabStop {
+        case .field(let name)?:
+            return accessibilityTargets().first { if case .widget(name, _) = $0 { return true }; return false }
+        case .item(let id)?:
+            return .item(id)
+        case nil:
+            return nil
+        }
+    }
+
+    /// The element for `target`, made once and brought up to date on each ask.
+    func accessibilityElement(for target: EditorPDFFillAccessibilityElement.Target) -> EditorPDFFillAccessibilityElement {
+        let element = accessibilityElements[target] ?? {
+            let made = EditorPDFFillAccessibilityElement(target: target, overlay: self)
+            accessibilityElements[target] = made
+            return made
+        }()
+        describe(element)
+        return element
+    }
+
+    /// Its role, words, value and place, from what the overlay draws now.
+    private func describe(_ element: EditorPDFFillAccessibilityElement) {
+        guard let fill else { return }
+        switch element.target {
+        case .widget(let name, let index):
+            guard let field = fill.form.field(named: name), field.widgets.indices.contains(index) else { return }
+            let widget = field.widgets[index]
+            let refusal = fill.fieldRefusal(field)
+            var label = fill.form.label(of: field)
+            switch field.kind {
+            case .text:
+                element.setAccessibilityRole(.textField)
+                element.setAccessibilityValue(fill.text(of: field))
+            case .checkbox:
+                element.setAccessibilityRole(.checkBox)
+                element.setAccessibilityValue(NSNumber(value: fill.isOn(field) ? 1 : 0))
+            case .radio:
+                element.setAccessibilityRole(.radioButton)
+                element.setAccessibilityValue(NSNumber(value: fill.isOn(field, widget: widget) ? 1 : 0))
+                if let export = widget.exportValue { label += ", \(export)" }
+            case .choice:
+                element.setAccessibilityRole(.popUpButton)
+                element.setAccessibilityValue(fill.text(of: field))
+            case .signature, .pushButton:
+                element.setAccessibilityRole(.button)
+                element.setAccessibilityValue(nil)
+            }
+            element.setAccessibilityLabel(label)
+            element.setAccessibilityEnabled(refusal == nil)
+            element.setAccessibilityHelp(refusal)
+            element.setAccessibilityFrameInParentSpace(widgetRect(widget) ?? .zero)
+            element.setAccessibilityCustomActions(nil)
+        case .item(let id):
+            guard let item = fill.items.first(where: { $0.id == id }) else { return }
+            element.setAccessibilityRole(.button)
+            element.setAccessibilityRoleDescription("placed item")
+            element.setAccessibilityLabel(item.spokenName(among: fill.store.saved))
+            element.setAccessibilitySelected(fill.selection == id)
+            element.setAccessibilityHelp("Press to select it; then the arrow keys move it and Delete removes it")
+            element.setAccessibilityFrameInParentSpace(viewRect(item) ?? .zero)
+            var actions = [NSAccessibilityCustomAction(name: "Delete") { [weak self] in
+                guard let fill = self?.fill, fill.items.contains(where: { $0.id == id }) else { return false }
+                fill.select(id)
+                fill.deleteSelection()
+                return true
+            }]
+            if case .text = item.content {
+                actions.insert(NSAccessibilityCustomAction(name: "Edit Text") { [weak self] in
+                    guard let self, let fill = self.fill, fill.items.contains(where: { $0.id == id }) else { return false }
+                    self.window?.makeFirstResponder(self)
+                    fill.beginEditing(id)
+                    return true
+                }, at: 0)
+            }
+            element.setAccessibilityCustomActions(actions)
+        }
+    }
+
+    /// **VoiceOver's press**: what a click does — a field fills as clicked, an item is selected
+    /// with the keyboard here, for the arrows and Delete.
+    func press(_ target: EditorPDFFillAccessibilityElement.Target) -> Bool {
+        guard let fill, isActive else { return false }
+        window?.makeFirstResponder(self)
+        switch target {
+        case .widget(let name, let index):
+            guard let field = fill.form.field(named: name), field.widgets.indices.contains(index),
+                  fill.fieldRefusal(field) == nil else { return false }
+            click(FieldHit(field: field, widget: field.widgets[index]))
+        case .item(let id):
+            guard fill.items.contains(where: { $0.id == id }) else { return false }
+            fill.endFieldEditing()
+            fill.focusField(nil)
+            fill.select(id)
+        }
+        return true
+    }
+
+    /// **Tells VoiceOver where the keyboard went** — Tab onto a field or an item, a placing, a
+    /// click — so its cursor follows; and that the elements changed when a value or an item did.
+    func announceFocus() {
+        let now = focusedTarget
+        let targets = accessibilityTargets()
+        if targets != announcedTargets {
+            // A scroll refreshes too: said only when what is on screen changed.
+            announcedTargets = targets
+            accessibilityElements = accessibilityElements.filter { targets.contains($0.key) }
+            NSAccessibility.post(element: self, notification: .layoutChanged)
+        }
+        guard now != announcedTarget else { return }
+        announcedTarget = now
+        guard let now, fill?.editing == nil, fill?.editingField == nil else { return }
+        NSAccessibility.post(element: accessibilityElement(for: now), notification: .focusedUIElementChanged)
     }
 }

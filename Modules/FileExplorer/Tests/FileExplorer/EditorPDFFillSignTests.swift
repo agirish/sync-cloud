@@ -652,6 +652,9 @@ extension PDFFixtures {
         let menu = NSHostingMenu(rootView: EditorPDFFillSignMenuItems(fill: fill, tools: tools))
         menu.update()
         return menu.items.map { item in
+            // A submenu's own line reads live whatever its lines say: File ▸ Fill & Sign Tool's are
+            // `EditorPDFFillKeyboardTests`'.
+            if item.submenu != nil { return item.title + " ▸" }
             let title = (item.state == .on ? "✓ " : "") + item.title
             return item.isEnabled ? title : "(\(title))"
         }
@@ -663,25 +666,25 @@ extension PDFFixtures {
     /// `PDFMenuBarTests.fillAndSignsLinesDoWhatTheButtonAndTheSaveDo` chooses each one.
     @Test func theMenuBarsItemsFollowTheButtonAndTheToolbarsSave() async throws {
         let idle = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
-        #expect(menuLines(idle, EditorPDFTools()) == ["(Fill & Sign)", "(Save Filled Copy)"],
+        #expect(menuLines(idle, EditorPDFTools()) == ["(Fill & Sign)", "Fill & Sign Tool ▸", "(Save Filled Copy)"],
                 "a line is live with no PDF open")
 
         let (pdf, _) = try await letter()
         let fill = pdf.fill, tools = pdf.tools
-        #expect(menuLines(fill, tools) == ["Fill & Sign", "(Save Filled Copy)"])
+        #expect(menuLines(fill, tools) == ["Fill & Sign", "Fill & Sign Tool ▸", "(Save Filled Copy)"])
         fill.toggle()
-        #expect(menuLines(fill, tools) == ["✓ Fill & Sign", "(Save Filled Copy)"], "Save is live with nothing placed")
+        #expect(menuLines(fill, tools) == ["✓ Fill & Sign", "Fill & Sign Tool ▸", "(Save Filled Copy)"], "Save is live with nothing placed")
 
         fill.armed = .mark(.check)
         fill.place(at: CGPoint(x: 100, y: 100), page: 0)
-        #expect(menuLines(fill, tools) == ["✓ Fill & Sign", "Save Filled Copy"])
+        #expect(menuLines(fill, tools) == ["✓ Fill & Sign", "Fill & Sign Tool ▸", "Save Filled Copy"])
         let save = Task { await fill.save() }
         for _ in 0..<10_000 where tools.running == nil { await Task.yield() }
         try #require(tools.running != nil, "the save never began")
         // Both grey while it writes: turning it off then asked about the items being saved.
-        #expect(menuLines(fill, tools) == ["(✓ Fill & Sign)", "(Save Filled Copy)"], "a line is live while the save runs")
+        #expect(menuLines(fill, tools) == ["(✓ Fill & Sign)", "Fill & Sign Tool ▸", "(Save Filled Copy)"], "a line is live while the save runs")
         guard case .wrote = await save.value else { Issue.record("the save wrote no copy"); return }
-        #expect(menuLines(fill, tools) == ["Fill & Sign", "(Save Filled Copy)"], "the toolbar outlived the save")
+        #expect(menuLines(fill, tools) == ["Fill & Sign", "Fill & Sign Tool ▸", "(Save Filled Copy)"], "the toolbar outlived the save")
     }
 
     /// **Under a sheet both lines grey** — Add Signature's or a tool's. The menu bar stays live over
@@ -692,12 +695,12 @@ extension PDFFixtures {
         fill.toggle()
         fill.armed = .mark(.check)
         fill.place(at: CGPoint(x: 100, y: 100), page: 0)
-        #expect(menuLines(fill, tools) == ["✓ Fill & Sign", "Save Filled Copy"])
+        #expect(menuLines(fill, tools) == ["✓ Fill & Sign", "Fill & Sign Tool ▸", "Save Filled Copy"])
         fill.addingSignature = .signature
-        #expect(menuLines(fill, tools) == ["(✓ Fill & Sign)", "(Save Filled Copy)"], "live under Add Signature")
+        #expect(menuLines(fill, tools) == ["(✓ Fill & Sign)", "Fill & Sign Tool ▸", "(Save Filled Copy)"], "live under Add Signature")
         fill.addingSignature = nil
         tools.sheet = .compress
-        #expect(menuLines(fill, tools) == ["(✓ Fill & Sign)", "(Save Filled Copy)"], "live under a tool's sheet")
+        #expect(menuLines(fill, tools) == ["(✓ Fill & Sign)", "Fill & Sign Tool ▸", "(Save Filled Copy)"], "live under a tool's sheet")
     }
 
     /// **A refused file: the toggle greyed and the reason under it**, short enough for a menu — the
@@ -707,12 +710,12 @@ extension PDFFixtures {
         PDFFixtures.writeRestricted(file)
         let pdf = try await open(file)
         #expect(menuLines(pdf.fill, pdf.tools)
-                == ["(Fill & Sign)", "(\(EditorPDFFillSign.restrictedTitle))", "(Save Filled Copy)"])
+                == ["(Fill & Sign)", "(\(EditorPDFFillSign.restrictedTitle))", "Fill & Sign Tool ▸", "(Save Filled Copy)"])
 
         let locked = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
         locked.attach(path: file, boxes: pdf.fill.boxes, encryption: .lockedToOpen, allowsFilling: true)
         #expect(menuLines(locked, pdf.tools)
-                == ["(Fill & Sign)", "(\(EditorPDFTools.lockedReason))", "(Save Filled Copy)"])
+                == ["(Fill & Sign)", "(\(EditorPDFTools.lockedReason))", "Fill & Sign Tool ▸", "(Save Filled Copy)"])
     }
 
     // MARK: The overlay

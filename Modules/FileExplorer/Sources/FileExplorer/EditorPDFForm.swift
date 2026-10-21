@@ -17,10 +17,15 @@ public struct EditorPDFForm: Equatable, Sendable {
     /// Whether the form also carries XFA data. The toolkit fills the AcroForm only, and Acrobat may
     /// show the XFA data instead — said once, in the note card under the save pill.
     public var hasXFA: Bool
+    /// **Each field's own description, by its full name** — the `/TU` a form gives a field for
+    /// screen readers and tooltips ("Name (as shown on your income tax return)"). The toolkit lists
+    /// none, and a full name like `topmostSubform[0].Page1[0].f1_1[0]` says nothing to VoiceOver.
+    public var descriptions: [String: String]
 
-    public init(fields: [FormField] = [], hasXFA: Bool = false) {
+    public init(fields: [FormField] = [], hasXFA: Bool = false, descriptions: [String: String] = [:]) {
         self.fields = fields
         self.hasXFA = hasXFA
+        self.descriptions = descriptions
     }
 
     public static let none = EditorPDFForm()
@@ -36,6 +41,14 @@ public struct EditorPDFForm: Equatable, Sendable {
 
     public func field(named name: String) -> FormField? { fields.first { $0.name == name } }
 
+    /// **What VoiceOver calls a field**: its description, else the last part of its name without
+    /// the `[0]` a designer's tool adds — "f1_1", "name".
+    public func label(of field: FormField) -> String {
+        if let description = descriptions[field.name] { return description }
+        let last = field.name.split(separator: ".").last.map(String.init) ?? field.name
+        return last.replacingOccurrences(of: #"\[\d+\]$"#, with: "", options: .regularExpression)
+    }
+
     // MARK: Reading, in the lane
 
     /// Called inside the lane only, on the document the load just opened. **Cheap for a file with no
@@ -48,7 +61,38 @@ public struct EditorPDFForm: Equatable, Sendable {
         let hasXFA = CGPDFDictionaryGetObject(acroForm, "XFA", &xfa)
         // A file locked to open throws `encryptedInput` here — and Fill & Sign is refused for it.
         let listed = (try? PDFToolkit.formFields(at: url)) ?? []
-        return EditorPDFForm(fields: listed, hasXFA: hasXFA && !listed.isEmpty)
+        return EditorPDFForm(fields: listed, hasXFA: hasXFA && !listed.isEmpty,
+                             descriptions: listed.isEmpty ? [:] : descriptions(in: acroForm))
+    }
+
+    /// Every field's `/TU`, by the full name the toolkit gives it — the partial `/T`s from the top
+    /// of `/Fields` down, joined by periods. A kid without a `/T` is a widget of its parent.
+    nonisolated static func descriptions(in acroForm: CGPDFDictionaryRef) -> [String: String] {
+        var out: [String: String] = [:]
+        func text(_ dictionary: CGPDFDictionaryRef, _ key: String) -> String? {
+            var string: CGPDFStringRef?
+            guard CGPDFDictionaryGetString(dictionary, key, &string), let string else { return nil }
+            return CGPDFStringCopyTextString(string) as String?
+        }
+        func walk(_ array: CGPDFArrayRef, parent: String?, depth: Int) {
+            // A form whose kids loop back on themselves stops here.
+            guard depth < 32 else { return }
+            for index in 0..<CGPDFArrayGetCount(array) {
+                var node: CGPDFDictionaryRef?
+                guard CGPDFArrayGetDictionary(array, index, &node), let node else { continue }
+                let name = text(node, "T").map { partial in parent.map { "\($0).\(partial)" } ?? partial } ?? parent
+                if let name, out[name] == nil,
+                   let description = text(node, "TU")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !description.isEmpty {
+                    out[name] = description
+                }
+                var kids: CGPDFArrayRef?
+                if CGPDFDictionaryGetArray(node, "Kids", &kids), let kids { walk(kids, parent: name, depth: depth + 1) }
+            }
+        }
+        var fields: CGPDFArrayRef?
+        if CGPDFDictionaryGetArray(acroForm, "Fields", &fields), let fields { walk(fields, parent: nil, depth: 0) }
+        return out
     }
 
     /// The catalog's `/AcroForm`, when it lists at least one field — or `nil`.

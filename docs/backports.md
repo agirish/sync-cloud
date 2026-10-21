@@ -7946,3 +7946,28 @@ done
 |---|---|---|
 | `v5.x` | The mode capsule, rail tabs and Autosave switch on the raw accent (`rawFills=5`); `AccentFill` is there to take | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace (`editMode=0`), so nothing to fill | CLOSED — does not apply |
+
+---
+
+## Fill & Sign by keyboard alone and with VoiceOver — main only
+
+File ▸ Fill & Sign Tool holds the palette's tools; with one chosen, Return places its item in the
+middle of the page on screen; Tab walks a form's fields, then what is placed; the overlay is a
+VoiceOver group of each field's widget and each placed item, with values, presses and actions;
+saved drawn signatures are named by number and pen; deleting one asks first; Add Signature opens on
+Type. All in Edit's Fill & Sign, which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s fillSign=%s overlay=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSign.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillOverlay.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-20, against origin, before this landed:
+# main  fillSign=1 overlay=1
+# v5.x, v4.x, v3.x, v2.x — 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign in Edit (`fillSign=0`), so nothing to reach by keyboard | CLOSED — does not apply |

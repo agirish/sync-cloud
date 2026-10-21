@@ -13,7 +13,10 @@ struct EditorPDFAddSignatureSheet: View {
     let fill: EditorPDFFillSign
     let kind: EditorPDFSignature.Kind
     @Environment(\.dismiss) private var dismiss
-    @State private var typing = false
+    /// **Opens on Type, the caret in the name field** (decision BC, 2026-10-20): on Draw, as it
+    /// opened, there was no key to reach Type without the Mac's Keyboard navigation setting.
+    @State private var typing = true
+    @FocusState private var nameFocused: Bool
     @State private var strokes: [[CGPoint]] = []
     @State private var typed = ""
     @State private var keep = true
@@ -119,6 +122,8 @@ struct EditorPDFAddSignatureSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             TextField(kind == .signature ? "Your name" : "Your initials", text: $typed)
                 .textFieldStyle(.roundedBorder)
+                .focused($nameFocused)
+                .onAppear { nameFocused = true }
             Text(typed.isEmpty ? " " : typed)
                 .font(Font(PDFToolkit.font(size: face == .zapfino ? 22 : 34, script: true, font: face.toolkit)))
                 .foregroundStyle(Color(nsColor: ink.nsColor))

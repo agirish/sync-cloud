@@ -297,6 +297,21 @@ public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
         name.split(whereSeparator: \.isWhitespace).compactMap { $0.first(where: \.isLetter) }
             .prefix(3).map { $0.uppercased() }.joined()
     }
+
+    /// **What VoiceOver and the menus call it** (decision BD, 2026-10-20): a typed one by its words;
+    /// a drawn one by its place among the drawn ones of its kind in `saved` — newest first, as the
+    /// menus list them — and its pen: "Drawn signature 2, bold pen". Every drawn one was read as
+    /// "Drawn signature", so two could not be told apart, in the menu or in its Delete submenu.
+    public func spokenName(among saved: [EditorPDFSignature]) -> String {
+        guard case .drawn = look else {
+            if case .typed(let words) = look { return words }
+            return kind.title
+        }
+        let drawn = saved.filter { $0.kind == kind && { if case .drawn = $0.look { return true }; return false }($0) }
+        let word = "Drawn \(kind.title.lowercased())"
+        guard let at = drawn.firstIndex(where: { $0.id == id }) else { return word }
+        return "\(word) \(at + 1), \(pen.title.lowercased()) pen"
+    }
 }
 
 /// One thing placed on a page with Fill & Sign — not written anywhere until Save Filled Copy.
@@ -367,6 +382,19 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
     }
 
     public var isSignature: Bool { signature != nil }
+
+    /// **What VoiceOver calls it**: "Check Mark", "Text, Lease ends 1 May", "Signature, Ada Quill",
+    /// or a drawn one by its name among `saved` (``EditorPDFSignature/spokenName(among:)``).
+    public func spokenName(among saved: [EditorPDFSignature]) -> String {
+        switch content {
+        case .text(let string):
+            if let mark = EditorPDFFillMark(rawValue: string) { return mark.title }
+            return string.isEmpty ? "Text, empty" : "Text, \(string)"
+        case .signature(let signature):
+            if case .typed(let words) = signature.look { return "\(signature.kind.title), \(words)" }
+            return signature.spokenName(among: saved)
+        }
+    }
 
     public var hasInk: Bool {
         switch content {
@@ -602,6 +630,11 @@ public final class EditorPDFFillSign: ObservableObject {
     }
 
     public enum LeaveAnswer: Sendable { case save, discard, cancel }
+
+    /// Asks before a saved signature is deleted — an alert in the app, a canned answer in a test.
+    public var confirmDeletingSaved: @MainActor (_ signature: EditorPDFSignature, _ name: String) -> Bool = { signature, name in
+        EditorPDFFillSign.deleteSavedAlert(signature, name: name).runModal() == .alertSecondButtonReturn
+    }
 
     static let defaultFontSize: CGFloat = 12
     static let fontSizes: [CGFloat] = [6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 72]
@@ -858,6 +891,66 @@ public final class EditorPDFFillSign: ObservableObject {
         guard armed == .formFields || offersPlacing else { return nil }
         endEditing()
         endFieldEditing()
+        guard let (made, name) = armedItem(page: page) else { return nil }
+        var item = made
+        let extent = Self.extent(of: item)
+        item.rect = Self.placedRect(extent: extent, at: point, caret: armed == .text, in: box)
+        if case .text = armed {
+            // Placed for typing: its undo step is taken when the typing ends, and an item left
+            // empty goes as though it was never placed.
+            editBefore = items
+            items.append(item)
+            editing = item.id
+        } else {
+            change(name) { $0.append(item) }
+            if case .signature = armed { self.armed = nil }
+        }
+        selection = item.id
+        lastPlaced = item.id
+        return item.id
+    }
+
+    /// **The item placed last, while it is still the one selected by placing it** — Return on it
+    /// places another rather than typing into it (decision BA). Let go by a click or Tab onto any item.
+    public private(set) var lastPlaced: UUID?
+
+    /// Where an item of `extent` goes for a point on the page: text from the point, as a caret
+    /// lands; anything else centred on it — kept on the page.
+    static func placedRect(extent: CGSize, at point: CGPoint, caret: Bool, in box: EditorPDFPageBox) -> CGRect {
+        let origin = caret ? CGPoint(x: point.x - 2, y: point.y - extent.height / 2)
+                           : CGPoint(x: point.x - extent.width / 2, y: point.y - extent.height / 2)
+        return FillSignGeometry.clamped(CGRect(origin: origin, size: extent), in: box.displayBounds)
+    }
+
+    /// **Return with a tool chosen** (decision BA, 2026-10-20): the item at `center` — the middle of
+    /// what can be seen of `page`, which the overlay works out — selected, so the arrows move it and
+    /// a text box takes the typing. **Not on top of one already there**: it goes just below what it
+    /// would cover, and below that, so a second Return with Date still chosen is seen as a second date.
+    @discardableResult
+    public func placeFromKeyboard(around center: CGPoint, page: Int) -> UUID? {
+        guard isOn, let armed, armed != .formFields, offersPlacing, let box = box(page),
+              let (item, _) = armedItem(page: page) else { return nil }
+        endEditing()
+        let extent = Self.extent(of: item)
+        var point = center
+        for _ in 0..<64 {
+            let rect = Self.placedRect(extent: extent, at: point, caret: armed == .text, in: box)
+            guard let covered = items.filter({ $0.page == page && $0.rect.intersects(rect) })
+                    .min(by: { $0.rect.minY < $1.rect.minY }) else { break }
+            // Display space runs up the page: below is a smaller y.
+            let next = covered.rect.minY - Self.keyboardGap - extent.height / 2
+            guard next < point.y - 0.5, next - extent.height / 2 >= box.displayBounds.minY else { break }
+            point.y = next
+        }
+        return place(at: point, page: page)
+    }
+
+    /// The room between an item placed from the keyboard and the one it would have covered.
+    static let keyboardGap: CGFloat = 4
+
+    /// The armed tool's item, not yet anywhere, and its undo name.
+    private func armedItem(page: Int) -> (EditorPDFFillItem, String)? {
+        guard let armed else { return nil }
         let content: EditorPDFFillItem.Content
         var size: CGFloat = fontSize
         var font = textFont
@@ -885,27 +978,7 @@ public final class EditorPDFFillSign: ObservableObject {
             }
             name = "Place \(signature.kind.title)"
         }
-        var item = EditorPDFFillItem(page: page, rect: .zero, content: content, fontSize: size, color: color, font: font)
-        let extent = Self.extent(of: item)
-        let origin: CGPoint
-        if case .text = armed {
-            origin = CGPoint(x: point.x - 2, y: point.y - extent.height / 2)
-        } else {
-            origin = CGPoint(x: point.x - extent.width / 2, y: point.y - extent.height / 2)
-        }
-        item.rect = FillSignGeometry.clamped(CGRect(origin: origin, size: extent), in: box.displayBounds)
-        if case .text = armed {
-            // Placed for typing: its undo step is taken when the typing ends, and an item left
-            // empty goes as though it was never placed.
-            editBefore = items
-            items.append(item)
-            editing = item.id
-        } else {
-            change(name) { $0.append(item) }
-            if case .signature = armed { self.armed = nil }
-        }
-        selection = item.id
-        return item.id
+        return (EditorPDFFillItem(page: page, rect: .zero, content: content, fontSize: size, color: color, font: font), name)
     }
 
     /// The size an item takes: its words' box, or a drawn signature at its placing width.
@@ -928,6 +1001,10 @@ public final class EditorPDFFillSign: ObservableObject {
     public func beginEditing(_ id: UUID) {
         guard let item = items.first(where: { $0.id == id }), case .text = item.content else { return }
         endEditing()
+        // **One thing types at a time**: a form field left typing took the keyboard straight back,
+        // and the text box closed as it opened.
+        endFieldEditing()
+        focusedField = nil
         editBefore = items
         editing = id
         selection = id
@@ -1140,24 +1217,51 @@ public final class EditorPDFFillSign: ObservableObject {
         changeValues("Choose Option") { $0.set(.choice(option), for: field) }
     }
 
-    /// **Tab and ⇧Tab: the next fillable field in document order**, round from the last to the first.
-    /// A text field takes the typing straight away, as Acrobat's does.
+    /// One stop on Tab's ring.
+    public enum TabStop: Equatable, Sendable {
+        case field(String)
+        case item(UUID)
+    }
+
+    /// **Tab's ring** (decision BB, 2026-10-20): the fillable fields in the form's own order, then
+    /// what is placed, in the order it was placed. A file with no form has the items alone.
+    public var tabStops: [TabStop] {
+        guard isOn else { return [] }
+        let fields = allowsFormEntry ? form.fillable.map { TabStop.field($0.name) } : []
+        return fields + items.map { .item($0.id) }
+    }
+
+    /// Where the keyboard is on the ring: the field it is on, else the item selected.
+    public var tabStop: TabStop? {
+        if let name = editingField ?? focusedField { return .field(name) }
+        return selection.map(TabStop.item)
+    }
+
+    /// **Tab and ⇧Tab: the next stop on the ring**, round from the last to the first. A text field
+    /// takes the typing straight away, as Acrobat's does; an item is selected, for the arrows,
+    /// Delete and Return. Typing in a text box ends first — an empty one goes, off the ring.
     public func focusNext(forward: Bool = true) {
-        guard allowsFormEntry else { return }
-        let order = form.fillable.map(\.name)
-        guard !order.isEmpty else { return }
-        let next: String
-        if let current = focusedField, let at = order.firstIndex(of: current) {
-            next = order[(at + (forward ? 1 : order.count - 1)) % order.count]
+        endEditing()
+        let ring = tabStops
+        guard !ring.isEmpty else { return }
+        let next: TabStop
+        if let current = tabStop, let at = ring.firstIndex(of: current) {
+            next = ring[(at + (forward ? 1 : ring.count - 1)) % ring.count]
         } else {
-            next = forward ? order[0] : order[order.count - 1]
+            next = forward ? ring[0] : ring[ring.count - 1]
         }
         endFieldEditing()
+        switch next {
         // Only a text field: an editable combo gets the keyboard, and its menu offers the typing.
-        if let field = form.field(named: next), case .text = field.kind {
-            beginFieldEditing(next)
-        } else {
-            focusField(next)
+        case .field(let name):
+            if let field = form.field(named: name), case .text = field.kind {
+                beginFieldEditing(name)
+            } else {
+                focusField(name)
+            }
+        case .item(let id):
+            focusField(nil)
+            select(id)
         }
     }
 
@@ -1188,7 +1292,13 @@ public final class EditorPDFFillSign: ObservableObject {
 
     public func select(_ id: UUID?) {
         if editing != nil, editing != id { endEditing() }
+        if id != nil {
+            // The keyboard is on the item now, not on a field.
+            endFieldEditing()
+            focusedField = nil
+        }
         selection = id
+        lastPlaced = nil
     }
 
     public func deleteSelection() {
@@ -1309,6 +1419,29 @@ public final class EditorPDFFillSign: ObservableObject {
         }
         color = ink
         armed = .signature(signature)
+    }
+
+    /// **Delete a Saved Signature asks first** (decision BE, 2026-10-20): it took effect on the
+    /// choice, with no way back, and from the keyboard or VoiceOver the wrong line is easy to land on.
+    public func deleteSaved(_ signature: EditorPDFSignature) {
+        guard confirmDeletingSaved(signature, signature.spokenName(among: store.saved)) else { return }
+        store.delete(signature.id)
+    }
+
+    /// The question, built but not run — a test reads its buttons. **Cancel is the default**, so
+    /// Return keeps the signature; Delete is marked destructive.
+    static func deleteSavedAlert(_ signature: EditorPDFSignature, name: String) -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = "Delete the saved \(signature.kind == .signature ? "signature" : "initials") “\(name)”?"
+        alert.informativeText = "What you’ve already placed on a page stays. This can’t be undone."
+        if let picture = EditorPDFSignatureMenu.image(signature, height: 48) { alert.icon = picture }
+        let cancel = alert.addButton(withTitle: "Cancel")
+        let delete = alert.addButton(withTitle: "Delete")
+        // Set here, not left to the alert, which hands them out only as it runs.
+        cancel.keyEquivalent = "\r"
+        delete.keyEquivalent = ""
+        delete.hasDestructiveAction = true
+        return alert
     }
 
     /// **Whether Add Signature offers to make initials too** (TE94): for a signature, while no

@@ -732,6 +732,9 @@ extension PDFFixtures {
         let menu = NSHostingMenu(rootView: EditorPDFFillSignMenuItems(fill: pdf.fill, tools: pdf.tools))
         menu.update()
         return menu.items.map { item in
+            // A submenu's own line reads live whatever its lines say: File ▸ Fill & Sign Tool's are
+            // `EditorPDFFillKeyboardTests`'.
+            if item.submenu != nil { return item.title + " ▸" }
             let title = (item.state == .on ? "✓ " : "") + item.title
             return item.isEnabled ? title : "(\(title))"
         }
@@ -742,9 +745,9 @@ extension PDFFixtures {
     @Test func theMenuBarsSaveFollowsTheToolbarsForAForm() async throws {
         let (pdf, _) = try await form()
         pdf.fill.toggle()
-        #expect(menuLines(pdf) == ["✓ Fill & Sign", "(Save Filled Copy)"])
+        #expect(menuLines(pdf) == ["✓ Fill & Sign", "Fill & Sign Tool ▸", "(Save Filled Copy)"])
         pdf.fill.toggleCheckbox("subscribe")
-        #expect(menuLines(pdf) == ["✓ Fill & Sign", "Save Filled Copy"], "a changed field left Save greyed")
+        #expect(menuLines(pdf) == ["✓ Fill & Sign", "Fill & Sign Tool ▸", "Save Filled Copy"], "a changed field left Save greyed")
 
         let file = path("Turned.pdf")
         try PDFFixtures.writeRotatedForm(file)
@@ -752,7 +755,7 @@ extension PDFFixtures {
         turned.fill.toggle()
         turned.fill.armed = .mark(.check)
         turned.fill.place(at: CGPoint(x: 200, y: 200), page: 0)
-        #expect(menuLines(turned) == ["✓ Fill & Sign", "(Save Filled Copy)"], "Save is live for what it would refuse")
+        #expect(menuLines(turned) == ["✓ Fill & Sign", "Fill & Sign Tool ▸", "(Save Filled Copy)"], "Save is live for what it would refuse")
     }
 
     /// **A greyed Save says why** — the note card's sentence as the button's tooltip, where it said

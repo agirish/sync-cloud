@@ -582,7 +582,7 @@ enum EditorPDFSignatureMenu {
         label.isEnabled = false
         menu.addItem(label)
         for signature in saved {
-            menu.addItem(item(signature) { fill.armed = .signature(signature) })
+            menu.addItem(item(signature, among: saved) { fill.armed = .signature(signature) })
         }
         menu.addItem(.separator())
         menu.addItem(EditorClosureMenuItem(title: "Add \(kind.title)…") { fill.addingSignature = kind })
@@ -590,7 +590,8 @@ enum EditorPDFSignatureMenu {
             let delete = NSMenuItem(title: "Delete a Saved \(kind.title)", action: nil, keyEquivalent: "")
             let submenu = NSMenu()
             for signature in saved {
-                submenu.addItem(item(signature) { fill.store.delete(signature.id) })
+                // Asks first (decision BE).
+                submenu.addItem(item(signature, among: saved) { fill.deleteSaved(signature) })
             }
             delete.submenu = submenu
             menu.addItem(delete)
@@ -598,8 +599,10 @@ enum EditorPDFSignatureMenu {
         return menu
     }
 
-    /// A saved signature as a menu line: typed ones in the script face, drawn ones as a picture.
-    static func item(_ signature: EditorPDFSignature, act: @escaping () -> Void) -> NSMenuItem {
+    /// A saved signature as a menu line: typed ones in the script face, drawn ones as a picture
+    /// that VoiceOver reads by its number and pen among `saved` (decision BD).
+    static func item(_ signature: EditorPDFSignature, among saved: [EditorPDFSignature],
+                     act: @escaping () -> Void) -> NSMenuItem {
         let item = EditorClosureMenuItem(title: signature.kind.title, act: act)
         switch signature.look {
         case .typed(let string):
@@ -609,7 +612,8 @@ enum EditorPDFSignatureMenu {
         case .drawn:
             item.image = image(signature, height: 24)
             item.title = ""
-            item.setAccessibilityLabel("Drawn \(signature.kind.title.lowercased())")
+            item.setAccessibilityLabel(signature.spokenName(among: saved))
+            item.toolTip = signature.spokenName(among: saved)
         }
         return item
     }
