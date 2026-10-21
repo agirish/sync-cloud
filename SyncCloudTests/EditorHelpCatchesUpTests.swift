@@ -42,7 +42,13 @@ import Testing
         ] {
             #expect(text.contains(phrase), "Help no longer says “\(phrase)”")
         }
-        for gone in ["the two find items", "funnel"] {
+        // TE144: the header's buttons by their words, and the rule they shed them by.
+        for phrase in ["then Expand and Close;", "Close, at the right-hand end of that row, closes the file",
+                       "New Text File, Find, Files and Close drop their words together",
+                       "Find, beside the Source/Preview/Split buttons,"] {
+            #expect(text.contains(phrase), "Help no longer says “\(phrase)”")
+        }
+        for gone in ["the two find items", "funnel", "The × at the right-hand end", "The magnifying glass beside"] {
             #expect(!text.contains(gone), "Help still says “\(gone)”")
         }
     }

@@ -66,8 +66,8 @@ import FileExplorerTestSupport
         let workspace = EditorWorkspaceView.fixture(pdf: pdf).readingSettings(from: defaults)
         return EditorDocumentHeader {
             EditorPDFHeader(pdf: pdf, accent: .blue, accentFill: .blue, onAccent: .white, onRevealInBrowse: { _ in },
-                            rowActions: .inert, onClose: {}) {
-                workspace.expandButton(worded: false)
+                            rowActions: .inert, onClose: {}) { rung in
+                workspace.expandButton(worded: rung.isWorded)
             }
             .nameRow(rung)
         }

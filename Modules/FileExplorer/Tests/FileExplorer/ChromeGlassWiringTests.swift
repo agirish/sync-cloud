@@ -72,9 +72,13 @@ import Foundation
 
     @Test func editsBarsWearGlass() throws {
         let editor = try Self.source("EditorWorkspaceView.swift")
-        // ＋/Find/Just-the-text in the document's header and ＋ in the empty page's — one capsule each.
-        #expect(Self.count(".chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)", in: editor) == 2)
-        #expect(editor.contains(".chromeGlassGlyphButton(tint: accent, outset: ChromeGlass.smallGlyphOutset)"),
+        // A capsule per header button since TE144: New Text File and Find no longer share one, so
+        // the header draws no glass group at all.
+        #expect(Self.count(".chromeGlassGroup(", in: editor) == 0, "two of the header's buttons share a capsule again")
+        #expect(Self.count(".chromeGlassGlyphButton(tint: accent, shape: .capsule, outset: ChromeGlass.smallGlyphOutset)", in: editor) == 3,
+                "New Text File, Find and Expand do not each wear their own glass capsule")
+        #expect(try Self.source("EditorHeaderChips.swift")
+                    .contains(".chromeGlassGlyphButton(tint: accent, shape: .capsule, outset: ChromeGlass.smallGlyphOutset)"),
                 "Close lost its glass")
         let rail = try Self.source("EditorFileRailView.swift")
         #expect(rail.contains(".chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)"))

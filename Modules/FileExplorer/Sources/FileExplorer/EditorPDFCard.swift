@@ -10,8 +10,9 @@ import Sync
 /// and what acts on it, and nothing that moves on a page turn.
 ///
 /// **One button style for the three** (``EditorPDFActionStyle``): a bezel, kept when the word goes,
-/// so the actions read as one group however narrow the column. Expand and × after the divider stay
-/// plain glyphs — they are about the window, not the file.
+/// so the actions read as one group however narrow the column. Expand and Close after the divider
+/// wear the text header's glass capsules instead — they are about the window, not the file — and
+/// shed their words on the same rung as these (TE144).
 struct EditorPDFHeaderControls: View {
     let find: EditorPDFFind
     let fill: EditorPDFFillSign
@@ -447,7 +448,9 @@ struct EditorPDFHeader<Trailing: View>: View {
     /// The Files list's row menu, which the name's right-click offers too (TE112).
     let rowActions: EditorRailRowActions
     let onClose: () -> Void
-    @ViewBuilder let trailing: Trailing
+    /// What sits between the divider and Close — the workspace's Expand — drawn at the row's rung,
+    /// so it keeps or sheds its word with Find, Fill & Sign, Tools and Close (TE144).
+    @ViewBuilder let trailing: (EditorPDFHeaderControls.Rung) -> Trailing
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -498,23 +501,17 @@ struct EditorPDFHeader<Trailing: View>: View {
                     .frame(width: 1, height: 16)
                     .accessibilityHidden(true)
             }
-            trailing
+            trailing(rung)
             // **The row's height is the text header's**: a hidden mode capsule — the tallest thing
-            // in a text file's name row, which a plain-text file reserves the same way — under the
-            // ×, at no width. In a ZStack rather than in the row, so it adds no spacing either.
+            // in a text file's name row, which a plain-text file reserves the same way — under
+            // Close, at no width. In a ZStack rather than in the row, so it adds no spacing either.
             ZStack {
                 EditorModeBar(mode: .constant(.edit), accentFill: accentFill, onAccent: onAccent)
                     .environment(\.selectionLensAppearance, .today)
                     .hidden()
                     .frame(width: 0)
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .frame(width: 18, height: 18)
-                }
-                .chromeGlassGlyphButton(tint: accent, outset: ChromeGlass.smallGlyphOutset)
-                .accessibilityLabel(EditorWorkspaceView.closeTitle(name: pdf.name))
-                .help("Close this document")
+                // "× Close" with the actions' words, × without them — the text header's Close.
+                EditorCloseChip(name: pdf.name, worded: rung.isWorded, accent: accent, action: onClose)
             }
             .chromeGlassClearance(.leading, rowSpacing: 6)
         }

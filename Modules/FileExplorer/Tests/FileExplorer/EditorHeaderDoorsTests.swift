@@ -29,6 +29,18 @@ import FileExplorerTestSupport
         try TestTextFiles.document(named: name)
     }
 
+    /// **A bare header button's width** — ``EditorHeaderChipLabel`` without its word, the 18pt the
+    /// ＋, Find, Expand and the × have always drawn. Read off the label, never off the row: since
+    /// TE144 the row's first button is "＋ New Text File" on the widest rung, and a baseline read from
+    /// it measured a worded chip.
+    static var bareChip: CGFloat {
+        NSHostingView(rootView: EditorHeaderChipLabel(symbol: "plus")).fittingSize.width
+    }
+
+    /// Wide enough that every header in these tests is on its worded rung — so two headers compared
+    /// pixel for pixel are on the same rung.
+    static let wide = CGSize(width: 1_400, height: 48)
+
     /// Runs `body` with Edit in Preview set to `editing` — on by default (v5.5), which keeps Find in
     /// Preview. `headerContent` is rendered off a workspace in no view hierarchy, so the store reaches
     /// it through ``EditorWorkspaceView/readingSettings(from:)``, not `.defaultAppStorage`.
@@ -83,9 +95,9 @@ import FileExplorerTestSupport
     @Test func theEmptyPageKeepsThePlusAndOnlyALitExpand() throws {
         let doc = try document(named: "note.md")
         let empty = EditorDocument()
-        let unlit = try #require(Rendered(workspace(empty, newTextFile: {}).headerCard))
-        let lit = try #require(Rendered(workspace(empty, railIsHidden: true, newTextFile: {}).headerCard))
-        let open = try #require(Rendered(workspace(doc, railIsHidden: true, newTextFile: {}).headerCard))
+        let unlit = try #require(Rendered(workspace(empty, newTextFile: {}).headerCard, size: Self.wide))
+        let lit = try #require(Rendered(workspace(empty, railIsHidden: true, newTextFile: {}).headerCard, size: Self.wide))
+        let open = try #require(Rendered(workspace(doc, railIsHidden: true, newTextFile: {}).headerCard, size: Self.wide))
         #expect(unlit.nameRowRings.count == 1, "the empty page draws \(unlit.nameRowRings.count) buttons with the rail showing — the ＋ alone expected")
         try #require(lit.nameRowRings.count == 2, "the empty page draws \(lit.nameRowRings.count) buttons under Expand — the ＋ and the lit Files button expected")
         let openRow = open.nameRowRings
@@ -158,7 +170,7 @@ import FileExplorerTestSupport
     /// stripped, so prose describing the wiring cannot satisfy it. Mutations: an empty action, or
     /// `.disabled(false)`, each fail one line.
     @Test func thePlusCallsTheNewFileClosureAndGreysWithoutOne() throws {
-        let chain = try Self.chain(from: "Image(systemName: \"plus\")", in: Self.headerSource())
+        let chain = try Self.chain(from: "EditorHeaderChipLabel(symbol: \"plus\"", in: Self.headerSource())
         #expect(chain.contains("onNewTextFile?()"), "the header's ＋ does not call the ⌘N closure")
         #expect(chain.contains(".foregroundStyle(onNewTextFile == nil"), "the header's ＋ no longer LOOKS greyed without a folder")
         #expect(chain.contains(".disabled(onNewTextFile == nil)"), "the header's ＋ no longer greys without a folder")
@@ -185,7 +197,9 @@ import FileExplorerTestSupport
         let preview = try #require(withEditInPreview(false) { Rendered(workspace(doc, mode: .preview).headerContent) })
         let row = edit.nameRowRings
         try #require(row.count >= 7, "the name row draws \(row.count) buttons — ＋, Find, three segments, Expand and × expected")
+        // At 520pt "note.md" is on the bare-buttons rung, so the × is a glyph like the ＋.
         let glyph = row[0].width
+        try #require(abs(glyph - Self.bareChip) <= 2, "the ＋ is \(glyph)pt — not on the bare rung, so the × is not a glyph either")
         let last = try #require(row.last)
         #expect(abs(last.width - glyph) <= 2,
                 "the last button is \(last.width)pt wide, not a glyph like the ＋ (\(glyph)pt) — the × is not last")
@@ -203,7 +217,8 @@ import FileExplorerTestSupport
     /// one button, drawing the pixels the open header's ＋ drew, and no Find, capsule or ×.
     @Test func aClosedDocumentLeavesTheEmptyPageWithThePlusAlone() throws {
         let doc = try document(named: "note.md")
-        let size = CGSize(width: 600, height: 300)
+        // Wide, so the open header and the empty page are both on the worded rung.
+        let size = CGSize(width: 1_600, height: 300)
         let open = try #require(Rendered(workspace(doc).editorTestDefaults(defaults), size: size))
         let openRow = open.nameRowRings
         try #require(openRow.count >= 7, "the open document drew \(openRow.count) header buttons — the control is about nothing")
@@ -221,13 +236,16 @@ import FileExplorerTestSupport
     /// in `if resolvedMode != .preview` each fail.
     @Test func theCloseButtonCallsTheHostsClose() throws {
         let code = try Self.headerSource()
-        let chain = try Self.chain(from: "Image(systemName: \"xmark\")", in: code)
-        #expect(chain.contains("Button(action: onCloseDocument)"), "the header's × does not call the host's close")
-        #expect(chain.contains("Self.closeTitle(name: document.name)"), "the × no longer names the file")
+        let flat = code.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        #expect(flat.contains("EditorCloseChip(name: document.name, worded: reading.chipsWorded, accent: accent, action: onCloseDocument)"),
+                "the header's Close does not call the host's close, name the file, or wear the row's rung")
+        let chip = try ChromeGlassWiringTests.source("EditorHeaderChips.swift")
+        #expect(chip.contains("Button(action: action)"), "Close's chip does not run the action it is given")
+        #expect(chip.contains(".accessibilityLabel(EditorWorkspaceView.closeTitle(name: name))"), "Close no longer names the file")
         let header = try #require(code.range(of: "var headerContent: some View"))
         let capsule = try #require(code.range(of: "EditorModeBar(", range: header.upperBound..<code.endIndex))
-        let xmark = try #require(code.range(of: "\"xmark\"", range: header.upperBound..<code.endIndex))
-        #expect(capsule.lowerBound < xmark.lowerBound, "the × is declared before the capsule")
+        let close = try #require(code.range(of: "EditorCloseChip(", range: header.upperBound..<code.endIndex))
+        #expect(capsule.lowerBound < close.lowerBound, "Close is declared before the capsule")
     }
 
     // MARK: What the two glyphs cost the file name
@@ -302,14 +320,16 @@ import FileExplorerTestSupport
     static let floorWindowDocumentColumn: CGFloat = 390
 
     /// **The floor at the narrowest column (260pt), at all four text sizes: the name is DRAWN — at
-    /// least 6pt of ink, which is its ellipsis.** Measured 10 · 11 · 12 · 10pt.
+    /// least 5pt of ink, which is its ellipsis.** Measured 10 · 11 · 12 · 10pt at Solid; under glass
+    /// 10 · 11 · 9 · 5.5pt since TE144 (2026-10-20) gave New Text File and Find a capsule each, and
+    /// the 4pt between their glass is paid by the name here. It was 6 until then.
     ///
     /// Why no higher: at 260 the capsule is already icons-only, so the words are not there to give
     /// up, and the only other way to buy the name back is to drop or fold a glyph — which the
     /// round-2 decision ruled out ("everything else stays"). So the floor pins what that decision
     /// leaves: a name that is never pushed out entirely (a pushed-out name draws no ink at all, and
     /// that is what the worded capsule does here) and cannot get silently worse than its ellipsis.
-    static let minimumNameInkAtTheNarrowestColumn: CGFloat = 6
+    static let minimumNameInkAtTheNarrowestColumn: CGFloat = 5
 
     /// At the floor-window column the name keeps a real run of characters either side of the
     /// ellipsis. Measured 134–153pt; 60 is roughly ten characters.
@@ -346,8 +366,11 @@ import FileExplorerTestSupport
                                           size: CGSize(width: width, height: 60), fontScale: scale))
             let row = r.nameRowRings
             let first = try #require(row.first, "no buttons at \(column)pt, \(scale)")
-            // A worded segment is far wider than two glyph buttons; an icon segment is not.
-            let worded = row.contains { $0.width > 2 * first.width }
+            // A worded segment is far wider than two glyph buttons; an icon segment is not. The
+            // capsule's three segments sit after New Text File and Find.
+            try #require(row.count == 7, "\(row.count) buttons at \(column)pt, \(scale)")
+            let glyph = Self.bareChip
+            let worded = row[2..<5].contains { $0.width > 2 * glyph }
             let band = CGRect(x: nameStart, y: first.minY, width: first.minX - nameStart, height: first.height)
             return (worded, (r.inkRight(in: band) ?? nameStart) - nameStart)
         }
@@ -379,75 +402,75 @@ import FileExplorerTestSupport
         print("[words] \(report.joined(separator: " "))")
     }
 
-    /// **Expand's word (TE48) is drawn only when the WHOLE name fits beside every word — and it is
-    /// shed before the capsule's.** The name row's rungs are every word, then the capsule's words
-    /// alone, then none (`EditorWorkspaceView.nameRowRungs`), so at no column may Expand wear its
-    /// word while the capsule has lost its own, and wherever it wears it the long name's ink is the
-    /// whole name.
+    /// **The buttons' words (TE48, TE144) are drawn only when the WHOLE name fits beside every word —
+    /// all four together, and shed before the capsule's.** The name row's rungs are every word, then
+    /// the capsule's words alone, then none (`EditorWorkspaceView.nameRowRungs`), so at no column may
+    /// a button wear its word while the capsule has lost its own, no column draws some buttons worded
+    /// and others bare, and wherever they wear them the long name's ink is the whole name.
     ///
-    /// **Measured 2026-10-03** on the 55-character `.md` name: the worded Expand is 63 · 67 · 79 · 83pt
-    /// wide across Small · Default · Large · Largest against the 18pt glyph, and its word comes back
-    /// over the WHOLE name at **760 · 800 · 900 · 940pt** — 40–60pt after the capsule's own words
-    /// (720 · 760 · 840 · 880, `theCapsuleKeepsItsWordsOnlyWhenTheWholeNameFits`). So every size has
-    /// a band where the capsule is worded and Expand is not, which is "shed first" seen on screen;
-    /// the columns below are each size's boundary and the one beneath it, plus 700.
+    /// The columns run past where the words come back at Largest: since TE144 four buttons carry
+    /// words, not Expand alone, so that column moved out — the test prints where each size's words
+    /// return. A band where the capsule is worded and the buttons are not is "shed first", seen.
     ///
-    /// Mutations: put the glyph-Expand rung before the worded one (the word never shows), or give
-    /// the glyph-only capsule a worded Expand (the word outlives the capsule's) — each fails.
+    /// Mutations: put the bare-buttons rung before the worded one (the words never show), give the
+    /// glyph-only capsule worded buttons (the words outlive the capsule's), or word Find alone — each
+    /// fails.
     @Test(.machinePinned(.pixelSampling))
-    func expandKeepsItsWordOnlyWhenTheWholeNameFitsAndShedsItFirst() throws {
+    func theButtonsKeepTheirWordsOnlyWhenTheWholeNameFitsAndShedThemFirst() throws {
         let long = try document(named: "Quarterly household budget reconciliation notes for 2026.md")
         let short = try document(named: "a.md")
         let padding = 2 * EditorDocumentHeader<EmptyView>.horizontalPadding
         let nameStart = EditorWorkspaceView.dotColumnWidth + 6
-        struct Reading { let capsuleWorded: Bool; let expandWorded: Bool; let ink: CGFloat; let expandWidth: CGFloat }
+        let glyph = Self.bareChip
+        struct Reading { let capsuleWorded: Bool; let chipsWorded: Bool; let ink: CGFloat }
         func measure(_ doc: EditorDocument, column: CGFloat, scale: CGFloat) throws -> Reading {
             let width = column - padding
             let r = try #require(Rendered(workspace(doc).headerContent,
                                           size: CGSize(width: width, height: 60), fontScale: scale))
             let row = r.nameRowRings
             try #require(row.count == 7, "at \(column)pt, \(scale), the row draws \(row.count) buttons")
-            let glyph = row[0].width
+            // New Text File, Find, the capsule's three segments, Files, Close.
+            let chips = [row[0], row[1], row[5], row[6]].map { $0.width > 1.5 * glyph }
+            #expect(Set(chips).count == 1, "at \(column)pt, \(scale), the buttons are a mix of worded and bare: \(chips)")
             let band = CGRect(x: nameStart, y: row[0].minY, width: row[0].minX - nameStart, height: row[0].height)
             return Reading(capsuleWorded: row[2..<5].contains { $0.width > 2 * glyph },
-                           expandWorded: row[5].width > 1.5 * glyph,
-                           ink: (r.inkRight(in: band) ?? nameStart) - nameStart,
-                           expandWidth: row[5].width)
+                           chipsWorded: chips.allSatisfy { $0 },
+                           ink: (r.inkRight(in: band) ?? nameStart) - nameStart)
         }
         var report: [String] = []
         var firstWorded: [String] = []
         for scale in FontSize.allCases.map(\.scale) {
-            let whole = try measure(long, column: 1_600, scale: scale)
-            try #require(whole.expandWorded && whole.capsuleWorded,
-                         "at 1,600pt, \(scale), the long name has no words beside it — the sweep would be about nothing")
+            let whole = try measure(long, column: 2_000, scale: scale)
+            try #require(whole.chipsWorded && whole.capsuleWorded,
+                         "at 2,000pt, \(scale), the long name has no words beside it — the sweep would be about nothing")
             var first: CGFloat?
             var capsuleWordedAlone = false
-            for column in Self.expandColumns {
+            for column in Self.chipColumns {
                 let m = try measure(long, column: column, scale: scale)
-                if m.expandWorded {
-                    #expect(m.capsuleWorded, "at \(column)pt, \(scale), Expand keeps its word after the capsule lost its own")
+                if m.chipsWorded {
+                    #expect(m.capsuleWorded, "at \(column)pt, \(scale), the buttons keep their words after the capsule lost its own")
                     #expect(m.ink >= whole.ink - 1,
-                            "at \(column)pt, \(scale), Expand's word is drawn over a cut name: \(m.ink)pt of its \(whole.ink)pt")
+                            "at \(column)pt, \(scale), the buttons' words are drawn over a cut name: \(m.ink)pt of its \(whole.ink)pt")
                     if first == nil { first = column }
                 } else if m.capsuleWorded {
                     capsuleWordedAlone = true
                 }
-                report.append("\(Int(column))@\(scale):\(m.capsuleWorded ? "W" : "g")\(m.expandWorded ? "E" : "e")\(Int(m.ink.rounded()))")
+                report.append("\(Int(column))@\(scale):\(m.capsuleWorded ? "W" : "g")\(m.chipsWorded ? "B" : "b")\(Int(m.ink.rounded()))")
             }
-            firstWorded.append("\(scale): \(first.map { "\(Int($0))" } ?? "none") (\(Int(whole.expandWidth.rounded()))pt worded)")
-            #expect(first != nil, "at \(scale) Expand's word never comes back over the long name by \(Self.expandColumns.last ?? 0)pt")
+            firstWorded.append("\(scale): \(first.map { "\(Int($0))" } ?? "none")")
+            #expect(first != nil, "at \(scale) the buttons' words never come back over the long name by \(Self.chipColumns.last ?? 0)pt")
             #expect(capsuleWordedAlone,
-                    "at \(scale) no column keeps the capsule's words without Expand's — Expand's word is not shed first")
-            let control = try measure(short, column: 560, scale: scale)
-            #expect(control.expandWorded && control.capsuleWorded,
-                    "at 560pt, \(scale), a four-character name loses a word — they are shed for nothing")
+                    "at \(scale) no column keeps the capsule's words without the buttons' — theirs are not shed first")
+            let control = try measure(short, column: 760, scale: scale)
+            #expect(control.chipsWorded && control.capsuleWorded,
+                    "at 760pt, \(scale), a four-character name loses a word — they are shed for nothing")
         }
-        print("[expand-words] first worded column: \(firstWorded.joined(separator: " · "))")
-        print("[expand-words] \(report.joined(separator: " "))")
+        print("[button-words] first worded column: \(firstWorded.joined(separator: " · "))")
+        print("[button-words] \(report.joined(separator: " "))")
     }
 
-    /// See ``expandKeepsItsWordOnlyWhenTheWholeNameFitsAndShedsItFirst``.
-    static let expandColumns: [CGFloat] = [700, 740, 760, 780, 800, 880, 900, 920, 940, 960, 1_000]
+    /// See ``theButtonsKeepTheirWordsOnlyWhenTheWholeNameFitsAndShedThemFirst``.
+    static let chipColumns: [CGFloat] = [700, 800, 900, 1_000, 1_100, 1_150, 1_200, 1_250, 1_300, 1_400, 1_500]
 
     /// **A plain-text file's two readings** — the word, then none; never a capsule, since a `.txt`
     /// has nothing to preview — read from the rule and then from the drawn row: a long `.txt` name
@@ -456,8 +479,8 @@ import FileExplorerTestSupport
     @Test(.machinePinned(.pixelSampling))
     func plainTextHasTheWordedAndTheBareExpand() throws {
         #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: false)
-                == [.init(capsule: nil, expandWorded: true), .init(capsule: nil, expandWorded: false)])
-        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.expandWorded) == [true, false, false],
+                == [.init(capsule: nil, chipsWorded: true), .init(capsule: nil, chipsWorded: false)])
+        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.chipsWorded) == [true, false, false],
                 "Expand's word outlives the capsule's on a Markdown file")
         let padding = 2 * EditorDocumentHeader<EmptyView>.horizontalPadding
         func expandWidth(_ name: String, column: CGFloat) throws -> CGFloat {
@@ -465,7 +488,10 @@ import FileExplorerTestSupport
             let r = try #require(Rendered(workspace(doc).headerContent, size: CGSize(width: column - padding, height: 60)))
             let row = r.nameRowRings
             try #require(row.count == 4, "\(name) at \(column)pt draws \(row.count) buttons — ＋, Find, Expand and × expected")
-            return row[2].width / row[0].width
+            let ratios = row.map { $0.width / Self.bareChip }
+            #expect(ratios.allSatisfy { $0 > 1.5 } || ratios.allSatisfy { $0 < 1.5 },
+                    "\(name) at \(column)pt: \(ratios) — some buttons worded and some bare")
+            return ratios[2]
         }
         let long = "Quarterly household budget reconciliation notes for 2026.txt"
         #expect(try expandWidth("a.txt", column: 500) > 1.5, "a short .txt name loses Expand's word at 500pt")
@@ -492,7 +518,10 @@ import FileExplorerTestSupport
             let row = r.nameRowRings
             try #require(row.count == 2, "the lit empty page draws \(row.count) buttons — ＋ and Files expected")
             let band = CGRect(x: nameStart, y: row[0].minY - 4, width: row[0].minX - nameStart, height: row[0].height + 8)
-            return ((r.inkRight(in: band) ?? nameStart) - nameStart, row[1].width > 1.5 * row[0].width)
+            let glyph = Self.bareChip
+            let worded = row[0].width > 1.5 * glyph, filesWorded = row[1].width > 1.5 * glyph
+            #expect(worded == filesWorded, "\(width)pt, \(scale): New Text File and Files disagree about words — a mix")
+            return ((r.inkRight(in: band) ?? nameStart) - nameStart, worded && filesWorded)
         }
         for glass in [false, true] {
             for scale in FontSize.allCases.map(\.scale) {
@@ -535,7 +564,9 @@ import FileExplorerTestSupport
                 let size = CGSize(width: width, height: 60)
                 let rig = SelectionLensCallSiteTests.rig(view, size: size)
                 let runs = Pixel.columnRuns(rig.capture(), width: width, Pixel.chromeProbe)
-                let expected = doc.path == nil ? (railIsHidden ? 2 : 1) : (doc.isMarkdown ? 4 : 3)
+                // A capsule each since TE144: New Text File, Find, the mode capsule (Markdown only),
+                // Files and Close — or the empty page's New Text File and, lit, Files.
+                let expected = doc.path == nil ? (railIsHidden ? 2 : 1) : (doc.isMarkdown ? 5 : 4)
                 try #require(runs.count == expected,
                              "\(doc.name.isEmpty ? "empty page" : doc.name), lit \(railIsHidden): \(runs.count) glass capsules, \(expected) expected — \(runs.map { Int($0.minX) })")
                 let gaps = zip(runs, runs.dropFirst()).map { $1.minX - $0.maxX }
@@ -578,7 +609,7 @@ import FileExplorerTestSupport
             ($0, $1, EditorWorkspaceView.emptyCaption(hasFolder: $0, showsRail: $1))
         }
         for (hasFolder, showsRail, caption) in variants {
-            #expect(caption.contains("press \(open) on a text file in Browse, Compare or Organize"),
+            #expect(caption.contains("press \(open) on a text file or PDF in Browse, Compare or Organize"),
                     "folder \(hasFolder), rail \(showsRail): “\(caption)” does not offer ⌘O")
             #expect(!caption.contains(new),
                     "folder \(hasFolder), rail \(showsRail): “\(caption)” repeats the header's ＋")

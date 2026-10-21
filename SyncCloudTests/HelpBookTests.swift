@@ -267,7 +267,7 @@ import Testing
         ]
         let backAndAround = [
             "Reveal in Browse", "Get Info, Reveal in Finder, Quick Look, Rename and Delete",   // TE33, TE117
-            "File ▸ Close Document", "The ＋ on the file name's row",          // TE46, TE45
+            "File ▸ Close Document", "New Text File, on the file name's row",  // TE46, TE45, TE144
             "“in Finance”", "“iCloud › Documents › Finance”",                   // TE43, both readings
             "“No document open”",                                               // the empty page
         ]

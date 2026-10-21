@@ -513,7 +513,7 @@ public struct EditorWorkspaceView: View {
     /// ⌘O works from rather than saying "in any tab": a pane's tabs and the workspace switcher are
     /// both tabs in this app.
     static func emptyCaption(hasFolder: Bool, showsRail: Bool) -> String {
-        let open = "press \(AppChord.openInEditor.display) on a text file in Browse, Compare or Organize"
+        let open = "press \(AppChord.openInEditor.display) on a text file or PDF in Browse, Compare or Organize"
         guard hasFolder else { return "Pick a folder in the sidebar, then choose a file to edit — or \(open)." }
         return showsRail
             ? "Choose a file from the list — or \(open)."
@@ -772,8 +772,8 @@ public struct EditorWorkspaceView: View {
             if let pdf {
                 EditorPDFHeader(pdf: pdf, accent: accent, accentFill: accentFill, onAccent: onAccent,
                                 onRevealInBrowse: onRevealInBrowse, rowActions: railRowActions,
-                                onClose: onCloseDocument) {
-                    expandButton(worded: false)
+                                onClose: onCloseDocument) { rung in
+                    expandButton(worded: rung.isWorded)
                 }
             } else if document.path == nil { emptyHeaderContent } else { headerContent }
         }
@@ -793,8 +793,8 @@ public struct EditorWorkspaceView: View {
 
     /// **The name row, and which words it draws: the file's name decides.**
     ///
-    /// The row holds the name, then ＋ · Find, the capsule, Expand and ×, and the name is the only
-    /// thing in it that gives. Left to its own `ViewThatFits`, the capsule kept its words
+    /// The row holds the name, then New Text File, Find, the capsule, Files (Expand) and Close, and
+    /// the name is the only thing in it that gives. Left to its own `ViewThatFits`, the capsule kept its words
     /// whenever IT fitted — so from a ~560pt column up, a long name paid for "Source", "Preview"
     /// and "Split": measured 2026-09-25 on a 55-character `.md` name at 100%, a 580pt column left
     /// 214pt of name beside the words where the icons alone leave it 338. The name is what the row
@@ -810,11 +810,11 @@ public struct EditorWorkspaceView: View {
     /// moves the row. A plain-text file has no capsule to choose for and reserves its height with
     /// a hidden one, as before.
     ///
-    /// **Expand's word joins the same budget, and goes FIRST** (TE48). Three rungs on a Markdown
-    /// file — every word; the capsule's words without Expand's; no words — and two on plain text.
-    /// Expand's word is the cheaper to lose: the arrows already say "bigger" and the tooltip says
-    /// the rest, where a capsule of three bare glyphs asks the reader to know which is which.
-    /// ``nameRowRungs(isMarkdown:)`` is the order, and the tests read it from there.
+    /// **The buttons' words join the same budget, and go FIRST, all four together** (TE48, TE144).
+    /// Three rungs on a Markdown file — every word; the capsule's words without the buttons'; no
+    /// words — and two on plain text. The buttons' words are the cheaper to lose: each glyph is a
+    /// familiar one with a tooltip, where a capsule of three bare glyphs asks the reader to know
+    /// which mode is which. ``nameRowRungs(isMarkdown:)`` is the order, and the tests read it there.
     @ViewBuilder
     private var nameRow: some View {
         ViewThatFits(in: .horizontal) {
@@ -826,20 +826,22 @@ public struct EditorWorkspaceView: View {
     }
 
     /// One reading of the name row: the capsule at a rung — or `nil`, only its height reserved, on a
-    /// file with nothing to preview — and whether Expand wears its word.
+    /// file with nothing to preview — and whether the header's buttons wear their words.
     struct NameRowRung: Equatable {
         var capsule: EditorModeBar.Rung?
-        var expandWorded: Bool
+        /// New Text File, Find, Files and Close: **all four keep their words, or none does** (TE144)
+        /// — a row of three words beside one bare glyph read as two styles, the PDF header's lesson.
+        var chipsWorded: Bool
     }
 
-    /// The name row's rungs, widest first. Expand's word goes before the capsule's.
+    /// The name row's rungs, widest first. The buttons' words go before the capsule's.
     static func nameRowRungs(isMarkdown: Bool) -> [NameRowRung] {
         isMarkdown
-            ? [NameRowRung(capsule: .labelled, expandWorded: true),
-               NameRowRung(capsule: .labelled, expandWorded: false),
-               NameRowRung(capsule: .glyphOnly, expandWorded: false)]
-            : [NameRowRung(capsule: nil, expandWorded: true),
-               NameRowRung(capsule: nil, expandWorded: false)]
+            ? [NameRowRung(capsule: .labelled, chipsWorded: true),
+               NameRowRung(capsule: .labelled, chipsWorded: false),
+               NameRowRung(capsule: .glyphOnly, chipsWorded: false)]
+            : [NameRowRung(capsule: nil, chipsWorded: true),
+               NameRowRung(capsule: nil, chipsWorded: false)]
     }
 
     /// One reading of the name row — see ``NameRowRung``.
@@ -883,35 +885,34 @@ public struct EditorWorkspaceView: View {
                     }
                 }
             Spacer(minLength: 0)
-            // Frosted and Clear: ＋ and Find share one glass capsule, as Finder groups related
-            // buttons (`ChromeGlass`). The same 6pt as the row, so Solid's layout is untouched.
-            HStack(spacing: 6) {
-                // ＋ — see ``newTextFileButton``; the empty page's header draws the same one.
-                newTextFileButton
-                // **Beside the capsule, not in it.** The capsule chooses which representation you
-                // are looking at; this acts on the one you are in. It is withheld in `.preview`,
-                // where there is no text view to search — the preview is a rendering, and a find
-                // bar over it would be searching a copy of the document rather than the document.
-                if resolvedMode != .preview || editsInPreview {
-                    Button {
-                        // The half the caret was last in, in Split — the bar's rule (V7).
-                        if textViewHandle.targetsSplitPreview {
-                            splitPreviewFindRequest &+= 1
-                        } else {
-                            findRequest &+= 1
-                        }
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                            .scaledFont(.system(size: 11, weight: .semibold))
-                            .frame(width: 18, height: 18)
+            // **Each button its own glass capsule** in Frosted and Clear (TE144) — New Text File and
+            // Find were one, grouped as Finder groups related buttons, until both wore words: two
+            // worded actions in one capsule read as one control. The row's own 6pt between them,
+            // so Solid's layout is the row's.
+            //
+            // New Text File — see ``newTextFileButton``; the empty page's header draws the same one.
+            newTextFileButton(worded: reading.chipsWorded)
+            // **Beside the capsule, not in it.** The capsule chooses which representation you
+            // are looking at; this acts on the one you are in. It is withheld in `.preview`,
+            // where there is no text view to search — the preview is a rendering, and a find
+            // bar over it would be searching a copy of the document rather than the document.
+            if resolvedMode != .preview || editsInPreview {
+                Button {
+                    // The half the caret was last in, in Split — the bar's rule (V7).
+                    if textViewHandle.targetsSplitPreview {
+                        splitPreviewFindRequest &+= 1
+                    } else {
+                        findRequest &+= 1
                     }
-                    .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-                    .accessibilityLabel("Find in this document")
-                    .shortcutKeycap(AppChord.findInPane.display)
-                    .help(ShortcutHint.tooltip("Find and replace in this document", AppChord.findInPane.display))
+                } label: {
+                    EditorHeaderChipLabel(symbol: "magnifyingglass", word: reading.chipsWorded ? Self.findWord : nil)
                 }
+                .chromeGlassGlyphButton(tint: accent, shape: .capsule, outset: ChromeGlass.smallGlyphOutset)
+                .chromeGlassClearance(.leading, rowSpacing: 6)
+                .accessibilityLabel("Find in this document")
+                .shortcutKeycap(AppChord.findInPane.display)
+                .help(ShortcutHint.tooltip("Find and replace in this document", AppChord.findInPane.display))
             }
-            .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
             // **Only for files that have something to preview.** `PairContentKind` already
             // owns which extensions are Markdown; a capsule on a `.txt` would offer two modes
             // that render the same thing.
@@ -941,26 +942,24 @@ public struct EditorWorkspaceView: View {
             // end of the row. Out of the ＋ / Find capsule, where it was a ≡ that read as "justify";
             // those two act on the folder and the text, this on how much of the window the
             // document gets. One view, drawn by the empty page's header too.
-            expandButton(worded: reading.expandWorded)
-            // **×, at the far end** (TE46). The one way to put the document away — File ▸
+            expandButton(worded: reading.chipsWorded)
+            // **Close, at the far end** (TE46). The one way to put the document away — File ▸
             // Close Document is the other door, with no key, because ⌘W is Close Tab. Last,
             // after the capsule, because it acts on the whole document rather than on a view of
             // it. The host settles the buffer first, so Cancel leaves everything as it was. Not
             // withheld in Preview, nor on a read-only or refused file: each of those is still
             // a document somebody may want off the screen.
-            Button(action: onCloseDocument) {
-                Image(systemName: "xmark")
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .frame(width: 18, height: 18)
-            }
-            // Frosted and Clear: a glass circle with a round hover, like every bar button (`ChromeGlass`)
-            // — and, beside Expand's own outset glass, the room that keeps the two 4pt apart.
-            .chromeGlassGlyphButton(tint: accent, outset: ChromeGlass.smallGlyphOutset)
-            .chromeGlassClearance(.leading, rowSpacing: 6)
-            .accessibilityLabel(Self.closeTitle(name: document.name))
-            .help("Close this document")
+            // Beside Expand's own outset glass, the room that keeps the two 4pt apart.
+            EditorCloseChip(name: document.name, worded: reading.chipsWorded, accent: accent,
+                            action: onCloseDocument)
+                .chromeGlassClearance(.leading, rowSpacing: 6)
         }
     }
+
+    /// The words the header's buttons wear on their worded rung (TE144). New Text File is the
+    /// menu item's name, File ▸ New Text File…, without its ellipsis: the button asks nothing first.
+    static let newTextFileWord = "New Text File"
+    static let findWord = "Find"
 
     /// **＋, ⌘N's button in the header** (TE45). With the source pane open, or under "Just the
     /// text", there is no rail and so no other ＋ on screen — ⌘N and File ▸ New Text File… were the
@@ -974,14 +973,15 @@ public struct EditorWorkspaceView: View {
     /// the press, but a `.glyph` hover-affordance button draws the same at rest either way
     /// (measured with TE45: pixel-identical with and without the closure), so on its own it left a
     /// ＋ that looked pressable and did nothing. The glyph takes the tertiary style instead.
-    private var newTextFileButton: some View {
+    ///
+    /// **Worded on the widest rung, "＋ New Text File"** (TE144): the ＋ alone said "new" but not new
+    /// WHAT, and only its tooltip answered. A glass capsule of its own, like Expand's.
+    private func newTextFileButton(worded: Bool) -> some View {
         Button { onNewTextFile?() } label: {
-            Image(systemName: "plus")
-                .scaledFont(.system(size: 11, weight: .semibold))
+            EditorHeaderChipLabel(symbol: "plus", word: worded ? Self.newTextFileWord : nil)
                 .foregroundStyle(onNewTextFile == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
-                .frame(width: 18, height: 18)
         }
-        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        .chromeGlassGlyphButton(tint: accent, shape: .capsule, outset: ChromeGlass.smallGlyphOutset)
         .accessibilityLabel("New text file")
         .shortcutKeycap(AppChord.newTextFile.display)
         .help(ShortcutHint.tooltip(Self.newTextFileTitle(folderName: newFileFolderLabel),
@@ -1145,9 +1145,10 @@ public struct EditorWorkspaceView: View {
     /// capsule's height with a hidden real one, exactly as a plain-text file's does, and the meta
     /// row reserves the autosave switch's (see ``emptyMetaRow``).
     ///
-    /// **What it offers is what makes sense with nothing open.** The ＋ — ``newTextFileButton``, the
-    /// same view the document's header draws, greyed with no folder — and no Find (nothing to
-    /// search), no capsule (nothing to view three ways) and no Close (nothing to close).
+    /// **What it offers is what makes sense with nothing open.** New Text File —
+    /// ``newTextFileButton(worded:)``, the same view the document's header draws, greyed with no
+    /// folder — and no Find (nothing to search), no capsule (nothing to view three ways) and no
+    /// Close (nothing to close).
     ///
     /// Expand is drawn only while it is LIT: with the rail and the pane both put away there is no
     /// list of files anywhere on screen, and the lit button is both the reason why and the way
@@ -1162,15 +1163,15 @@ public struct EditorWorkspaceView: View {
             // the whole title fits beside it, so at the narrowest column the title is not cut for
             // a word the arrows already carry.
             ViewThatFits(in: .horizontal) {
-                emptyNameRow(expandWorded: true)
-                emptyNameRow(expandWorded: false)
+                emptyNameRow(chipsWorded: true)
+                emptyNameRow(chipsWorded: false)
             }
             emptyMetaRow
         }
     }
 
     /// One reading of the empty page's title row — see ``emptyHeaderContent``.
-    private func emptyNameRow(expandWorded: Bool) -> some View {
+    private func emptyNameRow(chipsWorded: Bool) -> some View {
         HStack(spacing: 6) {
             // The dot's column, reserved as a shape so the title starts where a file name does.
             Color.clear
@@ -1181,15 +1182,12 @@ public struct EditorWorkspaceView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
-            // One glass capsule in Frosted and Clear, as in the document's header.
-            HStack(spacing: 6) {
-                newTextFileButton
-            }
-            .chromeGlassGroup(.capsule, outset: ChromeGlass.smallGlyphOutset)
-            // At the end of the row, where a document's header draws it — beside the ＋'s outset
-            // glass, with the room that keeps the two capsules apart.
+            // Its own glass capsule in Frosted and Clear, as in the document's header.
+            newTextFileButton(worded: chipsWorded)
+            // At the end of the row, where a document's header draws it — beside New Text File's
+            // outset glass, with the room that keeps the two capsules apart.
             if railIsHidden {
-                expandButton(worded: expandWorded)
+                expandButton(worded: chipsWorded)
                     .chromeGlassClearance(.leading, rowSpacing: 6)
             }
             // The capsule's height, reserved the way a plain-text header reserves it — and,
@@ -1251,8 +1249,9 @@ public struct EditorWorkspaceView: View {
     /// about the columns, not the text view. ⌃⌘E, Text ▸ Expand, shown on its keycap and in its
     /// tooltip from the one `AppChord`. One view, drawn by both headers.
     ///
-    /// **A glass capsule of its own in Frosted and Clear, like the ×** — it left the ＋ / Find
-    /// capsule because it is not about the folder or the text. The same 18pt row height either way,
+    /// **A glass capsule of its own in Frosted and Clear, like every header button** — it left the
+    /// New Text File / Find capsule because it is not about the folder or the text, and since TE144
+    /// those two have a capsule each as well. The same 18pt row height either way,
     /// so the header's two rows, and with them the pinned header height, do not move; the word
     /// only ever widens it.
     func expandButton(worded: Bool) -> some View {
@@ -1263,8 +1262,8 @@ public struct EditorWorkspaceView: View {
                         Image(systemName: Self.expandSymbol(railIsHidden: railIsHidden))
                             .scaledFont(.system(size: 10, weight: .semibold))
                         // **Laid out at the wider word**, so lighting it moves nothing: "Files"
-                        // sits in the room "Expand" takes, and the capsule and the ＋ / Find
-                        // capsule to its left stay where the pointer left them.
+                        // sits in the room "Expand" takes, and the capsule and the buttons to its
+                        // left stay where the pointer left them.
                         ZStack(alignment: .leading) {
                             ForEach([false, true], id: \.self) { hidden in
                                 Text(Self.expandTitle(railIsHidden: hidden)).hidden()
@@ -1276,6 +1275,8 @@ public struct EditorWorkspaceView: View {
                     }
                     .padding(.horizontal, 7)
                     .frame(height: 18)
+                    // Never squeezed — the name gives way (``EditorHeaderChipLabel``).
+                    .fixedSize()
                 } else {
                     Image(systemName: Self.expandSymbol(railIsHidden: railIsHidden))
                         .scaledFont(.system(size: 11, weight: .semibold))

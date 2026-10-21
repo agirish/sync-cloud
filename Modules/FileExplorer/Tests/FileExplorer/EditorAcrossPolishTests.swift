@@ -17,7 +17,7 @@ import Testing
     @Test func theFileListIsNeverCalledTheRail() {
         #expect(EditorStatusHeadings.railOutlineTitle == "Show Outline in File List")
         #expect(EditorWorkspaceView.emptyCaption(hasFolder: true, showsRail: true)
-                == "Choose a file from the list — or press ⌘O on a text file in Browse, Compare or Organize.")
+                == "Choose a file from the list — or press ⌘O on a text file or PDF in Browse, Compare or Organize.")
     }
 
     /// The rail's own sentences: "Edit", not "the editor", for the place that opens a file.
@@ -210,6 +210,53 @@ import Testing
             #expect(signature.contains("Text(\"\(label)\").scaledFont(.system(size: 11)).foregroundStyle(.secondary)"),
                     "\(label) does not grow with the text size")
         }
+    }
+
+    // MARK: TE144 — every header button wears a word, or none does
+
+    /// **New Text File, Find and Close keep their width when the row is short of it** — the name
+    /// gives way. A worded chip sits at its own width under a narrower proposal (a squeezed one tracks
+    /// it), at every text size, and is wider than the bare glyph, so the rung means something.
+    @Test func theHeaderChipsAreNeverSqueezed() {
+        let bare = NSHostingView(rootView: EditorHeaderChipLabel(symbol: "plus")).fittingSize.width
+        for scale in [FontSize.small.scale, 1, FontSize.large.scale, FontSize.extraLarge.scale] {
+            for (symbol, word) in [("plus", EditorWorkspaceView.newTextFileWord), ("magnifyingglass", EditorWorkspaceView.findWord),
+                                   ("xmark", EditorCloseChip.word)] {
+                let chip = EditorHeaderChipLabel(symbol: symbol, word: word).environment(\.appFontScale, scale)
+                let ideal = NSHostingView(rootView: chip).fittingSize.width
+                let short = NSHostingController(rootView: chip).sizeThatFits(in: CGSize(width: ideal - 20, height: 100)).width
+                #expect(short == ideal, "“\(word)” at \(scale) measures \(ideal)pt and squeezes to \(short)pt")
+                #expect(ideal > bare + 10, "“\(word)” at \(scale) is \(ideal)pt against the bare \(bare)pt")
+            }
+        }
+        #expect([EditorWorkspaceView.newTextFileWord, EditorWorkspaceView.findWord, EditorCloseChip.word]
+                == ["New Text File", "Find", "Close"])
+    }
+
+    /// **The text header's four buttons read one rung** — all worded, or all bare — and their words
+    /// go before the capsule's. The drawn sweep is `EditorHeaderDoorsTests`' (pixel-pinned, so it
+    /// runs on this Mac only); this holds the wiring everywhere.
+    @Test func theTextHeadersButtonsShareOneRung() throws {
+        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.chipsWorded) == [true, false, false])
+        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.capsule) == [.labelled, .labelled, .glyphOnly])
+        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: false).map(\.chipsWorded) == [true, false])
+        let header = Self.squashed(try Self.source("EditorWorkspaceView.swift"))
+        for wiring in ["newTextFileButton(worded: reading.chipsWorded)",
+                       "EditorHeaderChipLabel(symbol: \"magnifyingglass\", word: reading.chipsWorded ? Self.findWord : nil)",
+                       "expandButton(worded: reading.chipsWorded)",
+                       "EditorCloseChip(name: document.name, worded: reading.chipsWorded,",
+                       "newTextFileButton(worded: chipsWorded)", "expandButton(worded: chipsWorded)"] {
+            #expect(header.contains(wiring), "not on the row's rung: \(wiring)")
+        }
+    }
+
+    /// **The PDF header's Close and Expand shed their words with Find, Fill & Sign and Tools.**
+    @Test func thePDFHeadersWindowButtonsShareTheActionsRung() throws {
+        let card = Self.squashed(try Self.source("EditorPDFCard.swift"))
+        #expect(card.contains("EditorCloseChip(name: pdf.name, worded: rung.isWorded, accent: accent, action: onClose)"))
+        #expect(card.contains("trailing(rung)"))
+        let header = Self.squashed(try Self.source("EditorWorkspaceView.swift"))
+        #expect(header.contains("onClose: onCloseDocument) { rung in expandButton(worded: rung.isWorded) }"))
     }
 
     // MARK: Helpers
