@@ -25,6 +25,9 @@ public struct PersonView: View {
     let displayName: String
     let phase: PersonGatherPhase
     let accent: Color
+    /// What the "<Name>’s" answer fills with under its white label: `accent` deepened, which is
+    /// `LiquidGlassHue.accentFillColor` for its hue — the fill every other lit control takes.
+    private var accentFill: Color { AccentFill.deepened(accent) }
     /// Reveals a folder in the pane. Folders, because that group's unit is the folder.
     let onOpenFolder: (String) -> Void
     /// Reveals one file in Finder.
@@ -267,10 +270,10 @@ public struct PersonView: View {
                     Button { onVerdict(file.path, true) } label: {
                         Text("\(displayName)’s")
                             .scaledFont(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color.onFillLabel(accent))
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2.5)
-                            .background(Capsule().fill(accent))
+                            .background(Capsule().fill(accentFill))
                     }
                     .buttonStyle(.plain)
                     .chromeHover()

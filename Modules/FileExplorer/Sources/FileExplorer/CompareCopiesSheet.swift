@@ -880,6 +880,7 @@ struct FilePairCompareView<Verdict: View>: View {
                                    outcome: renderOutcome,
                                    leftName: left.name, rightName: right.name,
                                    difference: pageComparison.image,
+                                   accent: accent,
                                    changedRegions: pageComparison.regions,
                                    swipeFraction: $swipeFraction, onionOpacity: $onionOpacity)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))

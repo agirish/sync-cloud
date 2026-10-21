@@ -22,6 +22,9 @@ struct VisualPairModeView: View {
     /// here: it is the same arithmetic the page strip's verdict comes from, and computing it twice
     /// is how two numbers about one page start disagreeing.
     let difference: CGImage?
+    /// The app's accent, for the swipe divider and the changed-region outlines. Handed in because
+    /// `Color.accentColor` here is the SYSTEM accent, which ignores the hue the user picked.
+    let accent: Color
     /// The changed regions in the difference raster's pixel coordinates, drawn as callouts over
     /// it. Empty where there is nothing to outline — including the over-the-cap case, which
     /// ``ChangedRegionCallouts/maxDrawn`` decides and the mode bar's caption discloses.
@@ -106,7 +109,7 @@ struct VisualPairModeView: View {
                     Rectangle().frame(width: max(0, size.width * shownSwipeFraction))
                 }
             Rectangle()
-                .fill(Color.accentColor)
+                .fill(accent)
                 .frame(width: 1)
                 .position(x: size.width * shownSwipeFraction, y: size.height / 2)
                 .allowsHitTesting(false)
@@ -165,7 +168,7 @@ struct VisualPairModeView: View {
                                                              in: available).enumerated()),
                         id: \.offset) { _, rect in
                     RoundedRectangle(cornerRadius: 2)
-                        .strokeBorder(Color.accentColor.opacity(0.9), lineWidth: 1.5)
+                        .strokeBorder(accent.opacity(0.9), lineWidth: 1.5)
                         .frame(width: rect.width, height: rect.height)
                         .position(x: rect.midX, y: rect.midY)
                         .allowsHitTesting(false)

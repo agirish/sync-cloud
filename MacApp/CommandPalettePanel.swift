@@ -58,7 +58,7 @@ import FileExplorer
 /// taking it would pull the caret out of the field the user is typing into.** Measured before it
 /// was built (ROADMAP v4 §7, spike 2): with the panel non-key the host stays key, first responder
 /// stays the field editor, typed characters keep landing, and the list's selection fill draws
-/// identically, because the highlight is this app's own `fill(accent)` rather than an AppKit
+/// identically, because the highlight is this app's own `fill(accentFill)` rather than an AppKit
 /// emphasized selection.
 final class CommandPaletteWindow: NSPanel {
     override var canBecomeKey: Bool { false }

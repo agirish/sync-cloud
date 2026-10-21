@@ -290,10 +290,6 @@ import Testing
         #expect(rules("StorageSectionBar(section: $s, accentFill: glassHue.accentFillColor, onAccent: .white)").isEmpty)
         #expect(rules("init(accentFill: Color = AccentFill.deepened(.accentColor))").isEmpty)
 
-        // The onFillLabel pairing, which rule 1 exempts app-wide.
-        #expect(Self.pairsWithOnFillLabel(".fill(accent)", in: ".foregroundStyle(Color.onFillLabel(accent))"))
-        #expect(!Self.pairsWithOnFillLabel(".fill(accent)", in: ".foregroundStyle(Color.onFillLabel(tile))"))
-
         // Rule 3.
         #expect(rules("let accent = NSColor.controlAccentColor\naccent.setStroke()") == ["controlAccentColor"])
         #expect(rules("// NSColor.controlAccentColor is the system's").isEmpty)
@@ -346,29 +342,25 @@ import Testing
         ("DocumentSurveyCard.swift", ".fill(paused ? AnyShapeStyle(.secondary) : AnyShapeStyle(accent))",
          "the survey's 5pt progress bar"),
         ("DifferencesView.swift", ".fill(glassHue.accentColor)", "the 7pt dot beside \"Reviewing N of M\""),
-        ("VisualPairModes.swift", ".fill(Color.accentColor)", "Swipe's 1pt divider"),
+        ("VisualPairModes.swift", ".fill(accent)", "Swipe's 1pt divider"),
     ]
 
     /// **Every filled control in the app carries its label at AA, in the app's accent.** The three
-    /// rules over every shipping source. Exempt from rule 1: the marks above, and a fill whose label
-    /// is picked against it with `Color.onFillLabel(…)` (the person verdict, the palette's row),
-    /// which flips to dark ink where white would not read.
+    /// rules over every shipping source. Exempt from rule 1: the marks above, and nothing else — a
+    /// fill whose label flips to dark ink on light hues is a second button family, not a fix.
     @Test func theAppFillsWithTheDeepenedAccent() throws {
         var findings: [String] = []
         var exempted: [String: Int] = [:]
         var prominent = 0
         for file in try Self.appSources() {
             let source = try String(contentsOf: file, encoding: .utf8)
-            let stripped = Self.stripComments(source)
-            prominent += Self.occurrences(of: Self.prominent, in: Array(stripped)).count
+            prominent += Self.occurrences(of: Self.prominent, in: Array(Self.stripComments(source))).count
             for finding in Self.findings(in: source) {
                 let name = file.lastPathComponent
-                if finding.rule == "raw accent fill" {
-                    if let mark = Self.markExemptions.first(where: { $0.file == name && finding.snippet.hasPrefix($0.fill) }) {
-                        exempted["\(mark.file) \(mark.fill)", default: 0] += 1
-                        continue
-                    }
-                    if Self.pairsWithOnFillLabel(finding.snippet, in: stripped) { continue }
+                if finding.rule == "raw accent fill",
+                   let mark = Self.markExemptions.first(where: { $0.file == name && finding.snippet.hasPrefix($0.fill) }) {
+                    exempted["\(mark.file) \(mark.fill)", default: 0] += 1
+                    continue
                 }
                 findings.append("\(name) — \(finding)")
             }
@@ -387,14 +379,6 @@ import Testing
         // A tripwire, so the scan cannot pass on files that no longer hold the buttons. 25 on
         // 2026-10-20: 23 outside Edit, and Edit's Save Filled Copy and Save Reordered Copy.
         #expect(prominent == 25, "expected 25 .borderedProminent buttons in the app, found \(prominent)")
-    }
-
-    /// Whether the raw accent `snippet` fills with is the one the file hands `Color.onFillLabel`.
-    static func pairsWithOnFillLabel(_ snippet: String, in source: String) -> Bool {
-        let ns = snippet as NSString
-        return rawToken.matches(in: snippet, range: NSRange(location: 0, length: ns.length)).contains {
-            source.contains("Color.onFillLabel(\(ns.substring(with: $0.range)))")
-        }
     }
 
     /// Every Swift file the shipping app is built from: each module's `Sources`, plus `MacApp`.

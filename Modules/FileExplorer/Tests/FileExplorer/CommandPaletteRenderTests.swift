@@ -63,9 +63,10 @@ import Design
     /// depends on. `PaletteResultsList` exists to be measurable here, the same reason
     /// `ScopeChipLabel` is extracted from `LensWorkspaceView`.
     static func renderList(rows: [PaletteRow], selection: Int?, scheme: ColorScheme,
-                           width: CGFloat = 620, height: CGFloat = 460) -> NSBitmapImageRep {
+                           width: CGFloat = 620, height: CGFloat = 460,
+                           accent: Color = .blue) -> NSBitmapImageRep {
         let subject = PaletteResultsList(rows: rows, selection: .constant(selection),
-                                         accent: .blue, onChoose: {})
+                                         accent: accent, onChoose: {})
             .frame(width: width, height: height, alignment: .top)
             .background(scheme == .dark ? Color(red: 0.11, green: 0.12, blue: 0.13)
                                         : Color(red: 0.98, green: 0.98, blue: 0.99))
@@ -180,6 +181,37 @@ import Design
                 "moving the selection two rows changed almost nothing in \(scheme) — the highlight is not drawn")
         #expect(Self.accentPixels(first) > 3_000, "no accent fill under the selection in \(scheme)")
         #expect(Self.accentPixels(third) > 3_000, "no accent fill under the moved selection in \(scheme)")
+    }
+
+    /// **The highlight is the deepened accent, under a white label** — the fill every other lit
+    /// control takes. It was the raw accent with `Color.onFillLabel`, which on Green drew the row in
+    /// dark ink: a second look beside the white-on-deepened buttons.
+    ///
+    /// The ground is read back first and must be exactly the colour it was painted, so a reading
+    /// pipeline that shifts colours cannot pass the fill comparison by shifting both.
+    @Test(arguments: [ColorScheme.light, ColorScheme.dark])
+    func theHighlightIsTheDeepenedAccent(scheme: ColorScheme) throws {
+        let raw = try #require(NSColor(LiquidGlassHue.green.accentColor).usingColorSpace(.sRGB))
+        let deepened = AccentFill.deepened(raw)
+        #expect(PixelProbe.distance(raw, deepened) > 0.1, "Green's fill and raw accent are too close to tell apart")
+
+        let rep = Self.renderList(rows: Self.rows(""), selection: 0, scheme: scheme,
+                                  accent: LiquidGlassHue.green.accentColor)
+        let ground = try #require(rep.colorAt(x: 1, y: rep.pixelsHigh - 2))
+        let painted = scheme == .dark ? (0.11, 0.12, 0.13) : (0.98, 0.98, 0.99)
+        #expect(abs(ground.redComponent - painted.0) < 0.005 && abs(ground.greenComponent - painted.1) < 0.005
+                && abs(ground.blueComponent - painted.2) < 0.005,
+                "the ground reads back as \(PixelProbe.describe(ground)), not the \(painted) it was painted")
+
+        let fill = try #require(PixelProbe.dominant(in: rep) { PixelProbe.distance($0, ground) > 0.1 })
+        #expect(PixelProbe.distance(fill, deepened) < 0.01,
+                "the selected row fills with \(PixelProbe.describe(fill)) in \(scheme), not the deepened Green \(PixelProbe.describe(deepened))")
+        // The label, inside the fill's own box: white there, and no dark ink.
+        let box = try #require(PixelProbe.bounds(in: rep) { PixelProbe.distance($0, fill) < 0.01 })
+        let scale = CGFloat(rep.pixelsWide) / 620
+        let inner = box.insetBy(dx: 12 * scale, dy: 6 * scale)
+        #expect(PixelProbe.count(in: rep, inner) { $0.isNearWhite } > 100, "no white label on the selected row in \(scheme)")
+        #expect(PixelProbe.count(in: rep, inner) { $0.isDark } == 0, "the selected row's label is dark ink in \(scheme)")
     }
 
     /// A list with **nothing** selected draws no highlight. Without this, the test above is

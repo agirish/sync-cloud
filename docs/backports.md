@@ -8033,3 +8033,37 @@ done
 |---|---|---|
 | `v5.x` | Storage's switcher on the raw accent, and 23 prominent buttons on the system accent or the raw one | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Storage switcher; 21–25 prominent buttons on the system accent or the raw one | RECORDED — not owed |
+
+---
+
+## The person verdict, the Go-to row and Swipe's divider follow the app accent — main only
+
+Two fills the prominent-button pass left: a person's "<Name>’s" answer and the Go-to palette's
+selected row filled with the raw accent and picked their label with `Color.onFillLabel`, which on
+light hues drew black-on-Green beside every white-on-deepened-Green control. Both now fill with the
+deepened accent (`AccentFill.deepened`, i.e. `accentFillColor`) under a white label, read back light
+and dark on Green. Compare Copies' Swipe divider and Difference's region outlines drew the SYSTEM
+accent; `VisualPairModeView` is handed the app's. `AccentFillScanTests` no longer exempts a fill
+paired with `onFillLabel`.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  f=Modules/FileExplorer/Sources/FileExplorer
+  pv=$(git show origin/$l:$f/PersonView.swift 2>/dev/null | grep -c 'Capsule().fill(accent))'); pv=${pv:-0}
+  pal=$(git show origin/$l:$f/PaletteResultsList.swift 2>/dev/null | grep -cE '^\s*\.fill\(accent\)$'); pal=${pal:-0}
+  sw=$(git show origin/$l:$f/VisualPairModes.swift 2>/dev/null | grep -c 'Color.accentColor'); sw=${sw:-0}
+  printf '%-5s personRaw=%s paletteRaw=%s swipeSystem=%s swipeFile=%s\n' "$l" "$pv" "$pal" "$sw" \
+    "$(git ls-tree -r --name-only origin/$l -- $f/VisualPairModes.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-21, against origin, before this landed:
+# main  personRaw=1 paletteRaw=1 swipeSystem=2 swipeFile=1
+# v5.x  personRaw=1 paletteRaw=1 swipeSystem=2 swipeFile=1
+# v4.x  personRaw=1 paletteRaw=1 swipeSystem=0 swipeFile=0
+# v3.x, v2.x — all 0 (no person view, no Go-to list, no Swipe)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Both raw-accent fills with flipping labels, and Swipe/Difference on the system accent | RECORDED — not owed |
+| `v4.x` | Both raw-accent fills with flipping labels; no Swipe mode | RECORDED — not owed |
+| `v3.x` / `v2.x` | None of the three surfaces | CLOSED — does not apply |

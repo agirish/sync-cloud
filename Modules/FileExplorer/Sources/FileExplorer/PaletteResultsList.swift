@@ -65,8 +65,13 @@ struct PaletteResultsList: View {
     /// The live query, for match emphasis only — routing already happened upstream.
     var query: String = ""
     @Binding var selection: Int?
+    /// The app's raw accent. The selected row fills with it deepened, under a white label.
     let accent: Color
     let onChoose: () -> Void
+
+    /// `LiquidGlassHue.accentFillColor` for the hue `accent` came from: deep enough that the white
+    /// label clears 4.5:1, like every other filled control in the app.
+    private var accentFill: Color { AccentFill.deepened(accent) }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -135,7 +140,7 @@ struct PaletteResultsList: View {
                     Self.emphasized(detail, query: query)
                         .scaledFont(.system(size: PaletteRowMetrics.detailSize))
                         .opacity(isSelected ? 0.85 : 1)
-                        .foregroundStyle(isSelected ? AnyShapeStyle(Color.onFillLabel(accent))
+                        .foregroundStyle(isSelected ? AnyShapeStyle(Color.white)
                                                     : AnyShapeStyle(.secondary))
                         .lineLimit(1)
                         // A path is truncated in the MIDDLE so the leaf survives — the leaf is what
@@ -160,16 +165,16 @@ struct PaletteResultsList: View {
             }
         }
         // One `foregroundStyle` for the row, so the glyph, the title and the ↩ hint cannot disagree
-        // about whether they are sitting on the accent. `Color.onFillLabel` is the app's one
-        // on-fill glyph path — white for every hue, and the reason the fill may not be pale.
-        .foregroundStyle(isSelected ? AnyShapeStyle(Color.onFillLabel(accent))
+        // about whether they are sitting on the accent. White on every hue, which is why the
+        // selection fills with `accentFill` and never the raw accent.
+        .foregroundStyle(isSelected ? AnyShapeStyle(Color.white)
                          : AnyShapeStyle(row.isAvailable ? Color.primary : Color.secondary))
         .padding(.horizontal, PaletteRowMetrics.horizontalPadding)
         .padding(.vertical, 7)
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
-                    .fill(accent)
+                    .fill(accentFill)
                     .padding(.horizontal, 8)
             }
         }
