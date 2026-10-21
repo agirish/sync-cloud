@@ -58,6 +58,12 @@ import FileExplorerTestSupport
         let files = try EditorRailRowMenuTests.source("EditorFileRailView.swift")
         #expect(files.contains(".onSubmit {") && files.contains("Self.firstMatch(entries, filter: filter)"),
                 "↩ in the filter does not open the first match")
+        // A click opens and leaves the keys in the document (decided 2026-10-21): taking them made
+        // typing beep and sent ⌘Z to the file operations.
+        let click = try #require(files.range(of: "private func row(_ entry: EditorRailEntry)"))
+        let action = files[click.upperBound...].prefix(900)
+        #expect(action.contains("onOpen(entry)") && !action.contains("filesFocused = true"),
+                "a click on a file takes the keys from the document")
     }
 
     /// **The focus ring is drawn, in the hue, only while focused.** Rendered both ways: the focused

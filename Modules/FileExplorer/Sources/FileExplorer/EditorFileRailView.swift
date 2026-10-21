@@ -580,9 +580,11 @@ struct EditorFileRailView: View {
         let dot = Self.dotColour(rowPath: entry.path, selectedPath: selectedPath,
                                  status: documentStatus, accent: accent)
         return Button {
-            // A click puts the keys here too (TE110), as a click on a page does in the Pages tab.
+            // **A click opens, and leaves the keys where they were** (decided 2026-10-21): it took
+            // them to the list (TE110), so typing after a click beeped and ⌘Z undid a file
+            // operation instead of the typing (`EditorUndoRouting`). The cursor still moves here,
+            // for Tab or ↩ in the filter, which do hand the list the keys.
             keyedPath = entry.path
-            filesFocused = true
             onOpen(entry)
         } label: {
             HStack(spacing: 6) {
