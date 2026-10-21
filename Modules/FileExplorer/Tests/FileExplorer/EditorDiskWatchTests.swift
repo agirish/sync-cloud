@@ -205,6 +205,10 @@ import EventsTestSupport
         #expect(rig.document.refusal == nil)
         #expect(rig.document.isReadOnly, "the last text could be saved over a file it no longer describes")
         #expect(rig.document.readOnlyReason?.hasPrefix(EditorDiskWatch.unreadableReasonLead) == true)
+        // In Edit's own words, as two sentences rather than a dash run into a dash (TE103).
+        #expect(rig.document.readOnlyReason == "The file on disk changed and can't be read as text now. "
+                + "This isn’t a text file, so Edit can’t open it. This is the last text that could be "
+                + "read, open for reading only until the file can be read again.")
         #expect(rig.watch.notice?.text == EditorDiskWatch.unreadableNotice, "it said Reloaded, and nothing was")
         #expect(EditorAutosave.attempt(rig.document) == .nothingToDo)
         #expect(try Data(contentsOf: URL(fileURLWithPath: rig.path)).first == 0x00, "the binary file was written over")
@@ -968,6 +972,24 @@ import EventsTestSupport
         #expect(EditorDiskBannerView.actions(for: .changed, canSaveAgain: true) == [.compare, .keepMine, .useDisks])
         #expect(EditorDiskBannerView.actions(for: .deleted, canSaveAgain: true) == [.close, .saveAgain])
         #expect(EditorDiskBannerView.actions(for: .deleted, canSaveAgain: false) == [.close])
+    }
+
+    /// **TE104: the first edit to a Windows file says it converted it**, on the status line where
+    /// "Reloaded — changed elsewhere" goes, and only once.
+    @Test func convertingAFileToLFIsSaidOnTheStatusLine() async throws {
+        let rig = try Rig("one\r\ntwo\r\n")
+        #expect(rig.watch.notice == nil)
+        rig.type("three")
+        #expect(rig.text == "one\ntwo\nthree", "the edit did not convert the file")
+        #expect(rig.watch.notice?.text == "Converted to LF line endings — ⌘Z undoes")
+        #expect(EditorDiskWatch.convertedToLFNotice == "Converted to LF line endings — ⌘Z undoes")
+    }
+
+    /// An LF file is not told it was converted.
+    @Test func anLFFileSaysNothingAboutLineEndings() async throws {
+        let rig = try Rig("one\ntwo\n")
+        rig.type("three")
+        #expect(rig.watch.notice == nil)
     }
 
     /// **TE97: the banner's words are the ⌘S alert's and the sheet's** — Compare… and Keep Mine…

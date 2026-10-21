@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Sync
 
@@ -50,6 +51,12 @@ public final class EditorBuffer: ObservableObject {
 
     /// Set while ``source`` is the writer, so its edit is not taken straight back into it.
     private var isPublishing = false
+
+    /// **Says that an edit just converted the file to LF** (TE104) — once per conversion, through
+    /// whichever door made it (``EditorSourceStorage/noteConversion(_:on:)``). The disk watch puts
+    /// it on the status line for a few seconds, beside "Reloaded — changed elsewhere": a file from
+    /// Windows changing every line ending on its first keystroke is not something to do silently.
+    public let convertedToLF = PassthroughSubject<Void, Never>()
 
     /// Called by ``source`` on every edit to it.
     func publish(_ string: String) {

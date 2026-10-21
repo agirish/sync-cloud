@@ -174,10 +174,10 @@ import Sync
         #expect(huge.isTooLarge && huge.isDimmed)
         // The exact words, as the cloud-only sibling below pins its own. `!= nil` accepted any
         // string at all, so the reason could have drifted to "x" — or, more likely, out of step
-        // with `BoundedTextRead.Outcome.caption`, which it says it is worded to match.
+        // with `EditorFileStore.refusal(for:)`, which it says it is worded to match.
         // (Both numbers read 4.2 MB because the fixture is one byte over the cap; a real 40 MB file
         // reads "40 MB; the limit is 4.2 MB". The words are what is pinned here, not the fixture.)
-        #expect(huge.dimmedReason == "Too large to open (4.2 MB; the limit is 4.2 MB).")
+        #expect(huge.dimmedReason == "Too large to open in Edit — 4.2 MB, and Edit opens text files up to 4.2 MB.")
         #expect(!small.isDimmed && small.dimmedReason == nil)
     }
 

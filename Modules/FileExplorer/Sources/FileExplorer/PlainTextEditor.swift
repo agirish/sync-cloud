@@ -662,6 +662,9 @@ struct PlainTextEditor: NSViewRepresentable {
         view.breakUndoCoalescing()
         view.setSelectedRange(edit.selection)
         if let undo { registerSelection(of: view, undoTo: nil, redoTo: edit.selection, in: undo) }
+        // **Named after the verb, as Preview names it** (TE125): the insert above is typing as far
+        // as the view is concerned, and Edit ▸ Undo read "Undo Typing" after Bold in Source.
+        undo?.setActionName(verb.title)
         return true
     }
 

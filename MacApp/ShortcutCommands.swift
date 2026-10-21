@@ -2284,9 +2284,27 @@ struct ExportPDFCommand: View {
     @FocusedValue(\.documentPrint) private var actions
 
     var body: some View {
-        Button("Export as PDF…") { actions?.export?() }
+        Button(Self.title(name: actions?.export == nil ? nil : actions?.exportName)) { actions?.export?() }
             // Not offered for a PDF: it already is one.
             .disabled(actions?.export == nil)
+    }
+
+    /// **Named for the document it exports** (TE130): "Export “Plan.md” as PDF…", so it cannot be
+    /// read as Save as PDF further down, which writes the selected pane rows. Greyed, with nothing
+    /// to export, it is plain "Export as PDF…". A long name is shortened in the middle, keeping its
+    /// extension, so the File menu does not grow to the width of a file name.
+    static func title(name: String?) -> String {
+        guard let name, !name.isEmpty else { return "Export as PDF…" }
+        return "Export “\(shortened(name))” as PDF…"
+    }
+
+    static let longestName = 40
+
+    static func shortened(_ name: String) -> String {
+        guard name.count > longestName else { return name }
+        let keep = longestName - 1
+        let tail = keep / 2
+        return String(name.prefix(keep - tail)) + "…" + String(name.suffix(tail))
     }
 }
 
@@ -2328,7 +2346,8 @@ struct PDFToolsCommand: View {
 }
 
 /// **File ▸ Save as PDF** — the row menu's Save as PDF for the focused pane's selection: one file
-/// or a batch, under the row's own title ("Save 3 as PDFs"), and greyed where the row hides it.
+/// or a batch, under the row's own title ("Save as PDF · 3 files", as PDF Tools counts its files),
+/// and greyed where the row hides it.
 ///
 /// **After PDF Tools**, in the group of things a document becomes on its way out. Unlike Export as
 /// PDF…, which renders the document open in Edit to a place the reader picks, this writes each

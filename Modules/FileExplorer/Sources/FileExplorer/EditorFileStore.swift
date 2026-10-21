@@ -121,14 +121,34 @@ public enum EditorFileStore {
                 }
                 return .editable(text: text, stamp: stamp, encoding: encoding)
             case .tooLarge, .cloudOnly, .binary, .unreadable:
-                // `Outcome.caption` is already written for a reader; the fallback is unreachable
-                // and is here so this cannot silently show an empty reason if a case ever stops
-                // carrying one.
-                return .refused(reason: outcome.caption ?? "Couldn't be read.")
+                return .refused(reason: refusal(for: outcome))
             }
         }
         return .refused(reason: keptChangingReason)
     }
+
+    /// **Edit's own words for a file it will not open** (TE103). `BoundedTextRead`'s captions are
+    /// written for Compare's diff — "Too large to diff", and "the preview shows it properly", which
+    /// in Edit reads as its own Preview mode — so the two that are about Edit say so here, and
+    /// Compare keeps its own. The other two already read the same in both places; the fallback is
+    /// unreachable, and is here so this cannot show an empty reason if a case stops carrying one.
+    static func refusal(for outcome: BoundedTextRead.Outcome) -> String {
+        switch outcome {
+        case .tooLarge(let bytes): return tooLargeReason(bytes: bytes)
+        case .binary: return notTextReason
+        case .text, .cloudOnly, .unreadable: return outcome.caption ?? "Couldn't be read."
+        }
+    }
+
+    /// A file past the read cap, in Edit's words — the rail's dimmed row says the same
+    /// (``EditorRailEntry/tooLargeReason(size:)``), so the row and the refusal agree.
+    static func tooLargeReason(bytes: Int) -> String {
+        "Too large to open in Edit — \(FileSyncManager.formatBytes(bytes)), and Edit opens text "
+            + "files up to \(FileSyncManager.formatBytes(BoundedTextRead.maxBytes))."
+    }
+
+    /// A file with a NUL in it, in Edit's words.
+    static let notTextReason = "This isn’t a text file, so Edit can’t open it."
 
     /// Why a file that would not hold still while it was read was refused — and the one refusal
     /// the disk watch answers by looking again rather than by showing it (TE59).
@@ -158,7 +178,27 @@ public enum EditorFileStore {
     /// Something the save path could not do, in prose the banner can show as written.
     public struct Failure: LocalizedError, Equatable {
         public var message: String
+        /// **Set when the bytes ARE on disk** and only the look afterwards failed (TE114) — the
+        /// clause that follows "Saved “name”, but …". A save that landed is not reported as one
+        /// that could not be made: "Couldn't save “x” — Saved, but…" said both.
+        public var savedBut: String?
         public var errorDescription: String? { message }
+
+        public init(message: String, savedBut: String? = nil) {
+            self.message = message
+            self.savedBut = savedBut
+        }
+
+        /// The write landed and `clause` is what went wrong after it — said whole as "Saved, but …".
+        static func saved(but clause: String) -> Failure {
+            Failure(message: "Saved, but \(clause)", savedBut: clause)
+        }
+
+        /// The stat that stamps a write found nothing it could read.
+        static let unchecked = saved(but: "couldn’t read it back to check it.")
+        /// The stat found a different file — something replaced it in the moment after the swap.
+        static let changedAgain = saved(
+            but: "it changed again straight afterwards — check it before writing over it.")
     }
 
     /// Writes `text` to `path` atomically, and returns the stamp the buffer should now hold.
@@ -397,7 +437,9 @@ public enum EditorFileStore {
                underlying.domain == NSPOSIXErrorDomain {
                 throw Failure(message: String(cString: strerror(Int32(underlying.code))))
             }
-            throw Failure(message: "it couldn't be written there")
+            // Not "it couldn't be written there" (TE114), which said nothing a reader could act on:
+            // what is known is that macOS refused without a reason this app can name.
+            throw Failure(message: "macOS wouldn’t write it there and gave no reason.")
         }
         // Flushed before it is moved in, for the reason the save path gives: the rename can reach
         // the disk before the data does.
@@ -423,11 +465,10 @@ public enum EditorFileStore {
         }
         installed = true
         guard let stamp = stamp(ofPath: destination.path) else {
-            throw Failure(message: "Saved, but the file couldn't be re-checked afterwards.")
+            throw Failure.unchecked
         }
         if let expectedSize, stamp.size != expectedSize {
-            throw Failure(message: "Saved, but the file changed again immediately afterwards — "
-                + "check it before writing over it.")
+            throw Failure.changedAgain
         }
         return stamp
     }
@@ -515,7 +556,7 @@ public enum EditorFileStore {
         guard let stamp = stamp(ofPath: destination.path) else {
             // The bytes are on disk — this is only the read-back of the new stamp failing, so it is
             // reported rather than treated as a lost save.
-            throw Failure(message: "Saved, but the file couldn't be re-checked afterwards.")
+            throw Failure.unchecked
         }
         // **The read-back is CHECKED, not just taken.** This stat was already here to give the
         // buffer its next stamp, and its size is free evidence about the write that just happened:
@@ -532,8 +573,7 @@ public enum EditorFileStore {
         // that is not byte-identical — which a different version of a document being edited on two
         // machines essentially never is.
         guard stamp.size == bytes.count else {
-            throw Failure(message: "Saved, but the file changed again immediately afterwards — "
-                + "check it before writing over it.")
+            throw Failure.changedAgain
         }
         return stamp
     }
@@ -587,7 +627,15 @@ public enum EditorFileStore {
     /// The stem the naming row prefills.
     public static let untitledStem = "Untitled"
 
-    /// Completes a typed name: trims it, and appends ``defaultExtension`` when it has none.
+    /// Completes a typed name: trims it, and appends ``defaultExtension`` unless it already ends in
+    /// the extension of a text file Edit opens.
+    ///
+    /// **Only a known text extension counts as one** (TE102). `NSString.pathExtension` takes
+    /// whatever follows the last dot, so "Notes v1.2" and "2026.10.20 standup" came out with no
+    /// `.md` — files Edit then opened as plain text, with no Preview and no format bar, or not at
+    /// all. Asking the set Edit opens (``EditableText/extensions``) answers both: a name gets `.md`
+    /// unless the file it names is one Edit would open as it is — "notes.txt" and "config.yaml"
+    /// keep theirs, and "Notes v1.2" becomes "Notes v1.2.md".
     ///
     /// A dotfile (`.gitignore`) is left alone — `NSString.pathExtension` calls its whole name the
     /// stem and no extension, and appending `.md` to it would be the one case where "helpfully"
@@ -596,7 +644,8 @@ public enum EditorFileStore {
         let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         if trimmed.hasPrefix(".") { return trimmed }
-        guard (trimmed as NSString).pathExtension.isEmpty else { return trimmed }
+        let ext = (trimmed as NSString).pathExtension.lowercased()
+        guard !EditableText.extensions.contains(ext) else { return trimmed }
         return trimmed + "." + defaultExtension
     }
 

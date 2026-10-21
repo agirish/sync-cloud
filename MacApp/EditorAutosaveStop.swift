@@ -1,4 +1,5 @@
 import FileExplorer
+import Sync
 
 /// Why the editor has stopped writing on its own.
 ///
@@ -13,6 +14,10 @@ enum EditorAutosaveStop: Equatable {
     /// The write itself failed — a full disk, a volume gone read-only, a permission change. The
     /// message is already reader-facing.
     case failed(String)
+    /// **The write landed, and the look afterwards failed** (TE114) — the clause after "Saved “x”,
+    /// but …". Stopped all the same: the document has no stamp for what is on disk now, so the next
+    /// write could not ask whether it was about to overwrite something.
+    case unchecked(String)
 
     /// What the header says while this is in force. Short, because it sits on one line beside the
     /// file name — the alert is where the detail is.
@@ -23,6 +28,38 @@ enum EditorAutosaveStop: Equatable {
         // that is gone — deleted, or put somewhere the editor could not follow.
         case .diverged(.missing): return "not saving — no longer on disk"
         case .failed: return "not saving — couldn't write"
+        case .unchecked: return "not saving — couldn’t check the save"
+        }
+    }
+
+    /// **The reason behind the header's words**, as the word's tooltip (TE114) — the banner that
+    /// said it fades, and "couldn't write" alone gives nothing to act on. `nil` for a divergence,
+    /// whose words are a door to the comparison and carry its own tooltip.
+    var detail: String? {
+        switch self {
+        case .diverged: return nil
+        case .failed(let message): return message
+        case .unchecked(let clause): return "Saved, but \(clause)"
+        }
+    }
+
+    /// **What a save that did not end clean says, in the banner** (TE114). A failure is a failure;
+    /// a write that landed is not reported as one that could not be made — "Couldn't save “x” —
+    /// Saved, but…" said both — and is a warning: the work is on disk, and only the check is owed.
+    func banner(name: String) -> OperationBanner? {
+        switch self {
+        case .diverged: return nil
+        case .failed(let message): return .error("Couldn’t save “\(name)” — \(message)")
+        case .unchecked(let clause): return .warning("Saved “\(name)”, but \(clause)")
+        }
+    }
+
+    /// The stop a write that threw leaves — see ``EditorAutosave/Outcome/savedUnchecked(_:)``.
+    init(saveError error: Error) {
+        if let clause = (error as? EditorFileStore.Failure)?.savedBut {
+            self = .unchecked(clause)
+        } else {
+            self = .failed(error.localizedDescription)
         }
     }
 
@@ -45,7 +82,7 @@ enum EditorAutosaveStop: Equatable {
     var offersDiff: Bool {
         switch self {
         case .diverged(.changed): return true
-        case .diverged(.missing), .failed: return false
+        case .diverged(.missing), .failed, .unchecked: return false
         }
     }
 }

@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import Combine
 @testable import FileExplorer
 import FileExplorerTestSupport
 import EventsTestSupport
@@ -19,6 +20,14 @@ import EventsTestSupport
     final class Box {
         let buffer = EditorBuffer()
         var text: String { buffer.text }
+        /// How many conversions the buffer was told of (TE104).
+        var told = 0
+        private var listening: AnyCancellable?
+        init() {
+            listening = buffer.convertedToLF.sink { [unowned self] in
+                MainActor.assumeIsolated { self.told += 1 }
+            }
+        }
     }
 
     struct Rig {
@@ -398,6 +407,33 @@ import EventsTestSupport
         r.undo.redo(); spin()
         #expect(r.view.string == "- [ ] one\n- [x] two\n")
         #expect(r.box.text == r.view.string)
+    }
+
+    /// **TE104: every door that converts tells the buffer, once** — which is what puts "Converted to
+    /// LF line endings — ⌘Z undoes" on the status line. Typing, a Markup verb, a tick, Preview's own
+    /// conversion; and an LF file, or the second edit to a converted one, tells nothing.
+    ///
+    /// Mutation: drop `buffer?.convertedToLF.send()` from `noteConversion`, or have the text view
+    /// log without it, and the doors fail.
+    @Test func everyConversionIsToldToTheBufferOnce() {
+        let crlf = "- [ ] one\r\n- [ ] two\r\n"
+        let doors: [(String, (Rig) -> Void)] = [
+            ("typing", { r in r.view.insertText("!", replacementRange: r.view.selectedRange()) }),
+            ("Markup ▸ Bold", { r in PlainTextEditor.apply(.bold, to: r.view) }),
+            ("a tick", { r in EditorWorkspaceView.toggleTask(onLine: 2, in: r.source, undoManager: r.undo) }),
+            ("Preview's conversion", { r in r.source.convertLineEndingsToLF(undoManager: r.undo) }),
+        ]
+        for (name, door) in doors {
+            let r = rig(crlf, caret: 3)
+            door(r); spin()
+            #expect(!r.view.string.contains("\r"), "\(name) converted nothing")
+            #expect(r.box.told == 1, "\(name) told the buffer \(r.box.told) times")
+            r.view.insertText("?", replacementRange: r.view.selectedRange()); spin()
+            #expect(r.box.told == 1, "\(name): an edit to an LF file was told as a conversion")
+        }
+        let lf = rig("- [ ] one\n", caret: 3)
+        lf.view.insertText("!", replacementRange: lf.view.selectedRange()); spin()
+        #expect(lf.box.told == 0, "an LF file was told it was converted")
     }
 
     /// `replace` writes LF whatever it is handed, in an LF file too.

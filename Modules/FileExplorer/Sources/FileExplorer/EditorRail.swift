@@ -54,7 +54,7 @@ public struct EditorRailEntry: Identifiable, Equatable, Sendable {
 
     /// Why the row is dim, in prose, or `nil` when it is not.
     ///
-    /// Worded to match `BoundedTextRead.Outcome.caption`, which is what the editor shows when the
+    /// Worded to match `EditorFileStore.refusal(for:)`, which is what the editor shows when the
     /// same file is opened anyway — two surfaces saying the same thing about one file.
     ///
     /// A PDF has only the first reason, worded as ``EditorPDFDocument`` words its own refusal of
@@ -73,8 +73,7 @@ public struct EditorRailEntry: Identifiable, Equatable, Sendable {
     /// cannot.
     public static func tooLargeReason(size: Int) -> String? {
         guard size > BoundedTextRead.maxBytes else { return nil }
-        return "Too large to open (\(FileSyncManager.formatBytes(size)); the limit is "
-            + "\(FileSyncManager.formatBytes(BoundedTextRead.maxBytes)))."
+        return EditorFileStore.tooLargeReason(bytes: size)
     }
 }
 

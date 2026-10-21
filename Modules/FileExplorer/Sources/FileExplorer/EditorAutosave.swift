@@ -51,6 +51,17 @@ public enum EditorAutosave {
         case blocked(EditorFileStore.Divergence)
         /// The write itself failed; the message is already reader-facing.
         case failed(String)
+        /// **The bytes are on disk, and the look afterwards failed** (TE114) — the stat that stamps
+        /// the write read nothing, or read another file. The clause follows "Saved “name”, but …".
+        /// Not marked saved: there is no stamp to hold, so the host stops autosave rather than write
+        /// again blind.
+        case savedUnchecked(String)
+
+        /// What a write that threw comes to — a landed write's own outcome where the store says so.
+        static func of(_ error: Error) -> Outcome {
+            if let clause = (error as? EditorFileStore.Failure)?.savedBut { return .savedUnchecked(clause) }
+            return .failed(error.localizedDescription)
+        }
     }
 
     /// Attempts one write, **synchronously and on the main actor**.
@@ -75,7 +86,7 @@ public enum EditorAutosave {
             document.markSaved(stamp: try EditorFileStore.write(document))
             return .wrote
         } catch {
-            return .failed(error.localizedDescription)
+            return .of(error)
         }
     }
 
@@ -153,7 +164,7 @@ public enum EditorAutosave {
                 }
                 return .wrote(stamp)
             } catch {
-                return .failed(error.localizedDescription)
+                return .ended(.of(error))
             }
         }.value
 
@@ -170,8 +181,8 @@ public enum EditorAutosave {
             return .wrote
         case .blocked(let divergence):
             return .blocked(divergence)
-        case .failed(let message):
-            return .failed(message)
+        case .ended(let outcome):
+            return outcome
         }
     }
 
@@ -181,6 +192,7 @@ public enum EditorAutosave {
         case wrote(EditorFileStore.Stamp)
         case overtaken
         case blocked(EditorFileStore.Divergence)
-        case failed(String)
+        /// A write that threw — failed, or landed and could not be checked.
+        case ended(Outcome)
     }
 }

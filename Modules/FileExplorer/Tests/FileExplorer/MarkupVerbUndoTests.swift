@@ -137,6 +137,27 @@ import AppKit
         #expect(!rig.undo.canUndo, "something else was recorded with the typing")
     }
 
+    /// **TE125: Undo is named after the verb in Source too** — "Undo Bold", as in Preview, not
+    /// "Undo Typing" — through every door, and the redo after it.
+    ///
+    /// Mutation: drop `setActionName(verb.title)` from `PlainTextEditor.apply` and this reads "Typing".
+    @Test(arguments: Door.allCases)
+    func undoIsNamedAfterTheVerb(_ door: Door) {
+        let rig = rig("one two")
+        defer { withExtendedLifetime(rig.window) {} }
+        rig.view.setSelectedRange(NSRange(location: 4, length: 3))
+        spin()
+        apply(.bold, through: door, in: rig)
+        #expect(rig.view.string == "one **two**")
+        #expect(rig.undo.undoActionName == "Bold", "Edit ▸ Undo reads “Undo \(rig.undo.undoActionName)”")
+        undo(rig)
+        #expect(rig.undo.redoActionName == "Bold")
+        rig.view.setSelectedRange(NSRange(location: 0, length: 3))
+        spin()
+        apply(.link, through: door, in: rig)
+        #expect(rig.undo.undoActionName == "Link", "TE124: Undo reads “Undo \(rig.undo.undoActionName)”")
+    }
+
     /// **⌘Z gives back the selection the verb was pressed over, and ⌘⇧Z the one it left** (UND-9).
     /// The view's own undo of a replacement leaves a bare caret, so undoing Bold dropped the very
     /// words the reader meant to press something else on. A word and a caret, through every

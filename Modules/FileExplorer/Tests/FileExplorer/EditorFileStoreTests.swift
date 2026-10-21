@@ -90,7 +90,24 @@ import Foundation
             Issue.record("a NUL-bearing file was offered for editing")
             return
         }
-        #expect(reason == BoundedTextRead.Outcome.binary.caption)
+        // Edit's own words, not Compare's "the preview shows it properly" (TE103).
+        #expect(reason == "This isn’t a text file, so Edit can’t open it.")
+        #expect(reason != BoundedTextRead.Outcome.binary.caption, "Edit says Compare's sentence again")
+    }
+
+    /// **TE103: a file past the read cap is refused in Edit's words** — what it is, and what Edit
+    /// opens — not "Too large to diff". Compare's caption is left as it was.
+    @Test func aFileTooLargeToOpenIsRefusedInEditsWords() throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let path = try write(Data(count: BoundedTextRead.maxBytes + 1), named: "huge.md", in: folder)
+        guard case .refused(let reason) = EditorFileStore.open(path: path) else {
+            Issue.record("a file past the cap was opened")
+            return
+        }
+        #expect(reason == "Too large to open in Edit — 4.2 MB, and Edit opens text files up to 4.2 MB.")
+        #expect(BoundedTextRead.Outcome.tooLarge(bytes: BoundedTextRead.maxBytes + 1).caption?
+                    .hasPrefix("Too large to diff") == true, "Compare lost its own wording")
     }
 
     @Test func aFileThatIsNotThereIsRefusedRatherThanOpenedEmpty() throws {
@@ -381,6 +398,25 @@ import Foundation
         // the one case where finishing a name would change what was asked for.
         #expect(EditorFileStore.completedName(".gitignore") == ".gitignore")
         #expect(EditorFileStore.completedName("   ") == "")
+    }
+
+    /// **TE102: a dot in a name is not an extension unless Edit opens files that end in it.**
+    /// "Notes v1.2" used to come out with no `.md` — "2" taken for its extension — and open as plain
+    /// text, with no Preview. A known text extension, in any case, is kept.
+    ///
+    /// Mutation: go back to `pathExtension.isEmpty` and the first three fail.
+    @Test func aDotInANameIsNotAnExtensionUnlessEditOpensIt() {
+        #expect(EditorFileStore.completedName("Notes v1.2") == "Notes v1.2.md")
+        #expect(EditorFileStore.completedName("2026.10.20 standup") == "2026.10.20 standup.md")
+        #expect(EditorFileStore.completedName("Q3.final") == "Q3.final.md")
+        #expect(EditorFileStore.completedName("config.yaml") == "config.yaml")
+        #expect(EditorFileStore.completedName("README.MD") == "README.MD", "a capital extension was not recognised")
+        #expect(EditorFileStore.completedName("notes.markdown") == "notes.markdown")
+        // And every name it completes is one Edit opens — which is the point of the rule.
+        for typed in ["Notes v1.2", "Q3.final", "photo.png", "notes.txt", "plan"] {
+            #expect(EditableText.isText(path: "/f/" + EditorFileStore.completedName(typed)),
+                    "“\(typed)” would make a file Edit does not open")
+        }
     }
 
     @Test func thePrefilledNameSkipsTheNamesAlreadyInTheFolder() throws {

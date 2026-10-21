@@ -189,6 +189,9 @@ public struct EditorWorkspaceView: View {
     /// Why autosave has stopped, in the header's own words, or `nil` while it is working. A string
     /// rather than the host's enum: this view draws it and never branches on it.
     let stopped: String?
+    /// The reason behind ``stopped``, for its tooltip where the words are not a door (TE114) — a
+    /// failed write's own sentence, which the banner said once and then took away.
+    let stoppedDetail: String?
     /// **The second door onto "which version wins", or `nil` when there is nothing to show.**
     ///
     /// The stop's words are already on this line saying the file changed underneath the buffer, and
@@ -366,6 +369,7 @@ public struct EditorWorkspaceView: View {
                 goToLineRequest: Int = 0,
                 undoManager: UndoManager,
                 stopped: String? = nil,
+                stoppedDetail: String? = nil,
                 onShowWhatChanged: (() -> Void)? = nil,
                 diskBanner: EditorDiskBanner? = nil,
                 diskNotice: String? = nil,
@@ -434,6 +438,7 @@ public struct EditorWorkspaceView: View {
         self.goToLineRequest = goToLineRequest
         self.undoManager = undoManager
         self.stopped = stopped
+        self.stoppedDetail = stoppedDetail
         self.onShowWhatChanged = onShowWhatChanged
         self.diskBanner = diskBanner
         self.diskNotice = diskNotice
@@ -1091,9 +1096,19 @@ public struct EditorWorkspaceView: View {
             // button and leave them to guess what pressing it is for.
             .accessibilityLabel("Show what changed on disk")
             .help("Show what changed on disk since you opened it")
+        } else if let detail = Self.stopTooltip(status: status, detail: stoppedDetail) {
+            text.help(detail)
         } else {
             text
         }
+    }
+
+    /// **The plain status word's tooltip: the stop's reason, and only on a stop** (TE114). "not
+    /// saving — couldn't write" says that a write failed and not why; the why was in a banner that
+    /// has faded by the time anybody looks. Read-only and "unsaved — ⌘S" carry none.
+    static func stopTooltip(status: EditorSaveStatus, detail: String?) -> String? {
+        guard case .stopped = status, let detail, !detail.isEmpty else { return nil }
+        return detail
     }
 
     /// The reserved width of the dot's column, shared by both rows of the header.

@@ -46,7 +46,7 @@ import EventsTestSupport
             ["Bold", "Italic", "Strikethrough"],
             ["Bulleted List", "Numbered List", "Task Item"],
             ["Inline Code", "Code Block", "Block Quote"],
-            ["Link…", "Insert Table", "Divider"],
+            ["Link", "Insert Table", "Divider"],
         ])
         #expect(EditorFormatBar.tableVerbs.map(\.title) == [
             "Insert Table", "Make Table from Selection", "Add Row Above", "Add Row Below",
@@ -598,7 +598,7 @@ import EventsTestSupport
     @Test func eachTooltipNamesTheVerbAndItsRegisteredChord() {
         #expect(EditorFormatBar.tooltip(.bold) == ShortcutHint.tooltip("Bold", AppChord.bold.display))
         #expect(EditorFormatBar.tooltip(.italic) == ShortcutHint.tooltip("Italic", "⌘I"))
-        #expect(EditorFormatBar.tooltip(.link) == ShortcutHint.tooltip("Link…", AppChord.link.display))
+        #expect(EditorFormatBar.tooltip(.link) == ShortcutHint.tooltip("Link", AppChord.link.display))
         #expect(EditorFormatBar.tooltip(.bulletList) == "Bulleted List", "a menu-only verb's tooltip advertises a chord")
         for verb in MarkupVerb.menuOrder.compactMap({ $0 }) {
             #expect(EditorFormatBar.tooltip(verb).hasPrefix(verb.title))

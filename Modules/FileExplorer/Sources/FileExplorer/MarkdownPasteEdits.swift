@@ -26,7 +26,7 @@ enum MarkdownPasteEdits {
     /// - it holds a bracket or a backtick, ends in a backslash, or follows a `!` or a `\` — each
     ///   would end the link text early, nest a link in a link, make an image, or escape the `[`;
     /// - **it sits inside a link already** — in its words, its address or a reference definition,
-    ///   anywhere in the paragraph (link text wraps). Markup ▸ Link… leaves `url` selected in
+    ///   anywhere in the paragraph (link text wraps). Markup ▸ Link leaves `url` selected in
     ///   `[words](url)` for exactly this paste, and the paste must REPLACE it;
     /// - it sits in code, raw HTML or the front matter — a code block by the parser, a code span by
     ///   CommonMark's backtick-run rule — where `[words](url)` would be literal characters.

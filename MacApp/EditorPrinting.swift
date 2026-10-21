@@ -18,6 +18,8 @@ struct DocumentPrintActions {
     /// Asks where to put it, then writes the same render there. `nil` for a PDF, which already is
     /// one — Export as PDF… is not offered for it, while Print… is.
     let export: (() -> Void)?
+    /// The document's name, which Export's title carries (TE130) — `nil` where it is not offered.
+    var exportName: String? = nil
 
     /// Whether the two items are offered at all, as a pure rule.
     ///
@@ -51,7 +53,8 @@ extension ContentView {
             return nil
         }
         return DocumentPrintActions(print: { printEditorDocument() },
-                                    export: { exportEditorDocumentAsPDF() })
+                                    export: { exportEditorDocumentAsPDF() },
+                                    exportName: editorDocument.name)
     }
 
     /// What is being printed, snapshotted at the moment the menu item fires.

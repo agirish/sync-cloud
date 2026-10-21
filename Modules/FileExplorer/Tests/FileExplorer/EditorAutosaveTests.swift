@@ -152,6 +152,32 @@ import Design
         #expect(a != EditorAutosave.Key(version: 5, path: "/a/one.md"))
     }
 
+    // MARK: A save that landed and could not be checked (TE114)
+
+    /// **The store says when the bytes are on disk**, and the outcome keeps that apart from a write
+    /// that failed — so the host can say "Saved “x”, but …" rather than "Couldn't save “x” — Saved,
+    /// but …". Both of the store's after-the-swap failures are landed ones.
+    @Test func aWriteThatLandedIsNotAFailedOne() {
+        #expect(EditorFileStore.Failure.unchecked.savedBut == "couldn’t read it back to check it.")
+        #expect(EditorFileStore.Failure.unchecked.message == "Saved, but couldn’t read it back to check it.")
+        #expect(EditorFileStore.Failure.changedAgain.savedBut?.hasPrefix("it changed again") == true)
+        #expect(EditorAutosave.Outcome.of(EditorFileStore.Failure.unchecked)
+                == .savedUnchecked("couldn’t read it back to check it."))
+        #expect(EditorAutosave.Outcome.of(EditorFileStore.Failure(message: "Permission denied"))
+                == .failed("Permission denied"))
+        #expect(EditorAutosave.Outcome.of(CocoaError(.fileWriteOutOfSpace)) == .failed(CocoaError(.fileWriteOutOfSpace).localizedDescription))
+    }
+
+    /// **The red word carries its reason as a tooltip — on a stop only** (TE114).
+    @Test func theStopWordCarriesItsReason() {
+        let stopped = EditorSaveStatus.stopped("not saving — couldn't write")
+        #expect(EditorWorkspaceView.stopTooltip(status: stopped, detail: "Permission denied") == "Permission denied")
+        #expect(EditorWorkspaceView.stopTooltip(status: stopped, detail: nil) == nil)
+        #expect(EditorWorkspaceView.stopTooltip(status: .readOnly, detail: "Permission denied") == nil,
+                "a read-only document wears a stop's reason")
+        #expect(EditorWorkspaceView.stopTooltip(status: .heldUnsaved, detail: "Permission denied") == nil)
+    }
+
     // MARK: What the header says
 
     /// **The dot is what separates pending from written, and now it is the ONLY thing that does.**

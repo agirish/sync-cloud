@@ -81,6 +81,15 @@ public final class EditorSourceStorage: NSObject {
         return changes
     }
 
+    /// **One conversion to LF, told** — the log line, and the buffer, whose status line says so
+    /// (TE104). Every door that converts comes through here: the text view's, ``replace(_:with:undoManager:actionName:verbatim:)``
+    /// and ``convertLineEndingsToLF(undoManager:on:)``. Nothing for no changes.
+    func noteConversion(_ changes: [EditorLineEndings.Change], on trigger: String) {
+        guard !changes.isEmpty else { return }
+        EditorLineEndings.logConversion(changes, of: fileName, on: trigger)
+        buffer?.convertedToLF.send()
+    }
+
     // MARK: Publishing to the buffer
 
     private func charactersDidChange() {
@@ -185,7 +194,7 @@ public final class EditorSourceStorage: NSObject {
         let string = verbatim ? string : EditorLineEndings.normalized(string)
         asOneEdit {
             apply(endings, undoManager: undoManager)
-            EditorLineEndings.logConversion(endings, of: fileName, on: actionName ?? "an edit from outside the text")
+            noteConversion(endings, on: actionName ?? "an edit from outside the text")
             exactly(range, with: string, undoManager: undoManager, actionName: actionName)
         }
     }
@@ -235,7 +244,7 @@ public final class EditorSourceStorage: NSObject {
         isReplacing = true
         apply(changes, undoManager: undoManager)
         isReplacing = false
-        EditorLineEndings.logConversion(changes, of: fileName, on: trigger)
+        noteConversion(changes, on: trigger)
         return true
     }
 

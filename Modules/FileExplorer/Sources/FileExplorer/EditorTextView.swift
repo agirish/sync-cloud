@@ -161,7 +161,11 @@ final class EditorTextView: NSTextView {
         didChangeText()
         breakUndoCoalescing()
         selectedRanges = selection.map { NSValue(range: EditorLineEndings.mapped($0, through: changes)) }
-        EditorLineEndings.logConversion(changes, of: (storage.delegate as? EditorSourceStorage)?.fileName, on: trigger)
+        if let source = storage.delegate as? EditorSourceStorage {
+            source.noteConversion(changes, on: trigger)
+        } else {
+            EditorLineEndings.logConversion(changes, of: nil, on: trigger)
+        }
         return changes
     }
 

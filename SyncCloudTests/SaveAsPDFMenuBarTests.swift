@@ -40,7 +40,7 @@ import Testing
         let menu = NSHostingMenu(rootView: SaveAsPDFMenuContent(
             selection: .init(offer: .several(paths: paths), run: { box.ran.append($0) })))
         menu.update()
-        #expect(menu.items.map(\.title) == ["Save 2 as PDFs"])
+        #expect(menu.items.map(\.title) == ["Save as PDF · 2 files"])
         #expect(menu.items.first?.isEnabled == true)
         menu.performActionForItem(at: 0)
         #expect(box.ran == [paths])

@@ -59,6 +59,31 @@ import Foundation
         #expect(titles.contains("Export as PDF…") && !titles.contains("Export as PDF"))
     }
 
+    /// **TE130: Export names the document it exports**, so it cannot be read as Save as PDF — which
+    /// writes the selected pane rows, and counts them as PDF Tools does. Greyed, with nothing to
+    /// export, it keeps the plain title the menu checks above read.
+    @Test func exportNamesItsDocumentAndSaveAsPDFCountsItsFiles() {
+        #expect(ExportPDFCommand.title(name: "Plan.md") == "Export “Plan.md” as PDF…")
+        #expect(ExportPDFCommand.title(name: nil) == "Export as PDF…")
+        #expect(ExportPDFCommand.title(name: "") == "Export as PDF…")
+        let long = String(repeating: "a", count: 60) + ".md"
+        let title = ExportPDFCommand.title(name: long)
+        #expect(title.hasSuffix("a.md” as PDF…"), "a long name lost its extension: \(title)")
+        #expect(ExportPDFCommand.shortened(long).count == ExportPDFCommand.longestName)
+        #expect(SaveAsPDFOffer.several(paths: ["/a.md", "/b.md", "/c.md"]).title == "Save as PDF · 3 files")
+        #expect(PanePDFToolOffer.several(paths: ["/a.pdf", "/b.pdf", "/c.pdf"]).title == "PDF Tools · 3 files")
+    }
+
+    /// The window hands Export the open document's name, and only where Export is offered.
+    @Test func theWindowHandsExportTheDocumentsName() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/EditorPrinting.swift")
+        let code = CodeText(try String(contentsOf: url, encoding: .utf8))
+        #expect(code.contains("export: { exportEditorDocumentAsPDF() }, exportName: editorDocument.name)"))
+        #expect(code.contains("DocumentPrintActions(print: { printEditorPDF() }, export: nil)"),
+                "a PDF is offered Export, or handed a name to export")
+    }
+
     /// **⇧⌘P is still the preview column.** ⌘P was taken on the strength of the shifted form being
     /// somebody else's; if these two ever collide the reader loses one of them silently.
     @Test func thePreviewColumnKeepsTheShiftedForm() {

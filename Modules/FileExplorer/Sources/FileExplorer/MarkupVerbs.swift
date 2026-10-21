@@ -129,7 +129,9 @@ public enum MarkupVerb: Hashable, Sendable {
         case .italic: return "Italic"
         case .strikethrough: return "Strikethrough"
         case .inlineCode: return "Inline Code"
-        case .link: return "Link…"
+        // No ellipsis (TE124): it opens no dialog — it writes `[text](url)` and selects the url.
+        // The menus, the format bar's tooltip, VoiceOver and Undo all read this one title.
+        case .link: return "Link"
         case .heading(0): return "Body"
         case .heading(let level): return "Heading \(level)"
         case .bulletList: return "Bulleted List"

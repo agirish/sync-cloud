@@ -207,6 +207,7 @@ public final class EditorDiskWatch: ObservableObject {
     private weak var undoStore: EditorUndoStore?
     private var watcher: EditorFileWatcher?
     private var subscription: AnyCancellable?
+    private var conversions: AnyCancellable?
     /// Held, never removed: the watch lives as long as the app, and the block holds it weakly.
     private var activation: NSObjectProtocol?
     private var pending: Task<Void, Never>?
@@ -255,6 +256,12 @@ public final class EditorDiskWatch: ObservableObject {
         // a path to arm on. Nothing is compared until an event, by when the load has finished.
         subscription = document.$path.sink { [weak self] path in
             MainActor.assumeIsolated { self?.documentPathWillChange(to: path) }
+        }
+        // **The status line's other few seconds of words** (TE104): an edit converted a CRLF or CR
+        // file to LF. Said here because this is where the status line's notices live, so a newer
+        // one replaces an older one rather than two competing for the line.
+        conversions = document.buffer.convertedToLF.sink { [weak self] in
+            MainActor.assumeIsolated { self?.showNotice(Self.convertedToLFNotice) }
         }
         // **The net under the events**: a change made while the app was in the background is looked
         // for again when it comes forward, which also covers a download finishing with no event.
@@ -782,10 +789,15 @@ public final class EditorDiskWatch: ObservableObject {
     static let unreadableReasonLead = "The file on disk changed and can't be read as text now"
 
     static func unreadableReason(_ refusal: String) -> String {
-        "\(unreadableReasonLead) — \(refusal) This is the last text that could be read, open for "
+        // A full stop, not a dash: the refusal is a sentence of its own, and Edit's too-large one
+        // carries a dash already (TE103).
+        "\(unreadableReasonLead). \(refusal) This is the last text that could be read, open for "
             + "reading only until the file can be read again."
     }
     static let usedDisksNotice = "Using the version on disk — ⌘Z brings yours back"
+    /// An edit turned a CRLF or CR file into LF (TE104) — the first change to it, which ⌘Z takes
+    /// back with the conversion (``EditorLineEndings``).
+    static let convertedToLFNotice = "Converted to LF line endings — ⌘Z undoes"
     /// Edit ▸ Undo's word for Use Disk Version — the button's own (TE97).
     static let useDisksActionName = EditorDiskVerbs.useDiskVersion
 

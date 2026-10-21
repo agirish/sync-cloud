@@ -155,7 +155,7 @@ struct MarkdownPasteEditsTests {
         // A backtick the selection holds alone — even parity before it, so only this rule refuses.
         ("https://e.com", "«a `b» c`"),
         ("https://e.com", "«C:\\Temp\\»"),
-        // Already inside a link: its address — what Markup ▸ Link… leaves selected for this very
+        // Already inside a link: its address — what Markup ▸ Link leaves selected for this very
         // paste — its words, an image's source, a reference definition, an autolink.
         ("https://e.com/page", "See [the docs](«url») for more."),
         ("https://cdn.e.com/cat.png", "![a cat](«cat.png»)"),

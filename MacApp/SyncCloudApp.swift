@@ -1348,6 +1348,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
                     "Could not flush the editor's document before quitting: it \(divergence == .missing ? "is no longer where it was opened" : "changed on disk")")
             case .failed(let message):
                 Logger.shared.warning("Could not flush the editor's document before quitting — \(message)")
+            case .savedUnchecked(let clause):
+                Logger.shared.warning("Flushed the editor's document before quitting, but \(clause)")
             case .nothingToDo:
                 break
             }

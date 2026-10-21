@@ -352,7 +352,7 @@ private struct SaveDelegate: FileActionDelegate {
         }
         #expect(SaveAsPDFOffer.forSelection([node(doc)]) == .single(path: doc))
         #expect(SaveAsPDFOffer.forSelection([node(doc), node(md)]) == .several(paths: [doc, md]))
-        #expect(SaveAsPDFOffer.several(paths: [doc, md, pdf]).title == "Save 3 as PDFs")
+        #expect(SaveAsPDFOffer.several(paths: [doc, md, pdf]).title == "Save as PDF · 3 files")
         #expect(SaveAsPDFOffer.single(path: doc).title == "Save as PDF")
     }
 
@@ -416,7 +416,7 @@ private struct SaveDelegate: FileActionDelegate {
                                                                 delegate: SaveDelegate(box: SaveBox())))))
     }
 
-    /// **Several files draw "Save 3 as PDFs" first after Refresh**; a selection with a PDF in it
+    /// **Several files draw "Save as PDF · 3 files" first after Refresh**; a selection with a PDF in it
     /// draws none.
     @Test func severalFilesDrawTheBatchItemFirstAfterRefresh() throws {
         let paths = ["Lease.docx", "Deck.pptx", "Trip.md"].map(path)
@@ -425,7 +425,7 @@ private struct SaveDelegate: FileActionDelegate {
         let delegate = SaveDelegate(box: box)
         let item = Self.soloWidth(SaveAsPDFMenuItem(offer: .several(paths: paths), delegate: delegate))
         let drawn = Self.drawnRowWidths(paths.map { node($0) }, delegate: delegate)
-        #expect(drawn.firstIndex(of: item) == 1, "Save 3 as PDFs is not first after Refresh: \(drawn)")
+        #expect(drawn.firstIndex(of: item) == 1, "Save as PDF · 3 files is not first after Refresh: \(drawn)")
 
         let pdf = path("Statement.pdf")
         PDFFixtures.write(pdf, pages: 1)

@@ -88,12 +88,12 @@ import EventsTestSupport
         }
         // …and the menu is genuinely divided the way the menu bar's will be.
         #expect(menu.items.filter(\.isSeparatorItem).count == MarkupVerb.menuOrder.filter { $0 == nil }.count)
-        // The Table submenu sits where the table run starts in `menuOrder`: between Link… and
+        // The Table submenu sits where the table run starts in `menuOrder`: between Link and
         // Divider, in the group that adds something new (TE68).
         let titles = menu.items.map(\.title)
         let at = titles.firstIndex(of: "Table")
-        #expect(at.map { titles[$0 - 1] == "Link…" && titles[$0 + 1] == "Divider" } == true,
-                "the Markup submenu reads \(titles) — Table is not between Link… and Divider")
+        #expect(at.map { titles[$0 - 1] == "Link" && titles[$0 + 1] == "Divider" } == true,
+                "the Markup submenu reads \(titles) — Table is not between Link and Divider")
         let table = at.flatMap { menu.items[$0].submenu }
         #expect(table?.items.filter { !$0.isSeparatorItem }.map(\.title) == MarkupVerb.tableSections.joined().map(\.title))
         #expect(table?.items.filter(\.isSeparatorItem).count == MarkupVerb.tableSections.count - 1)

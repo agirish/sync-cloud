@@ -521,6 +521,8 @@ extension ContentView {
             goToLineRequest: editorGoToLineRequest,
             undoManager: editorUndoManager,
             stopped: editorAutosaveStop?.caption,
+            // The reason behind those words, as their tooltip — the banner that said it fades (TE114).
+            stoppedDetail: editorAutosaveStop?.detail,
             // **The stop's words become a door, and only where there is something behind them.**
             // The alert is modal and its Cancel leaves the latch set, so the question would
             // otherwise be reachable only through ⌘S. Which stops have a second version to show is
@@ -778,7 +780,13 @@ extension ContentView {
             return confirmLeavingAnUnwrittenDocument()
         case .failed(let message):
             editorAutosaveStop = .failed(message)
-            syncManager.banner = .error("Couldn't save “\(editorDocument.name)” — \(message)")
+            syncManager.banner = editorAutosaveStop?.banner(name: editorDocument.name)
+            return confirmLeavingAnUnwrittenDocument()
+        case .savedUnchecked(let clause):
+            // On disk, but unchecked and unstamped — asked about as an unwritten document, since
+            // nothing can say the file holds this text (TE114).
+            editorAutosaveStop = .unchecked(clause)
+            syncManager.banner = editorAutosaveStop?.banner(name: editorDocument.name)
             return confirmLeavingAnUnwrittenDocument()
         }
     }
@@ -1410,8 +1418,11 @@ extension ContentView {
             return true
         } catch {
             // **Banner, never log-only.** A save that silently failed is the one failure in this
-            // app that can cost work the user believes is on disk.
-            syncManager.banner = .error("Couldn't save “\(editorDocument.name)” — \(error.localizedDescription)")
+            // app that can cost work the user believes is on disk. One that landed and could not be
+            // checked says so instead (TE114), and stops autosave, which has no stamp to write by.
+            let stop = EditorAutosaveStop(saveError: error)
+            if case .unchecked = stop { editorAutosaveStop = stop }
+            syncManager.banner = stop.banner(name: editorDocument.name)
             return false
         }
     }
@@ -1504,7 +1515,11 @@ extension ContentView {
             // Latched for the same reason: a full disk or a read-only volume fails identically
             // every two seconds, and a banner per attempt is not a report, it is noise.
             editorAutosaveStop = .failed(message)
-            syncManager.banner = .error("Couldn't save “\(editorDocument.name)” — \(message)")
+            syncManager.banner = editorAutosaveStop?.banner(name: editorDocument.name)
+        case .savedUnchecked(let clause):
+            // Latched too, and said as what it is: saved, but not checked (TE114).
+            editorAutosaveStop = .unchecked(clause)
+            syncManager.banner = editorAutosaveStop?.banner(name: editorDocument.name)
         }
     }
 

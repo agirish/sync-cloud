@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import FileExplorer
+import Sync
 @testable import SyncCloud
 
 /// **Which autosave stops have a second version to show, and which are only words.**
@@ -25,13 +26,51 @@ import FileExplorer
     /// door must still be a legible piece of state rather than an empty line.
     @Test func everyStopStillCarriesItsOwnWords() {
         let stops: [EditorAutosaveStop] = [.diverged(.changed), .diverged(.missing),
-                                           .failed("No space left on device")]
+                                           .failed("No space left on device"),
+                                           .unchecked("couldn’t read it back to check it.")]
         for stop in stops {
             #expect(!stop.caption.isEmpty)
             #expect(stop.caption.hasPrefix("not saving"), "got “\(stop.caption)”")
         }
         // Distinct, so the door's case is identifiable on screen and not just in the type.
         #expect(Set(stops.map(\.caption)).count == stops.count)
+    }
+
+    /// **TE114: a save that landed is not reported as one that failed.** The banner says "Saved
+    /// “x”, but …" as a warning, the header says it could not check the save rather than that it
+    /// could not write, and both stops carry their reason for the word's tooltip.
+    @Test func aSaveThatLandedIsNotReportedAsAFailure() {
+        let unchecked = EditorAutosaveStop(saveError: EditorFileStore.Failure(
+            message: "Saved, but couldn’t read it back to check it.",
+            savedBut: "couldn’t read it back to check it."))
+        #expect(unchecked == .unchecked("couldn’t read it back to check it."))
+        let banner = unchecked.banner(name: "Plan.md")
+        #expect(banner?.message == "Saved “Plan.md”, but couldn’t read it back to check it.")
+        #expect(banner?.severity == .warning)
+        #expect(unchecked.caption == "not saving — couldn’t check the save")
+        #expect(unchecked.detail == "Saved, but couldn’t read it back to check it.")
+        #expect(!unchecked.offersDiff)
+
+        let failed = EditorAutosaveStop(saveError: EditorFileStore.Failure(message: "Permission denied"))
+        #expect(failed == .failed("Permission denied"))
+        #expect(failed.banner(name: "Plan.md")?.message == "Couldn’t save “Plan.md” — Permission denied")
+        #expect(failed.banner(name: "Plan.md")?.severity == .error)
+        #expect(failed.detail == "Permission denied", "the red word's tooltip lost the reason")
+        #expect(EditorAutosaveStop.diverged(.changed).detail == nil, "the door has its own tooltip")
+        #expect(EditorAutosaveStop.diverged(.changed).banner(name: "x") == nil)
+    }
+
+    /// **Every save failure in the editor is said through the stop**, so none can go back to "Couldn't
+    /// save — Saved, but…": ⌘S's write, the flush on leaving and the autosave. And the header is
+    /// handed the reason for its tooltip.
+    @Test func everySaveFailureIsSaidThroughTheStop() throws {
+        let editor = CodeText(try EditorDivergenceWiringTests.source("ContentView+Editor.swift"))
+        #expect(!editor.contains("\"Couldn't save “\\(editorDocument.name)” — \\(message)\""),
+                "a save failure composes its own banner again")
+        #expect(editor.contains("let stop = EditorAutosaveStop(saveError: error)"))
+        #expect(editor.count(of: "case .savedUnchecked(let clause): editorAutosaveStop = .unchecked(clause)") == 2)
+        let call = try CallArguments(of: "EditorWorkspaceView(", in: normalizedCode(EditorDivergenceWiringTests.source("ContentView+Editor.swift")))
+        #expect(call.passes("stoppedDetail", "editorAutosaveStop?.detail"))
     }
 
     /// The one stop that is a door is the one whose words say the file CHANGED — so the sentence the

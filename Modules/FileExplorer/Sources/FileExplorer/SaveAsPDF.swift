@@ -62,11 +62,12 @@ public enum SaveAsPDFOffer: Equatable, Sendable {
         }
     }
 
-    /// The item's name, on the row and in File ▸ — a batch counts its files.
+    /// The item's name, on the row and in File ▸ — a batch counts its files, in the words PDF Tools
+    /// counts them in ("PDF Tools · 3 files"), so the two items read as a pair (TE130).
     public var title: String {
         switch self {
         case .single: return "Save as PDF"
-        case .several(let paths): return "Save \(paths.count) as PDFs"
+        case .several(let paths): return "Save as PDF · \(paths.count) files"
         }
     }
 
