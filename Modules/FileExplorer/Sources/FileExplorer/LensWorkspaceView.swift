@@ -2416,6 +2416,7 @@ public struct LensWorkspaceView: View {
                 Label("File all \(batch.count) confident", systemImage: "arrow.right.circle.fill")
             }
             .buttonStyle(.borderedProminent)
+            .accentedProminent(glassHue)
             .chromeHover()
             .controlSize(.small)
             .disabled(syncManager.isSuggestingFiles)
@@ -2584,7 +2585,7 @@ public struct LensWorkspaceView: View {
                           systemImage: reaimClearsScope ? "square.stack.3d.up.slash" : movedIcon)
                 }
             }
-                .buttonStyle(.borderedProminent).controlSize(.small)
+                .buttonStyle(.borderedProminent).accentedProminent(glassHue).controlSize(.small)
                 .chromeHover()
                 .disabled(disabled)
                 .help(movedTitle == nil && reaimClearsScope
@@ -3239,6 +3240,7 @@ public struct LensWorkspaceView: View {
                 Label("Apply \(batch.count) recommended", systemImage: "checkmark.circle.fill")
             }
             .buttonStyle(.borderedProminent)
+            .accentedProminent(glassHue)
             .chromeHover()
             .controlSize(.small)
             // The row must shed its readouts before its controls: at Documents scale this
@@ -3276,6 +3278,7 @@ public struct LensWorkspaceView: View {
                 Label("Rename \(files) file\(files == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
             }
             .buttonStyle(.borderedProminent)
+            .accentedProminent(glassHue)
             .chromeHover()
             .controlSize(.small)
             .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
@@ -3303,6 +3306,7 @@ public struct LensWorkspaceView: View {
                 Label("Fix all \(risky.count)", systemImage: "checkmark.circle.fill")
             }
             .buttonStyle(.borderedProminent)
+            .accentedProminent(glassHue)
             .chromeHover()
             .controlSize(.small)
             .disabled(syncManager.isNormalizingNames)
@@ -3355,6 +3359,7 @@ public struct LensWorkspaceView: View {
             Label("Preview all", systemImage: AutomationsGlyph.preview)
         }
         .buttonStyle(.borderedProminent)
+        .accentedProminent(glassHue)
         .chromeHover()
         .controlSize(.small)
         .disabled(runnableRuleCount == 0 || providerAnchor == nil)

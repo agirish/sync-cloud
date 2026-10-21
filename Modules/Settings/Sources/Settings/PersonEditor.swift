@@ -77,6 +77,7 @@ struct PersonEditor: View {
                 .keyboardShortcut(.defaultAction)
                 .shortcutKeycap("⏎")
                 .buttonStyle(.borderedProminent)
+                .accentedProminent()
                 .chromeHover()
                 .disabled(!Self.canSave(displayName: draft.displayName))
         }

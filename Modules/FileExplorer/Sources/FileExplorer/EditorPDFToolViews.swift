@@ -39,7 +39,7 @@ struct EditorPDFToolsMenu: View {
         .help("PDF tools — each writes a new copy and leaves this file as it is")
         .accessibilityLabel("PDF Tools")
         .sheet(item: $tools.sheet) { sheet in
-            EditorPDFToolSheetView(tools: tools, sheet: sheet, accentFill: accentFill)
+            EditorPDFToolSheetView(tools: tools, sheet: sheet)
         }
     }
 }

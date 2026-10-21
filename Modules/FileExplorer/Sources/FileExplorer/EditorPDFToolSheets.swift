@@ -10,10 +10,6 @@ import Sync
 struct EditorPDFToolSheetView: View {
     @ObservedObject var tools: EditorPDFTools
     let sheet: EditorPDFToolSheet
-    /// The sheet's tint. Its default button is AppKit's, which lays a white label on the tint, so
-    /// this is the deepened accent (`LiquidGlassHue.accentFillColor`), as are the radios' fills.
-    /// Cancel's words take the raw accent back (``EditorPDFToolSheetFrame``).
-    let accentFill: Color
 
     var body: some View {
         Group {
@@ -33,7 +29,10 @@ struct EditorPDFToolSheetView: View {
         .padding(20)
         // A floor, not a fixed width: at the Large text size the radio rows and captions need more.
         .frame(minWidth: 400, idealWidth: 420)
-        .tint(accentFill)
+        // The sheet's tint. Its default button is AppKit's, which lays a white label on the tint,
+        // so this is the deepened accent (`accentedProminent`), as are the radios' fills. Cancel's
+        // words take the raw accent back (``EditorPDFToolSheetFrame``).
+        .accentedProminent()
     }
 }
 

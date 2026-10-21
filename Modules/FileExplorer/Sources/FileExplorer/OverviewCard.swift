@@ -287,7 +287,7 @@ struct OverviewCard<Content: View>: View {
     private func button(_ action: OverviewCardAction) -> some View {
         let shaped = Group {
             if action.rank == .primary {
-                Button(action.title, action: action.run).buttonStyle(.borderedProminent)
+                Button(action.title, action: action.run).buttonStyle(.borderedProminent).accentedProminent()
             } else {
                 Button(action.title, action: action.run).buttonStyle(.bordered)
             }

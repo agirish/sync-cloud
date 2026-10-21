@@ -698,6 +698,7 @@ struct DuplicateGroupCard: View {
                     Label(applyTitle, systemImage: "trash")
                 }
                 .buttonStyle(.borderedProminent)
+                .accentedProminent()
                 .chromeHover()
                 .controlSize(.small)
                 // Nothing to remove means the button would open no dialog and do nothing at all —
@@ -722,6 +723,7 @@ struct DuplicateGroupCard: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .accentedProminent()
                 .chromeHover()
                 .controlSize(.small)
                 .disabled(isMerging)

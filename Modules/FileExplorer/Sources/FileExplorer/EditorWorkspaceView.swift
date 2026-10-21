@@ -155,7 +155,7 @@ public struct EditorWorkspaceView: View {
     let accent: Color
     /// The accent deepened until a white label on it clears WCAG AA
     /// (`LiquidGlassHue.accentFillColor`) — what every lit control fills with. The raw accent under
-    /// a white label is 2.7:1 on Green; `EditAccentFillScanTests` keeps it out of Edit's fills.
+    /// a white label is 2.7:1 on Green; `AccentFillScanTests` keeps it out of Edit's fills.
     let accentFill: Color
     /// The label colour on `accentFill`, the same value the workspace bar's selected segment uses.
     let onAccent: Color

@@ -99,7 +99,7 @@ import Sync
         let context = try #require(CGContext(URL(fileURLWithPath: file) as CFURL, mediaBox: &box, info as CFDictionary))
         context.beginPDFPage(nil); context.endPDFPage(); context.closePDF()
         let tools = tools(file)
-        let (window, host) = host(EditorPDFToolSheetView(tools: tools, sheet: .metadata, accentFill: .blue), height: 460)
+        let (window, host) = host(EditorPDFToolSheetView(tools: tools, sheet: .metadata), height: 460)
         defer { window.contentView = nil }
 
         var fields: [NSTextField] = []
@@ -130,7 +130,7 @@ import Sync
         let tools = tools(file)
         let sheet = EditorPDFToolSheet.pages(.extract, prefill: "2")
         tools.sheet = sheet
-        let (window, host) = host(EditorPDFToolSheetView(tools: tools, sheet: sheet, accentFill: .blue))
+        let (window, host) = host(EditorPDFToolSheetView(tools: tools, sheet: sheet))
         defer { window.contentView = nil }
         #expect(Self.spinners(in: host) == 0, "an idle sheet spins")
 
@@ -143,7 +143,7 @@ import Sync
         PDFFixtures.writeScan(scan, pages: 2)
         let compressing = self.tools(scan)
         compressing.sheet = .compress
-        let (compressWindow, compressHost) = self.host(EditorPDFToolSheetView(tools: compressing, sheet: .compress, accentFill: .blue))
+        let (compressWindow, compressHost) = self.host(EditorPDFToolSheetView(tools: compressing, sheet: .compress))
         defer { compressWindow.contentView = nil }
         var compressWhileWriting: Int?
         compressing.writeStartedHook = { compressWhileWriting = Self.spinners(in: compressHost) }
@@ -236,7 +236,7 @@ import Sync
         let expected = EditorPDFCompression.startingTarget(forSize: size)
         try #require(expected != "2", "the fixture is \(size) bytes — too big to tell the new start from the old")
         let tools = tools(file)
-        let (window, host) = host(EditorPDFToolSheetView(tools: tools, sheet: .compress, accentFill: .blue))
+        let (window, host) = host(EditorPDFToolSheetView(tools: tools, sheet: .compress))
         defer { window.contentView = nil }
 
         let segments = try #require(Self.subviews(NSSegmentedControl.self, in: host).first, "no segmented control")
@@ -292,7 +292,7 @@ import Sync
         pdf.open(path: file, log: { _ in })
         await wait("the open") { pdf.phase == .open }
         pdf.tools.click(0, .plain)
-        let grid = EditorPDFRailPages(pdf: pdf, view: pdf.view, thumbnails: pdf.thumbnails, tools: pdf.tools, accent: .blue, accentFill: .blue)
+        let grid = EditorPDFRailPages(pdf: pdf, view: pdf.view, thumbnails: pdf.thumbnails, tools: pdf.tools, accent: .blue)
         // On an opaque ground: over a clear one the wash reads back as full-strength accent.
         let (window, host) = host(grid.background(Color.white), width: 232, height: 300)
         defer { window.contentView = nil; pdf.close() }

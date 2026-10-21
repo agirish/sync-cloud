@@ -188,6 +188,7 @@ struct DuplicateReviewCoordinator {
                 Label("Trash right copy", systemImage: "trash")
             }
             .buttonStyle(.borderedProminent)
+            .accentedProminent()
             .chromeHover()
             .controlSize(.small)
         }

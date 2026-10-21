@@ -183,7 +183,7 @@ import Sync
         return host.fittingSize
     }
 
-    /// Today's marker colour in these fixtures: pure green, passed as the capsule's `accent`, so
+    /// Today's marker colour in these fixtures: pure green, passed as the capsule's fill, so
     /// the Solid render's marker can be found exactly — and compared with where the lens lands.
     static let markerGreen = Color(red: 0, green: 1, blue: 0)
     nonisolated static let isMarkerGreen: Pixel.Match = { r, g, b in g > 229 && r < 26 && b < 26 }
@@ -245,8 +245,8 @@ import Sync
     func storagesSectionCapsuleHostsItsLensIncludingAll() {
         // All is the absence of a section; it must still be a place the lens can sit.
         Self.expectLensOnTodaysMarker(
-            first: StorageSectionBar(section: .constant(nil), accent: Self.markerGreen, onAccent: .white, forcedRung: .labelled),
-            last: StorageSectionBar(section: .constant(StorageSection.allCases.last), accent: Self.markerGreen,
+            first: StorageSectionBar(section: .constant(nil), accentFill: Self.markerGreen, onAccent: .white, forcedRung: .labelled),
+            last: StorageSectionBar(section: .constant(StorageSection.allCases.last), accentFill: Self.markerGreen,
                                     onAccent: .white, forcedRung: .labelled))
     }
 

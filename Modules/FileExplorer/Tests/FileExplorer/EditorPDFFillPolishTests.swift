@@ -103,7 +103,7 @@ import Sync
         let done = try #require(palette.range(of: "Button(Self.doneTitle) { fill.toggle() }"), "the pill has no Done")
         #expect(save.upperBound < done.lowerBound, "Done is not after Save Filled Copy")
         let between = palette[save.upperBound..<done.lowerBound]
-        #expect(between.contains(".tint(accentFill)"), "Save Filled Copy does not wear the window's hue")
+        #expect(between.contains(".accentedProminent()"), "Save Filled Copy does not wear the window's hue")
         #expect(between.contains("Rectangle()"), "no separator before Done")
         #expect(EditorPDFFillSaveStack.doneTitle == "Done")
     }
@@ -488,7 +488,7 @@ import Sync
                 "the overlay still draws in the Mac's own accent")
         let sheet = try source("EditorPDFSignatureSheet.swift")
         let add = try #require(sheet.range(of: #"Button("Add") { add() }"#))
-        #expect(sheet[add.upperBound...].prefix(300).contains(".tint(hue.accentFillColor)"), "Add is the Mac's blue")
+        #expect(sheet[add.upperBound...].prefix(300).contains(".accentedProminent(hue)"), "Add is the Mac's blue")
         let bar = try source("EditorFormatBar.swift")
         #expect(bar.contains("EditorStylePicker(current: state.heading, accent: accent)"))
         #expect(bar.contains("fill(hovering ? AccentFill.deepened(accent) : .clear)"))

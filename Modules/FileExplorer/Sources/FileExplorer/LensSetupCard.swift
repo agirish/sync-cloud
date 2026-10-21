@@ -118,6 +118,7 @@ struct LensSetupCard<Samples: View>: View {
                         Label(triggerTitle, systemImage: triggerSymbol)
                     }
                     .buttonStyle(.borderedProminent)
+                    .accentedProminent()
                     .controlSize(.large)
                     .chromeHover()
                     .help(triggerHelp)

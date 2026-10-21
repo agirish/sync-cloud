@@ -354,7 +354,7 @@ import Sync
         let room = EditorPDFHeaderWidthTests.column - 2 * EditorPDFFloating.inset
         for percent in FontSize.selectablePercents {
             func width(_ fill: EditorPDFFillSign, _ proposed: CGFloat) -> CGFloat {
-                let stack = EditorPDFFillSaveStack(fill: fill, tools: EditorPDFTools(), accentFill: .blue)
+                let stack = EditorPDFFillSaveStack(fill: fill, tools: EditorPDFTools())
                     .environment(\.appFontScale, FontSize(percent: percent).scale)
                 return NSHostingController(rootView: stack).sizeThatFits(in: CGSize(width: proposed, height: 1000)).width
             }
@@ -375,7 +375,7 @@ import Sync
     @Test func thePillHoldsTheCountAndGoesWhenNothingIsLeftToSave() throws {
         let fill = fill()
         let tools = EditorPDFTools()
-        func stack() -> CGSize { size(EditorPDFFillSaveStack(fill: fill, tools: tools, accentFill: .blue)) }
+        func stack() -> CGSize { size(EditorPDFFillSaveStack(fill: fill, tools: tools)) }
         #expect(stack() == .zero, "the pill is up with nothing placed")
         try placeText(fill)
         let one = stack()
@@ -403,7 +403,7 @@ import Sync
             try? await Task.sleep(for: .milliseconds(5))
         }
         try #require(phases.first == .open)
-        func stack() -> CGSize { size(EditorPDFFillSaveStack(fill: pdf.fill, tools: pdf.tools, accentFill: .blue)) }
+        func stack() -> CGSize { size(EditorPDFFillSaveStack(fill: pdf.fill, tools: pdf.tools)) }
         #expect(stack() == .zero, "the card is up with Fill & Sign off")
         pdf.fill.toggle()
         try #require(pdf.fill.formNotes == [EditorPDFFillSign.xfaNote] && !pdf.fill.hasUnsavedChanges)

@@ -776,7 +776,7 @@ extension PDFFixtures {
         let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/FileExplorer/EditorPDFFillPalette.swift"), encoding: .utf8)
-        #expect(source.contains(".help(fill.saveHelp)") && source.contains(".tint(accentFill)"))
+        #expect(source.contains(".help(fill.saveHelp)") && source.contains(".accentedProminent()"))
     }
 
     // MARK: The reader

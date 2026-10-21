@@ -593,8 +593,6 @@ enum EditorPDFFillFlyouts {
 struct EditorPDFFillSaveStack: View {
     @ObservedObject var fill: EditorPDFFillSign
     @ObservedObject var tools: EditorPDFTools
-    /// Save Filled Copy's tint. AppKit lays a white label on it, so it is the deepened accent.
-    let accentFill: Color
     /// The stack's size as drawn, and `.zero` once it goes.
     var onSize: (CGSize) -> Void = { _ in }
 
@@ -649,7 +647,7 @@ struct EditorPDFFillSaveStack: View {
                 .buttonStyle(.borderedProminent)
                 // The app's accent, deepened, as the Pages tab's Save Reordered Copy has it — not
                 // the system's, and not the raw one, which leaves the white label at 2.7:1 on Green.
-                .tint(accentFill)
+                .accentedProminent()
                 .disabled(!fill.canSave || tools.running != nil)
                 .help(fill.saveHelp)
             Rectangle()

@@ -440,13 +440,13 @@ struct FilingSuggestionCard: View {
                 Button { onFileHere(best.renamingNewFolder(to: editedFolderName)) } label: {
                     Label("File here", systemImage: "arrow.right.circle")
                 }
-                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
                     .chromeHover()
                 Button(action: onChooseFolder) { Label("Choose folder…", systemImage: "folder") }
                     .controlSize(.small)
             } else {
                 Button(action: onChooseFolder) { Label("Choose a folder…", systemImage: "folder") }
-                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
                     .chromeHover()
             }
             if best != nil, let onTryAnother {

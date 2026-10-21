@@ -1758,7 +1758,7 @@ struct CompareCopiesSheet: View {
             // button. Reversing the emphasis would be the ⌘⏎-to-trash mistake in paint.
             Button("Done", action: onClose)
                 .buttonStyle(.borderedProminent)
-                .tint(hue.accentColor)
+                .accentedProminent(hue)
                 .controlSize(.regular)
                 .shortcutKeycap("⏎")
         }

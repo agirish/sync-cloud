@@ -121,7 +121,7 @@ struct EditorPDFAddSignatureSheet: View {
                     .keyboardShortcut(.defaultAction)
                     // The window's hue, deepened for its white label, as the tool sheets' default
                     // buttons wear it (TE101).
-                    .tint(hue.accentFillColor)
+                    .accentedProminent(hue)
                     .disabled(made == nil)
             }
         }

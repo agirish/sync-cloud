@@ -7923,8 +7923,8 @@ against the 4.5:1 the rest of the app keeps with `LiquidGlassHue.accentFillColor
 capsule, the rail's tabs, the Autosave switch, the PDF header's lit actions, Fill & Sign's lit tool,
 Save Filled Copy, Save Reordered Copy and the PDF tool sheets' default button now take the deepened
 fill; the Body menu's hovered style deepens the system accent; Fill & Sign's rings and field washes
-take the app's accent instead of `controlAccentColor`. `EditAccentFillScanTests` (Design) keeps
-the raw accent out of Edit's fills.
+take the app's accent instead of `controlAccentColor`. `EditAccentFillScanTests` (Design; now
+`AccentFillScanTests`, app-wide) keeps the raw accent out of Edit's fills.
 
 ```sh
 for l in main v5.x v4.x v3.x v2.x; do
@@ -7998,3 +7998,38 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign in Edit (`fillSign=0`), so nothing to add Replace to | CLOSED — does not apply |
+
+---
+
+## Filled buttons and Storage's switcher follow the app accent — main only
+
+Outside Edit, 21 `.borderedProminent` buttons (Organize's runs, Duplicates' merges, Automations,
+the lens setup cards, the Person and Rule editors' Save, empty states…) painted the SYSTEM accent,
+and Compare Copies' and Differences' Keep tinted with the raw accent under a white label (2.66:1 on
+Green). Every prominent button, and Edit's PDF tool sheets, now take `.accentedProminent(…)`
+(`ProminentAccent.swift`): the deepened fill (4.57:1 on Green, read back light and dark), and the
+untouched system accent at None. Storage's section switcher filled with the raw accent; it takes
+`accentFillColor`. `AccentFillScanTests` (Design) scans the whole app.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  f=Modules/FileExplorer/Sources/FileExplorer/StorageLensView.swift; prom=0
+  bar=$(git show origin/$l:$f 2>/dev/null | grep -A1 'StorageSectionBar(section: \$section' | grep -c 'accent: glassHue.accentColor')
+  for x in $(git ls-tree -r --name-only origin/$l -- MacApp Modules | grep '\.swift$' | grep -v /Tests/); do
+    c=$(git show origin/$l:$x | grep -c '\.buttonStyle(.borderedProminent)'); prom=$((prom + c))
+  done
+  printf '%-5s storageBarRaw=%s prominent=%s seam=%s\n' "$l" "$bar" "$prom" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Design/Sources/Design/ProminentAccent.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-20, against origin, before this landed:
+# main  storageBarRaw=1 prominent=25 seam=0
+# v5.x  storageBarRaw=1 prominent=23 seam=0
+# v4.x  storageBarRaw=0 prominent=25 seam=0
+# v3.x  storageBarRaw=0 prominent=22 seam=0
+# v2.x  storageBarRaw=0 prominent=21 seam=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Storage's switcher on the raw accent, and 23 prominent buttons on the system accent or the raw one | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Storage switcher; 21–25 prominent buttons on the system accent or the raw one | RECORDED — not owed |

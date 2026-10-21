@@ -444,6 +444,7 @@ struct AutomationRuleEditor: View {
                 .keyboardShortcut(.defaultAction)
                 .shortcutKeycap("⏎")
                 .buttonStyle(.borderedProminent)
+                .accentedProminent()
                 .chromeHover()
                 // Gate on the RAW rows, not `assembled`: canonicalization already stripped the
                 // unmatchable row there, which is exactly the silent broadening being blocked.

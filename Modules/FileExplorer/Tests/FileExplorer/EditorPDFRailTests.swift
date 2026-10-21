@@ -287,7 +287,7 @@ import FileExplorerTestSupport
         pdf.open(path: file, log: { _ in })
         await wait("the open") { pdf.phase == .open }
 
-        let grid = EditorPDFRailPages(pdf: pdf, view: pdf.view, thumbnails: pdf.thumbnails, tools: pdf.tools, accent: .blue, accentFill: .blue)
+        let grid = EditorPDFRailPages(pdf: pdf, view: pdf.view, thumbnails: pdf.thumbnails, tools: pdf.tools, accent: .blue)
         let host = NSHostingView(rootView: AnyView(grid.frame(width: 232, height: 300)))
         host.frame = CGRect(x: 0, y: 0, width: 232, height: 300)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -723,7 +723,7 @@ import FileExplorerTestSupport
         PDFFixtures.write(file, pages: 10, text: false)
         let pdf = await opened(file)
         let width = EditorLayoutMetrics.railWidth
-        let pages = EditorPDFRailPages(pdf: pdf, view: pdf.view, thumbnails: pdf.thumbnails, tools: pdf.tools, accent: .blue, accentFill: .blue,
+        let pages = EditorPDFRailPages(pdf: pdf, view: pdf.view, thumbnails: pdf.thumbnails, tools: pdf.tools, accent: .blue,
                                        layout: .list, railWidth: width)
         let host = NSHostingView(rootView: AnyView(pages.frame(width: width, height: 400)))
         host.frame = CGRect(x: 0, y: 0, width: width, height: 400)

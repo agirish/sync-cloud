@@ -28,7 +28,7 @@ import Design
 
     private func capsule(_ rung: StorageSectionBar.Rung, section: StorageSection? = nil,
                          scale: CGFloat = 1) -> CGSize {
-        size(StorageSectionBar(section: .constant(section), accent: .blue, onAccent: .white,
+        size(StorageSectionBar(section: .constant(section), accentFill: .blue, onAccent: .white,
                                forcedRung: rung)
             .environment(\.appFontScale, scale))
     }

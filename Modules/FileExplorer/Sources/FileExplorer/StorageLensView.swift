@@ -107,7 +107,7 @@ struct StorageLensView: View {
     private var sectionBar: some View {
         HStack {
             StorageSectionBar(section: $section,
-                              accent: glassHue.accentColor,
+                              accentFill: glassHue.accentFillColor,
                               onAccent: glassHue.onAccentLabelColor)
             Spacer(minLength: 0)
         }
@@ -418,7 +418,9 @@ struct StorageLensView: View {
 struct StorageSectionBar: View {
 
     @Binding var section: StorageSection?
-    let accent: Color
+    /// The selected segment's fill, and its lens and hover — the deepened accent, so the white
+    /// label on it clears AA (`LiquidGlassHue.accentFillColor`), as on ``EditorModeBar``.
+    let accentFill: Color
     let onAccent: Color
     /// Forces a rung, for the tests that measure each one. `nil` picks by width.
     var forcedRung: Rung?
@@ -449,7 +451,7 @@ struct StorageSectionBar: View {
             }
         }
         // Frosted and Clear: one glass lens that glides between sections (RD46).
-        .selectionLensHost(Self.lensChannel, selected: Self.lensID(section), style: .fill(.capsule, color: accent))
+        .selectionLensHost(Self.lensChannel, selected: Self.lensID(section), style: .fill(.capsule, color: accentFill))
         .padding(2)
         // Frosted and Clear: a glass track, like the bar's other controls (`ChromeGlass`).
         .chromeGlassTrack()
@@ -494,13 +496,13 @@ struct StorageSectionBar: View {
             .padding(.horizontal, labelled ? 8 : 6)
             .padding(.vertical, 3)
             .background {
-                if isSelected { SelectionLensTodayMarker { Capsule().fill(accent) } }
+                if isSelected { SelectionLensTodayMarker { Capsule().fill(accentFill) } }
             }
             .selectionLensStop(Self.lensChannel, id: Self.lensID(candidate))
             .contentShape(Capsule())
         }
         // `.filled` for the chosen section at Solid; under the lens, `.segment` (`SelectionLens`).
-        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accent)
+        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accentFill)
         // Once the word is shed the glyph is the only thing naming the section, so the name has to
         // survive somewhere reachable — the tooltip for a mouse, the a11y label otherwise.
         .help(title(candidate))

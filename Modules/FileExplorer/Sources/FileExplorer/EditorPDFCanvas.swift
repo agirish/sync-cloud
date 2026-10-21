@@ -180,7 +180,7 @@ struct EditorPDFReader: View {
     var tools: EditorPDFTools?
     var pageCount: Int = 0
     var accent: Color = .accentColor
-    /// Fill & Sign's lit tool and Save Filled Copy — see ``EditorWorkspaceView/accentFill``.
+    /// Fill & Sign's lit tool — see ``EditorWorkspaceView/accentFill``.
     var accentFill: Color = AccentFill.deepened(.accentColor)
     var onAccent: Color = .white
 
@@ -236,7 +236,7 @@ struct EditorPDFReader: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: state.palettePlace.alignment)
                     .padding(EditorPDFFloating.inset)
                 if let tools {
-                    EditorPDFFillSaveStack(fill: fill, tools: tools, accentFill: accentFill, onSize: { saveStack = $0 })
+                    EditorPDFFillSaveStack(fill: fill, tools: tools, onSize: { saveStack = $0 })
                         .offset(x: frames.saveStack.minX - frames.saveStackDocked.minX,
                                 y: frames.saveStack.minY - frames.saveStackDocked.minY)
                         .designAnimation(.easeOut(duration: 0.2), value: find.isShown)

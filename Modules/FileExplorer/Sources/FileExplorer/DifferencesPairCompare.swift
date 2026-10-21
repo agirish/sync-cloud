@@ -291,7 +291,7 @@ public struct DifferencesPairCompareOverlay: View {
             Spacer(minLength: 12)
             Button("Done", action: onClose)
                 .buttonStyle(.borderedProminent)
-                .tint(hue.accentColor)
+                .accentedProminent(hue)
                 .controlSize(.regular)
                 .shortcutKeycap("⏎")
         }

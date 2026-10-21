@@ -320,6 +320,7 @@ struct ReviewCardView: View {
                 onPrimary(item)
             }
             .buttonStyle(.borderedProminent)
+            .accentedProminent()
             .chromeHover()
             .disabled(isActing || isVerifying)
             Button("Skip") {

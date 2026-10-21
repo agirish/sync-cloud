@@ -435,6 +435,7 @@ public struct AutomationsLens: View {
                     Label("File \(fileable.count)…", systemImage: "tray.and.arrow.down")
                 }
                 .buttonStyle(.borderedProminent)
+                .accentedProminent(glassHue)
                 .chromeHover()
                 .controlSize(.small)
                 .help("File these \(fileable.count) file\(fileable.count == 1 ? "" : "s") one at a time, confirming each. Moves real files; undoes with ⌘Z.")
@@ -619,6 +620,7 @@ struct FilingWalkthroughCard: View {
                     Label("File", systemImage: "tray.and.arrow.down.fill").frame(minWidth: 66)
                 }
                 .buttonStyle(.borderedProminent)
+                .accentedProminent()
                 .chromeHover()
                 .controlSize(.large)
                 .shortcutKeycap("⏎")
