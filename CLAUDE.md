@@ -140,11 +140,12 @@ no throughput; they slow every build and make the timing-sensitive suites flake.
   a build, pass.
 - **A wait is reported, never silent:** at once and then once a minute on stderr, with your place
   in line and each holder's PID, worktree and command. Run long builds in the background so a wait
-  cannot hit the tool's timeout. `scripts/build-slot --status` shows the holders and the queue.
+  cannot hit the tool's timeout. `scripts/build-slot --status` shows the holders and how many wait.
 - **Changing the count:** `echo 3 > ~/Library/Caches/SyncCloud-build-slots/slots` for every
   session, `BUILD_SLOTS=3` for one command. A killed or crashed holder frees its slot at once.
 - **Stopping a wrapped command ends what it started**, such as the test helper a killed
-  `swift test` can orphan (`docs/flaky-triage.md`). Killing the wrapper with `SIGKILL` skips this.
+  `swift test` can orphan (`docs/flaky-triage.md`). Killing the wrapper alone with `SIGKILL` skips
+  this, and frees its slot while the build runs on.
 - **Compile-only commands run at `nice` 10; tests never do**, because a slower test run is a
   flakier one (`docs/flaky-tests.md`). The CI runner takes no slot, by decision: its verdict is
   never queued behind a session's build.

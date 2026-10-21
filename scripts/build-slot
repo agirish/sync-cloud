@@ -10,7 +10,7 @@ Every Claude session on this Mac (and the self-hosted CI runner beside them) sha
 More concurrent builds than that buy no throughput and make the timing-sensitive suites flake,
 so sessions queue here instead. A command waits its turn, first come first served, then runs
 with its stdin/stdout/stderr untouched; the wrapper exits with the command's exit status, or dies
-of the same signal.
+of the same signal (a core-dumping one comes back as 128+n — see RERAISED).
 
 Slots are files under ~/Library/Caches/SyncCloud-build-slots/ held with flock(2). The kernel drops
 a lock the moment its holder dies — SIGKILL, a crash, a stopped session — so no slot ever has to be
@@ -18,7 +18,7 @@ reclaimed by hand and a reused PID can never look like a live holder. Waiters qu
 
 --exclusive waits its turn like any other command, then takes every slot, so nothing else built
 by a session runs beside it (a CPU-stress probe's measurement is its own). Everyone queued behind
-it waits.
+it waits, even for a slot that is free. The slot count is read on every poll.
 
 Slot count: $BUILD_SLOTS, else the number in ~/Library/Caches/SyncCloud-build-slots/slots, else 2.
 $BUILD_SLOT_TIMEOUT: give up after this many seconds of waiting, exit 75 (default: wait forever,
@@ -77,6 +77,9 @@ def env_number(name, default, minimum):
     return value
 
 
+warned_counts = set()
+
+
 def slot_count():
     if os.environ.get("BUILD_SLOTS"):
         return env_number("BUILD_SLOTS", DEFAULT_SLOTS, 1)
@@ -91,8 +94,10 @@ def slot_count():
             return int(text.strip())
     except ValueError:
         pass
-    note("%s should hold a whole number of at least 1, got %r; using %d" % (
-        path, text, DEFAULT_SLOTS))
+    if text not in warned_counts:  # once each: a waiter reads the file every poll
+        warned_counts.add(text)
+        note("%s should hold a whole number of at least 1, got %r; using %d" % (
+            path, text, DEFAULT_SLOTS))
     return DEFAULT_SLOTS
 
 
@@ -209,15 +214,22 @@ def stopped(pid):
     return state.strip().startswith("T")
 
 
+EXCLUSIVE_MARK = "-x-"  # in an --exclusive waiter's queue entry: 00…0123-x-4567
+
+
+def entry_name(exclusive):
+    return "%020d%s%d" % (time.time_ns(), EXCLUSIVE_MARK if exclusive else "-", os.getpid())
+
+
 def live_waiters(mine=None):
-    """Under the mutex: how many live waiters queued before mine (all of them if mine is None).
-    A dead waiter's entry is unlocked, and is removed here; a stopped one is passed over until it
-    resumes, when it has its place back."""
-    ahead = 0
+    """Under the mutex: how many live waiters queued before mine (all of them if mine is None),
+    and how many of those are --exclusive. A dead waiter's entry is unlocked, and is removed here;
+    a stopped one is passed over until it resumes, when it has its place back."""
+    ahead = exclusive_ahead = 0
     try:
         names = sorted(os.listdir(QUEUE_DIR))
     except FileNotFoundError:
-        return 0
+        return 0, 0
     for name in names:
         if name == mine:
             break
@@ -230,10 +242,11 @@ def live_waiters(mine=None):
             pid = name.rpartition("-")[2]
             if not (pid.isdigit() and stopped(int(pid))):
                 ahead += 1
+                exclusive_ahead += EXCLUSIVE_MARK in name
         else:
             os.unlink(path)
             os.close(fd)
-    return ahead
+    return ahead, exclusive_ahead
 
 
 def duration(seconds):
@@ -263,30 +276,57 @@ def describe(index, record, width=70):
                                        place(record.get("cwd", "?")), held, command)
 
 
-def acquire(count, command, exclusive):
-    """Queue, then take a slot once fewer waiters are ahead than there are free slots — or, if
-    exclusive, every slot, once nobody is ahead and nothing is held. Returns {index: fd}."""
+def make_entry(entry_path):
+    """Under the mutex, so none is pruned half-made: the queue entry, created and locked."""
+    fd = os.open(entry_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    return fd
+
+
+def acquire(command, exclusive):
+    """Queue, then take a slot once fewer waiters are ahead than there are free slots and no
+    --exclusive one is ahead — or, if exclusive, every slot, once nobody is ahead and nothing is
+    held. Returns ({index: fd}, the slot count it was taken under).
+
+    Each poll reads the count afresh, so a changed slots file reaches waiters already in line, and
+    remakes the directory and this waiter's entry, under its first name and so its first place, if
+    a cache sweep took them: the sweep otherwise sent every waiter on without a slot."""
     timeout = env_number("BUILD_SLOT_TIMEOUT", 0, 0)
     began = time.monotonic()
     next_report = began
     entry = entry_path = entry_fd = None
+    swept_at = None  # when this waiter found its entry swept away
     try:
         os.makedirs(QUEUE_DIR, exist_ok=True)
-        with Mutex():  # entries are made and locked under the mutex, so none is pruned half-made
-            entry = "%020d-%d" % (time.time_ns(), os.getpid())
+        with Mutex():
+            entry = entry_name(exclusive)
             entry_path = os.path.join(QUEUE_DIR, entry)
-            entry_fd = os.open(entry_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o644)
-            fcntl.flock(entry_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            entry_fd = make_entry(entry_path)
     except OSError:  # a full disk: no place in line, so wait behind everyone, slots still honoured
         entry = None
     try:
         while True:
+            count = slot_count()
+            os.makedirs(QUEUE_DIR, exist_ok=True)
             with Mutex():
-                ahead = live_waiters(entry)
+                if entry is not None and not os.path.exists(entry_path):
+                    swept_at = time.monotonic()
+                    try:
+                        fd = make_entry(entry_path)
+                        os.close(entry_fd)
+                        entry_fd = fd
+                    except OSError:
+                        pass
+                ahead, exclusive_ahead = live_waiters(entry)
                 held, free = survey(count)
-                if exclusive and not ahead and not held and len(free) == count:
+                # After a sweep the holders' slot files are new and unlocked until each holder's
+                # next heal re-takes its own — so nothing is taken until they have had the chance.
+                if swept_at is not None and time.monotonic() - swept_at < HEAL_SECONDS + POLL_SECONDS:
+                    taken = None
+                    close_all(free)
+                elif exclusive and not ahead and not held and len(free) == count:
                     taken = free
-                elif not exclusive and free and ahead < count - len(held):
+                elif not exclusive and free and not exclusive_ahead and ahead < count - len(held):
                     index = min(free)
                     taken = {index: free.pop(index)}
                     close_all(free)
@@ -300,7 +340,7 @@ def acquire(count, command, exclusive):
                     if waited >= POLL_SECONDS:
                         note("got slot %s after waiting %s" % (
                             ",".join(map(str, sorted(taken))), duration(waited)))
-                    return taken
+                    return taken, count
             now = time.monotonic()
             if timeout and now - began >= timeout:
                 note("gave up after %s: %d of %d slots held, %d waiting ahead" % (
@@ -512,7 +552,7 @@ def status():
         with Mutex():
             held, free = survey(count)
             close_all(free)
-            waiting = live_waiters()
+            waiting = live_waiters()[0]
     except OSError as error:
         note("cannot use %s: %s" % (SLOT_DIR, error))
         return 1
@@ -544,8 +584,7 @@ def main(argv):
         return run(argv, os.environ, nice)
     try:
         os.makedirs(SLOT_DIR, exist_ok=True)
-        count = slot_count()
-        slots = acquire(count, argv, exclusive)
+        slots, count = acquire(argv, exclusive)
     except OSError as error:
         note("cannot use %s (%s); running without a slot" % (SLOT_DIR, error))
         return run(argv, os.environ, nice)

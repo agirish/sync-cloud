@@ -201,11 +201,16 @@ machine that also runs CI.
 
 ```bash
 scripts/build-slot --exclusive bash -c '   # no session builds beside the probe (CLAUDE.md §7)
-  for i in $(seq 1 6); do (yes > /dev/null &); done
+  trap "kill \$(jobs -p) 2>/dev/null" EXIT
+  for i in $(seq 1 6); do yes > /dev/null & done
   uptime
-  arch -arm64 swift test --package-path Modules/<Package> --filter <Suite>
-  pkill -x yes; pgrep -x yes || echo "clean"'
+  arch -arm64 swift test --package-path Modules/<Package> --filter <Suite>'
+pgrep -x yes || echo "clean"
 ```
+
+The spinners are this shell's own jobs, not `(yes &)`: that form hands each one to launchd at once,
+where neither the trap nor `build-slot`, which ends what a stopped command started, can find it — a
+probe stopped part-way left six spinners running.
 
 Use CPU spin, not `sleep`, when validating that a timing test can actually fail — a sleeping process
 contends for nothing and proves nothing.

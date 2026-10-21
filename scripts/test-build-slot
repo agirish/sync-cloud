@@ -136,6 +136,44 @@ check "--exclusive: holds both slots while it runs" held 2
 wait "$gate" "$excl" "$normal"
 check "--exclusive: ran alone, then the newcomer ($(tr '\n' ' ' < "$WORK/order"))" \
   same "$(tr '\n' ' ' < "$WORK/order")" "E-start E-end N "
+
+# With slots to spare, a newcomer behind an --exclusive waiter took one, and kept taking them while
+# anything was held, so the probe could wait for ever. With 3 slots it happened on every run.
+export BUILD_SLOTS=3
+rm -f "$WORK/release" "$WORK/order"
+"$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" &
+gate=$!
+wait_for 10 held 1
+"$SLOT" --exclusive sh -c "echo E >> '$WORK/order'" 2>/dev/null &
+excl=$!
+wait_for 10 waiting 1
+"$SLOT" sh -c "echo N >> '$WORK/order'" &
+normal=$!
+wait_for 10 waiting 2
+sleep 2.5
+check "--exclusive on 3 slots: a newcomer behind it does not take a spare slot" same "$(cat "$WORK/order" 2>/dev/null)" ""
+touch "$WORK/release"
+wait "$gate" "$excl" "$normal"
+check "--exclusive on 3 slots: it ran, then the newcomer ($(tr '\n' ' ' < "$WORK/order"))" \
+  same "$(tr '\n' ' ' < "$WORK/order")" "E N "
+
+# A changed slots file reaches the waiters already in line: they read it on every poll.
+unset BUILD_SLOTS
+mkdir -p "$BUILD_SLOT_DIR"
+echo 1 > "$BUILD_SLOT_DIR/slots"
+rm -f "$WORK/release" "$WORK/order"
+"$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" &
+gate=$!
+wait_for 10 held 1
+"$SLOT" sh -c "echo W >> '$WORK/order'" 2>/dev/null &
+waiter=$!
+wait_for 10 waiting 1
+echo 2 > "$BUILD_SLOT_DIR/slots"
+check "a slot added to the slots file goes to the waiter already in line" wait_for 10 grep -q W "$WORK/order"
+touch "$WORK/release"
+wait "$gate" "$waiter"
+rm -f "$BUILD_SLOT_DIR/slots"
+export BUILD_SLOTS=2
 export BUILD_SLOTS=1
 
 # 3. Reclaim: whatever kills a holder frees its slot; nothing frees a live one.
@@ -183,6 +221,27 @@ check "slot directory deleted under a holder: the holder re-takes it, so a newco
   same "$?:$(cat "$WORK/heal-out")" "75:"
 check "slot directory deleted under a holder: the holder says so" grep -q 're-took slot 1' "$WORK/heal-err"
 kill "$holder"; wait "$holder" 2>/dev/null
+
+# Waiters in line when the directory goes keep waiting, in their places: they ran at once, every
+# one of them, without a slot ("cannot use … running without a slot").
+rm -f "$WORK/order"
+"$SLOT" sleep 30.7 2>/dev/null &
+holder=$!
+wait_for 10 held 1
+"$SLOT" sh -c "echo A >> '$WORK/order'" 2> "$WORK/sweep-err" &
+first=$!
+wait_for 10 waiting 1
+"$SLOT" sh -c "echo B >> '$WORK/order'" 2>/dev/null &
+second=$!
+wait_for 10 waiting 2
+rm -rf "$BUILD_SLOT_DIR"
+sleep 4
+check "slot directory deleted under waiters: none of them runs beside the holder" same "$(cat "$WORK/order" 2>/dev/null)" ""
+check "...and none says it ran without a slot" eval "! grep -q 'without a slot' '$WORK/sweep-err'"
+kill "$holder"; wait "$holder" 2>/dev/null
+wait "$first" "$second"
+check "...and they run in their places once it ends ($(tr '\n' ' ' < "$WORK/order"))" \
+  same "$(tr '\n' ' ' < "$WORK/order")" "A B "
 
 # 4. Release paths: every way a holder ends frees the slot and leaves nothing running.
 for sig in INT TERM HUP; do
