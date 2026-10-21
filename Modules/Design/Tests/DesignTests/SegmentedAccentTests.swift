@@ -50,6 +50,19 @@ import Testing
     /// thing that was tried and rejected: it makes "no accent" look unlike a stock control. If this
     /// loop is ever widened to all twelve, the fix is to narrow it again, not to change the tint.
     /// See `noneIsTheSystemAccentUntouched`.
+    /// **A prominent button deepens every hue, `.none` included** (decided 2026-10-21): it carries
+    /// an app verb in white beside lit tools that already deepen the Mac's accent, so at `.none` it
+    /// is the deepened system accent — not the stock 4.02:1 a segmented picker keeps.
+    @Test func aProminentButtonCarriesItsWhiteLabelOnEveryHue() {
+        for hue in LiquidGlassHue.allCases {
+            let ratio = whiteContrast(srgb(ProminentAccent.tint(for: hue)))
+            #expect(ratio >= 4.5, "a prominent button's white label on \(hue.rawValue) is only \(ratio):1")
+        }
+        #expect(srgb(ProminentAccent.tint(for: .none)) == srgb(LiquidGlassHue.none.accentFillColor))
+        #expect(srgb(ProminentAccent.tint(for: .none)) != srgb(Color.accentColor),
+                "at None a prominent button is the stock accent, a second blue beside the deepened lit tools")
+    }
+
     @Test func theTintCarriesTheWhiteLabelAppKitImposes() {
         for hue in LiquidGlassHue.allCases where hue != .none {
             let ratio = whiteContrast(srgb(SegmentedAccent.tint(for: hue)))
