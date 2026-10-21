@@ -22,15 +22,15 @@ import FileExplorerTestSupport
     }
 
     @Test func theEditorColumnCountsTheBufferSWords() {
-        #expect(EditorDivergenceColumns.editor(words: 1_204) == "In the editor · 1,204 words")
+        #expect(EditorDivergenceColumns.editor(words: 1_204) == "In Edit · 1,204 words")
     }
 
     /// **Singular is not a nicety on this line.** It is the same rule the status line under the
     /// document keeps, asked of the same function — a second spelling here is how "1 words" gets
     /// back in through a door nobody watches.
     @Test func oneWordIsOneWord() {
-        #expect(EditorDivergenceColumns.editor(words: 1) == "In the editor · 1 word")
-        #expect(EditorDivergenceColumns.editor(words: 0) == "In the editor · 0 words")
+        #expect(EditorDivergenceColumns.editor(words: 1) == "In Edit · 1 word")
+        #expect(EditorDivergenceColumns.editor(words: 0) == "In Edit · 0 words")
     }
 
     // MARK: The right column
@@ -128,7 +128,7 @@ import FileExplorerTestSupport
         #expect(note.hasPrefix("On disk: "), "got \(note)")
         #expect(note.contains("Nothing readable as text here"), "got \(note)")
         // The buffer is never the refused side: it is in memory and always readable.
-        #expect(!outcome.notes.contains { $0.hasPrefix("In the editor: ") })
+        #expect(!outcome.notes.contains { $0.hasPrefix("In Edit: ") })
     }
 
     /// A file that has vanished between the stat and the read refuses rather than diffing against

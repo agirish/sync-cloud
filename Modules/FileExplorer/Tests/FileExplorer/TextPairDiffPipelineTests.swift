@@ -77,7 +77,7 @@ import Testing
     /// column in the reader's head — they are the buffer and the file.
     @Test func theRefusalUsesTheCallersOwnNamesForTheTwoSides() {
         let outcome = run(text("one\n"), .tooLarge(bytes: 99_000_000),
-                          leftLabel: "In the editor", rightLabel: "On disk")
+                          leftLabel: "In Edit", rightLabel: "On disk")
         #expect(outcome.notes.first?.hasPrefix("On disk: ") == true, "got \(outcome.notes)")
         #expect(outcome.notes.first?.contains("Too large to diff") == true)
     }

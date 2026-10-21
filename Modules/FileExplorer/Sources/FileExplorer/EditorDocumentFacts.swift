@@ -247,7 +247,7 @@ struct EditorDocumentFacts: Equatable, Sendable {
     var charactersCaption: String { Self.count(characters, "character") }
 
     /// **Static, so a caller holding only the number can say it the same way.** The divergence
-    /// diff's left column is `In the editor · 1,204 words` and has no facts value to ask — a second
+    /// diff's left column is `In Edit · 1,204 words` and has no facts value to ask — a second
     /// spelling of the same rule there is how "1 words" gets back in through a door nobody watches.
     static func count(_ value: Int, _ noun: String) -> String {
         "\(value.formatted(.number)) \(noun)\(value == 1 ? "" : "s")"

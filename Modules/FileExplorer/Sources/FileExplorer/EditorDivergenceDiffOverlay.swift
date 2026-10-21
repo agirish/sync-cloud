@@ -26,7 +26,7 @@ public enum EditorDivergenceVerdict: Equatable, Sendable {
 /// bytes were last written, from the same `mtime` the divergence check already read.
 enum EditorDivergenceColumns {
 
-    /// `In the editor · 1,204 words`.
+    /// `In Edit · 1,204 words`.
     ///
     /// The count is phrased by ``EditorDocumentFacts/count(_:_:)``, the same rule the status line
     /// under the document uses — including its singular, which this line passes through on the way
@@ -55,7 +55,7 @@ enum EditorDivergenceColumns {
     }
 
     /// What the two sides are called in the diff's refusals, when a side cannot be read at all.
-    static let editorLabel = "In the editor"
+    static let editorLabel = "In Edit"
     static let diskLabel = "On disk"
 }
 
@@ -213,7 +213,7 @@ public struct EditorDivergenceDiffOverlay: View {
         .padding(.vertical, 12)
     }
 
-    /// `In the editor · 1,204 words` over the left column, `On disk · written 2m ago` over the
+    /// `In Edit · 1,204 words` over the left column, `On disk · written 2m ago` over the
     /// right — split down the middle so each sits over the side it describes.
     private var columnHeaders: some View {
         HStack(spacing: 0) {
