@@ -595,6 +595,7 @@ private struct PDFToolDelegate: FileActionDelegate {
         guard case .single(let tools)? = model.current else { Issue.record("no single run"); return }
         #expect(tools.sheet == nil && tools.path == nil, "a cloud-only file was read")
         #expect(tools.banner?.message == EditorPDFTools.cloudOnlyReason("Cloud.pdf"))
+        #expect(tools.banner?.download == cloud, "the pane's banner offers no Download (TE185)")
     }
 
     /// **The form question does not open a file still in the cloud** — reading its form would

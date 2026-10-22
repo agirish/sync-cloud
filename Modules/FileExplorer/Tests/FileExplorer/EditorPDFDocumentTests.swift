@@ -202,6 +202,40 @@ enum PDFURLOpens {
                 "a password reached the log: \(lines)")
     }
 
+    /// **A file that changed on disk while a password was tried is not called a wrong password**
+    /// (TE160): the attempt was on the old file, so the card says the file changed and asks again
+    /// — and a wrong password says so in the file's own name (TE186).
+    @Test func aFileThatChangesWhileUnlockingIsNotAWrongPassword() async throws {
+        let file = path("Statement.pdf")
+        let secret = "s-\(UUID().uuidString.prefix(6))"
+        PDFFixtures.writeLocked(file, password: secret, pages: 2)
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        #expect(await open(pdf, file) == .locked)
+        #expect(await pdf.attemptUnlock(password: "wrong") == .refused)
+        #expect(EditorPDFUnlockView.message(after: .refused, name: pdf.name)
+                == "That password didn’t open “Statement.pdf”. Try again.")
+
+        let hold = LaneHold()
+        defer { hold.release() }
+        try #require(await hold.waitUntilHeld(), "the lane never came free to be held")
+        let attempt = Task { await pdf.attemptUnlock(password: secret) }
+        for _ in 0..<20 { await Task.yield() }
+        // The file changes while the attempt waits its turn: a new revision, still locked.
+        let replacement = path("replacement.pdf")
+        PDFFixtures.writeLocked(replacement, password: secret, pages: 3)
+        _ = try FileManager.default.replaceItemAt(URL(fileURLWithPath: file), withItemAt: URL(fileURLWithPath: replacement))
+        pdf.look()
+        hold.release()
+        #expect(await attempt.value == .reloaded, "the attempt on the old file was taken as the answer")
+        await wait("the reload to land") { pdf.facts == nil && pdf.phase == .locked && pdf.loadsReturned >= 2 }
+        #expect(EditorPDFUnlockView.message(after: .reloaded, name: pdf.name)
+                == "“Statement.pdf” changed on disk while it was being unlocked — type the password again.")
+        #expect(lines.contains("Editor's unlock of \(file) was overtaken — the file changed on disk while it was tried"))
+        // And the password still opens the new revision.
+        #expect(await pdf.attemptUnlock(password: secret) == .opened)
+        #expect(pdf.facts?.pageCount == 3)
+    }
+
     // MARK: Latest request wins, and closing releases
 
     /// Two opens in a row: the second file is what ends up open, whichever load lands first.

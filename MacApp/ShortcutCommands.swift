@@ -495,12 +495,15 @@ enum FindMenuRoute {
         }
     }
 
-    /// ⌘E: the PDF reader's selection; else the text view's.
+    /// ⌘E: the PDF reader's selection; else the text view's. With nothing selected in the PDF it
+    /// beeps (TE204), the app's answer to a key that doesn't apply — it was silent.
     @MainActor
-    static func useSelection(pdf: PDFFindVerbs?, performDocumentFind: (NSTextFinder.Action) -> Bool) {
+    static func useSelection(pdf: PDFFindVerbs?, refuse: () -> Void = { NSSound.beep() },
+                             performDocumentFind: (NSTextFinder.Action) -> Bool) {
         if let pdf {
             if !pdf.useSelection() {
                 Logger.shared.info("Use Selection for Find ignored: nothing is selected in the PDF")
+                refuse()
             }
             return
         }

@@ -14,6 +14,10 @@ public struct EditorPDFOutlineEntry: Equatable, Sendable {
     /// The page it goes to, zero-based — `nil` for a bookmark with no page in this file (a link to
     /// a web address, or a destination PDFKit cannot resolve). Drawn, and not clickable.
     public var pageIndex: Int?
+    /// Where on that page it goes, in page space — the top-left of what it shows, as its heading is
+    /// (TE187). `nil` for a bookmark that names only a page (`/Fit`, or no height), which goes to
+    /// the page's top.
+    public var point: CGPoint? = nil
 }
 
 enum EditorPDFOutline {
@@ -29,8 +33,9 @@ enum EditorPDFOutline {
         var rows: [EditorPDFOutlineEntry] = []
         var stack: [(node: PDFOutline, depth: Int)] = children(of: root).reversed().map { ($0, 0) }
         while let (node, depth) = stack.popLast() {
-            rows.append(EditorPDFOutlineEntry(title: title(node.label), depth: depth,
-                                              pageIndex: pageIndex(of: node, in: document)))
+            let pageIndex = pageIndex(of: node, in: document)
+            rows.append(EditorPDFOutlineEntry(title: title(node.label), depth: depth, pageIndex: pageIndex,
+                                              point: pageIndex == nil ? nil : node.destination.flatMap(point)))
             stack.append(contentsOf: children(of: node).reversed().map { ($0, depth + 1) })
         }
         return rows
@@ -47,6 +52,16 @@ enum EditorPDFOutline {
         guard let page = node.destination?.page else { return nil }
         let index = document.index(for: page)
         return index == NSNotFound ? nil : index
+    }
+
+    /// The place a destination names on its page — PDFKit gives an `/XYZ`'s left and top, and
+    /// says "unspecified" for each it leaves out and for every other kind. With no top there is no
+    /// place; with no left, the page's own left edge.
+    nonisolated static func point(of destination: PDFDestination) -> CGPoint? {
+        let point = destination.point
+        guard point.y != kPDFDestinationUnspecifiedValue else { return nil }
+        let left = destination.page?.bounds(for: .cropBox).minX ?? 0
+        return CGPoint(x: point.x == kPDFDestinationUnspecifiedValue ? left : point.x, y: point.y)
     }
 
     /// One line, as a rail row can draw it: a label with a line break in it is common in files
@@ -110,7 +125,7 @@ enum EditorPDFOutline {
     static func emptyCaption(phase: EditorPDFDocument.Phase) -> String {
         switch phase {
         case .open: return "This PDF has no bookmarks."
-        case .loading: return "Reading the PDF…"
+        case .loading: return EditorPDFDocument.readingCaption
         case .locked: return "Unlock the PDF to see its bookmarks."
         case .refused: return "There is no outline to show for this file."
         }

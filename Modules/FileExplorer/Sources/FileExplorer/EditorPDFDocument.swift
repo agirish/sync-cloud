@@ -180,11 +180,20 @@ public final class EditorPDFDocument: ObservableObject {
         view.reset()
     }
 
+    /// How a password attempt ended (TE160): the file opened, the password was wrong, the file
+    /// changed on disk while it was tried and is being read again, or another file is open now.
+    public enum UnlockOutcome: Equatable, Sendable {
+        case opened, refused, reloaded, superseded
+    }
+
+    /// ``attemptUnlock(password:)``, as yes or no.
+    @discardableResult
+    public func unlock(password: String) async -> Bool { await attemptUnlock(password: password) == .opened }
+
     /// Tries a password on a locked PDF, in the lane. **The password is used once and kept
     /// nowhere** — not on this object, not in the log, not in the view after the attempt.
-    @discardableResult
-    public func unlock(password: String) async -> Bool {
-        guard phase == .locked, let locked, let path else { return false }
+    public func attemptUnlock(password: String) async -> UnlockOutcome {
+        guard phase == .locked, let locked, let path else { return .refused }
         let generation = self.generation
         let held = SendableDocument(locked)
         let unlocked = await PDFKitSerialAccess.perform { () -> Unlocked? in
@@ -203,10 +212,16 @@ public final class EditorPDFDocument: ObservableObject {
                             outline: EditorPDFOutline.flatten(held.document),
                             thumbnailSource: copy(), findSource: copy())
         }
-        guard generation == self.generation, self.path == path else { return false }
+        guard self.path == path else { return .superseded }
+        // The file changed under the attempt: what was tried was the old file, and a wrong answer
+        // here would blame the password.
+        guard generation == self.generation else {
+            log("Editor's unlock of \(path) was overtaken — the file changed on disk while it was tried")
+            return .reloaded
+        }
         guard let unlocked else {
             log("Editor could not unlock \(path) — the password was not accepted")
-            return false
+            return .refused
         }
         let facts = unlocked.facts
         self.locked = nil
@@ -226,7 +241,7 @@ public final class EditorPDFDocument: ObservableObject {
         phase = .open
         log("Editor unlocked \(path) (PDF, \(Self.pages(facts.pageCount)))")
         onLoaded?(.open)
-        return true
+        return .opened
     }
 
     /// What a successful unlock read, crossing back from the lane.
@@ -338,6 +353,15 @@ public final class EditorPDFDocument: ObservableObject {
     // MARK: Words
 
     static let notDownloadedReason = "Not downloaded — there is nothing here to read yet."
+    /// What the card, the Pages tab, the Outline tab and Clean Metadata's sheet say while a PDF is
+    /// read (TE161, TE188).
+    nonisolated static let readingCaption = "Reading the PDF…"
+    /// A password that didn't open `name` — the unlock card's words and Remove Password's (TE186).
+    nonisolated static func wrongPasswordMessage(_ name: String) -> String { "That password didn’t open “\(name)”. Try again." }
+    /// The file changed on disk while a password was being tried on it, and reloaded still locked (TE160).
+    nonisolated static func reloadedWhileUnlockingMessage(_ name: String) -> String {
+        "“\(name)” changed on disk while it was being unlocked — type the password again."
+    }
     static let unreadableReason = "Couldn’t read this PDF."
     static let goneReason = "It is no longer here — it was moved or deleted."
 
@@ -560,6 +584,15 @@ public final class EditorPDFViewState: ObservableObject {
         revealRequest = EditorPDFRequest(value: EditorPDFReveal(pageIndex: index, rect: rect), token: token)
     }
 
+    /// Scrolls `point`, in page space, to the top of the view on page `index` — a bookmark's place
+    /// (TE187), clear of what floats over the pages. Asked after ``requestPage(_:)`` too.
+    public func place(_ point: CGPoint, onPage index: Int) {
+        token &+= 1
+        revealRequest = EditorPDFRequest(value: EditorPDFReveal(pageIndex: index, rect: CGRect(origin: point, size: .zero),
+                                                                atTop: true),
+                                         token: token)
+    }
+
     /// − and +, and ⌘− ⌘+ while the pages have the keyboard: the next stop on the ladder
     /// (``EditorPDFZoom/step(from:in:)``). Nothing past either end.
     public func zoom(in zoomingIn: Bool) {
@@ -606,10 +639,12 @@ public final class EditorPDFViewState: ObservableObject {
     }
 }
 
-/// A rect on a page, in page space, to scroll into sight.
+/// A rect on a page, in page space, to scroll into sight — or, `atTop`, a place to bring to the
+/// top of the view.
 public struct EditorPDFReveal: Equatable, Sendable {
     public var pageIndex: Int
     public var rect: CGRect
+    public var atTop = false
 }
 
 /// One ask of the page view, with a token so the same value asked twice is asked twice.

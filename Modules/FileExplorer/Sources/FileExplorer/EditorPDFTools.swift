@@ -13,13 +13,18 @@ public struct EditorPDFToolHost {
     public var open: (String) -> Void
     /// The banner's Reveal in Browse.
     public var reveal: (String) -> Void
+    /// Download, for a file only in the cloud now (TE185) — Edit's own, which works for every
+    /// provider.
+    public var download: (String) -> Void
 
     public init(didWrite: @escaping (String) -> Void = { _ in },
                 open: @escaping (String) -> Void = { _ in },
-                reveal: @escaping (String) -> Void = { _ in }) {
+                reveal: @escaping (String) -> Void = { _ in },
+                download: @escaping (String) -> Void = { _ in }) {
         self.didWrite = didWrite
         self.open = open
         self.reveal = reveal
+        self.download = download
     }
 }
 
@@ -39,6 +44,8 @@ public struct EditorPDFToolBanner: Equatable, Identifiable, Sendable {
     public var kind: Kind
     /// A second line under the sentence — a batch names each file it skipped or failed, and why.
     public var detail: String?
+    /// A file only in the cloud now: the banner offers Download for it (TE185).
+    public var download: String?
 }
 
 /// How a run ended — what a sheet needs to decide whether to close.
@@ -484,7 +491,7 @@ public final class EditorPDFTools: ObservableObject {
         // The sizes the success banner quotes, known once the bytes are in hand.
         var sizes: (before: Int?, after: Int)?
 
-        func end(_ outcome: EditorPDFToolOutcome) -> EditorPDFToolOutcome {
+        func end(_ outcome: EditorPDFToolOutcome, download: String? = nil) -> EditorPDFToolOutcome {
             // Another file is open now: what this run says is about one that is not on screen —
             // and ``detach()`` has already logged that it went.
             guard generation == self.generation else { return outcome }
@@ -506,7 +513,7 @@ public final class EditorPDFTools: ObservableObject {
                 banner = EditorPDFToolBanner(message: "\(Running(tool).sentence) was cancelled — nothing was written.",
                                              kind: .note)
             case .failed(let message):
-                if bannerFailures { banner = EditorPDFToolBanner(message: message, kind: .failure) }
+                if bannerFailures { banner = EditorPDFToolBanner(message: message, kind: .failure, download: download) }
             case .declined:
                 break
             }
@@ -515,7 +522,7 @@ public final class EditorPDFTools: ObservableObject {
 
         if isCloudOnly(path) {
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — not downloaded")
-            return end(.failed(Self.cloudOnlyReason(name)))
+            return end(.failed(Self.cloudOnlyReason(name)), download: path)
         }
         if let refusal = EditorPDFToolEngine.refusal(tool, pageCount: pageCount) {
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — \(refusal)")
@@ -588,13 +595,13 @@ public final class EditorPDFTools: ObservableObject {
             return end(.failed(Self.changedReason(name)))
         case .failure(let error) where error is EditorPDFToolEngine.CloudOnly:
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — it went cloud-only while the run waited for its turn")
-            return end(.failed(Self.cloudOnlyReason(name)))
+            return end(.failed(Self.cloudOnlyReason(name)), download: path)
         case .failure(let error):
             // `.info`, not `.warning`: these are the toolkit's refusals — a wrong password, a
             // restricted file, an empty page range — answers about the file, not faults in the app.
-            let message = EditorPDFToolEngine.reason(error, tool: tool)
+            let message = EditorPDFToolEngine.reason(error, tool: tool, name: name)
             Logger.shared.info("\(writer) could not \(tool.logDetail) of \(logName) — "
-                               + EditorPDFToolEngine.logReason(error, tool: tool))
+                               + EditorPDFToolEngine.logReason(error, tool: tool, name: name))
             return end(.failed(message))
         case .success(.noGain):
             Logger.shared.info("\(writer) wrote nothing for \(tool.logDetail) of \(logName) — no smaller than the original")
@@ -638,8 +645,12 @@ public final class EditorPDFTools: ObservableObject {
     /// **A file evicted since it opened**, refused before the lane: its pages may still be on
     /// screen, so this says what to do rather than the reader's "nothing here to read yet".
     static func cloudOnlyReason(_ name: String) -> String {
-        "“\(name)” is only in the cloud now. Download it with File ▸ Download in a file pane, then try again."
+        "“\(name)” is only in the cloud now. Download it, then try again."
     }
+
+    /// The button beside that sentence — on the banner and in a tool's sheet (TE185).
+    static let downloadTitle = "Download"
+    static let downloadHelp = "Download the file from the cloud, then try again"
 
     static func changedReason(_ name: String) -> String {
         "“\(name)” changed on disk since it was opened, so nothing was written. It reloads in a moment — then try again."

@@ -692,11 +692,18 @@ enum EditorPDFToolEngine {
     /// "Password Protect → Remove password" SyncCloud has no such menu for — a restricted file's
     /// Rotate and Delete, from Edit and from a pane's batch, said so — and for a form being filled
     /// the question is the owner's form-entry or comment permission; and `textOnRotatedPage` points
-    /// at a Fill & Sign that flattens, which in Edit is this very tool.
-    static func reason(_ error: PDFOperationError, tool: EditorPDFTool) -> String {
+    /// at a Fill & Sign that flattens, which in Edit is this very tool. `couldNotOpen` and
+    /// `incorrectPassword` read as PDF Utils words them, "Could not open PDF: X" (TE186).
+    ///
+    /// `name` is the file the reader opened — the toolkit's URL names a link's target.
+    static func reason(_ error: PDFOperationError, tool: EditorPDFTool, name opened: String? = nil) -> String {
         switch error {
+        case .couldNotOpen(let url):
+            return "Couldn’t open “\(opened ?? url.lastPathComponent)” — it may be damaged."
+        case .incorrectPassword:
+            return opened.map(EditorPDFDocument.wrongPasswordMessage) ?? "That password didn’t open this PDF. Try again."
         case .permissionsForbidEditing(let url):
-            let name = url.lastPathComponent
+            let name = opened ?? url.lastPathComponent
             guard case .fillForm(let values, _) = tool else {
                 return "“\(name)”’s owner doesn’t allow changing its pages. \(liftRestrictionsStep)"
             }
@@ -708,7 +715,7 @@ enum EditorPDFToolEngine {
             return "Typed text can’t go on page \(page) while the form stays fillable, because that page is rotated. "
                 + "Remove it, or sign there with a drawn signature instead."
         case .encryptedInput(let url):
-            return "“\(url.lastPathComponent)” needs a password to open. PDF Tools ▸ Remove Password… writes an "
+            return "“\(opened ?? url.lastPathComponent)” needs a password to open. PDF Tools ▸ Remove Password… writes an "
                 + "unlocked copy, which this tool can then use."
         case .metadataEncrypted:
             return "This PDF is password-protected, so its metadata can’t be cleaned. \(removePasswordStep)"
@@ -716,11 +723,11 @@ enum EditorPDFToolEngine {
             // The toolkit's words, but a paragraph typed into a field is not quoted whole.
             let shown = value.count > 40 ? value.prefix(40) + "…" : Substring(value)
             return "The field “\(field)” does not accept “\(shown)”."
-        case .couldNotOpen, .couldNotWrite, .outputMatchesInput, .invalidPageRange, .pageOutOfBounds,
+        case .couldNotWrite, .outputMatchesInput, .invalidPageRange, .pageOutOfBounds,
              .pageRangeRequired, .cannotRemoveEveryPage, .fileAccessDenied, .noInputFiles, .noPagesSelected,
              .compressionFailed, .emptyPDF, .noRedactions, .redactionFailed, .watermarkTextRequired,
              .watermarkImageRequired, .watermarkFailed, .noFillSignItems, .fillSignFailed, .passwordRequired,
-             .incorrectPassword, .notEncrypted, .protectionFailed, .couldNotOpenImage,
+             .notEncrypted, .protectionFailed, .couldNotOpenImage,
              .cropTooSmall, .ocrFailed, .couldNotEncodeOutput, .noFormValues,
              .unknownFormField, .formFieldReadOnly, .formFieldNotFillable, .formFillFailed:
             return error.errorDescription ?? ""
@@ -735,22 +742,22 @@ enum EditorPDFToolEngine {
 
     /// A run's failure as the banner says it: the toolkit's refusal in Edit's words, anything else
     /// as its own description.
-    static func reason(_ error: any Error, tool: EditorPDFTool) -> String {
-        if let error = error as? PDFOperationError { return reason(error, tool: tool) }
+    static func reason(_ error: any Error, tool: EditorPDFTool, name: String? = nil) -> String {
+        if let error = error as? PDFOperationError { return reason(error, tool: tool, name: name) }
         return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
     /// **The same failure as the log says it — with nothing the reader typed and no field's name.**
     /// The form refusals carry both (`formValueNotAccepted` quotes the value), and the log keeps to
     /// what Fill & Sign's log has always kept to: counts and the file.
-    static func logReason(_ error: any Error, tool: EditorPDFTool) -> String {
+    static func logReason(_ error: any Error, tool: EditorPDFTool, name: String? = nil) -> String {
         switch error as? PDFOperationError {
         case .formValueNotAccepted?: return "a field did not accept its value"
         case .unknownFormField?: return "a value named a field the form does not have"
         case .formFieldReadOnly?: return "a value was for a read-only field"
         case .formFieldNotFillable?: return "a value was for a field that cannot be filled"
         case .formFillFailed?: return "a field did not take its new value"
-        default: return reason(error, tool: tool)
+        default: return reason(error, tool: tool, name: name)
         }
     }
 

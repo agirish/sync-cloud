@@ -650,7 +650,9 @@ extension ContentView {
                 rereadPanesAfterEditorWrite(path)
             },
             open: { path in openInEditor(path: path, selectsInPane: true) },
-            reveal: { path in revealInBrowse(path, from: .pdfToolBanner) })
+            reveal: { path in revealInBrowse(path, from: .pdfToolBanner) },
+            // A file only in the cloud now (TE185): Edit's own Download, for every provider.
+            download: { path in downloadFromEdit(path) })
     }
 
     /// **A PDF tool from a pane row's menu** — any workspace's file pane, Edit's own included. The
@@ -673,7 +675,8 @@ extension ContentView {
                 guard let first = copies.first else { return }
                 revealInBrowse(first, with: EditorRevealInBrowse.companions(of: copies),
                                replacing: paths.count > 1 ? Set(paths) : [], from: .pdfToolBanner)
-            })
+            },
+            download: { path in downloadFromEdit(path) })
         panePDFTools.start(request, paths: paths, writer: writer)
     }
 

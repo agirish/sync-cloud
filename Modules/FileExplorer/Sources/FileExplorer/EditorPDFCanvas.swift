@@ -189,6 +189,9 @@ struct EditorPDFReader: View {
     /// every place with the form it would take there.
     @State private var capsule = EditorPDFMeasure()
     @State private var palette = EditorPDFMeasure()
+    /// The find card as drawn. **The pieces beside it slide when it changes** (TE159) — as it
+    /// widens for the count and grows its waiting line — and only then: a window resize moves
+    /// them without it, so nothing trails behind.
     @State private var findCard: CGSize = .zero
     /// The save pill and the note card under it, as drawn — `.zero` while neither is up.
     @State private var saveStack: CGSize = .zero
@@ -232,6 +235,7 @@ struct EditorPDFReader: View {
                     .offset(offset(of: .palette, frames: frames))
                     .designAnimation(.easeOut(duration: 0.2), value: state.palettePlace)
                     .designAnimation(.easeOut(duration: 0.2), value: find.isShown)
+                    .designAnimation(.easeOut(duration: 0.2), value: findCard)
                     .designAnimation(.easeOut(duration: 0.2), value: frames.saveStack)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: state.palettePlace.alignment)
                     .padding(EditorPDFFloating.inset)
@@ -240,6 +244,7 @@ struct EditorPDFReader: View {
                         .offset(x: frames.saveStack.minX - frames.saveStackDocked.minX,
                                 y: frames.saveStack.minY - frames.saveStackDocked.minY)
                         .designAnimation(.easeOut(duration: 0.2), value: find.isShown)
+                        .designAnimation(.easeOut(duration: 0.2), value: findCard)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         .padding(EditorPDFFloating.inset)
                 }
@@ -257,6 +262,7 @@ struct EditorPDFReader: View {
                     .offset(offset(of: .capsule, frames: frames))
                     .designAnimation(.easeOut(duration: 0.2), value: state.capsulePlace)
                     .designAnimation(.easeOut(duration: 0.2), value: find.isShown)
+                    .designAnimation(.easeOut(duration: 0.2), value: findCard)
                     .designAnimation(.easeOut(duration: 0.2), value: frames.palette)
                     .designAnimation(.easeOut(duration: 0.2), value: frames.saveStack)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: state.capsulePlace.alignment)
@@ -266,6 +272,8 @@ struct EditorPDFReader: View {
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { findCard = $0 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 .padding(EditorPDFFloating.inset)
+                // Outside the corner's frame, so the card's leading edge slides too.
+                .designAnimation(.easeOut(duration: 0.2), value: EditorPDFFindBar.shape(caption: find.caption))
         }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { canvas = $0 }
     }

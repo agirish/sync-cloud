@@ -566,6 +566,51 @@ import FileExplorerTestSupport
         #expect(pdf.outline.isEmpty && pdf.outlineRail.rows.isEmpty, "the bookmarks outlived the PDF")
     }
 
+    /// **A bookmark goes to its own place on the page** (TE187) — an `/XYZ`'s left and top, the
+    /// page's left edge when it gives none — and to the page's top when it names no place.
+    @Test func aBookmarkGoesToItsPlaceOnThePage() async throws {
+        let file = path("Placed.pdf")
+        let dests = ["/XYZ 72 400 0", "/XYZ null 300 null", "/Fit"]
+        var objects = ["<< /Type /Catalog /Pages 2 0 R /Outlines 5 0 R >>",
+                       "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+                       "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+                       "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+                       "<< /Type /Outlines /First 6 0 R /Last 8 0 R /Count 3 >>"]
+        for (index, dest) in dests.enumerated() {
+            let links = (index > 0 ? " /Prev \(5 + index) 0 R" : "") + (index < dests.count - 1 ? " /Next \(7 + index) 0 R" : "")
+            objects.append("<< /Title (B\(index)) /Parent 5 0 R\(links) /Dest [4 0 R \(dest)] >>")
+        }
+        var pdf = "%PDF-1.7\n"
+        var offsets: [Int] = []
+        for (index, body) in objects.enumerated() {
+            offsets.append(pdf.utf8.count)
+            pdf += "\(index + 1) 0 obj\n\(body)\nendobj\n"
+        }
+        let xref = pdf.utf8.count
+        pdf += "xref\n0 \(objects.count + 1)\n0000000000 65535 f \n" + offsets.map { String(format: "%010d 00000 n \n", $0) }.joined()
+        pdf += "trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n"
+        try pdf.write(toFile: file, atomically: true, encoding: .ascii)
+
+        let opened = await opened(file)
+        #expect(opened.outline == [
+            EditorPDFOutlineEntry(title: "B0", depth: 0, pageIndex: 1, point: CGPoint(x: 72, y: 400)),
+            EditorPDFOutlineEntry(title: "B1", depth: 0, pageIndex: 1, point: CGPoint(x: 0, y: 300)),
+            EditorPDFOutlineEntry(title: "B2", depth: 0, pageIndex: 1),
+        ])
+        let rows = opened.outlineRail.rows
+        try #require(rows.count == 3)
+        let view = opened.view
+        EditorPDFRailOutline.go(to: rows[0], in: opened.outline, view: view)
+        #expect(view.pageRequest?.value == 1)
+        #expect(view.revealRequest?.value == EditorPDFReveal(pageIndex: 1, rect: CGRect(x: 72, y: 400, width: 0, height: 0),
+                                                              atTop: true), "the click went to the page's top")
+        #expect(EditorPDFPageView.goesToPageTop(page: 1, reveal: view.revealRequest?.value) == false)
+        let placed = view.revealRequest?.token
+        EditorPDFRailOutline.go(to: rows[2], in: opened.outline, view: view)
+        #expect(view.pageRequest?.value == 1 && view.revealRequest?.token == placed, "a /Fit bookmark asked for a place")
+        opened.close()
+    }
+
     /// The bookmark at or before the current page; the chapter rather than its first section when
     /// both start on it; nothing before the first.
     @Test func theCurrentBookmarkFollowsThePage() {

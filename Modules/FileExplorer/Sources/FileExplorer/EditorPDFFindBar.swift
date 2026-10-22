@@ -29,6 +29,12 @@ struct EditorPDFFindBar: View {
     /// The field's least width — with the fixed count, what keeps the card inside a 368pt column.
     static let fieldMinWidth: CGFloat = 100
 
+    /// What of the count changes the card's size: none, one line, or two with the waiting note —
+    /// what the card slides for (TE159), rather than for every new count.
+    static func shape(caption: String) -> Int {
+        caption.isEmpty ? 0 : caption.contains(EditorPDFFind.waitingCaption) ? 2 : 1
+    }
+
     var body: some View {
         if find.isShown {
             HStack(spacing: 6) {

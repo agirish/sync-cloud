@@ -51,6 +51,13 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
     @ViewBuilder let content: Content
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
+    /// The file a failure's Download fetches — the open one, when the failure is that it is only
+    /// in the cloud now (TE185); `nil` for every other failure.
+    static func downloadPath(failure: String, tools: EditorPDFTools) -> String? {
+        guard let path = tools.path, failure == EditorPDFTools.cloudOnlyReason(tools.name) else { return nil }
+        return path
+    }
+
     /// What the footer says while the run is in flight, or `nil`.
     static func workingCaption(isRunning: Bool, started: Bool = true, drawsOwnProgress: Bool) -> String? {
         guard isRunning, !drawsOwnProgress else { return nil }
@@ -62,10 +69,19 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
             Text(title).scaledFont(.system(size: 13, weight: .semibold))
             content
             if let failure {
-                Label(failure, systemImage: "exclamationmark.triangle.fill")
-                    .scaledFont(.system(size: 11))
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Label(failure, systemImage: "exclamationmark.triangle.fill")
+                        .scaledFont(.system(size: 11))
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                    // A file only in the cloud now: Download beside the sentence (TE185).
+                    if let path = Self.downloadPath(failure: failure, tools: tools) {
+                        Spacer(minLength: 0)
+                        Button(EditorPDFTools.downloadTitle) { tools.host.download(path) }
+                            .controlSize(.small)
+                            .help(EditorPDFTools.downloadHelp)
+                    }
+                }
             }
             Text("Writes a new copy next to the original. “\(tools.name)” isn’t changed.")
                 .scaledFont(.system(size: 10))
@@ -359,20 +375,30 @@ struct EditorPDFMetadataSheet: View {
                             .disabled(!binding.wrappedValue.canClearAll)
                     }
                     .controlSize(.small)
-                    Text(Self.stampedLine(current))
-                        .scaledFont(.system(size: 10)).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if hasForm {
-                        Text("This PDF has a fillable form, so some embedded (XMP) metadata may remain in the copy.")
+                    ForEach(Self.notes(current, hasForm: hasForm), id: \.self) { note in
+                        Text(note)
                             .scaledFont(.system(size: 10)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             } else if failure == nil {
-                ProgressView().controlSize(.small)
+                EditorPDFReadingSpinner()
             }
         }
         .task { await read() }
+    }
+
+    /// What the copy keeps and loses besides the five fields (TE162). **Without a form**, PDFKit
+    /// writes the copy: Producer and the two dates are its own on every save, whatever is asked
+    /// for, and the embedded (XMP) metadata goes. **With one**, the toolkit writes it in place, so
+    /// the form stays fillable: the info holds the five fields and nothing else — Producer, the
+    /// dates and any other entry go — and the XMP stays.
+    static func notes(_ fields: PDFMetadataFields, hasForm: Bool) -> [String] {
+        if hasForm {
+            return ["The copy has only what’s in the five fields above. Producer, the dates and any other "
+                    + "entries are removed; any embedded (XMP) metadata stays."]
+        }
+        return [stampedLine(fields), "Any embedded (XMP) metadata is removed from the copy too."]
     }
 
     /// Producer and the two dates are what PDFKit writes on every save, whatever is asked for.
@@ -389,7 +415,8 @@ struct EditorPDFMetadataSheet: View {
             form = EditorPDFMetadataForm(current: read.fields)
             hasForm = read.hasForm
         case .failure(let error):
-            failure = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            // In Edit's words, the file named as opened (TE186) — not PDF Utils' "Could not open PDF".
+            failure = EditorPDFToolEngine.reason(error, tool: .cleanMetadata(.cleared), name: tools.name)
         }
     }
 

@@ -592,7 +592,11 @@ struct EditorPDFPageView: NSViewRepresentable {
         }
         if let request = reveal, let document, let page = document.page(at: request.value.pageIndex) {
             coordinator.revealToken = request.token
-            Self.reveal(request.value.rect, on: page, in: view)
+            if request.value.atTop {
+                Self.place(request.value.rect.origin, on: page, in: view)
+            } else {
+                Self.reveal(request.value.rect, on: page, in: view)
+            }
         }
         if state.focusRequest != coordinator.focusToken {
             coordinator.focusToken = state.focusRequest
@@ -633,9 +637,7 @@ struct EditorPDFPageView: NSViewRepresentable {
     /// (``clearRect(of:)``): a match under the capsule is not in sight.
     static func isInSight(_ rect: CGRect, on page: PDFPage, in view: PDFView) -> Bool {
         guard view.visiblePages.contains(page) else { return false }
-        let shown = view.convert(rect, from: page)
-        guard clearRect(of: view).contains(shown) else { return false }
-        return !covered(in: view).contains { $0.intersects(shown) }
+        return isClear(view.convert(rect, from: page), in: view)
     }
 
     /// The floating pieces' rects in `view`'s own space — from the canvas's top-left space, as
@@ -659,9 +661,29 @@ struct EditorPDFPageView: NSViewRepresentable {
     static func reveal(_ rect: CGRect, on page: PDFPage, in view: PDFView) {
         guard !isInSight(rect, on: page, in: view) else { return }
         view.go(to: rect.insetBy(dx: -24, dy: -48), on: page)
-        guard !isInSight(rect, on: page, in: view), view.visiblePages.contains(page),
-              let reader = view as? ReaderPDFView, let scroll = reader.pagesScrollView else { return }
+        guard !isInSight(rect, on: page, in: view), view.visiblePages.contains(page) else { return }
+        scrollClear(rect, on: page, in: view)
+    }
+
+    /// **Brings `point` on `page` to the top of the view** — a bookmark's heading (TE187) — then
+    /// out from under the top band or a piece floating there. Judged by where the page is drawn,
+    /// not by `visiblePages`, which still names the pages of before straight after a jump.
+    static func place(_ point: CGPoint, on page: PDFPage, in view: PDFView) {
+        view.go(to: PDFDestination(page: page, at: point))
+        scrollClear(CGRect(x: point.x, y: point.y - 1, width: 1, height: 1), on: page, in: view)
+    }
+
+    /// Whether `shown`, in `view`'s space, is inside the clear part of the canvas and under no
+    /// floating piece.
+    static func isClear(_ shown: CGRect, in view: PDFView) -> Bool {
+        clearRect(of: view).contains(shown) && !covered(in: view).contains { $0.intersects(shown) }
+    }
+
+    /// **Scrolls `rect` out from under a band or a floating piece by hand**, the least distance up
+    /// or down (``clearingShifts(of:clear:covered:)``) — nothing when it is clear already.
+    static func scrollClear(_ rect: CGRect, on page: PDFPage, in view: PDFView) {
         let shown = view.convert(rect, from: page)
+        guard !isClear(shown, in: view), let reader = view as? ReaderPDFView, let scroll = reader.pagesScrollView else { return }
         let clip = scroll.contentView
         let start = clip.bounds.origin
         // The least move first; one the pages cannot scroll that far for (the top of page 1) is
@@ -676,7 +698,7 @@ struct EditorPDFPageView: NSViewRepresentable {
             bounds.origin = CGPoint(x: start.x + now.x - wanted.x, y: start.y + now.y - wanted.y)
             clip.scroll(to: clip.constrainBoundsRect(bounds).origin)
             scroll.reflectScrolledClipView(clip)
-            if isInSight(rect, on: page, in: view) { return }
+            if isClear(view.convert(rect, from: page), in: view) { return }
             clip.scroll(to: start)
             scroll.reflectScrolledClipView(clip)
         }

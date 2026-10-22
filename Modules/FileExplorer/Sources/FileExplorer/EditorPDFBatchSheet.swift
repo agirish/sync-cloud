@@ -16,6 +16,12 @@ struct EditorPDFBatchSheet: View {
     static let minWidth: CGFloat = 400
     static let idealWidth: CGFloat = 420
 
+    /// Clean Metadata's line for several files — a form PDF's copy loses Producer and the dates
+    /// rather than getting the system's (TE162, ``EditorPDFMetadataSheet/notes(_:hasForm:)``).
+    static let cleanMetadataNote = "Each copy has its title, author, subject, keywords and creator cleared. Producer and the "
+        + "created and modified dates are replaced with the system’s own (removed, for a PDF with a fillable form). "
+        + "Password-protected files are skipped."
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title).scaledFont(.system(size: 13, weight: .semibold))
@@ -85,9 +91,7 @@ struct EditorPDFBatchSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         case .cleanMetadata:
-            Text("Each copy has its title, author, subject, keywords and creator cleared. Producer and the "
-                 + "created and modified dates are replaced with the system’s own. Password-protected "
-                 + "files are skipped.")
+            Text(Self.cleanMetadataNote)
                 .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         case .rotate:

@@ -341,6 +341,7 @@ extension PDFFixtures {
         tools.laneTurnHook = { evicted.withLock { $0 = true } }
         #expect(await tools.run(.rotate(pages: [1], quarterTurns: 1)) == .failed(EditorPDFTools.cloudOnlyReason("Four.pdf")))
         #expect(files() == ["Four.pdf"], "a copy was written from a file evicted in the lane wait: \(files())")
+        #expect(tools.banner?.download == file, "the banner offers no Download (TE185)")
     }
 
     /// **Cancel or a leave while the copy is being written still writes nothing** — the button's
@@ -1006,7 +1007,8 @@ extension PDFFixtures {
 
         let lockedTools = tools(copy, encryption: .lockedToOpen)
         let wrong = await lockedTools.run(.removePassword(EditorPDFSecret(secret + "-wrong")))
-        #expect(wrong == .failed(PDFOperationError.incorrectPassword.errorDescription!))
+        // In Edit's words, naming the file (TE186) — not PDF Utils' "did not unlock this PDF".
+        #expect(wrong == .failed(EditorPDFDocument.wrongPasswordMessage((copy as NSString).lastPathComponent)))
         let unlocked = await lockedTools.run(.removePassword(EditorPDFSecret(secret)))
         guard case .wrote(let open) = unlocked else { Issue.record("\(unlocked)"); return }
         #expect(PDFDocument(url: URL(fileURLWithPath: open))?.isLocked == false)

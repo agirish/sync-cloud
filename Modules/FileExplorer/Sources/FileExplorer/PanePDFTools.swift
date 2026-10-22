@@ -15,13 +15,17 @@ public struct PanePDFToolHost {
     public var open: (String) -> Void
     /// The banner's Reveal in Browse — the one copy, or a batch's copies.
     public var reveal: ([String]) -> Void
+    /// Download, for a file only in the cloud now (TE185) — Edit's own.
+    public var download: (String) -> Void
 
     public init(didWrite: @escaping (String) -> Void = { _ in },
                 open: @escaping (String) -> Void = { _ in },
-                reveal: @escaping ([String]) -> Void = { _ in }) {
+                reveal: @escaping ([String]) -> Void = { _ in },
+                download: @escaping (String) -> Void = { _ in }) {
         self.didWrite = didWrite
         self.open = open
         self.reveal = reveal
+        self.download = download
     }
 }
 
@@ -132,14 +136,15 @@ public final class PanePDFTools: ObservableObject {
         tools.writer = writer
         tools.isCloudOnly = isCloudOnly
         let host = self.host
-        tools.host = EditorPDFToolHost(didWrite: host.didWrite, open: host.open, reveal: { host.reveal([$0]) })
+        tools.host = EditorPDFToolHost(didWrite: host.didWrite, open: host.open, reveal: { host.reveal([$0]) },
+                                       download: host.download)
         current = .single(tools)
         // Evicted since the menu was built: PDFKit opening the placeholder would download it,
         // which nobody asked for.
         if isCloudOnly(path) {
             tools.banner = EditorPDFToolBanner(
                 message: EditorPDFTools.cloudOnlyReason((path as NSString).lastPathComponent),
-                kind: .note)
+                kind: .note, download: path)
             return
         }
         preparing = true

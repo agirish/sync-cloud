@@ -8361,3 +8361,30 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s unchecked=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No "saved, but couldn't check" state (TE114 is `main` only) | CLOSED — does not apply |
+
+---
+
+## PDF reader small fixes: questions, words, find, bookmarks — main only
+
+The PDF leave and quit questions, and Delete Saved Signature, take Esc and not Return (TE184,
+TE203, decision BS); ⌘Q's says Quit (TE158); the find card and its neighbours slide (TE159); Unlock
+says "Unlocking…" and tells a file that changed from a wrong password (TE160); the spinners say
+"Reading the PDF…" (TE161, TE188); Clean Metadata says what a form PDF's copy keeps (TE162); find
+treats a hyphen at a line end as optional (TE163); a cloud-only file offers Download (TE185); the
+toolkit's refusals are in Edit's words (TE186); a bookmark goes to its place (TE187); ⌘E with nothing
+selected beeps (TE204). All in Edit's PDF reader, which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s reader=%s paneTools=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PanePDFTools.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-22, against origin, before this landed:
+# main  reader=1 paneTools=1
+# v5.x, v4.x, v3.x, v2.x — 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF reader or PDF tools in Edit (`reader=0`, `paneTools=0`) | CLOSED — does not apply |

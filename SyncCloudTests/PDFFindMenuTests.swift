@@ -100,6 +100,16 @@ import Testing
         #expect(document == [.nextMatch, .previousMatch, .setSearchString])
     }
 
+    /// **⌘E with nothing selected in the PDF beeps** (TE204) — and only then.
+    @Test func useSelectionBeepsWithNothingSelected() {
+        let calls = Calls()
+        var beeps = 0
+        FindMenuRoute.useSelection(pdf: verbs(calls), refuse: { beeps += 1 }) { _ in true }
+        #expect(calls.selections == 1 && beeps == 0, "a selection that was used beeped")
+        FindMenuRoute.useSelection(pdf: verbs(calls, selection: false), refuse: { beeps += 1 }) { _ in true }
+        #expect(calls.selections == 2 && beeps == 1, "nothing selected was silent")
+    }
+
     // MARK: The items are wired to the rules
 
     private func source(_ file: String) throws -> String {

@@ -21,9 +21,7 @@ struct EditorPDFRailOutline: View {
                               path: pdf.path,
                               emptyCaption: EditorPDFOutline.emptyCaption(phase: pdf.phase),
                               outlineAnchors: $outlineAnchors, accent: accent,
-                              onSelect: { row in
-                                  if let page = Self.page(for: row, in: bookmarks) { view.requestPage(page) }
-                              },
+                              onSelect: { row in Self.go(to: row, in: bookmarks, view: view) },
                               noun: .bookmark,
                               trailing: rail.pageLabels,
                               inert: rail.inert,
@@ -36,6 +34,14 @@ struct EditorPDFRailOutline: View {
     /// The page a clicked row goes to, or `nil` for a row that goes nowhere.
     static func page(for row: MarkdownOutlineEntry, in bookmarks: [EditorPDFOutlineEntry]) -> Int? {
         bookmarks.indices.contains(row.id) ? bookmarks[row.id].pageIndex : nil
+    }
+
+    /// **A click goes to the bookmark's own place on its page** (TE187) — its heading, at the top
+    /// of the view — or to the page's top when it names no place. It went to the top of the page.
+    static func go(to row: MarkdownOutlineEntry, in bookmarks: [EditorPDFOutlineEntry], view: EditorPDFViewState) {
+        guard let page = page(for: row, in: bookmarks) else { return }
+        view.requestPage(page)
+        if let point = bookmarks[row.id].point { view.place(point, onPage: page) }
     }
 }
 
@@ -151,7 +157,7 @@ struct EditorPDFRailPages: View {
     /// reason, so the rail and the card say the same thing about it.
     static func caption(phase: EditorPDFDocument.Phase) -> String {
         switch phase {
-        case .loading: return "Reading the PDF…"
+        case .loading: return EditorPDFDocument.readingCaption
         case .locked: return "Unlock the PDF to see its pages."
         case .refused(let reason): return reason
         case .open: return "This PDF has no pages."

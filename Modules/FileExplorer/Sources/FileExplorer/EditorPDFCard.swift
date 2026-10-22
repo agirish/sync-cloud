@@ -285,8 +285,8 @@ struct EditorPDFBody: View {
     private var content: some View {
         switch pdf.phase {
         case .loading:
-            ProgressView()
-                .controlSize(.small)
+            // Said, not a bare spinner (TE161): a big PDF, or one behind other PDF work, takes a while.
+            EditorPDFReadingSpinner()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .open:
             EditorPDFReader(document: pdf.document, state: pdf.view, find: pdf.find, fill: pdf.fill,
@@ -344,6 +344,20 @@ struct EditorPDFBody: View {
     }
 }
 
+/// **A spinner that says what it waits for** — "Reading the PDF…", the Pages tab's words meanwhile
+/// (TE161, TE188). Read as one element: VoiceOver says the words, not "progress indicator".
+struct EditorPDFReadingSpinner: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            Text(EditorPDFDocument.readingCaption)
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// A state that fills the document card: a symbol, a sentence, and what can be done about it.
 struct EditorPDFStateCard<Actions: View>: View {
     let symbol: String
@@ -380,25 +394,47 @@ struct EditorPDFUnlockView: View {
     @ObservedObject var pdf: EditorPDFDocument
     let accent: Color
     @State private var password = ""
-    @State private var rejected = false
+    /// How the last attempt ended — what the card says under its title.
+    @State private var outcome: EditorPDFDocument.UnlockOutcome?
     @State private var isTrying = false
     @FocusState private var focused: Bool
 
+    /// What the card says: why it asks, or how the last attempt ended — in the file's name (TE186),
+    /// and for a file that changed while it was tried, that, not a wrong password (TE160).
+    static func message(after outcome: EditorPDFDocument.UnlockOutcome?, name: String) -> String {
+        switch outcome {
+        case .refused?: return EditorPDFDocument.wrongPasswordMessage(name)
+        case .reloaded?: return EditorPDFDocument.reloadedWhileUnlockingMessage(name)
+        case .opened?, .superseded?, nil: return "SyncCloud uses it only to open the file and doesn’t save it."
+        }
+    }
+
+    /// What stands in for Unlock while a password is tried (TE160) — it only greyed.
+    static let unlockingCaption = "Unlocking…"
+
     var body: some View {
         EditorPDFStateCard(symbol: "lock", title: "This PDF needs a password",
-                           message: rejected ? "That password didn’t open it. Try again."
-                                             : "SyncCloud uses it only to open the file and doesn’t save it.") {
+                           message: Self.message(after: outcome, name: pdf.name)) {
             HStack(spacing: 6) {
                 SecureField("Password", text: $password)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 160)
                     .focused($focused)
                     .onSubmit(attempt)
-                // No `.keyboardShortcut(.defaultAction)`: a bare Return registered on an always-mounted
-                // surface takes it from every sheet (`BareKeyEquivalentScanTests`). The field's
-                // `onSubmit` is Return here.
-                Button("Unlock", action: attempt)
-                    .disabled(password.isEmpty || isTrying)
+                    .disabled(isTrying)
+                if isTrying {
+                    HStack(spacing: 4) {
+                        ProgressView().controlSize(.mini)
+                        Text(Self.unlockingCaption).foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                } else {
+                    // No `.keyboardShortcut(.defaultAction)`: a bare Return registered on an
+                    // always-mounted surface takes it from every sheet (`BareKeyEquivalentScanTests`).
+                    // The field's `onSubmit` is Return here.
+                    Button("Unlock", action: attempt)
+                        .disabled(password.isEmpty)
+                }
             }
             .controlSize(.small)
         }
@@ -411,9 +447,10 @@ struct EditorPDFUnlockView: View {
         password = ""
         isTrying = true
         Task {
-            let opened = await pdf.unlock(password: typed)
+            let ended = await pdf.attemptUnlock(password: typed)
             isTrying = false
-            rejected = !opened
+            outcome = ended
+            focused = true
         }
     }
 }

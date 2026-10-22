@@ -73,7 +73,12 @@ import FileExplorer
             },
             """))
         #expect(editor.contains("open: { path in openInEditor(path: path, selectsInPane: true) },"))
-        #expect(editor.contains("reveal: { path in revealInBrowse(path, from: .pdfToolBanner) })"))
+        #expect(editor.contains("reveal: { path in revealInBrowse(path, from: .pdfToolBanner) },"))
+        // A file only in the cloud now: Edit's own Download, from Edit's banner and a pane's (TE185).
+        #expect(editor.contains("download: { path in downloadFromEdit(path) })"))
+        let pane = CodeText(try declarationBody(of: "func startPanePDFTool(_ request: PDFToolRequest, paths: [String]) {",
+                                                in: try EditorDiskWatchWiringTests.editor()))
+        #expect(pane.contains("download: { path in downloadFromEdit(path) })"), "a pane's banner has no Download")
     }
 
     /// **A pane-launched batch's Reveal selects every copy beside the first** (TE47's debt with

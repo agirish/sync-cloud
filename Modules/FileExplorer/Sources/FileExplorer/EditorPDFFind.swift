@@ -12,6 +12,10 @@ import Sync
 /// phrase a reader sees on two lines is two runs of text with a line break between them, and a
 /// query typed with one space has to match it. Compatibility forms are folded too, so the `ﬁ`
 /// ligature a typeset PDF stores matches a typed "fi".
+///
+/// **A hyphen that ends a line is optional** (TE163): "exam-" at the end of one line and "ple" at
+/// the start of the next is found by "example", and "well-" + "known" by "well-known" — the page
+/// can't say which kind of hyphen it was, so both are tried.
 enum EditorPDFTextMatch {
 
     /// The query as it is matched: folded, trimmed, every whitespace run one space. Empty for a
@@ -21,9 +25,34 @@ enum EditorPDFTextMatch {
     }
 
     /// `text` trimmed, every run of whitespace or line breaks one space — how a selection made
-    /// across lines is put in the one-line field.
+    /// across lines is put in the one-line field. A word hyphenated at a line end is put back
+    /// together, so ⌘E on it searches for the whole word.
     static func oneLine(_ text: String) -> String {
-        text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+        joiningLineEndHyphens(text).split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+    }
+
+    /// The hyphens a typesetter breaks a word with: ASCII's, Unicode's own, and the soft one.
+    static let hyphens: Set<Character> = ["-", "\u{2010}", "\u{00AD}"]
+
+    /// `text` with each hyphen that ends a line taken out, with the break after it.
+    static func joiningLineEndHyphens(_ text: String) -> String {
+        guard text.contains(where: { hyphens.contains($0) }) else { return text }
+        var out = ""
+        var index = text.startIndex
+        while index < text.endIndex {
+            let character = text[index]
+            let next = text.index(after: index)
+            if hyphens.contains(character) {
+                let run = text[next...].prefix(while: { $0.isWhitespace || $0.isNewline })
+                if run.contains(where: \.isNewline) {
+                    index = run.endIndex
+                    continue
+                }
+            }
+            out.append(character)
+            index = next
+        }
+        return out
     }
 
     /// Every place `query` appears in `text`, as ranges of `text` itself (UTF-16, `NSString`'s —
@@ -34,40 +63,73 @@ enum EditorPDFTextMatch {
         let source = text as NSString
         // The folded text, one UTF-16 unit at a time, each remembering the span of `text` it came
         // from — so a match in the folded text maps back to the characters on the page.
-        var units: [unichar] = []
-        var starts: [Int] = []
-        var ends: [Int] = []
-        var inSpace = false
+        var units: [Unit] = []
+        // The whitespace run being read, and whether it holds a line break — said once it ends.
+        var space: (start: Int, end: Int, breaksLine: Bool)?
+        var afterHyphen = false
+        func endSpace() {
+            guard let run = space else { return }
+            space = nil
+            // A hyphen ending a line: no space, and the hyphen itself only maybe there.
+            if afterHyphen, run.breaksLine {
+                units[units.count - 1].optional = true
+            } else {
+                units.append(Unit(code: 0x20, start: run.start, end: run.end))
+            }
+            afterHyphen = false
+        }
         source.enumerateSubstrings(in: NSRange(location: 0, length: source.length),
                                    options: .byComposedCharacterSequences) { piece, range, _, _ in
             guard let piece else { return }
             if piece.unicodeScalars.allSatisfy({ CharacterSet.whitespacesAndNewlines.contains($0) }) {
-                if inSpace {
-                    ends[ends.count - 1] = NSMaxRange(range)
+                let breaksLine = piece.unicodeScalars.contains { CharacterSet.newlines.contains($0) }
+                if let run = space {
+                    space = (run.start, NSMaxRange(range), run.breaksLine || breaksLine)
                 } else {
-                    inSpace = true
-                    units.append(0x20)
-                    starts.append(range.location)
-                    ends.append(NSMaxRange(range))
+                    space = (range.location, NSMaxRange(range), breaksLine)
                 }
                 return
             }
-            inSpace = false
+            endSpace()
             for unit in piece.precomposedStringWithCompatibilityMapping.utf16 {
-                units.append(unit)
-                starts.append(range.location)
-                ends.append(NSMaxRange(range))
+                units.append(Unit(code: unit, start: range.location, end: NSMaxRange(range)))
             }
+            afterHyphen = piece.count == 1 && hyphens.contains(Character(piece))
         }
-        let folded = NSString(characters: units, length: units.count)
+        endSpace()
+        // Searched with the line-end hyphens kept, then without them: "well-known" and "example".
+        var found = search(needle, in: units)
+        if units.contains(where: \.optional) {
+            found += search(needle, in: units.filter { !$0.optional })
+            found.sort { ($0.location, -$0.length) < ($1.location, -$1.length) }
+            var kept: [NSRange] = []
+            for range in found where kept.last.map({ NSMaxRange($0) <= range.location }) ?? true {
+                kept.append(range)
+            }
+            found = kept
+        }
+        return found
+    }
+
+    /// One unit of the folded text and the span of the page's text it stands for.
+    private struct Unit {
+        var code: unichar
+        var start: Int
+        var end: Int
+        /// A hyphen that ended a line, which a query may leave out.
+        var optional = false
+    }
+
+    private static func search(_ needle: String, in units: [Unit]) -> [NSRange] {
+        let folded = NSString(characters: units.map(\.code), length: units.count)
         var found: [NSRange] = []
         var from = 0
         while from < folded.length {
             let hit = folded.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive],
                                    range: NSRange(location: from, length: folded.length - from))
             guard hit.location != NSNotFound, hit.length > 0 else { break }
-            let start = starts[hit.location]
-            found.append(NSRange(location: start, length: ends[NSMaxRange(hit) - 1] - start))
+            let start = units[hit.location].start
+            found.append(NSRange(location: start, length: units[NSMaxRange(hit) - 1].end - start))
             from = NSMaxRange(hit)
         }
         return found

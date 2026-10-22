@@ -223,6 +223,15 @@ struct EditorPDFToolBannerView: View {
                         .controlSize(.small)
                         .help("Show the copy in Browse")
                 }
+                // A file only in the cloud now: fetched here, not from a file pane's menu (TE185).
+                if let path = banner.download {
+                    Button(EditorPDFTools.downloadTitle) {
+                        tools.banner = nil
+                        tools.host.download(path)
+                    }
+                    .controlSize(.small)
+                    .help(EditorPDFTools.downloadHelp)
+                }
                 Button {
                     tools.banner = nil
                 } label: {

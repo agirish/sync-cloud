@@ -54,6 +54,25 @@ enum PDFTextFixtures {
         #expect(matched("final", in: "the \u{FB01}nal figure") == ["\u{FB01}nal"])
     }
 
+    /// **A hyphen that ends a line is optional** (TE163): the word broken there is found whole,
+    /// and so is a hyphenated compound — the match covers the hyphen and the break. A hyphen in
+    /// the middle of a line stays a hyphen.
+    @Test func aHyphenAtALineEndIsOptional() {
+        #expect(matched("example", in: "an exam-\nple here") == ["exam-\nple"])
+        #expect(matched("well-known", in: "a well-\r\n  known name") == ["well-\r\n  known"])
+        #expect(matched("example", in: "an exam\u{00AD}\nple, an exam\u{2010}\nple") == ["exam\u{00AD}\nple", "exam\u{2010}\nple"])
+        // Both a match with the hyphen and one without, at one place, are one match.
+        #expect(matched("exam", in: "exam-\nple") == ["exam"])
+        #expect(matched("e", in: "e-\ne") == ["e", "e"])
+        // Not at a line end: the hyphen is a hyphen, and a space is a space.
+        #expect(matched("example", in: "exam-ple, exam- ple").isEmpty)
+        #expect(matched("exam ple", in: "exam-\nple").isEmpty)
+        #expect(matched("well-known", in: "well-known") == ["well-known"])
+        // ⌘E on a broken word puts the whole word in the field.
+        #expect(EditorPDFTextMatch.oneLine("exam-\n ple") == "example")
+        #expect(EditorPDFTextMatch.oneLine("a well- known - b") == "a well- known - b")
+    }
+
     @Test func matchesDoNotOverlapAndANothingQueryFindsNothing() {
         #expect(matched("aa", in: "aaaa") == ["aa", "aa"])
         #expect(matched("  \n ", in: "a b").isEmpty)
@@ -672,6 +691,53 @@ enum PDFTextFixtures {
         // The least move: just above or below the piece, not a jump to the page's top.
         let moved = reader.convert(match, from: first)
         #expect(abs(moved.midY - drawn.midY) < 200, "the match moved \(moved.midY - drawn.midY)pt for a 240pt piece")
+    }
+
+    /// **The find card and the pieces beside it slide as the card changes size** (TE159) — the
+    /// count coming and going and the waiting line, not each new count — and nothing slides for a
+    /// window resize alone.
+    @Test func theFindCardAndItsNeighboursSlide() throws {
+        #expect(EditorPDFFindBar.shape(caption: "") == 0)
+        #expect(EditorPDFFindBar.shape(caption: "1 of 12 so far") == EditorPDFFindBar.shape(caption: "3 of 9"))
+        let waiting = EditorPDFFind.caption(phase: .searching, query: "tax", count: 9, current: 2, isWaiting: true)
+        #expect(EditorPDFFindBar.shape(caption: waiting) == 2)
+        let canvas = try ChromeGlassWiringTests.source("EditorPDFCanvas.swift")
+        #expect(ChromeGlassWiringTests.count(".designAnimation(.easeOut(duration: 0.2), value: findCard)", in: canvas) == 3,
+                "the palette, the save pill and the capsule don't all slide with the card")
+        #expect(canvas.contains(".designAnimation(.easeOut(duration: 0.2), value: EditorPDFFindBar.shape(caption: find.caption))"))
+        #expect(!canvas.contains("value: canvas)"), "the pieces slide for a window resize")
+    }
+
+    /// **A bookmark's place comes to the top of the view** (TE187), not its page's top — and out
+    /// from under a piece floating there.
+    @Test func aBookmarksPlaceComesToTheTop() throws {
+        let file = needles("bookmark.pdf", pages: 6)
+        let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
+        let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 700, height: 500))
+        reader.displayMode = .singlePageContinuous
+        reader.autoScales = false
+        reader.scaleFactor = 1
+        reader.document = document
+        let window = NSWindow(contentRect: reader.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = reader
+        defer { window.contentView = nil }
+        reader.layoutDocumentView()
+        reader.go(to: try #require(document.page(at: 0)))
+        let third = try #require(document.page(at: 2))
+        let heading = CGPoint(x: 72, y: 300)
+        EditorPDFPageView.place(heading, on: third, in: reader)
+        let shown = reader.convert(heading, from: third)
+        let top = reader.isFlipped ? shown.y : reader.bounds.height - shown.y
+        #expect(top >= 0 && top < 80, "the heading is \(top)pt below the top, not at it")
+        // Judged by where it is drawn: `visiblePages` still names page 1 straight after the jump.
+        #expect(EditorPDFPageView.isClear(reader.convert(CGRect(x: 72, y: 280, width: 100, height: 20), from: third), in: reader))
+        // A piece over the top band: the place comes out from under it.
+        reader.go(to: try #require(document.page(at: 0)))
+        reader.coveredRects = [CGRect(x: 0, y: 0, width: reader.bounds.width, height: 60)]
+        EditorPDFPageView.place(heading, on: third, in: reader)
+        let clear = reader.convert(heading, from: third)
+        let below = reader.isFlipped ? clear.y : reader.bounds.height - clear.y
+        #expect(below > 60 && below < 160, "the heading is \(below)pt down, under the piece or far below it")
     }
 
     /// **The pages' right-click menu keeps PDFKit's text items and drops its view controls** —

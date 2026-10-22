@@ -48,7 +48,7 @@ Requires **macOS 26**, unchanged from the 5.x line.
   one to go to that page — with a **Grid** / **List** switch, kept across launches. Grid adds a
   column as the side column is dragged wider; List puts one page under another at the column's
   width, drawn sharp at that size. A PDF with two or more bookmarks gains an **Outline** tab that
-  lists them.
+  lists them; a click goes to the bookmark's own place on its page.
 - **The page number and the zoom float over the pages**, in a capsule at the bottom: ‹ and › turn
   the page, − and + step through 50, 75, 100, 125, 150, 200 and 400%, and the zoom opens a menu with
   those steps and Fit Page, Fit Width and Actual Size. Every PDF opens at Fit Page. Drag the capsule
@@ -67,11 +67,11 @@ Requires **macOS 26**, unchanged from the 5.x line.
   two-page layout.
 - **Find in a PDF.** `⌘F`, or Find in the header, opens a find card in the top-right corner of the
   pages; the capsule steps aside if it is there. Matches are tinted on the pages, a phrase broken
-  across two lines is still found, and case and accents are ignored. `⌘G` and `⇧⌘G` step through
-  them, `⌘E` searches for what you have selected, and Esc puts the card away. A PDF is searched a
-  page at a time, so a long one's count says "so far" until every page has been read, and *Waiting
-  for other PDF work…* while a duplicate scan or other PDF work is ahead of it. A scanned PDF says
-  *This PDF has no text to search*.
+  across two lines is still found, and so is a word hyphenated at a line end, and case and accents
+  are ignored. `⌘G` and `⇧⌘G` step through them, `⌘E` searches for what you have selected, and Esc
+  puts the card away. A PDF is searched a page at a time, so a long one's count says "so far" until
+  every page has been read, and *Waiting for other PDF work…* while a duplicate scan or other PDF
+  work is ahead of it. A scanned PDF says *This PDF has no text to search*.
 
 ### PDF Tools: every one writes a new copy
 
