@@ -264,6 +264,73 @@ import AppKit
                 "composing at mid-height scrolled \(before) → \(rig.scroll.contentView.bounds.minY)")
     }
 
+    /// **With Page on, the room below the last line is page too** — the column and its margins,
+    /// the window outside them, as above the end of the text. The room is the clip's, past the end
+    /// of the text view that draws the page, so it is drawn there. Rendered and read back, against
+    /// a pixel of the page above it.
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func withPageOnTheRoomBelowTheTextIsPage(_ appearance: NSAppearance.Name) throws {
+        let rig = hosted(text: (1...40).map { "line \($0)" }.joined(separator: "\n"), on: true)
+        defer { withExtendedLifetime(rig.window) {} }
+        rig.window.appearance = NSAppearance(named: appearance)
+        rig.view.readableColumnWidth = 360
+        rig.view.drawsPage = true
+        place(rig, NSRange(location: (rig.view.string as NSString).length, length: 0))
+        let clip = rig.scroll.contentView
+        let room = clip.bounds.maxY - rig.view.frame.maxY
+        try #require(room > 120, "only \(room)pt of room on screen — this proves nothing")
+        let page = rig.view.pageRect
+        try #require(page.minX > 60, "the page spans the editor — the margin check would be vacuous")
+
+        func pixels(atY y: CGFloat, _ xs: [CGFloat]) throws -> [NSColor] {
+            let rect = NSRect(x: 0, y: y - 2, width: clip.bounds.width, height: 4)
+            let rep = try #require(clip.bitmapImageRepForCachingDisplay(in: rect))
+            clip.cacheDisplay(in: rect, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / rect.width
+            return try xs.map { try #require(rep.colorAt(x: Int($0 * scale), y: rep.pixelsHigh / 2)) }
+        }
+        let xs = [page.minX - 30, page.minX + 4, page.midX, page.maxX - 4, page.maxX + 30]
+        // Above the end of the text, between two lines' ink: the text view's own page.
+        let above = try pixels(atY: rig.view.frame.maxY - 4, xs)
+        try #require(above[2].alphaComponent > 0.99, "Page drew nothing above the room: \(above[2])")
+        let below = try pixels(atY: clip.bounds.maxY - 30, xs)
+        for i in 1...3 {
+            #expect(below[i].alphaComponent > 0.99 && abs(below[i].redComponent - above[2].redComponent) < 0.02,
+                    "the room at x \(xs[i]) is \(below[i]), the page above it \(above[2])")
+        }
+        #expect(below[0].alphaComponent < 0.05 && below[4].alphaComponent < 0.05,
+                "the room's margins are painted: \(below[0]), \(below[4])")
+
+        // **The clip redraws the room when the page or its column changes** — `cacheDisplay` above
+        // draws afresh whatever is marked, so only a real display pass sees a room left stale.
+        // Counted, because `needsDisplay` reads back false here even just after being set; and
+        // a pass is a run-loop turn and a flush, since `displayIfNeeded` alone draws nothing.
+        let roomClip = try #require(clip as? EditorDocumentClipView)
+        var drawn: [NSRect] = []
+        roomClip.onDraw = { drawn.append($0) }
+        defer { roomClip.onDraw = nil }
+        rig.window.orderFrontRegardless()
+        defer { rig.window.orderOut(nil) }
+        func pass() { settle(rig.window); CATransaction.flush(); rig.window.display() }
+        let roomRect = NSRect(x: 0, y: rig.view.frame.maxY + 1, width: clip.bounds.width, height: 10)
+        clip.setNeedsDisplay(clip.bounds)
+        pass()
+        try #require(drawn.contains { $0.intersects(roomRect) }, "the clip never drew on screen — counting proves nothing")
+        drawn = []
+        pass()
+        try #require(drawn.isEmpty, "the clip draws on every pass — counting proves nothing: \(drawn)")
+        rig.view.readableColumnWidth = 300
+        pass()
+        #expect(drawn.contains { $0.intersects(roomRect) }, "a narrower column left the room's old page standing: \(drawn)")
+        drawn = []
+        // Off again, the room is the window's.
+        rig.view.drawsPage = false
+        pass()
+        #expect(drawn.contains { $0.intersects(roomRect) }, "Page off left the room's page standing: \(drawn)")
+        settle(rig.window)
+        #expect(try pixels(atY: clip.bounds.maxY - 30, xs)[2].alphaComponent < 0.05, "Page off left the room painted")
+    }
+
     // MARK: The keyboard (decision BI)
 
     private func key(_ code: UInt16, _ characters: String, function: Bool = true, in window: NSWindow) -> NSEvent {

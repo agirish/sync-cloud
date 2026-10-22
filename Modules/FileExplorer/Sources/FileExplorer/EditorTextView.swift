@@ -353,7 +353,10 @@ final class EditorTextView: NSTextView {
         defer { isSettingReadableInset = false }
         textContainerInset = NSSize(width: inset, height: textContainerInset.height)
         onReadableInset?(inset)
-        if drawsPage { needsDisplay = true }
+        if drawsPage {
+            needsDisplay = true
+            enclosingScrollView?.contentView.needsDisplay = true    // the page under the room
+        }
     }
 
     // MARK: The page — see `EditorTextSettings.drawsPageKey`
@@ -364,6 +367,7 @@ final class EditorTextView: NSTextView {
         didSet {
             guard drawsPage != oldValue else { return }
             needsDisplay = true
+            enclosingScrollView?.contentView.needsDisplay = true    // the page under the room
             // Once per change, never per draw. No sizes: the first change arrives from
             // `updateNSView` before the view has a frame, and "0pt of a 0pt editor" would mislead.
             Logger.shared.info("[edit] Page \(drawsPage ? "on" : "off") under the Source text")
@@ -536,6 +540,31 @@ final class EditorDocumentClipView: NSClipView {
             + Self.overscroll(height: proposedBounds.height, topInset: contentInsets.top)
         rect.origin.y = max(rect.origin.y, min(proposedBounds.origin.y, limit))
         return rect
+    }
+
+    /// **The page goes on under the room** (Page with typewriter scrolling): the text view draws
+    /// its page only inside its own frame, and the room is past the end of it — measured, a white
+    /// column stopped at the last line and the window showed below. Same column, same colour, so
+    /// the two read as one page; the margins stay the window's.
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        onDraw?(dirtyRect)
+        guard let text = documentView as? EditorTextView, let room = Self.pageRoom(below: text, in: bounds)
+        else { return }
+        NSColor.textBackgroundColor.setFill()
+        room.intersection(dirtyRect).fill()
+    }
+
+    /// Called with each rect this view draws — for the test that checks the room is redrawn.
+    var onDraw: ((NSRect) -> Void)?
+
+    /// The page's column below the end of `text`, in a clip with these `bounds` — `nil` with Page
+    /// off, or with nothing of the clip below the text.
+    static func pageRoom(below text: EditorTextView, in bounds: NSRect) -> NSRect? {
+        guard text.drawsPage, bounds.maxY > text.frame.maxY else { return nil }
+        let page = text.pageRect
+        return NSRect(x: text.frame.minX + page.minX, y: text.frame.maxY,
+                      width: page.width, height: bounds.maxY - text.frame.maxY)
     }
 }
 
