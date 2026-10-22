@@ -3058,7 +3058,7 @@ struct UseSelectionForFindCommand: View {
 }
 
 /// Text ▸ Wrap Lines, Readable Line Length (TE51) and Check Spelling While Typing — the switches
-/// the text view's context menu already carries, on the same `UserDefaults` keys — Page, the
+/// the text view's context menu already carries, on the same `UserDefaults` keys — Paper Background, the
 /// switch beside Autosave in the header, and Format Bar
 /// (TE52), the third preference about how the document is drawn, on its own key. Continue Lists (TE54) is the one
 /// about what Return WRITES, on its own key too, and only here: the context menu's switches are
@@ -3097,7 +3097,7 @@ struct EditorTextSettingItems: View {
             .disabled(verbs == nil || !wrapsLines)
         // Greyed in Preview, where no Source is drawn for it to go under — the header's switch
         // greys by the same rule.
-        Toggle("Page", isOn: $drawsPage)
+        Toggle("Paper Background", isOn: $drawsPage)
             .disabled(!(verbs.map { EditorWorkspaceView.pageSwitchApplies($0.mode) } ?? false))
         // TE62. Here only, not on the right-click menu: it is about how the view moves, and the
         // card that approved it named the Text menu.
@@ -3464,7 +3464,7 @@ struct EditorMenus: Commands {
             UseSelectionForFindCommand() // ⌘E
             GoToLineCommand()            // ⌃⌘L — the other way to a place in the text (TE61); Go to Page… in a PDF
             Divider()
-            EditorTextSettingCommands()  // Wrap Lines · Readable Line Length · Page · Typewriter Scrolling · Check Spelling While Typing · Continue Lists, ticked
+            EditorTextSettingCommands()  // Wrap Lines · Readable Line Length · Paper Background · Typewriter Scrolling · Check Spelling While Typing · Continue Lists, ticked
             Divider()
             AutosaveThisFileCommand()    // the header switch, as an item
         }

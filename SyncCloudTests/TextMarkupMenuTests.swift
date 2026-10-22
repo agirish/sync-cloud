@@ -48,7 +48,7 @@ import Testing
         let text = Self.titles(try Self.menu("Text"))
         #expect(text == ["Source", "Preview", "Split", "Expand", "Edit in Preview (Experimental)",
                          "Find Next", "Find Previous", "Use Selection for Find", "Go to Line…",
-                         "Wrap Lines", "Readable Line Length", "Page", "Typewriter Scrolling",
+                         "Wrap Lines", "Readable Line Length", "Paper Background", "Typewriter Scrolling",
                          "Check Spelling While Typing",
                          "Continue Lists",
                          "Autosave This File"],
@@ -119,7 +119,7 @@ import Testing
         #expect(try Self.item("Readable Line Length", in: "Text").keyEquivalent.isEmpty,
                 "Readable Line Length has acquired a key")
         // Page likewise: a preference about drawing.
-        #expect(try Self.item("Page", in: "Text").keyEquivalent.isEmpty, "Page has acquired a key")
+        #expect(try Self.item("Paper Background", in: "Text").keyEquivalent.isEmpty, "Paper Background has acquired a key")
         // Typewriter Scrolling (TE62) likewise: a preference about how Source moves.
         #expect(try Self.item("Typewriter Scrolling", in: "Text").keyEquivalent.isEmpty,
                 "Typewriter Scrolling has acquired a key")
@@ -305,9 +305,9 @@ import Testing
         #expect(!download.isEnabled)
     }
 
-    // MARK: Text ▸ Page, greyed in Preview
+    // MARK: Text ▸ Paper Background, greyed in Preview
 
-    /// **Text ▸ Page is live in Source and Split, greyed in Preview and with no document** — the
+    /// **Text ▸ Paper Background is live in Source and Split, greyed in Preview and with no document** — the
     /// header switch's rule (`EditorWorkspaceView.pageSwitchApplies`), read off the items as
     /// `NSHostingMenu` draws them, for each mode the focused verbs can carry. Wrap Lines is read
     /// beside it, live in all three, so a Page greyed everywhere cannot pass.
@@ -322,10 +322,10 @@ import Testing
             return try #require(menu.items.first { $0.title == title }, "no \(title) in \(Self.titles(menu))").isEnabled
         }
         for mode: EditorMode in [.edit, .split] {
-            #expect(try enabled("Page", mode: mode), "Text ▸ Page is greyed in \(mode)")
+            #expect(try enabled("Paper Background", mode: mode), "Text ▸ Paper Background is greyed in \(mode)")
         }
-        #expect(try !enabled("Page", mode: .preview), "Text ▸ Page is live in Preview, where no Source is drawn")
-        #expect(try !enabled("Page", mode: nil), "Text ▸ Page is live with no document")
+        #expect(try !enabled("Paper Background", mode: .preview), "Text ▸ Paper Background is live in Preview, where no Source is drawn")
+        #expect(try !enabled("Paper Background", mode: nil), "Text ▸ Paper Background is live with no document")
         for mode: EditorMode in [.edit, .split, .preview] {
             #expect(try enabled("Wrap Lines", mode: mode), "Wrap Lines is greyed in \(mode) — the read proves nothing")
         }

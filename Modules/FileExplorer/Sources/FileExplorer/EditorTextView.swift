@@ -370,7 +370,7 @@ final class EditorTextView: NSTextView {
             enclosingScrollView?.contentView.needsDisplay = true    // the page past the text's ends
             // Once per change, never per draw. No sizes: the first change arrives from
             // `updateNSView` before the view has a frame, and "0pt of a 0pt editor" would mislead.
-            Logger.shared.info("[edit] Page \(drawsPage ? "on" : "off") under the Source text")
+            Logger.shared.info("[edit] Paper \(drawsPage ? "on" : "off") under the Source text")
         }
     }
 

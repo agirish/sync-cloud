@@ -346,7 +346,7 @@ public struct EditorWorkspaceView: View {
     @AppStorage(EditorTextSettings.editsInPreviewKey) private var editsInPreviewPreference: Bool
         = EditorTextSettings.editsInPreviewDefault
     @AppStorage(EditorTextSettings.editsInPreviewIntroSeenKey) private var editsInPreviewIntroSeen = false
-    /// The page under Source's text — the switch beside Autosave, and Text ▸ Page.
+    /// The page under Source's text — Paper, the switch beside Autosave, and Text ▸ Paper Background.
     @AppStorage(EditorTextSettings.drawsPageKey) private var drawsPage: Bool = EditorTextSettings.drawsPageDefault
     /// The pill's one-time "experimental" popover — see ``PreviewEditToggle/showsIntro``.
     @State private var showsPreviewEditIntro = false
@@ -1071,7 +1071,7 @@ public struct EditorWorkspaceView: View {
                 Text("·").foregroundStyle(.tertiary)
                 autosaveSwitch
             }
-            // **Page, then where the file lives — one slot of this row, so a Page that steps aside
+            // **Paper, then where the file lives — one slot of this row, so a Paper that steps aside
             // leaves no gap.** A slot of its own held the row's 6pt on both sides even with
             // nothing in it, doubling the space before the location at exactly the width where
             // the row is short of it (measured with a probe: 112pt against 106).
@@ -1081,9 +1081,9 @@ public struct EditorWorkspaceView: View {
             // read-only file too — a page changes nothing on disk.
             //
             // **It yields before everything but the location**: the slot is `-1`, so it is offered
-            // what the kind, Autosave and the status word leave; inside it Page, at a fixed size,
+            // what the kind, Autosave and the status word leave; inside it Paper, at a fixed size,
             // is measured first and drawn whole or not at all — measured, at 260pt and 135% the
-            // row wrapped "Autosave" onto a second line with it in. Text ▸ Page is the way to it
+            // row wrapped "Autosave" onto a second line with it in. Text ▸ Paper Background is the way to it
             // then.
             HStack(spacing: 0) {
                 if Self.showsPageSwitch(hasPath: document.path != nil, wasRefused: document.refusal != nil) {
@@ -1391,10 +1391,10 @@ public struct EditorWorkspaceView: View {
         let applies = Self.pageSwitchApplies(resolvedMode)
         Button {
             drawsPage.toggle()
-            Logger.shared.info("[edit] Page \(drawsPage ? "on" : "off") from the header")
+            Logger.shared.info("[edit] Paper \(drawsPage ? "on" : "off") from the header")
         } label: {
             HStack(spacing: 5) {
-                Text("Page")
+                Text("Paper")
                     .scaledFont(.system(size: 10, weight: .medium))
                     .foregroundStyle(drawsPage ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 AutosaveSwitchTrack(isOn: drawsPage, fill: accentFill)
@@ -1405,10 +1405,10 @@ public struct EditorWorkspaceView: View {
         .disabled(!applies)
         .opacity(applies ? 1 : 0.45)
         // Autosave's pattern: the state, then what a click does.
-        .help(!applies ? "Page is for Source — switch to Source or Split to see it"
-              : drawsPage ? "Page is on — click to draw the text straight on the window"
-                          : "Page is off — click to put the text on a page, white in Light Mode and dark in Dark Mode")
-        .accessibilityLabel("Page behind the text")
+        .help(!applies ? "Paper is for Source — switch to Source or Split to see it"
+              : drawsPage ? "Paper is on — click to draw the text straight on the window"
+                          : "Paper is off — click to put the text on paper, white in Light Mode and dark in Dark Mode")
+        .accessibilityLabel("Paper background")
         .accessibilityValue(drawsPage ? "On" : "Off")
         .accessibilityAddTraits(drawsPage ? [.isButton, .isSelected] : .isButton)
     }

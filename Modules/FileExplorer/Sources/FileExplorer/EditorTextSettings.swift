@@ -34,8 +34,12 @@ public enum EditorTextSettings {
     public static let readableLineLengthDefault = false
 
     /// Whether Source's text sits on a page — the system's text background, white in Light Mode
-    /// and dark grey in Dark Mode — rather than straight on the window's glass. The switch beside
-    /// Autosave under the file name, and Text ▸ Page.
+    /// and dark grey in Dark Mode — rather than straight on the window's glass. **Paper** on
+    /// screen: the switch beside Autosave under the file name, and Text ▸ Paper Background.
+    ///
+    /// **Landed as "Page" and renamed on 2026-10-22, before any release**, because "Page" read as
+    /// a page of the document. The key and the code keep "page"; only what a person reads changed,
+    /// so anyone who had turned it on keeps it on.
     ///
     /// **Only the editable area**: with Readable Line Length on, the page is the centred column and
     /// its 14pt margins, and the window shows on either side as it always has; off, it spans the

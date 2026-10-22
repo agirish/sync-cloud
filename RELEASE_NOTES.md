@@ -202,12 +202,12 @@ Requires **macOS 26**, unchanged from the 5.x line.
 - **Typewriter Scrolling.** **Text ▸ Typewriter Scrolling**, off to begin with, keeps the line you
   are typing at mid-height in Source — arrow keys, Return, Go to Line and the end of the file too. A
   click, the trackpad and a Find match scroll as before.
-- **Page.** A switch beside Autosave under the file name, and **Text ▸ Page**, put Source's text on
-  a page — white in Light Mode, dark grey in Dark Mode — and leave the window around it as it was.
-  With Readable Line Length on, the page is only the centred column and its margins; with
-  Typewriter Scrolling on, it runs on into the room below the last line. Off to begin with,
+- **Paper.** A switch beside Autosave under the file name, and **Text ▸ Paper Background**, put
+  Source's text on paper — white in Light Mode, dark grey in Dark Mode — and leave the window
+  around it as it was. With Readable Line Length on, the paper is only the centred column and its
+  margins; with Typewriter Scrolling on, it runs on into the room below the last line. Off to begin with,
   remembered, and greyed in Preview, which keeps its own look. In a column too narrow for it, the
-  switch steps aside and Text ▸ Page is the way to it.
+  switch steps aside and Text ▸ Paper Background is the way to it.
 - **Words on Edit's header buttons.** A text file's ＋, magnifying glass and × now read **New Text
   File**, **Find** and **Close**, and in a narrow column they drop their words together, before the
   name is cut. The "…" in the folder line under the name opens the whole path, the file's own
