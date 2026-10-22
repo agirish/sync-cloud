@@ -114,14 +114,14 @@ Requires **macOS 26**, unchanged from the 5.x line.
 
 - **Fill & Sign, in the PDF's header, floats a palette of tools at the left of the page**, and the
   page stays where it was: **Select**, **Text**, **Replace**, **Date** — today, in your Mac's short
-  format — **Marks** for ✓, ✗ and •, **Signature** and **Initials**, then **Aa**, **Text Size** and
-  **Ink**. A tool with a small triangle opens its choices beside it. The palette moves like the page
-  capsule: drag its grip to any edge or corner, or right-click its grip for Move To, and it stays
-  where you put it. Drag what you placed to move it, pull its corner handle to resize it, press
-  Delete to remove it, and double-click text to change it; Aa, Text Size and Ink change the selected
-  item, and `⌘Z` undoes. **Aa** sets text's font — Sans, Serif, Rounded, Mono or Handwritten, each
-  shown in itself — a typed signature's face or a drawn one's pen; right-click an item for the same
-  choices.
+  format with a four-digit year — **Marks** for ✓, ✗ and •, **Signature** and **Initials**, then
+  **Aa**, **Text Size** and **Ink**. A tool with a small triangle opens its choices beside it. The
+  palette moves like the page capsule: drag its grip to any edge or corner, or right-click its grip
+  for Move To, and it stays where you put it. Drag what you placed to move it, pull its corner
+  handle to resize it, press Delete to remove it, and double-click text to change it; Aa, Text Size
+  and Ink change the selected item, and `⌘Z` undoes. **Aa** sets text's font — Sans, Serif, Rounded,
+  Mono or Handwritten, each shown in itself — a typed signature's face or a drawn one's pen;
+  right-click an item for the same choices.
 - **Signatures stay on this Mac.** **Add Signature…** types one in one of seven of the Mac's
   handwriting faces, each shown in your own name, or draws one with the trackpad or mouse — Fine,
   Medium or Bold, with **Smooth out wobble**, on to begin with, evening out the trackpad's jitter,
@@ -148,9 +148,10 @@ Requires **macOS 26**, unchanged from the 5.x line.
   palette's tools, all but Aa. With one chosen, Return places its item in the middle of the page you
   can see, selected, for the arrow keys; text takes your typing at once, and Return again places
   another just below. Tab and ⇧Tab move through what you placed, after a form's fields, signature
-  fields among them, where Space or Return signs. VoiceOver reads and presses every placed item and
-  every field — a field by its form's own description — and tells saved drawn signatures apart by
-  number and pen. **Add Signature…** opens on Type, and deleting a saved signature asks first.
+  fields among them, where Space or Return opens the Signature menu, or Add Signature… with none
+  saved. VoiceOver reads every placed item and every field — a field by its form's own description —
+  presses each one that takes a value, and tells saved drawn signatures apart by number and pen.
+  **Add Signature…** opens on Type, and deleting a saved signature asks first.
 - **Replace retypes a few words on a page.** Choose **Replace** in the palette and click a line of
   words, or drag across some, or select words and right-click for **Replace Text…**. A box opens
   over them, holding them, in their size and colour, and in their own font when your Mac has it; the
@@ -163,8 +164,8 @@ Requires **macOS 26**, unchanged from the 5.x line.
   printed, and any PDF with a fillable form.
 - **A PDF whose owner allows no comments, and that has no form field you may fill, gets no Fill &
   Sign, and says why** — File ▸ Fill & Sign is greyed with *This PDF doesn’t allow filling* under
-  it, and the Fill & Sign button gives the reason. A form that allows filling but not adding to its
-  pages fills its fields only.
+  it, and the Fill & Sign button gives the reason, with **Remove Password…** to write a copy without
+  the restrictions. A form that allows filling but not adding to its pages fills its fields only.
 
 ### The rest of Edit
 
@@ -186,7 +187,8 @@ Requires **macOS 26**, unchanged from the 5.x line.
 - **The folder line is a menu.** The folder's name, on the line under the Files list's tabs, opens a
   menu: the folders inside it on top, then each folder above it up to the top of the source, in
   Finder's path-menu order. A pick takes the file pane there, and the list follows. It lists up to
-  40 subfolders, then **Show All in the File Pane**, which opens the pane on that folder.
+  40 subfolders, then **Show All**, with the folder's count — "Show All 52 in the File Pane" —
+  which opens the pane on that folder.
 - **Search inside files.** The Files list's filter gains **Names** | **Contents** under its field.
   On Contents, type a word of two letters or more: the text files in the folder and the folders
   inside it list their matching lines, each with the word lit, and below them Spotlight lists the
@@ -204,33 +206,56 @@ Requires **macOS 26**, unchanged from the 5.x line.
   are typing at mid-height in Source — arrow keys, Return, Go to Line and the end of the file too. A
   click, the trackpad and a Find match scroll as before.
 - **Paper.** A switch beside Autosave under the file name, and **Text ▸ Paper Background**, put
-  Source's text on paper — white in Light Mode, dark grey in Dark Mode — and leave the window
-  around it as it was. With Readable Line Length on, the paper is only the centred column and its
-  margins; with Typewriter Scrolling on, it runs on into the room below the last line. Off to begin with,
+  Source's text on paper — white in Light Mode, dark grey in Dark Mode — and leave the window around
+  it as it was. With Readable Line Length on, the paper is only the centred column and its margins;
+  with Typewriter Scrolling on, it runs on into the room below the last line. Off to begin with,
   remembered, and greyed in Preview, which keeps its own look. In a column too narrow for it, the
   switch steps aside and Text ▸ Paper Background is the way to it.
 - **Words on Edit's header buttons.** A text file's ＋, magnifying glass and × now read **New Text
   File**, **Find** and **Close**, and in a narrow column they drop their words together, before the
   name is cut. The "…" in the folder line under the name opens the whole path, the file's own
-  folder first and ticked; before, it listed only the folders it hid.
+  folder first and ticked; before, it listed only the folders it hid. The save words on that line
+  act too: "unsaved — ⌘S" saves, "not saving — couldn’t write" tries again and gives its reason
+  when you point at it, and "not saving — no longer on disk" is Save Again; before, only "not
+  saving — changed on disk" did anything. VoiceOver reads each by its words.
 - **Tooltips name their keys.** Point at Find, Source, Preview, Split, Go to Line, the find card's
   arrows or the PDF capsule's page and zoom buttons, and the tooltip gives the shortcut too.
 - **The Files list by keyboard and menu.** Tab into the Files or Outline list and the arrow keys
-  move through it and Return opens; Return in the filter opens the first match, and a new folder
-  clears the filter. A row's right-click menu adds **Download** for a file still in the cloud, and
-  **Rename** and **Delete**, and the file name above the document offers the same menu. A file Edit
-  can't open until it is downloaded has a **Download** button. Reveal in Browse is greyed, saying
-  why, for a file outside the source Browse shows.
+  move through it, Return opens and Space Quick Looks a file; Esc there, or in the Pages tab with no
+  page selected, gives the keys back to the document. Return in the filter opens the first match,
+  and a new folder clears the filter. A row's right-click menu adds **Download** for a file still in
+  the cloud, and **Rename** and **Delete**, and the file name above the document offers the same
+  menu. Under the reason Edit gives for a file it can't open are **Quick Look** and **Reveal in
+  Finder**, after **Download** for a file still in the cloud and **Try Again** for one that kept
+  changing while it was read. Reveal in Browse is greyed, saying why, for a file outside the source
+  Browse shows.
 - **Edit in its own words.** A file Edit won't open says why in Edit's words — *This isn’t a text
   file, so Edit can’t open it.* — and the first change to a Windows (CRLF) file says *Converted to
   LF line endings — ⌘Z undoes*. A typed name such as "Notes v1.2" gets `.md`, Markup's **Link…** is
   **Link**, Undo after a Markup verb in Source names it — "Undo Bold" — and **File ▸ Export as
   PDF…** names the file it exports. A save that was written but couldn't be read back to check it
   is a warning now, not a failure.
-- **One set of answers when a file changed on disk.** The banner, the `⌘S` alert and the comparison
-  all offer **Compare…**, **Keep Mine…** and **Use Disk Version**, and Keep Mine… always asks before
-  replacing the version on disk; the comparison's Save Anyway used to write without asking. Its
-  column for your version is headed "In Edit".
+- **One set of answers when a file changed on disk.** The banner and the `⌘S` alert both offer
+  **Compare…**, **Use Disk Version** and **Keep Mine…**, in that order, and the comparison Compare…
+  opens ends with the last two. Keep Mine… always asks before replacing the version on disk; the
+  comparison's Save Anyway used to write without asking. Its column for your version is headed "In
+  Edit". For a file that is gone, the `⌘S` alert offers the banner's **Save Again** in place of Save
+  Anyway: it makes the file's folder again if that went too, and writes nothing over a file that
+  turned up there meanwhile, which Save Anyway did not do.
+- **Leaving a deleted file asks first**, even with nothing typed, since the text on screen may be
+  the only copy; before, it was dropped without a word. Closing it, opening another file or `⌘N`
+  asks *Save “Notes.md” again?*, and quitting asks before it goes. A file still in the Trash is not
+  asked about. The question about unsaved changes reads *Save your changes to “Notes.md”?* wherever
+  it comes from — no longer "before closing it" — and it and the quit alert say in a line why they
+  ask; its Don't Save is marked as destructive.
+- **`⌘S` on an unchanged file writes nothing.** It used to write the file again, giving it a new
+  date and a sync client a reason to upload it.
+- **Smaller fixes in Edit.** With the file pane folded, `⌘X`, `⌘C`, `⌘V` and `⌘A` outside the text
+  no longer act on the hidden pane — `⌘C` copied the open file. Double-click Split's divider to put
+  it back in the middle. The Outline scrolls to keep the heading you are in in sight, and the status
+  line's Show Outline in File List opens it from any layout. An image dropped or pasted into a note
+  says, on the status line, what was saved and where. A save the disk refuses gives the reason —
+  "No space left on device" — not the name of a hidden staging file.
 - **Ticking a box in Preview is quick in a long note.** With Edit in Preview off, or in a note over
   256 KB, a tick rewrote and compared the whole note; it now changes only its own line. The last
   task in a 200 KB note went from 35 ms to 0.2 ms, and in a 4 MiB note from 808 ms to 3.7 ms.
