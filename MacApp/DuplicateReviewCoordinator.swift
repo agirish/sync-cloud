@@ -191,6 +191,7 @@ struct DuplicateReviewCoordinator {
             .accentedProminent()
             .chromeHover()
             .controlSize(.small)
+            .help("Move the right copy to the Trash and keep the left one")
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
         // No fill or divider of its own: the host mounts this as a `bottomSectionCard`, so it

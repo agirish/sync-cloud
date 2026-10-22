@@ -821,6 +821,7 @@ public struct DetailsSidebar: View {
                     Label("Open in Edit", systemImage: "square.and.pencil")
                 }
                 .chromeHover()
+                .help("Open this file in Edit, SyncCloud’s own editor")
             }
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: data.path)])

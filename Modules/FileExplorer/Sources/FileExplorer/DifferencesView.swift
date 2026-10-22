@@ -1902,6 +1902,7 @@ public struct DifferencesView: View {
                             .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
                     }
                     .buttonStyle(.hoverAffordance(.segment, tint: glassHue.accentColor))
+                    .help("Add “\(suggestion.raw)” to the search")
                 }
                 Spacer(minLength: 0)
             }
@@ -2338,6 +2339,8 @@ struct DifferenceSectionHeader: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .help(isCollapsed ? "Expand this folder · ⌥-click to expand every folder"
+                              : "Collapse this folder · ⌥-click to collapse every folder")
             .accessibilityLabel(isCollapsed ? "Expand \(folder)" : "Collapse \(folder)")
 
             Image(systemName: "folder.fill")

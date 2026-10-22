@@ -128,6 +128,7 @@ struct DuplicateGroupCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.hoverAffordance(.row, tint: hueAccent))
+        .help(isExpanded ? "Collapse this group" : "Expand this group to see its copies")
     }
 
     /// The full-width header: everything on one line, in the invisible columns.
@@ -705,6 +706,7 @@ struct DuplicateGroupCard: View {
                 // a dead control. Reachable by re-aiming the keeper of a group whose other copies
                 // all live inside a folder another group is keeping (see `isProtectedFromRemoval`).
                 .disabled(isMerging || group.recommendedRemovalPaths.isEmpty)
+                .help(applyHelp)
             } else if group.matchType.kind == .overlapping {
                 Button(action: onMerge) {
                     if isMerging {
@@ -727,6 +729,7 @@ struct DuplicateGroupCard: View {
                 .chromeHover()
                 .controlSize(.small)
                 .disabled(isMerging)
+                .help(mergeHelp)
             }
             // **Every group gets this now.** It used to be folder-only, on the grounds that a
             // file group's copies "carry a preview each, which is the same comparison in place" —
@@ -746,10 +749,24 @@ struct DuplicateGroupCard: View {
             }
             .buttonStyle(.hoverAffordance(.segment, tint: hueAccent))
             .controlSize(.small)
+            .help("Drop this group from the list and stop flagging these copies in future scans")
             .disabled(isMerging)   // would drop the group from the list mid-merge
         }
         .padding(.top, 12)
         .padding(.bottom, 4)
+    }
+
+    private var applyHelp: String {
+        let count = group.recommendedRemovalPaths.count
+        let itemWord = DuplicateRemovalPrompt.itemWord(for: group.matchType.kind, count: count)
+        return "Move \(count) \(itemWord) to the Trash and keep the one marked Keep — asks first"
+    }
+
+    private var mergeHelp: String {
+        let copies = group.redundantCopies.count == 1 ? "copy" : "copies"
+        return mergeCopiesNothing
+            ? "Move the folded \(copies) to the Trash — the keeper already has everything in them; asks first"
+            : "Copy what the keeper lacks into it, then move the folded \(copies) to the Trash — asks first"
     }
 
     private var applyTitle: String {

@@ -79,12 +79,14 @@ struct EditorPDFAddSignatureSheet: View {
             .labelsHidden()
             .accentedSegments(hue)
             .fixedSize()
+            .help("Draw it with the trackpad or mouse, or type it and pick a style")
             if typing { typePane } else { drawPane }
             HStack(spacing: 8) {
                 Text("Ink").scaledFont(.system(size: 11)).foregroundStyle(.secondary)
                 ForEach(EditorPDFFillColor.allCases, id: \.self) { swatch($0) }
             }
             Toggle("Save on this Mac for next time", isOn: $keep)
+                .help("Saves it in the app’s settings on this Mac, ready to place again — never synced or logged")
             if keep, let full = Self.fullCaption(kind, store: fill.store) {
                 Text(full)
                     .scaledFont(.system(size: 11))
@@ -192,6 +194,7 @@ struct EditorPDFAddSignatureSheet: View {
         .buttonStyle(.plain)
         .accessibilityLabel(option.title)
         .accessibilityAddTraits(chosen ? .isSelected : [])
+        .help("Use the \(option.title) style")
     }
 
     private var drawPane: some View {
@@ -217,6 +220,7 @@ struct EditorPDFAddSignatureSheet: View {
                 .labelsHidden()
                 .accentedSegments(hue)
                 .fixedSize()
+                .help("Choose how thick the pen draws")
             }
             Toggle("Smooth out wobble", isOn: $smooth)
                 .help("Draws the strokes in gentle curves rather than every jitter of the trackpad")

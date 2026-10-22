@@ -1295,6 +1295,7 @@ struct HelpView: View {
                         .hoverInk(rest: .tertiary)
                 }
                 .buttonStyle(.hoverAffordance(.inline))
+                .help("Clear search")
                 .accessibilityLabel("Clear search")
             }
         }

@@ -201,6 +201,7 @@ struct AutomationRuleEditor: View {
             sectionLabel("Name")
             TextField("Invoices", text: $name)
                 .textFieldStyle(.roundedBorder)
+                .help("Name this rule — it can’t be saved without one")
         }
     }
 
@@ -216,6 +217,7 @@ struct AutomationRuleEditor: View {
                     .labelsHidden()
                     .frame(width: 120)
                     .controlSize(.small)
+                    .help("Choose whether a file must meet every condition, or any one of them")
                 }
                 Spacer()
             }
@@ -257,6 +259,7 @@ struct AutomationRuleEditor: View {
             .labelsHidden()
             .frame(width: 155)
             .controlSize(.small)
+            .help("Choose what this condition checks")
 
             valueEditor(condition)
 
@@ -279,6 +282,7 @@ struct AutomationRuleEditor: View {
             HStack(spacing: 5) {
                 TextField("Downloads", text: stringBinding(condition))
                     .textFieldStyle(.roundedBorder).controlSize(.small)
+                    .help("Matches files whose parent folder has this name, in any case")
                 Button {
                     if let name = pickFolderName() { stringBinding(condition).wrappedValue = name }
                 } label: {
@@ -293,9 +297,11 @@ struct AutomationRuleEditor: View {
             TextField("*.pdf", text: stringBinding(condition))
                 .textFieldStyle(.roundedBorder).controlSize(.small)
                 .scaledFont(.system(size: 11, design: .monospaced))
+                .help("Matches the whole file name, in any case — * stands for any run of characters, ? for one")
         case .contentContains:
             TextField("invoice", text: stringBinding(condition))
                 .textFieldStyle(.roundedBorder).controlSize(.small)
+                .help("Matches files whose text contains this exact phrase, in any case")
         case .mentionsAll:
             VStack(alignment: .leading, spacing: 3) {
                 TextField("tesla, insurance", text: tokensBinding(condition))
@@ -312,6 +318,7 @@ struct AutomationRuleEditor: View {
                 ForEach(FileKind.allCases) { Text($0.label).tag($0) }
             }
             .labelsHidden().controlSize(.small).frame(width: 130)
+            .help("Matches files of this kind, judged by their extension")
         case .personIs:
             // Bound to the person's ID, shown by their name: the rule survives a rename, and the
             // user never has to see the slug that makes that work. The empty tag is what a fresh
@@ -321,6 +328,7 @@ struct AutomationRuleEditor: View {
                 ForEach(people) { Text($0.displayName).tag($0.id) }
             }
             .labelsHidden().controlSize(.small).frame(width: 150)
+            .help("Matches files that belong to this person — by the file name, or else its first page")
         case .unrecognized(let name, _):
             Text("“\(name)” — written by a newer version of SyncCloud. It is kept as-is and never "
                  + "matches; remove the row to drop it.")
@@ -333,12 +341,14 @@ struct AutomationRuleEditor: View {
             HStack(spacing: 5) {
                 TextField("100", value: intBinding(condition), format: .number)
                     .textFieldStyle(.roundedBorder).controlSize(.small).frame(width: 64)
+                    .help("Matches files larger than this many megabytes")
                 Text("MB").scaledFont(.system(size: 11)).foregroundStyle(.secondary)
             }
         case .untouchedForDays:
             HStack(spacing: 5) {
                 TextField("365", value: intBinding(condition), format: .number)
                     .textFieldStyle(.roundedBorder).controlSize(.small).frame(width: 64)
+                    .help("Matches files not modified for at least this many days")
                 Text("days").scaledFont(.system(size: 11)).foregroundStyle(.secondary)
             }
         }
@@ -368,10 +378,13 @@ struct AutomationRuleEditor: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 .controlSize(.small)
+                .help("Add a token to the destination — it fills in from each file, like its year or kind")
             }
             TextField("Documents/Invoices/{year}", text: $destination)
                 .textFieldStyle(.roundedBorder)
                 .scaledFont(.system(size: 12, design: .monospaced))
+                .help("The folder matching files go into, from the provider root — {tokens} fill in "
+                      + "from each file; a leading “/” makes it an absolute path")
             // The caption states which of the two destination forms the field currently holds, so
             // a leading slash is a visible choice, never a silent reinterpretation.
             if destination.trimmingCharacters(in: .whitespaces).hasPrefix("/") {

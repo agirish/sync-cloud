@@ -635,6 +635,7 @@ struct RestructurePlanSheet: View {
                     .textFieldStyle(.roundedBorder)
                     .scaledFont(.system(size: 11))
                     .frame(width: 260)
+                    .help("Add a target name of your own — one folder name, then Return or Add")
                     .onSubmit(addCustomName)
                 Button("Add") { addCustomName() }
                     .scaledFont(.system(size: 11))
@@ -690,6 +691,7 @@ struct RestructurePlanSheet: View {
             }
         }
         .buttonStyle(.plain)
+        .help("Use these names as the targets in the mapping below")
         // The chosen state otherwise lives only in an SF-symbol swap — invisible to VoiceOver.
         .accessibilityAddTraits(chosenScheme == index ? [.isSelected] : [])
     }
@@ -794,6 +796,7 @@ struct RestructurePlanSheet: View {
             // The visible label is the source name to its left; VoiceOver needs the tie made
             // explicit or this is an unnamed popup in a column of unnamed popups.
             .accessibilityLabel("Target for \(row.wrappedValue.source)")
+            .help("Choose the name “\(row.wrappedValue.source)” becomes — Keep leaves it as it is")
             .scaledFont(.system(size: 11))
             .frame(width: 180)
             if let margin = margin(for: row.wrappedValue, members: members) {
@@ -837,10 +840,16 @@ struct RestructurePlanSheet: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .disabled(rows.isEmpty)
+                        .help(refining
+                              ? "Stop waiting for the answer — a request already sent may still bill"
+                              : "Send these folder names to \(refineModelLabel) for proposed names — "
+                                + "billed to your API key. Nothing changes until you accept a proposal.")
                         Toggle("Include up to 5 file names per folder", isOn: $includeFileSamples)
                             .toggleStyle(.checkbox)
                             .scaledFont(.system(size: 10.5))
                             .disabled(refining)
+                            .help("Also send up to 5 file names from each folder, so the model can "
+                                  + "see what’s inside. File contents are never sent.")
                     }
                     // The itemised payload disclosure, at the button rather than behind it —
                     // and the toggle's clause appears only when the toggle is on.
@@ -1280,6 +1289,11 @@ struct RestructurePlanSheet: View {
                 .scaledFont(.system(size: 11, weight: .semibold))
                 .keyboardShortcut(.defaultAction)
                 .accentedProminent()
+                .help(group.isEmpty
+                      ? "Keep this plan without running it — saved as a dated JSON file beside your "
+                        + "folder survey. Nothing moves."
+                      : "Keep these \(group.count) plans without running them — each saved as a dated "
+                        + "JSON file beside your folder survey. Nothing moves.")
                 .disabled(group.isEmpty
                           ? ((try? plan.get()) == nil || applying || isApplied)
                           : (group.allSatisfy { (try? $0.result.get()) == nil }

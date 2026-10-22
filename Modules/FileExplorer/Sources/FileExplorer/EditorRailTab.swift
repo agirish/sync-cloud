@@ -179,5 +179,15 @@ struct EditorRailTabBar: View {
         .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accentFill)
         .accessibilityLabel(candidate.title)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .help(Self.help(candidate))
+    }
+
+    /// What each segment's tooltip says it shows.
+    static func help(_ tab: EditorRailTab) -> String {
+        switch tab {
+        case .files: return "Show the text files and PDFs in this folder"
+        case .pages: return "Show this PDF’s pages"
+        case .outline: return "Show this document’s outline"
+        }
     }
 }

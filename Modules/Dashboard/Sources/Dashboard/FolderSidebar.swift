@@ -1164,6 +1164,7 @@ public struct FolderSidebarView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(title(section)), \(isCollapsed ? "collapsed" : "expanded"), \(count(section)) items")
+            .help(isCollapsed ? "Show \(title(section))" : "Hide \(title(section))")
             HStack(spacing: 4) {
                 Text(title(section))
                     .scaledFont(.system(size: 11, weight: .semibold))

@@ -761,6 +761,8 @@ struct RestructureLens: View {
         .accessibilityLabel("\(branch), \(count) folder\(count == 1 ? "" : "s")")
         .accessibilityValue(expandedBranches.contains(branch) ? "expanded" : "collapsed")
         .accessibilityHint("Shows the folders in this branch")
+        .help(expandedBranches.contains(branch) ? "Hide the folders in this branch"
+                                                : "Show the folders in this branch")
         .chromeHover()
     }
 

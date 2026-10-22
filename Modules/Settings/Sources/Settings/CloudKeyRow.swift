@@ -198,6 +198,7 @@ struct CloudKeyRow: View {
                             text: $apiKeyField)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { if canSave { saveTypedKey() } }
+                    .help("Your Anthropic API key. Save or Return stores it in your Keychain.")
                 Button("Save", action: saveTypedKey)
                     .disabled(!canSave)
                 testButton
@@ -235,6 +236,19 @@ struct CloudKeyRow: View {
         // while replacing, where an empty field would otherwise silently test the OLD stored key
         // (and prompt for it) in the middle of replacing it.
         .disabled(testingKey || (state.isEntry && !canSave))
+        .help(testHelp)
+    }
+
+    /// What Test checks, and whether it has to read the Keychain to do it — see `testKey`.
+    private var testHelp: String {
+        switch state {
+        case .empty, .replacing:
+            return "Check the key you pasted with Anthropic. Free, and no files are sent."
+        case .revealed:
+            return "Check this key with Anthropic. Free, and no files are sent."
+        case .stored:
+            return "Check the stored key with Anthropic. Free, and no files are sent. macOS may ask for permission to read the key."
+        }
     }
 
     private var canSave: Bool {

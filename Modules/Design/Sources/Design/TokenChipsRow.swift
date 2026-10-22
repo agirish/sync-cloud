@@ -65,6 +65,9 @@ public struct TokenChipsRow: View {
             }
             .buttonStyle(.hoverAffordance(.inline))
             .padding(-6)
+            // Its own tooltip: inside the chip it would otherwise show the chip's, which describes
+            // the filter and never says this removes it.
+            .help("Remove this filter")
             .accessibilityLabel("Remove filter \(item.label)")
         }
         .padding(.horizontal, 7)

@@ -308,6 +308,7 @@ struct EditorPDFBody: View {
                 HStack(spacing: 8) {
                     // The Files list's Quick Look, word and glyph (TE112).
                     Button { quickLook(path) } label: { Label("Quick Look", systemImage: "doc.viewfinder") }
+                        .help("Try this file in Quick Look")
                     Button("Open in Preview") { EditorPDFBody.openInPreview(path) }
                 }
                 .controlSize(.small)

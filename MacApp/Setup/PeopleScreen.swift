@@ -148,6 +148,7 @@ struct SetupWalkStatus: View {
                 Button("Change…") { model.chooseWalkRoot(thenLearn: true) }
                     .controlSize(.mini)
                     .buttonStyle(.link)
+                    .help("Choose another folder and read it right away")
             }
         case .idle, .skipped:
             // **`.idle` is not `.running`.** Nothing is reading, so nothing claims to be: the

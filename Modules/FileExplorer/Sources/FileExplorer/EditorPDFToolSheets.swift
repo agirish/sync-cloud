@@ -167,6 +167,9 @@ struct EditorPDFPageRangeSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 TextField(action == .extract ? "Pages, e.g. 3-5, 1" : "Pages, e.g. 1, 4-6", text: $typed)
                     .textFieldStyle(.roundedBorder)
+                    .help(action == .extract
+                          ? "Type pages and ranges split by commas, like “3-5, 1” — the copy keeps the order typed, and “5-3” runs backwards"
+                          : "Type pages and ranges split by commas, like “1, 4-6” — the order doesn’t matter")
                 Text(parsed.caption)
                     .scaledFont(.system(size: 11))
                     // Blank is not an error yet — it is where an empty selection starts.
@@ -294,6 +297,8 @@ struct EditorPDFCompressControls: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
+        .help(perFile ? "Compress at a set strength, or lower the quality until each copy fits a size"
+                      : "Compress at a set strength, or lower the quality until the copy fits a size")
         if byTarget {
             HStack(spacing: 6) {
                 Text("Under")
@@ -313,6 +318,7 @@ struct EditorPDFCompressControls: View {
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
+            .help("Choose how hard to compress — a smaller file costs image quality")
         }
     }
 }
@@ -392,8 +398,10 @@ struct EditorPDFMetadataSheet: View {
                     HStack(spacing: 8) {
                         Button("Keep Current Values") { form?.keepCurrentValues() }
                             .disabled(!binding.wrappedValue.canKeepCurrentValues)
+                            .help("Put this file’s own values back in the fields, for the copy to keep")
                         Button("Clear All") { form?.clearAll() }
                             .disabled(!binding.wrappedValue.canClearAll)
+                            .help("Empty every field, so the copy has no title, author, subject, keywords or creator")
                     }
                     .controlSize(.small)
                     ForEach(Self.notes(current, hasForm: hasForm), id: \.self) { note in
@@ -497,6 +505,7 @@ struct EditorPDFProtectSheet: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
+                .help("Need the password to open the copy, or only to copy, edit or change its pages")
                 Text(restrictEditing
                      ? "The copy opens without a password; copying, editing and changing pages need it. Readers honor this — it doesn’t encrypt what the pages say."
                      : "The copy needs this password to open. SyncCloud doesn’t keep it — without it, the copy can’t be opened.")

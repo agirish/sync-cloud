@@ -43,6 +43,8 @@ struct LocationsScreen: View {
                     model.refreshProviders()
                 }
                 .controlSize(.small)
+                .help(model.isRefreshingProviders ? "Looking for cloud locations…"
+                                                  : "Look for cloud locations again")
                 .disabled(model.isRefreshingProviders)
                 Spacer()
                 Text("\(settings.enabledProviders.count) of \(settings.availableProviders.count) on")

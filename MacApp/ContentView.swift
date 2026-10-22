@@ -5271,7 +5271,8 @@ struct ContentView: View {
                             tint: .green,
                             title: "Everything is in sync",
                             message: "No differences found between focused directories.",
-                            secondary: .init("Scan again", systemImage: "arrow.clockwise") { forceRefreshAction() }
+                            secondary: .init("Scan again", systemImage: "arrow.clockwise",
+                                             help: "Scan both panes’ folders again and compare them") { forceRefreshAction() }
                         )
                     } else {
                         // Same symbol as the toolbar's Compare button — one glyph for
@@ -5281,7 +5282,8 @@ struct ContentView: View {
                             tint: glassHue.accentColor,
                             title: "Compare \(paneNames.left) ↔ \(paneNames.right)",
                             message: notScannedMessage,
-                            primary: .init("Scan", systemImage: "arrow.clockwise") { forceRefreshAction() }
+                            primary: .init("Scan", systemImage: "arrow.clockwise",
+                                           help: "Scan both panes’ folders and compare them") { forceRefreshAction() }
                         )
                     }
                 }

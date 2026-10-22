@@ -802,10 +802,12 @@ struct FilePairCompareView<Verdict: View>: View {
             .accentedSegments(hue)
             .labelsHidden()
             .fixedSize()
+            .help(ShortcutHint.tooltip("Choose how to compare the two copies", "1–\(modes.count)"))
             .accessibilityLabel("Compare mode")
             if activeMode == .onion {
                 Slider(value: $onionOpacity, in: 0...1)
                     .frame(maxWidth: 160)
+                    .help("Fade the right copy over the left — drag right to see more of it")
                     .accessibilityLabel("Onion blend")
             }
             // **The mode's standing caveat says "with no alignment", and CC14.4 makes that
@@ -1536,6 +1538,7 @@ struct FilePairCompareView<Verdict: View>: View {
                 Button("Download") { requestDownload(copy) }
                     .buttonStyle(.hoverAffordance(.segment, tint: accent))
                     .controlSize(.small)
+                    .help("Fetch this file’s content from the provider so it can be previewed")
             }
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: copy.path)])

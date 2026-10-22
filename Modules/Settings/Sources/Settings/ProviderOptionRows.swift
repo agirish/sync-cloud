@@ -95,12 +95,14 @@ public struct ProviderOptionRows: View {
                         .truncationMode(.middle)
                     Button("Choose…") { selectOpenAtDirectory() }
                         .controlSize(.small)
+                        .help("Picks the folder inside \(provider.displayName) that panes open at.")
                     Button("Reset") {
                         openAtRefusal = nil
                         settings.resetOpenAt(for: provider.id)
                     }
                     .controlSize(.small)
                     .disabled(!settings.hasOpenAtOverride(for: provider.id))
+                    .help("Forgets the folder you chose, so panes open at \(provider.displayName)’s default folder again.")
                 }
                 .disabled(!isEnabled)
             }
@@ -199,6 +201,9 @@ public struct FolderNameRuleRow: View {
             .labelsHidden()
             .controlSize(.small)
             .fixedSize()
+            .help(
+                "A folder accepts any name, so \"risky name\" has no meaning until you say where the files are headed. Organize and the pane badges check names under a folder source against this."
+            )
         }
     }
 }
@@ -231,6 +236,7 @@ public struct InboxAndSuggestionRows: View {
             .help("The folder (relative to the location's root) where loose files pile up — e.g. “TODO”. Nothing is filed into it.")
             Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
                 .toggleStyle(.checkbox)
+                .help("Lets Organize ask the on-device model where files belong. Off, or where it isn’t available, Organize suggests from names and metadata alone.")
         }
     }
 }

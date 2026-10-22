@@ -414,6 +414,7 @@ public struct DestinationPicker: View {
                     Image(systemName: "xmark.circle.fill").hoverInk()
                 }
                 .buttonStyle(.hoverAffordance(.inline, tint: accent))
+                .help("Clear search")
                 .accessibilityLabel("Clear search")
             }
         }

@@ -175,6 +175,7 @@ struct EditorStatusLine: View, Equatable {
             Button { hint.onShowInSource() } label: { Text(EditorStatusHint.showInSource) }
                 .buttonStyle(.link)
                 .accessibilityHint(EditorStatusHint.needsSource)
+                .help("Switch to Source, with the caret where the refused change was")
         }
         .fixedSize(horizontal: true, vertical: false)
     }

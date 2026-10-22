@@ -2400,6 +2400,7 @@ public struct LensWorkspaceView: View {
             Spacer(minLength: 8)
             Text("Total \(FilingSpendFormat.cost(spendTotals.costUSD))")
             Button("History") { showSpendHistory = true }.controlSize(.mini)
+                .help("Show every cloud refine with its tokens and estimated cost")
         }
         .scaledFont(.system(size: 11))
         .foregroundStyle(.secondary)
@@ -3222,6 +3223,7 @@ public struct LensWorkspaceView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        .help("Filter the groups — showing \(filter.label)")
         // Frosted and Clear: a glass capsule like every bar button (`ChromeGlass`) — outside the
         // menu, where AppKit lets a background paint; 4pt past the label so it reads as a button.
         .chromeGlassGround(.capsule, outset: 4)
@@ -4599,7 +4601,8 @@ public struct LensWorkspaceView: View {
                     "These results were scanned from “\((root as NSString).lastPathComponent)”, which doesn't contain this file — so they say nothing about it either way."
                 } ?? "No completed scan covers this file, so there is nothing to say about it yet.",
                 caption: "Scan the folder this file is in to get an answer about it.",
-                primary: .init("Find Duplicates", systemImage: "wand.and.stars") {
+                primary: .init("Find Duplicates", systemImage: "wand.and.stars",
+                               help: "Scan the folder this file is in for duplicates") {
                     // Through the same door as the context menu, with the FILE's path — so the
                     // host scans a folder that actually contains it and hands back a fresh
                     // request, which re-fires the reveal naturally. `onFindDuplicates` here
@@ -4716,7 +4719,8 @@ public struct LensWorkspaceView: View {
             title: "Nothing in “\(scope.name)”",
             message: "Organize is scoped to “\(scope.relativePath)”. "
                 + "\(total) \(noun)\(total == 1 ? "" : "s") elsewhere in the tree \(total == 1 ? "is" : "are") not shown.",
-            primary: .init("Organize Everything", systemImage: "xmark.circle") {
+            primary: .init("Organize Everything", systemImage: "xmark.circle",
+                           help: "Clear the “\(scope.name)” scope and show the whole tree") {
                 withAnimation(listSettle) { setScope(nil) }
             }
         )

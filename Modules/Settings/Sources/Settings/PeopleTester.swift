@@ -35,6 +35,7 @@ struct PeopleTester: View {
                 TextField("Daughter Father - OCI Card.pdf", text: $text)
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
+                    .help("Type a filename to see who Organize would say it belongs to. Nothing is filed.")
                 if !text.isEmpty {
                     Button {
                         text = ""

@@ -50,6 +50,7 @@ struct AppearanceScreen: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .accentedSegments(hue)
+                .help("Choose light or dark, or follow macOS")
                 // **`alignment: .leading`, and its absence was visible.** A bare
                 // `.frame(maxWidth:)` centres its content in the width it takes, so the segmented
                 // control — narrower than 260 at every text size — sat 32pt right of the label

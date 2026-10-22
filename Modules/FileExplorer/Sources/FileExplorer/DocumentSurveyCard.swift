@@ -299,7 +299,9 @@ struct DocumentSurveyCard: View {
         switch state {
         case .offered:
             return onStart.map {
-                [OverviewCardAction(title: "Read my documents", rank: .primary, run: $0)]
+                [OverviewCardAction(title: "Read my documents", rank: .primary,
+                                    help: "Read page one of every document here, on this Mac — in the "
+                                        + "background, and it can be paused", run: $0)]
             } ?? []
         case .running(_, _, _, _, let pause):
             // **Stop is listed first, and that is not cosmetic.** `drawingOrder` moves a primary to
@@ -310,7 +312,9 @@ struct DocumentSurveyCard: View {
             // Listing it first is correct in every state and depends on no other rule holding.
             var actions: [OverviewCardAction] = []
             if let onStop {
-                actions.append(OverviewCardAction(title: "Stop", run: onStop))
+                actions.append(OverviewCardAction(title: "Stop",
+                                                  help: "Stop reading — what’s been read so far is kept",
+                                                  run: onStop))
             }
             if let pause, !pause.resumesOnItsOwn, let onResume {
                 actions.append(OverviewCardAction(title: "Resume", rank: .primary, run: onResume))
@@ -323,7 +327,9 @@ struct DocumentSurveyCard: View {
         case .interrupted:
             var actions: [OverviewCardAction] = []
             if let onResume {
-                actions.append(OverviewCardAction(title: "Resume", rank: .primary, run: onResume))
+                actions.append(OverviewCardAction(title: "Resume", rank: .primary,
+                                                  help: "Carry on reading — only the documents not yet read",
+                                                  run: onResume))
             }
             if let onStart {
                 // "Start over" rather than "Start": the distinction matters here, where a

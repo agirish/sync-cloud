@@ -913,6 +913,8 @@ private struct AutomationRuleCard: View {
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .labelsHidden()
+                .help(isEnabled ? "Turn this rule off — To File stops suggesting its destination"
+                                : "Turn this rule on — To File suggests its destination for matching files")
                 // labelsHidden leaves VoiceOver announcing a bare switch in a card full of
                 // switches — name whose rule this one enables.
                 .accessibilityLabel("Rule \(rule.name.isEmpty ? "Untitled rule" : rule.name) enabled")

@@ -109,6 +109,8 @@ struct YouScreen: View {
             SetupChip(mark: .tick(ticked), title: form, isFilled: ticked, accent: hue.accentColor)
         }
         .buttonStyle(.hoverAffordance(.segment))
+        .help(ticked ? "Stop using this form to find your documents"
+                     : "Use this form to find your documents")
         .accessibilityLabel("\(form), \(ticked ? "used" : "not used")")
     }
 }

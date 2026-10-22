@@ -68,6 +68,27 @@ enum AutoFillHeuristics {
     }
 }
 
+/// How long the pointer rests on a control before its tooltip shows, app-wide.
+///
+/// AppKit's own wait is 1.5 s — long enough that a tooltip reads as something you stumble on rather
+/// than an answer to hovering. 300 ms shows it once the pointer has plainly stopped, without
+/// flashing tips at a pointer that is only passing over.
+///
+/// **Milliseconds, read once.** Measured 2026-10-22 in a probe process by reading
+/// `NSToolTipManager`'s `_toolTipDelay`: 1.5 unregistered, 0.3 with `300` registered — but still
+/// 1.5 when the registration came after the shared manager existed, because the manager reads the
+/// key when it is created. So it is registered first thing in `App.init`, before any view exists.
+/// Registration domain, so `defaults write com.abhishekgirish.SyncCloud NSInitialToolTipDelay -int …`
+/// still overrides it.
+enum ToolTipDelay {
+    static let key = "NSInitialToolTipDelay"
+    static let milliseconds = 300
+
+    static func register(in defaults: UserDefaults) {
+        defaults.register(defaults: [key: milliseconds])
+    }
+}
+
 @main
 /// The main entry point for the SyncCloud macOS application.
 /// Manages the lifecycle of `FileSyncManager` and configures the root `ContentView`.
@@ -167,6 +188,9 @@ struct SyncCloudApp: App {
         // Before any field can take the caret: AppKit caches the answer on first read. Not gated on
         // tests — a hosted test that focuses a field would hang the same way.
         AutoFillHeuristics.registerOff(in: .standard)
+
+        // Before any view exists: AppKit's tooltip manager reads the delay once, when it is made.
+        ToolTipDelay.register(in: .standard)
 
         // Not under tests: the migration writes into the real defaults domain and the theme pin
         // sets the shared NSApp's appearance from the developer's stored preference — both are

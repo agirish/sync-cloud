@@ -127,6 +127,7 @@ struct VisualPairModeView: View {
         .accessibilityElement()
         .accessibilityLabel("Swipe compare")
         .accessibilityValue("\(Int(shownSwipeFraction * 100))% of the right copy shown")
+        .help("Drag to move the divider — the right copy shows to the left of it")
         .accessibilityAdjustableAction { direction in
             let step = 0.05
             switch direction {

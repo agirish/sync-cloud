@@ -477,6 +477,7 @@ struct FilingSuggestionCard: View {
                     .contentShape(Rectangle())
             }
                 .buttonStyle(.hoverAffordance(.segment, tint: hueAccent)).controlSize(.small)
+                .help("Set this suggestion aside — the file stays where it is, and the next scan can suggest it again")
         }
     }
 }

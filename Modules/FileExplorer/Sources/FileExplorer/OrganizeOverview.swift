@@ -1103,6 +1103,7 @@ struct OrganizeOverview: View {
     private func findingsActions(_ section: OrganizeOverviewSection, count: Int)
     -> [OverviewCardAction] {
         var actions = [OverviewCardAction(title: "Open \(section.lens.title)", rank: .primary,
+                                          help: "Review what \(section.lens.title) found",
                                           accessibilityLabel: "Open \(section.lens.title), \(count) found",
                                           run: { onOpen(section.lens) })]
         if offersRescan(for: section), let pass = OrganizePass(producing: section.lens) {
@@ -1153,6 +1154,7 @@ struct OrganizeOverview: View {
         // rule was careful to keep it out of. Not withdrawn while the analysis re-runs: reading
         // the last report is exactly what somebody waiting for the next one wants to do.
         var actions = [OverviewCardAction(title: "Open \(section.lens.title)", rank: .primary,
+                                          help: "Read the full \(section.lens.title) report",
                                           run: { onOpen(section.lens) })]
         // Withdrawn while it runs rather than drawn disabled — the spinner above already says the
         // work is in flight, and a greyed button beside a spinner says it twice. This is the same

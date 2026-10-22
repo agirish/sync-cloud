@@ -267,6 +267,7 @@ struct StorageLensView: View {
                                       canCollapse: true, isCollapsed: isCollapsed)
                 }
                 .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor))
+                .help(isCollapsed ? "Show this section’s files" : "Hide this section’s files")
             } else {
                 // **Not a disabled button — not a button.** A `.disabled` `Button` still announces
                 // itself to VoiceOver as an unavailable control and Full Keyboard Access still has

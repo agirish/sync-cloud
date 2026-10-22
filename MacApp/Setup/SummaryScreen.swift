@@ -120,6 +120,7 @@ struct SummaryScreen: View {
                 Button(verb) { onChange(tab) }
                     .buttonStyle(.link)
                     .controlSize(.small)
+                    .help("Finish setup and open Settings ▸ \(tab.displayName)")
             }
         }
         .padding(.horizontal, 12)

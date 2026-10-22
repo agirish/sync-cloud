@@ -101,6 +101,7 @@ struct PersonEditor: View {
                     set: { draft.relationship = $0.isEmpty ? nil : $0 }))
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
+                    .help("Their relationship to you — a label for you only; it changes nothing about filing.")
             }
             Text("The first name is what your folders are called — `School/\(draft.displayName.isEmpty ? "Daughter" : draft.displayName)`. The relationship is a label for you; it changes nothing about filing.")
                 .scaledFont(.subheadline)

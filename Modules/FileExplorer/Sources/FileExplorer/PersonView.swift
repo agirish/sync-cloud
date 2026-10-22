@@ -277,6 +277,7 @@ public struct PersonView: View {
                     }
                     .buttonStyle(.plain)
                     .chromeHover()
+                    .help("Remember this file as \(displayName)’s — nothing is moved")
                     .accessibilityLabel("\(file.name) is \(displayName)’s")
                     Button { onVerdict(file.path, false) } label: {
                         Text("Not \(displayName)’s")
@@ -288,6 +289,7 @@ public struct PersonView: View {
                     }
                     .buttonStyle(.plain)
                     .chromeHover()
+                    .help("Remember that this file isn’t \(displayName)’s — nothing is moved")
                     .accessibilityLabel("\(file.name) is not \(displayName)’s")
                 }
                 .padding(.vertical, 5)

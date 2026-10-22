@@ -87,8 +87,10 @@ struct TextPairDiffView: View {
         HStack(spacing: 2) {
             Button { step(-1) } label: { Image(systemName: "chevron.up") }
                 .accessibilityLabel("Previous change")
+                .help(ShortcutHint.tooltip("Previous change", "↑"))
             Button { step(1) } label: { Image(systemName: "chevron.down") }
                 .accessibilityLabel("Next change")
+                .help(ShortcutHint.tooltip("Next change", "↓"))
         }
         .buttonStyle(.hoverAffordance(.segment, tint: accent))
         .controlSize(.small)

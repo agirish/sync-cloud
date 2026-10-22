@@ -41,6 +41,7 @@ public struct LaunchAtLoginRow: View {
     public var body: some View {
     SettingsSection {
         Toggle("Launch SyncCloud at login", isOn: $launchAtLogin)
+            .help("Adds SyncCloud to your Mac’s Login Items, so it opens when you log in.")
             .onChange(of: launchAtLogin) { _, enabled in
                 guard loginItemEcho.shouldStartRoundTrip(for: enabled, at: .now) else {
                     // Echo of a programmatic set, or a gesture the in-flight call will
@@ -195,6 +196,7 @@ public struct NotifyInBackgroundRow: View {
     public var body: some View {
     SettingsSection {
         Toggle("Notify when operations finish in the background", isOn: $notifyInBackground)
+            .help("Posts a system notification when a copy, sync, or verify finishes while SyncCloud isn’t the active app. Turning it on asks macOS for permission.")
             .onChange(of: notifyInBackground) { _, enabled in
                 if enabled {
                     // Capture the result: a denied request used to vanish, leaving the
@@ -251,7 +253,9 @@ public struct GeneralRows: View {
             NotifyInBackgroundRow()
             LaunchAtLoginRow()
             Toggle("Reopen panes where I left off", isOn: $restoreLastFocus)
+                .help("Reopens each pane with the tabs and folders it had when you last quit. Off, every pane starts with one tab at its source’s opening folder.")
             Toggle("Warn before quitting during file operations", isOn: $warnBeforeQuit)
+                .help("Asks before quitting while a copy, move, or delete is still running. Off, SyncCloud quits at once.")
         }
         .toggleStyle(.checkbox)
     }

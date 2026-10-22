@@ -249,7 +249,8 @@ public struct SyncHistoryView: View {
                         icon: "clock.arrow.circlepath",
                         title: "No sync history yet",
                         message: "Every copy, move, and delete is recorded here as it happens — with a timestamp, direction, and size you can filter, search, and export. History survives quitting the app.",
-                        secondary: .init("Reveal History File", systemImage: "doc.text") {
+                        secondary: .init("Reveal History File", systemImage: "doc.text",
+                                         help: "Show the file the sync history is saved in, \(store.fileURL.lastPathComponent), in Finder") {
                             NSWorkspace.shared.activateFileViewerSelecting([store.fileURL])
                         }
                     )
@@ -258,7 +259,8 @@ public struct SyncHistoryView: View {
                         icon: "line.3.horizontal.decrease.circle",
                         title: "No matching records",
                         message: "The current action, date range, and search hide all \(store.records.count) \(store.records.count == 1 ? "record" : "records").",
-                        primary: .init("Clear Filters", systemImage: "xmark.circle") {
+                        primary: .init("Clear Filters", systemImage: "xmark.circle",
+                                       help: "Show every record — clears the action, date range, and search filters") {
                             selectedAction = nil
                             dateRange = .all
                             searchText = ""

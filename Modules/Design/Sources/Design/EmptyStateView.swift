@@ -14,11 +14,16 @@ public struct EmptyStateView: View {
     public struct Action {
         public let title: String
         public let systemImage: String?
+        /// The tooltip, for an action whose title alone does not say what it does or what it
+        /// touches. nil shows none — never an empty tooltip box.
+        public let help: String?
         public let handler: () -> Void
 
-        public init(_ title: String, systemImage: String? = nil, handler: @escaping () -> Void) {
+        public init(_ title: String, systemImage: String? = nil, help: String? = nil,
+                    handler: @escaping () -> Void) {
             self.title = title
             self.systemImage = systemImage
+            self.help = help
             self.handler = handler
         }
     }
@@ -122,6 +127,7 @@ public struct EmptyStateView: View {
                         .accentedProminent()
                         .chromeHover()
                         .controlSize(isCompact ? .small : .large)
+                        .modifier(ActionHelp(text: primary.help))
                     }
                     if let secondary {
                         Button(action: secondary.handler) {
@@ -134,6 +140,7 @@ public struct EmptyStateView: View {
                         // whose whole job is to offer the alternative next step.
                         .chromeHover()
                         .controlSize(isCompact ? .small : .regular)
+                        .modifier(ActionHelp(text: secondary.help))
                     }
                 }
                 .padding(.top, 4)
@@ -149,6 +156,20 @@ public struct EmptyStateView: View {
             Label(action.title, systemImage: systemImage)
         } else {
             Text(action.title)
+        }
+    }
+}
+
+/// `.help` only when there is text. An empty `.help("")` still arms a tooltip that opens onto
+/// nothing. The branch never flips for a given action, and the button holds no state to lose.
+private struct ActionHelp: ViewModifier {
+    let text: String?
+
+    func body(content: Content) -> some View {
+        if let text {
+            content.help(text)
+        } else {
+            content
         }
     }
 }

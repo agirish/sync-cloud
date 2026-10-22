@@ -133,6 +133,7 @@ struct RuleOfferPromptView: View {
                                 .foregroundStyle(on ? accent : Color.secondary)
                         }
                         .buttonStyle(.hoverAffordance(on ? .filled : .segment, tint: accent))
+                        .help("Choose this phrasing — \(variant.summary)")
                     }
                 }
                 // The sentence the chips abbreviate. A chip reading `“tmobile” + “autopay”` does not

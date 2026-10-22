@@ -263,6 +263,9 @@ public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
             HStack(spacing: 6) {
                 TextField(placeholder, text: $text)
                     .textFieldStyle(.plain)
+                    // The placeholder is the only place a lens teaches its search words, and it
+                    // vanishes at the first keystroke — the tooltip keeps it a hover away.
+                    .help(placeholder)
                     .focused($focused)
                     // Focus is claimed HERE, once the field exists — never by the toggle that
                     // reveals it. A FocusState write landing in the same transaction that

@@ -751,7 +751,9 @@ struct GeneralSettingsTab: View {
                 caption: "Panes reopen at the folders they showed when you last quit (falling back to the root if a folder is gone). Sort changes made from the pane menus are remembered here too."
             ) {
                 Toggle("Show hidden files by default", isOn: $showHiddenByDefault)
+                    .help("Starts each launch with hidden files shown in both panes. Showing or hiding them while you work lasts until you quit.")
                 Toggle("Reopen panes where I left off", isOn: $restoreLastFocus)
+                    .help("Reopens each pane with the tabs and folders it had when you last quit. Off, every pane starts with one tab at its source’s opening folder.")
                 if let onRunSetup {
                     SettingsRow("Setup") {
                         Button("Run setup again…", action: onRunSetup)
@@ -767,6 +769,7 @@ struct GeneralSettingsTab: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    .help("Sorts the files in both panes. Changing the sort from a pane’s menu changes this too.")
                 }
             }
 
@@ -774,6 +777,7 @@ struct GeneralSettingsTab: View {
 
             SettingsSection(caption: "Shows a confirmation if you try to quit while a copy, move, or delete is still running.") {
                 Toggle("Warn before quitting during file operations", isOn: $warnBeforeQuit)
+                    .help("Asks before quitting while a copy, move, or delete is still running. Off, SyncCloud quits at once.")
             }
         }
     }
@@ -822,6 +826,7 @@ struct AppearanceSettingsTab: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .accentedSegments(selectedHue)
+                .help("System follows the macOS appearance, including its automatic schedule. Light and Dark keep SyncCloud in one appearance whatever macOS is set to.")
             }
 
             AccentColorSection(selectedHue: selectedHue,
@@ -836,6 +841,7 @@ struct AppearanceSettingsTab: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .accentedSegments(selectedHue)
+                .help("How see-through the window’s surfaces are: Clear has no frost, Frosted is standard Liquid Glass, Solid is opaque.")
             }
 
             SettingsSection(
@@ -865,6 +871,7 @@ struct AppearanceSettingsTab: View {
                     }
                     .labelsHidden()
                     .accessibilityValue("\(Int(surfaceTint * 100)) percent")
+                    .help("How strongly the accent color tints the window.")
                     .disabled(selectedHue == .none)
                     Text("\(Int(surfaceTint * 100))%")
                         .scaledFont(.caption.weight(.semibold))
@@ -882,6 +889,7 @@ struct AppearanceSettingsTab: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .accentedSegments(selectedHue)
+                .help("Unified draws the window as one surface divided by hairlines. Cards floats each area as its own card on the background.")
             }
 
         }
@@ -1123,6 +1131,7 @@ struct ReadabilitySettingsTab: View {
                             )
                             .labelsHidden()
                             .accessibilityValue("\(fontSize.percent) percent")
+                            .help("Sets the size of text throughout SyncCloud, from \(FontSize.minimumPercent)% to \(FontSize.maximumPercent)%.")
                             largeAGlyph
                             readout
                         }
@@ -1168,6 +1177,7 @@ struct ReadabilitySettingsTab: View {
                     .labelsHidden()
                     .accentedSegments(selectedHue)
                     .fixedSize()
+                    .help("How tightly lists pack their rows. Comfortable keeps the standard height; Compact fits more rows and hides the size-and-date line.")
                 }
 
                 Text(listDensity.detail)
@@ -1193,6 +1203,7 @@ struct ReadabilitySettingsTab: View {
                     .labelsHidden()
                     .accentedSegments(selectedHue)
                     .fixedSize()
+                    .help("What dragging a divider in Columns resizes: Each column resizes that column, All columns resizes every column. Hold ⌥ for the other.")
                 }
                 .padding(.top, 10)
 
@@ -1250,6 +1261,7 @@ struct ProvidersSettingsTab: View {
                     }
                     .disabled(isRefreshingProviders)
                     .controlSize(.small)
+                    .help("Reads ~/Library/CloudStorage again, picking up cloud accounts added or removed since it last looked.")
                 }
             }
 
@@ -1520,6 +1532,7 @@ struct ProviderSettingsSection: View {
                 }
                 if hasRootOverride {
                     Button("Reset") { resetRootToDiscovered() }
+                        .help("Stops using the carried-over location and goes back to the folder \(provider.displayName) is signed in at.")
                 }
                 Spacer()
             }
@@ -1595,6 +1608,7 @@ struct ProviderSettingsSection: View {
 
             HStack(spacing: 8) {
                 Button("Choose…") { selectOpenAtDirectory() }
+                    .help("Picks the folder inside \(provider.displayName) that panes open at.")
                 // Disabled when there is nothing to reset. Enabled, it was a click that removed a
                 // key that was not there, logged a line, kicked off a rediscovery and changed
                 // nothing on screen — and for iCloud, whose discovered default IS the root, the row
@@ -1605,6 +1619,7 @@ struct ProviderSettingsSection: View {
                     settings.resetOpenAt(for: provider.id)
                 }
                 .disabled(!settings.hasOpenAtOverride(for: provider.id))
+                .help("Forgets the folder you chose, so panes open at \(provider.displayName)’s default folder again.")
                 Spacer()
             }
             .controlSize(.small)
@@ -1691,6 +1706,7 @@ struct ProviderSettingsSection: View {
                 // the path, and that choice is the whole record. Remove takes its place: the
                 // one thing a folder source can do that a cloud account cannot.
                 Button("Remove", role: .destructive) { settings.removeFolderSource(id: provider.id) }
+                    .help("Removes \(provider.displayName) from your sources. The folder and its files stay where they are.")
                 Button("Show in Finder") { openInFinder(provider.rootPath) }
                 Spacer()
             }
@@ -2041,6 +2057,7 @@ struct SyncSettingsTab: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    .help("What a copy, move, or sync does when a file of the same name is already there: ask, keep both, replace it (the old one goes to the Trash), or skip it. Folder conflicts always ask.")
                 }
             }
 
@@ -2061,13 +2078,16 @@ struct SyncSettingsTab: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    .help("Counts two modification dates as the same when they are this close, so a provider rounding dates on upload doesn’t show up as a difference.")
                 }
                 Toggle(isOn: $settings.autoVerifySameSizeDuringScan) {
                     Text("Verify same-size files during scans")
                 }
+                .help("During each scan, checksums same-size files that differ only by date and hides the ones that are identical. Slower on large folders.")
                 Toggle(isOn: $settings.ignoreGoogleDriveNewerDateOnly) {
                     Text("Ignore \"newer on Google Drive\" when same size")
                 }
+                .help("When Google Drive is in the right pane, hides differences where only its copy is newer and the sizes match — Drive often rewrites file dates.")
             }
 
             SettingsSection(
@@ -2075,7 +2095,9 @@ struct SyncSettingsTab: View {
                 caption: "Copies and moves first show what will be transferred and where; turning this off starts them immediately, including moves, with no confirmation. Deleted items go to the Trash either way and can be restored with Undo."
             ) {
                 Toggle("Confirm before copying or moving", isOn: $confirmBeforeTransfer)
+                    .help("Shows what will be copied or moved, and where, before it starts. Off, copies and moves start at once.")
                 Toggle("Confirm before deleting", isOn: $confirmBeforeDelete)
+                    .help("Asks before moving items to the Trash. They go to the Trash either way, and Undo brings them back.")
             }
 
             SettingsSection(
@@ -2085,6 +2107,7 @@ struct SyncSettingsTab: View {
                 Toggle(isOn: $settings.rememberIgnoredItems) {
                     Text("Remember ignored items across rescans")
                 }
+                .help("Keeps an item you ignore hidden through rescans, folder changes, and relaunches. Off, an ignore lasts only until you move to another folder.")
                 if let syncManager, let store = syncManager.ignoredItemsStore {
                     IgnoredItemsList(
                         store: store,
@@ -2119,6 +2142,7 @@ struct SyncSettingsTab: View {
                         .textFieldStyle(.roundedBorder)
                         .scaledFont(.system(.callout, design: .monospaced))
                         .onSubmit(addPattern)
+                        .help("A name pattern to hide from every comparison — * matches any run of characters, ? matches one. Press Return or click Add.")
                     Button("Add", action: addPattern)
                         .disabled(IgnoreRules.normalized(patternDraft) == nil)
                 }
@@ -2217,6 +2241,7 @@ struct DuplicatesSettingsTab: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    .help("Leaves files below this size out of the results. They still count when whole folders are compared.")
                 }
                 SettingsRow("Folders overlap at") {
                     Picker("Folders overlap at", selection: $duplicateOverlapThreshold) {
@@ -2226,9 +2251,12 @@ struct DuplicatesSettingsTab: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    .help("How much of their content two same-named folders must share to be grouped as overlapping. Below it, they’re treated as unrelated.")
                 }
                 Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $duplicateDetectVersions)
+                    .help("Groups files whose names differ only by a marker like “(1)”, “copy”, “-v2”, or “final”, even though their contents differ.")
                 Toggle("Read PDFs to find copies a byte hash misses", isOn: $duplicateDetectSameText)
+                    .help("Reads the text of PDFs to find one document saved twice with different bytes. No OCR; the first scan of a large folder takes a few minutes longer.")
             }
         }
     }
@@ -2410,10 +2438,12 @@ struct IntelligenceSettingsTab: View {
                 caption: "Free, private, and always the first pass: the on-device model (Apple Intelligence, macOS 26) runs at no cost, and where it isn’t available Organize falls back to matching on names and metadata. Reading contents gives it more to go on for files whose name says nothing. Nothing here opens a network connection — the reading happens on this Mac and is never sent anywhere. Changes apply on the next scan."
             ) {
                 Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
+                    .help("Lets Organize ask the on-device model where files belong. Off, or where it isn’t available, Organize suggests from names and metadata alone. Claude refining and saved suggestions need it on.")
                 // `.firstTextBaseline`, so the glyph sits on the label's baseline rather than
                 // centring itself on the switch — which at Large text leaves it visibly high.
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
+                        .help("Lets Organize read the text inside your files, on this Mac, for better folder suggestions.")
                     helpPointer
                 }
             }
@@ -2482,6 +2512,7 @@ struct IntelligenceSettingsTab: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    .help("Stops a Refine that would take this calendar month’s estimated Claude spend past this amount.")
                 }
                 SettingsRow("Total budget cap") {
                     Picker("Total budget cap", selection: $totalBudgetUSD) {
@@ -2491,12 +2522,14 @@ struct IntelligenceSettingsTab: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    .help("Stops a Refine that would take the estimated Claude spend recorded here, across all time, past this amount.")
                 }
                 HStack {
                     Button("View history…") { showSpendHistory = true }
                         .disabled(spendTotals.scans == 0)
                     Button("Clear", role: .destructive) { FilingSpendStore.clear(); refreshSpend() }
                         .disabled(spendTotals.scans == 0)
+                        .help("Deletes the recorded spend history and totals, so both caps count from zero again. What Anthropic has billed is unchanged.")
                 }
                 .controlSize(.small)
             }
@@ -2507,6 +2540,7 @@ struct IntelligenceSettingsTab: View {
             ) {
                 Toggle("Reuse suggestions for files that haven’t changed", isOn: $filingReuseVerdicts)
                     .disabled(!filingUseAI)
+                    .help("Gives a file that hasn’t been edited, renamed, or moved the suggestion it got last time, instead of asking the model — or paying Claude — again.")
                 SettingsRow("Saved suggestions") {
                     HStack(spacing: 8) {
                         Text(savedSuggestionCount == 1 ? "1 file" : "\(savedSuggestionCount) files")
@@ -2519,6 +2553,7 @@ struct IntelligenceSettingsTab: View {
                             savedSuggestionCount = syncManager?.filingVerdictCacheCountNow ?? 0
                         }
                         .disabled(savedSuggestionCount == 0)
+                        .help("Forgets every saved suggestion. The next scan asks the on-device model about each file again, and the next Refine asks — and pays — Claude again.")
                     }
                 }
             }
@@ -3411,7 +3446,9 @@ struct PersonSuggestionRow: View {
             }
             Spacer(minLength: 8)
             Button("Add", action: onAccept).controlSize(.small)
+                .help("Adds “\(suggestion.form)” to \(personName)’s full names on documents.")
             Button("Not a name", action: onDismiss).controlSize(.small)
+                .help("Dismisses “\(suggestion.form)” — it won’t be suggested again.")
         }
         .padding(.vertical, 2)
     }
@@ -3591,6 +3628,7 @@ struct AdvancedSettingsTab: View {
                     .onChange(of: minimumLevelRaw) { _, raw in
                         Logger.shared.minimumLevel = LogLevel(rawValue: raw) ?? .debug
                     }
+                    .help("Which messages the log keeps: the chosen level and everything more severe. Debug keeps everything.")
                 }
 
                 SettingsRow("Log file") {
@@ -3621,6 +3659,7 @@ struct AdvancedSettingsTab: View {
                     }
                     .controlSize(.small)
                     .disabled(syncManager == nil)
+                    .help("Moves .tmp_ working files over an hour old, in the folders the panes have loaded, to the Trash now. .rollback_ backups are left alone.")
                 }
             }
 
@@ -3699,6 +3738,7 @@ struct AdvancedSettingsTab: View {
                     Button("Reset setup…", role: .destructive) {
                         confirmResetSetup(onResetSetup)
                     }
+                    .help("Forgets that setup has run, so it opens again on the next launch. Asks first; no file is touched.")
                 }
             }
 
@@ -3709,6 +3749,7 @@ struct AdvancedSettingsTab: View {
                     Button("Reset All Settings…", role: .destructive) {
                         confirmReset(onResetAllSettings)
                     }
+                    .help("Returns SyncCloud’s settings to their defaults and removes the folders you added as sources. Asks first; files on disk aren’t touched.")
                 }
             }
         }

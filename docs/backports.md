@@ -8443,3 +8443,27 @@ done
 | `v5.x` | Both items named Preview, live together in Edit (`item=Toggle("Preview"`, `text=1`) | RECORDED — not owed. A one-word pick, plus Help's "⇧⌘P" sentence |
 | `v4.x` | Preview Column, and no Text menu to clash with (`text=0`) | CLOSED — does not apply |
 | `v3.x` / `v2.x` | No View menu item for the preview (`item=none`) | CLOSED — does not apply |
+
+---
+
+## Tooltips on every icon-only control, shown after 300 ms — main only
+
+An audit found about half of the app's hoverable controls had no tooltip, six of them icon-only
+(the Help and destination-picker clear ✕, the banner ✕, a Setup chip's ✕, the text diff's ▲▼, a
+Differences section chevron), and every tooltip waited AppKit's 1.5 s. `main` registers
+`NSInitialToolTipDelay` = 300 at launch (`ToolTipDelay`), adds tooltips across Setup, Settings,
+Dashboard, Edit, PDF and the lenses, lets `EmptyStateView.Action` carry one, and scans for a glyph
+button without one (`TooltipScanTests`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s delay=%s helpClear=%s bannerClose=%s\n' $l \
+  "$(git show origin/$l:MacApp/SyncCloudApp.swift 2>/dev/null | grep -c 'NSInitialToolTipDelay')" \
+  "$(git show origin/$l:MacApp/HelpBook.swift 2>/dev/null | grep -c 'xmark.circle.fill')" \
+  "$(git show origin/$l:MacApp/OperationBannerView.swift 2>/dev/null | grep -c 'CloseButton')"; done
+# measured 2026-10-22, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x  delay=0 helpClear=1 bannerClose=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | 1.5 s tooltip delay; the Help clear ✕ and banner ✕ with no tooltip. The other surfaces differ per line and were not checked one by one | RECORDED — not owed |

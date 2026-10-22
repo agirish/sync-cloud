@@ -708,20 +708,23 @@ public struct LogViewer: View {
                             .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
                     }
                     .buttonStyle(.hoverAffordance(.segment, tint: hueAccent))
+                    .help("Show only \(suggestion.shows) — adds “\(suggestion.raw)” to the search")
                 }
                 Spacer(minLength: 0)
             }
         }
     }
 
-    private static let logSuggestionCandidates: [(label: String, raw: String)] = [
-        ("Errors", "level:error"),
-        ("Warnings", "level:warning"),
-        ("Last hour", "since:1h"),
-        ("Last day", "since:1d"),
+    /// `shows` completes the tooltip's "Show only …": `level:` matches one level exactly, so
+    /// Warnings shows warnings and not errors.
+    private static let logSuggestionCandidates: [(label: String, raw: String, shows: String)] = [
+        ("Errors", "level:error", "errors"),
+        ("Warnings", "level:warning", "warnings"),
+        ("Last hour", "since:1h", "the last hour"),
+        ("Last day", "since:1d", "the last day"),
     ]
 
-    private func logSuggestions(active: [LogSearch.Chip]) -> [(label: String, raw: String)] {
+    private func logSuggestions(active: [LogSearch.Chip]) -> [(label: String, raw: String, shows: String)] {
         let hasLevel = active.contains { $0.raw.lowercased().hasPrefix("level:") }
         let hasSince = active.contains { $0.raw.lowercased().hasPrefix("since:") }
         return Self.logSuggestionCandidates.filter { candidate in
@@ -931,7 +934,8 @@ public struct LogViewer: View {
                 icon: "line.3.horizontal.decrease.circle",
                 title: "No matching entries",
                 message: "The current level filter and search hide every entry. Clear them to see the log again.",
-                primary: .init("Clear Filters", systemImage: "xmark.circle") {
+                primary: .init("Clear Filters", systemImage: "xmark.circle",
+                               help: "Show every entry — clears the level filter and the search") {
                     selectedLevel = nil
                     searchText = ""
                 }

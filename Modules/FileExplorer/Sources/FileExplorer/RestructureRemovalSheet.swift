@@ -182,6 +182,10 @@ struct RestructureRemovalSheet: View {
                     .truncationMode(.head)
             }
             .toggleStyle(.checkbox)
+            .help(!candidate.isStillEmpty
+                  ? (candidate.exists ? "Can’t be removed — it’s no longer empty" : "Already removed")
+                  : ticked.contains(candidate.path) ? "Leave this empty folder out — it stays where it is"
+                                                    : "Include this empty folder in the move to the Trash")
             .disabled(!candidate.isStillEmpty)
             Spacer(minLength: 4)
             Text(candidate.isStillEmpty

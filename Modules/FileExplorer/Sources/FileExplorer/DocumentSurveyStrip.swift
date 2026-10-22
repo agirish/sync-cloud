@@ -96,18 +96,26 @@ public struct DocumentSurveyStrip: View {
             } else if let onResume {
                 strip("Resume", action: onResume)
             }
-            if let onStop { strip("Stop", action: onStop) }
+            if let onStop {
+                strip("Stop", help: "Stop reading — what’s been read so far is kept", action: onStop)
+            }
         case .interrupted:
-            if let onResume { strip("Resume", action: onResume) }
+            if let onResume {
+                strip("Resume", help: "Carry on reading — only the documents not yet read",
+                      action: onResume)
+            }
             if let onStop { strip("Stop", action: onStop) }
         default:
             EmptyView()
         }
     }
 
-    private func strip(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
+    @ViewBuilder
+    private func strip(_ title: String, help: String? = nil,
+                       action: @escaping () -> Void) -> some View {
+        let button = Button(title, action: action)
             .buttonStyle(.hoverAffordance(.inline))
             .scaledFont(.system(size: 11))
+        if let help { button.help(help) } else { button }
     }
 }

@@ -53,6 +53,7 @@ struct StructureScreen: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .accentedSegments(hue)
+                .help("Switch between your folders and where loose files would go")
                 .frame(maxWidth: 320, alignment: .leading)
             }
 
@@ -208,6 +209,7 @@ struct StructureScreen: View {
             Toggle("Read documents", isOn: $model.readDocuments)
                 .toggleStyle(.switch)
                 .controlSize(.small)
+                .help("Read page one of each document in the background after you save")
                 .disabled(model.structureIsReadOnly)
             Text(readingDetail)
                 .scaledFont(.caption)

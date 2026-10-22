@@ -124,7 +124,12 @@ public struct PaneActionBar: View {
                 .accessibilityLabel(summaryText)
 
             if showsCompare {
-                actionBarButton(compareTitle, systemImage: PaneGlyph.compare, accent: accent, action: onCompare)
+                actionBarButton(compareTitle, systemImage: PaneGlyph.compare, accent: accent,
+                                help: compareTitle == "Compare with…"
+                                    ? ShortcutHint.tooltip("Pick a second file to compare this one with — in either pane",
+                                                           AppChord.compareTwoFiles.display)
+                                    : "Compare just this folder, or the two selected files",
+                                action: onCompare)
             }
             actionBarButton(copyTitle, systemImage: copySymbol, accent: accent, help: transferHelp, action: onCopy)
             actionBarButton(moveTitle, systemImage: moveSymbol, accent: accent, help: transferHelp, action: onMove)

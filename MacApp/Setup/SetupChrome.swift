@@ -148,6 +148,7 @@ struct SetupFooter: View {
                 .keyboardShortcut(.defaultAction)
                 .accentedProminent()
                 .shortcutKeycap("return")
+                .help(ShortcutHint.tooltip(primaryTitle, "return"))
                 .disabled(isPrimaryDisabled)
         }
         // **Centred on the card, not between the buttons.** Two `Spacer`s put it at the midpoint of
@@ -570,6 +571,7 @@ struct FlowChips: View {
                         }
                         .buttonStyle(.hoverAffordance(.inline))
                         .padding(-3)
+                        .help("Remove \(item) from the list")
                         .accessibilityLabel("Remove \(item)")
                     }
                 }

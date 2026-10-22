@@ -321,6 +321,7 @@ struct EditorPDFCapsule: View {
             }
             .accessibilityLabel(state.layout.isTwoUp ? "Pages" : "Page")
             .accessibilityValue("\(typedPage) of \(pageCount)")
+            .help(ShortcutHint.tooltip("Type a page number and press Return to go to it", AppChord.goToLine.display))
         let count = Text("of \(pageCount)")
             .monospacedDigit()
             .foregroundStyle(.secondary)

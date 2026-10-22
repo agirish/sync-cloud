@@ -338,6 +338,7 @@ struct EditorPDFReorderBar: View {
             }
             HStack(spacing: 6) {
                 Button("Reset") { tools.resetArrangement() }
+                    .help("Put the pages back in the file’s own order")
                 Button("Save Reordered Copy") { Task { await tools.saveArrangement() } }
                     .buttonStyle(.borderedProminent)
                     .accentedProminent()
