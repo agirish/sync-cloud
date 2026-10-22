@@ -106,7 +106,7 @@ extension PDFFixtures {
         let count = PDFDocument(url: URL(fileURLWithPath: file))?.pageCount ?? 0
         tools.attach(path: file, pageCount: count, encryption: encryption)
         tools.confirm = { _, _ in true }
-        tools.confirmDiscardingArrangement = { true }
+        tools.confirmDiscardingArrangement = { _ in true }
         return tools
     }
 
@@ -473,7 +473,7 @@ extension PDFFixtures {
         let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
         var asked = 0
         var answer = false
-        pdf.tools.confirmDiscardingArrangement = { asked += 1; return answer }
+        pdf.tools.confirmDiscardingArrangement = { _ in asked += 1; return answer }
         #expect(pdf.tools.mayLeave())
         #expect(asked == 0, "asked with nothing to lose")
 
@@ -503,7 +503,7 @@ extension PDFFixtures {
         PDFFixtures.write(file, pages: 4)
         let tools = tools(file)
         var asked = 0
-        tools.confirmDiscardingArrangement = { asked += 1; return false }
+        tools.confirmDiscardingArrangement = { _ in asked += 1; return false }
         let run = Task { await tools.run(.rotate(pages: [0], quarterTurns: 1)) }
         for _ in 0..<10_000 where tools.running == nil { await Task.yield() }
         try #require(tools.running != nil, "the run never began")
@@ -516,7 +516,7 @@ extension PDFFixtures {
         // password with no question, where a pane's sheet asks.
         let sheetTools = self.tools(path("Sheet.pdf"))
         var sheetAsked = 0
-        sheetTools.confirmDiscardingArrangement = { sheetAsked += 1; return false }
+        sheetTools.confirmDiscardingArrangement = { _ in sheetAsked += 1; return false }
         sheetTools.sheet = .protect
         #expect(!sheetTools.mayLeave() && sheetAsked == 1, "leaving over an open Protect sheet did not ask")
         sheetTools.sheet = nil
@@ -528,6 +528,43 @@ extension PDFFixtures {
         let question = EditorPDFTools.leaveQuestion(running: .init(.compress(.quality(0.6))), hasArrangement: true)
         #expect(question.title == "Stop compressing?" && question.detail.contains("new page order is discarded too"))
         #expect(EditorPDFTools.leaveQuestion(running: nil, hasArrangement: true).go == "Discard")
+    }
+
+    /// **⌘Q's question says Quit** (TE158), and no leave or quit question lets Return throw work
+    /// away (TE184, decision BS): the answer that does is marked destructive and has no key, and
+    /// Cancel keeps Esc — the file pane's quit question included.
+    @Test func theQuitQuestionSaysQuitAndReturnLosesNothing() {
+        let rotate = EditorPDFTools.Running(.rotate(pages: [0], quarterTurns: 1))
+        let stop = EditorPDFTools.leaveQuestion(running: rotate, hasArrangement: true, quitting: true)
+        #expect(stop.title == "Stop rotating the pages?" && stop.go == "Stop and Quit")
+        #expect(stop.detail == "The pages are still being rotated. Quitting stops it, and nothing is written. "
+                + "The new page order is discarded too. The original file is unchanged either way.")
+        let close = EditorPDFTools.leaveQuestion(running: nil, hasArrangement: false, sheet: "Protect with Password",
+                                                 quitting: true)
+        #expect(close.title == "Close Protect with Password?" && close.go == "Close and Quit")
+        #expect(close.detail == "Protect with Password is still waiting for its options. Quitting closes it, "
+                + "and nothing is written. The original file is unchanged either way.")
+        let discard = EditorPDFTools.leaveQuestion(running: nil, hasArrangement: true, quitting: true)
+        #expect(discard == EditorPDFTools.leaveQuestion(running: nil, hasArrangement: true), "Discard is the same for both")
+
+        // ⌘Q's leave says it is one; every other route's doesn't.
+        let tools = tools(path("Quit.pdf"))
+        var asked: [Bool] = []
+        tools.confirmDiscardingArrangement = { asked.append($0); return false }
+        tools.sheet = .protect
+        #expect(!tools.mayLeave(quitting: true) && !tools.mayLeave())
+        #expect(asked == [true, false])
+
+        let alerts = [EditorPDFTools.leaveAlert(stop), EditorPDFTools.leaveAlert(close),
+                      EditorPDFTools.leaveAlert(discard), PanePDFTools.quitAlert()]
+        #expect(alerts.map { $0.buttons.map(\.title) } == [["Stop and Quit", "Cancel"], ["Close and Quit", "Cancel"],
+                                                           ["Discard", "Cancel"], ["Stop and Quit", "Cancel"]])
+        for alert in alerts {
+            let go = alert.buttons[0]
+            #expect(go.keyEquivalent.isEmpty, "Return chooses \(go.title)")
+            #expect(go.hasDestructiveAction, "\(go.title) isn’t marked destructive")
+            #expect(alert.buttons[1].keyEquivalent == "\u{1b}", "Esc doesn’t cancel \(go.title)")
+        }
     }
 
     /// **A different document clears the selection and the pending order**; the same one reloaded

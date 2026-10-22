@@ -231,7 +231,7 @@ public final class EditorPDFTools: ObservableObject {
 
     /// Set by the app; a no-op otherwise, so a test can run a tool without a window.
     public var host = EditorPDFToolHost()
-    /// Fill & Sign's unsaved items are work a leave can lose too — asked about in ``mayLeave(thenRetry:)``,
+    /// Fill & Sign's unsaved items are work a leave can lose too — asked about in ``mayLeave(quitting:thenRetry:)``,
     /// which every route out of the PDF already asks.
     weak var fill: EditorPDFFillSign?
     /// Who a run's log lines say ran the tool — "Edit" for the reader's own tools; a run from a
@@ -260,8 +260,11 @@ public final class EditorPDFTools: ObservableObject {
     /// Asks whether to go ahead despite `warning` — a native alert in the app, a canned answer in a
     /// test. `toolTitle` is the tool's own title, which `detailLines` names.
     var confirm: @MainActor (OutputFidelityWarning, String) -> Bool = { EditorPDFTools.confirmWithAlert($0, toolTitle: $1) }
-    /// Asks whether a pending reorder or a run in flight may be lost — see ``mayLeave(thenRetry:)``.
-    lazy var confirmDiscardingArrangement: @MainActor () -> Bool = { [unowned self] in self.confirmDiscardWithAlert() }
+    /// Asks whether a pending reorder or a run in flight may be lost — see ``mayLeave(quitting:thenRetry:)``.
+    /// Its argument says whether the leave is ⌘Q.
+    lazy var confirmDiscardingArrangement: @MainActor (_ quitting: Bool) -> Bool = { [unowned self] in
+        self.confirmDiscardWithAlert(quitting: $0)
+    }
 
     private var cancelFlag: CancelFlag?
     private var generation = 0
@@ -305,7 +308,7 @@ public final class EditorPDFTools: ObservableObject {
 
     func detach() {
         if let path {
-            // Asked about first where it can be (``mayLeave(thenRetry:)``); said here either way, since a
+            // Asked about first where it can be (``mayLeave(quitting:thenRetry:)``); said here either way, since a
             // close from elsewhere — the file deleted, an external open — asks nobody.
             if let running {
                 Logger.shared.info("Edit cancelled \(running.tool.lowercased()) of \(Self.logName(path)) — the file was closed")
@@ -421,12 +424,14 @@ public final class EditorPDFTools: ObservableObject {
     ///
     /// `retry` is the leave asked for, run again once Fill & Sign's Save Filled Copy has written the
     /// copy (``EditorPDFFillSign/mayLeave(thenRetry:)``) — the save's answer is "stay" until then.
-    public func mayLeave(thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool {
+    ///
+    /// `quitting` is ⌘Q's, whose question says Quit (TE158).
+    public func mayLeave(quitting: Bool = false, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool {
         guard hasWorkToLose, let path else { return true }
         // Placed items alone are Fill & Sign's own question, which can save them as well as drop them.
         if arrangement == nil, running == nil, sheet == nil, let fill { return fill.mayLeave(thenRetry: retry) }
-        let go = confirmDiscardingArrangement()
-        Logger.shared.info("Edit asked before leaving \(Self.logName(path)) with "
+        let go = confirmDiscardingArrangement(quitting)
+        Logger.shared.info("Edit asked before \(quitting ? "quitting from" : "leaving") \(Self.logName(path)) with "
                            + (running != nil ? "a tool running"
                               : arrangement != nil ? "a new page order not saved" : "a tool's sheet open")
                            + (go ? " — the reader chose to leave" : " — the reader stayed"))
@@ -690,9 +695,12 @@ public final class EditorPDFTools: ObservableObject {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    /// The leave question, in the words of what would be lost.
+    /// The leave question, in the words of what would be lost — and of the leave: ⌘Q's says
+    /// Quit where every other route says Leave (TE158). Discard is the same word for both.
     static func leaveQuestion(running: Running?, hasArrangement: Bool, sheet: String? = nil,
-                              placedItems: Int = 0, filledFields: Int = 0) -> (title: String, detail: String, go: String) {
+                              placedItems: Int = 0, filledFields: Int = 0,
+                              quitting: Bool = false) -> (title: String, detail: String, go: String) {
+        let (leave, leaving) = quitting ? ("Quit", "Quitting") : ("Leave", "Leaving")
         var placed = placedItems == 0 ? ""
             : " The \(placedItems == 1 ? "item" : "\(placedItems) items") placed with Fill & Sign \(placedItems == 1 ? "is" : "are") discarded too."
         if filledFields > 0 {
@@ -701,31 +709,45 @@ public final class EditorPDFTools: ObservableObject {
         }
         if let running {
             return ("Stop \(running.doing)?",
-                    "\(running.stillRunning) Leaving stops it, and nothing is written."
+                    "\(running.stillRunning) \(leaving) stops it, and nothing is written."
                         + (hasArrangement ? " The new page order is discarded too." : "") + placed
                         + " The original file is unchanged either way.",
-                    "Stop and Leave")
+                    "Stop and \(leave)")
         }
         if !hasArrangement, let sheet {
             return ("Close \(sheet)?",
-                    "\(sheet) is still waiting for its options. Leaving closes it, and nothing is written." + placed
+                    "\(sheet) is still waiting for its options. \(leaving) closes it, and nothing is written." + placed
                         + " The original file is unchanged either way.",
-                    "Close and Leave")
+                    "Close and \(leave)")
         }
         return ("Discard the new page order?",
                 "The pages were reordered but no copy was saved." + placed + " The original file is unchanged either way.",
                 "Discard")
     }
 
-    func confirmDiscardWithAlert() -> Bool {
+    func confirmDiscardWithAlert(quitting: Bool) -> Bool {
         let question = Self.leaveQuestion(running: running, hasArrangement: arrangement != nil, sheet: sheet?.title,
-                                          placedItems: fill?.unsaved.count ?? 0, filledFields: fill?.values.count ?? 0)
+                                          placedItems: fill?.unsaved.count ?? 0, filledFields: fill?.values.count ?? 0,
+                                          quitting: quitting)
+        return Self.leaveAlert(question).runModal() == .alertFirstButtonReturn
+    }
+
+    /// **A leave or quit question's two buttons** (TE184, decision BS): the answer that throws work
+    /// away first, marked destructive and off Return, then Cancel, which keeps the Esc AppKit gives
+    /// a button of that name. So Esc stays and Return does nothing — no keypress stops a run or
+    /// drops an order — as the file panes' permanent Delete question works. Cancel can't hold
+    /// Return as well: a button has one key, and Return on it would take Esc away.
+    static func leaveAlert(_ question: (title: String, detail: String, go: String),
+                           style: NSAlert.Style = .warning) -> NSAlert {
         let alert = NSAlert()
+        alert.alertStyle = style
         alert.messageText = question.title
         alert.informativeText = question.detail
         alert.addButton(withTitle: question.go)
         alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn
+        alert.buttons[0].keyEquivalent = ""
+        alert.buttons[0].hasDestructiveAction = true
+        return alert
     }
 }
 

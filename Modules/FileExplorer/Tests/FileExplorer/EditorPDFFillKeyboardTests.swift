@@ -485,7 +485,8 @@ extension PDFFixtures {
 
         let alert = EditorPDFFillSign.deleteSavedAlert(signature, name: "Ada Quill")
         #expect(alert.buttons.map(\.title) == ["Cancel", "Delete"])
-        #expect(alert.buttons[0].keyEquivalent == "\r", "Return deletes")
+        #expect(alert.buttons[0].keyEquivalent == "\u{1b}", "Esc doesn’t cancel (TE203)")
+        #expect(alert.buttons[1].keyEquivalent.isEmpty, "a key deletes")
         #expect(alert.buttons[1].hasDestructiveAction)
     }
 

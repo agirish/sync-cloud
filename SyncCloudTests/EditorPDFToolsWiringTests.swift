@@ -44,10 +44,11 @@ import FileExplorer
         #expect(tabs.contains("settle: { settleEditorDocument(asksAboutPDFWork: false, asksAboutTheOnlyCopy: false) }"))
     }
 
-    /// **⌘Q asks too**, from the delegate, which holds the tools the window adopted.
+    /// **⌘Q asks too**, from the delegate, which holds the tools the window adopted — in Quit's
+    /// words, not Leave's (TE158).
     @Test func quittingAsksAboutThePDF() throws {
         let app = CodeText(try EditorDiskWatchWiringTests.source("SyncCloudApp.swift"))
-        #expect(app.contains("if let tools = Self.sharedPDFTools, !tools.mayLeave(thenRetry: { NSApp.terminate(nil) }) {"))
+        #expect(app.contains("if let tools = Self.sharedPDFTools, !tools.mayLeave(quitting: true, thenRetry: { NSApp.terminate(nil) }) {"))
         #expect(app.contains("return .terminateCancel"))
         let view = CodeText(try EditorDiskWatchWiringTests.source("ContentView.swift"))
         #expect(view.contains("SyncCloudAppDelegate.shared?.adoptPDFTools(editorPDF.tools)"),

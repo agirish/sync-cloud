@@ -1811,17 +1811,17 @@ public final class EditorPDFFillSign: ObservableObject {
         store.delete(signature.id)
     }
 
-    /// The question, built but not run — a test reads its buttons. **Cancel is the default**, so
-    /// Return keeps the signature; Delete is marked destructive.
+    /// The question, built but not run — a test reads its buttons. **Esc cancels and Return does
+    /// nothing** (decision BU, the rule of the PDF's leave questions): Cancel keeps the Esc AppKit
+    /// gives a button of that name, and Delete, marked destructive, has no key — so no keypress
+    /// deletes. Cancel can't hold Return too: a button has one key.
     static func deleteSavedAlert(_ signature: EditorPDFSignature, name: String) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = "Delete the saved \(signature.kind == .signature ? "signature" : "initials") “\(name)”?"
         alert.informativeText = "What you’ve already placed on a page stays. This can’t be undone."
         if let picture = EditorPDFSignatureMenu.image(signature, height: 48) { alert.icon = picture }
-        let cancel = alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Cancel")
         let delete = alert.addButton(withTitle: "Delete")
-        // Set here, not left to the alert, which hands them out only as it runs.
-        cancel.keyEquivalent = "\r"
         delete.keyEquivalent = ""
         delete.hasDestructiveAction = true
         return alert
@@ -2142,7 +2142,7 @@ public final class EditorPDFFillSign: ObservableObject {
     // MARK: Leaving
 
     /// **Asks before unsaved items are lost** — closing the PDF, opening another file, leaving
-    /// Edit or quitting (``EditorPDFTools/mayLeave(thenRetry:)`` asks this).
+    /// Edit or quitting (``EditorPDFTools/mayLeave(quitting:thenRetry:)`` asks this).
     ///
     /// **Save Filled Copy saves, then leaves** (decision AX, 2026-10-20). The leave is a question
     /// the save cannot answer in time, and leaving while it runs would cancel it — so the answer is

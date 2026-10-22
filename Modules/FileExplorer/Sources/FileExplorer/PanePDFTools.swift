@@ -96,15 +96,10 @@ public final class PanePDFTools: ObservableObject {
                                    + "Quitting stops it; copies it has already written stay. The original files are unchanged either way.",
                                go: "Stop and Quit")
 
-    static func confirmQuitWithAlert() -> Bool {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = quitQuestion.title
-        alert.informativeText = quitQuestion.detail
-        alert.addButton(withTitle: quitQuestion.go)
-        alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn
-    }
+    /// Esc cancels and Return does nothing, as in the open PDF's (TE184).
+    static func quitAlert() -> NSAlert { EditorPDFTools.leaveAlert(quitQuestion) }
+
+    static func confirmQuitWithAlert() -> Bool { quitAlert().runModal() == .alertFirstButtonReturn }
 
     /// The request a row's menu made, over `paths` — one file, or several for the three tools
     /// that run over several. `writer` names the workspace in the log ("PDF Tools in Browse").

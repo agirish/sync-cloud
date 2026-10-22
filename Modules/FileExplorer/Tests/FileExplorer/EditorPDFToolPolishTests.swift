@@ -31,7 +31,7 @@ import Sync
         let count = pageCount ?? PDFDocument(url: URL(fileURLWithPath: file))?.pageCount ?? 0
         tools.attach(path: file, pageCount: count, encryption: .none)
         tools.confirm = { _, _ in true }
-        tools.confirmDiscardingArrangement = { true }
+        tools.confirmDiscardingArrangement = { _ in true }
         return tools
     }
 
