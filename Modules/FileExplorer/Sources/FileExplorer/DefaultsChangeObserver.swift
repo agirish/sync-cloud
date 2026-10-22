@@ -13,14 +13,44 @@ import Foundation
 /// So the block runs on the posting thread: a post on the main thread rereads on the spot, as
 /// `queue: .main` did — Settings ▸ Reset All Settings reaches the open reader at once — and a
 /// post from any other thread only schedules the reread.
+///
+/// **A burst of posts off main schedules one reread**, as the `[glass]` log line's observer does:
+/// a background run of writes queued one main-thread reread per write per observer, and the
+/// signature store's decodes every saved signature's strokes. The flag is released before the
+/// reread reads, so a write landing after the read schedules the next one, and the reread always
+/// reads what is stored now — the last write is never lost.
 func observeDefaultsChanges(of defaults: UserDefaults,
                             _ reread: @escaping @MainActor @Sendable () -> Void) -> NSObjectProtocol {
-    NotificationCenter.default.addObserver(
+    let scheduled = DefaultsRereadPending()
+    return NotificationCenter.default.addObserver(
         forName: UserDefaults.didChangeNotification, object: defaults, queue: nil) { _ in
             if Thread.isMainThread {
                 MainActor.assumeIsolated { reread() }
-            } else {
-                Task { @MainActor in reread() }
+            } else if scheduled.claim() {
+                Task { @MainActor in
+                    scheduled.release()
+                    reread()
+                }
             }
         }
+}
+
+/// `observeDefaultsChanges`' "a reread is already scheduled" flag, claimed from any thread — the
+/// app's `GlassLogLinePending`, which this package cannot see.
+final class DefaultsRereadPending: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = false
+
+    /// True for the caller that should schedule the reread; false while one is already on its way.
+    func claim() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !pending else { return false }
+        pending = true
+        return true
+    }
+
+    func release() {
+        lock.lock(); defer { lock.unlock() }
+        pending = false
+    }
 }
