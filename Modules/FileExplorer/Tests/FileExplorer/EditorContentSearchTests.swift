@@ -261,7 +261,9 @@ import Sync
     /// Held, not timed: past the first ten reads every reader waits at a gate until the stream has
     /// been dropped, so how many files are read cannot depend on how fast the consumer gets its
     /// turn — in a full-package run that took 30 s. Released, the readers already waiting finish,
-    /// and no other file is opened.
+    /// and no other file is opened: past the count at the drop, at most the readers that were
+    /// between the stop check and the read (on CI the consumer's turn outlasted a gate's wait, and
+    /// 28 files were read before the drop — the stop held, the old fixed bound did not).
     @Test func droppingTheStreamStopsTheReads() async throws {
         let root = try scratch()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -270,7 +272,7 @@ import Sync
         let gate = DispatchSemaphore(value: 0)
         let read: @Sendable (String) -> BoundedTextRead.Outcome = { path in
             reads.add(path)
-            if reads.paths.count > 10 { _ = gate.wait(timeout: .now() + 10) }
+            if reads.paths.count > 10 { _ = gate.wait(timeout: .now() + 60) }
             return BoundedTextRead.read(path: path)
         }
         for await event in EditorContentSearch.search("word", in: root.path, read: read) {
@@ -283,7 +285,7 @@ import Sync
         let settled = reads.paths.count
         try await Task.sleep(for: .milliseconds(300))
         #expect(reads.paths.count == settled, "files were still being read after the stream was dropped")
-        #expect(settled <= 10 + EditorContentSearch.maxConcurrentReads,
+        #expect(settled <= atDrop + EditorContentSearch.maxConcurrentReads && settled < 200,
                 "read \(settled) of 200 files (\(atDrop) when it was dropped) — files were opened after the drop")
         #expect(atDrop > 0, "the positive control: the search had started")
     }
