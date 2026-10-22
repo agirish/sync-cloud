@@ -405,6 +405,66 @@ import EventsTestSupport
         return (html, folder)
     }
 
+    /// **A page reaches nothing by URL** — a picture and a stylesheet it names by `http:` never
+    /// connect. The listener never answers, so a request that got out holds the load open to its
+    /// guard; the connection waits in the listener's queue either way, made before the load ended.
+    /// A rule list WebKit cannot compile blocks nothing, which a `|` in a pattern did.
+    @Test func aPageReachesNothingByURL() async throws {
+        let listener = try #require(LoopbackListener())
+        defer { listener.close() }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("webpdf-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let html = folder.appendingPathComponent("page.html")
+        let base = "http://127.0.0.1:\(listener.port)"
+        try """
+            <html><head><link rel="stylesheet" href="\(base)/x.css"></head>
+            <body><p>Lamps</p><img src="\(base)/x.png"></body></html>
+            """.write(to: html, atomically: true, encoding: .utf8)
+        #expect(await WebPDFView.offline() != nil, "the rule list didn’t compile")
+        let web = await WebPDFView.make(width: 400)
+        defer { web.close() }
+        #expect(await web.load(html, timeout: 10), "the load waited on a request")
+        #expect(listener.connections() == 0, "the page connected to \(base)")
+    }
+
+    /// A TCP socket listening on a loopback port it never answers on. The kernel queues each
+    /// connection made to it, so counting them needs no thread.
+    private final class LoopbackListener {
+        private let socket: Int32
+        let port: UInt16
+
+        init?() {
+            let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+            guard socket >= 0 else { return nil }
+            var address = sockaddr_in()
+            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_addr.s_addr = inet_addr("127.0.0.1")
+            var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let bound = withUnsafeMutablePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    bind(socket, $0, length) == 0 && listen(socket, 16) == 0 && getsockname(socket, $0, &length) == 0
+                }
+            }
+            guard bound, fcntl(socket, F_SETFL, O_NONBLOCK) == 0 else { Darwin.close(socket); return nil }
+            self.socket = socket
+            port = UInt16(bigEndian: address.sin_port)
+        }
+
+        /// How many connections are waiting, taking each.
+        func connections() -> Int {
+            var count = 0
+            while case let peer = accept(socket, nil, nil), peer >= 0 {
+                Darwin.close(peer)
+                count += 1
+            }
+            return count
+        }
+
+        func close() { Darwin.close(socket) }
+    }
+
     @MainActor private final class Backstop { var fired = false }
 
     /// Lets go of whatever WebKit has left waiting to open the pipe, and removes the folder. Opening

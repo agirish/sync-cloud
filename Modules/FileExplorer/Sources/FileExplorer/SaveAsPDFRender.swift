@@ -628,12 +628,15 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
 
     /// **Every request off the disk blocked** — a navigation is refused by the policy below, and a
     /// picture or stylesheet a page names by URL by this list, which WebKit applies to every load.
-    /// Compiled once per process.
+    /// Compiled once per process. One rule per scheme: WebKit's rule patterns have no `|`, and a
+    /// list that uses one fails to compile, and then nothing is blocked.
     static func offline() async -> WKContentRuleList? {
         if let offlineRules { return offlineRules }
-        let rules = #"[{"trigger":{"url-filter":"^(https?|wss?|ftp):"},"action":{"type":"block"}}]"#
+        let rules = ["^https?:", "^wss?:", "^ftp:"]
+            .map { #"{"trigger":{"url-filter":"\#($0)"},"action":{"type":"block"}}"# }
+        let list = "[" + rules.joined(separator: ",") + "]"
         offlineRules = try? await WKContentRuleListStore.default()
-            .compileContentRuleList(forIdentifier: "SaveAsPDF.offline", encodedContentRuleList: rules)
+            .compileContentRuleList(forIdentifier: "SaveAsPDF.offline", encodedContentRuleList: list)
         return offlineRules
     }
 
