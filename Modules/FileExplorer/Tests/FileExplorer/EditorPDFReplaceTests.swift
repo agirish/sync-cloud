@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import SwiftUI
 import PDFKit
 import PDFToolkitCore
 import Sync
@@ -488,6 +489,67 @@ enum ReplaceFixtures {
         fill.nudge(dx: 10, dy: 0)
         fill.moveLive(id, to: before.offsetBy(dx: 40, dy: 40))
         #expect(item().rect == before)
+    }
+
+    /// **With Replace chosen and nothing selected, Style, Text Size and Ink grey out** — in the
+    /// palette and in File ▸ Fill & Sign Tool — since the next correction starts in the covered
+    /// words' face, size and ink whatever they say. A correction selected, they change it again.
+    @Test func replaceWithNothingSelectedGreysStyleSizeAndInk() async throws {
+        typealias P = EditorPDFFillPalette
+        let file = invoice()
+        let pdf = try await open(file)
+        let fill = pdf.fill
+        fill.toggle()
+        let styling: [P.Tool] = [.style, .size, .ink]
+        // The menu bar's Ink and Text Size lines, live or not, as AppKit builds them.
+        func menuLive() throws -> [String: Bool] {
+            let menu = NSHostingMenu(rootView: EditorPDFFillSignMenuItems(fill: fill, tools: pdf.tools))
+            menu.update()
+            let tool = try #require(menu.items.first { $0.title == EditorPDFFillToolMenu.title }?.submenu)
+            tool.update()
+            var live: [String: Bool] = [:]
+            for name in ["Ink", "Text Size"] {
+                let lines = try #require(tool.items.first { $0.title == name }?.submenu)
+                lines.update()
+                // Smaller and Bigger grey at the ends of the sizes; the choices never do.
+                let choices = lines.items.filter { !$0.isSeparatorItem && $0.title != EditorPDFFillFlyouts.smallerTitle
+                    && $0.title != EditorPDFFillFlyouts.biggerTitle }
+                try #require(choices.count == (name == "Ink" ? EditorPDFFillColor.allCases.count : EditorPDFFillSign.fontSizes.count),
+                             "\(name): \(choices.map(\.title))")
+                live[name] = choices.allSatisfy(\.isEnabled) ? true : choices.contains(where: \.isEnabled) ? nil : false
+            }
+            return live
+        }
+
+        fill.armed = .text
+        #expect(styling.allSatisfy { P.refusal($0, fill: fill) == nil }, "Text's next item takes them")
+        #expect(try menuLive() == ["Ink": true, "Text Size": true])
+
+        fill.armed = .replace
+        #expect(P.refusal(.style, fill: fill) == "Style — a correction starts in the covered words’ font, or a stand-in for it; select one to change it")
+        #expect(P.refusal(.size, fill: fill) == "Text Size — a correction starts at the covered words’ size; select one to change it")
+        #expect(P.refusal(.ink, fill: fill) == "Ink — a correction starts in the covered words’ ink; select one to change it")
+        #expect(try menuLive() == ["Ink": false, "Text Size": false])
+
+        // The premise: what they would have set reaches no correction.
+        fill.setColor(.black)
+        fill.setFontSize(30)
+        fill.setTextFont(.mono)
+        guard case .success(let pick) = try pick(file, at: CGPoint(x: 300, y: 604)) else { throw CancellationError() }
+        let id = try #require(fill.beginCorrection(pick))
+        let item = try #require(fill.items.first { $0.id == id })
+        #expect(item.ink == pick.ink && item.fontSize == pick.fontSize && item.toolkitFont == .named("Helvetica"))
+
+        // Selected — retyping, then clicked again — the tools are the correction's.
+        #expect(styling.allSatisfy { P.refusal($0, fill: fill) == nil }, "the open correction's tools stayed greyed")
+        #expect(try menuLive() == ["Ink": true, "Text Size": true])
+        fill.type("21 March 2026", into: id)
+        fill.endEditing()
+        fill.select(nil)
+        #expect(P.refusal(.ink, fill: fill) != nil)
+        fill.select(id)
+        #expect(styling.allSatisfy { P.refusal($0, fill: fill) == nil }, "a selected correction's tools stayed greyed")
+        #expect(try menuLive() == ["Ink": true, "Text Size": true])
     }
 
     /// **The Aa and Ink flyouts offer the original first, ticked while it is used.**

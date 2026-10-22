@@ -241,8 +241,9 @@ struct EditorPDFFillPalette: View {
 
     /// **Why `tool` is greyed now, in its tooltip's words — or `nil` while it is live.** Style, Text
     /// Size and Ink grey out where they could change nothing (TE108): a form field keeps the form's
-    /// own text style, a drawn signature has no text size, and on a form whose owner forbids adding
-    /// to its pages there is nothing they could style.
+    /// own text style, a drawn signature has no text size, Replace's next correction starts in the
+    /// covered words' own style, and on a form whose owner forbids adding to its pages there is
+    /// nothing they could style. File ▸ Fill & Sign Tool greys its Ink and Text Size by this too.
     static func refusal(_ tool: Tool, fill: EditorPDFFillSign) -> String? {
         switch tool {
         case .formFields:
@@ -254,6 +255,9 @@ struct EditorPDFFillPalette: View {
             if fill.focusedField != nil, fill.selected == nil {
                 return "\(tool.title) — a form field keeps the form’s own text style"
             }
+            // A correction starts in the covered words' face (or its stand-in), size and ink; once
+            // one is selected, the tools change it.
+            if fill.armed == .replace, fill.selected == nil { return replaceRefusal(tool) }
             if tool == .style, fill.styleTarget == .mark { return "Style — a mark keeps its own font" }
             if tool == .size, case .drawnSignature = fill.styleTarget { return "Text Size — a drawn signature has no text size" }
             return nil
@@ -262,6 +266,15 @@ struct EditorPDFFillPalette: View {
             return fill.replaceRefusal.map { "Replace — \($0)" }
         case .select, .text, .date, .marks, .signature, .initials:
             return tool.places && !fill.offersPlacing ? EditorPDFFillSign.noCommentingReason : nil
+        }
+    }
+
+    /// Why Style, Text Size or Ink is greyed with Replace chosen and nothing selected.
+    static func replaceRefusal(_ tool: Tool) -> String {
+        switch tool {
+        case .style: return "Style — a correction starts in the covered words’ font, or a stand-in for it; select one to change it"
+        case .size: return "Text Size — a correction starts at the covered words’ size; select one to change it"
+        default: return "\(tool.title) — a correction starts in the covered words’ ink; select one to change it"
         }
     }
 

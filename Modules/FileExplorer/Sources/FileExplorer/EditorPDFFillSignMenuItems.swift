@@ -74,21 +74,24 @@ struct EditorPDFFillToolMenu: View {
             signatures(.signature, live: places)
             signatures(.initials, live: places)
             Divider()
+            // Greyed where the palette's own Ink and Text Size are (TE108).
+            let inks = live && EditorPDFFillPalette.refusal(.ink, fill: fill) == nil
+            let sizes = live && EditorPDFFillPalette.refusal(.size, fill: fill) == nil
             Menu("Ink") {
                 ForEach(EditorPDFFillColor.allCases, id: \.self) { ink in
                     Toggle(ink.title, isOn: Self.choice(fill.color == ink) { fill.setColor(ink) })
-                        .disabled(!live)
+                        .disabled(!inks)
                 }
             }
             Menu("Text Size") {
                 Button(EditorPDFFillFlyouts.smallerTitle) { fill.stepFontSize(bigger: false) }
-                    .disabled(!live || !fill.canStepFontSize(bigger: false))
+                    .disabled(!sizes || !fill.canStepFontSize(bigger: false))
                 Button(EditorPDFFillFlyouts.biggerTitle) { fill.stepFontSize(bigger: true) }
-                    .disabled(!live || !fill.canStepFontSize(bigger: true))
+                    .disabled(!sizes || !fill.canStepFontSize(bigger: true))
                 Divider()
                 ForEach(EditorPDFFillSign.fontSizes, id: \.self) { size in
                     Toggle("\(Int(size)) pt", isOn: Self.choice(abs(size - fill.currentFontSize) < 0.01) { fill.setFontSize(size) })
-                        .disabled(!live)
+                        .disabled(!sizes)
                 }
             }
         }
