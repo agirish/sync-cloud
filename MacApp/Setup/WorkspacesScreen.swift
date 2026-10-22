@@ -86,7 +86,7 @@ struct WorkspacesScreen: View {
     static let plainWorkspaces: [(workspace: Workspace, blurb: String)] = [
         (.browse, "One tree at full width. Where SyncCloud opens."),
         (.compare, "Two folders side by side, copy either way, one ⌘Z."),
-        (.editor, "Text and Markdown, in place, autosaved."),
+        (.editor, "Text and Markdown, autosaved. Fill and sign PDFs."),
     ]
 
     private func workspaceCard(_ entry: (workspace: Workspace, blurb: String)) -> some View {

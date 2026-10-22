@@ -325,7 +325,7 @@ enum SetupFlow {
         Panel(art: .browse, title: "Browse", blurb: "One tree, full width."),
         Panel(art: .compare, title: "Compare", blurb: "Two folders side by side."),
         Panel(art: .filing, title: "Organize", blurb: "Loose files, duplicates, renames."),
-        Panel(art: .edit, title: "Edit", blurb: "Text and Markdown, in place."),
+        Panel(art: .edit, title: "Edit", blurb: "Text, Markdown, PDFs."),
     ]
 
     /// A row of the numbered list on the welcome screen.

@@ -1,4 +1,5 @@
 import AppKit
+import Dashboard
 import Foundation
 import FileExplorer
 import Settings
@@ -310,6 +311,35 @@ import Testing
         for verb in [MarkupVerb.link, .codeBlock, .horizontalRule] {
             let titled = text.contains(verb.title)
             #expect(titled, "Edit's article does not name \(verb.title)")
+        }
+    }
+
+    /// **Restore Standard Places brings back as many places as Help says** — counted from
+    /// `SidebarFavoritePlaces.standard`. Help said "the five" after the startup disk moved back to
+    /// Locations and left four. Mutation: put "five" back and the first check fails.
+    @Test func restoreStandardPlacesCountsTheStandardSet() throws {
+        let topic = try #require(HelpBook.topic(id: "folder-sidebar"))
+        let line = try #require(Self.copy(of: topic).first { $0.contains("Restore Standard Places") },
+                                "the sidebar article no longer mentions Restore Standard Places")
+        let count = Self.spelled(SidebarFavoritePlaces.standard.count)
+        #expect(line.contains("brings the \(count) it starts with back"),
+                "Help miscounts the standard places — there are \(count): \(line)")
+    }
+
+    /// **Help's File ▸ Fill & Sign Tool list names every tool the menu holds**, read from the menu's
+    /// `tool("…")` lines. It left out Replace, which the menu has had since Replace shipped.
+    /// Mutation: take Replace out of the Help sentence and its check fails.
+    @Test func fillSignToolHelpNamesEveryTool() throws {
+        let source = try LinkedMoveTranslationTests.repoFile(
+            "Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSignMenuItems.swift")
+        let tools = source.matches(of: /tool\("([A-Za-z ]+)", \./).map { String($0.output.1) }
+        #expect(tools.contains("Replace") && tools.contains("Form Fields"),
+                "the menu's tool lines were not found — this check would be vacuous: \(tools)")
+        let topic = try #require(HelpBook.topic(id: "editor-workspace"))
+        let line = try #require(Self.copy(of: topic).first { $0.contains("File ▸ Fill & Sign Tool holds") })
+        let list = try #require(line.range(of: "holds the palette's tools — ").map { line[$0.upperBound...] })
+        for tool in tools {
+            #expect(list.contains(tool), "Help's Fill & Sign Tool list leaves out \(tool)")
         }
     }
 

@@ -8206,3 +8206,24 @@ done
 |---|---|---|
 | `v5.x` | The rail's name filter, and no search inside files | RECORDED — not owed (main only) |
 | `v4.x` / `v3.x` / `v2.x` | No rail filter in Edit | CLOSED — does not apply |
+
+---
+
+## Help counts four standard places, not five — main only
+
+Help's sidebar article said Restore Standard Places brings back "the five it starts with". There
+are four — home, Desktop, Documents and Downloads (`SidebarFavoritePlaces.standard`) — since the
+startup disk went back to Locations on 2026-09-07. `HelpBookTests.restoreStandardPlacesCountsTheStandardSet`
+now counts them. The same commit's other Help and setup fixes describe v6.0 features only.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s five=%s\n' $l \
+  "$(git show origin/$l:MacApp/HelpBook.swift 2>/dev/null | grep -c 'brings the five it starts with')"; done
+# measured 2026-10-21, against origin, before this landed:
+# main 1 · v5.x 1 · v4.x 1 · v3.x 0 · v2.x 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | "the five it starts with" over a four-place standard set | RECORDED — not owed |
+| `v3.x` / `v2.x` | No Restore Standard Places sentence | CLOSED — does not apply |

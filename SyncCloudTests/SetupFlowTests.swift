@@ -382,6 +382,16 @@ import Testing
         #expect(SetupFlow.panels.map(\.title).contains("Edit"))
     }
 
+    /// **Setup says Edit opens PDFs.** Both of its Edit lines — the welcome strip's panel and the
+    /// Workspaces screen's card — said "Text and Markdown, in place" after PDFs opened there with
+    /// Fill & Sign and Tools. Mutation: put either old line back and its check fails.
+    @Test func setupsEditLinesNamePDFs() throws {
+        let panel = try #require(SetupFlow.panels.first { $0.art == .edit })
+        #expect(panel.blurb.contains("PDFs"), "the welcome strip's Edit panel leaves out PDFs: \(panel.blurb)")
+        let card = try #require(WorkspacesScreen.plainWorkspaces.first { $0.workspace == .editor })
+        #expect(card.blurb.contains("PDFs"), "the Workspaces screen's Edit card leaves out PDFs: \(card.blurb)")
+    }
+
     /// The strip opens on the workspace the app opens on.
     ///
     /// Inherited from the tour, where it was a real defect: the pages taught Compare, Transfer,
