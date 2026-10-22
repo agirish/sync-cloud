@@ -210,17 +210,22 @@ Requires **macOS 26**, unchanged from the 5.x line.
   switch steps aside and Text ▸ Page is the way to it.
 - **Words on Edit's header buttons.** A text file's ＋, magnifying glass and × now read **New Text
   File**, **Find** and **Close**, and in a narrow column they drop their words together, before the
-  name is cut.
+  name is cut. The "…" in the folder line under the name opens the whole path, the file's own
+  folder first and ticked; before, it listed only the folders it hid.
+- **Tooltips name their keys.** Point at Find, Source, Preview, Split, Go to Line, the find card's
+  arrows or the PDF capsule's page and zoom buttons, and the tooltip gives the shortcut too.
 - **The Files list by keyboard and menu.** Tab into the Files or Outline list and the arrow keys
   move through it and Return opens; Return in the filter opens the first match, and a new folder
   clears the filter. A row's right-click menu adds **Download** for a file still in the cloud, and
   **Rename** and **Delete**, and the file name above the document offers the same menu. A file Edit
-  can't open until it is downloaded has a **Download** button.
+  can't open until it is downloaded has a **Download** button. Reveal in Browse is greyed, saying
+  why, for a file outside the source Browse shows.
 - **Edit in its own words.** A file Edit won't open says why in Edit's words — *This isn’t a text
   file, so Edit can’t open it.* — and the first change to a Windows (CRLF) file says *Converted to
   LF line endings — ⌘Z undoes*. A typed name such as "Notes v1.2" gets `.md`, Markup's **Link…** is
   **Link**, Undo after a Markup verb in Source names it — "Undo Bold" — and **File ▸ Export as
-  PDF…** names the file it exports.
+  PDF…** names the file it exports. A save that was written but couldn't be read back to check it
+  is a warning now, not a failure.
 - **One set of answers when a file changed on disk.** The banner, the `⌘S` alert and the comparison
   all offer **Compare…**, **Keep Mine…** and **Use Disk Version**, and Keep Mine… always asks before
   replacing the version on disk; the comparison's Save Anyway used to write without asking. Its
