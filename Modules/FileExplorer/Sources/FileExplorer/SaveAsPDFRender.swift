@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import os
 import Design
 import Events
 import PDFKit
@@ -498,18 +499,45 @@ struct PDFComposer {
 /// API, so its output can change in any release (R1); `SaveAsPDFRenderTests` pins it on fixtures.
 enum QuickLookHTML {
     static let tool = "/usr/bin/qlmanage"
-    /// Measured: under a second for Word and Excel, up to ~2 s for a large deck. A file that takes a
-    /// minute has wedged the generator.
-    static let timeout: TimeInterval = 60
+    /// Measured: under a second for Word and Excel, up to ~2 s for a large deck; 4.4 s at most in
+    /// 8,499 runs eight at a time at load 16–85, and 8.3 s twenty at a time at load 66
+    /// (2026-10-21). A run that takes 30 s has wedged.
+    static let timeout: TimeInterval = 30
+    /// **A wedged `qlmanage` is killed and run once more.** Three runs in 8,503 never finished
+    /// (2026-10-21): idle, the file-coordination thread parked in `-[QLPreview synchronousGetData]`
+    /// for a reply that never comes. A wedged run does not recover; the next run of the same file
+    /// works (`docs/flaky-tests.md`, "A Quick Look run that waits for ever on its own reply").
+    static let attempts = 2
 
     /// The preview's `Preview.html`, or `nil` when Quick Look made none. `folder` must be empty —
-    /// the bundle is found as the one thing in it.
-    nonisolated static func preview(of file: String, into folder: URL) async -> URL? {
+    /// the bundle is found as the one thing in it. `tool` and `timeout` are for tests.
+    nonisolated static func preview(of file: String, into folder: URL, tool: String = tool,
+                                    timeout: TimeInterval = timeout) async -> URL? {
+        for attempt in 1...attempts {
+            guard let killed = await run(tool, file, into: folder, timeout: timeout) else { return nil }
+            let items = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+            if let bundle = items.first(where: { $0.pathExtension == "qlpreview" }),
+               FileManager.default.fileExists(atPath: bundle.appendingPathComponent("Preview.html").path) {
+                return bundle.appendingPathComponent("Preview.html")
+            }
+            guard killed else { return nil }
+            Logger.shared.warning("Save as PDF: Quick Look didn’t finish in \(Int(timeout)) s (try \(attempt) of \(attempts))")
+            // Whatever the wedged run left would be taken for the next one's bundle.
+            for item in items { try? FileManager.default.removeItem(at: item) }
+        }
+        return nil
+    }
+
+    /// Runs `qlmanage` once: whether the guard had to kill it, or `nil` if it couldn't start.
+    nonisolated private static func run(_ tool: String, _ file: String, into folder: URL,
+                                        timeout: TimeInterval) async -> Bool? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = ["-p", "-o", folder.path, file]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        // Set by the guard: a wedged qlmanage handles SIGTERM and exits 0, so its status can't say.
+        let killed = OSAllocatedUnfairLock(initialState: false)
         let started: Bool = await withCheckedContinuation { continuation in
             process.terminationHandler = { _ in continuation.resume(returning: true) }
             do {
@@ -520,14 +548,17 @@ enum QuickLookHTML {
                 return
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-                if process.isRunning { process.terminate() }
+                guard process.isRunning else { return }
+                killed.withLock { $0 = true }
+                process.terminate()
+                // qlmanage ends on SIGTERM; anything that doesn't must not hold the caller for ever.
+                DispatchQueue.global().asyncAfter(deadline: .now() + 5) {
+                    if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                }
             }
         }
         guard started else { return nil }
-        let bundles = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        guard let bundle = bundles.first(where: { $0.pathExtension == "qlpreview" }) else { return nil }
-        let html = bundle.appendingPathComponent("Preview.html")
-        return FileManager.default.fileExists(atPath: html.path) ? html : nil
+        return killed.withLock { $0 }
     }
 
     /// A workbook's sheets, in tab order, or none for a one-sheet preview. Each tab of Quick Look's

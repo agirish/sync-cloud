@@ -3964,3 +3964,58 @@ took 8–28 ms. Not run on an idle machine: other sessions kept the load above 3
 `queue: .main` that is posted off main. Find the observer by the notification name in the frames
 above the post. A block on a global queue that never starts is the pool, not the code under test;
 timestamp the block's first line before blaming what it calls.
+
+### 36. A Quick Look run that waits for ever on its own reply — FIXED
+
+**Symptom.** `SaveAsPDFRenderTests.quickLookStillWritesHTML(_:)` red for one argument, in a full
+FileExplorer run with other sessions' builds beside it, green on rerun:
+
+```
+✘ Test quickLookStillWritesHTML(_:) recorded an issue with 1 argument name → "FourPictures.xlsx" at SaveAsPDFRenderTests.swift:104:24: Expectation failed: await QuickLookHTML.preview(of: …, into: scratch)
+✘ Test quickLookStillWritesHTML(_:) with 10 test cases failed after 252.543 seconds with 1 issue.
+```
+
+Twice on 2026-10-21: that run (load ~35, another session's FileExplorer suite in the other slot), and
+one in which `"Memo.doc"` failed and the ten cases took **64.3 s**. The suite is serialized, and
+`QuickLookHTML.preview` gave `qlmanage` 60 s: one case used all of that, and the nine others took
+about 4 s between them.
+
+**Mechanism.** Not load, and not a guard counting queued time. Now and then `qlmanage` stops for
+good. Its main thread idles in the run loop, and its file-coordination thread
+(`-[QLPreview retrieveDisplayBundleIDForAdvancedUsage:completionHander:]`) waits in
+`-[QLPreview synchronousGetData]` on a semaphore for a reply from its own in-process Quick Look
+server, which never sends it. Nothing is running, so waiting longer does not help, and the guard
+kills it with no preview. Caught three times in 8,503 runs, eight at a time, under 15 `yes` spinners
+(load 16–85, other sessions' builds included; 2026-10-21): `FourPictures.xlsx`, `Memo.doc` and
+`Memo.docx`, each `sample`d 15 s in with the same stack. That is about one run in 2,800. A full
+`SaveAsPDFRenderTests` run calls `qlmanage` a few dozen times (22 before the deck tests), so roughly
+one suite run in a hundred meets a wedge. The next run of the same file worked every time. Not measured on an idle machine: other sessions kept the load above 15.
+
+Load alone does not slow `qlmanage` much. Twenty at once under 30 spinners (load 32–66) took 6 s
+median and 8.3 s at most, 100 of 100 with a preview; in the 8,499 runs that finished, the slowest
+took 4.4 s. One more run in that batch died of SIGKILL after 1.1 s with no preview, from something
+not found. The probe did not send it.
+
+**Fix.** `QuickLookHTML.preview` treats a run its guard had to kill as wedged and runs it once more,
+in an emptied folder (`attempts = 2`). It gives each run 30 s, not 60, which is still 3.6× the
+slowest normal run seen; a slow run killed by mistake costs only a second run. The guard records that
+it fired, because `qlmanage` handles SIGTERM and exits 0: its status cannot tell a killed run from a
+clean one. It sends SIGKILL 5 s after a SIGTERM that is ignored. A run that finishes with no
+preview is not retried. In the app, the wedge cost a workbook or deck its PDF ("macOS couldn't read
+it") and a Word file its pictures (the text-system fallback), after 60 s.
+
+`QuickLookHTMLTests` puts a stand-in for the tool in place: it wedges (idle, `exec sleep 600`) on
+the runs it is told to and writes a bundle on the others. **Mutation-checked:** with
+`attempts = 1`, `aWedgedRunIsKilledAndRunAgain` and `aWedgedRunThatIgnoresSIGTERMIsKilledAnyway`
+fail. Without the folder emptied, both fail too: the dead run's half-made bundle is taken for the
+second run's, and it has no `Preview.html`. Without the SIGKILL, the second waits until the
+stand-in's `sleep` ends and fails its 120 s bound. **Proved** on
+the real tool: 7,402 runs of `QuickLookHTML.preview` eight at a time, under 15 spinners at load
+72–111, all made a preview. Two wedged (`Memo.doc`, `FourPictures.xlsx`) and came back on the
+second run, 31–33 s in. The slowest of the rest took 6.5 s.
+
+**Tell.** One argument of `quickLookStillWritesHTML`, or a Save as PDF render, failing at the
+guard's bound, with its siblings fast. Here the case took 60 s while the other nine took 4 s between
+them. `sample` a `qlmanage` that has run past 15 s: an idle process with a thread in
+`-[QLPreview synchronousGetData]` is this. Since the fix, a recurrence logs "Quick Look didn’t finish
+in 30 s (try 1 of 2)" and passes; a red needs two wedges in a row.
