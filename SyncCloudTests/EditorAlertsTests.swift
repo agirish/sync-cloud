@@ -58,11 +58,13 @@ import FileExplorer
 
     // MARK: The file changed under the buffer
 
+    /// The titles are per-divergence: a changed file gains a reload it can actually do. **TE178: in
+    /// the banner's order**, so Compare… — which writes nothing — is first and takes Return; TE151:
+    /// a gone file is offered the banner's Save Again.
     @Test func onlyTheFirstButtonConfirmsWritingOverAChangedFile() {
-        // The titles are now per-divergence: a changed file gains a reload it can actually do.
-        #expect(EditorAlerts.divergenceButtonTitles(for: .missing) == ["Save Anyway", "Cancel"])
+        #expect(EditorAlerts.divergenceButtonTitles(for: .missing) == ["Save Again", "Cancel"])
         #expect(EditorAlerts.divergenceButtonTitles(for: .changed)
-                == ["Keep Mine…", "Use Disk Version", "Compare…", "Cancel"])
+                == ["Compare…", "Use Disk Version", "Keep Mine…", "Cancel"])
         #expect(EditorAlerts.isConfirmed(.alertFirstButtonReturn))
         for response: NSApplication.ModalResponse in [.alertSecondButtonReturn, .alertThirdButtonReturn,
                                                       .abort, .stop, .cancel, .OK] {
@@ -83,7 +85,7 @@ import FileExplorer
                 && alert.contains(EditorDiskVerbs.useDiskVersion), "the ⌘S alert reads \(alert)")
     }
 
-    /// **Keep Mine… asks for a file that changed, and Save Anyway for a gone one does not** — there
+    /// **Keep Mine… asks for a file that changed, and Save Again for a gone one does not** — there
     /// is no other version at that path to replace.
     @Test func keepMineAsksOnlyWhereThereIsAnotherVersionToLose() {
         #expect(EditorAlerts.keepMineAsks(for: .changed))
@@ -103,9 +105,11 @@ import FileExplorer
         let changedWhy = EditorAlerts.divergenceInformativeText(.changed)
         let missingWhy = EditorAlerts.divergenceInformativeText(.missing)
         #expect(changedWhy != missingWhy)
-        // The missing case has to name what saving would actually do, because "Save Anyway" reads
-        // as "write it where it was" and that is exactly the surprising part.
-        #expect(missingWhy.lowercased().contains("moved") || missingWhy.lowercased().contains("renamed"))
+        // The missing case names what Save Again does — the banner's write, folder and all (TE151).
+        #expect(missingWhy == "It writes it back where it was, making its folder again if that went too.")
+        // TE150: the banner's words for a changed file, and "your version" in the sentence.
+        #expect(changed == "“a.md” changed on disk while you were typing.")
+        #expect(changedWhy == "Keeping your version replaces the one on disk, and the other changes are lost.")
     }
 }
 
@@ -214,6 +218,10 @@ import FileExplorer
     /// case turns the safe answer into the destructive one, which is the whole reason the mapping
     /// takes the divergence as an argument.
     @Test func theSameButtonPositionMeansDifferentThingsForTheTwoDivergences() {
+        #expect(EditorAlerts.divergenceAnswer(for: .alertFirstButtonReturn, divergence: .changed)
+                == .showWhatChanged)
+        #expect(EditorAlerts.divergenceAnswer(for: .alertFirstButtonReturn, divergence: .missing)
+                == .saveAnyway)
         #expect(EditorAlerts.divergenceAnswer(for: .alertSecondButtonReturn, divergence: .changed)
                 == .reloadFromDisk)
         #expect(EditorAlerts.divergenceAnswer(for: .alertSecondButtonReturn, divergence: .missing)
@@ -237,7 +245,7 @@ import FileExplorer
                     for: EditorAlerts.divergenceResponse(atButtonIndex: index),
                     divergence: divergence)
                 switch title {
-                case "Save Anyway", "Keep Mine…": #expect(answer == .saveAnyway)
+                case "Save Again", "Keep Mine…": #expect(answer == .saveAnyway)
                 case "Use Disk Version": #expect(answer == .reloadFromDisk)
                 case "Compare…": #expect(answer == .showWhatChanged)
                 case "Cancel": #expect(answer == .cancel)
@@ -261,16 +269,17 @@ import FileExplorer
                 == NSApplication.ModalResponse.alertThirdButtonReturn.rawValue + 1)
     }
 
-    /// **Adding a button changes what every position after it means.** "Compare…" went in
-    /// third, behind both real answers, so the two destructive positions are exactly where they
-    /// were; this states that as a fact rather than leaving it to be inferred from the titles list.
-    @Test func theNewButtonDidNotMoveEitherDestructiveAnswer() {
+    /// **Each position's answer for a changed file, in the banner's order** (TE178): Compare… first —
+    /// the answer Return reaches, which writes nothing — then Use Disk Version, then Keep Mine….
+    @Test func theChangedFilesPositionsFollowTheBannersOrder() {
         #expect(EditorAlerts.divergenceAnswer(for: .alertFirstButtonReturn, divergence: .changed)
-                == .saveAnyway)
+                == .showWhatChanged)
         #expect(EditorAlerts.divergenceAnswer(for: .alertSecondButtonReturn, divergence: .changed)
                 == .reloadFromDisk)
         #expect(EditorAlerts.divergenceAnswer(for: .alertThirdButtonReturn, divergence: .changed)
-                == .showWhatChanged)
+                == .saveAnyway)
+        #expect(!EditorAlerts.DivergenceAnswer.showWhatChanged.isDestructive(for: .changed),
+                "Return lands on the first button, and that one must not discard anything")
         // …and Cancel, now the fourth button, still lands on the default arm.
         #expect(EditorAlerts.divergenceAnswer(for: EditorAlerts.divergenceResponse(atButtonIndex: 3),
                                               divergence: .changed) == .cancel)
@@ -283,20 +292,22 @@ import FileExplorer
     /// button arrived that is neither. "Compare…" writes nothing and discards nothing, and
     /// styling it as a destructive action would misread the one safe way to look before deciding.
     @Test func onlyTheAnswersThatDiscardSomethingAreDestructive() {
-        #expect(EditorAlerts.DivergenceAnswer.saveAnyway.isDestructive)
-        #expect(EditorAlerts.DivergenceAnswer.reloadFromDisk.isDestructive)
-        #expect(!EditorAlerts.DivergenceAnswer.showWhatChanged.isDestructive)
-        #expect(!EditorAlerts.DivergenceAnswer.cancel.isDestructive)
+        #expect(EditorAlerts.DivergenceAnswer.saveAnyway.isDestructive(for: .changed))
+        #expect(EditorAlerts.DivergenceAnswer.reloadFromDisk.isDestructive(for: .changed))
+        #expect(!EditorAlerts.DivergenceAnswer.showWhatChanged.isDestructive(for: .changed))
+        #expect(!EditorAlerts.DivergenceAnswer.cancel.isDestructive(for: .changed))
+        // TE151: Save Again discards nothing — it is not destructive on the banner, nor here.
+        #expect(!EditorAlerts.DivergenceAnswer.saveAnyway.isDestructive(for: .missing))
 
-        // Position by position, which is how the alert applies it: for a changed file exactly the
-        // first two buttons are stripped, and for a missing one exactly the first.
+        // Position by position, which is how the alert applies it: for a changed file exactly Use
+        // Disk Version and Keep Mine… are stripped, and for a missing one nothing.
         for divergence in [EditorFileStore.Divergence.changed, .missing] {
             let titles = EditorAlerts.divergenceButtonTitles(for: divergence)
             let destructive = titles.indices.filter {
                 EditorAlerts.divergenceAnswer(for: EditorAlerts.divergenceResponse(atButtonIndex: $0),
-                                              divergence: divergence).isDestructive
+                                              divergence: divergence).isDestructive(for: divergence)
             }
-            #expect(destructive.allSatisfy { ["Save Anyway", "Keep Mine…", "Use Disk Version"].contains(titles[$0]) },
+            #expect(destructive.map { titles[$0] } == (divergence == .changed ? ["Use Disk Version", "Keep Mine…"] : []),
                     "\(divergence): destructive styling lands on \(destructive.map { titles[$0] })")
             #expect(!destructive.contains { titles[$0] == "Cancel" },
                     "\(divergence): Cancel would be styled destructive and lose its Escape")
@@ -307,7 +318,7 @@ import FileExplorer
     /// path to read, so the right-hand column of a comparison would be empty — the same reason the
     /// reload is withheld, applied to the same case.
     @Test func aMissingFileIsNotOfferedTheDiffEither() {
-        #expect(EditorAlerts.divergenceButtonTitles(for: .missing) == ["Save Anyway", "Cancel"])
+        #expect(EditorAlerts.divergenceButtonTitles(for: .missing) == ["Save Again", "Cancel"])
         #expect(!EditorAlerts.divergenceButtonTitles(for: .missing).contains("Compare…"))
         #expect(EditorAlerts.divergenceButtonTitles(for: .changed).contains("Compare…"))
         // And no position on a missing file answers `.showWhatChanged`, whatever AppKit returns.
@@ -343,8 +354,10 @@ import FileExplorer
     /// nothing — the same rule the unsaved question keeps, and for the same reason.
     @Test func anUnrecognisedResponseChangesNothing() {
         for divergence in [EditorFileStore.Divergence.changed, .missing] {
-            #expect(EditorAlerts.divergenceAnswer(for: .alertThirdButtonReturn,
-                                                  divergence: divergence) != .saveAnyway)
+            // One past the last button the alert drew.
+            let pastTheEnd = EditorAlerts.divergenceResponse(
+                atButtonIndex: EditorAlerts.divergenceButtonTitles(for: divergence).count)
+            #expect(EditorAlerts.divergenceAnswer(for: pastTheEnd, divergence: divergence) == .cancel)
             #expect(EditorAlerts.divergenceAnswer(for: .stop, divergence: divergence) == .cancel)
             #expect(EditorAlerts.divergenceAnswer(for: .abort, divergence: divergence) == .cancel)
         }

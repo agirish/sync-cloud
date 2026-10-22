@@ -195,14 +195,14 @@ public struct EditorDivergenceDiffOverlay: View {
                 .foregroundStyle(.orange)
                 .scaledFont(.system(size: 12))
             VStack(alignment: .leading, spacing: 2) {
-                Text("“\(document.name)” changed on disk since you opened it")
+                Text("“\(document.name)” changed on disk while you were typing")
                     .scaledFont(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 // **The consequence, in the alert's own words.** This overlay replaces the alert on
                 // screen, so dropping the sentence that says what each verb costs would mean the
                 // decision is made with less in front of the reader than before, not more.
-                Text("Keeping yours replaces what’s on disk with what’s in Edit, and the other changes are lost.")
+                Text("Keeping your version replaces the one on disk, and the other changes are lost.")
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -264,7 +264,7 @@ public struct EditorDivergenceDiffOverlay: View {
 
     /// What Use Disk Version's tooltip promises — that ⌘Z brings the typing back only where it does.
     static func useDiskVersionHelp(undoable: Bool) -> String {
-        undoable ? "Take the version on the right — ⌘Z brings yours back."
+        undoable ? "Take the version on the right — ⌘Z brings your version back."
             : "Take the version on the right and lose what you typed."
     }
 

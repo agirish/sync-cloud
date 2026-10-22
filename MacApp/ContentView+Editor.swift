@@ -1441,6 +1441,9 @@ extension ContentView {
                                path: String, explicit: Bool) -> Bool {
         switch answer {
         case .saveAnyway:
+            // **A gone file's Save Again is the banner's, through the same path** (TE151): it looks
+            // before it writes, and makes the folder again if that went too.
+            if divergence == .missing { return saveEditorDocumentAgain(explicit: explicit) }
             // **Keep Mine… asks before it writes, through every door** (TE97) — the banner, the ⌘S
             // alert and the comparison sheet's foot all land here, so the consent is asked once,
             // in one place. Declining is Cancel: nothing written, and autosave stays stopped.
@@ -1512,7 +1515,7 @@ extension ContentView {
     /// buffer, so the reason autosave halted has gone with it.
     @discardableResult
     private func writeEditorDocument(explicit: Bool) -> Bool {
-        // **A write that puts the file BACK** — Save Anyway or Save Again after it was deleted — is a
+        // **A write that puts the file BACK** — Save Again after it was deleted — is a
         // new file in a folder the panes have walked, and is shown there as ⌘N's is. A rewrite of a
         // file the panes already list is not (see `rereadPanesAfterEditorWrite`).
         let recreates = editorDocument.path.map { !FileManager.default.fileExists(atPath: $0) } ?? false
@@ -1786,16 +1789,25 @@ extension ContentView {
         case .close:
             closeEditorDocument()
         case .saveAgain:
-            // Only while the path is still empty — a file back there is looked at, not written over —
-            // and with its folder made again if that went too.
-            switch editorDiskWatch.prepareSaveAgain() {
-            case .write:
-                writeEditorDocument(explicit: true)
-            case .notMissing:
-                break
-            case .failed(let why):
-                syncManager.banner = .error("Couldn’t save “\(editorDocument.name)” — \(why)")
-            }
+            saveEditorDocumentAgain(explicit: true)
+        }
+    }
+
+    /// **Save Again** — the banner's, and the ⌘S alert's for a file that is gone (TE151). Only while
+    /// the path is still empty — a file back there is looked at, not written over — and with its
+    /// folder made again if that went too.
+    ///
+    /// - Returns: whether it wrote.
+    @discardableResult
+    func saveEditorDocumentAgain(explicit: Bool) -> Bool {
+        switch editorDiskWatch.prepareSaveAgain() {
+        case .write:
+            return writeEditorDocument(explicit: explicit)
+        case .notMissing:
+            return false
+        case .failed(let why):
+            syncManager.banner = .error("Couldn’t save “\(editorDocument.name)” — \(why)")
+            return false
         }
     }
 

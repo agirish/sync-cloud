@@ -969,7 +969,7 @@ import EventsTestSupport
     }
 
     @Test func theDeletedBannerOffersSaveAgainOnlyWhereItCouldWrite() {
-        #expect(EditorDiskBannerView.actions(for: .changed, canSaveAgain: true) == [.compare, .keepMine, .useDisks])
+        #expect(EditorDiskBannerView.actions(for: .changed, canSaveAgain: true) == [.compare, .useDisks, .keepMine])
         #expect(EditorDiskBannerView.actions(for: .deleted, canSaveAgain: true) == [.close, .saveAgain])
         #expect(EditorDiskBannerView.actions(for: .deleted, canSaveAgain: false) == [.close])
     }
@@ -993,10 +993,13 @@ import EventsTestSupport
     }
 
     /// **TE97: the banner's words are the ⌘S alert's and the sheet's** — Compare… and Keep Mine…
-    /// with the ellipsis their next step earns, and Use Disk Version, which is also Undo's name.
+    /// with the ellipsis their next step earns, and Use Disk Version, which is also Undo's name — in
+    /// the one order the alert and Help use too (TE178). Save Again is the alert's word as well (TE151).
     @Test func theBannerSpeaksTheSameWordsAsTheAlertAndTheSheet() {
         #expect(EditorDiskBannerView.actions(for: .changed, canSaveAgain: true).map(EditorDiskBannerView.title)
-                == ["Compare…", "Keep Mine…", "Use Disk Version"])
+                == ["Compare…", "Use Disk Version", "Keep Mine…"])
+        #expect(EditorDiskBannerView.title(.saveAgain) == "Save Again")
+        #expect(EditorDiskVerbs.saveAgain == "Save Again")
         #expect(EditorDiskWatch.useDisksActionName == "Use Disk Version")
     }
 }

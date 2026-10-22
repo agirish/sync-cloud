@@ -16,7 +16,7 @@ import FileExplorerTestSupport
     /// buffer and the typing is gone.
     @Test func useDiskVersionPromisesUndoOnlyWhereThereIsOne() {
         #expect(EditorDivergenceDiffOverlay.useDiskVersionHelp(undoable: true)
-                == "Take the version on the right — ⌘Z brings yours back.")
+                == "Take the version on the right — ⌘Z brings your version back.")
         #expect(EditorDivergenceDiffOverlay.useDiskVersionHelp(undoable: false)
                 == "Take the version on the right and lose what you typed.")
     }

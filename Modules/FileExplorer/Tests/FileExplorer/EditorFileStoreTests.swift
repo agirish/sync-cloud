@@ -23,6 +23,38 @@ import Foundation
         return url.path
     }
 
+    // MARK: A failed save says why, not where (TE175)
+
+    /// **A save the folder refuses names the reason, never the hidden staging file.** Foundation's
+    /// sentence for the failed staging write names `.tmp_<UUID>`, which the reader never asked for
+    /// and cannot find — and a full disk said so for every save.
+    @Test func aRefusedSaveSaysWhyAndNotTheStagingFile() throws {
+        let folder = try scratch()
+        defer {
+            chmod(folder.path, 0o755)
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let path = try write(Data("hello\n".utf8), named: "note.md", in: folder)
+        chmod(folder.path, 0o555)
+        do {
+            _ = try EditorFileStore.write("changed\n", toPath: path)
+            Issue.record("wrote into a folder that cannot be written to")
+        } catch let failure as EditorFileStore.Failure {
+            #expect(!failure.message.contains(".tmp_"), "\(failure.message)")
+            #expect(failure.message == "Permission denied", "\(failure.message)")
+        }
+    }
+
+    /// A full disk, as Foundation reports it — a Cocoa error over the POSIX one — reads as the
+    /// POSIX reason alone.
+    @Test func aFullDiskReadsAsItsPlainReason() {
+        let posix = NSError(domain: NSPOSIXErrorDomain, code: Int(ENOSPC))
+        let cocoa = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError,
+                            userInfo: [NSUnderlyingErrorKey: posix,
+                                       NSFilePathErrorKey: "/tmp/.tmp_0D1E5C2A-0000-0000-0000-000000000000"])
+        #expect(EditorFileStore.stagingFailure(cocoa).message == "No space left on device")
+    }
+
     // MARK: Opening
 
     @Test func openingReadsTheTextAndAStampToCheckItAgainst() throws {

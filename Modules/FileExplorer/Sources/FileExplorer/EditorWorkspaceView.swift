@@ -1191,7 +1191,7 @@ public struct EditorWorkspaceView: View {
             // changed on disk"; a label repeating them would tell a VoiceOver user that this is a
             // button and leave them to guess what pressing it is for.
             .accessibilityLabel("Show what changed on disk")
-            .help("Show what changed on disk since you opened it")
+            .help("Show what changed on disk while you were typing")
         } else if let detail = Self.stopTooltip(status: status, detail: stoppedDetail) {
             text.help(detail)
         } else {

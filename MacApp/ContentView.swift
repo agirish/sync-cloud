@@ -2305,7 +2305,7 @@ struct ContentView: View {
     ///   refresh loaded are current; only the comparison is owed (`skipped`, with its reason).
     ///   Left alone, Compare would draw a comparison of a folder the left pane was moved off —
     ///   stale rows under correct pane headers, worse than the "not scanned" card.
-    /// - **A file the editor wrote over** — ⌘S and Save Anyway, background autosave, the flush on
+    /// - **A file the editor wrote over** — ⌘S and Keep Mine, background autosave, the flush on
     ///   the way to another document (`noteEditorWrote`). A document opened from a differences row
     ///   (`.staysPut`, so the comparison stays as it was) and edited came back to its pre-edit row,
     ///   "Dropbox is newer → copy to left", offering to overwrite what had just been written. The

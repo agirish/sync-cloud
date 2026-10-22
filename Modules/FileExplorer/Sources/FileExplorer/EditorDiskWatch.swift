@@ -794,7 +794,7 @@ public final class EditorDiskWatch: ObservableObject {
         "\(unreadableReasonLead). \(refusal) This is the last text that could be read, open for "
             + "reading only until the file can be read again."
     }
-    static let usedDisksNotice = "Using the version on disk — ⌘Z brings yours back"
+    static let usedDisksNotice = "Using the version on disk — ⌘Z brings your version back"
     /// An edit turned a CRLF or CR file into LF (TE104) — the first change to it, which ⌘Z takes
     /// back with the conversion (``EditorLineEndings``).
     static let convertedToLFNotice = "Converted to LF line endings — ⌘Z undoes"

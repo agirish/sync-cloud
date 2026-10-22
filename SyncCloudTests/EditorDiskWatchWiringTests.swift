@@ -103,17 +103,26 @@ import FileExplorer
         #expect(call.passes("takingDiskIsUndoable", "editorDiskWatch.banner == .changed"))
     }
 
-    /// **Save Again looks before it writes** — a file back at the path is not written over.
+    /// **Save Again looks before it writes** — a file back at the path is not written over — and the
+    /// ⌘S alert's Save Again, for a file that is gone, is the banner's, through the same path (TE151).
     @Test func saveAgainLooksBeforeItWrites() throws {
-        let answer = try Self.body("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)")
-        let again = try #require(answer.range(of: "case .saveAgain:"))
-        let look = try #require(answer.range(of: "editorDiskWatch.prepareSaveAgain()"))
-        let write = try #require(answer.ranges(of: "writeEditorDocument(explicit: true)").last)
-        #expect(again.lowerBound < look.lowerBound && look.lowerBound < write.lowerBound)
-        #expect(answer.contains("case .write: writeEditorDocument(explicit: true) case .notMissing: break"),
+        let again = try Self.body("func saveEditorDocumentAgain(explicit: Bool) -> Bool")
+        let look = try #require(again.range(of: "editorDiskWatch.prepareSaveAgain()"))
+        let write = try #require(again.range(of: "return writeEditorDocument(explicit: explicit)"))
+        #expect(look.lowerBound < write.lowerBound)
+        #expect(again.contains("case .write: return writeEditorDocument(explicit: explicit) case .notMissing: return false"),
                 "Save Again writes whatever the look found")
-        #expect(answer.contains("case .failed(let why): syncManager.banner = .error("),
+        #expect(again.contains("case .failed(let why): syncManager.banner = .error("),
                 "a folder that could not be made again fails silently")
+        let banner = try Self.body("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)")
+        #expect(banner.contains("case .saveAgain: saveEditorDocumentAgain(explicit: true)"))
+        #expect(!banner.contains("writeEditorDocument"), "the banner writes on a path of its own")
+        let apply = try Self.body("func applyDivergenceAnswer(")
+        let saveAnyway = try #require(apply.range(of: "case .saveAnyway:"))
+        let gone = try #require(apply.range(of: "if divergence == .missing { return saveEditorDocumentAgain(explicit: explicit) }"))
+        let keepMine = try #require(apply.range(of: "EditorAlerts.keepMineAsks(for: divergence)"))
+        #expect(saveAnyway.lowerBound < gone.lowerBound && gone.lowerBound < keepMine.lowerBound,
+                "the alert's Save Again writes without looking first")
     }
 
     /// The diff's Use Disk Version, with the banner up, is the banner's — the undoable one.
@@ -196,7 +205,7 @@ import FileExplorer
         let write = try Self.body("private func writeEditorDocument(explicit: Bool) -> Bool")
         #expect(write.contains("let recreates = editorDocument.path.map { !FileManager.default.fileExists(atPath: $0) } ?? false"))
         #expect(write.contains("if recreates { showCreatedFileInPane(path) }"),
-                "Save Anyway / Save Again after a delete leaves the panes without the file")
+                "Save Again after a delete leaves the panes without the file")
         let measured = try #require(write.range(of: "let recreates"))
         let written = try #require(write.range(of: "EditorFileStore.write(editorDocument)"))
         #expect(measured.lowerBound < written.lowerBound, "asked after the write, when the file always exists")

@@ -62,8 +62,8 @@ enum EditorAlerts {
     }
 
     nonisolated static let keepMineInformativeText =
-        "It was changed somewhere else while you were typing. Keeping yours writes it over that "
-        + "version, and the other changes are lost."
+        "It was changed somewhere else while you were typing. Keeping your version writes over "
+        + "that one, and the other changes are lost."
 
     /// Keep Mine first, Cancel second — Cancel holds Return and Escape. No ellipsis here: this is
     /// the question the ellipsis on Keep Mine… promised, and its answer writes.
@@ -71,7 +71,7 @@ enum EditorAlerts {
 
     /// **Whether writing the buffer asks "Replace the version on disk with yours?" first** — for a
     /// file that CHANGED, where there is another version to lose. A file that is no longer there has
-    /// nothing at its path to replace; its Save Anyway writes it back where it was, and the alert
+    /// nothing at its path to replace; its Save Again writes it back where it was, and the alert
     /// that offered it already said so.
     nonisolated static func keepMineAsks(for divergence: EditorFileStore.Divergence) -> Bool {
         divergence == .changed
@@ -92,14 +92,14 @@ enum EditorAlerts {
 
     /// The message for a file that changed or vanished since it was opened.
     ///
-    /// **Two different sentences, because they are two different situations and one of them has a
-    /// likely cause worth naming.** A file that is simply *gone* was very probably filed or renamed
-    /// by an Organize run in this same window, and saving would put a second copy back at the old
-    /// path — so the prompt says so rather than describing a generic conflict.
+    /// **Two different sentences, because they are two different situations.** A changed file is
+    /// said in the banner's words (TE150) — "since you opened it" was wrong once autosave had run. A
+    /// gone one is said as gone: a move is followed (TE59), so what is left was deleted, or went with
+    /// its folder.
     nonisolated static func divergenceMessage(name: String,
                                               divergence: EditorFileStore.Divergence) -> String {
         switch divergence {
-        case .changed: return "“\(name)” has changed on disk since you opened it."
+        case .changed: return "“\(name)” changed on disk while you were typing."
         case .missing: return "“\(name)” is no longer where you opened it."
         }
     }
@@ -108,18 +108,19 @@ enum EditorAlerts {
         _ divergence: EditorFileStore.Divergence) -> String {
         switch divergence {
         case .changed:
-            return "Keeping yours replaces what’s on disk with what’s in Edit, and the other "
-                + "changes are lost."
+            return "Keeping your version replaces the one on disk, and the other changes are lost."
+        // What Save Again does (TE151): the banner's write, which looks first and puts back a folder
+        // that went too.
         case .missing:
-            return "It may have been moved or renamed — by Organize, or outside SyncCloud. "
-                + "Saving writes it again at the old location, leaving the moved copy where it is."
+            return "It writes it back where it was, making its folder again if that went too."
         }
     }
 
     /// What the user can do about a file that moved under the buffer.
     enum DivergenceAnswer: Equatable {
         /// Overwrite what is on disk with the buffer — Keep Mine… for a file that changed, which
-        /// asks first (``keepMineAsks(for:)``), and Save Anyway for one that is gone.
+        /// asks first (``keepMineAsks(for:)``), and Save Again for one that is gone, which is the
+        /// banner's Save Again: it looks first, and makes the folder again (TE151).
         case saveAnyway
         /// Throw the buffer away and take the file — Use Disk Version. **Only offered for
         /// `.changed`** — see ``divergenceButtonTitles(for:)``.
@@ -145,9 +146,13 @@ enum EditorAlerts {
         /// both wear AppKit's destructive styling. Asked of the *answer* rather than of the button
         /// title so the styling and the click are read through the same mapping: a reordered title
         /// list cannot leave the styling on one button and the meaning on another.
-        var isDestructive: Bool {
+        ///
+        /// **Save Again discards nothing** (TE151): the file is gone, and it writes only while
+        /// nothing is at the path. It is not destructive on the banner, so not here either.
+        func isDestructive(for divergence: EditorFileStore.Divergence) -> Bool {
             switch self {
-            case .saveAnyway, .reloadFromDisk: return true
+            case .saveAnyway: return divergence == .changed
+            case .reloadFromDisk: return true
             case .showWhatChanged, .cancel: return false
             }
         }
@@ -158,24 +163,25 @@ enum EditorAlerts {
     /// is a their-version to read — and "Compare…" opens that version beside the buffer.
     ///
     /// **The changed file's words are the banner's** (TE97, `EditorDiskVerbs`), so the question
-    /// reads the same wherever it is asked. The gone file keeps Save Anyway: there is no "mine"
-    /// against a "theirs" there, only a file to write back.
+    /// reads the same wherever it is asked — and in the banner's order (TE178). The gone file's
+    /// Save Again is the banner's too (TE151): there is no "mine" against a "theirs" there, only a
+    /// file to write back.
     /// For a file that has been moved or renamed there is nothing at that path to reload OR to
     /// show, so either would be a button that cannot do what it says.
     ///
     /// Both non-cancel *answers* are destructive in opposite directions — one discards what
-    /// arrived, the other discards what you typed — so Cancel is the safe landing and neither of
-    /// the others keeps Return. "Compare…" discards nothing and writes nothing, so it is
-    /// neither; see ``DivergenceAnswer/isDestructive``.
+    /// arrived, the other discards what you typed — so neither keeps Return. "Compare…" discards
+    /// nothing and writes nothing, so it comes first and takes Return; see
+    /// ``DivergenceAnswer/isDestructive(for:)``.
     ///
     /// **Cancel stays last in both lists**, which is what makes "every other response is Cancel"
     /// in ``divergenceAnswer(for:divergence:)`` the safe rule rather than a coincidence.
     nonisolated static func divergenceButtonTitles(
         for divergence: EditorFileStore.Divergence) -> [String] {
         switch divergence {
-        case .changed: return [EditorDiskVerbs.keepMine, EditorDiskVerbs.useDiskVersion,
-                               EditorDiskVerbs.compare, "Cancel"]
-        case .missing: return ["Save Anyway", "Cancel"]
+        case .changed: return [EditorDiskVerbs.compare, EditorDiskVerbs.useDiskVersion,
+                               EditorDiskVerbs.keepMine, "Cancel"]
+        case .missing: return [EditorDiskVerbs.saveAgain, "Cancel"]
         }
     }
 
@@ -192,22 +198,21 @@ enum EditorAlerts {
     }
 
     /// **The one place a button position becomes an answer**, and it has to be read against the
-    /// same divergence the titles were built from: "Use Disk Version" is the second button for a
-    /// changed file and does not exist for a missing one, where the second button is Cancel.
-    /// Reading the position without the case is how the safe answer becomes the destructive one.
+    /// same divergence the titles were built from: the first button is Compare… for a changed file
+    /// and Save Again for a missing one, where the second button is Cancel. Reading the position
+    /// without the case is how the safe answer becomes the destructive one.
     ///
-    /// **Adding "Compare…" moved nothing.** It went in at position three — after both
-    /// real answers and before Cancel — so `.saveAnyway` is still the first button and
-    /// `.reloadFromDisk` still the second, and Cancel still falls through to the default. That is
-    /// deliberate: a new button inserted ahead of an existing one silently redefines every position
-    /// after it, and the two answers it would have shifted are the destructive ones.
+    /// **The banner's order** (TE178): Compare…, Use Disk Version, Keep Mine…, Cancel. Compare… is
+    /// first and so takes Return, which is safe — it writes nothing — and Cancel, last, still falls
+    /// through to the default.
     nonisolated static func divergenceAnswer(
         for response: NSApplication.ModalResponse,
         divergence: EditorFileStore.Divergence) -> DivergenceAnswer {
         switch (divergence, response) {
-        case (_, .alertFirstButtonReturn): return .saveAnyway
+        case (.changed, .alertFirstButtonReturn): return .showWhatChanged
         case (.changed, .alertSecondButtonReturn): return .reloadFromDisk
-        case (.changed, .alertThirdButtonReturn): return .showWhatChanged
+        case (.changed, .alertThirdButtonReturn): return .saveAnyway
+        case (.missing, .alertFirstButtonReturn): return .saveAnyway
         // Every other response — Cancel, a dismissed sheet, anything AppKit adds later — is the
         // answer that changes nothing.
         default: return .cancel
@@ -244,7 +249,7 @@ enum EditorAlerts {
         for title in titles { alert.addButton(withTitle: title) }
         // **Neither destructive answer keeps Return**, which is the same guard `SyncOperationAlerts`
         // puts on a permanent delete — and there are two of them here, discarding in opposite
-        // directions. Cancel is what a blind Return does.
+        // directions. A blind Return opens Compare… or, for a gone file, Save Again.
         //
         // **Which buttons those are is read from the MAPPING, not from their titles.** This used to
         // strip Return from everything not titled "Cancel", which was the same set right up until a
@@ -254,7 +259,7 @@ enum EditorAlerts {
         // actually read as destructive.
         for (index, button) in alert.buttons.enumerated()
         where divergenceAnswer(for: divergenceResponse(atButtonIndex: index),
-                               divergence: divergence).isDestructive {
+                               divergence: divergence).isDestructive(for: divergence) {
             button.keyEquivalent = ""
             button.hasDestructiveAction = true
         }

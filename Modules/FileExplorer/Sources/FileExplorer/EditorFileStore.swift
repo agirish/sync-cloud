@@ -417,6 +417,19 @@ public enum EditorFileStore {
         }
     }
 
+    /// **The reason, not the staged file's name**: Foundation's sentence for a failed staging write
+    /// names the hidden `.tmp_…` file, which the reader never asked for and will not find — so a
+    /// full disk reads "No space left on device" (TE175).
+    static func stagingFailure(_ error: Error) -> Failure {
+        if let underlying = (error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying.domain == NSPOSIXErrorDomain {
+            return Failure(message: String(cString: strerror(Int32(underlying.code))))
+        }
+        // Not "it couldn't be written there" (TE114), which said nothing a reader could act on:
+        // what is known is that macOS refused without a reason this app can name.
+        return Failure(message: "macOS wouldn’t write it there and gave no reason.")
+    }
+
     private static func createNew(atPath path: String, expectedSize: Int?,
                                   stage: (URL) throws -> Void) throws -> Stamp {
         let fileManager = FileManager.default
@@ -431,15 +444,7 @@ public enum EditorFileStore {
         } catch let failure as Failure {
             throw failure
         } catch {
-            // **The reason, not the staged file's name**: Foundation's sentence names the hidden
-            // `.tmp_…` file, which the reader never asked for and will not find.
-            if let underlying = (error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError,
-               underlying.domain == NSPOSIXErrorDomain {
-                throw Failure(message: String(cString: strerror(Int32(underlying.code))))
-            }
-            // Not "it couldn't be written there" (TE114), which said nothing a reader could act on:
-            // what is known is that macOS refused without a reason this app can name.
-            throw Failure(message: "macOS wouldn’t write it there and gave no reason.")
+            throw stagingFailure(error)
         }
         // Flushed before it is moved in, for the reason the save path gives: the rename can reach
         // the disk before the data does.
@@ -535,7 +540,11 @@ public enum EditorFileStore {
             try? fileManager.removeItem(at: backupPath)
         }
 
-        try bytes.write(to: staged)
+        do {
+            try bytes.write(to: staged)
+        } catch {
+            throw stagingFailure(error)
+        }
         // **Flushed before the swap, or the swap is a promise the disk has not made.** The rename
         // is what makes this atomic, but APFS is free to commit the rename before the staged file's
         // data blocks reach stable storage — and the old bytes are unlinked immediately after. A

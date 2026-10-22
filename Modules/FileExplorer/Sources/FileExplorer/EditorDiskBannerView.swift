@@ -17,9 +17,11 @@ public enum EditorDiskBannerAction: Equatable, Sendable {
     case saveAgain
 }
 
-/// **The three answers to "the file changed on disk", in one set of words** (TE97) — the banner, the
+/// **The answers to "the file changed on disk", in one set of words** (TE97) — the banner, the
 /// ⌘S alert (`EditorAlerts.divergenceButtonTitles`) and the comparison sheet's foot all read them
-/// here, so the banner's Compare… opens a sheet whose buttons are the banner's own.
+/// here, so the banner's Compare… opens a sheet whose buttons are the banner's own. In one order
+/// too (TE178): Compare…, Use Disk Version, Keep Mine…. Save Again is the gone file's, on the
+/// banner and in the ⌘S alert alike (TE151).
 ///
 /// **Keep Mine… carries an ellipsis everywhere** because it always asks "Replace the version on
 /// disk with yours?" before it writes, wherever it is pressed. Compare… opens the sheet. Use Disk
@@ -28,6 +30,7 @@ public enum EditorDiskVerbs {
     public static let compare = "Compare…"
     public static let keepMine = "Keep Mine…"
     public static let useDiskVersion = "Use Disk Version"
+    public static let saveAgain = "Save Again"
 }
 
 /// **The banner in the document card while a change from elsewhere waits for an answer** (TE59).
@@ -47,7 +50,7 @@ struct EditorDiskBannerView: View {
     /// The buttons, in order — a value so a test can read them without a rendered banner.
     static func actions(for banner: EditorDiskBanner, canSaveAgain: Bool) -> [EditorDiskBannerAction] {
         switch banner {
-        case .changed: return [.compare, .keepMine, .useDisks]
+        case .changed: return [.compare, .useDisks, .keepMine]
         case .deleted: return canSaveAgain ? [.close, .saveAgain] : [.close]
         }
     }
@@ -58,7 +61,7 @@ struct EditorDiskBannerView: View {
         case .keepMine: return EditorDiskVerbs.keepMine
         case .useDisks: return EditorDiskVerbs.useDiskVersion
         case .close: return "Close"
-        case .saveAgain: return "Save Again"
+        case .saveAgain: return EditorDiskVerbs.saveAgain
         }
     }
 
