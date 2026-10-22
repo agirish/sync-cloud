@@ -2,6 +2,7 @@ import Testing
 import AppKit
 import PDFKit
 @testable import FileExplorer
+import EventsTestSupport
 
 /// **Save as PDF's engines, read back with PDFKit** — `DocumentPDFTests`' check: the words are on
 /// the pages as text, on the page they belong on, the right number of times.
@@ -388,6 +389,88 @@ import PDFKit
             #expect(old.width == new.width && old.height == new.height)
             #expect(old.dataProvider?.data as Data? == new.dataProvider?.data as Data?, "page \(number) looks different")
         }
+    }
+
+    // MARK: When WebKit gives nothing
+
+    /// A folder holding `page.html`, a line of text — with `stuck`, and a picture that is a named
+    /// pipe nobody writes to, so its load, and the page's, never ends on its own.
+    private static func page(stuck: Bool) throws -> (html: URL, folder: URL) {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("webpdf-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let html = folder.appendingPathComponent("page.html")
+        try "<html><body><p>Lamps</p>\(stuck ? #"<img src="pipe.png">"# : "")</body></html>"
+            .write(to: html, atomically: true, encoding: .utf8)
+        if stuck { try #require(mkfifo(folder.appendingPathComponent("pipe.png").path, 0o600) == 0) }
+        return (html, folder)
+    }
+
+    @MainActor private final class Backstop { var fired = false }
+
+    /// Lets go of whatever WebKit has left waiting to open the pipe, and removes the folder. Opening
+    /// the far end without blocking fails when nobody is waiting: then there is nothing to let go.
+    private static func release(_ folder: URL) {
+        let end = open(folder.appendingPathComponent("pipe.png").path, O_WRONLY | O_NONBLOCK)
+        if end >= 0 { Darwin.close(end) }
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    /// **A load that cannot finish gives up at its guard, and says so once** — the page's picture
+    /// never arrives, so only the timer ends the wait. A second deadline closes the view, ending the
+    /// wait, so a guard that never ends it fails rather than hangs — at the production guard's
+    /// 120 s, far enough past the timer's that a main thread a minute behind still runs the test's
+    /// resumption before it.
+    @Test func aLoadThatCannotFinishGivesUpAtItsGuard() async throws {
+        let (html, folder) = try Self.page(stuck: true)
+        defer { Self.release(folder) }
+        let web = await WebPDFView.make(width: 400)
+        defer { web.close() }
+        let backstopped = Backstop()
+        let backstop = DispatchWorkItem { MainActor.assumeIsolated { backstopped.fired = true; web.close() } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 120, execute: backstop)
+        defer { backstop.cancel() }
+        let log = LogCapture()
+        #expect(await web.load(html, timeout: 1) == false)
+        #expect(!backstopped.fired, "the guard never ended the load")
+        let lines = await log.entries.filter { $0.level == .warning && $0.message.contains("load in 1 s; giving up") }
+        #expect(lines.count == 1, "\(lines.map(\.message))")
+    }
+
+    /// **A load that finished says nothing when its guard's timer fires later.** The timer still
+    /// runs; it finds no load waiting. `didFinish` is queued ahead of the timer, so the load has
+    /// ended first even on a machine whose main thread is far behind — WebKit's own may come first
+    /// instead, and either ends it. The wait after is queued behind the timer, on the same queue.
+    @Test func aLoadThatFinishedSaysNothingWhenItsGuardFires() async throws {
+        let (html, folder) = try Self.page(stuck: false)
+        defer { Self.release(folder) }
+        let web = await WebPDFView.make(width: 400)
+        defer { web.close() }
+        let log = LogCapture()
+        DispatchQueue.main.async { MainActor.assumeIsolated { web.webView(web.web, didFinish: nil) } }
+        try #require(await web.load(html, timeout: 2))
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { done.resume() }
+        }
+        #expect(await !log.holds(containing: "load in 2 s; giving up"))
+    }
+
+    /// **A web process that quit fails the load at once, and every draw after it refuses** rather
+    /// than drawing a dead view blank. No public API ends a web process, so WebKit's report is made
+    /// here directly, queued ahead of anything the load can report.
+    @Test func aWebProcessThatQuitFailsTheLoadAndEveryDraw() async throws {
+        let (html, folder) = try Self.page(stuck: false)
+        defer { Self.release(folder) }
+        let web = await WebPDFView.make(width: 400)
+        defer { web.close() }
+        let log = LogCapture()
+        DispatchQueue.main.async { MainActor.assumeIsolated { web.webViewWebContentProcessDidTerminate(web.web) } }
+        #expect(await web.load(html, timeout: 30) == false)
+        #expect(await log.holds(.warning, containing: "Save as PDF: the web process drawing the file quit"))
+        await #expect(throws: SaveAsPDFFailure.quickLookGaveNothing) {
+            try await web.pdf(of: CGRect(x: 0, y: 0, width: 100, height: 100))
+        }
+        let info = SaveAsPDFRender.printInfo(paper: CGSize(width: 612, height: 792), margins: NSEdgeInsets())
+        await #expect(throws: SaveAsPDFFailure.quickLookGaveNothing) { try await web.print(info) }
     }
 
     // MARK: What converts
