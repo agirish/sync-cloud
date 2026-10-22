@@ -40,6 +40,13 @@ public enum ShortcutKeycapMetrics {
 
     /// Alpha of the drop shadow that lifts the key off the control — see `ShortcutKeycap.body`.
     public static let shadowOpacity: Double = 0.28
+
+    /// **The compact key's padding**, for a row of glyph buttons packed closer than the full key
+    /// is wide (TE194): the format bar's B, I and S sit 27pt apart and "⇧⌘X" is wider than that,
+    /// so two full keys met over the button between them. Smaller type and less padding, and still
+    /// the same opaque key.
+    public static let compactHorizontalPadding: CGFloat = 3
+    public static let compactVerticalPadding: CGFloat = 2
 }
 
 /// The badge itself. Rendered only while the reveal is active; see `.shortcutKeycap(_:)`.
@@ -52,14 +59,19 @@ public enum ShortcutKeycapMetrics {
 /// is also what a key *is* — keys do not change colour with what they are sitting on.
 public struct ShortcutKeycap: View {
     private let symbol: String
+    private let compact: Bool
 
-    public init(_ symbol: String) {
+    /// `compact`: the smaller key, for a control whose neighbours are closer than the full key is
+    /// wide — see ``ShortcutKeycapMetrics/compactHorizontalPadding``.
+    public init(_ symbol: String, compact: Bool = false) {
         self.symbol = symbol
+        self.compact = compact
     }
 
     public var body: some View {
         Text(symbol)
-            .scaledFont(.subheadline.monospaced().weight(.semibold))
+            .scaledFont(compact ? .caption2.monospaced().weight(.semibold)
+                                : .subheadline.monospaced().weight(.semibold))
             // Pinned colours, not `.secondary`/`.quaternary`. Hierarchical styles resolve against
             // the *enclosing* foreground style, which inside a filled button is white — so the
             // hierarchical version rendered a white glyph on a light key the moment it was dropped
@@ -67,8 +79,10 @@ public struct ShortcutKeycap: View {
             .foregroundStyle(Color(nsColor: .labelColor))
             .lineLimit(1)
             .fixedSize()
-            .padding(.horizontal, ShortcutKeycapMetrics.horizontalPadding)
-            .padding(.vertical, ShortcutKeycapMetrics.verticalPadding)
+            .padding(.horizontal, compact ? ShortcutKeycapMetrics.compactHorizontalPadding
+                                          : ShortcutKeycapMetrics.horizontalPadding)
+            .padding(.vertical, compact ? ShortcutKeycapMetrics.compactVerticalPadding
+                                        : ShortcutKeycapMetrics.verticalPadding)
             .background(shape.fill(Color(nsColor: .controlBackgroundColor)))
             .overlay(shape.strokeBorder(Color(nsColor: .separatorColor),
                                         lineWidth: ShortcutKeycapMetrics.borderWidth))
@@ -122,8 +136,13 @@ public extension View {
     /// sets one layer over. Applying the modifier conditionally at the call site instead would make
     /// the two arms two structural identities, which is safe only for a control holding no state —
     /// one identity that decides inside is safe for every control.
-    func shortcutKeycap(_ symbol: String?) -> some View {
-        modifier(ShortcutKeycapModifier(symbol: symbol))
+    ///
+    /// `compact` draws the smaller key, for a control packed close among others that wear one.
+    /// `shown: false` keeps the badge off while the chord would go somewhere else — the format
+    /// bar's ⌘I is Italic only with the caret in the text — and keeps the VoiceOver hint, which
+    /// names what the control's key is, not where the keyboard happens to be.
+    func shortcutKeycap(_ symbol: String?, compact: Bool = false, shown: Bool = true) -> some View {
+        modifier(ShortcutKeycapModifier(symbol: symbol, compact: compact, shown: shown))
     }
 }
 
@@ -132,13 +151,16 @@ private struct ShortcutKeycapModifier: ViewModifier {
     /// overload. It suppresses the badge and the hint together: a control with no shortcut must
     /// not announce one to VoiceOver either, which a badge-only gate would leave it doing.
     let symbol: String?
+    var compact = false
+    /// The call site's own condition for the badge — see `shortcutKeycap(_:compact:shown:)`.
+    var shown = true
 
     @Environment(\.shortcutRevealActive) private var isRevealActive
     /// A disabled control's shortcut does not fire, so it must not advertise one. Same guard, and
     /// the same reasoning, as `HoverAffordanceMetrics.resolve`'s `isEnabled` check.
     @Environment(\.isEnabled) private var isEnabled
 
-    private var showsKeycap: Bool { symbol != nil && isRevealActive && isEnabled }
+    private var showsKeycap: Bool { symbol != nil && shown && isRevealActive && isEnabled }
 
     func body(content: Content) -> some View {
         content
@@ -157,7 +179,7 @@ private struct ShortcutKeycapModifier: ViewModifier {
             // also the only placement that cannot overhang asymmetrically onto a neighbour.
             .overlay {
                 if showsKeycap, let symbol {
-                    ShortcutKeycap(symbol).transition(.opacity)
+                    ShortcutKeycap(symbol, compact: compact).transition(.opacity)
                 }
             }
             .animation(.easeOut(duration: 0.12), value: showsKeycap)

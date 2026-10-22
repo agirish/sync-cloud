@@ -175,7 +175,8 @@ Requires **macOS 26**, unchanged from the 5.x line.
   opens a file again and takes the file pane to its folder; right-click a row for Remove from
   Recents. A file that was deleted, or is on a disk that is not connected, is left off until it is
   back, and a file moved while open is followed. **File ▸ Open Recent** holds the same list in every
-  workspace, with Clear Menu.
+  workspace, with Clear Menu. A file dragged from Finder onto that page opens as Finder's Open With
+  opens it; before, the drop did nothing.
 - **One strip for Edit's side column.** The Files list can now fold on its own, into the strip at
   the left edge, and starts folded; before, it went only when the file pane took its place, or under
   Expand, which hid the sidebar too. The strip has a button for the file pane and one for each tab
@@ -256,6 +257,13 @@ Requires **macOS 26**, unchanged from the 5.x line.
   line's Show Outline in File List opens it from any layout. An image dropped or pasted into a note
   says, on the status line, what was saved and where. A save the disk refuses gives the reason —
   "No space left on device" — not the name of a hidden staging file.
+- **Help, menus and keys catch up with Edit.** `⌘?` opens Help at the page for the workspace you
+  are in, not at setup — and, with a PDF open, at a new page, **Read, fill and sign a PDF**, which
+  holds what Edit's page said about PDFs. Holding ⌥ shows the keys on the format bar, Source,
+  Preview and Split, Go to Line, the PDF's page, zoom and find buttons, the empty page's buttons and
+  the comparison's Cancel. View ▸ Preview is now **View ▸ File Preview**, so Text ▸ Preview is the
+  only Preview. `⌘K` finds Edit by "pdf", "sign" or "fill"; Voice Control answers to "Click Find",
+  "Click Tools" and "Click Close"; and Help's search finds "doesn’t" when you type "doesn't".
 - **Ticking a box in Preview is quick in a long note.** With Edit in Preview off, or in a note over
   256 KB, a tick rewrote and compared the whole note; it now changes only its own line. The last
   task in a 200 KB note went from 35 ms to 0.2 ms, and in a 4 MiB note from 808 ms to 3.7 ms.

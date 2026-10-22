@@ -1,5 +1,6 @@
 import AppKit
 import Dashboard
+import Design
 import Foundation
 import FileExplorer
 import Settings
@@ -101,6 +102,17 @@ import Testing
         let ids = Set(results.flatMap(\.topics).map(\.id))
         #expect(ids.contains("scan"))
         #expect(ids.contains("sync-preferences"))
+    }
+
+    /// **A typed apostrophe finds Help's curly one, and the other way round** (TE173): "doesn't
+    /// allow" found nothing because Help writes “doesn’t allow”. Mutation: drop the folding in
+    /// `searchFolded` and the first line fails.
+    @Test func searchTreatsBothApostrophesAlike() {
+        for typed in ["doesn't allow filling", "doesn’t allow filling", "DOESN'T ALLOW FILLING"] {
+            let ids = Set(HelpBook.filteredSections(matching: typed).flatMap(\.topics).map(\.id))
+            #expect(!ids.isEmpty, "“\(typed)” finds nothing")
+        }
+        #expect(HelpBook.searchFolded("Don’t ‘quote’") == "don't 'quote'")
     }
 
     @Test func testUnmatchedQueryReturnsNothing() {
@@ -213,10 +225,13 @@ import Testing
     /// `testTheBrowseWorkspaceHasATopic` is folded in here rather than kept beside this — every
     /// assertion it made is one of the four below, and two tests asking the same question is how
     /// one of them comes to be the only one anybody updates.
-    @Test func everyWorkspaceHasATopic() {
+    ///
+    /// **And ⌘? opens there** (TE169): `HelpBook.topicID(for:)` is the map below, and the overlay
+    /// falls back to it when nothing named a page. It opened at "Set up SyncCloud" everywhere.
+    @Test func everyWorkspaceHasATopic() throws {
         let expected: [Workspace: String] = [
             .browse: "browse-workspace",
-            .compare: "what-is-synccloud",
+            .compare: "scan",
             .filing: "organize-workspace",
             .editor: "editor-workspace",
         ]
@@ -224,7 +239,15 @@ import Testing
             let id = expected[workspace]
             #expect(id != nil, "\(workspace.title) is a workspace with no help topic named here")
             if let id { #expect(HelpBook.topic(id: id) != nil, "\(workspace.title)'s topic \(id) is gone") }
+            #expect(HelpBook.topicID(for: workspace) == id, "⌘? in \(workspace.title) opens somewhere else")
         }
+        let overlay = try CodeText(declarationBody(of: "private var helpOverlay: some View",
+                                                   in: OpenInEditorMenuTests.macApp("ContentView.swift")))
+        #expect(overlay.contains("openAt: helpTopic ?? HelpBook.topicID(for: selectedWorkspace, pdfIsOpen: editorPDF.path != nil)"),
+                "⌘? no longer opens at the workspace's page, or the PDF's with one open")
+        #expect(HelpBook.topicID(for: .editor, pdfIsOpen: true) == "pdf-workspace")
+        #expect(HelpBook.topicID(for: .browse, pdfIsOpen: true) == "browse-workspace",
+                "a PDF left open in Edit took ⌘? in Browse to the PDF's page")
         #expect(HelpBook.sectionTitle(forTopicID: "browse-workspace") == "Getting started")
 
         // The copy counts the segments too, and a number written out in prose is exactly the
@@ -246,29 +269,33 @@ import Testing
     /// **Edit's article names every door into Edit, and the ways back out and around** (TE34).
     ///
     /// It said "four ways" after TE31 and TE32 had made it six — nothing counts doors, so nothing
-    /// noticed. Finder's Open With made it seven. The count is a number written in prose, the thing
+    /// noticed. Finder's Open With made it seven; it still said seven after File ▸ Open Recent and the
+    /// empty page's recent files (TE58) made it eight, and a drop from Finder on that page (TE198)
+    /// makes it nine. The count is a number written in prose, the thing
     /// `everyWorkspaceHasATopic` says does not move on its own; so each door is looked for by what
-    /// the article must say to name it, and "four"/"five"/"six ways" anywhere in the book fails. Mutation: put back "There are four
+    /// the article must say to name it, and any smaller count anywhere in the book fails. Mutation: put back "There are four
     /// ways to bring a file here" and the count line fails; drop the duplicates' clause and its
     /// line fails; put back "they all do the same thing" and the last line fails.
     @Test func editsArticleNamesEveryDoorIntoEdit() throws {
         let topic = try #require(HelpBook.topic(id: "editor-workspace"))
         let text = Self.copy(of: topic).joined(separator: " ")
         let doors = [
-            "seven ways to bring a file here",
+            "nine ways to bring a file here",
             "right-click a text file and choose Open in Edit",     // a file pane's row menu
             "the Edit button by its name",                          // the preview
             "Info inspector",                                       // ⌘I
             "File ▸ Open in Edit — ⌘O",                             // the menu and its chord
-            "Compare's list of differences offers Open in Edit",   // TE31, per side
-            "a copy in Organize's duplicates offers it first",     // TE32
-            "in Finder, a text file's Open With menu offers SyncCloud",   // ExternalOpen
+            "Compare’s list of differences offers Open in Edit",   // TE31, per side
+            "a copy in Organize’s duplicates offers it first",     // TE32
+            "in Finder, a text file’s Open With menu offers SyncCloud",   // ExternalOpen
+            "File ▸ Open Recent holds the same list",               // TE58, and the empty page's list
+            "a file dragged from Finder onto Edit’s page",          // TE198
             // What they do to the pane: all but one move it (TE31's .staysPut is the one).
-            "Every one but Compare's list of differences also takes the file pane on the left",
+            "Every one but Compare’s list of differences also takes the file pane on the left",
         ]
         let backAndAround = [
             "Reveal in Browse", "Get Info, Reveal in Finder, Quick Look, Rename and Delete",   // TE33, TE117
-            "File ▸ Close Document", "New Text File, on the file name's row",  // TE46, TE45, TE144
+            "File ▸ Close Document", "New Text File, on the file name’s row",  // TE46, TE45, TE144
             "“in Finance”", "“iCloud › Documents › Finance”",                   // TE43, both readings
             "“No document open”",                                               // the empty page
         ]
@@ -277,9 +304,9 @@ import Testing
             #expect(said, "Edit's article no longer says “\(phrase)”")
         }
         let everyWord = HelpBook.allTopics.flatMap(Self.copy(of:)).joined(separator: " ")
-        for stale in ["four ways to bring", "five ways to bring", "six ways to bring"] {
+        for stale in ["four", "five", "six", "seven", "eight"].map({ "\($0) ways to bring" }) {
             let said = everyWord.contains(stale)
-            #expect(!said, "an article still says “\(stale)” — there are seven")
+            #expect(!said, "an article still says “\(stale)” — there are nine")
         }
         // Not since Compare's list of differences stopped moving the pane.
         #expect(!text.contains("all do the same thing"),
@@ -295,6 +322,67 @@ import Testing
                 #expect(!body.contains(stale), "\(notes) still says “\(stale)” — the differences list leaves the pane put")
             }
         }
+    }
+
+    /// **The lines about Edit that had fallen behind it** (TE172), each against what it described:
+    /// Edit autosaves, so it does not save "when you ask it to"; a file that is not Markdown, or no
+    /// file, has a Files tab alone (`EditorRailTab.shown`); README's "rail" is the file list, its
+    /// header buttons read New Text File and Close, and a PDF's Outline needs two bookmarks; and ⌘O
+    /// opens a selected PDF as well as a text file. Mutation: put any old line back and its check
+    /// fails.
+    @Test func editsLinesSayWhatEditDoes() throws {
+        let book = HelpBook.allTopics.flatMap(Self.copy(of:)).joined(separator: " ")
+        for stale in ["it saves when you ask it to", "The file list has two tabs: Files and Outline"] {
+            let said = book.contains(stale)
+            #expect(!said, "Help still says “\(stale)”")
+        }
+        #expect(EditorRailTab.shown(pdfIsOpen: false, pdfHasOutline: false, markdownIsOpen: false) == [.files],
+                "the Files tab is no longer alone without a Markdown file — Help's sentence is wrong again")
+        let edit = try #require(HelpBook.topic(id: "editor-workspace"))
+        let tabs = Self.copy(of: edit).joined(separator: " ").contains("Outline beside it while a Markdown file is open")
+        #expect(tabs, "Help does not say when Outline is offered")
+
+        let readme = try LinkedMoveTranslationTests.repoFile("README.md")
+        let edits = try #require(readme.range(of: "### ✏️ Edit"))
+        let section = readme[edits.lowerBound...].prefix(6_000)
+        for stale in ["a rail lists", "The rail shows", "**＋** makes a new file", "**×** puts the open one away"] {
+            #expect(!section.contains(stale), "README's Edit section still says “\(stale)”")
+        }
+        #expect(section.contains("when the PDF has two or more bookmarks"))
+
+        let rows = ShortcutsReference.groups.flatMap(\.items).filter { $0.keys.contains("⌘ O") }
+        #expect(rows.map(\.action) == ["New or selected file, in Edit"])
+    }
+
+    /// **PDFs have a page of their own, next to Edit's** (TE171), and each links to the other.
+    /// Its five paragraphs left "Write in a text file", which keeps one line pointing at it.
+    /// Mutation: put a paragraph back in Edit's article and the third check fails.
+    @Test func pdfsHaveATopicBesideEdits() throws {
+        let edit = try #require(HelpBook.topic(id: "editor-workspace"))
+        let pdf = try #require(HelpBook.topic(id: "pdf-workspace"))
+        #expect(pdf.title == "Read, fill and sign a PDF")
+        let started = try #require(HelpBook.sections.first { $0.title == "Getting started" }).topics.map(\.id)
+        let at = try #require(started.firstIndex(of: "editor-workspace"))
+        #expect(started.indices.contains(at + 1) && started[at + 1] == "pdf-workspace",
+                "the PDF's page is not straight after Edit's")
+        #expect(edit.article.related.contains("pdf-workspace") && pdf.article.related.contains("editor-workspace"))
+        let editText = Self.copy(of: edit).joined(separator: " "), pdfText = Self.copy(of: pdf).joined(separator: " ")
+        for paragraph in ["A PDF opens in Edit through the same doors as a text file:", "Tools, after Fill & Sign, is the PDF’s Tools menu",
+                          "Fill & Sign, beside Find, floats a palette", "Replace, after Text in the palette, retypes",
+                          "A PDF with fields of its own — a W-9, a visa form —"] {
+            #expect(pdfText.contains(paragraph), "the PDF's page lacks “\(paragraph)”")
+            #expect(!editText.contains(paragraph), "Edit's article still holds “\(paragraph)”")
+        }
+        #expect(editText.contains("are in Read, fill and sign a PDF."), "Edit's article does not point at the PDF's page")
+    }
+
+    /// **Help gives the shortcuts window's own key** (TE195) — the chord itself, so a new key
+    /// cannot leave the old one in the sentence. It named the window and not ⌘/.
+    @Test func helpNamesTheShortcutsWindowsKey() throws {
+        let keys = try #require(HelpBook.topic(id: "keyboard-shortcuts"))
+        let said = Self.copy(of: keys).joined(separator: " ")
+            .contains("Window ▸ Keyboard Shortcuts (\(AppChord.shortcutsReference.display))")
+        #expect(said, "Help does not give the shortcuts window's key")
     }
 
     /// **Help names the Markup verbs that only add** (FMT-19). It said every verb "takes itself off
@@ -335,9 +423,9 @@ import Testing
         let tools = source.matches(of: /tool\("([A-Za-z ]+)", \./).map { String($0.output.1) }
         #expect(tools.contains("Replace") && tools.contains("Form Fields"),
                 "the menu's tool lines were not found — this check would be vacuous: \(tools)")
-        let topic = try #require(HelpBook.topic(id: "editor-workspace"))
+        let topic = try #require(HelpBook.topic(id: "pdf-workspace"))
         let line = try #require(Self.copy(of: topic).first { $0.contains("File ▸ Fill & Sign Tool holds") })
-        let list = try #require(line.range(of: "holds the palette's tools — ").map { line[$0.upperBound...] })
+        let list = try #require(line.range(of: "holds the palette’s tools — ").map { line[$0.upperBound...] })
         for tool in tools {
             #expect(list.contains(tool), "Help's Fill & Sign Tool list leaves out \(tool)")
         }

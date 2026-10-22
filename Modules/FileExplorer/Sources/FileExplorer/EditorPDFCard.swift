@@ -133,6 +133,7 @@ struct EditorPDFFindButton: View {
         }
         .modifier(EditorPDFActionStyle(accent: accent))
         .accessibilityLabel("Find in this PDF")
+        .accessibilityInputLabels(EditorSpokenNames.names(word: "Find", label: "Find in this PDF"))
         .shortcutKeycap(AppChord.findInPane.display)
         .help(ShortcutHint.tooltip("Find in this PDF", AppChord.findInPane.display))
     }

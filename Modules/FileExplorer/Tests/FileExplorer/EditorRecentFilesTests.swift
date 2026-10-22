@@ -238,6 +238,30 @@ import FileExplorerTestSupport
         #expect(EditorRecentFilesPage<EmptyView>.removeTitle == "Remove from Recents")
     }
 
+    /// **A drop on the empty page hands its files to the host, and only files** (TE198). A web
+    /// address dragged from a browser is a URL too; a drop with no file in it, or with no host to
+    /// take it, is refused so Finder slides it back. The page takes it whole, not just the list.
+    @Test func aDropOnTheEmptyPageHandsOverItsFiles() throws {
+        var handed: [[URL]] = []
+        let take: ([URL]) -> Void = { handed.append($0) }
+        let file = URL(fileURLWithPath: "/n/Recipes/Pasta.md")
+        let web = try #require(URL(string: "https://example.com/a.md"))
+        #expect(EditorWorkspaceView.takesDrop([web, file], onDropFiles: take))
+        #expect(handed == [[file]])
+        #expect(!EditorWorkspaceView.takesDrop([web], onDropFiles: take))
+        #expect(!EditorWorkspaceView.takesDrop([file], onDropFiles: nil))
+        #expect(handed.count == 1, "a refused drop was handed over")
+
+        let code = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
+        let page = try #require(code.range(of: "} else if document.path == nil {"))
+        let rest = code[page.upperBound...]
+        let drop = try #require(rest.range(of: ".dropDestination(for: URL.self) { urls, _ in"))
+        let open = try #require(rest.range(of: "} else {\n            VStack(spacing: 0) {"))
+        #expect(drop.lowerBound < open.lowerBound, "the drop is not on the empty page")
+        #expect(rest[..<drop.lowerBound].contains(".frame(maxWidth: .infinity, maxHeight: .infinity)"),
+                "the drop takes only what the page draws, not the whole page")
+    }
+
     /// **The narrowest column, 260pt, still reads** — rendered for a look, and the folder column
     /// goes below its width rather than squeezing the name.
     @Test func theNarrowestColumnKeepsTheName() throws {

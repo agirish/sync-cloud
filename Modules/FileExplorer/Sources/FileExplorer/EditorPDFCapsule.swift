@@ -179,6 +179,11 @@ struct EditorPDFCapsule: View {
 
     private var isVertical: Bool { state.capsulePlace.isVertical }
 
+    /// A page or zoom step's square, and the room between the capsule's pieces — what the keys
+    /// over them must fit (TE194).
+    static let stepSize: CGFloat = 20
+    static let pieceGap: CGFloat = 2
+
     var body: some View {
         rungs
             .modifier(EditorPDFFloatingGround(shape: .capsule))
@@ -215,7 +220,7 @@ struct EditorPDFCapsule: View {
     @ViewBuilder
     func content(_ rung: Rung) -> some View {
         if isVertical {
-            VStack(spacing: 2) {
+            VStack(spacing: Self.pieceGap) {
                 grip
                 if rung.showsPageSteps { pageStep(forward: false) }
                 pageField
@@ -229,7 +234,7 @@ struct EditorPDFCapsule: View {
             .padding(.vertical, 6)
             .padding(.horizontal, 4)
         } else {
-            HStack(spacing: 2) {
+            HStack(spacing: Self.pieceGap) {
                 grip
                 if rung.showsPageSteps { pageStep(forward: false) }
                 pageField
@@ -268,9 +273,12 @@ struct EditorPDFCapsule: View {
         return Button { state.turnPage(forward: forward) } label: {
             Image(systemName: symbol)
                 .scaledFont(.system(size: 10, weight: .semibold))
-                .frame(width: 20, height: 20)
+                .frame(width: Self.stepSize, height: Self.stepSize)
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        // ⌥ shows ⌥← and ⌥→ (TE194) only while the pages have the keyboard — the reader answers
+        // them itself, so nowhere else do they turn the page.
+        .shortcutKeycap(Self.pageStepKeycap(forward: forward), compact: true, shown: state.hasFocus)
         .disabled(!state.canTurnPage(forward: forward))
         .accessibilityLabel(label)
         .help(Self.pageStepHelp(forward: forward))
@@ -280,6 +288,10 @@ struct EditorPDFCapsule: View {
     /// tooltip because a narrow column drops these buttons on the strength of those keys (TE123).
     /// Chords built here, not registered: the reader answers them itself, not a menu.
     static let pageStepChords = (previous: AppChord(.leftArrow, .option), next: AppChord(.rightArrow, .option))
+
+    static func pageStepKeycap(forward: Bool) -> String {
+        forward ? pageStepChords.next.display : pageStepChords.previous.display
+    }
 
     static func pageStepHelp(forward: Bool) -> String {
         forward ? ShortcutHint.tooltip("Next page", pageStepChords.next.display)
@@ -298,6 +310,8 @@ struct EditorPDFCapsule: View {
             .monospacedDigit()
             .frame(width: Self.fieldWidth(pageCount: pageCount, twoUp: state.layout.isTwoUp))
             .focused($pageFieldFocused)
+            // Text ▸ Go to Page… is ⌃⌘L wherever the PDF is (TE194).
+            .shortcutKeycap(AppChord.goToLine.display, compact: true)
             .onSubmit { go() }
             // Esc puts the number back and hands the keyboard to the pages, as Return does.
             .onExitCommand {
@@ -392,15 +406,22 @@ struct EditorPDFCapsule: View {
         return Button { state.zoom(in: zoomingIn) } label: {
             Image(systemName: zoomingIn ? "plus" : "minus")
                 .scaledFont(.system(size: 10, weight: .semibold))
-                .frame(width: 20, height: 20)
+                .frame(width: Self.stepSize, height: Self.stepSize)
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        // ⌥ shows ⌘+ and ⌘− (TE194) only while the pages have the keyboard: anywhere else they
+        // are View ▸ Text Size's, and change the app's type.
+        .shortcutKeycap(Self.zoomStepKeycap(in: zoomingIn), compact: true, shown: state.hasFocus)
         .disabled(!state.canZoom(in: zoomingIn))
         .accessibilityLabel(label)
         .help(Self.zoomStepHelp(in: zoomingIn))
     }
 
     /// ⌘+ and ⌘−, View ▸ Text Size's keys, which zoom the pages while they have the keyboard.
+    static func zoomStepKeycap(in zoomingIn: Bool) -> String {
+        zoomingIn ? AppChord.textBigger.display : AppChord.textSmaller.display
+    }
+
     static func zoomStepHelp(in zoomingIn: Bool) -> String {
         zoomingIn ? ShortcutHint.tooltip("Zoom in", AppChord.textBigger.display)
                   : ShortcutHint.tooltip("Zoom out", AppChord.textSmaller.display)

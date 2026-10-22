@@ -2900,11 +2900,19 @@ struct ToggleHiddenFilesCommand: View {
     }
 }
 
+/// View ▸ File Preview, ⇧⌘P — the preview beside a file pane's list.
+///
+/// **"File Preview", not "Preview"** (TE170): in Edit, with the file pane open and a Markdown file
+/// showing, Text ▸ Preview (⌃⌘2) is live too, and two items named Preview did two different things.
+/// The keyboard reference already called this one "the file preview". The pane bar's Preview
+/// button keeps its name: beside the list it is the only preview.
 struct TogglePreviewColumnCommand: View {
+    static let title = "File Preview"
+
     @FocusedValue(\.previewColumn) private var previewColumn
 
     var body: some View {
-        Toggle("Preview", isOn: previewColumn ?? .constant(false))
+        Toggle(Self.title, isOn: previewColumn ?? .constant(false))
             .keyboardShortcut(AppChord.previewColumn.key, modifiers: AppChord.previewColumn.modifiers)
             .disabled(previewColumn == nil)
     }

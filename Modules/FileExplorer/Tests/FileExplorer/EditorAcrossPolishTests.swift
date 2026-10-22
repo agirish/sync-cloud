@@ -65,11 +65,15 @@ import Testing
         let mode = try Self.source("EditorMode.swift")
         #expect(mode.contains(".help(ShortcutHint.tooltip(candidate.title, candidate.chord.display))"))
         let header = Self.squashed(try Self.source("EditorWorkspaceView.swift"))
-        #expect(header.contains(".accessibilityLabel(\"Find in this document\") .shortcutKeycap(AppChord.findInPane.display) "
+        #expect(header.contains(".accessibilityLabel(\"Find in this document\") "
+                                + ".accessibilityInputLabels(EditorSpokenNames.names(word: Self.findWord, label: \"Find in this document\")) "
+                                + ".shortcutKeycap(AppChord.findInPane.display) "
                                 + ".help(ShortcutHint.tooltip(\"Find and replace in this document\", AppChord.findInPane.display))"),
                 "Find in a text file: the ＋'s keycap and a tooltip with ⌘F")
         let card = Self.squashed(try Self.source("EditorPDFCard.swift"))
-        #expect(card.contains(".accessibilityLabel(\"Find in this PDF\") .shortcutKeycap(AppChord.findInPane.display)"),
+        #expect(card.contains(".accessibilityLabel(\"Find in this PDF\") "
+                              + ".accessibilityInputLabels(EditorSpokenNames.names(word: \"Find\", label: \"Find in this PDF\")) "
+                              + ".shortcutKeycap(AppChord.findInPane.display)"),
                 "Find in a PDF: Expand's keycap beside it, so a keycap on Find too")
     }
 
@@ -113,13 +117,17 @@ import Testing
         #expect(EditorPDFFind.unreadableCaption == "Couldn’t read this PDF’s text")
     }
 
-    /// **No sentence in Edit's sources has a straight apostrophe.** Log lines are not read by
-    /// anyone but us, so they are skipped. Mutation: straighten “Couldn’t” in EditorFileStore and
-    /// this names the line.
+    /// **No sentence in Edit's sources has a straight apostrophe** — nor in Help or the keyboard
+    /// shortcuts window (TE173), which had 200 and 5 between them, nor at a word's end ("buttons’"),
+    /// which the first pattern could not see. Log lines are not read by anyone but us, so they are
+    /// skipped. Mutation: straighten “Couldn’t” in EditorFileStore, “doesn’t” in Help or “words’” in
+    /// Help, and this names the line.
     @Test func editsSentencesUseCurlyApostrophes() throws {
-        let straight = try NSRegularExpression(pattern: "[A-Za-z]'[A-Za-z]")
+        let straight = try NSRegularExpression(pattern: "[A-Za-z]'[A-Za-z]|[a-z]'(?=[\\s.,;:!?)—–])")
         var found: [String] = []
-        for (file, literal) in try Self.sentenceLiterals() {
+        let help = try Self.sentenceLiterals(inAppFiles: ["HelpBook.swift", "ShortcutsReference.swift"])
+        try #require(help.count > 300, "not reading Help's sentences: \(help.count)")
+        for (file, literal) in try Self.sentenceLiterals() + help {
             if straight.firstMatch(in: literal, range: NSRange(literal.startIndex..., in: literal)) != nil {
                 found.append("\(file): \(literal)")
             }
@@ -292,6 +300,16 @@ import Testing
             .appendingPathComponent("Sources/FileExplorer")
     }
 
+    /// The same, in files of the app target — `MacApp/<name>`, beside this package.
+    static func sentenceLiterals(inAppFiles names: [String]) throws -> [(file: String, literal: String)] {
+        let app = sourcesFolder.deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("MacApp")
+        return try names.flatMap { name in
+            try sentenceLiterals(in: String(contentsOf: app.appendingPathComponent(name), encoding: .utf8))
+                .map { (name, $0) }
+        }
+    }
+
     /// Every string literal with a space in it — a sentence, not a key — in Edit's own files,
     /// skipping comment lines and log lines.
     static func sentenceLiterals() throws -> [(file: String, literal: String)] {
@@ -303,25 +321,29 @@ import Testing
             }
             .sorted()
         try #require(names.count > 40, "not reading Edit's sources: \(names.count) files")
+        return try names.flatMap { name in try sentenceLiterals(in: source(name)).map { (name, $0) } }
+    }
+
+    /// The sentences in one file's code, its `//` comment lines stripped first.
+    static func sentenceLiterals(in code: String) throws -> [String] {
+        let code = code.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") ? "" : String($0) }
         let literal = try NSRegularExpression(pattern: #""(?:[^"\\\n]|\\.)*""#)
-        var out: [(String, String)] = []
-        for name in names {
-            // A log call can run over several lines; its depth in parentheses says when it ends.
-            var logDepth = 0
-            for line in try source(name).split(separator: "\n") {
-                let line = String(line)
-                let range = NSRange(line.startIndex..., in: line)
-                if logDepth > 0 || line.contains("Logger.") || line.contains("log(") {
-                    let code = literal.stringByReplacingMatches(in: line, range: range, withTemplate: "")
-                    logDepth += code.filter { $0 == "(" }.count - code.filter { $0 == ")" }.count
-                    logDepth = max(logDepth, 0)
-                    continue
-                }
-                for match in literal.matches(in: line, range: range) {
-                    guard let range = Range(match.range, in: line) else { continue }
-                    let text = String(line[range])
-                    if text.contains(" ") { out.append((name, text)) }
-                }
+        var out: [String] = []
+        // A log call can run over several lines; its depth in parentheses says when it ends.
+        var logDepth = 0
+        for line in code {
+            let range = NSRange(line.startIndex..., in: line)
+            if logDepth > 0 || line.contains("Logger.") || line.contains("log(") {
+                let code = literal.stringByReplacingMatches(in: line, range: range, withTemplate: "")
+                logDepth += code.filter { $0 == "(" }.count - code.filter { $0 == ")" }.count
+                logDepth = max(logDepth, 0)
+                continue
+            }
+            for match in literal.matches(in: line, range: range) {
+                guard let range = Range(match.range, in: line) else { continue }
+                let text = String(line[range])
+                if text.contains(" ") { out.append(text) }
             }
         }
         return out

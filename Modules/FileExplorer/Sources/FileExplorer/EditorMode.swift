@@ -141,8 +141,13 @@ struct EditorModeBar: View {
         }
     }
 
+    /// The room between two segments, and a glyph-only segment's padding either side of its
+    /// glyph — what the keys over them must fit (TE194).
+    static let segmentGap: CGFloat = 3
+    static let glyphSegmentPadding: CGFloat = 6
+
     private func capsule(labelled: Bool) -> some View {
-        HStack(spacing: 3) {
+        HStack(spacing: Self.segmentGap) {
             ForEach(EditorMode.allCases, id: \.self) { candidate in
                 segment(candidate, labelled: labelled)
             }
@@ -175,7 +180,7 @@ struct EditorModeBar: View {
                 }
             }
             .selectionLensLabelInk(isSelected: isSelected, onFill: onAccent, unselected: Color.secondary)
-            .padding(.horizontal, labelled ? 8 : 6)
+            .padding(.horizontal, labelled ? 8 : Self.glyphSegmentPadding)
             .padding(.vertical, 3)
             .background {
                 if isSelected { SelectionLensTodayMarker { Capsule().fill(accentFill) } }
@@ -185,6 +190,8 @@ struct EditorModeBar: View {
         }
         // `.filled` for the chosen mode at Solid; under the lens, `.segment` (`SelectionLens`).
         .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accentFill)
+        // ⌥ shows ⌃⌘1–3 (TE194) — compact, since the glyph-only segments sit closer than a full key.
+        .shortcutKeycap(candidate.chord.display, compact: true)
         // Once the word is shed the glyph is the only thing naming the mode, so the name has to
         // survive somewhere reachable — the tooltip for a mouse, the a11y label otherwise.
         .help(ShortcutHint.tooltip(candidate.title, candidate.chord.display))

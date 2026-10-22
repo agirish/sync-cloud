@@ -28,6 +28,11 @@ struct EditorPDFFindBar: View {
     static let captionWidth: CGFloat = 140
     /// The field's least width — with the fixed count, what keeps the card inside a 368pt column.
     static let fieldMinWidth: CGFloat = 100
+    /// The room between the two match arrows, and between them and Close Find — what the keys over
+    /// them must fit (TE194). Close Find is 18pt. 4, not the capsule's 2: "⇧⌘G" and "⌘G" met at 2.
+    static let stepGap: CGFloat = 4
+    static let cardGap: CGFloat = 6
+    static let closeSize: CGFloat = 18
 
     /// What of the count changes the card's size: none, one line, or two with the waiting note —
     /// what the card slides for (TE159), rather than for every new count.
@@ -37,7 +42,7 @@ struct EditorPDFFindBar: View {
 
     var body: some View {
         if find.isShown {
-            HStack(spacing: 6) {
+            HStack(spacing: Self.cardGap) {
                 field
                 if !find.caption.isEmpty {
                     Text(find.caption)
@@ -52,9 +57,10 @@ struct EditorPDFFindBar: View {
                 Button { find.hide() } label: {
                     Image(systemName: "xmark")
                         .scaledFont(.system(size: 9, weight: .semibold))
-                        .frame(width: 18, height: 18)
+                        .frame(width: Self.closeSize, height: Self.closeSize)
                 }
                 .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+                .shortcutKeycap("esc", compact: true)
                 .accessibilityLabel("Close Find")
                 .help(ShortcutHint.tooltip("Close Find", "esc"))
             }
@@ -108,7 +114,7 @@ struct EditorPDFFindBar: View {
     }
 
     private var stepper: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: Self.stepGap) {
             stepButton(forward: false)
             stepButton(forward: true)
         }
@@ -120,9 +126,11 @@ struct EditorPDFFindBar: View {
             Image(systemName: forward ? "chevron.right" : "chevron.left")
                 // The capsule's page arrows' size, beside it (``EditorPDFCapsule``).
                 .scaledFont(.system(size: 10, weight: .semibold))
-                .frame(width: 20, height: 20)
+                .frame(width: EditorPDFCapsule.stepSize, height: EditorPDFCapsule.stepSize)
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        // ⌥ shows ⌘G and ⇧⌘G (TE194), compact: the two arrows sit 22pt apart.
+        .shortcutKeycap(forward ? AppChord.findNext.display : AppChord.findPrevious.display, compact: true)
         .disabled(find.matches.isEmpty)
         .accessibilityLabel(label)
         .help(ShortcutHint.tooltip(label, forward ? AppChord.findNext.display : AppChord.findPrevious.display))

@@ -482,8 +482,10 @@ enum PalettePlace: CaseIterable {
         case .browse: return ["browse", "files", "finder", "folders", "move", "look"]
         case .compare: return ["diff", "differences", "sync", "compare"]
         // "note" and "write" are what someone reaches for when the thing they want is to put
-        // words in a file, which is not a word any other place here answers to.
-        case .editor: return ["edit", "editor", "text", "write", "note", "notes", "markdown"]
+        // words in a file, which is not a word any other place here answers to. The PDF words
+        // (TE196) are for the other half of Edit: a PDF opens, is filled in and is signed there.
+        case .editor: return ["edit", "editor", "text", "write", "note", "notes", "markdown",
+                              "pdf", "pdfs", "sign", "signature", "fill"]
         case .organizeOverview: return ["organize", "tidy", "all"]
         case .lens(.toFile): return ["organize", "file", "filing", "loose", "inbox", "to file"]
         case .lens(.duplicates): return ["organize", "duplicates", "dupes", "copies", "identical"]
@@ -514,7 +516,7 @@ enum PalettePlace: CaseIterable {
         switch self {
         case .browse: return "Your files, with nothing proposed"
         case .compare: return "Two trees, side by side"
-        case .editor: return "Open a text file and write in it"
+        case .editor: return "Write in a text file, or fill and sign a PDF"
         case .organizeOverview: return "Every lens's answer, on one page"
         case .lens(let lens): return lens.help(state: .configuration)
         }

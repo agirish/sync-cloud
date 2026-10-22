@@ -280,6 +280,9 @@ public struct EditorDivergenceDiffOverlay: View {
             Spacer(minLength: 0)
             Button("Cancel") { onAnswer(.cancel) }
                 .buttonStyle(.bordered)
+                // ⌥ shows esc, which answers Cancel here (TE194) — ⏎ does too, but esc is the
+                // key every other Cancel in the app wears.
+                .shortcutKeycap("esc")
                 .help("Change nothing. Autosave stays stopped until you settle this.")
             Button(role: .destructive) { onAnswer(.reloadFromDisk) } label: {
                 Text(EditorDiskVerbs.useDiskVersion)

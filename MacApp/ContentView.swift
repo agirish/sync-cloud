@@ -2690,7 +2690,8 @@ struct ContentView: View {
             glassHue: glassHue,
             glassLevel: glassLevel,
             surfaceTint: surfaceTint,
-            openAt: helpTopic,
+            // A page something pointed at, or else the workspace's own (TE169).
+            openAt: helpTopic ?? HelpBook.topicID(for: selectedWorkspace, pdfIsOpen: editorPDF.path != nil),
             onClose: { showHelp = false; helpTopic = nil }
         )
     }

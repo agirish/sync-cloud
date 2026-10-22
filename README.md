@@ -112,7 +112,7 @@ never wears a count badge.
 ### ✏️ Edit — write in a text file
 The one workspace that changes what is *inside* a file rather than moving files around. A collapsible
 file pane on the left to browse to any folder — one click on a text file opens it — and the open
-document beside it; fold the pane away and a rail lists the folder's text files and PDFs instead, or hide
+document beside it; fold the pane away and a file list shows the folder's text files and PDFs instead, or hide
 both with **Expand** (⌃⌘E). Markdown renders in **Source / Preview / Split**, at the app's own text size rather
 than a web view's, and Preview can be typed in too (experimental, Markdown only; the **Edit** pill in
 its corner turns that off). **⌘N** makes a new file — nothing on disk until you press ↩ — and **⌘S** writes
@@ -122,7 +122,7 @@ every other write here, goes back in the encoding the file was read in, with LF 
 (CR) file is converted on its first edit, and one ⌘Z gives it back as it was opened. A change made
 to the file elsewhere is noticed as it happens: with nothing unsaved it reloads quietly, and with
 unsaved typing a banner asks which version to keep. A file that is not valid text opens read-only rather than risking its bytes.
-**⌘O** opens the text file or PDF selected in any pane here — so does **Open in Edit**, first in a file pane's right-click menu, by the file's name in the preview, in the Info inspector, and in the right-click menus of Compare's differences and Organize's duplicate copies. Above the document, **＋** makes a new file and **×** puts the open one away; above a Markdown file's text, a **format bar** carries the Markup verbs as buttons in a capsule per group — Body, B I S, the lists, Code and Quote, then Link, Table and Divider — with a word beside each where there is room (right-click it for icons only). **Table** inserts a table or makes one from tab- or comma-separated lines, and with the caret in a table a Table capsule adds and deletes rows and columns and formats it so its pipes line up. In Markdown, Return carries a list on and Tab nests an item; a web address pasted onto words makes them a link; an image dropped or pasted is saved in the note's **Images** folder and linked; and the line under the text names the heading you are in, with every heading one click away, counts a selection, and goes to a line (⌃⌘L). **Readable Line Length** keeps wrapped text in a centred column, and SyncCloud appears in Finder's **Open With** for text files.
+**⌘O** opens the text file or PDF selected in any pane here — so does **Open in Edit**, first in a file pane's right-click menu, by the file's name in the preview, in the Info inspector, and in the right-click menus of Compare's differences and Organize's duplicate copies. Above the document, **New Text File** makes a new file and **Close** puts the open one away; above a Markdown file's text, a **format bar** carries the Markup verbs as buttons in a capsule per group — Body, B I S, the lists, Code and Quote, then Link, Table and Divider — with a word beside each where there is room (right-click it for icons only). **Table** inserts a table or makes one from tab- or comma-separated lines, and with the caret in a table a Table capsule adds and deletes rows and columns and formats it so its pipes line up. In Markdown, Return carries a list on and Tab nests an item; a web address pasted onto words makes them a link; an image dropped or pasted is saved in the note's **Images** folder and linked; and the line under the text names the heading you are in, with every heading one click away, counts a selection, and goes to a line (⌃⌘L). **Readable Line Length** keeps wrapped text in a centred column, and SyncCloud appears in Finder's **Open With** for text files.
 
 New in 6.0: **Typewriter Scrolling** keeps the line you are typing at mid-height; **Paper** — a switch beside Autosave, or **Text ▸ Paper Background** — puts Source's text on paper, white or dark; once you have opened a file in Edit, its empty page lists the last ten you opened — text files and PDFs — with a **New Note** button, and **File ▸ Open Recent** holds the same list. And the file list's filter **searches inside files** too. Switch it from **Names** to **Contents** and type a
 word: the text files in the folder and the folders inside it list their matching lines, and below them the PDFs, Word and
@@ -132,8 +132,8 @@ PowerPoint files that Spotlight says contain the word. Open one and it opens at 
 ### 📄 PDFs in Edit — new in 6.0, in development
 Not in the v5.5 release; this is what `main` does today, and it may change before 6.0 is cut.
 - **A PDF opens in Edit** through the same doors as a text file — ⌘O, Open in Edit, the preview's
-  Edit button, a click in Edit's pane. The rail shows **Pages** (a grid or a list of thumbnails)
-  and the PDF's bookmarks as an **Outline**; the page number and zoom float over the pages in a
+  Edit button, a click in Edit's pane. The file list shows **Pages** (a grid or a list of thumbnails)
+  and, when the PDF has two or more bookmarks, an **Outline** of them; the page number and zoom float over the pages in a
   capsule you can drag to any edge or corner; **Page Layout** offers single pages, two-page spreads and a
   separate cover; and **Find** (⌘F) tints every match on the pages. A PDF that needs a password
   asks for it, and SyncCloud uses it only to open the file.

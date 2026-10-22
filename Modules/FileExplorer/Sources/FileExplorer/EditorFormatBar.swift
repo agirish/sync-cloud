@@ -173,6 +173,8 @@ struct EditorFormatBar: View, Equatable {
     let forcedRung: Rung?
 
     @Environment(\.appFontScale) private var scale
+    /// ⌥ held — read so the bar redraws when it is, and asks where the caret is (TE194).
+    @Environment(\.shortcutRevealActive) private var isRevealing
     /// The Body menu's popover (TE74) — one flag for every rung, because `ViewThatFits` draws one.
     @State private var showsStyles = false
 
@@ -352,6 +354,17 @@ struct EditorFormatBar: View, Equatable {
     /// **What a button says under the pointer: the verb's name, and its chord where it has one** —
     /// the chord from `AppChord.display` by way of ``MarkupVerb/chord``, the value the menu bar
     /// registers, so a tooltip cannot advertise a key the menu does not answer.
+    /// The key a verb's button shows while ⌥ is held (TE194) — its chord, or none.
+    static func keycap(_ verb: MarkupVerb) -> String? { verb.chord?.display }
+
+    /// **Whether the caret is in the document's text** — the only place the bar's keys are its
+    /// verbs (`EditorDocumentSurface.caretTextView`). Asked only while ⌥ is held, when it can be
+    /// asked once: a key or a click ends the reveal before the caret can move under it.
+    @MainActor
+    static func caretIsInText(revealing: Bool) -> Bool {
+        revealing && EditorDocumentSurface.caretTextView(in: NSApp.keyWindow) != nil
+    }
+
     static func tooltip(_ verb: MarkupVerb) -> String {
         guard let chord = verb.chord else { return verb.title }
         return ShortcutHint.tooltip(verb.title, chord.display)
@@ -528,6 +541,8 @@ struct EditorFormatBar: View, Equatable {
     /// The room between two capsules, and around a capsule's buttons.
     static let capsuleGap: CGFloat = 8
     static let capsuleInset: CGFloat = 3
+    /// The room between two buttons in one capsule — what a key over each must fit (TE194).
+    static let buttonGap: CGFloat = 2
 
     /// The box at `scale`, through the type ramp — ``CapsuleGlyph``'s rule: a box that did not
     /// scale left the glyph overflowing it at the large sizes.
@@ -588,7 +603,7 @@ struct EditorFormatBar: View, Equatable {
     /// tint, because it comes and goes with the caret.
     private func capsule<Content: View>(accented: Bool = false,
                                         @ViewBuilder _ content: () -> Content) -> some View {
-        HStack(spacing: 2) { content() }
+        HStack(spacing: Self.buttonGap) { content() }
             .padding(.horizontal, Self.capsuleInset)
             // One WHOLE-point height for every capsule on every rung, so the text under the bar
             // never moves as it narrows. Whole, because the scaled box is fractional (27.2pt at
@@ -650,6 +665,9 @@ struct EditorFormatBar: View, Equatable {
                   lit: lit, offered: offered)
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        // ⌥ shows the key (TE194) only with the caret in the text: elsewhere ⌘I is the Info
+        // inspector and the rest do nothing. Compact, because B, I and S sit closer than a full key.
+        .shortcutKeycap(Self.keycap(verb), compact: true, shown: Self.caretIsInText(revealing: isRevealing))
         .disabled(!offered)
         .help(Self.tooltip(verb))
         .accessibilityLabel(verb.title)

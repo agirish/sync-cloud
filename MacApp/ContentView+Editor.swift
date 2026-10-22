@@ -607,6 +607,13 @@ extension ContentView {
             // Edit does from any other list, so the pane follows the file there.
             recentFiles: EditorRecentFiles.shared,
             onOpenRecent: { path in handOffToEditor(path) },
+            // A drop from Finder on the empty page (TE198) is an open from outside the app: the
+            // same queue, so the same rules — the first file here, the rest in the pane, a folder
+            // named in a banner, a file in the cloud fetched first.
+            onDropFiles: { urls in
+                Logger.shared.info(ExternalOpen.receiptLine(urls, droppedOnEdit: true))
+                externalOpens.receive(urls)
+            },
             railWidth: railWidth)
         // The PDF tools' door to the window: what a written copy re-lists, and the banner's Open
         // and Reveal in Browse. Set on every appearance — the model outlives this view.

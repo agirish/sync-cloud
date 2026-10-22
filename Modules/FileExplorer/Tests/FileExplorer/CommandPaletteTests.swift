@@ -215,6 +215,16 @@ import Foundation
         #expect(Self.first("compare") == .compare)
     }
 
+    /// **Edit answers to what it does with a PDF** (TE196): "pdf", "sign" and "fill" found nothing
+    /// while Edit opens, fills and signs PDFs, and its line under the name said text files only.
+    @Test func editAnswersToItsPDFWords() {
+        for query in ["pdf", "pdfs", "sign", "signature", "fill"] {
+            let rows = PaletteRouter.rows(query: query, index: Self.index())
+            #expect(rows.contains { $0.route == .editor }, "“\(query)” does not reach Edit")
+        }
+        #expect(PalettePlace.editor.detail == "Write in a text file, or fill and sign a PDF")
+    }
+
     /// The half the fold actually bought: Storage takes a folder now.
     @Test func storageTakesAFolderSinceItBecameALens() {
         #expect(Self.first("storage legal")

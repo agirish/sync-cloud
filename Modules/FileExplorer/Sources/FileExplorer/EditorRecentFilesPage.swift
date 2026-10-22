@@ -145,6 +145,8 @@ struct EditorRecentFilesPage<Fallback: View>: View {
                     .buttonStyle(.borderedProminent)
                     // The seam every filled button takes its hue through (`ProminentAccent`).
                     .accentedProminent()
+                    // ⌥ shows ⌘N and ⌃⌘T on the page's two buttons (TE194).
+                    .shortcutKeycap(AppChord.newTextFile.display)
                     .help(ShortcutHint.tooltip(EditorWorkspaceView.newTextFileTitle(folderName: Self.folder(newNoteFolder)),
                                                AppChord.newTextFile.display))
                 }
@@ -155,6 +157,7 @@ struct EditorRecentFilesPage<Fallback: View>: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(accent)
+                    .shortcutKeycap(AppChord.editorTextFiles.display)
                     .help(ShortcutHint.tooltip("Show the folder’s files beside the document",
                                                AppChord.editorTextFiles.display))
                 }

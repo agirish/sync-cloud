@@ -89,7 +89,7 @@ enum ShortcutsReference {
             // whole commit after the bar dropped to three segments, promising two chords that do
             // nothing. `ShortcutsReferenceTests` pins the derived string against the enum.
             Item(keys: "⌘ 1 – ⌘ \(Workspace.allCases.count)",
-                 action: "Switch workspace, in the bar's order"),
+                 action: "Switch workspace, in the bar’s order"),
             // Second: it is the one shortcut that can reach a place not currently on screen — a
             // workspace, one of Organize's lenses, a folder, a person, or an action — so it is
             // the entry that makes the rest of this list optional. (Unnumbered on purpose: the
@@ -98,7 +98,7 @@ enum ShortcutsReference {
             Item(keys: "⌘ K", action: "Go to — any place, folder, person, or a typed path"),
             // Routed by where the caret is, like ⌘F: the row has to name both meanings, because
             // this is the one place a reader is told the chord has two.
-            Item(keys: "⌘ I", action: "Show or hide the Info inspector — in Edit's text, Italic"),
+            Item(keys: "⌘ I", action: "Show or hide the Info inspector — in Edit’s text, Italic"),
             Item(keys: "⌘ L", action: "Open the Activity Log"),
             // The slider's own stops, from the keyboard — never a size Settings cannot reach. The
             // same keys zoom a PDF whose pages have the keyboard (`PDFZoomVerbs`), so the row names
@@ -117,7 +117,7 @@ enum ShortcutsReference {
             Item(keys: "⌘ Z / ⇧⌘ Z", action: "Undo / redo — the last file operation, or your typing in Edit"),
             // The file clipboard, not the text one — though each of these four hands the keystroke
             // back to the caret when a text field has it (`TextEditingChord`).
-            Item(keys: "⌘ A", action: "Select everything in the focused pane's current folder"),
+            Item(keys: "⌘ A", action: "Select everything in the focused pane’s current folder"),
             // No ⌘ on this one, and that is the point: it is a pane key, not a menu chord.
             Item(keys: "↩", action: "Rename the selected file or folder"),
             Item(keys: "⌘ C / ⌘ X / ⌘ V", action: "Copy or cut files, then paste — also to and from Finder"),
@@ -146,7 +146,7 @@ enum ShortcutsReference {
             // both pairs are seen together.
             Item(keys: "⌘ ↓ / ⌘ ↑", action: "In Columns, open the selected folder / close the rightmost column, stopping at the first"),
             Item(keys: "⌘ R", action: "Scan both panes for changes"),
-            Item(keys: "⇧⌘ N", action: "New folder in the focused pane's current folder"),
+            Item(keys: "⇧⌘ N", action: "New folder in the focused pane’s current folder"),
             // **⌃⌘T joins the sidebar's row** (TE81), for ⌃⌘E's reason in Edit below: a row of its
             // own does not fit this window. The two are the window's two side columns' switches.
             Item(keys: "⌃⌘ S / ⌃⌘ T", action: "Show or hide sidebar / file list"),
@@ -173,8 +173,9 @@ enum ShortcutsReference {
             // selected one", "…/ open the selected file") wrapped and measured 749pt, which
             // `theReferenceFitsItsWindowWithoutScrolling` refuses. "New or selected" maps onto the
             // keys in order, and "in Edit" stays because ⌘O fires from a Browse or Compare pane,
-            // not from inside Edit where this group otherwise lives.
-            Item(keys: "⌘ N / ⌘ O", action: "New or selected text file, in Edit"),
+            // not from inside Edit where this group otherwise lives. "file", not "text file": ⌘O
+            // opens a selected PDF too.
+            Item(keys: "⌘ N / ⌘ O", action: "New or selected file, in Edit"),
             // **⌘P shares ⌘S's row, and that was measured rather than chosen for tidiness.** On a
             // row of its own the reference stood 770pt against a 740pt window, which
             // `theReferenceFitsItsWindowWithoutScrolling` refuses — the same wall the editor's ⌘F
@@ -191,7 +192,7 @@ enum ShortcutsReference {
             // as long as the action stays two lines: "…Split for Markdown — or Expand the
             // document" made it three and measured 749pt, which the fit test refused.
             Item(keys: "⌃⌘ 1 / ⌃⌘ 2 / ⌃⌘ 3 / ⌃⌘ E",
-                 action: "Markdown's Source / Preview / Split, or Expand"),
+                 action: "Markdown’s Source / Preview / Split, or Expand"),
             // **The Markup chords, now that the Markup menu registers them.** This group carried a
             // note refusing them while nothing answered the keys — a reference listing ⌘B for a
             // chord nothing registers would be the one place in the app that lies about the

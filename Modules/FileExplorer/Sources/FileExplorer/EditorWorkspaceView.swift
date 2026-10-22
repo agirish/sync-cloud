@@ -149,6 +149,10 @@ public struct EditorWorkspaceView: View {
     /// A recent row's click — the host's hand-off, so the pane follows the file. `nil` with
     /// `recentFiles` draws no list either: a row that opened nothing would be worse than none.
     let onOpenRecent: ((String) -> Void)?
+    /// **Files dropped from Finder on the empty page** (TE198) — the host opens them as Finder's
+    /// Open With does: the first in Edit, the rest waiting in the file pane, a folder named in a
+    /// banner. `nil` takes no drop. A drop on an open document is the text's own, unchanged.
+    let onDropFiles: (([URL]) -> Void)?
     /// The list's width — the side-column width the host's drag sets, at least
     /// ``EditorLayoutMetrics/railWidth`` (asked 2026-10-17).
     let railWidth: CGFloat
@@ -455,6 +459,7 @@ public struct EditorWorkspaceView: View {
                 onOpenFilePane: (() -> Void)? = nil,
                 recentFiles: EditorRecentFiles? = nil,
                 onOpenRecent: ((String) -> Void)? = nil,
+                onDropFiles: (([URL]) -> Void)? = nil,
                 railWidth: CGFloat = EditorLayoutMetrics.railWidth) {
         self._railFilter = railFilter
         self._railFilterIsExpanded = railFilterIsExpanded
@@ -479,6 +484,7 @@ public struct EditorWorkspaceView: View {
         self.onOpenFilePane = onOpenFilePane
         self.recentFiles = recentFiles
         self.onOpenRecent = onOpenRecent
+        self.onDropFiles = onDropFiles
         self.railWidth = railWidth
         self.onNewTextFile = onNewTextFile
         self.onCloseDocument = onCloseDocument
@@ -973,6 +979,7 @@ public struct EditorWorkspaceView: View {
                 .chromeGlassGlyphButton(tint: accent, shape: .capsule, outset: ChromeGlass.smallGlyphOutset)
                 .chromeGlassClearance(.leading, rowSpacing: 6)
                 .accessibilityLabel("Find in this document")
+                .accessibilityInputLabels(EditorSpokenNames.names(word: Self.findWord, label: "Find in this document"))
                 .shortcutKeycap(AppChord.findInPane.display)
                 .help(ShortcutHint.tooltip("Find and replace in this document", AppChord.findInPane.display))
             }
@@ -1838,17 +1845,26 @@ public struct EditorWorkspaceView: View {
                 caption(refused)
             }
         } else if document.path == nil {
-            if let recentFiles, let onOpenRecent {
-                // The files Edit opened last, and New Note (TE58) — or, with none remembered, the
-                // one sentence below.
-                EditorRecentFilesPage(recents: recentFiles, open: onOpenRecent, newNote: onNewTextFile,
-                                      newNoteFolder: newFileFolderLabel,
-                                      showTextFiles: folder.isEmpty ? nil : onShowTextFiles,
-                                      accent: accent) {
+            Group {
+                if let recentFiles, let onOpenRecent {
+                    // The files Edit opened last, and New Note (TE58) — or, with none remembered,
+                    // the one sentence below.
+                    EditorRecentFilesPage(recents: recentFiles, open: onOpenRecent, newNote: onNewTextFile,
+                                          newNoteFolder: newFileFolderLabel,
+                                          showTextFiles: folder.isEmpty ? nil : onShowTextFiles,
+                                          accent: accent) {
+                        emptyPageCaption
+                    }
+                } else {
                     emptyPageCaption
                 }
-            } else {
-                emptyPageCaption
+            }
+            // **The whole page takes a drop from Finder** (TE198), not just the list or the
+            // sentence: it filled the column and did nothing with one.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .dropDestination(for: URL.self) { urls, _ in
+                Self.takesDrop(urls, onDropFiles: onDropFiles)
             }
         } else {
             VStack(spacing: 0) {
@@ -1862,6 +1878,16 @@ public struct EditorWorkspaceView: View {
                 surfaces(for: EditorMode.resolved(mode, isMarkdown: document.isMarkdown))
             }
         }
+    }
+
+    /// Hands a drop on the empty page to the host — **files only**: a web address dragged from a
+    /// browser is a URL too, and is no file to open. False, so the drop is refused, when nothing in
+    /// it is a file or nothing takes it.
+    static func takesDrop(_ urls: [URL], onDropFiles: (([URL]) -> Void)?) -> Bool {
+        let files = urls.filter(\.isFileURL)
+        guard let onDropFiles, !files.isEmpty else { return false }
+        onDropFiles(files)
+        return true
     }
 
     /// The empty page's one sentence, and Show File List under it while the list is folded.
@@ -2411,6 +2437,7 @@ public struct EditorWorkspaceView: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(accent)
+                .shortcutKeycap(AppChord.editorTextFiles.display)
                 .help(ShortcutHint.tooltip("Show the folder’s files beside the document",
                                            AppChord.editorTextFiles.display))
             }

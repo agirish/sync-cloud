@@ -179,8 +179,10 @@ enum ExternalOpen {
     /// One line on receipt, written by the delegate before anything else can happen to the files —
     /// so the log shows an open arrived even when the window then has to wait for it. Paths spelled
     /// as ``plan(_:isFolder:)`` spells them, so one search finds both lines.
-    static func receiptLine(_ urls: [URL], atLaunch: Bool = false) -> String {
-        "[open] Handed \(urls.count) item(s) from outside the app\(atLaunch ? ", launching SyncCloud" : ""): "
+    static func receiptLine(_ urls: [URL], atLaunch: Bool = false, droppedOnEdit: Bool = false) -> String {
+        let how = droppedOnEdit ? "Dropped \(urls.count) item(s) on Edit's empty page"
+            : "Handed \(urls.count) item(s) from outside the app"
+        return "[open] \(how)\(atLaunch ? ", launching SyncCloud" : ""): "
             + urls.map { $0.isFileURL ? $0.standardizedFileURL.path : $0.absoluteString }.joined(separator: ", ")
     }
 

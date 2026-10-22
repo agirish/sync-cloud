@@ -277,6 +277,8 @@ struct EditorStatusLine: View, Equatable {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.hoverAffordance(.segment, tint: goToLine.accent))
+            // ⌥ shows Go to Line's ⌃⌘L (TE194), compact to the line's small type.
+            .shortcutKeycap(AppChord.goToLine.display, compact: true)
             // Where the field's arrow points — the field itself hangs on the whole line (`body`).
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.lineSpace)) }) {
                 caretBounds = $0

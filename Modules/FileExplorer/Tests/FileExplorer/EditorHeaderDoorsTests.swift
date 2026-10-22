@@ -186,6 +186,20 @@ import FileExplorerTestSupport
         #expect(EditorWorkspaceView.closeTitle(name: "") == "Close this document")
     }
 
+    /// **Voice Control answers to the word on the button too** (TE197): "Click Find", "Click Tools"
+    /// and "Click Close" against names that only start with those words. The word first, the full
+    /// name kept; read off the code, since an offscreen host has no accessibility tree to ask.
+    /// Mutation: drop any one modifier and its line fails.
+    @Test func voiceControlAnswersToTheButtonsWord() throws {
+        #expect(EditorSpokenNames.names(word: "Close", label: "Close Plan.md") == ["Close", "Close Plan.md"])
+        #expect(EditorSpokenNames.names(word: "Find", label: "Find") == ["Find"])
+        let chip = EditorAcrossPolishTests.squashed(try EditorAcrossPolishTests.source("EditorHeaderChips.swift"))
+        #expect(chip.contains(".accessibilityLabel(EditorWorkspaceView.closeTitle(name: name)) "
+                              + ".accessibilityInputLabels(EditorSpokenNames.names(word: Self.word, label: EditorWorkspaceView.closeTitle(name: name)))"))
+        let tools = EditorAcrossPolishTests.squashed(try EditorAcrossPolishTests.source("EditorPDFToolViews.swift"))
+        #expect(tools.contains(".accessibilityLabel(\"PDF Tools\") .accessibilityInputLabels(EditorSpokenNames.names(word: \"Tools\", label: \"PDF Tools\"))"))
+    }
+
     /// **The × is the last button in the row — after the capsule — and stays in Preview.**
     ///
     /// Told apart from the capsule by width (a segment is wider than an 18pt glyph, measured on the

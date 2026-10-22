@@ -8413,3 +8413,33 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No pdf-toolkit and no PDF tools in Edit (`toolkit=0`, `engine=0`) | CLOSED — does not apply |
+
+---
+
+## View ▸ Preview is now View ▸ File Preview (TE170) — main only
+
+The second rename of this item: it was View ▸ Preview Column until the preview followed the pane
+into Tree mode (2026-09-09, the row above that says "not owed"). In Edit, with the file pane open
+and a Markdown file showing, View ▸ Preview (⇧⌘P, the preview beside a pane's list) and Text ▸
+Preview (⌃⌘2, the rendered document) were both live, under one name. The View item is now File
+Preview, as the keyboard reference already called it. The pane bar's Preview button keeps its name.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s item=%s text=%s\n' "$l" \
+    "$(git show origin/$l:MacApp/ShortcutCommands.swift 2>/dev/null | grep -A5 'struct TogglePreviewColumnCommand' | grep -o 'Toggle("[^"]*"' || echo none)" \
+    "$(git show origin/$l:MacApp/ShortcutCommands.swift 2>/dev/null | grep -c 'struct EditorMenus')"
+done
+# measured 2026-10-22, against origin, before this landed:
+# main  item=Toggle("Preview" text=1
+# v5.x  item=Toggle("Preview" text=1
+# v4.x  item=Toggle("Preview Column" text=0
+# v3.x  item=none text=0
+# v2.x  item=none text=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Both items named Preview, live together in Edit (`item=Toggle("Preview"`, `text=1`) | RECORDED — not owed. A one-word pick, plus Help's "⇧⌘P" sentence |
+| `v4.x` | Preview Column, and no Text menu to clash with (`text=0`) | CLOSED — does not apply |
+| `v3.x` / `v2.x` | No View menu item for the preview (`item=none`) | CLOSED — does not apply |

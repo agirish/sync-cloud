@@ -38,6 +38,7 @@ struct EditorPDFToolsMenu: View {
         .fixedSize()
         .help("PDF tools — each writes a new copy and leaves this file as it is")
         .accessibilityLabel("PDF Tools")
+        .accessibilityInputLabels(EditorSpokenNames.names(word: "Tools", label: "PDF Tools"))
         .sheet(item: $tools.sheet) { sheet in
             EditorPDFToolSheetView(tools: tools, sheet: sheet)
         }

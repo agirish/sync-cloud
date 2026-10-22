@@ -52,6 +52,18 @@ struct EditorCloseChip: View {
         }
         .chromeGlassGlyphButton(tint: accent, shape: .capsule, outset: ChromeGlass.smallGlyphOutset)
         .accessibilityLabel(EditorWorkspaceView.closeTitle(name: name))
+        .accessibilityInputLabels(EditorSpokenNames.names(word: Self.word, label: EditorWorkspaceView.closeTitle(name: name)))
         .help("Close this document")
+    }
+}
+
+/// **What Voice Control answers to, for a header button whose name is longer than its word**
+/// (TE197). "Click Find" may not match a button VoiceOver calls "Find in this document", nor "Click
+/// Close" one called "Close Plan.md": Voice Control matches the name, and the word on screen is
+/// only its start. So the word is the first name it answers to, and the full one stays the second;
+/// VoiceOver still reads the label alone, which these do not change.
+enum EditorSpokenNames {
+    static func names(word: String, label: String) -> [String] {
+        word == label ? [label] : [word, label]
     }
 }
