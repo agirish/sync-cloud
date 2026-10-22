@@ -368,12 +368,29 @@ enum EditorPDFCopyName {
     /// `<base> (<suffix>).pdf` beside `original` — the base shortened, a whole character at a time,
     /// when the name would pass ``longestName``: an original whose name was already near the limit
     /// otherwise had no copy at all, since every name the keep-both rule tried was too long.
+    ///
+    /// **A name that already says it is not told again** (TE190): signing "Lease (signed).pdf", or
+    /// "Lease (signed) 2.pdf", wants "Lease (signed).pdf", and the keep-both rule then takes the
+    /// next free number — rather than "Lease (signed) (signed).pdf".
     static func firstChoice(for original: String, suffix: String) -> String {
         let folder = (original as NSString).deletingLastPathComponent
-        var base = ((original as NSString).lastPathComponent as NSString).deletingPathExtension
+        var base = withoutSuffix(((original as NSString).lastPathComponent as NSString).deletingPathExtension, suffix)
         let tail = " (\(suffix)).pdf"
         while !base.isEmpty, nameLength(base + tail) > longestName { base.removeLast() }
         return (folder as NSString).appendingPathComponent(base + tail)
+    }
+
+    /// `base` without a closing " (<suffix>)" or " (<suffix>) N" — the word, and the keep-both
+    /// rule's number after it.
+    static func withoutSuffix(_ base: String, _ suffix: String) -> String {
+        var rest = Substring(base)
+        if let space = rest.lastIndex(of: " "), case let number = rest[rest.index(after: space)...],
+           !number.isEmpty, number.allSatisfy({ $0.isASCII && $0.isNumber }), rest[..<space].hasSuffix(")") {
+            rest = rest[..<space]
+        }
+        let word = " (\(suffix))"
+        guard rest.hasSuffix(word), rest.count > word.count else { return base }
+        return String(rest.dropLast(word.count))
     }
 }
 
@@ -681,13 +698,12 @@ enum EditorPDFToolEngine {
         case .permissionsForbidEditing(let url):
             let name = url.lastPathComponent
             guard case .fillForm(let values, _) = tool else {
-                return "“\(name)”’s owner doesn’t allow changing its pages. \(removePasswordStep)"
+                return "“\(name)”’s owner doesn’t allow changing its pages. \(liftRestrictionsStep)"
             }
             return values.isEmpty
                 ? "“\(name)”’s owner allows filling its form but not adding text or signatures to its pages, "
                     + "so only the fields can be saved."
-                : "“\(name)”’s owner doesn’t allow filling its form. Tools ▸ Remove Password… can write an "
-                    + "unrestricted copy if you know the password."
+                : "“\(name)”’s owner doesn’t allow filling its form. \(EditorPDFFillSign.removePasswordStep)"
         case .textOnRotatedPage(let page):
             return "Typed text can’t go on page \(page) while the form stays fillable, because that page is rotated. "
                 + "Remove it, or sign there with a drawn signature instead."
@@ -713,6 +729,9 @@ enum EditorPDFToolEngine {
 
     /// What to do about an owner's restriction — the one menu both Edit and the panes have.
     static let removePasswordStep = "PDF Tools ▸ Remove Password… can write an unrestricted copy if you know the password."
+    /// The same for a file whose owner only restricted it: Remove Password… asks for no password
+    /// there (TE167).
+    static let liftRestrictionsStep = "PDF Tools ▸ Remove Password… writes a copy without the restrictions."
 
     /// A run's failure as the banner says it: the toolkit's refusal in Edit's words, anything else
     /// as its own description.

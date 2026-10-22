@@ -27,6 +27,10 @@ import Testing
             "Events is a leaf module that must not depend on Design, and its formatter answers a "
             + "different question (it writes and parses ~/sync-cloud.log). It carries its own "
             + "lock-guarded refresh; see LogTimestampFormatter",
+        "Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSign.swift":
+            "builds a FRESH formatter per placed date and sets timeZone explicitly — nothing is "
+            + "captured; it needs the short style's own pattern, one set in System Settings included, "
+            + "to widen its year (TE192), which a shared formatter cannot hand out",
         "Modules/FileExplorer/Sources/FileExplorer/RestructurePlanSheet.swift":
             "builds a FRESH formatter per call and sets timeZone explicitly — nothing is captured",
         "Modules/Sync/Sources/Sync/FilingArtifactStamp.swift":

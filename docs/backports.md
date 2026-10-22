@@ -8263,3 +8263,30 @@ done
 | `v5.x` | TE153 (the folded pane's clipboard keys, Preview's ⌘C), TE157, TE179 (its outline is inside the rail view), TE180, TE181, TE182 | RECORDED — not owed |
 | `v5.x` | No list keys, strip or folder menu, so not TE154, TE155, TE156 or TE183 | CLOSED — does not apply |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace | CLOSED — does not apply |
+
+---
+
+## Fill & Sign small fixes: signing by keyboard, copy names, dates — main only
+
+Signature fields join Tab's ring and sign on Space, Return or a VoiceOver press (TE164); the pill's
+tooltip names its own button (TE165); the leave question counts as the pill does, with Save, Don't
+Save and Cancel (TE166); the refusals offer Remove Password… (TE167); the palette's tooltips say
+Return places (TE168); the typing box is drawn light (TE189); a copy of a copy is "Lease (signed)
+2.pdf", not "(signed) (signed)" (TE190); the saved banner says when the copy leaves something out
+(TE191); a placed date has a four-digit year (TE192); the Draw pad has Undo Stroke (TE193). All in
+Edit's PDF tools and Fill & Sign, which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s fillSign=%s engine=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSign.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFToolEngine.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-22, against origin, before this landed:
+# main  fillSign=1 engine=1
+# v5.x, v4.x, v3.x, v2.x — 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign or PDF tools in Edit (`fillSign=0`, `engine=0`) | CLOSED — does not apply |

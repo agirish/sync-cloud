@@ -691,14 +691,14 @@ public final class EditorPDFFillSign: ObservableObject {
     private var fieldEditBefore: [String: FormFieldValue]?
 
     var today: () -> Date = Date.init
-    /// Today in the Mac's short date format — "17/10/2026" here, "10/17/26" in the US.
-    var formatDate: (Date) -> String = { DateFormatter.localizedString(from: $0, dateStyle: .short, timeStyle: .none) }
+    /// Today in the Mac’s short date format with a four-digit year — "17/10/2026" here, "10/17/2026" in the US.
+    var formatDate: (Date) -> String = { EditorPDFFillSign.placedDate($0) }
     /// Puts a refusal to the reader — an alert in the app, recorded in a test.
-    var presentRefusal: @MainActor (String) -> Void = { EditorPDFFillSign.alertRefusal($0) }
+    lazy var presentRefusal: @MainActor (String) -> Void = { [unowned self] in self.alertRefusal($0) }
     /// Asks what to do with unsaved items — an alert in the app, a canned answer in a test. `count`
     /// is the items placed and the fields changed together.
-    lazy var askLeaving: @MainActor (_ name: String, _ count: Int) -> LeaveAnswer = { [unowned self] name, count in
-        EditorPDFFillSign.alertLeaving(name: name, count: count, fields: self.values.count,
+    lazy var askLeaving: @MainActor (_ name: String, _ count: Int) -> LeaveAnswer = { [unowned self] name, _ in
+        EditorPDFFillSign.alertLeaving(name: name, fields: self.values.count, placed: self.placedParts,
                                        corrected: self.onlyCorrections)
     }
 
@@ -883,9 +883,10 @@ public final class EditorPDFFillSign: ObservableObject {
     /// owner's "no commenting", and a form with a fillable field already refuses them for exactly
     /// that; this used to be the one form where they were taken (his call, 2026-10-18, to match).
     static let nothingToFillReason = "Its owner doesn’t allow adding text or signatures to its pages, and its form "
-        + "has no field that can be filled."
-    static let restrictedReason = "Its owner restricted editing, so Fill & Sign is off for it. Tools ▸ Remove Password… "
-        + "can write an unrestricted copy if you know the password."
+        + "has no field that can be filled. \(removePasswordStep)"
+    /// No password is asked for: Remove Password… lifts an owner's restrictions without one (TE167).
+    static let restrictedReason = "Its owner restricted editing, so Fill & Sign is off for it. \(removePasswordStep)"
+    nonisolated static let removePasswordStep = "Tools ▸ Remove Password… writes a copy without the restrictions."
 
     /// A file locked to open is opened by URL in the lane, where unlocking the reader's copy does
     /// not reach — so it is refused for the tools' reason. One whose owner forbade both comments
@@ -980,7 +981,7 @@ public final class EditorPDFFillSign: ObservableObject {
     /// "2 items", "1 correction", "2 items and 1 correction" — what is placed, corrections apart (TE84).
     private var placed: String { placedParts.joined(separator: " and ") }
 
-    private var placedParts: [String] {
+    var placedParts: [String] {
         let corrections = unsaved.filter(\.isCorrection).count, others = unsaved.count - corrections
         return (others == 0 ? [] : [Self.count(others)]) + (corrections == 0 ? [] : [Self.corrections(corrections)])
     }
@@ -1462,6 +1463,11 @@ public final class EditorPDFFillSign: ObservableObject {
         EditorPDFForm.refusal(field, allowsFormEntry: allowsFormEntry, allowsPlacing: offersPlacing)
     }
 
+    /// What pointing at `field` says: why it takes no value, or that it signs.
+    public func fieldHint(_ field: FormField) -> String? {
+        fieldRefusal(field) ?? (signs(field) ? EditorPDFForm.signFieldHint : nil)
+    }
+
     private func fillableField(_ name: String) -> FormField? {
         guard isOn, let field = form.field(named: name), fieldRefusal(field) == nil else { return nil }
         return field
@@ -1555,9 +1561,14 @@ public final class EditorPDFFillSign: ObservableObject {
 
     /// **Tab's ring** (decision BB, 2026-10-20): the fillable fields in the form's own order, then
     /// what is placed, in the order it was placed. A file with no form has the items alone.
+    ///
+    /// **Signature fields are on it, in the form's order** (decision BK, TE164) — wherever a
+    /// signature can be placed, even on a form whose owner doesn't allow filling its fields.
     public var tabStops: [TabStop] {
         guard isOn else { return [] }
-        let fields = allowsFormEntry ? form.fillable.map { TabStop.field($0.name) } : []
+        let fillable = allowsFormEntry ? Set(form.fillable.map(\.name)) : []
+        let fields = form.fields.filter { $0.kind == .signature ? signs($0) : fillable.contains($0.name) }
+            .map { TabStop.field($0.name) }
         return fields + items.map { .item($0.id) }
     }
 
@@ -2015,7 +2026,49 @@ public final class EditorPDFFillSign: ObservableObject {
         undoManager.setActionName(name)
     }
 
+    // MARK: Dates
+
+    /// **Today's date as Date places it** (decision BM, TE192): the Mac's own short format — one
+    /// set in System Settings included — with a two-digit year widened to four: "10/17/2026" in the
+    /// US, where the short format alone gives "10/17/26".
+    nonisolated static func placedDate(_ date: Date, locale: Locale = .autoupdatingCurrent,
+                                       timeZone: TimeZone = .autoupdatingCurrent) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.dateStyle = .short
+        formatter.timeStyle = .none
+        formatter.dateFormat = fourDigitYear(formatter.dateFormat)
+        return formatter.string(from: date)
+    }
+
+    /// `pattern` with each "yy" made "yyyy" — only a run of exactly two, outside quoted text, so
+    /// "yyyy", "y" and a quoted 'yy' stay as they are.
+    nonisolated static func fourDigitYear(_ pattern: String) -> String {
+        var out = "", quoted = false
+        var chars = Array(pattern)[...]
+        while let c = chars.first {
+            if c == "'" {
+                quoted.toggle()
+                out.append(c)
+                chars = chars.dropFirst()
+                continue
+            }
+            if !quoted, c == "y" {
+                let run = chars.prefix { $0 == "y" }.count
+                out += run == 2 ? "yyyy" : String(repeating: "y", count: run)
+                chars = chars.dropFirst(run)
+                continue
+            }
+            out.append(c)
+            chars = chars.dropFirst()
+        }
+        return out
+    }
+
     // MARK: Saving
+
+    static let changedWhileSavingNote = "It doesn’t include what changed while it was saving. Everything is still here, unsaved."
 
     /// **Save Filled Copy**: the items, as the toolkit draws them, through the tools' one run. On a
     /// copy written, the items go and the palette goes down; the copy is the banner's to open.
@@ -2062,6 +2115,10 @@ public final class EditorPDFFillSign: ObservableObject {
             } else if let path {
                 Logger.shared.info("Edit kept Fill & Sign on \(EditorPDFTools.logName(path)) — it changed "
                                    + "while the filled copy was being written, so the copy does not carry everything")
+                // **The saved banner says so** (TE191): it named the copy as if it held everything.
+                if case .wrote? = tools.banner?.kind, let said = tools.banner?.message {
+                    tools.banner?.message = (said.hasSuffix(".") ? said : said + ".") + " " + Self.changedWhileSavingNote
+                }
             }
         }
         return outcome
@@ -2123,42 +2180,71 @@ public final class EditorPDFFillSign: ObservableObject {
         }
     }
 
-    static func alertRefusal(_ reason: String) {
+    /// **The refusal, with Remove Password… beside OK** (TE167) — the one tool that gets past it —
+    /// unless a tool is running. Return chooses Remove Password…, Esc OK.
+    static func refusalAlert(_ reason: String, offersRemovePassword: Bool) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = reason == restrictedReason || reason == nothingToFillReason
             ? restrictedTitle : "Fill & Sign isn’t available for this PDF"
         alert.informativeText = reason
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-    }
-
-    /// `count` is everything unsaved, `fields` the part of it that is changed fields; `corrected`
-    /// says every one of them is a correction.
-    static func leaveQuestion(name: String, count: Int, fields: Int = 0, corrected: Bool = false) -> (title: String, detail: String) {
-        let items = count - fields
-        let what: String
-        switch (fields, items) {
-        case (0, _) where corrected: what = items == 1 ? "1 correction you made isn’t" : "\(items) corrections you made aren’t"
-        case (0, _): what = items == 1 ? "1 item you placed isn’t" : "\(items) items you placed aren’t"
-        case (_, 0): what = fields == 1 ? "1 field you filled isn’t" : "\(fields) fields you filled aren’t"
-        default: what = "\(Self.fields(fields)) you filled and \(Self.count(items)) you placed aren’t"
+        if offersRemovePassword {
+            alert.addButton(withTitle: "Remove Password…")
+            alert.addButton(withTitle: "OK").keyEquivalent = "\u{1b}"
+        } else {
+            alert.addButton(withTitle: "OK")
         }
-        return ("Save the \(corrected ? "corrected" : "filled") copy of “\(name)”?",
-                "\(what) saved. The original file hasn’t been changed.")
+        return alert
     }
 
-    static func alertLeaving(name: String, count: Int, fields: Int = 0, corrected: Bool = false) -> LeaveAnswer {
-        let question = leaveQuestion(name: name, count: count, fields: fields, corrected: corrected)
+    /// Whether the refusal is answered with Remove Password… now: the file takes it and no tool runs.
+    var offersRemovePassword: Bool { tools.map { $0.offersRemovePassword && $0.running == nil } ?? false }
+
+    func alertRefusal(_ reason: String) {
+        let offers = offersRemovePassword
+        let alert = Self.refusalAlert(reason, offersRemovePassword: offers)
+        if alert.runModal() == .alertFirstButtonReturn, offers { tools?.sheet = .removePassword }
+    }
+
+    /// `fields` is the changed fields, `placed` what the pill counts of the rest — "2 items", "1
+    /// correction" (TE166); `corrected` says every one of them is a correction.
+    static func leaveQuestion(name: String, fields: Int = 0, placed: [String] = [], corrected: Bool = false) -> (title: String, detail: String) {
+        let parts = (fields == 0 ? [] : ["\(Self.fields(fields)) you filled"]) + placed
+        let what = parts.count > 1 ? parts.dropLast().joined(separator: ", ") + " and " + parts[parts.count - 1]
+                                   : parts.first ?? ""
+        let one = parts.count == 1 && parts[0].hasPrefix("1 ")
+        return ("Save the \(corrected ? "corrected" : "filled") copy of “\(name)”?",
+                "\(what) \(one ? "isn’t" : "aren’t") saved. The original file hasn’t been changed.")
+    }
+
+    /// **The close alert's buttons** (TE166): added Save, Cancel, Don't Save — AppKit stacks a
+    /// three-button alert with Cancel last, so they show Save, Don't Save, Cancel. Return saves, Esc
+    /// cancels, and Don't Save takes ⌘D and is marked destructive.
+    static func leaveButtonTitles(corrected: Bool) -> [String] {
+        [corrected ? "Save Corrected Copy" : "Save Filled Copy", "Cancel", "Don’t Save"]
+    }
+
+    /// Which answer a button is — the third discards; anything else but the first stays.
+    static func leaveAnswer(for response: NSApplication.ModalResponse) -> LeaveAnswer {
+        switch response {
+        case .alertFirstButtonReturn: return .save
+        case .alertThirdButtonReturn: return .discard
+        default: return .cancel
+        }
+    }
+
+    static func leaveAlert(name: String, fields: Int = 0, placed: [String] = [], corrected: Bool = false) -> NSAlert {
+        let question = leaveQuestion(name: name, fields: fields, placed: placed, corrected: corrected)
         let alert = NSAlert()
         alert.messageText = question.title
         alert.informativeText = question.detail
-        alert.addButton(withTitle: corrected ? "Save Corrected Copy" : "Save Filled Copy")
-        alert.addButton(withTitle: fields == 0 ? "Discard Items" : "Discard Changes")
-        alert.addButton(withTitle: "Cancel")
-        switch alert.runModal() {
-        case .alertFirstButtonReturn: return .save
-        case .alertSecondButtonReturn: return .discard
-        default: return .cancel
-        }
+        for title in leaveButtonTitles(corrected: corrected) { alert.addButton(withTitle: title) }
+        alert.buttons[2].keyEquivalent = "d"
+        alert.buttons[2].keyEquivalentModifierMask = .command
+        alert.buttons[2].hasDestructiveAction = true
+        return alert
+    }
+
+    static func alertLeaving(name: String, fields: Int = 0, placed: [String] = [], corrected: Bool = false) -> LeaveAnswer {
+        leaveAnswer(for: leaveAlert(name: name, fields: fields, placed: placed, corrected: corrected).runModal())
     }
 }

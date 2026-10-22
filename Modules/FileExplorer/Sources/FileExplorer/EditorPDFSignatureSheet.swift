@@ -29,9 +29,11 @@ struct EditorPDFAddSignatureSheet: View {
     /// The window's hue, for the Draw / Type picker — `accentedSegments` takes the hue itself.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
-    init(fill: EditorPDFFillSign, kind: EditorPDFSignature.Kind) {
+    /// `drawing` opens it on Draw — for a test; the app opens on Type.
+    init(fill: EditorPDFFillSign, kind: EditorPDFSignature.Kind, drawing: Bool = false) {
         self.fill = fill
         self.kind = kind
+        _typing = State(initialValue: !drawing)
         _ink = State(initialValue: fill.color)
         let defaults = fill.store.defaults
         _faceRaw = AppStorage(wrappedValue: EditorPDFSignatureFace.snellRoundhand.rawValue,
@@ -39,6 +41,8 @@ struct EditorPDFAddSignatureSheet: View {
         _penRaw = AppStorage(wrappedValue: EditorPDFPen.medium.rawValue, EditorPDFSignatureStore.penKey, store: defaults)
         _smooth = AppStorage(wrappedValue: true, EditorPDFSignatureStore.smoothKey, store: defaults)
     }
+
+    static let undoStrokeTitle = "Undo Stroke"
 
     static let privacy = "This places a picture of your signature on the page. It isn’t a certificate-based digital "
         + "signature. Saved signatures stay on this Mac — drawn ones as pen strokes, typed ones as their words — "
@@ -114,6 +118,14 @@ struct EditorPDFAddSignatureSheet: View {
             HStack {
                 Button("Clear") { if typing { typed = "" } else { strokes = [] } }
                     .disabled(typing ? typed.isEmpty : strokes.isEmpty)
+                // **On Draw only** (decision BN, TE193): in Type, ⌘Z is the name field's own undo.
+                // Clear stays final (decision BV) — this takes back strokes, not a Clear.
+                if !typing {
+                    Button(Self.undoStrokeTitle) { _ = strokes.popLast() }
+                        .keyboardShortcut("z", modifiers: .command)
+                        .disabled(strokes.isEmpty)
+                        .help(ShortcutHint.tooltip("Take back the last stroke", "⌘Z"))
+                }
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)

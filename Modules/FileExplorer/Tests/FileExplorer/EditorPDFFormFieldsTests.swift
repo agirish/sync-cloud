@@ -374,28 +374,31 @@ extension PDFFixtures {
         #expect(fill.values["country"] == .choice("Japan"))
     }
 
-    /// **Tab and ⇧Tab walk the fillable fields in document order**, round the ends, and a text
-    /// field takes the typing as the keyboard lands on it.
+    /// **Tab and ⇧Tab walk the fillable fields in document order**, the signature field among them
+    /// (decision BK), round the ends, and a text field takes the typing as the keyboard lands on it.
     @Test func tabFollowsTheDocument() async throws {
         let (pdf, _) = try await form()
         let fill = pdf.fill
         fill.toggle()
         var visited: [String] = []
-        for _ in 0..<fill.form.fillable.count {
+        for _ in 0..<fill.tabStops.count {
             fill.focusNext()
             visited.append(try #require(fill.focusedField))
         }
-        #expect(visited == ["applicant.name", "initials", "notes", "subscribe", "plan", "country", "colour", "title"])
-        #expect(visited == fill.form.fillable.map(\.name))
+        #expect(visited.filter { $0 != "signature" } == ["applicant.name", "initials", "notes", "subscribe", "plan", "country", "colour", "title"])
+        let fillable = Set(fill.form.fillable.map(\.name))
+        #expect(visited == fill.form.fields.map(\.name).filter { fillable.contains($0) || $0 == "signature" }, "\(visited)")
+        #expect(visited.contains("signature"))
         fill.focusNext()
         #expect(fill.focusedField == "applicant.name", "Tab did not go round")
         #expect(fill.editingField == "applicant.name", "Tab onto a text field did not start the typing")
         fill.focusNext(forward: false)
-        #expect(fill.focusedField == "title")
+        #expect(fill.focusedField == visited.last)
         #expect(fill.editingField == nil)
     }
 
-    /// **A read-only field, a signature and a push button take nothing** — and say why.
+    /// **A read-only field, a signature and a push button take nothing** — and say why. A
+    /// signature field is no refusal: it signs, and says so (TE164).
     @Test func fieldsThatTakeNoValueRefuseAndSayWhy() async throws {
         let (pdf, _) = try await form()
         let fill = pdf.fill
@@ -405,10 +408,12 @@ extension PDFFixtures {
         fill.toggleCheckbox("reset")
         fill.beginFieldEditing("signature")
         #expect(fill.values.isEmpty && fill.editingField == nil)
-        for name in ["account", "signature", "reset", "size"] {
+        for name in ["account", "reset", "size"] {
             let field = try #require(fill.form.field(named: name))
             #expect(fill.fieldRefusal(field) != nil, "\(name) says nothing")
         }
+        let signature = try #require(fill.form.field(named: "signature"))
+        #expect(fill.fieldRefusal(signature) == nil && fill.fieldHint(signature) == EditorPDFForm.signFieldHint)
         #expect(fill.fieldRefusal(try #require(fill.form.field(named: "account")))?.contains("Read-only") == true)
         #expect(fill.fieldRefusal(try #require(fill.form.field(named: "applicant.name"))) == nil)
     }
@@ -479,9 +484,9 @@ extension PDFFixtures {
         fill.askLeaving = { asked.append(($0, $1)); return .cancel }
         #expect(!pdf.tools.mayLeave())
         #expect(asked.count == 1 && asked[0].0 == "Lease form.pdf" && asked[0].1 == 3)
-        #expect(EditorPDFFillSign.leaveQuestion(name: "Lease form.pdf", count: 3, fields: 2).detail
-                == "2 fields you filled and 1 item you placed aren’t saved. The original file hasn’t been changed.")
-        #expect(EditorPDFFillSign.leaveQuestion(name: "x", count: 1, fields: 1).detail.hasPrefix("1 field you filled isn’t saved."))
+        #expect(EditorPDFFillSign.leaveQuestion(name: "Lease form.pdf", fields: 2, placed: fill.placedParts).detail
+                == "2 fields you filled and 1 item aren’t saved. The original file hasn’t been changed.")
+        #expect(EditorPDFFillSign.leaveQuestion(name: "x", fields: 1).detail.hasPrefix("1 field you filled isn’t saved."))
         #expect(EditorPDFTools.leaveQuestion(running: .init(.compress(.quality(0.6))), hasArrangement: false, placedItems: 1, filledFields: 2)
                 .detail.contains("The 2 fields filled with Fill & Sign are cleared too."))
     }
@@ -979,9 +984,11 @@ extension PDFFixtures {
         overlay.keyDown(with: event(.keyDown, at: .zero, key: EditorPDFFillOverlay.tabKeyCode, flags: .shift))
         #expect(fill.focusedField == "notes")
 
-        // A field that takes nothing says why on hover, and a click on it changes nothing.
+        // A field that takes nothing says why on hover, and a click on it changes nothing; a
+        // signature field says it signs.
         let signature = try center("signature")
-        #expect(overlay.toolTip(at: signature) == fill.fieldRefusal(try #require(fill.form.field(named: "signature"))))
+        #expect(overlay.toolTip(at: signature) == EditorPDFForm.signFieldHint)
+        #expect(overlay.toolTip(at: try center("account"))?.contains("Read-only") == true)
         #expect(overlay.toolTip(at: try center("applicant.name")) == nil)
         let before = fill.values
         overlay.mouseDown(with: event(.leftMouseDown, at: try center("account")))

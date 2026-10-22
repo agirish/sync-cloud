@@ -124,7 +124,8 @@ Requires **macOS 26**, unchanged from the 5.x line.
   choices.
 - **Signatures stay on this Mac.** **Add Signature…** types one in one of seven of the Mac's
   handwriting faces, each shown in your own name, or draws one with the trackpad or mouse — Fine,
-  Medium or Bold, with **Smooth out wobble**, on to begin with, evening out the trackpad's jitter.
+  Medium or Bold, with **Smooth out wobble**, on to begin with, evening out the trackpad's jitter,
+  and **Undo Stroke** (⌘Z) taking back the last stroke.
   Blue or Black ink is chosen in the sheet, on a pad that stays paper-white in Dark Mode. Typing a
   signature while no initials are saved can save matching initials with it. Restyling a saved
   signature on the page changes the saved one too. It is a picture of your signature, not a
@@ -146,10 +147,10 @@ Requires **macOS 26**, unchanged from the 5.x line.
 - **Fill & Sign by keyboard alone, and with VoiceOver.** **File ▸ Fill & Sign Tool** holds the
   palette's tools, all but Aa. With one chosen, Return places its item in the middle of the page you
   can see, selected, for the arrow keys; text takes your typing at once, and Return again places
-  another just below. Tab and ⇧Tab move through what you placed, after a form's fields. VoiceOver
-  reads and presses every placed item and every field but a signature field — a field by its form's
-  own description — and tells saved drawn signatures apart by number and pen. **Add Signature…**
-  opens on Type, and deleting a saved signature asks first.
+  another just below. Tab and ⇧Tab move through what you placed, after a form's fields, signature
+  fields among them, where Space or Return signs. VoiceOver reads and presses every placed item and
+  every field — a field by its form's own description — and tells saved drawn signatures apart by
+  number and pen. **Add Signature…** opens on Type, and deleting a saved signature asks first.
 - **Replace retypes a few words on a page.** Choose **Replace** in the palette and click a line of
   words, or drag across some, or select words and right-click for **Replace Text…**. A box opens
   over them, holding them, in their size and colour, and in their own font when your Mac has it; the

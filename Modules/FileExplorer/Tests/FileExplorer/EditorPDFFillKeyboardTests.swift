@@ -223,8 +223,10 @@ extension PDFFixtures {
         let fill = pdf.fill
         let stage = try await stage(pdf, scale: 1)
         defer { close(stage) }
-        let order = fill.form.fillable.map(\.name)
-        try #require(order.count > 3)
+        // The fillable fields and the signature fields, in the form's own order (decision BK).
+        let fillable = Set(fill.form.fillable.map(\.name))
+        let order = fill.form.fields.filter { fillable.contains($0.name) || $0.kind == .signature }.map(\.name)
+        try #require(order.count > 3 && order.contains("signature"))
         // A mark on the second page, out of sight, and a text box on the first.
         stage.reader.go(to: try #require(pdf.document?.page(at: 0)))
         stage.reader.layoutSubtreeIfNeeded()
@@ -282,6 +284,60 @@ extension PDFFixtures {
         #expect(flat.fill.selection == dot)
     }
 
+    /// **A signature field signs without the mouse** (TE164, decision BK): Tab stops on it in the
+    /// form's own order; Space opens Add Signature for it when none is saved, Return its Signature
+    /// menu once one is, and the keyboard stays on the field meanwhile; VoiceOver's press opens the
+    /// same menu.
+    @Test func aSignatureFieldSignsFromTheKeyboardAndVoiceOver() async throws {
+        let pdf = try await form()
+        let fill = pdf.fill
+        let stage = try await stage(pdf, scale: 1)
+        defer { close(stage) }
+        let overlay = stage.overlay
+        var menus: [NSMenu] = []
+        overlay.presentMenu = { menu, _, _ in menus.append(menu) }
+        let field = try #require(fill.form.field(named: "signature"))
+        stage.reader.go(to: try #require(pdf.document?.page(at: field.widgets[0].pageIndex)))
+        stage.reader.layoutSubtreeIfNeeded()
+
+        let ring = fill.tabStops
+        for _ in 0...ring.count where fill.focusedField != "signature" { tab(stage.window) }
+        try #require(fill.focusedField == "signature", "Tab never stopped on the signature field: \(ring)")
+        press(49, " ", in: stage.window)
+        let target = try #require(fill.signingTarget(for: field.widgets[0]))
+        #expect(fill.addingSignature == .signature && fill.signing == target, "Space didn't open Add Signature for the field")
+        #expect(fill.focusedField == "signature", "the keyboard left the field")
+        fill.addingSignature = nil
+
+        fill.store.add(EditorPDFSignature(kind: .signature, look: .typed("Ada Quill")))
+        returnKey(stage.window)
+        #expect(menus.count == 1 && menus.last?.items.first?.title == EditorPDFSignatureMenu.signFieldTitle,
+                "Return didn't open the field's Signature menu")
+
+        await settle()
+        let elements = (overlay.accessibilityChildren() ?? []).compactMap { $0 as? EditorPDFFillAccessibilityElement }
+        let element = try #require(elements.first { $0.accessibilityLabel() == "signature" })
+        #expect(element.accessibilityPerformPress(), "VoiceOver's press on the signature field did nothing")
+        #expect(menus.count == 2 && menus.last?.items.first?.title == EditorPDFSignatureMenu.signFieldTitle)
+    }
+
+    /// **The typing box is drawn light, like the paper under it** (TE189) — in Dark Mode its "Type"
+    /// placeholder was white on the white page.
+    @Test func theTypingBoxIsLightInDarkMode() async throws {
+        let pdf = try await letter()
+        let fill = pdf.fill
+        let stage = try await stage(pdf, scale: 0.5)
+        defer { close(stage) }
+        stage.window.appearance = NSAppearance(named: .darkAqua)
+        fill.armed = .text
+        returnKey(stage.window)
+        await settle()
+        let field = try #require(stage.overlay.field, "no typing box")
+        #expect(stage.overlay.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua, "the window isn't dark")
+        #expect(field.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua, "the typing box follows Dark Mode")
+        #expect(field.placeholderString == "Type")
+    }
+
     // MARK: VoiceOver
 
     /// **VoiceOver reads and presses every field and item on screen** — through the reader, which
@@ -315,10 +371,21 @@ extension PDFFixtures {
         let plan = elements.filter { ($0.accessibilityLabel() ?? "").hasPrefix("plan, ") }
         #expect(plan.count == 3 && plan.allSatisfy { $0.accessibilityRole() == .radioButton })
         #expect(byLabel["country"]?.accessibilityRole() == .popUpButton)
+        // A signature field is a button that signs (TE164), not a dimmed one that does nothing.
         let signature = try #require(byLabel["signature"])
-        let refusal = fill.fieldRefusal(try #require(fill.form.field(named: "signature")))
-        #expect(!signature.isAccessibilityEnabled())
-        #expect(signature.accessibilityHelp() == refusal, "a field that takes nothing doesn't say why")
+        #expect(signature.accessibilityRole() == .button && signature.isAccessibilityEnabled(), "the signature field reads dimmed")
+        #expect(signature.accessibilityHelp() == EditorPDFForm.signFieldHint)
+        // One that takes nothing — read-only, a button — stays dimmed, and says why.
+        let refusals = elements.compactMap { element -> (EditorPDFFillAccessibilityElement, String)? in
+            guard case .widget(let name, _) = element.target, let field = fill.form.field(named: name),
+                  let refusal = fill.fieldRefusal(field) else { return nil }
+            return (element, refusal)
+        }
+        try #require(!refusals.isEmpty, "no field on screen that takes nothing")
+        for (element, refusal) in refusals {
+            #expect(!element.isAccessibilityEnabled() && element.accessibilityHelp() == refusal,
+                    "a field that takes nothing doesn't say why")
+        }
         let placed = try #require(byLabel["Check Mark"])
         #expect(placed.accessibilityRole() == .button)
         #expect(placed.accessibilityRoleDescription() == "placed item")

@@ -335,7 +335,14 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             }
             if flags.isEmpty, [Self.spaceKeyCode, Self.returnKeyCode].contains(event.keyCode),
                let name = fill.focusedField, fill.editingField == nil, let field = fill.form.field(named: name) {
-                if case .choice = field.kind { openMenu(field) } else { fill.activateFocused() }
+                if case .choice = field.kind {
+                    openMenu(field)
+                } else if fill.signs(field), let widget = shownWidget(of: field) {
+                    // The field keeps the keyboard while its menu or the Add sheet is up (TE164).
+                    sign(FieldHit(field: field, widget: widget), keepsFocus: true)
+                } else {
+                    fill.activateFocused()
+                }
                 return
             }
             if flags.isEmpty, [Self.returnKeyCode, Self.enterKeyCode].contains(event.keyCode), returnPressed() {
@@ -512,6 +519,9 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             made.cell?.isScrollable = true
             made.delegate = self
             made.placeholderString = "Type"
+            // **Light, like the paper under it** (TE189): in Dark Mode the placeholder was white at
+            // 55% on the white page.
+            made.appearance = NSAppearance(named: .aqua)
             made.setAccessibilityLabel("Text")
             addSubview(made)
             self.field = made
@@ -685,7 +695,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         } else if let item = item(at: point) {
             (item.isCorrection ? NSCursor.arrow : NSCursor.openHand).set()
         } else if takesFieldClicks, let hit = fieldHit(at: point) {
-            switch fill.fieldRefusal(hit.field) == nil || fill.signs(hit.field) ? hit.field.kind : .pushButton {
+            switch fill.fieldRefusal(hit.field) == nil ? hit.field.kind : .pushButton {
             case .text: NSCursor.iBeam.set()
             case .checkbox, .radio, .choice, .signature: NSCursor.pointingHand.set()
             default: NSCursor.arrow.set()
@@ -757,10 +767,11 @@ extension EditorPDFFillOverlay {
     }
 
     /// **A signature field clicked: the Signature menu, at the field** (TE107) — choosing one places
-    /// it to fit the field; with none saved, the Add sheet, whose signature goes there.
-    func sign(_ hit: FieldHit) {
+    /// it to fit the field; with none saved, the Add sheet, whose signature goes there. Space or
+    /// Return on the field Tab is on does the same, and `keepsFocus` leaves the keyboard there.
+    func sign(_ hit: FieldHit, keepsFocus: Bool = false) {
         guard let fill, let target = fill.signingTarget(for: hit.widget), let rect = widgetRect(hit.widget) else { return }
-        fill.focusField(nil)
+        fill.focusField(keepsFocus ? hit.field.name : nil)
         if fill.addFirst(.signature, signing: target) { return }
         presentMenu(EditorPDFSignatureMenu.menu(for: fill, kind: .signature, signing: target), rect, self)
     }
@@ -789,10 +800,14 @@ extension EditorPDFFillOverlay {
     }
 
     func openMenu(_ field: FormField, at widget: FormField.Widget? = nil) {
-        let shown = Set(shownWidgets.filter { $0.field.name == field.name }.map(\.widget))
-        guard let widget = widget ?? field.widgets.first(where: shown.contains) ?? field.widgets.first,
-              let rect = widgetRect(widget) else { return }
+        guard let widget = widget ?? shownWidget(of: field), let rect = widgetRect(widget) else { return }
         presentMenu(choiceMenu(for: field), rect, self)
+    }
+
+    /// The field's first widget on a page on screen, else its first — where the keyboard's menu opens.
+    func shownWidget(of field: FormField) -> FormField.Widget? {
+        let shown = Set(shownWidgets.filter { $0.field.name == field.name }.map(\.widget))
+        return field.widgets.first(where: shown.contains) ?? field.widgets.first
     }
 
     /// Tab onto a field off screen scrolls it on — once per field the keyboard moves to.
@@ -858,11 +873,12 @@ extension EditorPDFFillOverlay {
         return max(4, min((rect.height - 3) * 0.72, ceiling))
     }
 
-    /// The hover reason on every field that takes no value — signature, button, read-only.
+    /// The hover reason on every field that takes no value — button, read-only — and the signing
+    /// hint on a signature field.
     func layoutToolTips() {
         removeAllToolTips()
         guard let fill, isActive else { return }
-        for hit in shownWidgets where fill.fieldRefusal(hit.field) != nil {
+        for hit in shownWidgets where fill.fieldHint(hit.field) != nil {
             if let rect = widgetRect(hit.widget) { addToolTip(rect, owner: self, userData: nil) }
         }
     }
@@ -872,10 +888,10 @@ extension EditorPDFFillOverlay {
         toolTip(at: point) ?? ""
     }
 
-    /// Why the field under `point` takes no value, or `nil`.
+    /// Why the field under `point` takes no value, that it signs, or `nil`.
     func toolTip(at point: CGPoint) -> String? {
         guard let fill, let hit = fieldHit(at: point) else { return nil }
-        return fill.fieldRefusal(hit.field)
+        return fill.fieldHint(hit.field)
     }
 
     /// **Each widget tinted** — the accent where a value can go, grey where none can — a changed one
@@ -886,7 +902,7 @@ extension EditorPDFFillOverlay {
         for hit in shownWidgets {
             guard let rect = widgetRect(hit.widget), rect.intersects(dirtyRect.insetBy(dx: -4, dy: -4)) else { continue }
             // A signature field a click signs is tinted as one that takes a value (TE107).
-            let open = fill.fieldRefusal(hit.field) == nil || fill.signs(hit.field)
+            let open = fill.fieldRefusal(hit.field) == nil
             let changed = fill.values[hit.field.name] != nil
             let box = NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5)
             if changed {
@@ -1077,7 +1093,7 @@ extension EditorPDFFillOverlay {
             }
             element.setAccessibilityLabel(label)
             element.setAccessibilityEnabled(refusal == nil)
-            element.setAccessibilityHelp(refusal)
+            element.setAccessibilityHelp(fill.fieldHint(field))
             element.setAccessibilityFrameInParentSpace(widgetRect(widget) ?? .zero)
             element.setAccessibilityCustomActions(nil)
         case .item(let id):

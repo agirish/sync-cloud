@@ -145,7 +145,7 @@ import Testing
         for line in cases {
             #expect(line.contains(" — ") && !line.contains(" · "), "\(line)")
         }
-        #expect(palette.contains("case .date: return \"Date — click to place today’s date\""))
+        #expect(palette.contains("case .date: return \"Date — click, or press Return, to place today’s date\""))
         #expect(palette.contains("case .size: return \"Text Size — of the selected text, and of the next\""))
     }
 

@@ -283,12 +283,12 @@ struct EditorPDFFillPalette: View {
         switch tool {
         case .formFields: return "Form Fields — click a field to fill it; Tab moves to the next"
         case .select: return "Select — click what you placed to move it; Delete removes it"
-        case .text: return "Text — click on the page to type"
+        case .text: return "Text — click on the page, or press Return, to type"
         case .replace:
             return "Replace — click a line of words, or drag across some, to retype them. The copy covers the old words with a patch."
-        case .date: return "Date — click to place today’s date"
-        case .marks: return "Marks — ✓, ✗ or •, then click on the page to place it"
-        case .signature, .initials: return "\(tool.title) — choose a saved one, or add one"
+        case .date: return "Date — click, or press Return, to place today’s date"
+        case .marks: return "Marks — ✓, ✗ or •, then click on the page, or press Return, to place it"
+        case .signature, .initials: return "\(tool.title) — choose a saved one, or add one; then click, or press Return, to place it"
         case .style: return "Style — the font of the selected text, the face of a typed signature, the pen of a drawn one"
         case .size: return "Text Size — of the selected text, and of the next"
         case .ink: return "Ink — of the selected item, and of the next"
@@ -650,7 +650,7 @@ struct EditorPDFFillSaveStack: View {
                     .lineLimit(1)
                     .fixedSize()
                     .foregroundStyle(.secondary)
-                    .help("Nothing is written until Save Filled Copy — the original stays as it is")
+                    .help("Nothing is written until \(fill.saveTitle) — the original stays as it is")
             }
             Button("Discard") { fill.discard() }
                 .disabled(fill.items.isEmpty && fill.values.isEmpty)

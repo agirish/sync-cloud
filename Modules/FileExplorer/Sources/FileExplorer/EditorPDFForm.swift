@@ -159,12 +159,14 @@ public struct EditorPDFForm: Equatable, Sendable {
     static let signFieldRefusal = "Signature field — this PDF’s owner doesn’t allow adding a signature to its pages"
     static let separateBoxValuesReason = "These boxes share one name with separate values, which can’t be set here"
 
-    /// Why a field takes no value, or `nil` for one that does — the overlay's hover words. A
-    /// signature field takes none, but a click signs it where the owner lets signatures be placed
-    /// (TE107), and its words say so.
+    /// Why a field takes no value, or `nil` for one that does — the overlay's hover words. **A
+    /// signature field is no refusal where the owner lets signatures be placed** (TE107, TE164): a
+    /// click, Space, Return or a VoiceOver press signs it, and its hover words are
+    /// ``signFieldHint``. Its hint used to be returned here, so VoiceOver read the field as dimmed,
+    /// its press did nothing and Tab skipped it.
     public static func refusal(_ field: FormField, allowsFormEntry: Bool, allowsPlacing: Bool = true) -> String? {
         switch field.kind {
-        case .signature: return allowsPlacing ? signFieldHint : signFieldRefusal
+        case .signature: return allowsPlacing ? nil : signFieldRefusal
         case .pushButton: return "Button — it does nothing in a saved copy"
         default: break
         }

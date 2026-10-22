@@ -34,10 +34,11 @@ import Sync
                                                   widgets: [FormField.Widget(pageIndex: 0, rect: CGRect(x: 100, y: 100, width: 200, height: 30))])
 
     /// Fill & Sign on, on one letter page — with these fields, and the owner's commenting permission.
-    private func fill(fields: [FormField] = [], allowsCommenting: Bool = true) -> EditorPDFFillSign {
+    private func fill(fields: [FormField] = [], allowsFormEntry: Bool = true, allowsCommenting: Bool = true) -> EditorPDFFillSign {
         let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
         fill.attach(path: folder + "/Lease.pdf", boxes: [Self.letterBox], encryption: .none, allowsFilling: true,
-                    form: fields.isEmpty ? .none : EditorPDFForm(fields: fields), allowsCommenting: allowsCommenting)
+                    form: fields.isEmpty ? .none : EditorPDFForm(fields: fields), allowsFormEntry: allowsFormEntry,
+                    allowsCommenting: allowsCommenting)
         fill.toggle()
         return fill
     }
@@ -191,7 +192,7 @@ import Sync
         let fill = fill(fields: [Self.nameField, Self.signatureField])
         let field = Self.signatureField
         #expect(fill.signs(field))
-        #expect(fill.fieldRefusal(field) == "Signature field — click to sign it")
+        #expect(fill.fieldRefusal(field) == nil && fill.fieldHint(field) == "Signature field — click to sign it")
         let target = try #require(fill.signingTarget(for: field.widgets[0]))
         #expect(target == EditorPDFFillSign.SigningTarget(page: 0, rect: CGRect(x: 100, y: 100, width: 200, height: 30)))
 
@@ -212,6 +213,20 @@ import Sync
         let long = try #require(fill.items.first { $0.id == longID })
         #expect(long.rect == CGRect(x: 100, y: 105, width: 200, height: 20), "a wide one fitted at \(long.rect)")
         #expect(fill.armed == .formFields, "signing a field armed another tool")
+    }
+
+    /// **Tab stops on a signature field in the form's own order** (decision BK, TE164) — on a form
+    /// whose owner doesn't allow filling its fields too, as long as a signature can be placed.
+    @Test func tabStopsOnSignatureFieldsWhereASignatureCanGo() throws {
+        let later = FormField(name: "date", kind: .text(multiline: false), value: nil,
+                              widgets: [FormField.Widget(pageIndex: 0, rect: CGRect(x: 10, y: 200, width: 100, height: 20))])
+        let open = fill(fields: [Self.nameField, Self.signatureField, later])
+        #expect(open.tabStops == [.field("name"), .field("sig"), .field("date")])
+        let noEntry = fill(fields: [Self.nameField, Self.signatureField], allowsFormEntry: false)
+        #expect(noEntry.isOn && noEntry.tabStops == [.field("sig")])
+        #expect(noEntry.fieldRefusal(Self.signatureField) == nil && noEntry.signs(Self.signatureField))
+        let noPlacing = fill(fields: [Self.nameField, Self.signatureField], allowsCommenting: false)
+        #expect(noPlacing.tabStops == [.field("name")])
     }
 
     /// **A form whose owner forbids adding to its pages keeps its refusal**: the field doesn't sign,
@@ -402,6 +417,12 @@ import Sync
         #expect(pdf.tools.running == nil, "the save never finished — this checks nothing")
         #expect(retried == 0, "a save that didn't carry everything left the PDF")
         #expect(fill.hasUnsavedItems && fill.isOn)
+        if placesMore {
+            // The copy landed without the second mark: its banner says so (TE191).
+            let banner = try #require(pdf.tools.banner)
+            #expect(banner.kind == .wrote(try #require(pdf.path).replacingOccurrences(of: ".pdf", with: " (filled).pdf")))
+            #expect(banner.message.hasSuffix(". " + EditorPDFFillSign.changedWhileSavingNote), "\(banner.message)")
+        }
     }
 
     // MARK: TE141 — the first signature goes straight to the sheet

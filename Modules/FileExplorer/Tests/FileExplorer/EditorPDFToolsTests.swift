@@ -941,7 +941,7 @@ extension PDFFixtures {
 
         let outcome = await tools.run(.rotate(pages: [0], quarterTurns: 1))
         // In Edit's words: the toolkit's own sent the reader to PDF Utils' "Password Protect".
-        let expected = "“Statement.pdf”’s owner doesn’t allow changing its pages. " + EditorPDFToolEngine.removePasswordStep
+        let expected = "“Statement.pdf”’s owner doesn’t allow changing its pages. " + EditorPDFToolEngine.liftRestrictionsStep
         #expect(outcome == .failed(expected), "\(outcome)")
         #expect(tools.banner?.message == expected && tools.banner?.kind == .failure)
         #expect(files() == ["Statement.pdf"])
