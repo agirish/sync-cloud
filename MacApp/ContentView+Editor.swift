@@ -792,8 +792,10 @@ extension ContentView {
     /// - Returns: `false` when the caller must do nothing at all.
     /// - Parameter retry: the route itself, run again once Fill & Sign's Save Filled Copy — chosen
     ///   in the leave question — has written the copy, so the save goes on to leave (decision AX).
+    /// - Parameter asksAboutTheOnlyCopy: `false` for a window close, which the document outlives —
+    ///   a deleted file's text is still on screen when the window comes back (TE146).
     @discardableResult
-    func settleEditorDocument(asksAboutPDFWork: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool {
+    func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool {
         // **What a PDF can lose: a pending reorder, or a tool still running** — asked here because
         // every route out of the document asks this. Asked only: the order and the run go when the
         // PDF really closes, so a route that fails after the answer (⌘N's file could not be made)
@@ -802,6 +804,14 @@ extension ContentView {
         // **A word being composed is committed first** (UND-5), so it is in the buffer for the
         // question, the flush and the history below — never left in a storage put away without it.
         editorDocument.buffer.source.endComposition()
+        // **TE146: a file deleted with nothing typed is asked about too** — autosave has nothing to
+        // write, but the text on screen may be the only copy left. The watch looks first, so a move
+        // is followed and a trip to the Trash noted rather than asked about; a file in the Trash and
+        // still there can be put back, so it doesn't ask (decision BQ).
+        if asksAboutTheOnlyCopy, !editorDocument.isDirty, editorDiskWatch.isGone {
+            editorDiskWatch.reconcile()
+            if editorDiskWatch.mayBeTheOnlyCopy { return confirmLeavingTheOnlyCopy() }
+        }
         // **Two documents are asked about before the flush rather than flushed.** A blocked one,
         // because the flush would refuse again for the same reason and the alert is where the
         // choice lives. And one whose autosave switch is off, because flushing it on the way out is
@@ -853,7 +863,10 @@ extension ContentView {
     /// because the choice is: write over what is there, keep the document open, or lose the typing.
     /// It was named for the first reason alone when that was the only one.
     private func confirmLeavingAnUnwrittenDocument() -> Bool {
-        switch EditorAlerts.askAboutUnsavedChanges(name: editorDocument.name) {
+        let isGone = editorDiskWatch.isGone
+        let cause = EditorAlerts.leaveCause(isGone: isGone, stop: editorAutosaveStop,
+                                            autosaveOff: !editorAutosavePolicy.isOn(editorDocument.path))
+        switch EditorAlerts.askAboutUnsavedChanges(name: editorDocument.name, cause: cause) {
         case .cancel: return false
         case .discard:
             editorAutosaveStop = nil
@@ -871,10 +884,35 @@ extension ContentView {
             }
             return true
         case .save:
+            // A file that is gone is written back as Save Again writes it — looking first, and
+            // making its folder again — rather than asked about a second time (TE146).
+            if isGone { return saveEditorDocumentAgain(explicit: true) }
             // "Save" here means "overwrite what is on disk", which is the choice the divergence
             // alert puts. Routed through it rather than written directly, so the destructive answer
             // keeps the confirmation it has everywhere else.
             return saveEditorDocument()
+        }
+    }
+
+    /// **The question for a file that is gone with nothing typed** (TE146). Save is Save Again: if a
+    /// file has turned up at the path meanwhile, nothing is written and the watch shows it, and if
+    /// it can't be written, nothing closes. A file open read-only can't be written back, so it is
+    /// asked only whether to leave it.
+    private func confirmLeavingTheOnlyCopy() -> Bool {
+        let name = editorDocument.name, path = editorDocument.path ?? ""
+        let answer = editorDocument.isReadOnly
+            ? EditorAlerts.askAboutLeavingAGoneReadOnlyFile(name: name)
+            : EditorAlerts.askAboutTheOnlyCopy(name: name)
+        switch answer {
+        case .cancel:
+            Logger.shared.info("Editor kept \(path) open — it is no longer on disk, and its text may be the only copy")
+            return false
+        case .discard:
+            Logger.shared.info("Editor left \(path) without saving it again — it was no longer on disk")
+            editorAutosaveStop = nil
+            return true
+        case .save:
+            return saveEditorDocumentAgain(explicit: true)
         }
     }
 

@@ -303,7 +303,7 @@ import FileExplorer
     /// The positive control: the scans are reading the real file.
     @Test func theScanCanActuallyFail() throws {
         let source = try Self.editor()
-        #expect(source.contains("func settleEditorDocument(asksAboutPDFWork: Bool = true, thenRetry retry:"), "not reading ContentView+Editor.swift")
+        #expect(source.contains("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry:"), "not reading ContentView+Editor.swift")
         #expect(!source.contains("thisStringIsNotInTheFile"))
     }
 

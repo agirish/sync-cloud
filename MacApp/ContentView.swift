@@ -1328,6 +1328,8 @@ struct ContentView: View {
         .onChange(of: externalOpens.arrivals) { openExternalArrivals() }
         .onChange(of: pendingDestination == nil) { openExternalArrivals() }
         .onChange(of: editorDivergenceReview == nil) { openExternalArrivals() }
+        // The quit alert's cause line reads it (TE148); the delegate is outside the view layer.
+        .onChange(of: editorAutosaveStop, initial: true) { _, stop in SyncCloudAppDelegate.editorAutosaveStop = stop }
         // The overlays are mutually exclusive; Settings wins the precedence above. Close Help
         // from every Settings entry point (toolbar, ⌘,, the invalid-pane fix-it) so it can't be
         // left lingering underneath a Settings card the user opened on top of it.
@@ -1463,6 +1465,7 @@ struct ContentView: View {
             // editor prompts.
             SyncCloudAppDelegate.shared?.adoptEditorDocument(editorDocument)
             SyncCloudAppDelegate.shared?.adoptAutosavePolicy(editorAutosavePolicy)
+            SyncCloudAppDelegate.shared?.adoptDiskWatch(editorDiskWatch)
             SyncCloudAppDelegate.shared?.adoptPDFTools(editorPDF.tools)
             SyncCloudAppDelegate.shared?.adoptPanePDFTools(panePDFTools)
             attachEditorDiskWatch()

@@ -226,6 +226,10 @@ public final class EditorDiskWatch: ObservableObject {
     private var useDisksWhenDownloaded: String?
     /// Paths whose download read is out on ``downloadQueue`` — at most one each.
     private var readsOut: Set<String> = []
+    /// **Where the open file went when it was put in a Trash** (decision BQ, TE146) — noted at the
+    /// first look that finds the path empty, because that is the only look that knows: the re-arm
+    /// that follows watches the folder, and the descriptor that said where the file went is gone.
+    private var trashedTo: String?
 
     /// The serial queue every download read runs on — see ``download(_:)``.
     static let downloadQueueLabel = "SyncCloud.EditorDiskWatch.download"
@@ -283,6 +287,7 @@ public final class EditorDiskWatch: ObservableObject {
         pending?.cancel()
         downloading = nil
         useDisksWhenDownloaded = nil
+        trashedTo = nil
         notice = nil
         setBanner(nil)
         arm(path)
@@ -343,6 +348,7 @@ public final class EditorDiskWatch: ObservableObject {
         }
         let observation = observe(path)
         let change = EditorDiskChange.assess(path: path, known: document.diskStamp, observation: observation)
+        noteTrash(change, observation: observation, path: path)
         // **A new stamp over the same bytes is not a change.** A `touch`, a sync client re-stamping
         // the file after uploading the editor's own save, a Time Machine restore of the identical
         // text: reloading for those would empty the undo history after every pause in typing, and
@@ -439,6 +445,38 @@ public final class EditorDiskWatch: ObservableObject {
     private func needsRearm(_ observation: EditorDiskChange.Observation) -> Bool {
         (observation.atPath?.fileID ?? 0) != (watcher?.fileID ?? 0) || watcher?.watchesAboveAFolderThatIsBack == true
     }
+
+    /// Notes where a file put in a Trash went, the first time a look sees it go (``trashedTo``); any
+    /// other answer — the file back, changed or followed — forgets it.
+    private func noteTrash(_ change: EditorDiskChange, observation: EditorDiskChange.Observation, path: String) {
+        guard change == .deleted else {
+            trashedTo = nil
+            return
+        }
+        guard trashedTo == nil, let tracked = observation.trackedPath, EditorDiskChange.isInTrash(tracked) else { return }
+        trashedTo = tracked
+        Logger.shared.info("[edit] \(path) went to the Trash, at \(tracked) — leaving it won't ask while it is still there")
+    }
+
+    /// **Whether the text on screen may be the only copy** (TE146): the document's file is gone from
+    /// its path — deleted, its disk gone, or put in a Trash it has since left. A file in a Trash and
+    /// still there can be put back, so it is not (decision BQ); that is looked at again here, on
+    /// leaving. A refused document has no text to lose.
+    public var mayBeTheOnlyCopy: Bool {
+        guard isGone else { return false }
+        if let trashedTo, FileManager.default.fileExists(atPath: trashedTo) { return false }
+        return true
+    }
+
+    /// Whether the open document's file is gone from its path — the Trash or not.
+    public var isGone: Bool {
+        guard let document, let path = document.path, document.refusal == nil else { return false }
+        return document.diskStamp.map { EditorFileStore.divergence(atPath: path, from: $0) == .missing }
+            ?? (EditorFileStore.stamp(ofPath: path) == nil)
+    }
+
+    /// Where the open file went in a Trash, while that is known — for the tests.
+    var trashedPath: String? { trashedTo }
 
     /// What Save Again's look found — see ``prepareSaveAgain()``.
     public enum SaveAgainCheck: Equatable, Sendable {

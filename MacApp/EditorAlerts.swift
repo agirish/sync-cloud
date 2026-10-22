@@ -22,12 +22,52 @@ enum EditorAlerts {
         case cancel
     }
 
+    /// **Said the same way wherever the question comes from** (TE148) — closing, opening another
+    /// file, ⌘N — so not "before closing it", which was wrong for all but one of them.
     nonisolated static func unsavedMessage(name: String) -> String {
-        "Save your changes to “\(name)” before closing it?"
+        "Save your changes to “\(name)”?"
     }
 
+    /// Said only when no cause applies — which a document Edit asks about always has.
     nonisolated static let unsavedInformativeText =
         "If you don’t save, the changes you made since the last save are lost."
+
+    /// **Why this document is being asked about at all** (TE148) — autosave writes everything else
+    /// without a word. One line, the first that applies, in this order.
+    enum LeaveCause: Equatable {
+        /// The file is gone from its path: the text on screen may be the only copy.
+        case gone
+        /// The file changed on disk while there was typing that is not on it.
+        case changed
+        /// The last save failed — the reason, reader-facing.
+        case failed(String)
+        /// The last save landed but couldn't be checked — the stop's own sentence.
+        case unchecked(String)
+        /// The user switched autosave off for this file.
+        case autosaveOff
+    }
+
+    nonisolated static func leaveCause(isGone: Bool, stop: EditorAutosaveStop?, autosaveOff: Bool) -> LeaveCause? {
+        if isGone || stop == .diverged(.missing) { return .gone }
+        switch stop {
+        case .diverged(.changed)?: return .changed
+        case .failed(let message)?: return .failed(message)
+        case .unchecked?: return .unchecked(stop?.detail ?? "")
+        default: return autosaveOff ? .autosaveOff : nil
+        }
+    }
+
+    nonisolated static let onlyCopyLine = "It’s no longer on disk — this text may be the only copy."
+
+    nonisolated static func causeLine(_ cause: LeaveCause) -> String {
+        switch cause {
+        case .gone: return onlyCopyLine
+        case .changed: return "It changed on disk while you were typing."
+        case .failed(let message): return "Its last save failed — \(message)"
+        case .unchecked(let detail): return detail
+        case .autosaveOff: return "Autosave is off for this file."
+        }
+    }
 
     /// Save first (Return), Cancel second (Escape), Discard last — the platform's own order for
     /// this question, and the one that keeps the destructive answer off both default keys.
@@ -43,12 +83,67 @@ enum EditorAlerts {
         }
     }
 
-    static func askAboutUnsavedChanges(name: String) -> UnsavedAnswer {
+    static func askAboutUnsavedChanges(name: String, cause: LeaveCause?) -> UnsavedAnswer {
+        askWithSaveButtons(message: unsavedMessage(name: name),
+                           informative: cause.map(causeLine) ?? unsavedInformativeText)
+    }
+
+    // MARK: - Leaving a file that is gone (TE146)
+
+    /// **A file deleted with nothing typed** — clean, so autosave had nothing to say, but the text
+    /// on screen may be the only copy left. Asked with the close question's buttons; Save is Save
+    /// Again.
+    nonisolated static func onlyCopyMessage(name: String) -> String { "Save “\(name)” again?" }
+
+    static func askAboutTheOnlyCopy(name: String) -> UnsavedAnswer {
+        askWithSaveButtons(message: onlyCopyMessage(name: name), informative: onlyCopyLine)
+    }
+
+    /// The same file open read-only, which can't be written back — leaving or quitting can only
+    /// lose it, so the question is that and Cancel.
+    nonisolated static func goneMessage(name: String) -> String { "“\(name)” is no longer on disk" }
+
+    nonisolated static let readOnlyGoneInformativeText = "Leaving now loses this text — it may be the only copy."
+
+    /// **Don't Save first with Return taken off it, Cancel second** (decision BS): Esc cancels, and
+    /// Return does nothing — the destructive answer is never one keystroke away. On screen it reads
+    /// Cancel · Don't Save, a two-button alert's first button sitting on the right.
+    nonisolated static let readOnlyGoneButtonTitles = ["Don’t Save", "Cancel"]
+
+    /// The first button discards; everything else — Cancel, a dismissed alert — keeps the document.
+    nonisolated static func readOnlyGoneAnswer(for response: NSApplication.ModalResponse) -> UnsavedAnswer {
+        response == .alertFirstButtonReturn ? .discard : .cancel
+    }
+
+    static func askAboutLeavingAGoneReadOnlyFile(name: String) -> UnsavedAnswer {
+        readOnlyGoneAnswer(for: readOnlyGoneAlert(name: name).runModal())
+    }
+
+    static func readOnlyGoneAlert(name: String) -> NSAlert {
         let alert = NSAlert()
-        alert.messageText = unsavedMessage(name: name)
-        alert.informativeText = unsavedInformativeText
+        alert.alertStyle = .warning
+        alert.messageText = goneMessage(name: name)
+        alert.informativeText = readOnlyGoneInformativeText
+        for title in readOnlyGoneButtonTitles { alert.addButton(withTitle: title) }
+        alert.buttons[0].keyEquivalent = ""
+        alert.buttons[0].hasDestructiveAction = true
+        return alert
+    }
+
+    private static func askWithSaveButtons(message: String, informative: String) -> UnsavedAnswer {
+        answer(for: saveButtonsAlert(message: message, informative: informative).runModal())
+    }
+
+    /// The close question's three buttons. **Don't Save is marked destructive** (TE176), as Quit
+    /// Anyway, Discard Changes and Keep Mine… are, and keeps the ⌘D AppKit gives it — so its key
+    /// equivalent is left alone — while Return stays on Save.
+    static func saveButtonsAlert(message: String, informative: String) -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = informative
         for title in unsavedButtonTitles { alert.addButton(withTitle: title) }
-        return answer(for: alert.runModal())
+        alert.buttons[2].hasDestructiveAction = true
+        return alert
     }
 
     // MARK: - Keep Mine (TE59, TE97)

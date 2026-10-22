@@ -1063,6 +1063,18 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         Self.sharedAutosavePolicy = policy
     }
 
+    /// The editor's disk watch, so the quit guard can ask whether a deleted file's text may be the
+    /// only copy (TE146). Weak and static, adopted beside the document, for the same reasons.
+    static weak var sharedDiskWatch: EditorDiskWatch?
+
+    func adoptDiskWatch(_ watch: EditorDiskWatch) {
+        Self.sharedDiskWatch = watch
+    }
+
+    /// Why autosave stopped on the open document, mirrored from the window — the quit alert's cause
+    /// line reads it (TE148). A value, so nothing is held.
+    static var editorAutosaveStop: EditorAutosaveStop?
+
     /// The open PDF's tools, for the quit guard to ask about a pending page order — the one thing a
     /// PDF in Edit can lose. Weak and static, adopted beside the document, for the same reasons.
     static weak var sharedPDFTools: EditorPDFTools?
@@ -1231,6 +1243,21 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     /// which quit path applies. Kept side-effect-free so `SyncCloudTests` can pin the branches
     /// without driving a modal alert. `nonisolated`: pure over its arguments, so the tests
     /// don't have to hop to the main actor just because the class is isolated.
+    /// The quit alert for a deleted file with nothing typed (TE146): Quit Anyway first, with Return
+    /// taken off it, and Cancel second — on screen, Cancel · Quit Anyway.
+    nonisolated static let quitGoneInformativeText = "Quitting now loses this text — it may be the only copy."
+    nonisolated static let quitGoneButtonTitles = ["Quit Anyway", "Cancel"]
+
+    /// What the File Operations in Progress alert adds about the open document: unsaved typing and
+    /// why autosave didn't write it (TE148), or a deleted file whose text may be the only copy (TE146).
+    nonisolated static func fileOperationsDocumentSentence(name: String, isDirty: Bool, isOnlyCopy: Bool,
+                                                         cause: EditorAlerts.LeaveCause?) -> String {
+        if isDirty {
+            return " Unsaved changes to “\(name)” are discarded too." + (cause.map { " " + EditorAlerts.causeLine($0) } ?? "")
+        }
+        return isOnlyCopy ? " “\(name)” is no longer on disk, and its text may be the only copy." : ""
+    }
+
     nonisolated static func quitDecision(activeOperations: Int, warnBeforeQuit: Bool,
                                          hasUnsavedDocument: Bool = false) -> QuitDecision {
         guard activeOperations > 0 else {
@@ -1343,16 +1370,22 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         Self.sharedEditorDocument?.buffer.source.endComposition()
         let mayFlush = Self.mayFlushOnQuit(path: Self.sharedEditorDocument?.path,
                                            policy: Self.sharedAutosavePolicy)
+        // Why the document is asked about, for the alert's cause line (TE148): what the flush just
+        // found, else the stop the window last had.
+        var stop = Self.editorAutosaveStop
         if let document = Self.sharedEditorDocument, mayFlush {
             switch EditorAutosave.attempt(document) {
             case .wrote:
                 Logger.shared.info("Flushed the editor's document before quitting")
             case .blocked(let divergence):
+                stop = .diverged(divergence)
                 Logger.shared.warning(
                     "Could not flush the editor's document before quitting: it \(divergence == .missing ? "is no longer where it was opened" : "changed on disk")")
             case .failed(let message):
+                stop = .failed(message)
                 Logger.shared.warning("Could not flush the editor's document before quitting — \(message)")
             case .savedUnchecked(let clause):
+                stop = .unchecked(clause)
                 Logger.shared.warning("Flushed the editor's document before quitting, but \(clause)")
             case .nothingToDo:
                 break
@@ -1361,7 +1394,15 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             Logger.shared.info(
                 "Did not flush “\(document.name)” before quitting — autosave is off for it")
         }
-        let hasUnsavedDocument = Self.sharedEditorDocument?.isDirty ?? false
+        let isDirty = Self.sharedEditorDocument?.isDirty ?? false
+        // **TE146: a deleted file with nothing typed is asked about too** — its text may be the only
+        // copy. The watch looks first, so a move is followed and a trip to the Trash noted; a file
+        // in the Trash and still there isn't asked about (decision BQ).
+        let watch = Self.sharedDiskWatch
+        if !isDirty, watch?.isGone == true { watch?.reconcile() }
+        let isOnlyCopy = !isDirty && watch?.mayBeTheOnlyCopy == true
+        let hasUnsavedDocument = isDirty || isOnlyCopy
+        let cause = EditorAlerts.leaveCause(isGone: watch?.isGone ?? false, stop: stop, autosaveOff: !mayFlush)
 
         switch Self.quitDecision(activeOperations: activeOperations, warnBeforeQuit: warnBeforeQuit,
                                  hasUnsavedDocument: hasUnsavedDocument) {
@@ -1396,7 +1437,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             // questions in a row on ⌘Q is how a person learns to dismiss both without reading.
             let name = Self.sharedEditorDocument?.name ?? "the open document"
             alert.informativeText = "Quitting now may cause data corruption or partial synchronization."
-                + (unsaved ? " Unsaved changes to “\(name)” are discarded too." : "")
+                + Self.fileOperationsDocumentSentence(name: name, isDirty: isDirty, isOnlyCopy: isOnlyCopy,
+                                                      cause: unsaved ? cause : nil)
                 + " Are you sure you want to quit?"
             alert.addButton(withTitle: "Wait")
             alert.addButton(withTitle: "Quit Anyway")
@@ -1418,6 +1460,28 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
                 return .terminateCancel
             }
 
+        case .warnUnsavedDocument(let count) where isOnlyCopy:
+            // **Nothing typed, and the file gone** (TE146): the text on screen may be the only copy.
+            // Quitting can't write it back, so the question is Quit Anyway or Cancel — and Return
+            // does nothing (decision BS).
+            let name = Self.sharedEditorDocument?.name ?? "the open document"
+            let alert = NSAlert()
+            alert.messageText = EditorAlerts.goneMessage(name: name)
+            alert.informativeText = Self.quitGoneInformativeText
+            for title in Self.quitGoneButtonTitles { alert.addButton(withTitle: title) }
+            alert.alertStyle = .warning
+            alert.buttons[0].keyEquivalent = ""
+            alert.buttons[0].hasDestructiveAction = true
+            if alert.runModal() == .alertFirstButtonReturn {
+                Logger.shared.warning("User chose Quit Anyway with “\(name)” no longer on disk — its text may have been the only copy"
+                    + (count > 0 ? ", and \(count) active file operation(s)" : ""))
+                Logger.shared.flushToDisk()
+                SyncHistoryStore.shared.flushToDisk()
+                return .terminateNow
+            }
+            Logger.shared.info("User cancelled quitting — “\(name)” is no longer on disk, and its text may be the only copy")
+            return .terminateCancel
+
         case .warnUnsavedDocument(let count):
             let name = Self.sharedEditorDocument?.name ?? "the open document"
             let alert = NSAlert()
@@ -1426,7 +1490,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             // prompt to run inside a termination handler, on state the app is already tearing
             // down. Returning the user to the editor with the buffer intact is the honest answer,
             // and ⌘S is one keystroke away once they are back.
-            alert.informativeText = "Quitting now discards them. Cancel to go back and save with "
+            // With the cause line first (TE148): why autosave didn't write them.
+            alert.informativeText = (cause.map { EditorAlerts.causeLine($0) + " " } ?? "")
+                + "Quitting now discards them. Cancel to go back and save with "
                 + "\(AppChord.saveDocument.display)."
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Discard Changes")

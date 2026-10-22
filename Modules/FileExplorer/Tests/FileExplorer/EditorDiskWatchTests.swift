@@ -709,6 +709,40 @@ import EventsTestSupport
         #expect(rig.moves.isEmpty)
     }
 
+    /// **TE146, decision BQ: a file in the Trash, still there, is not the only copy.** Where it went
+    /// is noted at the FIRST look that finds it gone — the re-arm after it watches the folder, and
+    /// no later look can say where the file is — and looked at again on leaving: emptied from the
+    /// Trash, the text on screen is the only copy after all.
+    @Test func aFileInTheTrashIsNotTheOnlyCopyUntilItLeavesIt() throws {
+        let rig = try Rig()
+        #expect(!rig.watch.isGone && !rig.watch.mayBeTheOnlyCopy)
+        let trash = rig.folder.appendingPathComponent(".Trash")
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        let trashed = trash.appendingPathComponent("note.md").path
+        #expect(rename(rig.path, trashed) == 0)
+        #expect(rig.watch.reconcile() == .asked(.deleted))
+        #expect(rig.watch.trashedPath.map(EditorFileStore.resolved) == EditorFileStore.resolved(trashed))
+        // A second look, re-armed on the folder, has no descriptor to ask — and still remembers.
+        #expect(rig.watch.reconcile() == .asked(.deleted))
+        #expect(rig.watch.isGone)
+        #expect(!rig.watch.mayBeTheOnlyCopy, "a file still in the Trash was called the only copy")
+        try FileManager.default.removeItem(atPath: trashed)
+        #expect(rig.watch.mayBeTheOnlyCopy, "the Trash was emptied, and the text on screen is the only copy")
+    }
+
+    /// A file deleted outright, or gone with its disk, may be the only copy at once; one written
+    /// back is not, and the Trash note goes with it.
+    @Test func aDeletedFileMayBeTheOnlyCopyUntilItIsBack() throws {
+        let rig = try Rig()
+        try FileManager.default.removeItem(atPath: rig.path)
+        #expect(rig.watch.reconcile() == .asked(.deleted))
+        #expect(rig.watch.trashedPath == nil)
+        #expect(rig.watch.mayBeTheOnlyCopy)
+        rig.document.markSaved(stamp: try EditorFileStore.write(rig.document))
+        #expect(rig.watch.reconcile() == .settled)
+        #expect(!rig.watch.isGone && !rig.watch.mayBeTheOnlyCopy)
+    }
+
     // MARK: The events themselves
 
     /// No `reconcile()` from the test: the kernel's event, settled, has to get there on its own.

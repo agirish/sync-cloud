@@ -12,7 +12,7 @@ import FileExplorer
     /// **Every route out of the PDF asks before a pending order or a running tool is lost** — and
     /// asks FIRST, before anything about the text document, which is empty while a PDF is open.
     @Test func everyRouteOutOfThePDFAsksFirst() throws {
-        let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
+        let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
         let ask = try #require(settle.range(of: "if asksAboutPDFWork { guard editorPDF.tools.mayLeave(thenRetry: retry) else { return false } }"),
                                "settleEditorDocument no longer asks about the PDF's pending work")
         let compose = try #require(settle.range(of: "editorDocument.buffer.source.endComposition()"))
@@ -33,7 +33,7 @@ import FileExplorer
         #expect(open.contains("guard settleEditorDocument(thenRetry: { openInEditor(path: path, selectsInPane: selectsInPane) }) else { return }"))
         let create = try EditorDiskWatchWiringTests.body("func createTextFile(named name: String) -> Bool")
         #expect(create.contains("guard settleEditorDocument(thenRetry: { if createTextFile(named: name) { editorIsNaming = false } }) else {"))
-        let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
+        let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
         #expect(settle.contains("mayLeave(thenRetry: retry)"))
     }
 
@@ -41,7 +41,7 @@ import FileExplorer
     /// order is not at risk, and the red close button never asked either.
     @Test func aWindowCloseDoesNotAskAboutThePDF() throws {
         let tabs = CodeText(try EditorDiskWatchWiringTests.source("ContentView+PaneTabs.swift"))
-        #expect(tabs.contains("settle: { settleEditorDocument(asksAboutPDFWork: false) }"))
+        #expect(tabs.contains("settle: { settleEditorDocument(asksAboutPDFWork: false, asksAboutTheOnlyCopy: false) }"))
     }
 
     /// **⌘Q asks too**, from the delegate, which holds the tools the window adopted.

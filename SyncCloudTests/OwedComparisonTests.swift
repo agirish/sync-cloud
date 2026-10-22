@@ -175,7 +175,7 @@ import Sync
         let background = try EditorNewFilePaneWiringTests.body(of: "private func writeEditorDocumentDidWrite() -> Bool {",
                                                                in: "ContentView+Editor.swift")
         #expect(background.contains("noteEditorWrote(editorDocument.path)"), "autosave is not recorded")
-        let settle = try EditorNewFilePaneWiringTests.body(of: "func settleEditorDocument(asksAboutPDFWork: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool {",
+        let settle = try EditorNewFilePaneWiringTests.body(of: "func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool {",
                                                            in: "ContentView+Editor.swift")
         #expect(settle.contains("if case .wrote = flushed { noteEditorWrote(editorDocument.path) }"),
                 "the flush on the way to another document is not recorded — or is recorded when it wrote nothing")

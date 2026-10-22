@@ -170,9 +170,10 @@ import FileExplorer
         let look = try #require(save.range(of: "editorDiskWatch.reconcile()"))
         let ask = try #require(save.range(of: "EditorAlerts.askAboutDivergence("))
         #expect(look.lowerBound < ask.lowerBound)
-        let settle = try Self.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
+        let settle = try Self.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
         let blocked = try #require(settle.range(of: "case .blocked(let divergence):"))
-        let settleLook = try #require(settle.range(of: "editorDiskWatch.reconcile()"))
+        // The one after `.blocked` — TE146's look for a gone file comes earlier.
+        let settleLook = try #require(settle.ranges(of: "editorDiskWatch.reconcile()").first { $0.lowerBound > blocked.lowerBound })
         let question = try #require(settle.range(of: "editorAutosaveStop = .diverged(divergence)"))
         #expect(blocked.lowerBound < settleLook.lowerBound && settleLook.lowerBound < question.lowerBound)
     }

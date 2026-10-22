@@ -8313,3 +8313,30 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s save=%s skip=%s\n' $l \
 |---|---|---|
 | `v5.x` | ⌘S rewrites a clean file | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace | CLOSED — does not apply |
+
+---
+
+## A deleted file's text is asked about on leaving (TE146) — main only
+
+With the open file deleted and nothing typed, autosave had nothing to write, so Close, opening
+another file, ⌘N and ⌘Q dropped the text on screen without a word, though it may have been the only
+copy. `settleEditorDocument` and `applicationShouldTerminate` now ask (`EditorDiskWatch.mayBeTheOnlyCopy`);
+Save is Save Again. A file in the Trash and still there is not asked about (decision BQ): the watch
+notes where it went at the first look that sees it go. The same commit words every unsaved-changes
+question "Save your changes to “x”?" with one cause line (TE148) and marks Don't Save destructive
+(TE176).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s deletedBanner=%s onlyCopy=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorDiskWatch.swift 2>/dev/null | grep -c 'case deleted')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorDiskWatch.swift 2>/dev/null | grep -c 'mayBeTheOnlyCopy')"; done
+# measured 2026-10-22, against origin, before this landed:
+# main  deletedBanner=2 onlyCopy=0
+# v5.x  deletedBanner=2 onlyCopy=0
+# v4.x, v3.x, v2.x — no EditorDiskWatch
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Leaving a deleted file with nothing typed drops its text unasked | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No disk watch in Edit | CLOSED — does not apply |
