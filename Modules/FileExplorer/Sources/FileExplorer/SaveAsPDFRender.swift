@@ -32,6 +32,8 @@ struct SaveAsPDFFailure: LocalizedError, Equatable {
     static let quickLookGaveNothing = SaveAsPDFFailure(reason: "macOS couldn’t read it")
     static let noPages = SaveAsPDFFailure(reason: "it came out with no pages")
     static let unreadable = SaveAsPDFFailure(reason: "it couldn’t be read")
+    /// WebKit stopped answering part-way: its web process alive but not running (``WedgeGuard``).
+    static let stalled = SaveAsPDFFailure(reason: "macOS stopped answering while drawing it")
 }
 
 /// **The engines behind Save as PDF** — one per ``SaveAsPDFKind``, all ending in PDF bytes and none
@@ -240,7 +242,7 @@ enum SaveAsPDFRender {
         }
         web.resize(width: paper.width - margins.left - margins.right)
         // The print draws a picture still decoding blank too: on CI, a document's first picture.
-        await web.picturesDecoded()
+        try await web.picturesDecoded()
         return try await web.print(printInfo(paper: paper, margins: margins))
     }
 
@@ -263,7 +265,7 @@ enum SaveAsPDFRender {
             ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
         guard !boxes.isEmpty else { throw SaveAsPDFFailure.noPages }
         web.resize(width: (boxes.map(\.maxX).max() ?? 1024) + 16, height: (boxes.map(\.maxY).max() ?? 768) + 16)
-        await web.picturesDecoded()
+        try await web.picturesDecoded()
         if pause > .zero { try await Task.sleep(for: pause) }
         var composer = PDFComposer()
         for box in boxes {
@@ -326,7 +328,7 @@ enum SaveAsPDFRender {
 
         // The deck's race again: without the wait, a sheet of four pictures lower down drew only one
         // to three of them, which ones changing run to run.
-        await web.picturesDecoded()
+        try await web.picturesDecoded()
 
         let layout = SheetLayout(contentWidth: width, contentHeight: height, rowBottoms: rows, geometry: geometry)
         // A `createPDF` per band, each the band alone: one of the whole sheet came back as pages of
@@ -365,7 +367,7 @@ enum SaveAsPDFRender {
     /// Runs `operation` to a scratch file and hands back its bytes. `run` starts it — synchronously
     /// for a view AppKit prints itself, through a window for WebKit's.
     static func savePrint(_ operation: NSPrintOperation, info: NSPrintInfo,
-                          run: () async -> Bool) async throws -> Data {
+                          run: () async throws -> Bool) async throws -> Data {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("SaveAsPDF-\(UUID().uuidString).pdf")
         defer { try? FileManager.default.removeItem(at: file) }
         info.jobDisposition = .save
@@ -374,7 +376,7 @@ enum SaveAsPDFRender {
         operation.printInfo = info
         operation.showsPrintPanel = false
         operation.showsProgressPanel = false
-        guard await run(), let data = try? Data(contentsOf: file), !data.isEmpty else { throw SaveAsPDFFailure.noPages }
+        guard try await run(), let data = try? Data(contentsOf: file), !data.isEmpty else { throw SaveAsPDFFailure.noPages }
         return data
     }
 
@@ -591,6 +593,7 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
     let web: WKWebView
     private let window: NSWindow
     private var loading: CheckedContinuation<Bool, Never>?
+    private var loadGuard: WedgeGuard?
     /// The web process died: nothing it draws from here on can be trusted, so the draws refuse.
     private var terminated = false
 
@@ -656,27 +659,70 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
     ///
     /// **The timeout is a wedge guard, not a measure of a slow load**: a crashed web process ends the
     /// wait at once (below), and a file on the disk with nothing to fetch never hangs on its own.
-    /// It counts wall-clock time *and* time queued for the main thread, which `didFinish` needs
-    /// too: with the whole FileExplorer package's tests sharing one main thread, a sub-second load
-    /// came back after 45 s, past the 30 s this was, and Word's page failed as unreadable (2026-10-19,
-    /// `docs/flaky-tests.md`, "A wedge guard that counts time spent waiting for the main thread").
-    func load(_ file: URL, timeout: TimeInterval = 120) async -> Bool {
-        await withCheckedContinuation { continuation in
+    /// It is counted by ``WedgeGuard``, so time `didFinish` spends queued for the main thread is
+    /// not: as a wall-clock timer, with the whole FileExplorer package's tests sharing one main
+    /// thread, a sub-second load came back after 45 s, past the 30 s this was, and Word's page
+    /// failed as unreadable (2026-10-19, `docs/flaky-tests.md`, "A wedge guard that counts time
+    /// spent waiting for the main thread").
+    func load(_ file: URL, timeout: TimeInterval = WedgeGuard.budget) async -> Bool {
+        let loaded = await withCheckedContinuation { continuation in
             loading = continuation
             web.loadFileURL(file, allowingReadAccessTo: file.deletingLastPathComponent())
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self, self.loading != nil else { return }
-                    Logger.shared.warning("Save as PDF: the page didn’t load in \(Int(timeout)) s; giving up on it")
-                    self.finishLoading(false)
-                }
+            loadGuard = WedgeGuard(budget: timeout) { [weak self] in
+                guard let self, self.loading != nil else { return }
+                Logger.shared.warning("Save as PDF: the page didn’t load in \(Int(timeout)) s; giving up on it")
+                self.finishLoading(false)
             }
         }
+        if loaded { holdForeground() }
+        return loaded
+    }
+
+    /// **The web process kept at the foreground's priority from the load to ``close()``**, by a call
+    /// of the app's own script that does not answer until then.
+    ///
+    /// A hidden view's web process is given the background role once WebKit has no foreground work
+    /// for it, about a second after the load's last script call answers. `createPDF` and the print
+    /// take no foreground activity of their own, so a draw sent after that runs in the background
+    /// band, which a busy machine starves: under 30 `yes` spinners a slide's `createPDF`, sent after
+    /// a 3 s pause, took 231 s, its web process at priority 4 and given 0.2 s of processor in that
+    /// time (2026-10-21, `docs/flaky-tests.md`, "A hidden web view's process drops to the
+    /// background band, so load starves its draws"). WebKit holds a foreground activity for each
+    /// script call until it answers.
+    private func holdForeground() {
+        web.callAsyncJavaScript("""
+            return await new Promise(function (release) { window.saveAsPDFRelease = release; })
+            """, in: nil, in: .defaultClient) { _ in }
     }
 
     private func finishLoading(_ loaded: Bool) {
+        loadGuard?.cancel()
+        loadGuard = nil
         loading?.resume(returning: loaded)
         loading = nil
+    }
+
+    /// **One call into WebKit, given up on if WebKit stops answering.** `start` makes the call and
+    /// hands its answer to the closure it is given; the first of that answer and ``WedgeGuard``
+    /// running out wins, and a late answer is dropped.
+    ///
+    /// WebKit has no deadline of its own here. A web process that is alive but not running — stopped,
+    /// or never given the processor — leaves `createPDF` waiting with no answer and no
+    /// `webViewWebContentProcessDidTerminate`, for as long as it lasts: measured with the process
+    /// stopped, `createPDF` answered 62 s later, the moment it was let go (2026-10-21,
+    /// `docs/flaky-tests.md`, "A hidden web view's process drops to the background band, so load
+    /// starves its draws").
+    func guarded<T: Sendable>(_ what: String, budget: TimeInterval = WedgeGuard.budget,
+                              _ start: (@escaping @MainActor @Sendable (Result<T, Error>) -> Void) -> Void)
+        async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let answer = Answer(continuation)
+            answer.wedge = WedgeGuard(budget: budget) {
+                guard answer.resume(with: .failure(SaveAsPDFFailure.stalled)) else { return }
+                Logger.shared.warning("Save as PDF: WebKit didn’t finish \(what) in \(Int(budget)) s; giving up on it")
+            }
+            start { answer.resume(with: $0) }
+        }
     }
 
     func resize(width: CGFloat, height: CGFloat? = nil) {
@@ -686,7 +732,12 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
 
     /// The script's string answer, parsed as JSON.
     func json(_ script: String) async throws -> Any? {
-        guard let text = try await web.evaluateJavaScript(script) as? String else { return nil }
+        let text: String? = try await guarded("measuring the page") { answer in
+            web.evaluateJavaScript(script) { value, error in
+                answer(error.map { .failure($0) } ?? .success(value as? String))
+            }
+        }
+        guard let text else { return nil }
         return try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed])
     }
 
@@ -702,15 +753,22 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
     ///
     /// **Not enough on its own**: a decode WebKit queues in the background is still drawn blank
     /// after this settles. ``syncPictures`` keeps any from being queued.
-    func picturesDecoded() async {
-        let decoded = try? await web.callAsyncJavaScript("""
-            return await Promise.race([
-              Promise.all(Array.from(document.images).map(function (image) {
-                return image.decode().catch(function () {});
-              })).then(function () { return true; }),
-              new Promise(function (settle) { setTimeout(function () { settle(false); }, 60000); })
-            ])
-            """, contentWorld: .defaultClient) as? Bool
+    ///
+    /// The minute is the web process's own clock, so it guards nothing when that process stops
+    /// running; ``guarded(_:budget:_:)`` does.
+    func picturesDecoded() async throws {
+        let decoded: Bool? = try await guarded("decoding the pictures") { answer in
+            web.callAsyncJavaScript("""
+                return await Promise.race([
+                  Promise.all(Array.from(document.images).map(function (image) {
+                    return image.decode().catch(function () {});
+                  })).then(function () { return true; }),
+                  new Promise(function (settle) { setTimeout(function () { settle(false); }, 60000); })
+                ])
+                """, in: nil, in: .defaultClient) { result in
+                answer(.success((try? result.get()) as? Bool))
+            }
+        }
         if decoded == false {
             Logger.shared.warning("Save as PDF: pictures still decoding after a minute; drawing without them")
         } else if decoded == nil {
@@ -718,21 +776,23 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
         }
     }
 
-    func pdf(of rect: CGRect) async throws -> Data {
+    func pdf(of rect: CGRect, budget: TimeInterval = WedgeGuard.budget) async throws -> Data {
         guard !terminated else { throw SaveAsPDFFailure.quickLookGaveNothing }
         let configuration = WKPDFConfiguration()
         configuration.rect = rect
-        return try await web.pdf(configuration: configuration)
+        return try await guarded("drawing a page", budget: budget) { answer in
+            web.createPDF(configuration: configuration) { answer($0) }
+        }
     }
 
     /// WebKit's print of the page, to a file, against the hidden window.
-    func print(_ info: NSPrintInfo) async throws -> Data {
+    func print(_ info: NSPrintInfo, budget: TimeInterval = WedgeGuard.budget) async throws -> Data {
         guard !terminated else { throw SaveAsPDFFailure.quickLookGaveNothing }
         let operation = web.printOperation(with: info)
         operation.view?.frame = web.bounds
         return try await SaveAsPDFRender.savePrint(operation, info: info) {
-            await withCheckedContinuation { continuation in
-                let done = PrintDone(continuation)
+            try await guarded("printing", budget: budget) { answer in
+                let done = PrintDone { answer(.success($0)) }
                 operation.runModal(for: window, delegate: done,
                                    didRun: #selector(PrintDone.operationDidRun(_:success:contextInfo:)),
                                    contextInfo: nil)
@@ -743,6 +803,7 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
     }
 
     func close() {
+        web.evaluateJavaScript("window.saveAsPDFRelease && window.saveAsPDFRelease()", in: nil, in: .defaultClient)
         web.stopLoading()
         web.navigationDelegate = nil
         window.contentView = nil
@@ -781,15 +842,88 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
 /// The print operation's end, back to the `await` that started it.
 private final class PrintDone: NSObject {
     nonisolated(unsafe) static var key = 0
-    private var continuation: CheckedContinuation<Bool, Never>?
+    private let done: @MainActor @Sendable (Bool) -> Void
 
-    init(_ continuation: CheckedContinuation<Bool, Never>) {
-        self.continuation = continuation
+    init(_ done: @escaping @MainActor @Sendable (Bool) -> Void) {
+        self.done = done
     }
 
+    /// Called on the print's own thread, not the main one.
     @objc func operationDidRun(_ operation: NSPrintOperation, success: Bool, contextInfo: UnsafeMutableRawPointer?) {
-        continuation?.resume(returning: success)
-        continuation = nil
+        let done = done
+        DispatchQueue.main.async { MainActor.assumeIsolated { done(success) } }
     }
 }
 
+/// A call's one answer, from WebKit or its guard, whichever comes first.
+@MainActor
+private final class Answer<T: Sendable> {
+    private var continuation: CheckedContinuation<T, Error>?
+    var wedge: WedgeGuard?
+
+    init(_ continuation: CheckedContinuation<T, Error>) {
+        self.continuation = continuation
+    }
+
+    /// Whether this was the answer — `false` once one has been given.
+    @discardableResult func resume(with result: Result<T, Error>) -> Bool {
+        guard let continuation else { return false }
+        self.continuation = nil
+        wedge?.cancel()
+        wedge = nil
+        continuation.resume(with: result)
+        return true
+    }
+}
+
+/// **A wedge guard that counts only time the main thread was free** — to hear the answer it is
+/// waiting for, which WebKit hands back on the main thread too.
+///
+/// A wall-clock deadline counts time an answer spends queued behind other main-thread work as
+/// if WebKit were still working: with the whole FileExplorer package's tests sharing one main
+/// thread, a sub-second load came back after 45 s (`docs/flaky-tests.md`, "A wedge guard that
+/// counts time spent waiting for the main thread"). This one ticks on the main run loop and counts
+/// each gap between ticks only up to two ticks, so a main thread held elsewhere for a minute costs
+/// the budget a second, not the minute.
+@MainActor
+final class WedgeGuard {
+    /// How long WebKit may take over one answer. Never a measure of a slow draw: with the web
+    /// process kept in the foreground, 216 draws under 30 `yes` spinners took at most 2.84 s.
+    static let budget: TimeInterval = 120
+    static let tick: TimeInterval = 0.5
+
+    private var counted: TimeInterval = 0
+    private var last = ProcessInfo.processInfo.systemUptime
+    private var timer: Timer?
+    private let budget: TimeInterval
+    private let expired: @MainActor () -> Void
+
+    /// `expired` runs once, on the main thread, when `budget` has been counted — unless
+    /// ``cancel()`` comes first.
+    init(budget: TimeInterval, expired: @escaping @MainActor () -> Void) {
+        self.budget = budget
+        self.expired = expired
+        // A guard let go of without `cancel()` stops its timer at the next tick.
+        let timer = Timer(timeInterval: Self.tick, repeats: true) { [weak self] timer in
+            guard let self else { return timer.invalidate() }
+            MainActor.assumeIsolated { self.ticked() }
+        }
+        timer.tolerance = Self.tick / 2
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    private func ticked() {
+        let now = ProcessInfo.processInfo.systemUptime
+        counted += min(now - last, 2 * Self.tick)
+        last = now
+        guard counted >= budget else { return }
+        cancel()
+        expired()
+    }
+
+    func cancel() {
+        timer?.invalidate()
+        timer = nil
+    }
+}

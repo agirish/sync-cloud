@@ -3864,12 +3864,17 @@ picture-deck tests) under 30 `yes` spinners, with other sessions' builds pushing
 Not two `requestAnimationFrame`s: a paint after the decode is what queues the background decode,
 so waiting for one does not help, and a window that is never shown throttles its frames.
 
-**Also seen, not explained.** One loaded full run (load 60–110, on battery) wedged: four tests,
-`everyPictureIsDrawnWhole` among them, started and never ended, the process idle at 0% CPU with
-every thread parked, for 50 minutes until killed. WebKit's log showed the Word print it was in
-had finished and its page closed. The same run failed `aOnePageMemoIsOnePageOfText` and
-`anOldWordFileIsText` with "macOS couldn't read it" after 241–292 s: the load guard's 120 s, at a
-load above the 145 it was proved at.
+**Also seen, explained 2026-10-21.** One loaded full run (load 60–110, on battery) wedged: four
+tests, `everyPictureIsDrawnWhole` among them, started and never ended, the process idle at 0% CPU
+with every thread parked, for 50 minutes until killed. WebKit's log showed the Word print it was in
+had finished and its page closed. That fits "A hidden web view's process drops to the background
+band, so load starves its draws": a later draw or script call sent to a web process WebKit had
+moved to the background band, starved by the load, with no deadline on the wait. It was not caught
+in the act; the same shape was, in `createPDF`, and reproduced. The same run failed
+`aOnePageMemoIsOnePageOfText` and `anOldWordFileIsText` with "macOS couldn't read it" after
+241–292 s: the load guard's 120 s, at a load above the 145 it was proved at. Since that fix the
+load's guard is a `WedgeGuard` too, which does not count time `didFinish` spends queued for the
+main thread.
 
 **Tell.** A Save as PDF test failing with "macOS couldn't read it" or a picture page's empty text,
 in a full run only. Before blaming Quick Look, compare the suite's duration with a
@@ -4019,3 +4024,64 @@ guard's bound, with its siblings fast. Here the case took 60 s while the other n
 them. `sample` a `qlmanage` that has run past 15 s: an idle process with a thread in
 `-[QLPreview synchronousGetData]` is this. Since the fix, a recurrence logs "Quick Look didn’t finish
 in 30 s (try 1 of 2)" and passes; a red needs two wedges in a row.
+
+### 37. A hidden web view's process drops to the background band, so load starves its draws — FIXED
+
+**Symptom.** A loaded `SaveAsPDFRenderTests` run stops making progress and never fails: the test
+process idle at ~0.1% CPU, its main thread idle in the run loop, and `swift-inspect
+dump-concurrency` showing the one live test task in `WebPDFView.pdf(of:)` ←
+`SaveAsPDFRender.slidesPDF(_:pause:)` ← `aPictureSlideDrawnLateIsStillDrawn`, resumed from inside
+WebKit. 2026-10-21, 30 `yes` spinners, load 70–113: 14 minutes, until killed. No
+`webViewWebContentProcessDidTerminate`, no error, nothing in the log.
+
+**Mechanism.** Not a dead or wedged web process: a starved one. A `WKWebView` in a window that is
+never shown is a hidden page, and WebKit holds a foreground RunningBoard assertion on its web
+process only while it has foreground work for it: a client navigation (the load), or a script call
+until it answers (`WebPageProxy::runJavaScriptInFrameInScriptWorld`). About a second after the last
+of these ends, RunningBoard gives the process `role: Background`. `createPDF`
+(`WebPage::drawToPDF`) and the print take no foreground activity of their own, so a draw sent after
+that runs in the background band, and a machine whose cores are busy at normal priority gives it
+next to nothing. WebKit has no deadline of its own on `createPDF`, so the wait has none either.
+
+- *Reproduced* (2026-10-21, `scripts/build-slot --exclusive`, 30 spinners, load ~85), first round,
+  at the same test: RunningBoard logged the slide's web process `running-active (role: Background)`
+  1.1 s after its load, the test's 3 s pause sent `createPDF` 2 s after that, and it answered after
+  **231.5 s**. Throughout, the process was alive and its main thread runnable at priority 4 inside
+  `WebPage::drawToPDF` → `PDFImageEmitData`, writing the slide's picture: 0.21 s of processor in
+  4.5 minutes. Every earlier draw in the run was sent within that second and took 0.00–0.04 s.
+- *Measured at no load:* the process's task priority 4 s after a load is 20, against 31 while a
+  script call is open.
+- *Why nothing reports it:* with the web process stopped outright (`SIGSTOP`), `createPDF` answered
+  62 s later, the moment it was let go, and WebKit said nothing in between. Alive but not running
+  looks the same as working.
+
+**Fix.** Two parts, in `SaveAsPDFRender.swift`:
+
+- *The cause.* After a load, `WebPDFView.holdForeground()` opens a call of the app's own script
+  whose promise settles only at `close()`, so WebKit keeps its foreground activity for the view's
+  whole life and every draw and print runs at a foreground priority. Test:
+  `aViewsWebProcessKeepsAForegroundPriorityAfterItsLoad`, which fails without the hold (20 against
+  31).
+- *The guard.* Every wait on WebKit — the load, each script call, `picturesDecoded`, `createPDF`,
+  the print — goes through `WedgeGuard`, which counts only time the main thread was free: it ticks
+  on the main run loop and counts each gap between ticks only up to two ticks, so time an answer
+  spends queued behind other main-thread work is not counted against it (see "A wedge guard that
+  counts time spent waiting for the main thread"). After 120 s counted, the call fails with
+  "macOS stopped answering while drawing it" and a warning naming the step. Tests:
+  `aWebProcessThatNeverAnswersFailsEachCallInWords` (the process stopped; a backstop lets it go at
+  120 s, so a guard that never fires fails the test rather than hanging it) and
+  `aWedgeGuardDoesNotCountTimeTheMainThreadWasHeld`. **Mutation-checked:** with `createPDF`
+  unguarded the first fails at its backstop with the 9,204-byte page WebKit drew once let go; with
+  the gap uncapped the second fails, the guard running out the moment the main thread is free.
+
+One trap found on the way: the print's `didRun` selector is called on AppKit's own print thread
+(`-[NSConcretePrintOperation _continueModalOperationToTheEnd:]`), not the main one.
+
+**Proved** under the same load (2026-10-21, `--exclusive`, 30 spinners, load 61–88): six
+`SaveAsPDFRenderTests` runs, all green, `aPictureSlideDrawnLateIsStillDrawn` in 18.2–18.8 s each
+(15 s of it its own pauses). Their 216 `createPDF` calls and 30 prints took at most 2.84 s; the
+guard never fired. Before, the first such run sat in one `createPDF` for 231.5 s.
+
+**Tell.** A Save as PDF test that stops with no verdict, the process idle and its task in
+`pdf(of:)`, `print` or a script call: `ps -M -p <web process>` shows priority 4. Since the fix it
+reads "macOS stopped answering while drawing it" after 120 s, and a warning names the step.

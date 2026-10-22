@@ -436,10 +436,10 @@ import EventsTestSupport
         #expect(lines.count == 1, "\(lines.map(\.message))")
     }
 
-    /// **A load that finished says nothing when its guard's timer fires later.** The timer still
-    /// runs; it finds no load waiting. `didFinish` is queued ahead of the timer, so the load has
-    /// ended first even on a machine whose main thread is far behind — WebKit's own may come first
-    /// instead, and either ends it. The wait after is queued behind the timer, on the same queue.
+    /// **A load that finished says nothing after its guard's budget has passed.** Ending the load
+    /// stops the guard. `didFinish` is queued ahead of the guard's first tick, so the load has ended
+    /// first even on a machine whose main thread is far behind — WebKit's own may come first
+    /// instead, and either ends it. The wait after is past the budget.
     @Test func aLoadThatFinishedSaysNothingWhenItsGuardFires() async throws {
         let (html, folder) = try Self.page(stuck: false)
         defer { Self.release(folder) }
@@ -471,6 +471,86 @@ import EventsTestSupport
         }
         let info = SaveAsPDFRender.printInfo(paper: CGSize(width: 612, height: 792), margins: NSEdgeInsets())
         await #expect(throws: SaveAsPDFFailure.quickLookGaveNothing) { try await web.print(info) }
+    }
+
+    /// **A web process that is alive but never answers fails each call in words** rather than
+    /// waiting for ever. Stopping the process is that wedge on purpose: WebKit reports nothing, and
+    /// `createPDF` answers only once the process runs again (`docs/flaky-tests.md`, "A hidden web
+    /// view's process drops to the background band, so load starves its draws").
+    @Test func aWebProcessThatNeverAnswersFailsEachCallInWords() async throws {
+        let (html, folder) = try Self.page(stuck: false)
+        defer { Self.release(folder) }
+        let web = await WebPDFView.make(width: 400)
+        defer { web.close() }
+        try #require(await web.load(html))
+        let pid = try #require((web.web.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value)
+        try #require(pid > 0 && kill(pid, SIGSTOP) == 0)
+        defer { kill(pid, SIGCONT) }
+        // The backstop: the process let go, so a call the guard never ends answers and fails the
+        // test rather than hanging it.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 120) { kill(pid, SIGCONT) }
+        let log = LogCapture()
+        await #expect(throws: SaveAsPDFFailure.stalled) {
+            try await web.pdf(of: CGRect(x: 0, y: 0, width: 100, height: 100), budget: 1)
+        }
+        await #expect(throws: SaveAsPDFFailure.stalled) {
+            try await web.guarded("measuring the page", budget: 1) { (answer: @escaping @MainActor @Sendable (Result<Bool, Error>) -> Void) in
+                web.web.evaluateJavaScript("1") { _, _ in answer(.success(true)) }
+            }
+        }
+        let info = SaveAsPDFRender.printInfo(paper: CGSize(width: 612, height: 792), margins: NSEdgeInsets())
+        await #expect(throws: SaveAsPDFFailure.stalled) { try await web.print(info, budget: 1) }
+        let lines = await log.entries.filter { $0.level == .warning }.map { $0.message.components(separatedBy: " | ")[0] }
+        #expect(lines == ["Save as PDF: WebKit didn’t finish drawing a page in 1 s; giving up on it",
+                          "Save as PDF: WebKit didn’t finish measuring the page in 1 s; giving up on it",
+                          "Save as PDF: WebKit didn’t finish printing in 1 s; giving up on it"])
+    }
+
+    /// **A view's web process keeps a foreground priority after its load**, so a draw sent later
+    /// is not starved by a busy machine. Without the hold, WebKit gives a hidden view's process the
+    /// background role about a second after the load's last script call answers, and its task
+    /// priority falls from 31 to 20 (measured 2026-10-21, no load) — under load, to 4.
+    @Test func aViewsWebProcessKeepsAForegroundPriorityAfterItsLoad() async throws {
+        let (html, folder) = try Self.page(stuck: false)
+        defer { Self.release(folder) }
+        let web = await WebPDFView.make(width: 400)
+        defer { web.close() }
+        try #require(await web.load(html))
+        let pid = try #require((web.web.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value)
+        try #require(pid > 0)
+        try await Task.sleep(for: .seconds(4))
+        let own = try #require(Self.taskPriority(of: getpid()))
+        let drawing = try #require(Self.taskPriority(of: pid), "couldn’t read the web process’s priority")
+        #expect(drawing >= own, "the web process runs at \(drawing), below this process’s \(own)")
+    }
+
+    private static func taskPriority(of pid: pid_t) -> Int32? {
+        var info = proc_taskinfo()
+        let size = Int32(MemoryLayout<proc_taskinfo>.size)
+        return proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &info, size) == size ? info.pti_priority : nil
+    }
+
+    /// **A wedge guard does not count time the main thread was held elsewhere** — WebKit's answer
+    /// would have been queued behind it. Held for 6 s on a 2 s budget, a wall-clock guard has run
+    /// out by the time the main thread is free; this one has counted a second, and runs out a
+    /// second of free main thread later.
+    @Test func aWedgeGuardDoesNotCountTimeTheMainThreadWasHeld() async throws {
+        let ran = Backstop()
+        var ranAt = 0.0
+        let wedge = WedgeGuard(budget: 2) {
+            ran.fired = true
+            ranAt = ProcessInfo.processInfo.systemUptime
+        }
+        defer { wedge.cancel() }
+        Self.holdTheMainThread(for: 6)
+        let freed = ProcessInfo.processInfo.systemUptime
+        for _ in 0..<300 where !ran.fired { try await Task.sleep(for: .milliseconds(100)) }
+        try #require(ran.fired, "the guard never ran out")
+        #expect(ranAt - freed >= 0.75, "it ran out \(ranAt - freed) s after the main thread was free")
+    }
+
+    private static func holdTheMainThread(for seconds: TimeInterval) {
+        Thread.sleep(forTimeInterval: seconds)
     }
 
     // MARK: What converts
