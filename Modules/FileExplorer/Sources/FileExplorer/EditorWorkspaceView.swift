@@ -224,6 +224,11 @@ public struct EditorWorkspaceView: View {
     /// where it is stated and tested. `nil` here means the words stay words: a plain read-only piece
     /// of state, with no hover wash and nothing for VoiceOver to activate.
     var onShowWhatChanged: (() -> Void)?
+    /// **The status word saves** (TE149) — "unsaved — ⌘S", and "not saving — couldn't write" — or
+    /// `nil` where the host's stop has nothing a save would settle.
+    var onSaveNow: (() -> Void)?
+    /// **"not saving — no longer on disk" is Save Again** (TE149), or `nil` for any other stop.
+    var onSaveAgain: (() -> Void)?
     /// **The question standing over the document after a change from elsewhere** (TE59) — drawn in
     /// the document card, above the text. `nil` while there is none.
     var diskBanner: EditorDiskBanner?
@@ -406,6 +411,8 @@ public struct EditorWorkspaceView: View {
                 stopped: String? = nil,
                 stoppedDetail: String? = nil,
                 onShowWhatChanged: (() -> Void)? = nil,
+                onSaveNow: (() -> Void)? = nil,
+                onSaveAgain: (() -> Void)? = nil,
                 diskBanner: EditorDiskBanner? = nil,
                 diskNotice: String? = nil,
                 onDiskBanner: @escaping (EditorDiskBannerAction) -> Void = { _ in },
@@ -485,6 +492,8 @@ public struct EditorWorkspaceView: View {
         self.stopped = stopped
         self.stoppedDetail = stoppedDetail
         self.onShowWhatChanged = onShowWhatChanged
+        self.onSaveNow = onSaveNow
+        self.onSaveAgain = onSaveAgain
         self.diskBanner = diskBanner
         self.diskNotice = diskNotice
         self.onDiskBanner = onDiskBanner
@@ -1182,21 +1191,72 @@ public struct EditorWorkspaceView: View {
             .lineLimit(1)
             .truncationMode(.tail)
             .foregroundStyle(status.isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
-        if let onShowWhatChanged {
-            Button(action: onShowWhatChanged) {
+        let action = Self.statusWordAction(status: status, offersDiff: onShowWhatChanged != nil,
+                                           offersSave: onSaveNow != nil, offersSaveAgain: onSaveAgain != nil)
+        if let action, let perform = statusWordPerform(action) {
+            // **VoiceOver reads the visible words** (TE149): the button's label is the word itself,
+            // and the tooltip says what pressing it does.
+            Button(action: perform) {
                 text.padding(.horizontal, 5)
             }
-            .buttonStyle(.hoverAffordance(.segment, tint: .orange))
-            // **What activating it DOES, not what it says.** The words already read "not saving —
-            // changed on disk"; a label repeating them would tell a VoiceOver user that this is a
-            // button and leave them to guess what pressing it is for.
-            .accessibilityLabel("Show what changed on disk")
-            .help("Show what changed on disk while you were typing")
+            .buttonStyle(.hoverAffordance(.segment, tint: status.isWarning ? .orange : accent))
+            .help(Self.statusWordHelp(action, status: status, detail: stoppedDetail) ?? "")
+            .shortcutKeycap(Self.statusWordKeycap(action, status: status))
         } else if let detail = Self.stopTooltip(status: status, detail: stoppedDetail) {
             text.help(detail)
         } else {
             text
         }
+    }
+
+    private func statusWordPerform(_ action: StatusWordAction) -> (() -> Void)? {
+        switch action {
+        case .showWhatChanged: return onShowWhatChanged
+        case .saveNow: return onSaveNow
+        case .saveAgain: return onSaveAgain
+        }
+    }
+
+    /// What pressing the status word does (TE149).
+    enum StatusWordAction: Equatable {
+        /// "not saving — changed on disk": the comparison.
+        case showWhatChanged
+        /// "unsaved — ⌘S", and "not saving — couldn't write": ⌘S.
+        case saveNow
+        /// "not saving — no longer on disk": Save Again.
+        case saveAgain
+    }
+
+    /// **Which words are a control, and which stay words.** The host hands over only the closures its
+    /// stop has a use for, so a stop is never asked twice what it is: "couldn't check the save" gets
+    /// none and stays plain — TE147 clears it — and so does "read only".
+    static func statusWordAction(status: EditorSaveStatus, offersDiff: Bool, offersSave: Bool,
+                                 offersSaveAgain: Bool) -> StatusWordAction? {
+        switch status {
+        case .heldUnsaved: return offersSave ? .saveNow : nil
+        case .stopped:
+            if offersDiff { return .showWhatChanged }
+            if offersSaveAgain { return .saveAgain }
+            return offersSave ? .saveNow : nil
+        case .readOnly, .unsaved, .saved: return nil
+        }
+    }
+
+    /// The word's tooltip once it is a control: what pressing it does — or, for a failed write, the
+    /// reason, which the word alone doesn't give (TE114).
+    static func statusWordHelp(_ action: StatusWordAction, status: EditorSaveStatus, detail: String?) -> String? {
+        switch action {
+        case .showWhatChanged: return "Show what changed on disk while you were typing"
+        case .saveAgain: return EditorDiskBannerView.help(.saveAgain)
+        case .saveNow:
+            if status == .heldUnsaved { return "Save now — autosave is off for this file" }
+            return stopTooltip(status: status, detail: detail)
+        }
+    }
+
+    /// The ⌘S badge under ⌥, for "unsaved — ⌘S" alone — the stop's words don't name the chord.
+    static func statusWordKeycap(_ action: StatusWordAction, status: EditorSaveStatus) -> String? {
+        action == .saveNow && status == .heldUnsaved ? AppChord.saveDocument.display : nil
     }
 
     /// **The plain status word's tooltip: the stop's reason, and only on a stop** (TE114). "not

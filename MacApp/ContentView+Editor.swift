@@ -532,6 +532,11 @@ extension ContentView {
             // `EditorAutosaveStop.offersDiff`'s rule — `nil` here leaves the header a plain word.
             onShowWhatChanged: (editorAutosaveStop?.offersDiff ?? false)
                 ? { showEditorDivergenceDiff() } : nil,
+            // TE149: "unsaved — ⌘S" (no stop) and "couldn't write" save; "no longer on disk" is Save
+            // Again. Which stops do is the stop's rule, as the door above is.
+            onSaveNow: (editorAutosaveStop?.savesFromTheHeader ?? true) ? { _ = saveEditorDocument() } : nil,
+            onSaveAgain: (editorAutosaveStop?.savesAgainFromTheHeader ?? false)
+                ? { saveEditorDocumentAgain(explicit: true) } : nil,
             // TE59: the question a change from elsewhere left standing, and what it did quietly.
             diskBanner: editorDiskWatch.banner,
             diskNotice: editorDiskWatch.notice?.text,

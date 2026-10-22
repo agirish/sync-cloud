@@ -178,6 +178,40 @@ import Design
         #expect(EditorWorkspaceView.stopTooltip(status: .heldUnsaved, detail: "Permission denied") == nil)
     }
 
+    /// **TE149: the words you can act on are controls, and say what they do.** "unsaved — ⌘S" and
+    /// "couldn't write" save, "no longer on disk" is Save Again, "changed on disk" opens the
+    /// comparison; "couldn't check the save" and "read only" stay words — the host hands them no
+    /// closure, and the view never invents one.
+    @Test func theStatusWordsYouCanActOnAreControls() {
+        typealias V = EditorWorkspaceView
+        let held = EditorSaveStatus.heldUnsaved
+        let stopped = EditorSaveStatus.stopped("not saving — couldn't write")
+        #expect(V.statusWordAction(status: held, offersDiff: false, offersSave: true, offersSaveAgain: false) == .saveNow)
+        #expect(V.statusWordAction(status: stopped, offersDiff: false, offersSave: true, offersSaveAgain: false) == .saveNow)
+        #expect(V.statusWordAction(status: stopped, offersDiff: false, offersSave: false, offersSaveAgain: true) == .saveAgain)
+        #expect(V.statusWordAction(status: stopped, offersDiff: true, offersSave: false, offersSaveAgain: false) == .showWhatChanged)
+        #expect(V.statusWordAction(status: stopped, offersDiff: false, offersSave: false, offersSaveAgain: false) == nil)
+        #expect(V.statusWordAction(status: .readOnly, offersDiff: true, offersSave: true, offersSaveAgain: true) == nil)
+        #expect(V.statusWordAction(status: .unsaved, offersDiff: false, offersSave: true, offersSaveAgain: false) == nil)
+        #expect(V.statusWordHelp(.saveNow, status: held, detail: nil) == "Save now — autosave is off for this file")
+        #expect(V.statusWordHelp(.saveNow, status: stopped, detail: "No space left on device") == "No space left on device",
+                "couldn’t write lost its reason")
+        #expect(V.statusWordHelp(.saveAgain, status: stopped, detail: nil) == "Write the text back where the file was")
+        #expect(V.statusWordHelp(.showWhatChanged, status: stopped, detail: nil) == "Show what changed on disk while you were typing")
+        #expect(V.statusWordKeycap(.saveNow, status: held) == "⌘S")
+        #expect(V.statusWordKeycap(.saveNow, status: stopped) == nil)
+    }
+
+    /// **VoiceOver reads the visible words** — no label of its own on the status word's button.
+    @Test func theStatusWordIsReadAsItsWords() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/FileExplorer/EditorWorkspaceView.swift")
+        let code = try String(contentsOf: url, encoding: .utf8)
+        let start = try #require(code.range(of: "private func statusWord(_ word: String) -> some View {"))
+        let end = try #require(code.range(of: "private func statusWordPerform", range: start.upperBound..<code.endIndex))
+        #expect(!code[start.upperBound..<end.lowerBound].contains(".accessibilityLabel("))
+    }
+
     // MARK: What the header says
 
     /// **The dot is what separates pending from written, and now it is the ONLY thing that does.**

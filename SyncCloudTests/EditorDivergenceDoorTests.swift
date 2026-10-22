@@ -110,6 +110,22 @@ import Sync
         #expect(!editor.contains("thisStringIsNotInTheFile"))
     }
 
+    /// **TE149: which stops save from the header, and which are Save Again** — the stop's rule, and
+    /// the host hands the closures over by it.
+    @Test func whichStopsSaveFromTheHeader() throws {
+        #expect(EditorAutosaveStop.failed("No space left on device").savesFromTheHeader)
+        #expect(!EditorAutosaveStop.unchecked("x").savesFromTheHeader)
+        #expect(!EditorAutosaveStop.diverged(.changed).savesFromTheHeader)
+        #expect(!EditorAutosaveStop.diverged(.missing).savesFromTheHeader)
+        #expect(EditorAutosaveStop.diverged(.missing).savesAgainFromTheHeader)
+        #expect(!EditorAutosaveStop.diverged(.changed).savesAgainFromTheHeader)
+        #expect(!EditorAutosaveStop.unchecked("x").savesAgainFromTheHeader)
+        let editor = try Self.source("ContentView+Editor.swift")
+        #expect(editor.contains("onSaveNow: (editorAutosaveStop?.savesFromTheHeader ?? true) ? { _ = saveEditorDocument() } : nil,"))
+        #expect(editor.contains("onSaveAgain: (editorAutosaveStop?.savesAgainFromTheHeader ?? false)"))
+        #expect(editor.contains("? { saveEditorDocumentAgain(explicit: true) } : nil,"))
+    }
+
     /// **The header's door is guarded by the stop's own rule, not by a condition written twice.**
     ///
     /// `EditorAutosaveStop.offersDiff` is where "which stops have something to show" is stated and

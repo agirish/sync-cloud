@@ -85,4 +85,15 @@ enum EditorAutosaveStop: Equatable {
         case .diverged(.missing), .failed, .unchecked: return false
         }
     }
+
+    /// **Whether the header's words save** (TE149): a failed write is settled by writing again, so
+    /// "not saving — couldn't write" is ⌘S. Not a divergence — that is a question first — and not
+    /// "couldn't check the save", which TE147 clears by itself.
+    var savesFromTheHeader: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+
+    /// **Whether the header's words are Save Again** (TE149): "not saving — no longer on disk".
+    var savesAgainFromTheHeader: Bool { self == .diverged(.missing) }
 }
