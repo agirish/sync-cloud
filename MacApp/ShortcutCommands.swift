@@ -3071,6 +3071,14 @@ struct UseSelectionForFindCommand: View {
 /// nothing to say where no text is drawn.
 struct EditorTextSettingCommands: View {
     @FocusedValue(\.editorVerbs) private var verbs
+
+    var body: some View { EditorTextSettingItems(verbs: verbs) }
+}
+
+/// The items of ``EditorTextSettingCommands``, given the focused verbs as a plain value — so a test
+/// can draw them for a mode the test host never focuses (`TextMarkupMenuTests`).
+struct EditorTextSettingItems: View {
+    let verbs: EditorVerbs?
     @AppStorage(EditorTextSettings.wrapsKey) private var wrapsLines = EditorTextSettings.wrapsDefault
     @AppStorage(EditorTextSettings.readableLineLengthKey) private var readableLineLength
         = EditorTextSettings.readableLineLengthDefault

@@ -2,6 +2,7 @@
 import AppKit
 import Design
 import FileExplorer
+import SwiftUI
 import Testing
 
 /// **The Text and Markup menus, read off the running app** (roadmap RD1, v5.3) — and the two rules
@@ -303,6 +304,39 @@ import Testing
         #expect(download.keyEquivalent.isEmpty)
         #expect(!download.isEnabled)
     }
+
+    // MARK: Text ▸ Page, greyed in Preview
+
+    /// **Text ▸ Page is live in Source and Split, greyed in Preview and with no document** — the
+    /// header switch's rule (`EditorWorkspaceView.pageSwitchApplies`), read off the items as
+    /// `NSHostingMenu` draws them, for each mode the focused verbs can carry. Wrap Lines is read
+    /// beside it, live in all three, so a Page greyed everywhere cannot pass.
+    @Test func pageIsGreyedInPreviewOnly() throws {
+        func enabled(_ title: String, mode: EditorMode?) throws -> Bool {
+            let verbs = mode.map {
+                EditorVerbs(mode: $0, canPreview: true, setMode: { _ in }, autosave: nil,
+                            canMarkUp: $0 != .preview, canFind: $0 != .preview, goToLine: nil)
+            }
+            let menu = NSHostingMenu(rootView: EditorTextSettingItems(verbs: verbs))
+            menu.update()
+            return try #require(menu.items.first { $0.title == title }, "no \(title) in \(Self.titles(menu))").isEnabled
+        }
+        for mode: EditorMode in [.edit, .split] {
+            #expect(try enabled("Page", mode: mode), "Text ▸ Page is greyed in \(mode)")
+        }
+        #expect(try !enabled("Page", mode: .preview), "Text ▸ Page is live in Preview, where no Source is drawn")
+        #expect(try !enabled("Page", mode: nil), "Text ▸ Page is live with no document")
+        for mode: EditorMode in [.edit, .split, .preview] {
+            #expect(try enabled("Wrap Lines", mode: mode), "Wrap Lines is greyed in \(mode) — the read proves nothing")
+        }
+
+        // The menu bar's item is these items, over the verbs the window publishes.
+        let commands = try macAppFile("ShortcutCommands.swift")
+        let reader = CodeText(try declarationBody(of: "struct EditorTextSettingCommands: View", in: commands))
+        #expect(reader.contains("@FocusedValue(\\.editorVerbs) private var verbs"))
+        #expect(reader.contains("EditorTextSettingItems(verbs: verbs)"),
+                "Text's switches are not drawn from the verbs the window publishes")
+    }
 }
 
 /// ⌘I's two meanings, decided by where the caret is (decision B).
@@ -483,6 +517,7 @@ import Testing
         #expect(body.contains("goToLine: EditorWorkspaceView.offersGoToLine(drawn) ? { editorGoToLineRequest &+= 1 } : nil"),
                 "Text ▸ Go to Line… is not offered by the status line's rule, or does not open its field")
     }
+
 }
 
 /// Which modes Text ▸ Source / Preview / Split may set for a file.
