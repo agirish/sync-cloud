@@ -786,6 +786,10 @@ private struct ReopenClosedTabKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct OpenRecentKey: FocusedValueKey {
+    typealias Value = (String) -> Void
+}
+
 private struct SelectAllInPaneKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -1106,6 +1110,12 @@ extension FocusedValues {
         set { self[ReopenClosedTabKey.self] = newValue }
     }
 
+    /// File ▸ Open Recent's rows (TE58): opens a path in Edit through the hand-off.
+    var openRecent: ((String) -> Void)? {
+        get { self[OpenRecentKey.self] }
+        set { self[OpenRecentKey.self] = newValue }
+    }
+
     /// ⌘A — everything in the focused pane's current folder. `nil` when that folder is empty,
     /// so the item disables rather than selecting nothing.
     var selectAllInPane: (() -> Void)? {
@@ -1300,6 +1310,9 @@ struct ShortcutValuePublisher: ViewModifier {
     let closeTab: (() -> Void)?
     let cycleTab: ((Bool) -> Void)?
     let reopenClosedTab: (() -> Void)?
+    /// File ▸ Open Recent (TE58). Suspended with the rest: opening a file in Edit under a
+    /// destination pick moves the window under a question about it.
+    let openRecent: ((String) -> Void)?
     let tabBar: TabBarSwitch?
     /// `nil` wherever the column cannot be drawn — see `shortcutFolderSidebar`, which is the one
     /// place that decides it.
@@ -1381,6 +1394,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveCloseTab: (() -> Void)? { suspended ? nil : closeTab }
     var effectiveCycleTab: ((Bool) -> Void)? { suspended ? nil : cycleTab }
     var effectiveReopenClosedTab: (() -> Void)? { suspended ? nil : reopenClosedTab }
+    var effectiveOpenRecent: ((String) -> Void)? { suspended ? nil : openRecent }
     var effectiveTabBar: TabBarSwitch? { suspended ? nil : tabBar }
     var effectiveFolderSidebar: Binding<Bool>? { suspended ? nil : folderSidebar }
     var effectiveEditorTextFiles: Binding<Bool>? { suspended ? nil : editorTextFiles }
@@ -1434,6 +1448,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.closeTab, closeTabAction)
             .focusedSceneValue(\.cycleTab, effectiveCycleTab)                 // ⇧⌘] / ⇧⌘[
             .focusedSceneValue(\.reopenClosedTab, effectiveReopenClosedTab)   // File ▸ Reopen Closed Tab
+            .focusedSceneValue(\.openRecent, effectiveOpenRecent)             // File ▸ Open Recent
             .focusedSceneValue(\.tabBarVisible, effectiveTabBar)              // ⇧⌘T
             .focusedSceneValue(\.folderSidebarVisible, effectiveFolderSidebar) // View ▸ Sidebar, ⌃⌘S
             .focusedSceneValue(\.editorTextFilesVisible, effectiveEditorTextFiles) // View ▸ File List, ⌃⌘T
@@ -1479,6 +1494,8 @@ extension ContentView {
             closeTab: shortcutCloseTab,
             cycleTab: shortcutCycleTab,
             reopenClosedTab: shortcutReopenClosedTab,
+            // The empty page's rows' door, so a row and its menu item open a file the same way.
+            openRecent: { path in handOffToEditor(path) },
             tabBar: shortcutTabBar,
             folderSidebar: shortcutFolderSidebar,
             editorTextFiles: shortcutEditorTextFiles,
@@ -2239,6 +2256,34 @@ struct NewTextFileCommand: View {
         Button("New Text File…") { newTextFile?() }
             .keyboardShortcut(AppChord.newTextFile.key, modifiers: AppChord.newTextFile.modifiers)
             .disabled(newTextFile == nil)
+    }
+}
+
+/// **File ▸ Open Recent ▸ the files Edit opened last** (TE58) — the empty page's list, as a menu.
+///
+/// Built here rather than taken from `NSDocumentController`, which this app does not use for its
+/// documents: its menu would list only what passed through it, and nothing does. **No chord, and
+/// Clear Menu asks nothing**, as Finder's does — the files are untouched, and opening one puts it
+/// back. Two rows with the same name carry their folders, since the menu has no column for them.
+struct OpenRecentCommand: View {
+    @FocusedValue(\.openRecent) private var open
+    @ObservedObject private var recents = EditorRecentFiles.shared
+
+    static let title = "Open Recent"
+    static let clearTitle = "Clear Menu"
+
+    var body: some View {
+        Menu(Self.title) {
+            let files = recents.shown
+            let titles = EditorRecentFiles.menuTitles(files)
+            ForEach(files.indices, id: \.self) { index in
+                Button(titles[index]) { open?(files[index].path) }
+                    .disabled(open == nil)
+            }
+            if !files.isEmpty { Divider() }
+            Button(Self.clearTitle) { recents.clear() }
+                .disabled(recents.stored.isEmpty)
+        }
     }
 }
 

@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import FileExplorer
 
 /// **What is open in Edit: the text document, or a PDF — one switch, and only one of them at once.**
@@ -59,6 +60,37 @@ enum EditorOpenRoute {
             return .text
         }
     }
+
+    /// **Lists what a load opened in Edit's recent files** (TE58) — the open file, whichever model
+    /// took it, and nothing when the load was refused: a file that could not be read is no file to
+    /// offer again. Asked of the models after the load, because `load` reports only the route.
+    ///
+    /// **A PDF is listed once the lane has read it**, not as it is handed over: a PDF that cannot be
+    /// read is refused only when PDFKit has tried, after `load` returns. A text file, and a PDF
+    /// refused before the lane (one still in the cloud), have their answer at once.
+    static func recordOpen(kind: Kind, document: EditorDocument, pdf: EditorPDFDocument,
+                           in recents: EditorRecentFiles, at date: Date = Date()) {
+        pendingPDFRecord = nil
+        guard let path = openPath(document: document, pdf: pdf) else { return }
+        if kind == .pdf, pdf.phase == .loading {
+            // `first` past `.loading`, read from the value sent — `@Published` sends before it
+            // stores, so `pdf.refusal` would still say `.loading` here.
+            pendingPDFRecord = pdf.$phase.first { $0 != .loading }.sink { [weak pdf] phase in
+                if case .refused = phase { return }
+                // Sent on the main actor, where the PDF model sets its phase.
+                MainActor.assumeIsolated {
+                    guard pdf?.path == path else { return }
+                    recents.record(path: path, kind: .pdf, at: date)
+                }
+            }
+            return
+        }
+        guard !isRefused(document: document, pdf: pdf) else { return }
+        recents.record(path: path, kind: kind == .pdf ? .pdf : .text, at: date)
+    }
+
+    /// The wait for a PDF's answer, replaced by the next open — which is the one that counts.
+    private static var pendingPDFRecord: AnyCancellable?
 
     /// Empties the text document, keeping its undo stack for when it is opened again.
     static func emptyText(_ document: EditorDocument, undoStore: EditorUndoStore) {

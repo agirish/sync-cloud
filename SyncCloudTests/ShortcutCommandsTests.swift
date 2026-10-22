@@ -43,6 +43,7 @@ import Foundation
             selectAll: {},
             clipboard: ClipboardActions(cut: {}, copy: {}, paste: {}),
             newTab: {}, closeTab: closeTab, cycleTab: { _ in }, reopenClosedTab: {},
+            openRecent: { _ in },
             tabBar: TabBarSwitch(isOn: false, isForced: false, set: { _ in }),
             folderSidebar: .constant(true),
             editorTextFiles: .constant(true),
@@ -208,6 +209,8 @@ import Foundation
         #expect(publisher.effectiveCloseTab == nil)
         #expect(publisher.effectiveCycleTab == nil)
         #expect(publisher.effectiveReopenClosedTab == nil)
+        // File ▸ Open Recent: opening a file in Edit moves the window under the pick.
+        #expect(publisher.effectiveOpenRecent == nil)
         #expect(publisher.effectiveTabBar == nil)
         #expect(publisher.effectiveFolderSidebar == nil)
         #expect(publisher.effectiveEditorTextFiles == nil)
@@ -259,6 +262,7 @@ import Foundation
         #expect(publisher.effectiveCloseTab != nil)
         #expect(publisher.effectiveCycleTab != nil)
         #expect(publisher.effectiveReopenClosedTab != nil)
+        #expect(publisher.effectiveOpenRecent != nil)
         #expect(publisher.effectiveTabBar != nil)
         #expect(publisher.effectiveFolderSidebar != nil)
         #expect(publisher.effectiveEditorTextFiles != nil)

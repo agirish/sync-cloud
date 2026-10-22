@@ -2206,9 +2206,10 @@ import Sync
         // New Text File… leads from 2026-08-31: ⌘N is the item AppKit's `.newItem` group is named
         // for, and the two "new" items belong together at the top. Everything after them keeps the
         // order Fig. 9 gave it.
-        #expect(titles.prefix(5)
-                == ["New Text File…", "New Folder…", "New Tab", "Close Tab", "Reopen Closed Tab"],
-                "the File menu opens with \(titles.prefix(5)) — Fig. 9 puts the tab items with the new-item pair")
+        // Open Recent sits under New Text File from TE58 — where a document app keeps it.
+        #expect(titles.prefix(6)
+                == ["New Text File…", "Open Recent", "New Folder…", "New Tab", "Close Tab", "Reopen Closed Tab"],
+                "the File menu opens with \(titles.prefix(6)) — Fig. 9 puts the tab items with the new-item pair")
 
         // AppKit's own Close is gone, and exactly one item claims ⌘W. Two would leave one of them
         // dead, and which one AppKit picks is not something this app decides.

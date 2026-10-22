@@ -133,6 +133,12 @@ public struct EditorWorkspaceView: View {
     /// The empty page's Show Text Files button — the host passes it only while the list is folded
     /// or put away with the pane folded too, when nothing else on the page leads to a file.
     let onShowTextFiles: (() -> Void)?
+    /// **The files Edit opened last, for the empty page** (TE58) — `nil` draws the page as it was,
+    /// one sentence. The app passes `EditorRecentFiles.shared`.
+    let recentFiles: EditorRecentFiles?
+    /// A recent row's click — the host's hand-off, so the pane follows the file. `nil` with
+    /// `recentFiles` draws no list either: a row that opened nothing would be worse than none.
+    let onOpenRecent: ((String) -> Void)?
     /// The list's width — the side-column width the host's drag sets, at least
     /// ``EditorLayoutMetrics/railWidth`` (asked 2026-10-17).
     let railWidth: CGFloat
@@ -412,6 +418,8 @@ public struct EditorWorkspaceView: View {
                 onGoToFolder: ((String) -> Void)?,
                 onFoldRail: (() -> Void)? = nil,
                 onShowTextFiles: (() -> Void)? = nil,
+                recentFiles: EditorRecentFiles? = nil,
+                onOpenRecent: ((String) -> Void)? = nil,
                 railWidth: CGFloat = EditorLayoutMetrics.railWidth) {
         self._railFilter = railFilter
         self._railFilterIsExpanded = railFilterIsExpanded
@@ -432,6 +440,8 @@ public struct EditorWorkspaceView: View {
         self.onToggleJustTheText = onToggleJustTheText
         self.onFoldRail = onFoldRail
         self.onShowTextFiles = onShowTextFiles
+        self.recentFiles = recentFiles
+        self.onOpenRecent = onOpenRecent
         self.railWidth = railWidth
         self.onNewTextFile = onNewTextFile
         self.onCloseDocument = onCloseDocument
@@ -1717,8 +1727,18 @@ public struct EditorWorkspaceView: View {
                 caption(refused)
             }
         } else if document.path == nil {
-            caption(Self.emptyCaption(hasFolder: !folder.isEmpty, showsRail: showsRail),
-                    showTextFiles: folder.isEmpty ? nil : onShowTextFiles)
+            if let recentFiles, let onOpenRecent {
+                // The files Edit opened last, and New Note (TE58) — or, with none remembered, the
+                // one sentence below.
+                EditorRecentFilesPage(recents: recentFiles, open: onOpenRecent, newNote: onNewTextFile,
+                                      newNoteFolder: newFileFolderLabel,
+                                      showTextFiles: folder.isEmpty ? nil : onShowTextFiles,
+                                      accent: accent) {
+                    emptyPageCaption
+                }
+            } else {
+                emptyPageCaption
+            }
         } else {
             VStack(spacing: 0) {
                 if let diskBanner {
@@ -1731,6 +1751,12 @@ public struct EditorWorkspaceView: View {
                 surfaces(for: EditorMode.resolved(mode, isMarkdown: document.isMarkdown))
             }
         }
+    }
+
+    /// The empty page's one sentence, and Show File List under it while the list is folded.
+    private var emptyPageCaption: some View {
+        caption(Self.emptyCaption(hasFolder: !folder.isEmpty, showsRail: showsRail),
+                showTextFiles: folder.isEmpty ? nil : onShowTextFiles)
     }
 
     /// What re-parses the preview, as one value: a new version OR a different file.

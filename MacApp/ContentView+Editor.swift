@@ -589,6 +589,10 @@ extension ContentView {
             // the pane folded, since an open pane IS the list.
             onShowTextFiles: (panesHiddenForCurrentTab && !showsRail)
                 ? { showEditorRail(tab: .files, from: .emptyPage) } : nil,
+            // The empty page's recent files (TE58). A row opens through the hand-off, as Open in
+            // Edit does from any other list, so the pane follows the file there.
+            recentFiles: EditorRecentFiles.shared,
+            onOpenRecent: { path in handOffToEditor(path) },
             railWidth: railWidth)
         // The PDF tools' door to the window: what a written copy re-lists, and the banner's Open
         // and Reveal in Browse. Set on every appearance — the model outlives this view.
@@ -730,7 +734,10 @@ extension ContentView {
     }
 
     /// Reads a file and puts it on screen. No prompt: callers have already dealt with the buffer.
-    func loadIntoEditor(path: String) {
+    ///
+    /// - Parameter recordsRecent: whether the open goes on Edit's recent files (TE58) — every route
+    ///   but ``reloadOverTheBuffer(path:)``, which re-reads the file already open and opens nothing.
+    func loadIntoEditor(path: String, recordsRecent: Bool = true) {
         // **The ordering the undo stacks need is stated and tested where it lives** — see
         // `EditorDocumentLoad`, which exists because this sequence could not be run from a test
         // while it sat inline here.
@@ -745,8 +752,14 @@ extension ContentView {
         //
         // **A PDF goes to its own model, before any text read** — `EditorOpenRoute`, which empties
         // the text document so no save path has anything to write while the PDF is on screen.
-        EditorOpenRoute.load(path: path, document: editorDocument, undoStore: editorUndoStore,
-                             pdf: editorPDF, log: { Logger.shared.info($0) })
+        let kind = EditorOpenRoute.load(path: path, document: editorDocument, undoStore: editorUndoStore,
+                                        pdf: editorPDF, log: { Logger.shared.info($0) })
+        // **Every way into Edit ends here, so this one call lists them all** (TE58) — once the
+        // load has opened the file, and never for one it refused.
+        if recordsRecent {
+            EditorOpenRoute.recordOpen(kind: kind, document: editorDocument, pdf: editorPDF,
+                                       in: EditorRecentFiles.shared)
+        }
     }
 
     /// The open file, text or PDF — see ``EditorOpenRoute/openPath(document:pdf:)``.
@@ -1662,7 +1675,8 @@ extension ContentView {
         // Beside it, and for the reason given at the discard site: the file on disk is not the text
         // this anchor was measured against.
         editorDocument.caretAnchors.forget(path)
-        loadIntoEditor(path: path)
+        // Not a new open: the file was already open, and its place in the recent files stays.
+        loadIntoEditor(path: path, recordsRecent: false)
         return false
     }
 
@@ -1688,6 +1702,8 @@ extension ContentView {
     /// suppression — and logged a write Edit never made.
     func editorDocumentDidMove(from old: String, to new: String, byThisApp: Bool) {
         editorAutosavePolicy.move(from: old, to: new)
+        // The recent files list it where it went, by this app or by Finder (TE58).
+        EditorRecentFiles.shared.move(from: old, to: new)
         EditorOutlineScroll.moveAnchor(in: &editorOutlineAnchors, from: old, to: new)
         if var review = editorDivergenceReview, review.path == old {
             review.path = new

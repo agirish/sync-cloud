@@ -8153,3 +8153,30 @@ done
 
 **Every maintenance line: checked — not owed.** A new switch, not a defect; `v4.x` and older have
 no `EditorTextView` to carry it.
+
+---
+
+## Edit's recent files and New Note — main only
+
+With nothing open, Edit's page lists the last ten files Edit opened, text and PDF (TE58), with a New
+Note button running `⌘N`'s closure; File ▸ Open Recent holds the same list, with Clear Menu. One
+record in `ContentView.loadIntoEditor` (`EditorOpenRoute.recordOpen`) feeds a new store,
+`EditorRecentFiles`, under the new key `editorRecentFiles` — 20 kept, 10 shown, missing files hidden
+but kept, unreadable bytes kept under `editorRecentFiles.unreadable`. A new feature, so `main` alone
+by rule. The key is additive: a maintenance build sharing the defaults domain ignores it.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s workspace=%s recents=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorRecentFiles.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-21, against origin, before this landed:
+# main, v5.x       — workspace=1 recents=0
+# v4.x, v3.x, v2.x — workspace=0 recents=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Edit's empty page as one sentence; no recent files | RECORDED — not owed (new feature) |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace (`workspace=0`) | CLOSED — does not apply |

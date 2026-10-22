@@ -729,6 +729,9 @@ struct SyncCloudApp: App {
             // it below Delete Selection — a long way from the item it is the opposite of.
             CommandGroup(replacing: .newItem) {
                 NewTextFileCommand()        // ⌘N
+                // The files Edit opened last (TE58), under the item that makes a new one — where
+                // a document app keeps it, below New and Open.
+                OpenRecentCommand()         // no chord — see the type
                 NewFolderCommand()          // ⇧⌘N
                 NewTabCommand()             // ⌘T
                 CloseTabCommand()           // ⌘W

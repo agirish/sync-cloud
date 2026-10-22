@@ -228,4 +228,56 @@ import FileExplorer
         #expect(lines.last == "Editor closed \(file)")
         #expect(!EditorOpenRoute.closePDF(pdf, paneSelection: { [] }, setPaneSelection: { _ in }, log: { _ in }))
     }
+
+    // MARK: Recent files (TE58)
+
+    /// A store of its own, in memory, where every path is there — the rule under test is what is
+    /// RECORDED, not what is hidden.
+    private func recents() -> EditorRecentFiles {
+        EditorRecentFiles(defaults: nil, exists: { _ in true })
+    }
+
+    /// **What a load opened is listed, with its kind; what it refused is not.** The refused text is
+    /// opened FIRST, so a rule that recorded every path would put it on the list before the good one.
+    @Test func anOpenIsRecordedWithItsKindAndARefusalIsNot() async throws {
+        let missing = path("gone.md")
+        let note = try note("Pasta.md", "# Pasta")
+        let document = EditorDocument(), store = EditorUndoStore()
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let list = recents()
+
+        let refusedKind = route(missing, document, store, pdf)
+        try #require(EditorOpenRoute.isRefused(document: document, pdf: pdf), "the missing file was not refused — this case tests nothing")
+        EditorOpenRoute.recordOpen(kind: refusedKind, document: document, pdf: pdf, in: list)
+        #expect(list.stored.isEmpty, "a refused open was listed")
+
+        let kind = route(note, document, store, pdf)
+        EditorOpenRoute.recordOpen(kind: kind, document: document, pdf: pdf, in: list)
+        #expect(list.stored.map(\.path) == [note])
+        #expect(list.stored.first?.kind == .text)
+    }
+
+    /// **A PDF is listed once the lane has read it, and a PDF it refuses is not.** The broken PDF's
+    /// refusal arrives only after `load` returns — so a rule that asked at once would list it.
+    @Test func aPDFIsListedOnlyOnceTheLaneHasReadIt() async throws {
+        let good = pdfFile("Lease.pdf")
+        let broken = path("broken.pdf")
+        try Data("nope".utf8).write(to: URL(fileURLWithPath: broken))
+        let document = EditorDocument(), store = EditorUndoStore()
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let list = recents()
+
+        let brokenKind = route(broken, document, store, pdf)
+        #expect(pdf.phase == .loading, "the PDF answered before the lane — this case no longer tests the wait")
+        EditorOpenRoute.recordOpen(kind: brokenKind, document: document, pdf: pdf, in: list)
+        await settled(pdf)
+        try #require(pdf.refusal != nil, "the broken PDF opened")
+        #expect(list.stored.isEmpty, "a PDF the lane refused was listed")
+
+        let kind = route(good, document, store, pdf)
+        EditorOpenRoute.recordOpen(kind: kind, document: document, pdf: pdf, in: list)
+        await settled(pdf)
+        #expect(list.stored.map(\.path) == [good])
+        #expect(list.stored.first?.kind == .pdf)
+    }
 }

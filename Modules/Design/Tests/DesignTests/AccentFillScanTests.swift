@@ -500,8 +500,9 @@ import Testing
             #expect(exempted["default \(host.file)"] == 1, "the exemption for \(host.why) (\(host.file)) matched nothing")
         }
         // A tripwire, so the scan cannot pass on files that no longer hold the buttons. 25 on
-        // 2026-10-20: 23 outside Edit, and Edit's Save Filled Copy and Save Reordered Copy.
-        #expect(prominent == 25, "expected 25 .borderedProminent buttons in the app, found \(prominent)")
+        // 2026-10-20: 23 outside Edit, and Edit's Save Filled Copy and Save Reordered Copy; 26 from
+        // 2026-10-21 with the empty page's New Note (TE58).
+        #expect(prominent == 26, "expected 26 .borderedProminent buttons in the app, found \(prominent)")
     }
 
     /// Every Swift file the shipping app is built from: each module's `Sources`, plus `MacApp`.

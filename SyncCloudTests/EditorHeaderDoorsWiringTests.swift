@@ -270,7 +270,7 @@ import FileExplorer
     /// Swapping in a fresh `EditorUndoStore()` here would leave that suite green while every file
     /// switch silently lost its undo history.
     @Test func theLoadIsHandedTheWindowsRealDocumentAndUndoStore() throws {
-        let body = try Self.memberBody("func loadIntoEditor(path: String)", in: Self.editor())
+        let body = try Self.memberBody("func loadIntoEditor(path: String, recordsRecent: Bool = true)", in: Self.editor())
         // Through `EditorOpenRoute`, which sends a PDF to its own model and text to the shared load.
         #expect(body.contains("EditorOpenRoute.load("),
                 "loadIntoEditor no longer runs the route — a PDF could reach the text reader")
@@ -292,7 +292,7 @@ import FileExplorer
     /// `activate` left behind here would be a second, unordered copy of the sequence the extraction
     /// exists to own.
     @Test func loadIntoEditorTouchesTheUndoStoreOnlyThroughTheSharedLoad() throws {
-        let body = try Self.memberBody("func loadIntoEditor(path: String)", in: Self.editor())
+        let body = try Self.memberBody("func loadIntoEditor(path: String, recordsRecent: Bool = true)", in: Self.editor())
         for forbidden in ["editorUndoStore.remember", "editorUndoStore.activate",
                           "editorUndoStore.forgetMissingFiles", "EditorFileStore.load("] {
             #expect(!body.contains(forbidden),

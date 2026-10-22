@@ -35,7 +35,9 @@ extension EditorWorkspaceView {
         folderDisplayName: String? = nil,
         newFileFolderName: String? = nil,
         goToLineRequest: Int = 0,
-        undoManager: UndoManager = UndoManager()
+        undoManager: UndoManager = UndoManager(),
+        recentFiles: EditorRecentFiles? = nil,
+        onOpenRecent: ((String) -> Void)? = nil
     ) -> EditorWorkspaceView {
         EditorWorkspaceView(
             document: document,
@@ -75,7 +77,9 @@ extension EditorWorkspaceView {
             folderDisplayName: folderDisplayName,
             newFileFolderName: newFileFolderName,
             folderTrail: nil,
-            onGoToFolder: nil)
+            onGoToFolder: nil,
+            recentFiles: recentFiles,
+            onOpenRecent: onOpenRecent)
     }
 }
 

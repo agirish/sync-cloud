@@ -160,6 +160,12 @@ Requires **macOS 26**, unchanged from the 5.x line.
 
 ### The rest of Edit
 
+- **Recent files and New Note.** With nothing open, Edit's page lists the last ten files you opened
+  there — text files and PDFs, through any door — with each one's folder and when you opened it,
+  and a **New Note** button that does what `⌘N` does. A click opens a file again and takes the file
+  pane to its folder; right-click a row for Remove from Recents. A file that was deleted, or is on a
+  disk that is not connected, is left off until it is back, and a file moved while open is followed.
+  **File ▸ Open Recent** holds the same list in every workspace, with Clear Menu.
 - **One strip for Edit's side column.** The Files list can now fold on its own, into the strip at
   the left edge; before, only Expand could hide it, and Expand took the file pane and the sidebar
   with it. The strip has a button for the file pane and one for each tab the list shows — Files and
