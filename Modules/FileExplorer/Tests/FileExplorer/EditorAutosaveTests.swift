@@ -212,6 +212,25 @@ import Design
         #expect(!code[start.upperBound..<end.lowerBound].contains(".accessibilityLabel("))
     }
 
+    /// **TE152: a file Edit can't open still offers what can be done with it** — Download first
+    /// for one still in the cloud, Try Again for one that kept changing (where the host offers it),
+    /// then Quick Look and Reveal in Finder for every refusal.
+    @Test func aRefusalOffersWhatCanStillBeDoneWithTheFile() throws {
+        typealias V = EditorWorkspaceView
+        let tooLarge = "Too large to open in Edit — 12.3 MB, and Edit opens text files up to 4.2 MB."
+        #expect(V.refusalButtons(for: tooLarge, canTryAgain: true) == [.quickLook, .revealInFinder])
+        #expect(V.refusalButtons(for: try #require(BoundedTextRead.Outcome.cloudOnly.caption), canTryAgain: true)
+                == [.download, .quickLook, .revealInFinder])
+        #expect(V.refusalButtons(for: EditorFileStore.keptChangingReason, canTryAgain: true)
+                == [.tryAgain, .quickLook, .revealInFinder])
+        #expect(V.refusalButtons(for: EditorFileStore.keptChangingReason, canTryAgain: false)
+                == [.quickLook, .revealInFinder], "Try Again drawn with nothing behind it")
+        #expect(V.RefusalButton.quickLook.title == "Quick Look")
+        #expect(V.RefusalButton.revealInFinder.title == "Reveal in Finder")
+        #expect(V.RefusalButton.tryAgain.title == "Try Again")
+        #expect(V.RefusalButton.download.title == V.downloadTitle)
+    }
+
     // MARK: What the header says
 
     /// **The dot is what separates pending from written, and now it is the ONLY thing that does.**

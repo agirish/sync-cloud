@@ -159,8 +159,11 @@ import FileExplorerTestSupport
     /// source: a button in a hosted card cannot be pressed from `swift test`.
     @Test func bothCardsDrawTheDownload() throws {
         let workspace = try EditorRailRowMenuTests.source("EditorWorkspaceView.swift")
-        #expect(workspace.contains("if let path = document.path, Self.isNotDownloaded(refused) {")
-                    && workspace.contains("caption(refused, download: { railRowActions.download(path) })"),
+        // The text card's buttons under a refusal (TE152): Download first for a cloud refusal.
+        #expect(EditorWorkspaceView.refusalButtons(for: try #require(BoundedTextRead.Outcome.cloudOnly.caption),
+                                                   canTryAgain: false).first == .download)
+        #expect(workspace.contains("caption(refused, refusalButtons: Self.refusalButtons(for: refused, canTryAgain: onTryAgain != nil),")
+                    && workspace.contains("Self.downloadButton(accent: accent, action: { railRowActions.download(path) })"),
                 "the text card's cloud refusal has no Download, or it downloads something else")
         let pdf = try EditorRailRowMenuTests.source("EditorPDFCard.swift")
         #expect(pdf.contains("} else if reason == EditorPDFDocument.notDownloadedReason, let path = pdf.path {")

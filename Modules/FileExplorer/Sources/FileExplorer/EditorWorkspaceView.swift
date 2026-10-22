@@ -229,6 +229,8 @@ public struct EditorWorkspaceView: View {
     var onSaveNow: (() -> Void)?
     /// **"not saving — no longer on disk" is Save Again** (TE149), or `nil` for any other stop.
     var onSaveAgain: (() -> Void)?
+    /// **Try Again under a refusal for a file that kept changing** (TE152) — reads it once more.
+    var onTryAgain: (() -> Void)?
     /// **The question standing over the document after a change from elsewhere** (TE59) — drawn in
     /// the document card, above the text. `nil` while there is none.
     var diskBanner: EditorDiskBanner?
@@ -413,6 +415,7 @@ public struct EditorWorkspaceView: View {
                 onShowWhatChanged: (() -> Void)? = nil,
                 onSaveNow: (() -> Void)? = nil,
                 onSaveAgain: (() -> Void)? = nil,
+                onTryAgain: (() -> Void)? = nil,
                 diskBanner: EditorDiskBanner? = nil,
                 diskNotice: String? = nil,
                 onDiskBanner: @escaping (EditorDiskBannerAction) -> Void = { _ in },
@@ -494,6 +497,7 @@ public struct EditorWorkspaceView: View {
         self.onShowWhatChanged = onShowWhatChanged
         self.onSaveNow = onSaveNow
         self.onSaveAgain = onSaveAgain
+        self.onTryAgain = onTryAgain
         self.diskBanner = diskBanner
         self.diskNotice = diskNotice
         self.onDiskBanner = onDiskBanner
@@ -1823,10 +1827,13 @@ public struct EditorWorkspaceView: View {
     private func documentBody(for document: EditorDocument) -> some View {
         if let refused = document.refusal {
             // The file was chosen and could not be opened — `BoundedTextRead`'s own prose, which is
-            // already written for a reader. A file still in the cloud gets the Download its row in
-            // Browse has (TE96); the host opens it when it arrives.
-            if let path = document.path, Self.isNotDownloaded(refused) {
-                caption(refused, download: { railRowActions.download(path) })
+            // already written for a reader. Under it, what can still be done with the file (TE152):
+            // a file still in the cloud gets the Download its row in Browse has (TE96), and the host
+            // opens it when it arrives; one that kept changing gets Try Again; every one gets Quick
+            // Look and Reveal in Finder, which were only on right-click menus.
+            if let path = document.path {
+                caption(refused, refusalButtons: Self.refusalButtons(for: refused, canTryAgain: onTryAgain != nil),
+                        path: path)
             } else {
                 caption(refused)
             }
@@ -2388,7 +2395,7 @@ public struct EditorWorkspaceView: View {
     ///   way to the list while it is folded into the strip, which a first session opens into.
     /// - Parameter download: draws Download under the words — a refused file still in the cloud.
     private func caption(_ text: String, showTextFiles: (() -> Void)? = nil,
-                         download: (() -> Void)? = nil) -> some View {
+                         refusalButtons: [RefusalButton] = [], path: String = "") -> some View {
         VStack(spacing: 12) {
             Spacer(minLength: 0)
             Text(text)
@@ -2407,12 +2414,86 @@ public struct EditorWorkspaceView: View {
                 .help(ShortcutHint.tooltip("Show the folder’s files beside the document",
                                            AppChord.editorTextFiles.display))
             }
-            if let download {
-                Self.downloadButton(accent: accent, action: download)
+            if !refusalButtons.isEmpty {
+                // Side by side where they fit, stacked in a narrow column.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { refusalButtonViews(refusalButtons, path: path) }
+                    VStack(spacing: 8) { refusalButtonViews(refusalButtons, path: path) }
+                }
+                .padding(.horizontal, 16)
             }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func refusalButtonViews(_ buttons: [RefusalButton], path: String) -> some View {
+        ForEach(buttons, id: \.self) { button in
+            switch button {
+            case .download:
+                Self.downloadButton(accent: accent, action: { railRowActions.download(path) })
+            case .tryAgain:
+                refusalButton(button, accent: true) { onTryAgain?() }
+            case .quickLook:
+                refusalButton(button, accent: false) { railRowActions.quickLook(path) }
+            case .revealInFinder:
+                refusalButton(button, accent: false) { railRowActions.revealInFinder(path) }
+            }
+        }
+    }
+
+    private func refusalButton(_ button: RefusalButton, accent tinted: Bool,
+                               action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(button.title, systemImage: button.symbol)
+                .scaledFont(.system(size: 12, weight: .medium))
+        }
+        .buttonStyle(.bordered)
+        .tint(tinted ? accent : nil)
+        .help(button.help)
+    }
+
+    /// What a refusal offers under its caption (TE152).
+    enum RefusalButton: Hashable {
+        case download, tryAgain, quickLook, revealInFinder
+
+        var title: String {
+            switch self {
+            case .download: return EditorWorkspaceView.downloadTitle
+            case .tryAgain: return "Try Again"
+            case .quickLook: return "Quick Look"
+            case .revealInFinder: return "Reveal in Finder"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .download: return "icloud.and.arrow.down"
+            case .tryAgain: return "arrow.clockwise"
+            case .quickLook: return "eye"
+            case .revealInFinder: return "folder"
+            }
+        }
+
+        var help: String {
+            switch self {
+            case .download: return EditorWorkspaceView.downloadHelp
+            case .tryAgain: return "Read the file again, now it may have settled"
+            case .quickLook: return "Look at the file without opening it in Edit"
+            case .revealInFinder: return "Show the file in Finder"
+            }
+        }
+    }
+
+    /// **The buttons under a refusal, in order**: what would let Edit open it first — Download for a
+    /// file still in the cloud, Try Again for one that kept changing while it was read — then Quick
+    /// Look and Reveal in Finder, for every file Edit can't open.
+    static func refusalButtons(for refusal: String, canTryAgain: Bool) -> [RefusalButton] {
+        var buttons: [RefusalButton] = []
+        if isNotDownloaded(refusal) { buttons.append(.download) }
+        if canTryAgain, refusal == EditorFileStore.keptChangingReason { buttons.append(.tryAgain) }
+        return buttons + [.quickLook, .revealInFinder]
     }
 }
 

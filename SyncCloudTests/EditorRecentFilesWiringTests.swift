@@ -29,15 +29,18 @@ import FileExplorer
         #expect(body.contains("in: EditorRecentFiles.shared)"), "the open is recorded in a store the page does not read")
     }
 
-    /// **A reload is no new open**: `reloadOverTheBuffer` is the one caller that says so, and the
-    /// only one. Mutation: drop `recordsRecent: false`, or add it to `createTextFile`.
+    /// **A reload is no new open**: `reloadOverTheBuffer` says so, and so does Try Again under a
+    /// refusal (TE152), which reads the file already open once more — and no other caller.
+    /// Mutation: drop `recordsRecent: false`, or add it to `createTextFile`.
     @Test func onlyTheReloadSkipsTheRecord() throws {
         let source = try EditorHeaderDoorsWiringTests.editor()
         let reload = try EditorHeaderDoorsWiringTests.memberBody("func reloadOverTheBuffer(path: String) -> Bool", in: source)
         #expect(reload.contains("loadIntoEditor(path: path, recordsRecent: false)"),
                 "a reload over the buffer moves the file to the top of the recent files")
-        #expect(source.components(separatedBy: "recordsRecent: false").count - 1 == 1,
-                "a second route skips the recent files")
+        #expect(source.contains("onTryAgain: { if let path = editorDocument.path, editorDocument.refusal != nil { loadIntoEditor(path: path, recordsRecent: false) } },"),
+                "Try Again moves the file it re-reads to the top of the recent files")
+        #expect(source.components(separatedBy: "recordsRecent: false").count - 1 == 2,
+                "a third route skips the recent files")
     }
 
     /// **The moved file is followed, by this app or by Finder** — before the `byThisApp` return,

@@ -537,6 +537,8 @@ extension ContentView {
             onSaveNow: (editorAutosaveStop?.savesFromTheHeader ?? true) ? { _ = saveEditorDocument() } : nil,
             onSaveAgain: (editorAutosaveStop?.savesAgainFromTheHeader ?? false)
                 ? { saveEditorDocumentAgain(explicit: true) } : nil,
+            // TE152: a file that kept changing while it was read, read once more where it is.
+            onTryAgain: { if let path = editorDocument.path, editorDocument.refusal != nil { loadIntoEditor(path: path, recordsRecent: false) } },
             // TE59: the question a change from elsewhere left standing, and what it did quietly.
             diskBanner: editorDiskWatch.banner,
             diskNotice: editorDiskWatch.notice?.text,

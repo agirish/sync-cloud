@@ -126,6 +126,13 @@ import Sync
         #expect(editor.contains("? { saveEditorDocumentAgain(explicit: true) } : nil,"))
     }
 
+    /// **TE152: Try Again reads the refused file once more, where it is** — not a new open, so its
+    /// place in the recent files stays.
+    @Test func tryAgainReReadsTheRefusedFile() throws {
+        let editor = try Self.source("ContentView+Editor.swift")
+        #expect(editor.contains("onTryAgain: { if let path = editorDocument.path, editorDocument.refusal != nil { loadIntoEditor(path: path, recordsRecent: false) } },"))
+    }
+
     /// **The header's door is guarded by the stop's own rule, not by a condition written twice.**
     ///
     /// `EditorAutosaveStop.offersDiff` is where "which stops have something to show" is stated and
