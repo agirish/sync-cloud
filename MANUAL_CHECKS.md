@@ -27,7 +27,7 @@ Check items off as you verify them, and note anything that misbehaves.
 - [ ] **Reopen keeps state.** Navigate both panes somewhere, toggle hidden files, close
   the window (⌘W), click the Dock icon → the window returns with the same panes,
   navigation, and hidden-files toggle; no provider flip, no rescan spinner.
-- [ ] **No New Window.** File menu has no "New Window"; ⌘N does nothing.
+- [ ] **No New Window.** File menu has no "New Window"; ⌘N is New Text File and never opens a window.
 - [ ] **Unaffected flows.** Settings overlay (⌘,) and the quit-with-operations-running
   warning behave as before.
 
@@ -93,7 +93,7 @@ launch confirmed. Live overlay rendering is the human-only part.
 
 - [ ] **SyncCloud Help opens the overlay.** Help ▸ SyncCloud Help (or ⌘?) → a centered
   frosted card appears over a dimmed window (no more "Help isn't available"). It obeys
-  the current surface style (Solid = opaque panel; Unified/Cards = glass).
+  the Glass effect setting (Solid = opaque panel; Clear/Frosted = glass).
 - [ ] **Sidebar + article.** Topics are grouped into five sections; clicking one shows its
   article on the right. "Reading the list" shows the colored difference-badge legend.
 - [ ] **Search narrows.** Type in the sidebar search (e.g. "checksum", "keeper") → the list
@@ -102,9 +102,9 @@ launch confirmed. Live overlay rendering is the human-only part.
   selection moves to that topic.
 - [ ] **Dismissal.** ✕, Esc, and clicking the dimmed backdrop all close it. Opening Settings
   (⌘,) while Help is up closes Help (they never stack).
-- [ ] **New Help-menu items.** Open Activity Log opens the log window; Reveal Log File in
-  Finder selects ~/sync-cloud.log; About SyncCloud shows the standard About panel;
-  Keyboard Shortcuts (⌘/) and Welcome to SyncCloud still work.
+- [ ] **Help-menu items.** Set Up SyncCloud… opens the setup sheet; Reveal Log File in Finder
+  selects ~/sync-cloud.log. Window ▸ Activity Log (⌘L) and Window ▸ Keyboard Shortcuts (⌘/)
+  open their windows; SyncCloud ▸ About SyncCloud shows the standard About panel.
 
 ## CLI (Waves 1D, 2F) — spot checks (e2e-verified during the review)
 

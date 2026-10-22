@@ -4,8 +4,8 @@ A `git`-style command line interface for SyncCloud. Use it to scan two directori
 
 ## Requirements
 
-- macOS 14+
-- Swift 5.9+
+- macOS 26+
+- Swift 6.0+ (Xcode 26+)
 
 ## Build
 
@@ -58,6 +58,9 @@ synccloud scan -L ~/OneDrive/Documents -R ~/Data/Documents --direction to-right
 synccloud scan -L ~/OneDrive/Documents -R ~/Data/Documents --direction to-left
 ```
 
+`scan` is the default command, so `synccloud -L … -R …` runs it. Hidden files are skipped
+unless you pass `--show-hidden`; `--ignore <path>` (repeatable) leaves a path out.
+
 JSON output (useful for scripting):
 
 ```bash
@@ -86,6 +89,25 @@ synccloud sync -L ... -R ... --strategy skip
 synccloud sync -L ... -R ... --strategy keep-both
 ```
 
+Check same-size pairs that differ only by date with a checksum first, or stop at the first failed
+copy:
+
+```bash
+synccloud sync -L ... -R ... --verify
+synccloud sync -L ... -R ... --fail-fast
+```
+
+## Restructure (report-only)
+
+Report where a surveyed tree disagrees with its own habits. It reads the app's folder survey and
+never moves anything:
+
+```bash
+synccloud restructure
+synccloud restructure --json                   # full report, stable format
+synccloud restructure --profiles-dir <dir>     # read another profiles directory
+```
+
 ## Command reference
 
 ```bash
@@ -93,5 +115,8 @@ synccloud --help
 synccloud scan --help
 synccloud sync --help
 synccloud providers --help
+synccloud restructure --help
 ```
+
+Exit codes: `0` success, `64` usage error, `1` partial sync failure.
 

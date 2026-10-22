@@ -122,9 +122,9 @@ every other write here, goes back in the encoding the file was read in, with LF 
 (CR) file is converted on its first edit, and one ⌘Z gives it back as it was opened. A change made
 to the file elsewhere is noticed as it happens: with nothing unsaved it reloads quietly, and with
 unsaved typing a banner asks which version to keep. A file that is not valid text opens read-only rather than risking its bytes.
-**⌘O** opens the text file or PDF selected in any pane here — so does **Open in Edit**, first in a file pane's right-click menu, by the file's name in the preview, in the Info inspector, and in the right-click menus of Compare's differences and Organize's duplicate copies. Above the document, **＋** makes a new file and **×** puts the open one away; above a Markdown file's text, a **format bar** carries the Markup verbs as buttons in a capsule per group — Body, B I S, the lists, Code and Quote, then Link, Table and Divider — with a word beside each where there is room (right-click it for icons only). **Table** inserts a table or makes one from tab- or comma-separated lines, and with the caret in a table a Table capsule adds and deletes rows and columns and formats it so its pipes line up. In Markdown, Return carries a list on and Tab nests an item; a web address pasted onto words makes them a link; an image dropped or pasted is saved in the note's **Images** folder and linked; and the line under the text names the heading you are in, with every heading one click away, counts a selection, and goes to a line (⌃⌘L). **Readable Line Length** keeps wrapped text in a centred column, **Typewriter Scrolling** keeps the line you are typing at mid-height, and SyncCloud appears in Finder's **Open With** for text files. With nothing open, Edit's page lists the last ten files you opened — text files and PDFs — with a **New Note** button, and **File ▸ Open Recent** holds the same list.
+**⌘O** opens the text file or PDF selected in any pane here — so does **Open in Edit**, first in a file pane's right-click menu, by the file's name in the preview, in the Info inspector, and in the right-click menus of Compare's differences and Organize's duplicate copies. Above the document, **＋** makes a new file and **×** puts the open one away; above a Markdown file's text, a **format bar** carries the Markup verbs as buttons in a capsule per group — Body, B I S, the lists, Code and Quote, then Link, Table and Divider — with a word beside each where there is room (right-click it for icons only). **Table** inserts a table or makes one from tab- or comma-separated lines, and with the caret in a table a Table capsule adds and deletes rows and columns and formats it so its pipes line up. In Markdown, Return carries a list on and Tab nests an item; a web address pasted onto words makes them a link; an image dropped or pasted is saved in the note's **Images** folder and linked; and the line under the text names the heading you are in, with every heading one click away, counts a selection, and goes to a line (⌃⌘L). **Readable Line Length** keeps wrapped text in a centred column, and SyncCloud appears in Finder's **Open With** for text files.
 
-New in 6.0: the file list's filter **searches inside files** too. Switch it from **Names** to **Contents** and type a
+New in 6.0: **Typewriter Scrolling** keeps the line you are typing at mid-height; **Page** — a switch beside Autosave, or **Text ▸ Page** — puts Source's text on a page; once you have opened a file in Edit, its empty page lists the last ten you opened — text files and PDFs — with a **New Note** button, and **File ▸ Open Recent** holds the same list. And the file list's filter **searches inside files** too. Switch it from **Names** to **Contents** and type a
 word: the text files in the folder and the folders inside it list their matching lines, and below them the PDFs, Word and
 PowerPoint files that Spotlight says contain the word. Open one and it opens at the match, with Find holding the word, so
 ⌘G goes on to the next. Files not downloaded from iCloud are skipped and never downloaded.
@@ -140,14 +140,16 @@ Not in the v5.5 release; this is what `main` does today, and it may change befor
 - **The file you opened is never modified.** The **Tools** menu rotates, extracts and deletes
   pages, compresses, cleans metadata and adds or removes a password, and pages dragged into a new
   order are saved with **Save Reordered Copy**. The whole-file tools are on any PDF's right-click
-  menu in Browse, Compare and Organize too, for several PDFs at once. Every tool writes a new PDF beside the
+  menu in Browse, Compare, Organize and Edit's own file pane too, for several PDFs at once. Every tool writes a new PDF beside the
   original, named for what it did — `Statement (compressed).pdf` — and never replaces a file
   already there.
 - **Fill & Sign** floats a palette over the page: text, today's date, ✓ ✗ • marks, and a
   signature or initials you draw or type, kept on this Mac only and never synced. A PDF with form
   fields of its own — a W-9, a visa form — fills those, in the form's own Tab order, and the copy
   stays fillable. Nothing is written until **Save Filled Copy**, which writes
-  `Lease (signed).pdf` beside the original.
+  `Lease (signed).pdf` beside the original. **Replace** retypes a few words on a page, in their
+  size and colour and in their own font when your Mac has it, and writes `Invoice (corrected).pdf`;
+  the old words stay in the copy under a patch unless you make that page a picture.
 - **Save as PDF** on the right-click menu turns a Word, Excel or PowerPoint file, an RTF, a
   Markdown note or a `.txt` into a PDF beside it. A slide that is a picture has its words
   recognised, so the PDF can still be searched.
@@ -276,7 +278,7 @@ SyncCloud/
 ├── MacApp/                     # SwiftUI app (ContentView, toolbar, app entry, filing classifiers)
 ├── Modules/                    # SPM packages:
 │   ├── Sync/                   #   diff engine, file ops, duplicates, filing/automations, storage lens
-│   ├── FileExplorer/           #   panes, differences, Organize lenses, review
+│   ├── FileExplorer/           #   panes, differences, Organize lenses, review, Edit (text and PDF)
 │   ├── Dashboard/              #   folder sidebar, activity log, details, breadcrumbs, sync history
 │   ├── Settings/               #   settings UI + persistence
 │   ├── Design/                 #   Liquid Glass design system

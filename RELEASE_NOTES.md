@@ -11,14 +11,14 @@ User-facing changes, newest first. For the full commit history see the
 > installable from a release yet.
 
 **Edit opens PDFs, and changes them as new copies.** A PDF opens in Edit through the same doors a
-text file uses. Its pages and bookmarks are in the rail, its page number and zoom float over the
-pages, it can be laid out as a book, and Find searches it. Its tools rotate, reorder, extract and
-delete pages, compress the file, clean its metadata and add or remove a password, and Fill & Sign
-fills in a form and signs it from a palette over the page. Each change is written to a new PDF
+text file uses. Its pages and bookmarks are in the side column, its page number and zoom float over
+the pages, it can be laid out as a book, and Find searches it. Its tools rotate, reorder, extract
+and delete pages, compress the file, clean its metadata and add or remove a password, and Fill &
+Sign fills in a form and signs it from a palette over the page. Each change is written to a new PDF
 beside the original; the file you opened is never modified. Word, Excel, PowerPoint, RTF, Markdown
-and text files can be saved as PDFs too. Around the PDFs, Edit's side column gets one control, its
-filter searches inside files, its folder line becomes a menu, Unified becomes one box, and the sidebar's Recents can show the folders
-you come back to.
+and `.txt` files can be saved as PDFs too. Around the PDFs, Edit's side column gets one control, its
+filter searches inside files, its folder line becomes a menu, Unified becomes one box, the sidebar's
+Recents can show the folders you come back to, and the accent colour you pick reaches the whole app.
 
 Requires **macOS 26**, unchanged from the 5.x line.
 
@@ -33,27 +33,28 @@ Requires **macOS 26**, unchanged from the 5.x line.
 - **The Text Files list is now Files**, the folder's text files and its PDFs each under a heading of
   their own.
 - **A PDF's header has a text file's two rows.** The first holds the name, then **Find**, **Fill &
-  Sign** and **Tools**, then Expand and ×; the second says what the file is — "PDF · Letter, 8.5 ×
-  11 in · 42 KB · Text selectable", the paper of the page you are on. Point at "PDF" for its
-  version, and right-click the name for Reveal in Browse. In a narrow column Find and Tools drop
-  their words first, then Fill & Sign, before the name is cut.
+  Sign** and **Tools**, then Expand and Close; the second says what the file is — "PDF · Letter, 8.5
+  × 11 in · 42 KB · Text selectable", the paper of the page you are on. Point at "PDF" for its
+  version, and right-click the name for Reveal in Browse. In a narrow column the buttons drop their
+  words together before the name is cut.
 - **Locked and damaged PDFs say so.** A PDF that needs a password asks for it — *This PDF needs a
   password* — and SyncCloud uses it only to open the file and doesn’t save it. One PDFKit cannot
-  read says *PDFKit couldn’t read this file.*, with **Quick Look** and **Open in Preview** beside
-  it, and one still in the cloud says it is not downloaded.
+  read says *Couldn’t read this PDF.*, with **Quick Look** and **Open in Preview** under it, and
+  one still in the cloud says it is not downloaded, with a **Download** button.
 
 ### Reading a PDF
 
-- **Pages and Outline.** With a PDF open the rail gains a **Pages** tab of thumbnails — click one to
-  go to that page — with a **Grid** / **List** switch, kept across launches. Grid adds a column as
-  the side column is dragged wider; List puts one page under another at the column's width, drawn
-  sharp at that size. A PDF with two or more bookmarks gains an **Outline** tab that lists them.
+- **Pages and Outline.** With a PDF open the side column gains a **Pages** tab of thumbnails — click
+  one to go to that page — with a **Grid** / **List** switch, kept across launches. Grid adds a
+  column as the side column is dragged wider; List puts one page under another at the column's
+  width, drawn sharp at that size. A PDF with two or more bookmarks gains an **Outline** tab that
+  lists them.
 - **The page number and the zoom float over the pages**, in a capsule at the bottom: ‹ and › turn
   the page, − and + step through 50, 75, 100, 125, 150, 200 and 400%, and the zoom opens a menu with
   those steps and Fit Page, Fit Width and Actual Size. Every PDF opens at Fit Page. Drag the capsule
-  by its grip to a corner or the middle of any edge, and it stays there for every PDF until you move
-  it again; double-click the grip to put it back. In a narrow column it drops − and + first, then ‹
-  and ›, but never the page number or the zoom.
+  by its grip to a corner or the middle of any edge, or right-click the grip for Move To, and it
+  stays there for every PDF until you move it again; double-click the grip to put it back. In a
+  narrow column it drops − and + first, then ‹ and ›, but never the page number or the zoom.
 - **Page layouts.** **Page Layout**, at the foot of the zoom menu, offers Single Page, Continuous,
   Two Pages and Two Pages, Continuous, and **Cover Page Separately** for the two-page layouts, which
   pairs pages 2–3, 4–5 as a printed book does. In two pages the page number reads as the spread,
@@ -67,21 +68,23 @@ Requires **macOS 26**, unchanged from the 5.x line.
 - **Find in a PDF.** `⌘F`, or Find in the header, opens a find card in the top-right corner of the
   pages; the capsule steps aside if it is there. Matches are tinted on the pages, a phrase broken
   across two lines is still found, and case and accents are ignored. `⌘G` and `⇧⌘G` step through
-  them, `⌘E` searches for what you have selected, and Esc puts the card away. A long PDF is searched
-  a page at a time, so the count says "so far" until every page has been read, and *Waiting for
-  other PDF work…* while a duplicate scan or other PDF work is ahead of it. A scanned PDF says *This
-  PDF has no text to search*.
+  them, `⌘E` searches for what you have selected, and Esc puts the card away. A PDF is searched a
+  page at a time, so a long one's count says "so far" until every page has been read, and *Waiting
+  for other PDF work…* while a duplicate scan or other PDF work is ahead of it. A scanned PDF says
+  *This PDF has no text to search*.
 
 ### PDF Tools: every one writes a new copy
 
 - **A Tools menu over the PDF**, and the same items in **File ▸ PDF Tools**: rotate the selected
   pages or all of them, **Extract Pages…**, **Delete Pages…**, **Compress…**, **Clean Metadata…**,
   and **Protect with Password…** or **Remove Password…**. Compress offers Best Quality, Balanced and
-  Smallest File, or a size to come in under.
+  Smallest File, or a size to come in under, and redraws every page as a picture, so the copy's
+  text can't be selected.
 - **The original is never written to.** Each tool writes a copy beside it that says what was done —
   "Statement (compressed).pdf", "(rotated)", "(pages removed)", "(metadata cleaned)", "(protected)",
-  "(unlocked)" — and never replaces a file already there. A banner says what was written, with
-  **Open** and **Reveal in Browse**. A PDF locked with a password offers only Remove Password.
+  "(unlocked)", and for Extract the pages taken, "(pages 2–4)" — and never replaces a file already
+  there. A banner says what was written, with **Open in Edit** and **Reveal in Browse**. A PDF
+  locked with a password offers only Remove Password.
 - **Pick pages, and put them in a new order.** In the Pages tab, click, ⌘-click and ⇧-click select
   pages and `⌘A` selects them all; right-click a selection to rotate, delete or extract just those
   pages. Drag a page to a new place, and nothing is written until **Save Reordered Copy**; **Reset
@@ -101,82 +104,88 @@ Requires **macOS 26**, unchanged from the 5.x line.
   beside it under its name — "Lease.docx" becomes "Lease.pdf", or "Lease 2.pdf" when that is taken —
   and the file itself is never changed. Markdown and text come out as the pages Edit's Print makes;
   Word, Excel and PowerPoint as macOS draws them in Quick Look, every sheet in turn and each slide
-  on a page of its own, with their text selectable. A slide that is a picture has its words
-  recognised, so it can be searched too — every slide of a deck or only some — and the banner says
-  how many and that a word may be misread. Select several
-  for **Save 3 as PDFs**: one at a time, with Stop, and a file that cannot be read is named in the
-  banner. A folder you can't write to asks where. **File ▸ Save as PDF** does the same for the
-  focused pane's selection.
+  on a page of its own, with their text selectable. A slide that is a picture has its words read by
+  text recognition, so it can be searched too — every slide of a deck or only some — and the banner
+  says so, and that a word may be misread. Select several for **Save as PDF · 3 files**: one at a
+  time, with Stop, and a file that cannot be read is named in the banner. A folder you can't write
+  to asks where. **File ▸ Save as PDF** does the same for the focused pane's selection.
 
 ### Fill & Sign
 
 - **Fill & Sign, in the PDF's header, floats a palette of tools at the left of the page**, and the
-  page stays where it was: **Select**, **Text**, **Replace**, **Date** — today, in your Mac's short format —
-  **Marks** for ✓, ✗ and •, **Signature** and **Initials**, then **Aa**, **Text Size** and **Ink**.
-  A tool with a small triangle opens its choices beside it. The palette moves like the page capsule:
-  drag its grip to any edge or corner, or right-click it for Move To, and it stays where you put it.
-  Drag what you placed to move it, pull its corner handle to resize it, press Delete to remove it,
-  and double-click text to change it; Aa, Text Size and Ink change the selected item, and `⌘Z`
-  undoes. **Aa** sets text's font — Sans, Serif, Rounded, Mono or Handwritten, each shown in itself —
-  a typed signature's face or a drawn one's pen; right-click an item for the same choices.
+  page stays where it was: **Select**, **Text**, **Replace**, **Date** — today, in your Mac's short
+  format — **Marks** for ✓, ✗ and •, **Signature** and **Initials**, then **Aa**, **Text Size** and
+  **Ink**. A tool with a small triangle opens its choices beside it. The palette moves like the page
+  capsule: drag its grip to any edge or corner, or right-click its grip for Move To, and it stays
+  where you put it. Drag what you placed to move it, pull its corner handle to resize it, press
+  Delete to remove it, and double-click text to change it; Aa, Text Size and Ink change the selected
+  item, and `⌘Z` undoes. **Aa** sets text's font — Sans, Serif, Rounded, Mono or Handwritten, each
+  shown in itself — a typed signature's face or a drawn one's pen; right-click an item for the same
+  choices.
 - **Signatures stay on this Mac.** **Add Signature…** types one in one of seven of the Mac's
   handwriting faces, each shown in your own name, or draws one with the trackpad or mouse — Fine,
-  Medium or Bold, with the trackpad's wobble smoothed out. Blue or Black ink is chosen in the sheet, on a pad
-  that stays paper-white in Dark Mode. Typing a signature while no initials are saved can save
-  matching initials with it. Restyling a saved signature on the page changes the saved one too. It is a picture of your
-  signature, not a certificate-based digital one, and a saved one is kept on this Mac only — never
-  synced, never written to the log.
+  Medium or Bold, with **Smooth out wobble**, on to begin with, evening out the trackpad's jitter.
+  Blue or Black ink is chosen in the sheet, on a pad that stays paper-white in Dark Mode. Typing a
+  signature while no initials are saved can save matching initials with it. Restyling a saved
+  signature on the page changes the saved one too. It is a picture of your signature, not a
+  certificate-based digital one, and a saved one is kept on this Mac only — never synced, never
+  written to the log.
 - **A PDF's own form fields.** A form with fields — a W-9, a visa form — opens Fill & Sign on **Form
   Fields**: type into text fields, set checkboxes and radio buttons, choose from pop-ups and lists,
-  and Tab and ⇧Tab move through them in the form's own order. A field that takes no value is tinted
-  grey and says why when you point at it. Text, dates, marks and signatures are still there for what
-  the form has no field for.
+  and Tab and ⇧Tab move through them in the form's own order. Click a signature field to sign it,
+  and the signature fits the field. A field that takes no value is tinted grey and says why when you
+  point at it. Text, dates, marks and signatures are still there for what the form has no field for.
 - **Save Filled Copy writes a new copy** — "Lease (signed).pdf", or "(filled)" with no signature or
-  initials — and leaves the original as it was. A form stays fillable in the copy, in Preview,
-  Acrobat or anywhere else, with what you placed kept as annotations. Until you save, a pill at the
-  top of the page counts what is unsaved, beside **Discard** and **Save Filled Copy**, and closing
+  initials, or "(corrected)" with only corrections — and leaves the original as it was. A form stays
+  fillable in the copy, in Preview, Chrome or Acrobat, with what you placed kept as annotations.
+  Until you save, a pill at the top of the page counts what is unsaved, beside **Discard**, **Save
+  Filled Copy** and **Done**, which puts Fill & Sign away, as Esc does with nothing chosen; closing
   the PDF, opening another file or quitting asks first. A form's caveats, and anything Save would
   refuse, sit in a note under the pill. **File ▸ Fill & Sign** and **File ▸ Save Filled Copy** do
   the same from the menu bar.
 - **Fill & Sign by keyboard alone, and with VoiceOver.** **File ▸ Fill & Sign Tool** holds the
-  palette's tools. With one chosen, Return places its item in the middle of the page you can see,
-  selected, for the arrow keys; text takes your typing at once, and Return again places another
-  just below. Tab and ⇧Tab move through what you placed, after a form's fields. VoiceOver reads and
-  presses every field and placed item — a field by its form's own description — and tells saved
-  drawn signatures apart by number and pen. **Add Signature…** opens on Type, and deleting a saved
-  signature asks first.
+  palette's tools, all but Aa. With one chosen, Return places its item in the middle of the page you
+  can see, selected, for the arrow keys; text takes your typing at once, and Return again places
+  another just below. Tab and ⇧Tab move through what you placed, after a form's fields. VoiceOver
+  reads and presses every placed item and every field but a signature field — a field by its form's
+  own description — and tells saved drawn signatures apart by number and pen. **Add Signature…**
+  opens on Type, and deleting a saved signature asks first.
 - **Replace retypes a few words on a page.** Choose **Replace** in the palette and click a line of
   words, or drag across some, or select words and right-click for **Replace Text…**. A box opens
-  over them, holding them, in their size and colour, and in their own font when your Mac has it;
-  the line under it says "Same font" or names the stand-in. Return places the correction, Esc
-  leaves the page as it was. Save Corrected Copy writes "(corrected)": the new words are drawn over
-  a patch in the page's colour. The old words are still in the copy under the patch, where search
-  and copy find them; the note under the pill says so and offers to make that page a picture,
-  which takes them out. Replace says why when it can't: a page with no text, words on two lines, a
-  page whose text doesn't sit where it is printed, and any PDF with a fillable form.
-- **A PDF whose owner allows neither comments nor form filling gets no Fill & Sign, and says why** — File ▸ Fill & Sign is
-  greyed with *This PDF doesn’t allow filling* under it, and the Fill & Sign button gives the
-  reason. A form that allows filling but not adding to its pages fills its fields only.
+  over them, holding them, in their size and colour, and in their own font when your Mac has it; the
+  line under it says "Same font" or names the stand-in. Return places the correction, Esc leaves the
+  page as it was. Save Corrected Copy writes "(corrected)": the new words are drawn over a patch in
+  the page's colour. The old words are still in the copy under the patch, where search and copy find
+  them; the note under the pill says so and offers to make that page a picture, which takes them
+  out, with the rest of that page's text. Replace says why when it can't: a page with no text, words
+  on two lines, words that don't run across the page, a page whose text doesn't sit where it is
+  printed, and any PDF with a fillable form.
+- **A PDF whose owner allows no comments, and that has no form field you may fill, gets no Fill &
+  Sign, and says why** — File ▸ Fill & Sign is greyed with *This PDF doesn’t allow filling* under
+  it, and the Fill & Sign button gives the reason. A form that allows filling but not adding to its
+  pages fills its fields only.
 
 ### The rest of Edit
 
-- **Recent files and New Note.** With nothing open, Edit's page lists the last ten files you opened
-  there — text files and PDFs, through any door — with each one's folder and when you opened it,
-  and a **New Note** button that does what `⌘N` does. A click opens a file again and takes the file
-  pane to its folder; right-click a row for Remove from Recents. A file that was deleted, or is on a
-  disk that is not connected, is left off until it is back, and a file moved while open is followed.
-  **File ▸ Open Recent** holds the same list in every workspace, with Clear Menu.
+- **Recent files and New Note.** Once you have opened a file in Edit, its page with nothing open
+  lists the last ten files you opened there — text files and PDFs, through any door — with each
+  one's folder and when you opened it, and a **New Note** button that does what `⌘N` does. A click
+  opens a file again and takes the file pane to its folder; right-click a row for Remove from
+  Recents. A file that was deleted, or is on a disk that is not connected, is left off until it is
+  back, and a file moved while open is followed. **File ▸ Open Recent** holds the same list in every
+  workspace, with Clear Menu.
 - **One strip for Edit's side column.** The Files list can now fold on its own, into the strip at
-  the left edge; before, only Expand could hide it, and Expand took the file pane and the sidebar
-  with it. The strip has a button for the file pane and one for each tab the list shows — Files and
-  Outline for a text file; Files, Pages and, with two or more bookmarks, Outline for a PDF — and
-  each opens its column or folds it, lit while it shows. **View ▸ File List** (`⌃⌘T`) does the same.
+  the left edge, and starts folded; before, it went only when the file pane took its place, or under
+  Expand, which hid the sidebar too. The strip has a button for the file pane and one for each tab
+  the list shows — Files, and Outline for a Markdown note; Files, Pages and, with two or more
+  bookmarks, Outline for a PDF — and each opens its column or folds it, lit while it shows. **View ▸
+  File List** (`⌃⌘T`) does the same.
 - **The file pane and the list share one width**, dragged at the column's edge, from 232 to 480
-  points.
-- **The folder line is a menu.** The folder's name, on the line under the rail's tabs, opens a menu:
-  the folders inside it on top, then each folder above it up to the top of the source, in Finder's
-  path-menu order. A pick takes the file pane there, and the list follows. It lists up to 40
-  subfolders and says how many more there are.
+  points. At its default width the file pane shows one column at a time, with a back button.
+- **The folder line is a menu.** The folder's name, on the line under the Files list's tabs, opens a
+  menu: the folders inside it on top, then each folder above it up to the top of the source, in
+  Finder's path-menu order. A pick takes the file pane there, and the list follows. It lists up to
+  40 subfolders and says how many more there are.
 - **Search inside files.** The Files list's filter gains **Names** | **Contents** under its field.
   On Contents, type a word of two letters or more: the text files in the folder and the folders
   inside it list their matching lines, each with the word lit, and below them Spotlight lists the
@@ -199,6 +208,23 @@ Requires **macOS 26**, unchanged from the 5.x line.
   Typewriter Scrolling on, it runs on into the room below the last line. Off to begin with,
   remembered, and greyed in Preview, which keeps its own look. In a column too narrow for it, the
   switch steps aside and Text ▸ Page is the way to it.
+- **Words on Edit's header buttons.** A text file's ＋, magnifying glass and × now read **New Text
+  File**, **Find** and **Close**, and in a narrow column they drop their words together, before the
+  name is cut.
+- **The Files list by keyboard and menu.** Tab into the Files or Outline list and the arrow keys
+  move through it and Return opens; Return in the filter opens the first match, and a new folder
+  clears the filter. A row's right-click menu adds **Download** for a file still in the cloud, and
+  **Rename** and **Delete**, and the file name above the document offers the same menu. A file Edit
+  can't open until it is downloaded has a **Download** button.
+- **Edit in its own words.** A file Edit won't open says why in Edit's words — *This isn’t a text
+  file, so Edit can’t open it.* — and the first change to a Windows (CRLF) file says *Converted to
+  LF line endings — ⌘Z undoes*. A typed name such as "Notes v1.2" gets `.md`, Markup's **Link…** is
+  **Link**, Undo after a Markup verb in Source names it — "Undo Bold" — and **File ▸ Export as
+  PDF…** names the file it exports.
+- **One set of answers when a file changed on disk.** The banner, the `⌘S` alert and the comparison
+  all offer **Compare…**, **Keep Mine…** and **Use Disk Version**, and Keep Mine… always asks before
+  replacing the version on disk; the comparison's Save Anyway used to write without asking. Its
+  column for your version is headed "In Edit".
 - **Ticking a box in Preview is quick in a long note.** With Edit in Preview off, or in a note over
   256 KB, a tick rewrote and compared the whole note; it now changes only its own line. The last
   task in a 200 KB note went from 35 ms to 0.2 ms, and in a 4 MiB note from 808 ms to 3.7 ms.
@@ -219,17 +245,26 @@ Requires **macOS 26**, unchanged from the 5.x line.
   View ▸ Tab Bar — the header of the Organize section beside it sat one strip higher than the
   pane's. It now lines up, in both styles and at every text size.
 
+### Your accent colour, everywhere
+
+- **The accent colour reaches the whole app.** With an Accent color other than None in Settings ▸
+  Appearance, Settings' text-size tiles, Help, the guided setup, hover highlights, the Go to list's
+  selected row, Compare Copies' swipe divider and every filled button draw in it; before, they kept
+  the Mac's own accent. Filled buttons and Edit's lit controls use a deeper shade of it, so a white
+  label on them stays readable — filled buttons at None too.
+
 ### Recents, Revisited, Frequent
 
 - **Recents can show the folders you come back to, or the ones you use most.** Point at the Recents
   heading in the sidebar and an icon appears beside the arrow; each click moves the heading on —
   Recents, then **Revisited**, folders you spent a few seconds in on two or more different days,
-  newest first, then **Frequent**, the folders you have spent time in most, most first. Folders you
-  only clicked through, or passed with Back and Forward, do not count, and coming back within five
-  minutes is the same visit. Both look back 90 days and count older visits for less, so a folder you
-  have stopped using drops off. At most eight rows. The icon stays lit in the accent outside plain
-  Recents, and the choice is remembered across launches. Both lists start empty and fill from visits
-  made after the update. Recents itself, and the folders `⌘K` offers, are unchanged.
+  newest first, then **Frequent**, the folders you have stayed in most often, most first. Folders
+  you only clicked through, or passed with Back and Forward, do not count, and coming back within
+  five minutes is the same visit. Both look back 90 days and count older visits for less, so a
+  folder you have stopped using drops off. At most eight rows. The icon stays lit in the accent
+  outside plain Recents, and the choice is remembered across launches. Both lists start empty and
+  fill from visits made after the update. Recents lists the same folders as before, now each with
+  its source's name, and the folders `⌘K` offers are unchanged.
 
 ---
 
