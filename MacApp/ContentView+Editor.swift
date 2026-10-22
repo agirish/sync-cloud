@@ -804,6 +804,9 @@ extension ContentView {
         // **A word being composed is committed first** (UND-5), so it is in the buffer for the
         // question, the flush and the history below — never left in a storage put away without it.
         editorDocument.buffer.source.endComposition()
+        // **TE147: a save that couldn't be checked is checked now**, so a file holding what it wrote
+        // counts as saved rather than asked about.
+        if editorDocument.uncheckedWrite != nil { editorDiskWatch.reconcile() }
         // **TE146: a file deleted with nothing typed is asked about too** — autosave has nothing to
         // write, but the text on screen may be the only copy left. The watch looks first, so a move
         // is followed and a trip to the Trash noted rather than asked about; a file in the Trash and
@@ -1753,6 +1756,10 @@ extension ContentView {
         editorDiskWatch.attach(document: editorDocument, undoStore: editorUndoStore)
         editorDiskWatch.onMoved = { old, new, byThisApp in editorDocumentDidMove(from: old, to: new, byThisApp: byThisApp) }
         editorDiskWatch.onBannerChange = { banner in editorDiskBannerDidChange(banner) }
+        // TE147: the write was on disk as written after all, so there is nothing left to check.
+        editorDiskWatch.onUncheckedWriteChecked = {
+            if case .unchecked = editorAutosaveStop { editorAutosaveStop = nil }
+        }
     }
 
     /// **The open file moved, and the document followed it** — the path-keyed state the window

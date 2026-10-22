@@ -194,6 +194,9 @@ public final class EditorDiskWatch: ObservableObject {
     public var onMoved: ((_ from: String, _ to: String, _ byThisApp: Bool) -> Void)?
     /// The banner came or went — the host stops autosave while one stands, and resumes it after.
     public var onBannerChange: ((EditorDiskBanner?) -> Void)?
+    /// A write that couldn't be checked was found on disk as written and counted as saved (TE147) —
+    /// the host clears its "couldn't check the save" stop.
+    public var onUncheckedWriteChecked: (() -> Void)?
 
     /// How long events are left to settle before the disk is looked at. A save is often several
     /// events — a temporary file, a rename, a delete of the backup — and `vim` renames the file
@@ -345,6 +348,12 @@ public final class EditorDiskWatch: ObservableObject {
         guard document.backgroundWrites == 0 else {
             eventArrived()
             return .nothing
+        }
+        // **Edit's own unchecked write is not a change from elsewhere** (TE147): a file holding the
+        // text it wrote counts as saved, and the look below finds nothing to ask about.
+        if document.uncheckedWrite != nil, EditorFileStore.settleUncheckedWrite(of: document) {
+            Logger.shared.info("[edit] \(path) holds the text the save that couldn't be checked wrote — counted as saved")
+            onUncheckedWriteChecked?()
         }
         let observation = observe(path)
         let change = EditorDiskChange.assess(path: path, known: document.diskStamp, observation: observation)

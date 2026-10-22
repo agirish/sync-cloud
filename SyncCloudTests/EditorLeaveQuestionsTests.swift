@@ -92,7 +92,7 @@ import FileExplorer
     @Test func leavingAsksAboutTheOnlyCopyBeforeTheFlush() throws {
         let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
         let gone = try #require(settle.range(of: "if asksAboutTheOnlyCopy, !editorDocument.isDirty, editorDiskWatch.isGone {"))
-        let look = try #require(settle.range(of: "editorDiskWatch.reconcile()"))
+        let look = try #require(settle.ranges(of: "editorDiskWatch.reconcile()").first { $0.lowerBound > gone.lowerBound })
         let ask = try #require(settle.range(of: "if editorDiskWatch.mayBeTheOnlyCopy { return confirmLeavingTheOnlyCopy() }"))
         let flush = try #require(settle.range(of: "EditorAutosave.attempt(editorDocument)"))
         #expect(gone.lowerBound < look.lowerBound && look.lowerBound < ask.lowerBound && ask.lowerBound < flush.lowerBound)
@@ -103,6 +103,22 @@ import FileExplorer
         let unwritten = try EditorDiskWatchWiringTests.body("private func confirmLeavingAnUnwrittenDocument() -> Bool")
         #expect(unwritten.contains("if isGone { return saveEditorDocumentAgain(explicit: true) }"))
         #expect(unwritten.contains("EditorAlerts.askAboutUnsavedChanges(name: editorDocument.name, cause: cause)"))
+    }
+
+    /// **TE147: a save that couldn't be checked is checked again** before leaving and before
+    /// quitting, and the watch's finding clears the window's "couldn't check the save" stop.
+    @Test func anUncheckedSaveIsCheckedBeforeLeavingAndQuitting() throws {
+        let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
+        let check = try #require(settle.range(of: "if editorDocument.uncheckedWrite != nil { editorDiskWatch.reconcile() }"))
+        let ask = try #require(settle.range(of: "return confirmLeavingAnUnwrittenDocument()"))
+        #expect(check.lowerBound < ask.lowerBound)
+        let attach = try EditorDiskWatchWiringTests.body("func attachEditorDiskWatch()")
+        #expect(attach.contains("editorDiskWatch.onUncheckedWriteChecked = { if case .unchecked = editorAutosaveStop { editorAutosaveStop = nil } }"))
+        let app = try EditorHeaderDoorsWiringTests.source("SyncCloudApp.swift")
+        let terminate = CodeText(try declarationBody(of: "func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply", in: app))
+        let settled = try #require(terminate.range(of: "EditorFileStore.settleUncheckedWrite(of: document)"))
+        let flush = try #require(terminate.range(of: "EditorAutosave.attempt(document)"))
+        #expect(settled.lowerBound < flush.lowerBound, "the quit flush runs before the check, and is blocked by Edit's own write")
     }
 
     /// ⌘Q asks too, with its own words — and the watch and the stop reach the delegate.

@@ -625,7 +625,30 @@ public enum EditorFileStore {
         guard let path = document.path, let encoding = document.encoding else {
             throw Failure(message: "There is nothing open to save.")
         }
-        return try write(document.text, toPath: path, encoding: encoding)
+        let text = document.text
+        do {
+            return try write(text, toPath: path, encoding: encoding)
+        } catch let failure as Failure where failure.savedBut != nil {
+            // Landed, unchecked: remembered, so the disk can be compared with it later (TE147).
+            document.noteUncheckedWrite(text)
+            throw failure
+        }
+    }
+
+    /// **A write that couldn't be checked, checked now** (TE147): when the file at the document's
+    /// path holds exactly the text that write put there, in its encoding, the document counts it as
+    /// saved, with the stamp just read. Anything else — a file that really changed again, or one
+    /// that still can't be read — leaves it as it was, to be asked about.
+    ///
+    /// - Returns: whether it counted the write as saved.
+    @MainActor
+    @discardableResult
+    public static func settleUncheckedWrite(of document: EditorDocument) -> Bool {
+        guard let written = document.uncheckedWrite, let path = document.path,
+              case .editable(let text, let stamp, let encoding) = open(path: path),
+              encoding == document.encoding, EditorSourceStorage.sameBytes(text, written) else { return false }
+        document.markSaved(text: written, stamp: stamp)
+        return true
     }
 
     // MARK: - New files

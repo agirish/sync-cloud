@@ -743,6 +743,64 @@ import EventsTestSupport
         #expect(!rig.watch.isGone && !rig.watch.mayBeTheOnlyCopy)
     }
 
+    // MARK: A save that couldn't be checked (TE147)
+
+    /// **Edit's own unchecked write is not "changed on disk while you were typing".** The write
+    /// landed but its read-back failed, so the document kept the old stamp and still read unsaved;
+    /// the next look found the file newer and raised the banner about Edit's own save. Now the text
+    /// the write put there is remembered, and a file holding it counts as saved.
+    @Test func aSaveThatCouldntBeCheckedIsCountedWhenTheDiskHoldsIt() throws {
+        let rig = try Rig()
+        var checked = 0
+        rig.watch.onUncheckedWriteChecked = { checked += 1 }
+        rig.type("mine\n")
+        // The write lands; the look after it does not — as `EditorFileStore.write` throwing `savedBut`.
+        try Data(rig.document.text.utf8).write(to: URL(fileURLWithPath: rig.path))
+        rig.document.noteUncheckedWrite(rig.document.text)
+        #expect(rig.document.isDirty)
+        // Typing after the write is still unsaved, and stays so.
+        rig.type("more\n")
+        #expect(rig.watch.reconcile() == .nothing)
+        #expect(rig.watch.banner == nil, "Edit's own save was asked about as a change from elsewhere")
+        #expect(checked == 1)
+        #expect(rig.document.uncheckedWrite == nil)
+        #expect(rig.document.savedText == "one\ntwo\nthree\nmine\n")
+        #expect(rig.document.isDirty, "the typing after the write was counted as saved")
+    }
+
+    /// **A file that really changed again right after the save still raises the banner.**
+    @Test func aSaveThatCouldntBeCheckedAndThenChangedIsStillAsked() throws {
+        let rig = try Rig()
+        var checked = 0
+        rig.watch.onUncheckedWriteChecked = { checked += 1 }
+        rig.type("mine\n")
+        try Data(rig.document.text.utf8).write(to: URL(fileURLWithPath: rig.path))
+        rig.document.noteUncheckedWrite(rig.document.text)
+        try rig.saveElsewhere("theirs\n")
+        #expect(rig.watch.reconcile() == .asked(.changed))
+        #expect(checked == 0)
+        #expect(rig.document.uncheckedWrite != nil)
+    }
+
+    /// The memory goes with any save that is checked.
+    @Test func aCheckedSaveForgetsTheUncheckedOne() throws {
+        let rig = try Rig()
+        rig.document.noteUncheckedWrite("stale\n")
+        rig.document.markSaved(stamp: try EditorFileStore.write(rig.document))
+        #expect(rig.document.uncheckedWrite == nil)
+    }
+
+    /// Both writes that can land unchecked remember what they wrote — the synchronous one (⌘S, a
+    /// flush) and autosave's background one.
+    @Test func bothWritePathsRememberAnUncheckedWrite() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/FileExplorer")
+        let store = try String(contentsOf: sources.appendingPathComponent("EditorFileStore.swift"), encoding: .utf8)
+        #expect(store.contains("catch let failure as Failure where failure.savedBut != nil {\n            // Landed, unchecked: remembered, so the disk can be compared with it later (TE147).\n            document.noteUncheckedWrite(text)"))
+        let autosave = try String(contentsOf: sources.appendingPathComponent("EditorAutosave.swift"), encoding: .utf8)
+        #expect(autosave.contains("if case .savedUnchecked = outcome { document.noteUncheckedWrite(snapshot.text) }"))
+    }
+
     // MARK: The events themselves
 
     /// No `reconcile()` from the test: the kernel's event, settled, has to get there on its own.

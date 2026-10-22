@@ -182,6 +182,8 @@ public enum EditorAutosave {
         case .blocked(let divergence):
             return .blocked(divergence)
         case .ended(let outcome):
+            // Landed, unchecked: remembered, so the disk can be compared with it later (TE147).
+            if case .savedUnchecked = outcome { document.noteUncheckedWrite(snapshot.text) }
             return outcome
         }
     }

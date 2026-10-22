@@ -1373,6 +1373,13 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // Why the document is asked about, for the alert's cause line (TE148): what the flush just
         // found, else the stop the window last had.
         var stop = Self.editorAutosaveStop
+        // **TE147: a save that couldn't be checked is checked now** — a file holding what it wrote
+        // counts as saved, and is neither flushed again nor asked about.
+        if let document = Self.sharedEditorDocument, document.uncheckedWrite != nil,
+           EditorFileStore.settleUncheckedWrite(of: document) {
+            Logger.shared.info("Checked the editor's last save before quitting — the file holds what it wrote")
+            if case .unchecked = stop { stop = nil }
+        }
         if let document = Self.sharedEditorDocument, mayFlush {
             switch EditorAutosave.attempt(document) {
             case .wrote:

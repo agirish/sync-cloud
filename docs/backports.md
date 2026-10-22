@@ -8340,3 +8340,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s deletedBanner=%s onlyCopy=%s\
 |---|---|---|
 | `v5.x` | Leaving a deleted file with nothing typed drops its text unasked | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No disk watch in Edit | CLOSED — does not apply |
+
+---
+
+## A save that couldn't be checked is checked again (TE147) — main only
+
+A write that landed but whose read-back failed left the document with the old stamp, so the next
+look raised "changed on disk while you were typing" about Edit's own save, and ⌘S asked which
+version wins. The document now remembers the text such a write put on disk
+(`EditorDocument.uncheckedWrite`); the disk watch, leaving and the quit check count a file holding
+it as saved (`EditorFileStore.settleUncheckedWrite`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s unchecked=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorAutosave.swift 2>/dev/null | grep -c 'case savedUnchecked')"; done
+# measured 2026-10-22, against origin, before this landed:
+# main 1 · v5.x 0 · v4.x 0 · v3.x 0 · v2.x 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No "saved, but couldn't check" state (TE114 is `main` only) | CLOSED — does not apply |

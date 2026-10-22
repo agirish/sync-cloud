@@ -198,6 +198,15 @@ public final class EditorDocument: ObservableObject {
     func beginBackgroundWrite() { backgroundWrites += 1 }
     func endBackgroundWrite() { backgroundWrites = max(0, backgroundWrites - 1) }
 
+    /// **The text a write put on disk that couldn't be checked afterwards** (TE147) — the read-back
+    /// failed, so the document holds no stamp for it and still reads unsaved. Without it, the next
+    /// look at the file found Edit's own write newer than the stamp and asked about it as a change
+    /// made while you were typing. ``EditorFileStore/settleUncheckedWrite(of:)`` compares the disk
+    /// with it, and a match counts as saved. Gone with any save, open, reload or close.
+    public private(set) var uncheckedWrite: String?
+
+    func noteUncheckedWrite(_ text: String) { uncheckedWrite = text }
+
     /// The open file's size in the words the status line shows, or `nil` when there is no stamp.
     ///
     /// **Formatted when the stamp moves, not when the line is drawn.** `formatBytes` builds a fresh
@@ -271,6 +280,7 @@ public final class EditorDocument: ObservableObject {
     /// Drops whatever was open. Callers prompt about a dirty buffer *before* calling this — the
     /// document does not ask, so that every prompt is on one path rather than hidden in a setter.
     public func close() {
+        uncheckedWrite = nil
         path = nil
         text = ""
         savedText = ""
@@ -308,6 +318,7 @@ public final class EditorDocument: ObservableObject {
         func assign(_ text: String) {
             if assigningTextAlways || !EditorSourceStorage.sameBytes(buffer.text, text) { self.text = text }
         }
+        uncheckedWrite = nil
         switch opened {
         case .editable(let text, let stamp, let encoding):
             assign(text)
@@ -361,6 +372,7 @@ public final class EditorDocument: ObservableObject {
     /// **"Use Disk Version"** (TE59): the buffer already holds the file's newer text — put there as a
     /// step ⌘Z can take back — and this records that it is what is on disk.
     func adoptDisk(text: String, stamp: EditorFileStore.Stamp, encoding: BoundedTextRead.TextEncoding) {
+        uncheckedWrite = nil
         savedText = text
         self.stamp = stamp
         diskStamp = stamp
@@ -404,6 +416,7 @@ public final class EditorDocument: ObservableObject {
     /// write scheduled for it. Marking the snapshot instead leaves the document correctly dirty and
     /// the next debounce writes the rest.
     public func markSaved(text: String, stamp: EditorFileStore.Stamp) {
+        uncheckedWrite = nil
         savedText = text
         self.stamp = stamp
         diskStamp = stamp
