@@ -134,6 +134,42 @@ import Design
         #expect(ran == ["editor", "file", "file"])
     }
 
+    // MARK: Preview's selected words (TE153)
+
+    /// **SwiftUI's own selectable text, the view Preview draws** — not a stand-in, because the rule
+    /// leans on how that private view answers `validateMenuItem(_:)`: no while nothing is
+    /// selected, yes once something is.
+    @Test func previewsSelectedWordsCopyThemselves() throws {
+        let host = NSHostingView(rootView: Text("Weeknight pasta").textSelection(.enabled))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 60),
+                              styleMask: [.titled], backing: .buffered, defer: true)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let words = try #require(host.subviews.first { $0.responds(to: #selector(NSText.copy(_:))) },
+                                 "SwiftUI no longer draws selectable text as a view that copies")
+        #expect(TextEditingChord.selectionCopier(of: words) == nil, "nothing is selected yet")
+        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: words, from: nil)
+        #expect(TextEditingChord.selectionCopier(of: words) === words)
+    }
+
+    /// Nothing else copies itself: a field editor is the caret's (it never gets this far), and a
+    /// file table, a plain view and no responder leave ⌘C to the file half.
+    @Test func onlyAViewWithASelectionCopiesItself() {
+        for responder: NSResponder? in [NSTableView(frame: .zero), NSView(frame: .zero), nil] {
+            #expect(TextEditingChord.selectionCopier(of: responder) == nil)
+        }
+    }
+
+    /// ⌘C's file half asks Preview first; ⌘X and ⌘V have nothing to take from read-only words.
+    @Test func copyAsksPreviewBeforeTheFile() throws {
+        let commands = try macAppFile("ShortcutCommands.swift")
+        let copy = CodeText(try declarationBody(of: "struct CopyCommand: View", in: commands))
+        #expect(copy.contains("fileAction: { TextEditingChord.copySelection(orElse: { clipboard?.copy?() }) }"))
+        for item in ["struct CutCommand: View", "struct PasteCommand: View"] {
+            #expect(!CodeText(try declarationBody(of: item, in: commands)).contains("copySelection"))
+        }
+    }
+
     // The tautological alias test that stood here (`belongsToTextEditor(x) ==
     // belongsToTextEditor(x)`, literally self-comparison) was removed 2026-08-22 — the alias it
     // once pinned is long gone. What it wanted to guarantee is now guaranteed structurally:

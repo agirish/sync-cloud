@@ -26,7 +26,9 @@ struct EditorPDFRailOutline: View {
                               },
                               noun: .bookmark,
                               trailing: rail.pageLabels,
-                              inert: rail.inert)
+                              inert: rail.inert,
+                              // Esc: the keys back to the pages (TE154).
+                              onEscape: { view.requestFocus() })
             // One list per PDF — see `EditorRailOutlineList`'s `topRow`.
             .id(pdf.path)
     }
@@ -62,7 +64,8 @@ struct EditorPDFRailPages: View {
     var railWidth: CGFloat = EditorLayoutMetrics.railWidth
 
     @State private var visible: Set<Int> = []
-    /// The grid takes keys once a page is clicked: Esc clears the selection, ⌘A selects every page
+    /// The grid takes keys once a page is clicked: Esc clears the selection — or with none, gives
+    /// the keys back to the pages — ⌘A selects every page
     /// (through Edit ▸ Select All — ``EditorPDFPagesSelectAll``), Delete asks to leave the selection
     /// out of a copy. A focus of its own, so these keys never
     /// reach the grid while a field anywhere else is being typed in.
@@ -98,9 +101,9 @@ struct EditorPDFRailPages: View {
                 .focusable()
                 .focusEffectDisabled()
                 .focused($gridFocused)
+                // Esc clears a selection first, and with none hands the keys back to the pages (TE154).
                 .onKeyPress(.escape) {
-                    guard !tools.selection.pages.isEmpty else { return .ignored }
-                    tools.clearSelection()
+                    if tools.selection.pages.isEmpty { view.requestFocus() } else { tools.clearSelection() }
                     return .handled
                 }
                 // ⌘A is Edit ▸ Select All's, which reads this while the grid has focus. Not an

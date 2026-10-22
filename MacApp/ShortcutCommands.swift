@@ -625,6 +625,28 @@ enum SelectAllScope {
     }
 }
 
+/// ⌘X, ⌘C, ⌘V and ⌘A while Edit's file pane is folded (TE153, decision BR).
+///
+/// **The pane's selection is not on screen, so the pane's verbs do not apply.** Outside the text
+/// and the PDF, those four chords used to fall through to the pane: ⌘C in the Files or Outline
+/// list, the Pages grid or the empty page copied the pane's selected row, which is normally the
+/// open file; ⌘V pasted files into its folder; ⌘A selected everything there. All of it happened in
+/// a pane nobody could see. Folded, they beep instead — the app's answer to a key that does not
+/// apply, as `TextEditingChord` gives a page the verbs it has no meaning for.
+///
+/// What still answers is decided before this is reached: the caret's own text, the reader's,
+/// the Pages grid's ⌘A (`SelectAllScope`) and the words selected in Preview
+/// (`TextEditingChord.selectionCopier`). Published as closures that beep rather than as `nil`, so
+/// the items stay live (`theEditItemsAreNeverDisabled`) and the refusal is heard.
+enum EditorFoldedPaneKeys {
+    static func refuses(workspace: Workspace, paneFolded: Bool) -> Bool {
+        workspace == .editor && paneFolded
+    }
+
+    static let refusal: () -> Void = { NSSound.beep() }
+    static let clipboard = ClipboardActions(cut: refusal, copy: refusal, paste: refusal)
+}
+
 /// Which of the four verbs a selection offers, as a pure rule.
 ///
 /// Extracted for `DifferencesShortcutRules`' reason: the resolver reads `ContentView` state and a
@@ -1689,6 +1711,9 @@ extension ContentView {
     }
 
     var shortcutSelectAll: (() -> Void)? {
+        if EditorFoldedPaneKeys.refuses(workspace: selectedWorkspace, paneFolded: editorPaneIsFolded) {
+            return EditorFoldedPaneKeys.refusal
+        }
         guard SelectAllScope.appliesToPane(surface: syncManager.lastSelectionSurface) else { return nil }
         let isLeft = shortcutTargetIsLeft
         let pane = paneContext(isLeft: isLeft)
@@ -1730,6 +1755,9 @@ extension ContentView {
     /// publish time instead, which is safe for the one reason worth stating: a pane's directory
     /// only changes by navigating, and the menu being open is what stops that happening.
     var shortcutClipboard: ClipboardActions {
+        if EditorFoldedPaneKeys.refuses(workspace: selectedWorkspace, paneFolded: editorPaneIsFolded) {
+            return EditorFoldedPaneKeys.clipboard
+        }
         let isLeft = shortcutTargetIsLeft
         let hasSelection = !activeSelectionNodes.isEmpty
         let pane = paneContext(isLeft: isLeft)
@@ -2561,7 +2589,8 @@ struct CopyCommand: View {
             // A PDF's selected text, not the PDF: the reader's copy is the one ⌘C means there.
             TextEditingChord.route(editorAction: { $0.copy(nil) },
                                    readerAction: { $0.copy(nil) },
-                                   fileAction: { clipboard?.copy?() })
+                                   // Preview's selected words, then the file.
+                                   fileAction: { TextEditingChord.copySelection(orElse: { clipboard?.copy?() }) })
         }
         .keyboardShortcut(AppChord.copy.key, modifiers: AppChord.copy.modifiers)
     }

@@ -141,6 +141,7 @@ extension ContentView {
         case strip = "the strip"
         case menu = "View ▸ File List"
         case emptyPage = "the empty page"
+        case statusLine = "the status line's heading menu"
     }
 
     /// **The strip's pane button** (asked 2026-10-17): the pane is one of the strip's columns, lit
@@ -590,6 +591,11 @@ extension ContentView {
             // the pane folded, since an open pane IS the list.
             onShowTextFiles: (panesHiddenForCurrentTab && !showsRail)
                 ? { showEditorRail(tab: .files, from: .emptyPage) } : nil,
+            // The status line's heading menu (TE180): the list on its Outline, from any layout.
+            onShowRailOutline: { showEditorRail(tab: .outline, from: .statusLine) },
+            // The folder menu's Show All (TE183): the pane, already on the list's folder, as the
+            // strip's pane button opens it.
+            onOpenFilePane: { if editorPaneIsFolded { runEditorPaneRung() } },
             // The empty page's recent files (TE58). A row opens through the hand-off, as Open in
             // Edit does from any other list, so the pane follows the file there.
             recentFiles: EditorRecentFiles.shared,
@@ -1965,6 +1971,8 @@ extension ContentView {
             // The rail lists the note's folder — and an image, or the folder it went in, is a new
             // entry there.
             if !files.isEmpty || madeFolder != nil { Task { await refreshEditorRail() } }
+            // A few seconds in the status line: what was saved, and where (TE182).
+            editorDiskWatch.noteImagesImported(report)
         }
     }
 

@@ -139,6 +139,12 @@ struct EditorRailRowMenu: View {
         return items
     }
 
+    /// **The header name's tooltip** (TE157): the whole name, which the header cuts off in the
+    /// middle when it runs long, and the menu behind it, its acts named in the menu's own order.
+    static func nameTooltip(_ name: String) -> String {
+        "“\(name)” — right-click to reveal, get info or rename"
+    }
+
     var body: some View {
         ForEach(Self.items(for: path, isCloudOnly: isCloudOnly, actions: actions)) { item in
             if item.startsGroup { Divider() }

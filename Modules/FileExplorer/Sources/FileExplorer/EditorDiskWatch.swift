@@ -819,6 +819,13 @@ public final class EditorDiskWatch: ObservableObject {
                                         .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
 
+    /// **What an image import saved, in the status line's notice** (TE182) — through this watch,
+    /// because this is where the line's few seconds of words live: a newer notice replaces an
+    /// older one, the disk's or the import's, rather than two competing for the slot.
+    public func noteImagesImported(_ report: EditorImageImport.Report) {
+        if let text = EditorImageImport.notice(for: report) { showNotice(text) }
+    }
+
     private func showNotice(_ text: String) {
         announce(text)
         noticeToken &+= 1

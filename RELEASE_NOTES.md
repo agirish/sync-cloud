@@ -185,7 +185,7 @@ Requires **macOS 26**, unchanged from the 5.x line.
 - **The folder line is a menu.** The folder's name, on the line under the Files list's tabs, opens a
   menu: the folders inside it on top, then each folder above it up to the top of the source, in
   Finder's path-menu order. A pick takes the file pane there, and the list follows. It lists up to
-  40 subfolders and says how many more there are.
+  40 subfolders, then **Show All in the File Pane**, which opens the pane on that folder.
 - **Search inside files.** The Files list's filter gains **Names** | **Contents** under its field.
   On Contents, type a word of two letters or more: the text files in the folder and the folders
   inside it list their matching lines, each with the word lit, and below them Spotlight lists the

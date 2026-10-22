@@ -82,13 +82,15 @@ import Design
     }
 
     /// The tooltip names the next act, as Expand's word does: Hide on the lit button, Show on the rest.
+    /// The lit button hides the whole list, on every tab, in the fold chevron's words (TE156).
     @Test func theTitleNamesTheNextAct() {
-        #expect(EditorRailFold.rungTitle(.files, railDrawn: true, currentTab: .files) == "Hide the files")
+        #expect(EditorRailFold.rungTitle(.files, railDrawn: true, currentTab: .files) == "Hide the file list")
         #expect(EditorRailFold.rungTitle(.outline, railDrawn: true, currentTab: .files) == "Show the outline")
         #expect(EditorRailFold.rungTitle(.files, railDrawn: false, currentTab: .files) == "Show the files")
         #expect(EditorRailFold.rungTitle(.pages, railDrawn: true, currentTab: .files) == "Show the pages")
-        #expect(EditorRailFold.rungTitle(.pages, railDrawn: true, currentTab: .pages) == "Hide the pages")
-        #expect(EditorRailFold.rungTitle(.outline, railDrawn: true, currentTab: .outline) == "Hide the outline")
+        #expect(EditorRailFold.rungTitle(.pages, railDrawn: true, currentTab: .pages) == "Hide the file list")
+        #expect(EditorRailFold.rungTitle(.outline, railDrawn: true, currentTab: .outline) == "Hide the file list")
+        #expect(EditorRailTab.hideListTitle == "Hide the file list", "the fold chevron says other words")
     }
 
     // MARK: The hand fold beside Expand

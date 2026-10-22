@@ -56,6 +56,9 @@ public enum EditorLayoutMetrics {
     /// the text is worth more than either at its comfortable width.
     public static let minSplitColumnWidth: CGFloat = 220
 
+    /// Where Split's divider starts, and where a double-click on it puts it back (TE181): the middle.
+    public static let splitStart: CGFloat = 0.5
+
     /// `raw` clamped so neither half of a `.split` falls under ``minSplitColumnWidth``.
     ///
     /// **One function, because this arithmetic has already shipped a bug in each direction.**
@@ -133,6 +136,13 @@ public struct EditorWorkspaceView: View {
     /// The empty page's Show Text Files button — the host passes it only while the list is folded
     /// or put away with the pane folded too, when nothing else on the page leads to a file.
     let onShowTextFiles: (() -> Void)?
+    /// **The status line's Show Outline in File List** (TE180): the list on its Outline tab, from
+    /// wherever it was — folded, behind the open file pane, or under Expand — as the strip's
+    /// Outline button brings it. `nil`, in the previews and probes, only switches the tab.
+    let onShowRailOutline: (() -> Void)?
+    /// Opens the file pane on the list's folder — the folder menu's Show All (TE183), as the strip's
+    /// pane button opens it. `nil` in the previews and probes.
+    let onOpenFilePane: (() -> Void)?
     /// **The files Edit opened last, for the empty page** (TE58) — `nil` draws the page as it was,
     /// one sentence. The app passes `EditorRecentFiles.shared`.
     let recentFiles: EditorRecentFiles?
@@ -431,6 +441,8 @@ public struct EditorWorkspaceView: View {
                 onGoToFolder: ((String) -> Void)?,
                 onFoldRail: (() -> Void)? = nil,
                 onShowTextFiles: (() -> Void)? = nil,
+                onShowRailOutline: (() -> Void)? = nil,
+                onOpenFilePane: (() -> Void)? = nil,
                 recentFiles: EditorRecentFiles? = nil,
                 onOpenRecent: ((String) -> Void)? = nil,
                 railWidth: CGFloat = EditorLayoutMetrics.railWidth) {
@@ -453,6 +465,8 @@ public struct EditorWorkspaceView: View {
         self.onToggleJustTheText = onToggleJustTheText
         self.onFoldRail = onFoldRail
         self.onShowTextFiles = onShowTextFiles
+        self.onShowRailOutline = onShowRailOutline
+        self.onOpenFilePane = onOpenFilePane
         self.recentFiles = recentFiles
         self.onOpenRecent = onOpenRecent
         self.railWidth = railWidth
@@ -620,12 +634,14 @@ public struct EditorWorkspaceView: View {
                                outlineAnchors: $railOutlineAnchors,
                                pdf: pdf,
                                onSelectHeading: goToHeading,
+                               onReturnKeys: railReturnKeys,
                                onOpen: onOpen,
                                onCreate: onCreate,
                                onNewTextFile: onNewTextFile,
                                newFileFolderName: newFileFolderName,
                                folderTrail: folderTrail,
                                onGoToFolder: onGoToFolder,
+                               onOpenFilePane: onOpenFilePane,
                                rowActions: railRowActions,
                                onFold: onFoldRail,
                                contentSearch: contentSearch.map {
@@ -783,14 +799,14 @@ public struct EditorWorkspaceView: View {
     }
 
     /// The status line's heading item (TE57): the rail's own outline and scroll request, reachable
-    /// with the rail away — and a way to the rail's Outline tab while the rail is drawn and on its
-    /// Files tab.
+    /// with the rail away — and a way to the rail's Outline tab from wherever it is not showing
+    /// (TE180).
     private var statusHeadings: EditorStatusHeadings? {
         EditorStatusHeadings.make(outline: outline, caretLine: caret.line, isMarkdown: document.isMarkdown,
                                   offersRailOutline: EditorStatusHeadings.offersRailOutline(showsRail: showsRail,
                                                                                             railTab: railTab),
                                   accent: accent,
-                                  onSelect: goToHeading, onShowRailOutline: { railTab = .outline })
+                                  onSelect: goToHeading, onShowRailOutline: onShowRailOutline ?? { railTab = .outline })
     }
 
     /// The two rows above the document: which file, and where it stands.
@@ -906,6 +922,8 @@ public struct EditorWorkspaceView: View {
                 .scaledFont(.system(size: 13, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
+                // The whole name, and what right-click offers (TE157) — only where there is a menu.
+                .help(document.path == nil ? "" : EditorRailRowMenu.nameTooltip(document.name))
                 // The way back. The hand-off into this workspace comes from a file row, so the
                 // filename is where a user looks to ask "where is this?" — and it offers what the
                 // file's row in the list offers (TE112), with Reveal in Browse through the
@@ -2081,6 +2099,26 @@ public struct EditorWorkspaceView: View {
         }
     }
 
+    /// **Esc in the rail's lists: the keys back to the document** (TE154) — `nil` with nothing
+    /// open, where Esc is left to whoever is next.
+    private var railReturnKeys: (() -> Void)? {
+        guard pdf != nil || document.path != nil else { return nil }
+        return { returnKeysToDocument() }
+    }
+
+    /// A PDF's pages take the keys through their own request. Text goes to the text view the caret
+    /// was last in; where there is none — read-only Preview — the window is left holding them, and
+    /// ``EditorUndoAnchor`` takes them from there, as it does after a mode switch.
+    private func returnKeysToDocument() {
+        if let pdf {
+            pdf.view.requestFocus()
+        } else if let text = textViewHandle.target, let window = text.window {
+            window.makeFirstResponder(text)
+        } else {
+            NSApp.keyWindow?.makeFirstResponder(nil)
+        }
+    }
+
     /// **Opens a Contents result (RD38)** — through the rail's own door, so the unsaved-document
     /// question and the pane's selection are the ones a click on a row gets.
     ///
@@ -2261,6 +2299,12 @@ public struct EditorWorkspaceView: View {
                         if let splitDrag { splitFraction = splitDrag }
                         splitDrag = nil
                     }
+                    // **A double-click puts it back in the middle** (TE181), where Split starts —
+                    // as a double-click on a column seam fits it, beside the drag, not instead.
+                    .simultaneously(with: TapGesture(count: 2).onEnded {
+                        splitDrag = nil
+                        splitFraction = EditorLayoutMetrics.splitStart
+                    })
             )
             .accessibilityHidden(true)
     }

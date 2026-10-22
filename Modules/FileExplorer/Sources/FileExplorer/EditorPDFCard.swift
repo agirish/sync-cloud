@@ -480,6 +480,8 @@ struct EditorPDFHeader<Trailing: View>: View {
                 .scaledFont(.system(size: 13, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
+                // The whole name, and what right-click offers (TE157).
+                .help(pdf.path == nil ? "" : EditorRailRowMenu.nameTooltip(pdf.name))
                 // The file's row menu from the Files list (TE112), Reveal in Browse through the
                 // header's own door.
                 .contextMenu {

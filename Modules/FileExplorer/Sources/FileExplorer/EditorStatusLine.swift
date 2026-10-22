@@ -370,10 +370,13 @@ struct EditorStatusHeadings: Equatable {
             && a.accent == b.accent
     }
 
-    /// **Only while the rail is drawn, and not when it is already showing its Outline** — a menu
-    /// item that switches the rail to the tab it is on would do nothing.
+    /// **Everywhere but where the list already shows its Outline** (TE180) — a menu item that
+    /// switches the list to the tab it is on would do nothing. It used to be offered only while
+    /// the list was drawn, so it went away in the three layouts where the list is not — folded
+    /// (the default), the file pane open, and Expand — which are the ones it is the way back from.
+    /// There it opens the list on its Outline, as the strip's Outline button does.
     static func offersRailOutline(showsRail: Bool, railTab: EditorRailTab) -> Bool {
-        showsRail && railTab != .outline
+        !(showsRail && railTab == .outline)
     }
 
     /// The item for this document, or `nil` when there is nothing to name — a plain-text file, or a

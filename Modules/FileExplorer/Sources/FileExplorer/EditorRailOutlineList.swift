@@ -27,6 +27,8 @@ struct EditorRailOutlineList: View {
     var trailing: [Int: String] = [:]
     /// Rows that go nowhere — a bookmark with no page in this file. Drawn, and not clickable.
     var inert: Set<Int> = []
+    /// Esc: the keys back to the text or the PDF (TE154). `nil` leaves Esc to whoever is next.
+    var onEscape: (() -> Void)? = nil
 
     enum Noun {
         case heading, bookmark
@@ -97,6 +99,11 @@ struct EditorRailOutlineList: View {
                 onSelect(entry)
                 return .handled
             }
+            .onKeyPress(.escape) {
+                guard let onEscape else { return .ignored }
+                onEscape()
+                return .handled
+            }
             // **Both directions of one binding.** It accepts the row to open at, below, and it
             // reports the top row as the reader scrolls, which is what the recording reads.
             .scrollPosition(id: $topRow)
@@ -114,6 +121,15 @@ struct EditorRailOutlineList: View {
                                                                   outline: rows,
                                                                   rowsThatFit: fits) {
                     topRow = target
+                }
+            }
+            // **The current row is kept in view as the reader moves** (TE179) — only once it has
+            // left the list's view, so a list on screen is never pulled about under the pointer.
+            .onChange(of: currentIndex) { _, _ in
+                let fits = EditorOutlineScroll.rowsThatFit(height: height, scale: fontScale)
+                if let target = EditorOutlineScroll.followTarget(current: currentRow, top: topRow,
+                                                                 outline: rows, rowsThatFit: fits) {
+                    proxy.scrollTo(target, anchor: .center)
                 }
             }
             // **Recording is the binding reporting, not a second observation.** Every way the top

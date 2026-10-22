@@ -68,12 +68,13 @@ import Design
     }
 
     /// **The host's rule for the rail's Outline item**, as `EditorWorkspaceView.statusHeadings`
-    /// asks it: only with the rail drawn, and not when it is already on its Outline.
+    /// asks it: everywhere but on a list already showing its Outline (TE180) — with the list put
+    /// away, whatever tab it would come back on, the item is the way back to it.
     @Test func theRailsOutlineIsOfferedOnlyWhereItWouldChangeSomething() {
         #expect(EditorStatusHeadings.offersRailOutline(showsRail: true, railTab: .files))
         #expect(!EditorStatusHeadings.offersRailOutline(showsRail: true, railTab: .outline))
-        #expect(!EditorStatusHeadings.offersRailOutline(showsRail: false, railTab: .files))
-        #expect(!EditorStatusHeadings.offersRailOutline(showsRail: false, railTab: .outline))
+        #expect(EditorStatusHeadings.offersRailOutline(showsRail: false, railTab: .files))
+        #expect(EditorStatusHeadings.offersRailOutline(showsRail: false, railTab: .outline))
     }
 
     /// **Equal when it draws the same, whatever the closures** — so a keystroke that changes

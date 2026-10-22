@@ -20,6 +20,12 @@ import Design
 /// session, not a preference. Held on `ContentView` for the reason the rail's filter is — the
 /// editor's view is rebuilt from nothing by every workspace switch.
 public enum EditorRailTab: String, CaseIterable, Sendable {
+
+    /// **What hides the list, on its fold chevron and on the strip's lit button** (TE156). Both put
+    /// the whole list away, whichever tab is showing; the strip's button used to say "Hide the
+    /// pages", which read as if Files and Outline would stay.
+    public static let hideListTitle = "Hide the file list"
+
     case files
     /// The open PDF's pages, as thumbnails — offered only while a PDF is open
     /// (``shown(pdfIsOpen:pdfHasOutline:markdownIsOpen:)``).

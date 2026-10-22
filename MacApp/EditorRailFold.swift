@@ -39,9 +39,12 @@ enum EditorRailFold {
     }
 
     /// The button's tooltip and VoiceOver label — its next act, as the Expand button's word is.
+    /// **The lit button hides the whole list, so it says so** (TE156): "Hide the pages" read as if
+    /// the Files and Outline tabs would stay. The list's own fold chevron says the same words
+    /// (``EditorRailTab/hideListTitle``).
     static func rungTitle(_ tab: EditorRailTab, railDrawn: Bool, currentTab: EditorRailTab) -> String {
         switch rungAct(for: tab, railDrawn: railDrawn, currentTab: currentTab) {
-        case .fold: return "Hide the \(noun(tab))"
+        case .fold: return EditorRailTab.hideListTitle
         case .show, .switchTo: return "Show the \(noun(tab))"
         }
     }

@@ -38,6 +38,18 @@ public enum EditorImageImport {
     /// The folder's name. One word, capitalised as Finder's own folders are.
     static let folderName = "Images"
 
+    /// **What the status line says after an import** (TE182), or `nil` when nothing new was saved.
+    /// Only the inserted link said where an image went, and nothing said a folder had been made.
+    ///
+    /// Counts the files WRITTEN — an image already in the folder is only linked, and is not news —
+    /// and names the folder by its own name, which is the one Finder shows.
+    public static func notice(for report: Report) -> String? {
+        guard case .wrote(let files, let madeFolder, _, _) = report, let first = files.first else { return nil }
+        let folder = ((madeFolder ?? (first as NSString).deletingLastPathComponent) as NSString).lastPathComponent
+        let what = files.count == 1 ? "“\((first as NSString).lastPathComponent)”" : "\(files.count) images"
+        return madeFolder == nil ? "Saved \(what) in \(folder)" : "Made an \(folder) folder for \(what)"
+    }
+
     /// Whether `path` names an image file — by its type, the way Finder decides, so `.HEIC` and
     /// `.jpeg` count and a `.pdf` does not.
     static func isImageFile(_ path: String) -> Bool {

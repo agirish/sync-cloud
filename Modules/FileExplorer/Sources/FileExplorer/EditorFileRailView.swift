@@ -92,6 +92,10 @@ struct EditorFileRailView: View {
     var pdf: EditorPDFDocument? = nil
     /// Sends the reader to a heading's line.
     var onSelectHeading: (MarkdownOutlineEntry) -> Void = { _ in }
+    /// **Esc in the Files or Outline list: the keys back to the open document** (TE154) — its text,
+    /// or the PDF. A click or Go to Line did it; Esc, the key that leaves a list everywhere else,
+    /// did nothing. `nil` with nothing open, where there is no document to go back to.
+    var onReturnKeys: (() -> Void)? = nil
     let onOpen: (EditorRailEntry) -> Void
     /// Commits a name. Returns `false` when the file was not created after all — the caller can
     /// refuse (an unsaved document the user declined to settle), and the row reopens with the typed
@@ -111,6 +115,9 @@ struct EditorFileRailView: View {
     /// Sends the LEFT pane to a pane target the menu offers; the rail follows, since it lists the
     /// pane's folder. `nil` draws the plain line. No default, for the reason ``rowActions`` has none.
     let onGoToFolder: ((String) -> Void)?
+    /// Opens the file pane — the folder menu's Show All, past its first subfolders (TE183). `nil`
+    /// lists only those.
+    var onOpenFilePane: (() -> Void)? = nil
     /// What each file row's context menu does — see ``EditorRailRowMenu``. Every act takes the
     /// ROW's path, which is not necessarily the open document's.
     ///
@@ -135,8 +142,8 @@ struct EditorFileRailView: View {
     static let rowShape = HoverAffordanceShape.roundedRect(7)
     static var rowOutline: HoverAffordanceOutline { HoverAffordanceOutline(kind: rowShape) }
 
-    /// The fold button's tooltip and VoiceOver label.
-    static let foldTitle = "Fold the list into the strip"
+    /// The fold button's tooltip and VoiceOver label — see ``EditorRailTab/hideListTitle``.
+    static let foldTitle = EditorRailTab.hideListTitle
 
     /// The rail's width: the side-column width the host's drag sets, at least
     /// ``EditorLayoutMetrics/railWidth``, which is the default for every site that does not drag.
@@ -237,7 +244,7 @@ struct EditorFileRailView: View {
                 // The folder's name is also the way out of it: a menu up the tree and down into
                 // the folders inside, which moves the pane — see ``EditorFolderTrail``.
                 EditorRailFolderMenu(name: contextName, trail: folderTrail, accent: accent,
-                                     onGoTo: onGoToFolder)
+                                     onGoTo: onGoToFolder, onShowAll: onOpenFilePane)
             } else {
                 // The tooltip is on the name, not the row: on Files the row's buttons say their own
                 // (TE132), and a row-wide tooltip showed the ＋'s sentence over the folder's name.
@@ -478,6 +485,18 @@ struct EditorFileRailView: View {
                     onOpen(entry)
                     return .handled
                 }
+                // Space: Quick Look on the cursor's row, as in Browse; again on that row, closed (TE155).
+                .onKeyPress(keys: [.space], phases: .down) { press in
+                    guard press.isPlainKeystroke, let path = keyedPath ?? selectedPath,
+                          order.contains(where: { $0.path == path }) else { return .ignored }
+                    rowActions.quickLook(path)
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    guard let onReturnKeys else { return .ignored }
+                    onReturnKeys()
+                    return .handled
+                }
             }
         }
     }
@@ -517,7 +536,7 @@ struct EditorFileRailView: View {
             EditorRailOutlineList(rows: outline, currentIndex: currentOutlineIndex, path: selectedPath,
                                   emptyCaption: Self.outlineEmptyCaption,
                                   outlineAnchors: $outlineAnchors, accent: accent,
-                                  onSelect: onSelectHeading)
+                                  onSelect: onSelectHeading, onEscape: onReturnKeys)
                 // One list per document — see `EditorRailOutlineList`'s `topRow`.
                 .id(selectedPath)
         }

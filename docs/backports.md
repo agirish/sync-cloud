@@ -8227,3 +8227,39 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s five=%s\n' $l \
 |---|---|---|
 | `v5.x` / `v4.x` | "the five it starts with" over a four-place standard set | RECORDED — not owed |
 | `v3.x` / `v2.x` | No Restore Standard Places sentence | CLOSED — does not apply |
+
+---
+
+## Edit's lists and keys: ten small fixes (TE153–157, TE179–183) — main only
+
+With Edit's file pane folded, ⌘X, ⌘C, ⌘V and ⌘A beep outside the text and the PDF instead of acting
+on the hidden pane (`EditorFoldedPaneKeys`); ⌘A in the Pages grid still selects every page, and ⌘C
+in Preview copies its selected words (`TextEditingChord.selectionCopier`). Esc in the Files,
+Outline and Pages lists gives the keys back to the document, and Space Quick Looks the Files list's
+row. The list's fold words say "Hide the file list"; the header name has a tooltip; the outline
+follows the reader; the status line's Show Outline in File List works from any layout; a
+double-click puts Split's divider back in the middle; an image import says what it saved; the
+folder menu's overflow is a Show All button.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s folded=%s outlineInRail=%s statusRule=%s split=%s imageImport=%s railKeys=%s folderMenu=%s\n' $l \
+    "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'var editorPaneIsFolded')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorFileRailView.swift 2>/dev/null | grep -c 'scrollPosition(id:')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorStatusLine.swift 2>/dev/null | grep -c 'showsRail && railTab != .outline')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift 2>/dev/null | grep -c 'private func splitHandle')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorImageImport.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorRailKeyboard.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorRailFolderMenu.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-22, against origin, before this landed:
+# main  folded=1 outlineInRail=0 statusRule=1 split=1 imageImport=1 railKeys=1 folderMenu=1
+# v5.x  folded=1 outlineInRail=2 statusRule=1 split=1 imageImport=1 railKeys=0 folderMenu=0
+# v4.x, v3.x, v2.x — all 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | TE153 (the folded pane's clipboard keys, Preview's ⌘C), TE157, TE179 (its outline is inside the rail view), TE180, TE181, TE182 | RECORDED — not owed |
+| `v5.x` | No list keys, strip or folder menu, so not TE154, TE155, TE156 or TE183 | CLOSED — does not apply |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace | CLOSED — does not apply |

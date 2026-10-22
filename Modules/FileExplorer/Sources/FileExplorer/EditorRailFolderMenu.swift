@@ -46,6 +46,9 @@ public struct EditorFolderTrail: Equatable, Sendable {
         levels.contains { $0.target != nil } || (currentTarget != nil && !subfolders.isEmpty)
     }
 
+    /// The item past the cap that opens the file pane on the folder (TE183).
+    static func showAllTitle(count: Int) -> String { "Show All \(count) in the File Pane" }
+
     /// The menu's tooltip and VoiceOver hint.
     static let help = "Go to an enclosing folder or a folder inside this one"
 }
@@ -61,6 +64,9 @@ struct EditorRailFolderMenu: View {
     let trail: EditorFolderTrail?
     let accent: Color
     let onGoTo: ((String) -> Void)?
+    /// Opens the file pane, which is on this folder already — the menu's way to the subfolders past
+    /// ``EditorFolderTrail/subfolderCap`` (TE183). `nil`, in the previews, lists the first ones only.
+    var onShowAll: (() -> Void)? = nil
 
     var body: some View {
         if let trail, let onGoTo, trail.offersAnything {
@@ -113,9 +119,11 @@ struct EditorRailFolderMenu: View {
                         Button { onGoTo(target) } label: { Label(folder, systemImage: "folder") }
                     }
                 }
-                let more = trail.subfolders.count - EditorFolderTrail.subfolderCap
-                if more > 0 {
-                    Text("\(more) more — open the file pane to see them all")
+                // **A door, not a greyed line** (TE183): it said "12 more — open the file pane to
+                // see them all" and left the opening to you. Counts the whole folder, as Finder's
+                // Show All does, rather than the leftover.
+                if trail.subfolders.count > EditorFolderTrail.subfolderCap, let onShowAll {
+                    Button(EditorFolderTrail.showAllTitle(count: trail.subfolders.count), action: onShowAll)
                 }
             }
         }

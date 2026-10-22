@@ -370,6 +370,40 @@ import AppKit
     }
 }
 
+/// ⌘X, ⌘C, ⌘V and ⌘A while Edit's file pane is folded (TE153, decision BR).
+@Suite struct EditorFoldedPaneKeysTests {
+
+    /// **Folded in Edit, and only there.** An open pane shows the selection the keys act on, and
+    /// every other workspace's pane is on screen whenever it has the keys.
+    @Test func onlyEditsFoldedPaneRefuses() {
+        #expect(EditorFoldedPaneKeys.refuses(workspace: .editor, paneFolded: true))
+        #expect(!EditorFoldedPaneKeys.refuses(workspace: .editor, paneFolded: false))
+        for workspace in Workspace.allCases where workspace != .editor {
+            #expect(!EditorFoldedPaneKeys.refuses(workspace: workspace, paneFolded: true), "\(workspace)")
+        }
+    }
+
+    /// **All three clipboard verbs answer, so each one is heard to refuse.** A `nil` half would
+    /// make the key silent — the item stays live (`theEditItemsAreNeverDisabled`) and does nothing.
+    @Test func everyClipboardVerbAnswers() {
+        let refused = EditorFoldedPaneKeys.clipboard
+        #expect(refused.cut != nil && refused.copy != nil && refused.paste != nil)
+    }
+
+    /// The rule is asked before the pane is read, by both values the four items publish from.
+    @Test func bothPublishedValuesAskTheRuleFirst() throws {
+        let commands = try macAppFile("ShortcutCommands.swift")
+        let ask = "if EditorFoldedPaneKeys.refuses(workspace: selectedWorkspace, paneFolded: editorPaneIsFolded) {"
+        for (declaration, answer) in [("var shortcutSelectAll: (() -> Void)? {", "return EditorFoldedPaneKeys.refusal"),
+                                      ("var shortcutClipboard: ClipboardActions {", "return EditorFoldedPaneKeys.clipboard")] {
+            let body = CodeText(try declarationBody(of: declaration, in: commands))
+            let rule = try #require(body.range(of: ask + " " + answer), "\(declaration) never asks the rule")
+            let pane = try #require(body.range(of: "shortcutTargetIsLeft"))
+            #expect(rule.lowerBound < pane.lowerBound, "\(declaration) reads the pane before asking")
+        }
+    }
+}
+
 /// What the pane row menu's verbs offer, now that they are also menu items.
 @Suite struct PaneRowVerbAvailabilityTests {
 

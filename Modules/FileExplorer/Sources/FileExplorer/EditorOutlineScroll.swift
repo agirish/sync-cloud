@@ -67,6 +67,26 @@ public enum EditorOutlineScroll {
         return wouldShow.contains(currentIndex) ? anchor : current
     }
 
+    /// **The row to bring into view as the reader moves, or `nil` to leave the list alone** (TE179).
+    ///
+    /// Find, Go to Line, the arrows or a page turn can move the current row past the fold; the
+    /// mark then sat where no one could see it. The list follows only when that happens — a row
+    /// already on screen stays put, so a click in the list, or reading on within what it shows,
+    /// never moves it. As the Pages tab follows its page.
+    ///
+    /// - Parameters:
+    ///   - current: the row the reader is in, or `nil` above the first heading, which moves nothing.
+    ///   - top: the row the list reports at its top, or `nil` before it has reported — the top.
+    static func followTarget(current: Int?, top: Int?,
+                             outline: [MarkdownOutlineEntry], rowsThatFit: Int) -> Int? {
+        guard let current, let currentIndex = outline.firstIndex(where: { $0.id == current }) else {
+            return nil
+        }
+        let topIndex = top.flatMap { t in outline.firstIndex(where: { $0.id == t }) } ?? 0
+        let shown = topIndex..<(topIndex + max(rowsThatFit, 1))
+        return shown.contains(currentIndex) ? nil : current
+    }
+
     /// One outline row's height at the app's text size.
     ///
     /// The same arithmetic the section's old eight-row cap was built from — 11pt type on the type

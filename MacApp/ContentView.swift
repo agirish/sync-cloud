@@ -238,7 +238,7 @@ struct ContentView: View {
     @State var editorMode: EditorMode = .edit
     /// How the editor's split divides its column. Beside `editorMode` because the two describe the
     /// same reading session, and the workspace view that draws them is rebuilt on every tab switch.
-    @State var editorSplitFraction: CGFloat = 0.5
+    @State var editorSplitFraction: CGFloat = EditorLayoutMetrics.splitStart
 
     // MARK: The ⌘K palette (ROADMAP 14)
 

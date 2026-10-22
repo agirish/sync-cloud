@@ -78,6 +78,32 @@ enum TextEditingChord {
         return nil
     }
 
+    /// The view holding the keyboard, when it has a selection of its own to copy — **Edit's
+    /// Preview**, whose words are SwiftUI's selectable text. That is neither an `NSTextView` nor a
+    /// reader, so ⌘C there used to fall through to the file half and copy the open file with the
+    /// words still highlighted (TE153).
+    ///
+    /// Asked of the responder itself, through its own `validateMenuItem(_:)`: it answers yes only
+    /// while something is selected. A view that can copy but cannot say whether it would is left to
+    /// the file half, as before.
+    static func selectionCopier(of responder: NSResponder?) -> NSView? {
+        guard let view = responder as? NSView, view.responds(to: copyAction) else { return nil }
+        let item = NSMenuItem(title: "Copy", action: copyAction, keyEquivalent: "c")
+        return (view as AnyObject).validateMenuItem?(item) == true ? view : nil
+    }
+
+    private static let copyAction = #selector(NSText.copy(_:))
+
+    /// ⌘C's file half: the words selected in Preview if there are any, else `fileAction`.
+    @MainActor
+    static func copySelection(orElse fileAction: () -> Void) {
+        if let view = selectionCopier(of: NSApp.keyWindow?.firstResponder) {
+            NSApp.sendAction(copyAction, to: view, from: nil)
+        } else {
+            fileAction()
+        }
+    }
+
     /// The live form: reads the key window's first responder for you.
     @MainActor
     static func route(editorAction: (NSTextView) -> Void,
