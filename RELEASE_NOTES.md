@@ -17,7 +17,7 @@ delete pages, compress the file, clean its metadata and add or remove a password
 fills in a form and signs it from a palette over the page. Each change is written to a new PDF
 beside the original; the file you opened is never modified. Word, Excel, PowerPoint, RTF, Markdown
 and text files can be saved as PDFs too. Around the PDFs, Edit's side column gets one control, its
-folder line becomes a menu, Unified becomes one box, and the sidebar's Recents can show the folders
+filter searches inside files, its folder line becomes a menu, Unified becomes one box, and the sidebar's Recents can show the folders
 you come back to.
 
 Requires **macOS 26**, unchanged from the 5.x line.
@@ -177,6 +177,15 @@ Requires **macOS 26**, unchanged from the 5.x line.
   the folders inside it on top, then each folder above it up to the top of the source, in Finder's
   path-menu order. A pick takes the file pane there, and the list follows. It lists up to 40
   subfolders and says how many more there are.
+- **Search inside files.** The Files list's filter gains **Names** | **Contents** under its field.
+  On Contents, type a word of two letters or more: the text files in the folder and the folders
+  inside it list their matching lines, each with the word lit, and below them Spotlight lists the
+  PDFs, Word and PowerPoint files that contain it — whole words and the starts of words. Click a
+  line and the file opens with the word selected there and Find holding it, so `⌘G` goes on to the
+  next; a PDF opens with its find searching for the word, and a Word or PowerPoint file opens in
+  Quick Look. A file not downloaded is never downloaded to be searched; it and files over 4.2 MB
+  are skipped, and the line above the results counts them. Hidden files and folders, packages and
+  binary files are passed over too.
 - **Edit's sidebar has a switch of its own**, off to begin with: `⌃⌘S` in Edit no longer shows or
   hides the sidebar in Browse, Compare and Organize.
 - **Find Previous.** **Text ▸ Find Previous** (`⇧⌘G`) steps back through the find bar's matches, in
@@ -184,6 +193,12 @@ Requires **macOS 26**, unchanged from the 5.x line.
 - **Typewriter Scrolling.** **Text ▸ Typewriter Scrolling**, off to begin with, keeps the line you
   are typing at mid-height in Source — arrow keys, Return, Go to Line and the end of the file too. A
   click, the trackpad and a Find match scroll as before.
+- **Page.** A switch beside Autosave under the file name, and **Text ▸ Page**, put Source's text on
+  a page — white in Light Mode, dark grey in Dark Mode — and leave the window around it as it was.
+  With Readable Line Length on, the page is only the centred column and its margins; with
+  Typewriter Scrolling on, it runs on into the room below the last line. Off to begin with,
+  remembered, and greyed in Preview, which keeps its own look. In a column too narrow for it, the
+  switch steps aside and Text ▸ Page is the way to it.
 - **Ticking a box in Preview is quick in a long note.** With Edit in Preview off, or in a note over
   256 KB, a tick rewrote and compared the whole note; it now changes only its own line. The last
   task in a 200 KB note went from 35 ms to 0.2 ms, and in a 4 MiB note from 808 ms to 3.7 ms.
