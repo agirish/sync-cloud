@@ -165,13 +165,13 @@ public final class PanePDFTools: ObservableObject {
     static func offer(_ request: PDFToolRequest, on tools: EditorPDFTools, path: String,
                       probe: EditorPDFToolEngine.Probe) {
         let name = (path as NSString).lastPathComponent
-        guard case .facts(let pageCount, let encryption) = probe else {
+        guard case .facts(let pageCount, let encryption, let droppedParts) = probe else {
             tools.banner = EditorPDFToolBanner(message: "Couldn’t read “\(name)” as a PDF, so no tool can run on it. "
                                                + "It may be damaged — Preview may still open it.",
                                                kind: .failure)
             return
         }
-        tools.attach(path: path, pageCount: pageCount, encryption: encryption)
+        tools.attach(path: path, pageCount: pageCount, encryption: encryption, droppedParts: droppedParts)
         func refuse(_ message: String) { tools.banner = EditorPDFToolBanner(message: message, kind: .note) }
         switch request {
         case .rotateAll:

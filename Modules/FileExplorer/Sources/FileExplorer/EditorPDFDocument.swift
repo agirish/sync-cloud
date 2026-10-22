@@ -204,7 +204,9 @@ public final class EditorPDFDocument: ObservableObject {
                 PDFDocument(url: URL(fileURLWithPath: path))
                     .flatMap { $0.unlock(withPassword: password) ? SendableDocument($0) : nil }
             }
-            let facts = EditorPDFFacts.read(held.document, path: path)
+            var facts = EditorPDFFacts.read(held.document, path: path)
+            // By the password: on macOS 26 a document PDFKit unlocked doesn't unlock its catalog.
+            facts.droppedParts = PDFToolkit.droppedCatalogParts(at: URL(fileURLWithPath: path), password: password)
             // The file on disk is still locked, so `formFields(at:)` listed nothing — but the
             // reader's unlocked copy has its widgets, and a click must not type into them either.
             EditorPDFForm.lockWidgets(in: held.document)
@@ -235,7 +237,7 @@ public final class EditorPDFDocument: ObservableObject {
                     unlocked: unlocked.findSource?.document)
         // The file on disk is still locked: unlocking it here unlocks the reader's copy, not the
         // file every tool opens by URL — so the tools keep offering only Remove Password.
-        tools.update(pageCount: facts.pageCount)
+        tools.update(pageCount: facts.pageCount, droppedParts: facts.droppedParts)
         // Still locked on disk, so Fill & Sign keeps the tools' refusal — but knows the pages.
         fill.attach(path: path, boxes: facts.boxes, encryption: .lockedToOpen, allowsFilling: facts.allowsFilling)
         phase = .open
@@ -302,7 +304,8 @@ public final class EditorPDFDocument: ObservableObject {
                 self.outline = outline
                 thumbnails.attach(path: path, pageCount: facts.pageCount)
                 find.attach(path: path, pageCount: facts.pageCount, hasText: facts.hasText)
-                tools.attach(path: path, pageCount: facts.pageCount, encryption: encryption)
+                tools.attach(path: path, pageCount: facts.pageCount, encryption: encryption,
+                             droppedParts: facts.droppedParts)
                 tools.shownStamp = before
                 fill.attach(path: path, boxes: facts.boxes, encryption: encryption, allowsFilling: facts.allowsFilling,
                             form: facts.form, allowsFormEntry: facts.allowsFormEntry,
@@ -738,6 +741,8 @@ public struct EditorPDFFacts: Equatable, Sendable {
     public var allowsCommenting = true
     /// The file's own interactive form, or ``EditorPDFForm/none`` — see ``EditorPDFForm``.
     public var form = EditorPDFForm.none
+    /// What the file has that a rebuilding tool's copy doesn't keep (``EditorPDFTools/droppedParts``).
+    public var droppedParts: [PDFToolkit.DroppedCatalogPart] = []
 
     /// How many pages are asked for text, at the front and again spread through the rest. A
     /// 300-page scan is not walked end to end to say "Image only" — but the front alone was not
@@ -775,7 +780,8 @@ public struct EditorPDFFacts: Equatable, Sendable {
                               allowsFilling: document.allowsCommenting || document.allowsFormFieldEntry,
                               allowsFormEntry: document.allowsFormFieldEntry,
                               allowsCommenting: document.allowsCommenting,
-                              form: EditorPDFForm.read(document, url: URL(fileURLWithPath: path)))
+                              form: EditorPDFForm.read(document, url: URL(fileURLWithPath: path)),
+                              droppedParts: PDFToolkit.droppedCatalogParts(in: document))
     }
 
     /// "Letter, 8.5 × 11 in" for the page at `index` — or "Letter" alone without its `inches`, the

@@ -48,6 +48,9 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
     let run: () -> Void
     /// A sheet that draws its own progress — Compress's page row — and so not the spinner too.
     var drawsOwnProgress = false
+    /// Whether this tool's copy loses the file's tags, layers and colour output intent, which the
+    /// sheet then names (``EditorPDFTools/droppedPartsNote``).
+    var dropsCatalogParts = false
     @ViewBuilder let content: Content
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
@@ -62,6 +65,12 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
     static func workingCaption(isRunning: Bool, started: Bool = true, drawsOwnProgress: Bool) -> String? {
         guard isRunning, !drawsOwnProgress else { return nil }
         return started ? "Writing the copy…" : "Waiting for other PDF work…"
+    }
+
+    /// What the copy won't keep: the parts the file has, or — for a file still locked to open, whose
+    /// catalog can't be read — any of them.
+    static func droppedNote(_ tools: EditorPDFTools) -> String? {
+        tools.droppedPartsNote ?? (tools.encryption == .lockedToOpen ? EditorPDFTools.droppedPartsUnreadNote : nil)
     }
 
     var body: some View {
@@ -82,6 +91,12 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
                             .help(EditorPDFTools.downloadHelp)
                     }
                 }
+            }
+            if dropsCatalogParts, let note = Self.droppedNote(tools) {
+                Text(note)
+                    .scaledFont(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Text("Writes a new copy next to the original. “\(tools.name)” isn’t changed.")
                 .scaledFont(.system(size: 10))
@@ -146,7 +161,9 @@ struct EditorPDFPageRangeSheet: View {
         let parsed = Self.parse(typed, action: action, pageCount: tools.pageCount, arrangement: tools.arrangement)
         EditorPDFToolSheetFrame(tools: tools, title: action == .extract ? "Extract Pages" : "Delete Pages",
                                 action: action == .extract ? "Save Extracted Copy" : "Save Copy Without Pages",
-                                canRun: parsed.pages != nil, failure: failure, run: { go(parsed.pages) }) {
+                                canRun: parsed.pages != nil, failure: failure, run: { go(parsed.pages) },
+                                dropsCatalogParts: (action == .extract ? EditorPDFTool.extract([]) : .deletePages([]))
+                                    .dropsCatalogParts(fileHasForm: false)) {
             VStack(alignment: .leading, spacing: 6) {
                 TextField(action == .extract ? "Pages, e.g. 3-5, 1" : "Pages, e.g. 1, 4-6", text: $typed)
                     .textFieldStyle(.roundedBorder)
@@ -223,7 +240,8 @@ struct EditorPDFCompressSheet: View {
     var body: some View {
         EditorPDFToolSheetFrame(tools: tools, title: "Compress", action: "Save Compressed Copy",
                                 canRun: !byTarget || EditorPDFCompression.megabytes(typedMegabytes) != nil,
-                                failure: failure, run: go, drawsOwnProgress: true) {
+                                failure: failure, run: go, drawsOwnProgress: true,
+                                dropsCatalogParts: EditorPDFTool.compress(.quality(quality)).dropsCatalogParts(fileHasForm: false)) {
             VStack(alignment: .leading, spacing: 10) {
                 EditorPDFCompressControls(byTarget: $byTarget, quality: $quality,
                                           typedMegabytes: $typedMegabytes)
@@ -356,8 +374,11 @@ struct EditorPDFMetadataSheet: View {
     @State private var failure: String?
 
     var body: some View {
+        // A file with a form is cleaned in place and keeps them; known once the fields are read.
         EditorPDFToolSheetFrame(tools: tools, title: "Clean Metadata", action: "Save Cleaned Copy",
-                                canRun: form != nil, failure: failure, run: go) {
+                                canRun: form != nil, failure: failure, run: go,
+                                dropsCatalogParts: form != nil
+                                    && EditorPDFTool.cleanMetadata(.cleared).dropsCatalogParts(fileHasForm: hasForm)) {
             if let binding = Binding($form) {
                 let current = binding.wrappedValue.current
                 VStack(alignment: .leading, spacing: 8) {
@@ -537,7 +558,8 @@ struct EditorPDFRemovePasswordSheet: View {
     var body: some View {
         let locked = tools.encryption == .lockedToOpen
         EditorPDFToolSheetFrame(tools: tools, title: "Remove Password", action: "Save Unlocked Copy",
-                                canRun: !locked || !password.isEmpty, failure: failure, run: go) {
+                                canRun: !locked || !password.isEmpty, failure: failure, run: go,
+                                dropsCatalogParts: EditorPDFTool.removePassword(EditorPDFSecret("")).dropsCatalogParts(fileHasForm: false)) {
             VStack(alignment: .leading, spacing: 8) {
                 if locked {
                     SecureField("Password", text: $password)

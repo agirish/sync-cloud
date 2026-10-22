@@ -29,6 +29,11 @@ struct EditorPDFBatchSheet: View {
                 progressRows
             } else {
                 options
+                if let note = droppedNote {
+                    Text(note)
+                        .scaledFont(.system(size: 10)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Text("Each copy is written next to its original. The originals aren’t changed.")
                 .scaledFont(.system(size: 10))
@@ -96,6 +101,20 @@ struct EditorPDFBatchSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
         case .rotate:
             EmptyView()
+        }
+    }
+
+    /// What the copies won't keep (decision BW). Not read per file before the run, so said of any.
+    static let compressDroppedNote = "The copies won’t keep any tags for screen readers, layers or colour output intent."
+    /// A PDF with a fillable form is cleaned in place and keeps them.
+    static let cleanMetadataDroppedNote = "Copies of PDFs without a fillable form won’t keep any tags for screen readers, "
+        + "layers or colour output intent."
+
+    private var droppedNote: String? {
+        switch batch.kind {
+        case .compress: return Self.compressDroppedNote
+        case .cleanMetadata: return Self.cleanMetadataDroppedNote
+        case .rotate: return nil
         }
     }
 

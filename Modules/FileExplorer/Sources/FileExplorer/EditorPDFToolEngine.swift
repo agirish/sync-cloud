@@ -221,6 +221,18 @@ public enum EditorPDFTool: Equatable, Sendable {
         }
     }
 
+    /// **Whether the copy loses the file's tags, layers and colour output intent** (decision BW) —
+    /// every tool whose copy is rebuilt or whose page tree changes. Rotate, Protect and filling a
+    /// form write the document in place and keep them, and so does Clean Metadata on a file with a
+    /// form, which it cleans in place (the toolkit's `writeMetadataData`).
+    func dropsCatalogParts(fileHasForm: Bool) -> Bool {
+        switch self {
+        case .deletePages, .reorder, .extract, .compress, .removePassword, .fillAndSign, .arranged: return true
+        case .cleanMetadata: return !fileHasForm
+        case .rotate, .protect, .fillForm: return false
+        }
+    }
+
     /// **Whether the copy's bytes are serialized from a FRESH document rather than the loaded one**
     /// — the question being whether a restricted original's encryption dictionary survives. It is
     /// not "copies pages", which is the form question ``formLoss`` answers; the two differ.
@@ -612,7 +624,7 @@ enum EditorPDFToolEngine {
     /// document was opened first.
     enum Probe: Sendable, Equatable {
         case unreadable
-        case facts(pageCount: Int, encryption: PDFEncryptionState)
+        case facts(pageCount: Int, encryption: PDFEncryptionState, droppedParts: [PDFToolkit.DroppedCatalogPart] = [])
     }
 
     static func probe(_ input: URL) async -> Probe {
@@ -625,7 +637,8 @@ enum EditorPDFToolEngine {
     nonisolated static func probeInLane(_ input: URL) -> Probe {
         guard let document = PDFDocument(url: input) else { return .unreadable }
         if document.isLocked { return .facts(pageCount: 0, encryption: .lockedToOpen) }
-        return .facts(pageCount: document.pageCount, encryption: EditorPDFDocument.encryption(of: document))
+        return .facts(pageCount: document.pageCount, encryption: EditorPDFDocument.encryption(of: document),
+                      droppedParts: PDFToolkit.droppedCatalogParts(in: document))
     }
 
     /// What `tool` would lose from this file, or `nil` when the file has nothing at risk. Opens the

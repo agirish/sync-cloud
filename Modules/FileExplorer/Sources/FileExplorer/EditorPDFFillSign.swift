@@ -1395,7 +1395,8 @@ public final class EditorPDFFillSign: ObservableObject {
         if let formProblem, !Self.isNothingYet(formProblem) {
             out.append(EditorPDFToolEngine.reason(formProblem, tool: .fillForm(values: values, items: [])))
         }
-        guard usesFormPath else { return out }
+        // Without a form the pages are redrawn, and the copy loses what a redraw can't keep.
+        guard usesFormPath else { return out + [tools?.droppedPartsNote].compactMap { $0 } }
         if !offersPlacing { out.append(Self.noCommentingReason + ".") }
         if !allowsFormEntry, !form.fillable.isEmpty { out.append(Self.noFormEntryReason + ".") }
         if form.hasXFA { out.append(Self.xfaNote) }

@@ -330,6 +330,12 @@ struct EditorPDFReorderBar: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("New page order — not saved")
                 .scaledFont(.system(size: 11, weight: .semibold))
+            if let note = tools.droppedPartsNote {
+                Text(note)
+                    .scaledFont(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 6) {
                 Button("Reset") { tools.resetArrangement() }
                 Button("Save Reordered Copy") { Task { await tools.saveArrangement() } }

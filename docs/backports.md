@@ -8388,3 +8388,28 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF reader or PDF tools in Edit (`reader=0`, `paneTools=0`) | CLOSED — does not apply |
+
+---
+
+## A tool's copy keeps page labels, viewer settings, language and attachments (TE201, TE202) — main only
+
+Extract, Delete Pages, Compress, Remove Password, Clean Metadata, Fill & Sign without a form and a
+saved page order wrote copies without the file's page labels, layout and opening view, language
+and attached files. pdf-toolkit 0.5.0 carries them; each page keeps its own label. The sheets, the
+reorder bar and Fill & Sign's note card name the tags, layers and colour output intent that still
+go (`EditorPDFTools.droppedPartsNote`). Edit's PDF tools, and pdf-toolkit, are `main` only.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s toolkit=%s engine=%s\n' "$l" \
+    "$(git show origin/$l:Modules/FileExplorer/Package.swift 2>/dev/null | grep -c 'pdf-toolkit')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFToolEngine.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-22, against origin, before this landed:
+# main  toolkit=4 engine=1
+# v5.x, v4.x, v3.x, v2.x — 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No pdf-toolkit and no PDF tools in Edit (`toolkit=0`, `engine=0`) | CLOSED — does not apply |

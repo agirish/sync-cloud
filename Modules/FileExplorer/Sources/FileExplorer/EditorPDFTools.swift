@@ -194,6 +194,11 @@ public final class EditorPDFTools: ObservableObject {
     @Published public private(set) var pageCount = 0
     /// How the file on disk is protected, read in the lane when it opened. `nil` until then.
     @Published public private(set) var encryption: PDFEncryptionState?
+    /// **What this file has that a rebuilding tool's copy doesn't keep** — its tags for screen
+    /// readers, its layers, its colour output intent (decision BW). Each copy keeps the page labels,
+    /// viewer settings, language and attached files; these go, and the tool says so
+    /// (``droppedPartsNote``). Empty while the file is locked, since its catalog can't be read.
+    @Published public private(set) var droppedParts: [PDFToolkit.DroppedCatalogPart] = []
     @Published public private(set) var selection = EditorPDFPageSelection()
     /// A dragged order not yet saved, or `nil`. Never the identity: a drag back to where the pages
     /// were is no arrangement at all.
@@ -282,7 +287,8 @@ public final class EditorPDFTools: ObservableObject {
 
     // MARK: The file
 
-    func attach(path: String, pageCount: Int, encryption: PDFEncryptionState) {
+    func attach(path: String, pageCount: Int, encryption: PDFEncryptionState,
+                droppedParts: [PDFToolkit.DroppedCatalogPart] = []) {
         if self.path == path {
             // **A reload: the file changed on disk.** A pending order went with it whatever the
             // page count — the pages it named may now say something else — and says so. The
@@ -303,10 +309,12 @@ public final class EditorPDFTools: ObservableObject {
         self.path = path
         self.pageCount = pageCount
         self.encryption = encryption
+        self.droppedParts = droppedParts
     }
 
-    /// The page count, once a locked file has been unlocked in the reader.
-    func update(pageCount: Int) {
+    /// The page count and what the copies drop, once a locked file has been unlocked in the reader.
+    func update(pageCount: Int, droppedParts: [PDFToolkit.DroppedCatalogPart] = []) {
+        self.droppedParts = droppedParts
         guard pageCount != self.pageCount else { return }
         self.pageCount = pageCount
         selection.clear()
@@ -330,6 +338,7 @@ public final class EditorPDFTools: ObservableObject {
         shownStamp = nil
         pageCount = 0
         encryption = nil
+        droppedParts = []
         selection.clear()
         arrangement = nil
         running = nil
@@ -353,6 +362,29 @@ public final class EditorPDFTools: ObservableObject {
     public var offersMetadata: Bool { encryption == PDFEncryptionState.none && pageCount > 0 }
     public var offersProtect: Bool { encryption == PDFEncryptionState.none && pageCount > 0 }
     public var offersRemovePassword: Bool { encryption == .lockedToOpen || encryption == .restrictedOnly }
+
+    /// **What a copy won't keep, said where the copy is asked for** — each sheet whose tool drops
+    /// them (``EditorPDFTool/dropsCatalogParts(fileHasForm:)``), the reorder bar, and Fill & Sign's
+    /// note card — or `nil` when the file has none of them.
+    public var droppedPartsNote: String? { Self.droppedPartsNote(droppedParts) }
+
+    /// "The copy won’t keep this PDF’s tags for screen readers, layers or colour output intent.",
+    /// naming only what the file has.
+    static func droppedPartsNote(_ parts: [PDFToolkit.DroppedCatalogPart]) -> String? {
+        let names = parts.map { part -> String in
+            switch part {
+            case .tags: return "tags for screen readers"
+            case .layers: return "layers"
+            case .outputIntent: return "colour output intent"
+            }
+        }
+        guard let last = names.last else { return nil }
+        let list = names.count == 1 ? last : names.dropLast().joined(separator: ", ") + " or " + last
+        return "The copy won’t keep this PDF’s \(list)."
+    }
+
+    /// The note for a file whose catalog couldn't be read — one still locked to open.
+    static let droppedPartsUnreadNote = "The copy won’t keep any tags for screen readers, layers or colour output intent."
 
     /// Why a tool is greyed out, or `nil` — the first line of the Tools menu.
     public var disabledReason: String? {

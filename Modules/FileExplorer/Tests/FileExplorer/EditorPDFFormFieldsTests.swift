@@ -115,21 +115,22 @@ extension PDFFixtures {
 
     // MARK: The engine
 
-    /// **pdf-toolkit is pinned at 0.4.0 (Replace's patch item, `FillSignItem.Content.patch`), and every tracked
+    /// **pdf-toolkit is pinned at 0.5.0 (copies keep page labels, viewer settings, language and attached
+    /// files — TE201, TE202), and every tracked
     /// `Package.resolved` that resolves it was regenerated to that tag's commit** — not hand-edited to
     /// a version a resolve would not write.
-    @Test func theEngineIsPinnedAt040Everywhere() throws {
+    @Test func theEngineIsPinnedAt050Everywhere() throws {
         let modules = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()   // FileExplorer
             .deletingLastPathComponent()                                                           // Modules
         let manifest = try String(contentsOf: modules.appendingPathComponent("FileExplorer/Package.swift"), encoding: .utf8)
-        #expect(manifest.contains(#".package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.4.0")"#))
+        #expect(manifest.contains(#".package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.5.0")"#))
         for package in ["FileExplorer", "Dashboard"] {
             let resolved = try String(contentsOf: modules.appendingPathComponent("\(package)/Package.resolved"), encoding: .utf8)
             let pin = try #require(resolved.range(of: "\"identity\" : \"pdf-toolkit\""), "\(package) does not resolve pdf-toolkit")
             let entry = resolved[pin.lowerBound...].prefix(400)
-            #expect(entry.contains("\"version\" : \"0.4.0\""), "\(package) resolves \(entry)")
-            #expect(entry.contains("78909e407824b028b00f265974b1b00231ae1810"), "\(package) is not at 0.4.0's commit")
+            #expect(entry.contains("\"version\" : \"0.5.0\""), "\(package) resolves \(entry)")
+            #expect(entry.contains("91a2c630bab8c384b3fd2d8fe7df3e19a5a0278b"), "\(package) is not at 0.5.0's commit")
         }
     }
 
