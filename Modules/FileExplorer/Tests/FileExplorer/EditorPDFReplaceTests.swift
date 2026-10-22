@@ -644,6 +644,9 @@ enum ReplaceFixtures {
         let words = FillSignItem(pageIndex: 0, rect: CGRect(x: 0, y: 0, width: 50, height: 20),
                                  content: .text(FillSignText(string: "SECRET-WOMBAT", fontSize: 12, red: 0, green: 0, blue: 0)))
         #expect(EditorPDFTool.fillAndSign([patch, words]).suffix == "corrected")
+        // A mix is filled, as the button says — Save Filled Copy (decided 2026-10-21).
+        #expect(EditorPDFTool.fillAndSign([patch, words, words]).suffix == "filled")
+        #expect(EditorPDFTool.fillForm(values: [:], items: [patch, words]).suffix == "filled")
         #expect(EditorPDFTool.fillAndSign([patch, words]).logDetail == "fill and sign (1 correction)")
         #expect(EditorPDFTool.fillAndSign([patch, words, words], pictures: [0]).logDetail
                 == "fill and sign (1 item, 1 correction, page 1 made a picture)")

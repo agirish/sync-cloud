@@ -187,10 +187,16 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .protect: return "protected"
         case .removePassword: return "unlocked"
         // "(signed)" when it carries a signature or initials, drawn or typed; "(corrected)" when it
-        // carries a correction (TE84); "(filled)" for text, dates and marks alone (decided with the
-        // 5b mockups).
-        case .fillAndSign(let items, _), .fillForm(_, let items):
-            return items.contains(where: Self.isSigned) ? "signed" : items.contains(where: \.isPatch) ? "corrected" : "filled"
+        // carries corrections and nothing else (TE84) — each is a patch and its words; "(filled)"
+        // otherwise (decided with the 5b mockups). The name follows the save button, which says
+        // Save Corrected Copy for corrections alone and Save Filled Copy for a mix (decided
+        // 2026-10-21: a mix was "(corrected)" under a Save Filled Copy button).
+        case .fillAndSign(let items, _):
+            if items.contains(where: Self.isSigned) { return "signed" }
+            let patches = items.filter(\.isPatch).count
+            return patches > 0 && items.count == 2 * patches ? "corrected" : "filled"
+        case .fillForm(_, let items):
+            return items.contains(where: Self.isSigned) ? "signed" : "filled"
         // "Invoice (reordered, rotated).pdf" — the reorder's word, then the tool's.
         case .arranged(_, let then): return "\(Self.reorder([]).suffix), \(then.suffix)"
         }
