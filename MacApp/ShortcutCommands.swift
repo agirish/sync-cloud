@@ -1036,8 +1036,9 @@ extension FocusedValues {
         set { self[NewFolderInFocusedPaneKey.self] = newValue }
     }
 
-    /// ⌘S — writes the editor's open document. **Absent while the document is clean**, so File ▸
-    /// Save greys out rather than offering to rewrite a file with the bytes it already has.
+    /// ⌘S — writes the editor's open document. **Present whenever an editable document is open**,
+    /// clean or not (`shortcutSaveDocument`); on a clean one with nothing stopped it writes nothing
+    /// (TE145).
     var saveDocument: (() -> Void)? {
         get { self[SaveDocumentKey.self] }
         set { self[SaveDocumentKey.self] = newValue }
@@ -2318,8 +2319,8 @@ struct OpenRecentCommand: View {
 /// File ▸ Save — the editor's ⌘S.
 ///
 /// **No ellipsis and no "Save As".** This writes the file that is open, at the path it was opened
-/// from; there is no picker to summon and nothing to decide. The item greys out when the buffer
-/// matches the file, which is also what says the last ⌘S landed.
+/// from; there is no picker to summon and nothing to decide. The item stays live while a document
+/// is open, and writes nothing when the buffer already matches the file (TE145).
 struct SaveDocumentCommand: View {
     @FocusedValue(\.saveDocument) private var save
 

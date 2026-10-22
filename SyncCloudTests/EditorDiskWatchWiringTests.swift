@@ -168,6 +168,28 @@ import FileExplorer
         #expect(blocked.lowerBound < settleLook.lowerBound && settleLook.lowerBound < question.lowerBound)
     }
 
+    /// **TE145: ⌘S on a clean document writes nothing** — unless a stop stands, which ⌘S settles.
+    /// The skip sits after the divergence check, so a file that went or changed is still asked
+    /// about, and stays out of `writeEditorDocument`, which Keep Mine and Save Again write through.
+    @Test func saveWithNothingChangedWritesNothing() throws {
+        #expect(ContentView.saveHasNothingToWrite(isDirty: false, stop: nil))
+        #expect(!ContentView.saveHasNothingToWrite(isDirty: true, stop: nil))
+        for stop: EditorAutosaveStop in [.failed("disk full"), .unchecked("couldn’t be read back"),
+                                         .diverged(.changed), .diverged(.missing)] {
+            #expect(!ContentView.saveHasNothingToWrite(isDirty: false, stop: stop),
+                    "a clean document with autosave stopped (\(stop)) is not written by ⌘S")
+        }
+        let save = try Self.body("func saveEditorDocument() -> Bool")
+        let divergence = try #require(save.range(of: "EditorAlerts.askAboutDivergence("))
+        let skip = try #require(save.range(of: "if Self.saveHasNothingToWrite(isDirty: editorDocument.isDirty, stop: editorAutosaveStop) {"))
+        let write = try #require(save.range(of: "return writeEditorDocument(explicit: true)"))
+        #expect(divergence.lowerBound < skip.lowerBound && skip.lowerBound < write.lowerBound,
+                "the skip must follow the divergence question and precede the write")
+        let writer = try Self.body("private func writeEditorDocument(explicit: Bool) -> Bool")
+        #expect(!writer.contains("saveHasNothingToWrite"),
+                "Keep Mine and Save Again write through here and must write whatever the buffer is")
+    }
+
     // MARK: Gap 1 — a write that puts a deleted file back is listed
 
     @Test func aWriteThatRecreatesTheFileShowsItInThePane() throws {

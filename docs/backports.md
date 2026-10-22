@@ -8290,3 +8290,26 @@ done
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign or PDF tools in Edit (`fillSign=0`, `engine=0`) | CLOSED — does not apply |
+
+---
+
+## ⌘S on an unchanged document writes nothing (TE145) — main only
+
+⌘S rewrote a clean file, giving it a new date and a sync client a reason to upload it again.
+`saveEditorDocument` now returns after the divergence check when the buffer matches the file and no
+autosave stop stands (`ContentView.saveHasNothingToWrite`); Save stays enabled.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s save=%s skip=%s\n' $l \
+  "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -c 'func saveEditorDocument')" \
+  "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -c 'saveHasNothingToWrite')"; done
+# measured 2026-10-22, against origin, before this landed:
+# main  save=1 skip=0
+# v5.x  save=1 skip=0
+# v4.x, v3.x, v2.x  save=0 skip=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | ⌘S rewrites a clean file | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace | CLOSED — does not apply |

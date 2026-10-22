@@ -1370,7 +1370,8 @@ extension ContentView {
 
     /// ⌘S: write the document now, asking about a divergence if there is one.
     ///
-    /// - Returns: `false` when nothing was written.
+    /// - Returns: `false` when the file does not hold the document afterwards — nothing was written,
+    ///   and something needed to be. A clean document with nothing stopped is `true` with no write.
     @discardableResult
     func saveEditorDocument() -> Bool {
         // **TE59: the disk watch looks first** when the file has moved under the stamp — so a move is
@@ -1389,7 +1390,22 @@ extension ContentView {
                 EditorAlerts.askAboutDivergence(name: editorDocument.name, divergence: divergence),
                 divergence: divergence, path: path, explicit: true)
         }
+        // **TE145: nothing changed, nothing written.** The file is where the stamp says and holds the
+        // buffer, so a rewrite would only give it a new date — and a sync client a reason to upload
+        // it again. After the divergence check, so a file that went or changed is still asked about;
+        // and only with no stop, so a stopped autosave's ⌘S still writes. Not in
+        // `writeEditorDocument`, which Keep Mine and Save Again need to write whatever the buffer is.
+        if Self.saveHasNothingToWrite(isDirty: editorDocument.isDirty, stop: editorAutosaveStop) {
+            Logger.shared.debug("Editor saved nothing to \(path) — it already holds the document")
+            return true
+        }
         return writeEditorDocument(explicit: true)
+    }
+
+    /// Whether ⌘S has nothing to write (TE145): the buffer is the file's text and no stop stands. A
+    /// stop — a failed or unchecked write, a divergence — is ⌘S's to settle, so it always writes.
+    static func saveHasNothingToWrite(isDirty: Bool, stop: EditorAutosaveStop?) -> Bool {
+        !isDirty && stop == nil
     }
 
     // MARK: - Which version wins
