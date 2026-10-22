@@ -19,4 +19,10 @@ struct EditorScrollRequest: Equatable {
     /// the text view clamps it — past the end to the last line, past a line's end to its end — see
     /// ``EditorGoToLine/utf16Offset(of:in:using:)``.
     var column: Int? = nil
+    /// **How much to select from there, in UTF-16 units** — a Contents result's match (RD38). `0`
+    /// for every other request, which puts a bare caret.
+    var length: Int = 0
+    /// Whether the selection then becomes Find's search text, with the find bar shown — so ⌘G steps
+    /// on to the file's next match. A Contents result's request only.
+    var seedsFind: Bool = false
 }

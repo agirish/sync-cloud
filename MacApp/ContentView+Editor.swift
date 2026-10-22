@@ -579,6 +579,7 @@ extension ContentView {
             newFileFolderName: editorNewFileFolderName,
             onImagesImported: { noteEditorImages($0) },
             onPreviewLengthHold: { hold in if editorPreviewLengthHold != hold { editorPreviewLengthHold = hold } },
+            contentSearch: editorContentSearch,
             // The folder line's menu moves the LEFT pane, by the header crumbs' route; the rail
             // follows, since it lists that pane's folder.
             folderTrail: editorFolderTrail,

@@ -168,6 +168,10 @@ struct ContentView: View {
     /// rebuilt from nothing by every workspace switch.
     @State var editorRailFilter = ""
     @State var editorRailFilterIsExpanded = false
+    /// The filter's search inside files (RD38) — its Names | Contents switch and its results. Here
+    /// beside the filter's text, for the filter's reason; **held, not observed**, so its progress
+    /// redraws the rail's results and not this window.
+    @State var editorContentSearch = EditorContentSearchModel()
     /// The folder the rail last listed — the folder that filter was typed in. A different one clears
     /// it (TE109): a filter carried into a new folder made the folder look empty.
     @State var editorRailListedFolder: String?

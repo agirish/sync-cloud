@@ -56,7 +56,10 @@ import FileExplorerTestSupport
             #expect(source.contains("EditorRailFocusRing(isOn:"), "\(file): no focus ring in the hue")
         }
         let files = try EditorRailRowMenuTests.source("EditorFileRailView.swift")
-        #expect(files.contains(".onSubmit {") && files.contains("Self.firstMatch(entries, filter: filter)"),
+        // Both fields' ↩ — the name filter's alone, and the one with the Names | Contents switch
+        // (RD38), whose Names side hands it back here.
+        #expect(files.contains(".onSubmit(openFirstMatch)") && files.contains("onSubmitNames: openFirstMatch")
+                    && files.contains("Self.firstMatch(entries, filter: filter)"),
                 "↩ in the filter does not open the first match")
         // A click opens and leaves the keys in the document (decided 2026-10-21): taking them made
         // typing beep and sent ⌘Z to the file operations.

@@ -257,6 +257,16 @@ import Sync
             last: EditorRailTabBar(tab: .constant(.outline), accentFill: Self.markerGreen, onAccent: .white).frame(width: 232))
     }
 
+    /// The Files list filter's Names | Contents switch (RD38) — its own lens, the tab bar's look.
+    @Test(.machinePinned(.pixelSampling))
+    func editsFilterScopeSwitchHostsItsLens() {
+        Self.expectLensOnTodaysMarker(
+            first: EditorRailFilterScopeBar(scope: .constant(.names), accentFill: Self.markerGreen, onAccent: .white)
+                .frame(width: 200),
+            last: EditorRailFilterScopeBar(scope: .constant(.contents), accentFill: Self.markerGreen, onAccent: .white)
+                .frame(width: 200))
+    }
+
     // MARK: - RD46.13 · Restructure's crowding chips
 
     static func restructure(_ filter: DeadWeightClass) -> RestructureLens {

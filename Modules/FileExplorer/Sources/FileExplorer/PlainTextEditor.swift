@@ -1065,12 +1065,36 @@ struct PlainTextEditor: NSViewRepresentable {
             context.coordinator.lastScrollRequest = scrollRequest
             let text = source.text
             if let offset = Self.offset(for: scrollRequest, in: text, using: lineIndex) {
-                let range = NSRange(location: min(offset, (text as NSString).length), length: 0)
+                let range = Self.selection(for: scrollRequest, at: offset, length: (text as NSString).length)
                 view.setSelectedRange(range)
                 view.scrollRangeToVisible(range)
                 // The caret is where the reader was sent, so it should also be where typing goes.
                 view.window?.makeFirstResponder(view)
+                if scrollRequest.seedsFind, range.length > 0 { Self.seedFind(in: view, selecting: range) }
             }
         }
+    }
+
+    /// The range a request selects: from `offset`, its ``EditorScrollRequest/length`` clamped to
+    /// the text — a bare caret for every request but a Contents result's.
+    static func selection(for request: EditorScrollRequest, at offset: Int, length: Int) -> NSRange {
+        let location = min(max(offset, 0), length)
+        return NSRange(location: location, length: max(0, min(request.length, length - location)))
+    }
+
+    /// **The match becomes Find's text, as ⌘E would make it, and the find bar shows it** (RD38) —
+    /// so the word searched for in the Files list is the one ⌘G steps through here.
+    ///
+    /// Then the selection and the keys are put back where the result left them: showing the bar
+    /// gives its field the keyboard, and the reader was sent to the match, not to the field.
+    static func seedFind(in view: NSTextView, selecting range: NSRange) {
+        view.setSelectedRange(range)
+        let sender = NSMenuItem()
+        sender.tag = NSTextFinder.Action.setSearchString.rawValue
+        view.performTextFinderAction(sender)
+        showFindBar(in: view)
+        view.setSelectedRange(range)
+        view.scrollRangeToVisible(range)
+        view.window?.makeFirstResponder(view)
     }
 }

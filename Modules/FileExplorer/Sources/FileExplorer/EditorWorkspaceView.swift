@@ -263,6 +263,9 @@ public struct EditorWorkspaceView: View {
     /// **Told each time the 256 KB decision is taken** — see ``PreviewLengthHold`` — so the Text and
     /// Markup menus gate on the same answer as the Preview they act on. `nil` tells nobody.
     var onPreviewLengthHold: ((PreviewLengthHold) -> Void)?
+    /// **The window's search inside files (RD38)** — the Files list filter's Contents side. Held by
+    /// the host beside the filter's text; `nil` draws the name filter alone.
+    var contentSearch: EditorContentSearchModel?
 
     @Environment(\.appFontScale) private var fontScale
 
@@ -358,6 +361,15 @@ public struct EditorWorkspaceView: View {
     @State private var splitFollow = SplitScrollFollow()
     /// Split with Preview editable: where Source scrolls to follow Preview — the view, not the caret.
     @State private var editorFollowRequest: EditorScrollRequest?
+    /// **A Contents result waiting for its file to arrive** (RD38): the match to select once the
+    /// document is the one clicked. Waits for the arrival because from the empty page the file's
+    /// text view is built in the arrival's own update, and a request standing when a text view is
+    /// built is taken as already answered (`PlainTextEditor.makeCoordinator`, so a mode switch never
+    /// replays an old jump). Sent from the arrival's handler, it reaches the view that update built
+    /// (`EditorContentOpenMountedTests`).
+    @State private var pendingContentMatch: EditorContentMatch?
+    /// The same, for a PDF result: the word its find is to hold once the PDF is the one open.
+    @State private var pendingPDFFind: EditorContentMatch?
 
     public init(document: EditorDocument,
                 autosavePolicy: EditorAutosavePolicy,
@@ -413,6 +425,7 @@ public struct EditorWorkspaceView: View {
                 newFileFolderName: String? = nil,
                 onImagesImported: ((EditorImageImport.Report) -> Void)? = nil,
                 onPreviewLengthHold: ((PreviewLengthHold) -> Void)? = nil,
+                contentSearch: EditorContentSearchModel? = nil,
                 // No defaults: a folder line whose menu silently went nowhere is the failure.
                 folderTrail: EditorFolderTrail?,
                 onGoToFolder: ((String) -> Void)?,
@@ -475,6 +488,7 @@ public struct EditorWorkspaceView: View {
         self.newFileFolderName = newFileFolderName
         self.onImagesImported = onImagesImported
         self.onPreviewLengthHold = onPreviewLengthHold
+        self.contentSearch = contentSearch
         self.folderTrail = folderTrail
         self.onGoToFolder = onGoToFolder
     }
@@ -614,6 +628,9 @@ public struct EditorWorkspaceView: View {
                                onGoToFolder: onGoToFolder,
                                rowActions: railRowActions,
                                onFold: onFoldRail,
+                               contentSearch: contentSearch.map {
+                                   EditorRailContentSearch(model: $0, folder: folder, onOpen: openContentResult)
+                               },
                                width: railWidth)
                 .frame(maxHeight: .infinity)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
@@ -622,6 +639,9 @@ public struct EditorWorkspaceView: View {
             documentColumn
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        // **Here, on the whole workspace** — not beside the text's arrival handler, whose view is
+        // taken down the moment a PDF opens and so never hears the PDF arrive (RD38).
+        .onChange(of: pdf?.path) { _, _ in seedPendingPDFFind() }
     }
 
     // MARK: - The open document
@@ -1496,6 +1516,12 @@ public struct EditorWorkspaceView: View {
                 goToLineShown = false
                 // …and the caret starts in Source's half of a Split, where Source opens it.
                 textViewHandle.caretInSplitPreview = false
+                // **Last, after every request above was cleared**: a Contents result's match, for
+                // the file it was clicked in (RD38).
+                if let match = pendingContentMatch {
+                    pendingContentMatch = nil
+                    if match.path == document.path { selectContentMatch(match) }
+                }
             }
             // **The stored length follows the text view it describes.** A mode switch builds a new
             // text view whose selection is a bare caret (`PlainTextEditor.restoreCaret`), and the
@@ -2053,6 +2079,65 @@ public struct EditorWorkspaceView: View {
             caretOffset = clamped
             document.caretAnchors.remember(clamped, for: document.path)
         }
+    }
+
+    /// **Opens a Contents result (RD38)** — through the rail's own door, so the unsaved-document
+    /// question and the pane's selection are the ones a click on a row gets.
+    ///
+    /// - A text file opens at the match, selected, with Find holding the word (Source and Split) —
+    ///   or, in Preview, scrolled to its line, since a rendered page has no line to select.
+    /// - A PDF opens with its find holding the word and searching, so the first match is lit.
+    /// - A Word or PowerPoint file opens in Quick Look: Edit does not open those.
+    private func openContentResult(_ hit: EditorContentHit, _ line: EditorContentLine?) {
+        guard let word = contentSearch?.key?.query else { return }
+        pendingContentMatch = nil
+        pendingPDFFind = nil
+        switch hit.kind {
+        case .document:
+            railRowActions.quickLook(hit.path)
+        case .pdf:
+            onOpen(EditorRailEntry(path: hit.path, name: hit.name, size: 0, isCloudOnly: hit.isCloudOnly,
+                                   kind: .pdf))
+            pendingPDFFind = EditorContentMatch(path: hit.path, line: 1, column: 1, length: 0, word: word)
+            seedPendingPDFFind()
+        case .text:
+            let before = document.path
+            onOpen(EditorRailEntry(path: hit.path, name: hit.name, size: 0, isCloudOnly: false, kind: .text))
+            guard document.path == hit.path else { return }
+            let first = line ?? hit.lines.first
+            let match = EditorContentMatch(path: hit.path, line: first?.line ?? 1, column: first?.column ?? 1,
+                                           length: first?.length ?? 0, word: word)
+            // A file that was already open — or refused and read again, under the same path — has no
+            // arrival to wait for.
+            if before == hit.path { selectContentMatch(match) } else { pendingContentMatch = match }
+        }
+    }
+
+    /// Sends Source to a Contents match, selected and handed to Find — or Preview to its line.
+    private func selectContentMatch(_ match: EditorContentMatch) {
+        guard document.refusal == nil, let path = document.path else { return }
+        let target = EditorContentMatch.located(match, in: document.text, using: lineIndex)
+        // The caret's anchor first, as a heading jump in Preview moves it: a text view built later —
+        // Preview to Source — opens at the match.
+        let offset = EditorGoToLine.utf16Offset(of: .init(line: target.line, column: target.column),
+                                                in: document.text, using: lineIndex)
+        document.caretAnchors.remember(EditorCaretAnchors.clamped(offset, in: document.text), for: path)
+        scrollToken &+= 1
+        editorScrollRequest = EditorScrollRequest(line: target.line, token: scrollToken, column: target.column,
+                                                  length: target.length, seedsFind: target.length > 0)
+        if resolvedMode == .preview {
+            previewScrollRequest = EditorScrollRequest(line: target.line, token: scrollToken)
+        }
+    }
+
+    /// The PDF result's word, into the PDF's find — once the PDF open is the one clicked, and only
+    /// if it opened: a refused PDF has no pages to search.
+    private func seedPendingPDFFind() {
+        guard let match = pendingPDFFind, let pdf, pdf.path == match.path else { return }
+        pendingPDFFind = nil
+        guard pdf.refusal == nil else { return }
+        pdf.find.search(match.word)
+        pdf.find.show()
     }
 
     /// Ticking a checkbox from the preview, or `nil` when this document must not be written to.

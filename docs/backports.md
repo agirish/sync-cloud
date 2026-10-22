@@ -8180,3 +8180,29 @@ done
 |---|---|---|
 | `v5.x` | Edit's empty page as one sentence; no recent files | RECORDED — not owed (new feature) |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace (`workspace=0`) | CLOSED — does not apply |
+
+---
+
+## Search inside files: the Files list filter's Contents side (RD38) — main only
+
+Edit's Files list filter gains **Names | Contents**. Contents reads the text files in the folder and
+the folders inside it (`EditorContentSearch`, skipping files not downloaded by one `lstat`) and asks
+Spotlight which PDFs, Word and PowerPoint files contain the word (`EditorContentSpotlight`); a result
+opens at the match with Find holding the word. A new feature, so `main` only.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do
+  printf '%-5s railFilter=%s contentSearch=%s\n' "$l" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorFileRailView.swift 2>/dev/null | grep -c 'Filter by name')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorContentSearch.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-10-21, against origin, before this landed:
+# main  railFilter=1 contentSearch=0
+# v5.x  railFilter=1 contentSearch=0
+# v4.x, v3.x, v2.x — 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The rail's name filter, and no search inside files | RECORDED — not owed (main only) |
+| `v4.x` / `v3.x` / `v2.x` | No rail filter in Edit | CLOSED — does not apply |

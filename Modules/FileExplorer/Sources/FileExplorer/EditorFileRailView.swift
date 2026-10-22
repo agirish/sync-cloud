@@ -125,6 +125,9 @@ struct EditorFileRailView: View {
     /// the rail with 5pt to spare at the largest text size (`theRailTabsFitTheRailAtEveryTextSize`),
     /// and a button beside it would take its room from the words.
     var onFold: (() -> Void)? = nil
+    /// **Search inside files (RD38)**: the filter's Names | Contents switch, and the Contents
+    /// results — see ``EditorRailContentSearch``. `nil` draws the name filter alone.
+    var contentSearch: EditorRailContentSearch? = nil
 
     /// The rail row's one outline, stated once and used by both the hit shape and the hover wash.
     /// `roundedRect(7)` is what the `.row` variant defaults to; naming it here is what lets the
@@ -272,13 +275,14 @@ struct EditorFileRailView: View {
                             // **Greyed where it shows** (TE138), the header ＋'s rule: `.disabled`
                             // alone leaves a `.glyph` button drawn at full strength, so an empty
                             // folder's filter looked pressable and did nothing.
-                            .foregroundStyle(entries.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+                            .foregroundStyle(filterIsOffered ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
                             .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.hoverAffordance(filterIsExpanded ? .filled : .glyph, tint: accent))
                     .accessibilityLabel("Filter files")
-                    .help("Filter this list by name")
-                    .disabled(entries.isEmpty)
+                    .help(contentSearch == nil ? "Filter this list by name"
+                                               : "Filter this list by name, or search inside the files")
+                    .disabled(!filterIsOffered)
                     Button {
                         onNewTextFile?()
                     } label: {
@@ -360,6 +364,18 @@ struct EditorFileRailView: View {
         }
     }
 
+    /// Whether the filter can be opened: there are rows to filter — or, where it can search inside
+    /// files, folders inside to search (RD38). A folder of nothing but folders lists no rows, and
+    /// is exactly where a search of the folders inside is wanted.
+    var filterIsOffered: Bool {
+        Self.filterIsOffered(hasEntries: !entries.isEmpty, searchesContents: contentSearch != nil,
+                             hasSubfolders: !(folderTrail?.subfolders.isEmpty ?? true))
+    }
+
+    static func filterIsOffered(hasEntries: Bool, searchesContents: Bool, hasSubfolders: Bool) -> Bool {
+        hasEntries || (searchesContents && hasSubfolders)
+    }
+
     /// Where ＋ would put a new file, in the words the tooltip needs. **Answers the question the
     /// folder line is there to answer**: the rail is not the sidebar, and "new file" with no
     /// destination in sight is the one act here that writes to a folder the user has not looked at.
@@ -383,24 +399,53 @@ struct EditorFileRailView: View {
                             // Named only when it is not the folder on the line above.
                             onCreate: onCreate, folderName: newFileFolderName)
         }
+        if filterIsExpanded {
+            Group {
+                if let contentSearch {
+                    // With the Names | Contents switch under the field (RD38). ↩ on Names is the
+                    // rail's own, below.
+                    EditorRailFilterField(model: contentSearch.model, search: contentSearch,
+                                          filter: $filter, isExpanded: $filterIsExpanded,
+                                          accentFill: accentFill, onAccent: onAccent,
+                                          onSubmitNames: openFirstMatch)
+                } else {
+                    ExpandingSearchField(text: $filter, isExpanded: $filterIsExpanded,
+                                         placeholder: EditorRailFilterScope.names.placeholder)
+                        .onSubmit(openFirstMatch)
+                }
+            }
+            .scaledFont(.system(size: 11))
+            .padding(.horizontal, 8)
+            .padding(.bottom, 6)
+        }
+        // **The switch decides only while the field shows**: a folded filter is no filter, on
+        // either side of it, and the list is the folder's again.
+        if let contentSearch, filterIsExpanded {
+            EditorRailContentSwitch(model: contentSearch.model, search: contentSearch, folderName: folderName,
+                                    query: filter, accent: accent, selectedPath: selectedPath,
+                                    rowActions: rowActions) {
+                namesList
+            }
+        } else {
+            namesList
+        }
+    }
+
+    /// ↩ in the filter opens the first match (TE110), and hands the keys to the list so ↓ goes on
+    /// from there.
+    private func openFirstMatch() {
+        guard let first = Self.firstMatch(entries, filter: filter) else { return }
+        keyedPath = first.path
+        filesFocused = true
+        onOpen(first)
+    }
+
+    /// The folder's rows, filtered by name — or the caption standing where they would be.
+    @ViewBuilder
+    private var namesList: some View {
         let shown = EditorRail.filtered(entries, matching: filter)
         // In drawn order — section by section — which is the order the arrows walk.
         let order = EditorRail.sections(shown).flatMap(\.rows)
-        if filterIsExpanded {
-            ExpandingSearchField(text: $filter, isExpanded: $filterIsExpanded,
-                                 placeholder: "Filter by name")
-                .scaledFont(.system(size: 11))
-                .padding(.horizontal, 8)
-                .padding(.bottom, 6)
-                // ↩ in the filter opens the first match (TE110), and hands the keys to the list so
-                // ↓ goes on from there.
-                .onSubmit {
-                    guard let first = Self.firstMatch(entries, filter: filter) else { return }
-                    keyedPath = first.path
-                    filesFocused = true
-                    onOpen(first)
-                }
-        }
         if shown.isEmpty && !isNaming {
             emptyCaption(anyEntries: !entries.isEmpty)
         } else {
