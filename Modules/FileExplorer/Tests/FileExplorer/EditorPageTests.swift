@@ -126,6 +126,76 @@ import Design
         }
     }
 
+    // MARK: Past the text's ends
+
+    /// The pixels at `xs` (in the clip's points) in a 20pt strip `y` down the clip's bounds, as the
+    /// clip draws them — its own drawing and the text view's, as a rubber-band scroll shows them.
+    private func pixels(of clip: NSClipView, y: CGFloat, at xs: [CGFloat]) throws -> [NSColor] {
+        let rect = NSRect(x: clip.bounds.minX, y: y, width: clip.bounds.width, height: 20)
+        let rep = try #require(clip.bitmapImageRepForCachingDisplay(in: rect))
+        clip.cacheDisplay(in: rect, to: rep)
+        let scale = CGFloat(rep.pixelsWide) / rect.width
+        return try xs.map { try #require(rep.colorAt(x: Int(($0 - rect.minX) * scale), y: rep.pixelsHigh / 2)) }
+    }
+
+    /// The clip with the text view hidden, so what is drawn is the clip's alone — what an elastic
+    /// scroll past either end, or typewriter scrolling's room, shows. Not the clip's bounds moved
+    /// off the text: outside a live scroll AppKit constrains them back onto the document — measured,
+    /// a `setBoundsOrigin` past the top landed on the text, and a text view moved down took the
+    /// bounds with it.
+    private func clipAlone(_ rig: (window: NSWindow, view: EditorTextView)) throws -> EditorDocumentClipView {
+        let clip = try #require(rig.view.enclosingScrollView?.contentView as? EditorDocumentClipView)
+        rig.view.isHidden = true
+        return clip
+    }
+
+    /// **Past either end the page goes on — the column and its margins, nothing else.** The clip
+    /// paints the band on its own, and the band runs the clip's full height whatever its bounds,
+    /// so an overscroll's strip above or below the text is page too. With the switch off the clip
+    /// paints nothing, so the assertion can fail.
+    @Test func pastTheTextTheClipCarriesThePagesBand() throws {
+        let rig = hosted(width: 1000, column: 720, appearance: .aqua)
+        defer { withExtendedLifetime(rig.window) {} }
+        let page = rig.view.pageRect
+        try #require(page.minX > 100, "the column never capped the text — the measure would be vacuous")
+        rig.view.drawsPage = true
+        let clip = try clipAlone(rig)
+        let band = try #require(clip.pageBand)
+        #expect(band.minY == clip.bounds.minY && band.maxY == clip.bounds.maxY,
+                "the band stops short of the clip's ends: \(band) in \(clip.bounds)")
+        for y in [clip.bounds.minY + 4, clip.bounds.midY, clip.bounds.maxY - 24] {
+            let row = try pixels(of: clip, y: y, at: [page.minX - 4, page.minX + 2, page.midX,
+                                                     page.maxX - 2, page.maxX + 4])
+            #expect(row[0].alphaComponent < 0.05, "at \(y): the left margin is painted: \(row[0])")
+            for c in row[1...3] {
+                #expect(c.alphaComponent > 0.99 && c.redComponent > 0.97 && c.greenComponent > 0.97
+                        && c.blueComponent > 0.97, "at \(y): the clip leaves a hole in the page: \(c)")
+            }
+            #expect(row[4].alphaComponent < 0.05, "at \(y): the right margin is painted: \(row[4])")
+        }
+
+        rig.view.drawsPage = false
+        #expect(clip.pageBand == nil)
+        let off = try pixels(of: clip, y: clip.bounds.midY, at: [page.midX])
+        #expect(off[0].alphaComponent < 0.05, "switched off, the clip still paints the page: \(off[0])")
+    }
+
+    /// **With no cap the clip's page is edge to edge** — wrapped, and unwrapped too, where a
+    /// sideways overscroll shows the clip past the text's right end.
+    @Test func withNoCapTheClipsPageIsEdgeToEdge() throws {
+        for wraps in [true, false] {
+            let rig = hosted(width: 1000, column: nil, wraps: wraps, appearance: .aqua)
+            defer { withExtendedLifetime(rig.window) {} }
+            rig.view.drawsPage = true
+            let clip = try clipAlone(rig)
+            #expect(clip.pageBand == clip.bounds, "wraps \(wraps): the band is \(String(describing: clip.pageBand))")
+            for c in try pixels(of: clip, y: clip.bounds.midY, at: [2, 500, 990]) {
+                #expect(c.alphaComponent > 0.99 && c.redComponent > 0.97,
+                        "wraps \(wraps): the clip leaves a hole in the page: \(c)")
+            }
+        }
+    }
+
     // MARK: Where the editor applies it
 
     private func mounted() -> (host: NSHostingView<AnyView>, view: EditorTextView) {
