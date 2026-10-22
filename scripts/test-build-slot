@@ -86,12 +86,19 @@ check "FIFO: each waiter reported getting its slot" \
 
 # A command run again and again in a loop must not re-take the slot ahead of a queued waiter
 # (seen: a Dashboard run looping on one slot kept a waiter out for 51 minutes).
-rm -f "$WORK/order"
-( for i in 1 2 3 4 5; do "$SLOT" sh -c "echo loop$i >> '$WORK/order'; sleep 0.5"; done ) 2>/dev/null &
+# loop1 holds the slot until the waiter is in line, not for a fixed time: under load a waiter
+# started during a 0.5 s hold could miss it and read as starvation that was not there.
+rm -f "$WORK/order" "$WORK/release"
+( for i in 1 2 3 4 5; do
+    "$SLOT" sh -c "echo loop$i >> '$WORK/order'; while [ ! -e '$WORK/release' ]; do sleep 0.05; done"
+  done ) 2>/dev/null &
 looper=$!
 wait_for 10 grep -q loop1 "$WORK/order"
-"$SLOT" sh -c "echo waiter >> '$WORK/order'" 2>/dev/null
-wait "$looper"
+"$SLOT" sh -c "echo waiter >> '$WORK/order'" 2>/dev/null &
+waiter=$!
+wait_for 10 waiting 1
+touch "$WORK/release"
+wait "$looper" "$waiter"
 check "a looping holder does not re-take the slot ahead of a waiter ($(tr '\n' ' ' < "$WORK/order"))" \
   same "$(sed -n 2p "$WORK/order")" waiter
 
@@ -296,12 +303,21 @@ touch "$WORK/release2"; wait "$gate"
 "$SLOT" sh -c 'exit 42'; check "exit 42 passes through" same $? 42
 "$SLOT" no-such-command-xyz 2>/dev/null; check "a missing command exits 127" same $? 127
 "$SLOT" sh -c 'kill -TERM $$'; check "a command killed by SIGTERM reads as 143" same $? 143
-reports() { ls ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -ci python; }
-before=$(reports)
-"$SLOT" sh -c 'kill -ABRT $$'; status=$?
-sleep 3
-check "a command killed by SIGABRT reads as 134" same "$status" 134
-check "...and files no crash report for python3 (before $before, after $(reports))" same "$(reports)" "$before"
+# The wrapper must exit 134, not die of SIGABRT: a python3 that dies of it files a crash report.
+touch "$WORK/abrt-mark"
+abrt=$(perl -e 'system(@ARGV); printf "%d/%d", $? >> 8, $? & 127' "$SLOT" sh -c 'kill -ABRT $$')
+check "a command killed by SIGABRT reads as 134, the wrapper exiting rather than dying of it ($abrt)" \
+  same "$abrt" 134/0
+# The crash report itself, if ReportCrash files one at all: it can lag by hours, and it rewrites old
+# reports in place once a process has 25, so look by time rather than by count, and only once the
+# report of the child's own crash (sh is bash) is in. python3's would follow it within half a second
+# (measured with SIGABRT re-raised); give it 5.
+new_report() { find ~/Library/Logs/DiagnosticReports -name "$1-*.ips" -newer "$WORK/abrt-mark" 2>/dev/null | grep -q .; }
+if wait_for 30 new_report bash; then
+  check "...and files no crash report for python3, where the child's own was filed" eval '! wait_for 5 new_report Python'
+else
+  echo "skip - ...and files no crash report for python3: ReportCrash filed none for the child in 30 s either"
+fi
 "$SLOT" sh -c 'printf "out\nline2"; printf "err" >&2' > "$WORK/stdout" 2> "$WORK/stderr"
 check "stdout passes through byte for byte" same "$(od -c < "$WORK/stdout")" "$(printf 'out\nline2' | od -c)"
 check "stderr passes through, separately, with no wrapper chatter" same "$(cat "$WORK/stderr")" err
