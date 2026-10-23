@@ -593,6 +593,44 @@ import Testing
         #expect(crashed.refusal?.contains("never finished recording") == true)
     }
 
+    /// FR16. A landing cut off mid-run is refused by Undo, and the refusal used to send the user to
+    /// a log that recorded nothing per action. It names the landing's journal instead when one is
+    /// there — and says plainly when none is.
+    @Test func anUnfinishedLandingsRefusalNamesItsJournal() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let store = try #require(world.manager.restructureStore)
+        let profileId = try #require(world.manager.filingProfileDirectoryId)
+        let crashed = RestructureManifest(profileId: "p", manifestId: "m-crashed", createdAt: "t",
+                                          family: "Tax", kind: .shape, actions: [
+                                              .init(action: .renameDir, src: "Tax/x", dst: "Tax/y"),
+                                          ])
+        store.recordApplied(RestructureStore.AppliedRecord(
+            manifest: crashed, inverse: crashed.inverse, at: "t3", created: 0, skipped: 0,
+            appliedUnderProfileId: profileId))
+
+        let without = await world.manager.undoReorganisation(manifestId: "m-crashed")
+        #expect(without.refusal?.contains("No list of the steps that ran was found.") == true)
+
+        let journal = RestructureLandingJournal.url(manifestId: "m-crashed", profileId: profileId,
+                                                    in: world.profiles)
+        try Data().write(to: journal)
+        let with = await world.manager.undoReorganisation(manifestId: "m-crashed")
+        #expect(with.refusal?.contains(journal.path) == true, "\(with.refusal ?? "no refusal")")
+    }
+
+    /// A finished landing leaves no running list behind: the ledger record says what ran.
+    @Test func aFinishedLandingRemovesItsJournal() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let profileId = try #require(world.manager.filingProfileDirectoryId)
+        let outcome = await world.manager.applyPlan(world.manifest, now: Date(timeIntervalSince1970: 1_756_500_000))
+        #expect(outcome.refusal == nil)
+        let journal = RestructureLandingJournal.url(manifestId: world.manifest.manifestId,
+                                                    profileId: profileId, in: world.profiles)
+        #expect(!FileManager.default.fileExists(atPath: journal.path))
+    }
+
     /// An undo that could do NOTHING — the tree fully reshaped since — must not mark the record
     /// undone or re-point the survey: the kept profile would describe a tree that does not
     /// exist, and the record could never be retried.

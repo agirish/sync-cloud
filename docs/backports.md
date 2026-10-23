@@ -8894,3 +8894,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s prefixMath=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same prefix math (`prefixMath=1`) | RECORDED — not owed |
+
+---
+
+## A Restructure landing journals each step as it runs (FR16) — main only
+
+A landing cut off mid-run left a half-applied tree whose Undo is refused, pointing at a log that named
+nothing. `main` appends each performed action to `restructure-landing-<manifest>.jsonl` in the profile
+folder as it runs, removes it once the record is finalised, and names it in the refusal.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s logClaim=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'The log from that run')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         logClaim=1
+# v4.x, v3.x, v2.x   logClaim=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same landing (`logClaim=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure (`logClaim=0`) | CLOSED — does not apply |

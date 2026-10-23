@@ -228,9 +228,12 @@ extension FileSyncManager {
             }
         }
         await Task.yield()
+        let journal = RestructureLandingJournal(
+            at: RestructureLandingJournal.url(manifestId: manifest.manifestId,
+                                              profileId: oldDirectoryId, in: profilesDirectory))
         let execution: RestructureExecution = await enqueueFileOperation {
             FileSyncManager.executeRestructureActions(actions, root: expandedRoot, fm: fm,
-                                                      onProgress: progressSink)
+                                                      journal: journal, onProgress: progressSink)
         }
         outcome.renamed = execution.renamed
         outcome.filesMoved = execution.filesMoved
@@ -327,6 +330,8 @@ extension FileSyncManager {
             $0.verifierNote = outcome.verifierMismatches.isEmpty ? nil
                 : Self.verifierNote(outcome.verifierMismatches)
         }
+        // Finalised: the record now says what ran, so the running list has done its job.
+        journal?.finish()
 
         restructureApplyProgress = RestructureApplyProgress(stage: .rederive)
         // Steps 6 and 7, extracted so the Scaffolded card can run the same re-derive with a
@@ -684,12 +689,20 @@ extension FileSyncManager {
         }
         // A record without a summary never finalised: the app quit mid-apply, and the stored
         // inverse is the PLAN's — collision names never recorded — so replaying it could move
-        // the wrong file. Refusing is the only honest answer; the log from that run names what
-        // actually landed.
+        // the wrong file. Refusing is the only honest answer — and the landing's journal, written
+        // one line per action as each ran (FR16), is what names what actually landed. The log
+        // used to be named here, and recorded nothing per action.
         guard record.summary != nil else {
+            let journalPath = filingProfilesDirectory.map {
+                RestructureLandingJournal.url(manifestId: manifestId,
+                                              profileId: record.appliedUnderProfileId ?? "", in: $0).path
+            }
+            let named = journalPath.flatMap {
+                fileManager.fileExists(atPath: $0) ? "Each step that ran is listed, in order, in \($0)." : nil
+            } ?? "No list of the steps that ran was found."
             outcome.refusal = "This landing never finished recording what it did — the app "
                 + "quit mid-apply — so its stored inverse may not match the disk and will not "
-                + "be replayed. The log from that run (\(manifestId)) names what landed."
+                + "be replayed. " + named
             return outcome
         }
         // The survey must still be where the landing left it: the directory it produced, or —
@@ -988,6 +1001,7 @@ extension FileSyncManager {
     nonisolated static func executeRestructureActions(
         _ actions: [RestructureManifest.Action], root: String, fm: FileManaging,
         vetoUnlistedSourceFolders: Bool = true,
+        journal: RestructureLandingJournal? = nil,
         onProgress: (@Sendable (Int) -> Void)? = nil)
         -> RestructureExecution {
         var out = RestructureExecution()
@@ -1067,9 +1081,14 @@ extension FileSyncManager {
         }
 
         for action in actions {
+            let performedBefore = out.performed.count
             // Counted per action attempted, including the ones that skip: the sheet is showing
             // how far through the list the landing is, not how much of it succeeded.
             defer {
+                // What ran is on disk the moment it has run — see `RestructureLandingJournal`.
+                if let journal, out.performed.count > performedBefore {
+                    for done in out.performed[performedBefore...] { journal.record(done) }
+                }
                 if action.action != .keep {
                     completed += 1
                     report()
@@ -1351,5 +1370,50 @@ extension FileSyncManager {
             counter += 1
         }
         return candidate
+    }
+}
+
+/// **What a landing has done so far, one line per action, written as each one runs** (FR16).
+///
+/// The ledger record is written before the first move and finalised after the last; nothing in
+/// between recorded progress, so a quit, crash or power cut mid-run left a half-applied tree that
+/// Undo rightly refuses — pointing at a log that named nothing. Each performed action, collision
+/// name included, is appended here as JSON the moment it runs: a plain `write`, no flush per line,
+/// so it survives the app dying (the common case) at the cost of the last lines on a power cut.
+/// Removed once the record is finalised. `profiles/<id>/restructure-landing-<manifest>.jsonl`.
+final class RestructureLandingJournal: @unchecked Sendable {
+    private let url: URL
+    private let handle: FileHandle
+    private let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return encoder
+    }()
+
+    static func url(manifestId: String, profileId: String, in directory: URL) -> URL {
+        let safe = manifestId.replacingOccurrences(of: "/", with: "-")
+        return directory.appendingPathComponent("\(profileId)/restructure-landing-\(safe).jsonl")
+    }
+
+    /// Nil when the file cannot be made — the landing then runs as it always did, unjournalled.
+    init?(at url: URL) {
+        guard FileManager.default.createFile(atPath: url.path, contents: nil),
+              let handle = try? FileHandle(forWritingTo: url) else {
+            Logger.shared.warning("Restructure: could not start the landing journal at \(url.path)")
+            return nil
+        }
+        self.url = url
+        self.handle = handle
+    }
+
+    func record(_ action: RestructureManifest.Action) {
+        guard var line = try? encoder.encode(action) else { return }
+        line.append(0x0A)
+        try? handle.write(contentsOf: line)
+    }
+
+    func finish() {
+        try? handle.close()
+        try? FileManager.default.removeItem(at: url)
     }
 }

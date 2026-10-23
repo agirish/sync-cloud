@@ -89,6 +89,31 @@ import Testing
         #expect(execution.skipped.contains { $0.contains("the plan never listed") })
     }
 
+    // MARK: - The landing journal (FR16)
+
+    /// Every action the executor performs is on disk, in order and with its collision name, the
+    /// moment it runs — what an Undo of a cut-off landing has to go on.
+    @Test func theExecutorJournalsEachActionAsItRuns() throws {
+        let root = try Self.makeTree(["Health/TODO/Dental/invoice.pdf", "Health/TODO/Dental/x-ray.pdf",
+                                      "Health/Dental/invoice.pdf"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
+            source: "Health/TODO/Dental", destination: "Health/Dental",
+            kind: .mirroredInbox, in: Self.view(of: root),
+            profileId: "p", manifestId: "m", createdAt: "t").get())
+        let url = root.appendingPathComponent("journal.jsonl")
+        let journal = try #require(RestructureLandingJournal(at: url))
+
+        let execution = FileSyncManager.executeRestructureActions(manifest.actions, root: root.path,
+                                                                  fm: FileManager.default, journal: journal)
+
+        let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n")
+        let recorded = try lines.map { try JSONDecoder().decode(RestructureManifest.Action.self, from: Data($0.utf8)) }
+        #expect(!execution.performed.isEmpty)
+        #expect(recorded == execution.performed)
+        #expect(recorded.contains { $0.collidedInto != nil }, "the collision name is in the journal")
+    }
+
     // MARK: - Packages and links travel whole (FR2)
 
     /// Both folders hold `Return.pages`. Merging one level down moved one document's insides into
