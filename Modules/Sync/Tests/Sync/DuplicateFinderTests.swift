@@ -895,6 +895,67 @@ import Testing
         #expect(groups.first?.isDirectory == true)
     }
 
+    /// FR10. One Apply recommended acts on every group at once, so no group may recommend
+    /// removing the folder that holds another group's keeper. `Pics`, `P/Sub` and `Q/Sub` are
+    /// identical, and `P` and `Q` hold nothing but `Sub` — so `P` and `Q` are identical too. The
+    /// dates make the first group keep `P/Sub` and, left alone, the second keep `Q`.
+    @Test func noGroupRemovesTheFolderHoldingAnotherGroupsKeeper() {
+        let old = Date(timeIntervalSince1970: 1_600_000_000)
+        let new = Date(timeIntervalSince1970: 1_700_000_000)
+        func sub(_ base: String, modified: Date) -> FileNode {
+            dir(base, [file(base + "/a.jpg"), file(base + "/b.jpg")], modified: modified)
+        }
+        let tree = [
+            dir("/root/Downloads", [sub("/root/Downloads/Pics", modified: new)]),
+            dir("/root/Work", [
+                dir("/root/Work/A", [dir("/root/Work/A/P", [sub("/root/Work/A/P/Sub", modified: new)], modified: old)]),
+                dir("/root/Work/B", [dir("/root/Work/B/Q", [sub("/root/Work/B/Q/Sub", modified: old)], modified: new)]),
+            ]),
+        ]
+        var hashes: [String: String] = [:]
+        for base in ["/root/Downloads/Pics", "/root/Work/A/P/Sub", "/root/Work/B/Q/Sub"] {
+            hashes[base + "/a.jpg"] = "A"; hashes[base + "/b.jpg"] = "B"
+        }
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        let removed = groups.flatMap(\.recommendedRemovalPaths)
+        // The premise: the first group did keep `P/Sub`, so the fixture reaches the hazard.
+        #expect(groups.contains { $0.keeper.path == "/root/Work/A/P/Sub" })
+        let copies = ["/root/Downloads/Pics", "/root/Work/A/P/Sub", "/root/Work/B/Q/Sub"]
+        let survivors = copies.filter { copy in
+            !removed.contains { copy == $0 || copy.hasPrefix($0 + "/") }
+        }
+        #expect(!survivors.isEmpty, "every copy is on the batch's removal list: \(removed.sorted())")
+        // A folder holding a kept folder is never a copy to remove, even after a keeper re-pick.
+        let holder = groups.flatMap(\.copies).first { $0.path == "/root/Work/A/P" }
+        #expect(holder == nil || holder?.isProtectedFromRemoval == true)
+    }
+
+    /// The mirror of the above: a later group must not hollow out a folder an earlier group
+    /// keeps. `X` and `Z` are identical and `X` is kept; `W/inner` matches `X/inner`, and is the
+    /// newer of the two at the same depth, so left alone the inner group would trash `X/inner`.
+    @Test func noGroupRemovesAPieceOfAnotherGroupsKeeper() {
+        let old = Date(timeIntervalSince1970: 1_600_000_000)
+        let new = Date(timeIntervalSince1970: 1_700_000_000)
+        func inner(_ base: String, modified: Date) -> FileNode {
+            dir(base + "/inner", [file(base + "/inner/a.jpg"), file(base + "/inner/b.jpg")], modified: modified)
+        }
+        let tree = [
+            dir("/root/X", [inner("/root/X", modified: old), file("/root/X/e.txt")], modified: new),
+            dir("/root/Z", [inner("/root/Z", modified: old), file("/root/Z/e.txt")], modified: old),
+            // Same depth as `X/inner`, so the newer date — not depth — decides the keeper.
+            dir("/root/W", [inner("/root/W", modified: new)]),
+        ]
+        var hashes: [String: String] = [:]
+        for base in ["/root/X/inner", "/root/Z/inner", "/root/W/inner"] {
+            hashes[base + "/a.jpg"] = "A"; hashes[base + "/b.jpg"] = "B"
+        }
+        hashes["/root/X/e.txt"] = "E"; hashes["/root/Z/e.txt"] = "E"
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.contains { $0.keeper.path == "/root/X" })
+        let removed = groups.flatMap(\.recommendedRemovalPaths)
+        #expect(!removed.contains("/root/X/inner"), "removal list: \(removed.sorted())")
+    }
+
     @Test func keeperAvoidsArchiveLocations() {
         // Distinct fillers keep the parents non-identical, so tax.pdf is a file-level duplicate.
         let tree = [

@@ -8655,3 +8655,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s skipAbsent=%s tooling=%s\n' $
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same skip, the same code (`skipAbsent=1`) | RECORDED — not owed |
+
+---
+
+## No folder group removes the folder holding another group's keeper (FR10) — main only
+
+One Apply recommended acts on every group at once, and identical folder groups covered only their
+REDUNDANT copies, so a later group could trash the folder that held an earlier group's keeper — or
+a piece of it — and one batch could send every copy to the Trash. `main` treats a member that holds,
+or sits inside, an earlier keeper as protected: it may be the keeper, never a copy to remove.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s coverOnly=%s keeperRoots=%s\n' $l \
+  "$(git show origin/$l:$S/DuplicateFinder.swift 2>/dev/null | grep -cF 'members = members.filter { !isCovered($0.path, by: coveredRoots) }')" \
+  "$(git show origin/$l:$S/DuplicateFinder.swift 2>/dev/null | grep -cF 'keeperRoots.insert(keeper.path)')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   coverOnly=1 keeperRoots=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same pass, the same code (`coverOnly=1`) | RECORDED — not owed |

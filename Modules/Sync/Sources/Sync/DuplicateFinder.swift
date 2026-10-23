@@ -809,11 +809,31 @@ public enum DuplicateFinder {
             members = members.filter { !isCovered($0.path, by: coveredRoots) }
             guard members.count >= 2 else { continue }
 
-            let keeperIdx = chooseKeeper(members)
-            let ordered = orderKeeperFirst(members, keeperIndex: keeperIdx)
+            // **A folder an earlier group keeps — or one that holds it — is never a copy to remove
+            // here.** Covering only the REDUNDANT copies let a later group trash the folder holding
+            // an earlier group's keeper: `Pics`, `P/Sub` and `Q/Sub` identical, `P` and `Q` holding
+            // only `Sub`; the first group kept `P/Sub` and trashed `Q/Sub`, the second kept `Q` and
+            // trashed `P`, and one Apply recommended sent every copy to the Trash. Such a member may
+            // still be this group's keeper, and is marked protected so a keeper re-pick cannot put
+            // it on the removal list; with nothing removable left there is no group.
+            let protectedPaths = Set(members.filter { m in
+                isCovered(m.path, by: keeperRoots) || keeperRoots.contains { $0.isInsideDirectory(anyOf: [m.path]) }
+            }.map(\.path))
+            let ordered: [NodeInfo]
+            if protectedPaths.isEmpty {
+                ordered = orderKeeperFirst(members, keeperIndex: chooseKeeper(members))
+            } else {
+                let protected = members.filter { protectedPaths.contains($0.path) }
+                let keeper = protected[chooseKeeper(protected)]
+                let removable = members.filter { !protectedPaths.contains($0.path) }
+                guard !removable.isEmpty else { continue }
+                // A second protected member has nowhere safe to sit, so it leaves the group — the
+                // rule `protectingFolderKeepers` applies to the file passes.
+                ordered = [keeper] + removable.sorted { ($0.depth, $0.path) < ($1.depth, $1.path) }
+            }
             let keeper = ordered[0]
             let copies = ordered.enumerated().map { idx, info in
-                makeCopy(info, keeper: keeper, isKeeper: idx == 0,
+                makeCopy(info, keeper: keeper, isKeeper: idx == 0, protectedPaths: protectedPaths,
                          contentSnapshot: snapshotForDir(info.path))
             }
             let reclaimable = copies.dropFirst().reduce(0) { $0 + $1.size }
