@@ -9049,3 +9049,46 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s ruleEsc=%s personChip=%s stor
 | `v5.x` | All of it, the same code | RECORDED — not owed |
 | `v4.x` | The silent Esc, the id chip, "opened", three of the ellipses and the red File N; nothing counts the capped lists (`storageCap=0`), and no Compare sheet or page strip | RECORDED — not owed |
 | `v3.x` / `v2.x` | The silent Esc, "opened" and fewer ellipses (`ellipses=2`, `1`); no person condition, no red File N (`fileAllRed=0`) | RECORDED — not owed |
+
+---
+
+## Edit's status line, format bar, Preview links and rail dot; PDF batch and palette — main only
+
+Seven Edit defects from the v6.1 review (ED2, ED3, ED4, ED5, ED10, PD3, PD6).
+
+- **The status line** kept the last file's words, encoding and line endings, and its caret, beside a
+  newly opened file until the 150 ms count landed. `main` shows the counts only beside the file they
+  were counted for (`EditorStatusLine.shownFacts`) and seeds Line/Col as the file arrives.
+- **A folded format-bar group** never greyed: folded Lists in a table opened a menu of greyed items.
+  `main` greys it when none of its items would act (`EditorFormatBar.isFoldOffered`).
+- **Voice Control**: the bar's words (Bullets, Tasks, Quote) were not names it answered to. `main`
+  adds them through `EditorSpokenNames`, as the header's chips do.
+- **Editable Preview's links** were system blue — the run's `NSColor.linkColor`, and the text view's
+  own `linkTextAttributes` — where read-only Preview draws the window's hue. `main` uses the hue for both.
+- **The rail's unsaved dot** told VoiceOver "Unsaved" for a stopped autosave too. `main` uses the
+  header's rule (`EditorSaveStatus.dotName`).
+- **A PDF batch's Rotate** ran on an owner-restricted file and failed with a line naming the file
+  twice. `main` skips it before the run (`Skip.restrictedByOwner`).
+- **Fill & Sign's Ink and Marks** said only their names to VoiceOver. `main` adds the colour and the
+  mark as values.
+
+```sh
+F=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s statusFacts=%s foldMenu=%s barWords=%s linkColor=%s railUnsaved=%s batch=%s palette=%s\n' $l \
+  "$(git show origin/$l:$F/EditorStatusLine.swift 2>/dev/null | grep -c 'let facts: EditorDocumentFacts$')" \
+  "$(git show origin/$l:$F/EditorFormatBar.swift 2>/dev/null | grep -c 'private func foldMenu')" \
+  "$(git show origin/$l:$F/EditorFormatBar.swift 2>/dev/null | grep -c 'static func word(_ verb')" \
+  "$(git show origin/$l:$F/PreviewEditSession.swift 2>/dev/null | grep -c 'NSColor.linkColor')" \
+  "$(git show origin/$l:$F/EditorFileRailView.swift 2>/dev/null | grep -c 'accessibilityLabel("Unsaved")')" \
+  "$(git ls-tree -r --name-only origin/$l -- $F/EditorPDFBatch.swift | wc -l | tr -d ' ')" \
+  "$(git ls-tree -r --name-only origin/$l -- $F/EditorPDFFillPalette.swift | wc -l | tr -d ' ')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main               statusFacts=1 foldMenu=1 barWords=1 linkColor=1 railUnsaved=1 batch=1 palette=1
+# v5.x               statusFacts=1 foldMenu=1 barWords=1 linkColor=1 railUnsaved=1 batch=0 palette=0
+# v4.x, v3.x, v2.x   all 0 — no Edit workspace
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The five text and Markdown defects, the same code; no PDF batch or Fill & Sign palette | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace | CLOSED — does not apply |

@@ -671,6 +671,8 @@ struct EditorFormatBar: View, Equatable {
         .disabled(!offered)
         .help(Self.tooltip(verb))
         .accessibilityLabel(verb.title)
+        // "Click Bullets" — the word on screen — as well as the name VoiceOver reads (ED4).
+        .accessibilityInputLabels(EditorSpokenNames.names(word: Self.word(verb), label: verb.title))
         .accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton)
     }
 
@@ -688,6 +690,7 @@ struct EditorFormatBar: View, Equatable {
         .disabled(!offered)
         .help(verb.title)
         .accessibilityLabel(verb.title)
+        .accessibilityInputLabels(EditorSpokenNames.names(word: Self.word(Self.tableMenuStandIn), label: verb.title))
     }
 
     /// **The Body menu — a popover of the styles, each drawn as it looks** (TE74, decision AC), as
@@ -802,15 +805,17 @@ struct EditorFormatBar: View, Equatable {
     private func foldMenu(_ part: Part) -> some View {
         let verbs = Self.verbs(of: part)
         let lit = verbs.contains { state.lit.contains($0) }
+        let offered = Self.isFoldOffered(part, in: state)
         return Menu {
             items(of: part)
         } label: {
-            label(Self.symbol(part), word: nil, lit: lit, chevron: true)
+            label(Self.symbol(part), word: nil, lit: lit, offered: offered, chevron: true)
         }
         .menuStyle(.button)
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
         .menuIndicator(.hidden)
         .fixedSize()
+        .disabled(!offered)
         .help(Self.title(part))
         .accessibilityLabel(Self.title(part))
         .accessibilityValue(Self.appliedValue(verbs, lit: state.lit))
@@ -843,15 +848,22 @@ struct EditorFormatBar: View, Equatable {
 
     /// A folded part's items, in its order: ticked toggles for what can be lit, plain items for the
     /// rest, the Table button as its two items. Each greyed where the bar would grey it.
-    @ViewBuilder
     private func items(of part: Part) -> some View {
-        ForEach(Self.verbs(of: part), id: \.self) { verb in
-            if verb == Self.tableMenuStandIn {
-                ForEach(MarkupVerb.tableSections.first ?? [], id: \.self) { item($0) }
-            } else {
-                item(verb)
-            }
+        ForEach(Self.itemVerbs(of: part), id: \.self) { item($0) }
+    }
+
+    /// The items a folded part's menu lists, in its order — the Table button as its two items.
+    static func itemVerbs(of part: Part) -> [MarkupVerb] {
+        verbs(of: part).flatMap { verb in
+            verb == tableMenuStandIn ? (MarkupVerb.tableSections.first ?? []) : [verb]
         }
+    }
+
+    /// **Whether a folded group's button is live: while one of its items would do something (ED3).**
+    /// Lists folds with every item greyed in a table, and opened a menu of nothing to choose — greyed
+    /// instead, as a table menu with nothing to offer is.
+    static func isFoldOffered(_ part: Part, in state: MarkupFormatState) -> Bool {
+        itemVerbs(of: part).contains { isItemOffered($0, in: state) }
     }
 
     @ViewBuilder

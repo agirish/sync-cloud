@@ -313,6 +313,8 @@ public struct EditorWorkspaceView: View {
     /// The text version ``facts`` and ``lineIndex`` were taken at — `nil` before the first count. The
     /// selection's count pairs itself only with counts of the same text (TE60 review).
     @State private var factsVersion: Int?
+    /// The file ``facts`` were counted for — the status line shows them only beside that file (ED2).
+    @State private var factsPath: String?
     /// The caret's UTF-16 offset, as the text view last reported it.
     ///
     /// **The offset is kept and the line/column is derived**, rather than the reverse: converting
@@ -785,7 +787,8 @@ public struct EditorWorkspaceView: View {
         if document.path != nil, document.refusal == nil {
             Divider()
             // Formatted when the stamp moved, not here — see ``EditorDocument/sizeCaption``.
-            EditorStatusLine(facts: facts, caret: caret, fileSize: document.sizeCaption,
+            EditorStatusLine(facts: EditorStatusLine.shownFacts(facts, countedFor: factsPath, open: document.path),
+                             caret: caret, fileSize: document.sizeCaption,
                              headings: statusHeadings, hint: statusHint,
                              selection: selectionFacts, goToLine: statusGoToLine, notice: diskNotice)
                 // Compared on what it draws, the closures left out — see `EditorStatusLine.==`.
@@ -936,7 +939,7 @@ public struct EditorWorkspaceView: View {
                 .frame(width: Self.dotColumnWidth, alignment: .leading)
                 .opacity(dotColour == nil ? 0 : 1)
                 .accessibilityHidden(dotColour == nil)
-                .accessibilityLabel(status.isWarning ? "Not saving" : "Not saved yet")
+                .accessibilityLabel(status.dotName)
             Text(document.name)
                 .scaledFont(.system(size: 13, weight: .semibold))
                 .lineLimit(1)
@@ -1593,6 +1596,9 @@ public struct EditorWorkspaceView: View {
                 // rebuilt on every keystroke, where it is not.
                 caretOffset = EditorCaretAnchors.clamped(
                     document.caretAnchors.offset(for: document.path) ?? 0, in: document.text)
+                // **And Line/Col with it, now** (ED2): the caret's own task waits out its debounce,
+                // and until it landed the line said the last file's caret beside this one's name.
+                caret = EditorCaret.at(utf16Offset: caretOffset, in: document.text)
                 // A new file arrives with a caret and no selection, and its own formatting: the
                 // last file's lit buttons must not stand over it for the debounce.
                 liveSelection.set(length: 0)
@@ -1721,9 +1727,12 @@ public struct EditorWorkspaceView: View {
             // version counter rather than the text, exactly as the parse above is — and NOT on the
             // caret, which changes far more often and would re-count the words on every arrow key.
             .task(id: EditorParseKey(version: document.textVersion, path: document.path)) {
-                try? await Task.sleep(for: .milliseconds(150))
+                // **Not for a file just opened**, whose counts are not on screen at all (ED2):
+                // nobody is typing, and the debounce would only hold them back.
+                if factsPath == document.path { try? await Task.sleep(for: .milliseconds(150)) }
                 guard !Task.isCancelled else { return }
                 let source = document.text
+                let path = document.path
                 let version = document.textVersion
                 let encoding = document.encodingName
                 // **The line table is built in the same detached pass**, because it is the same
@@ -1737,6 +1746,7 @@ public struct EditorWorkspaceView: View {
                 facts = derived.facts
                 lineIndex = derived.lines
                 factsVersion = version
+                factsPath = path
             }
             // The caret is its own key, because it moves without the text changing — and the text
             // changing moves it too, which is why the version is in here as well as the offset.
@@ -1993,7 +2003,8 @@ public struct EditorWorkspaceView: View {
                                       onVisibleLineChange: inSplit ? { line in followThePreview(line) } : nil,
                                       scrollRequest: inSplit ? nil : previewScrollRequest,
                                       initialSourceOffset: document.caretAnchors.offset(for: document.path),
-                                      findRequest: inSplit ? splitPreviewFindRequest : findRequest)
+                                      findRequest: inSplit ? splitPreviewFindRequest : findRequest,
+                                      linkColor: accent)
                         // A new document is a new storage, and a new session to project it.
                         .id(ObjectIdentifier(buffer.source))
                 } else {

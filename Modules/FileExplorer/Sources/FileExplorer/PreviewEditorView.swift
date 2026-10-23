@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Design
 import Events
 
 /// **The editable Preview** (TE67.3): a TextKit 2 text view drawing ``PreviewEditSession/display``,
@@ -42,6 +43,8 @@ struct PreviewEditorView: NSViewRepresentable {
     var initialSourceOffset: Int?
     /// Bumped to open the find bar — the header's magnifying glass, as over Source.
     var findRequest: Int = 0
+    /// The window's hue, which links wear here as they do in read-only Preview (ED5).
+    var linkColor: Color = LiquidGlassHue.stored().accentColor
     /// Text ▸ Check Spelling While Typing, followed here as Source follows it (review V10).
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling: Bool
         = EditorTextSettings.checksSpellingDefault
@@ -50,8 +53,23 @@ struct PreviewEditorView: NSViewRepresentable {
         = EditorTextSettings.continuesListsDefault
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(session: PreviewEditSession(source: source, undoManager: undoManager,
-                                                style: .init(scale: fontScale), documentFolder: documentFolder))
+        let coordinator = Coordinator(session: PreviewEditSession(source: source, undoManager: undoManager,
+                                                                  style: .init(scale: fontScale),
+                                                                  documentFolder: documentFolder,
+                                                                  linkColor: NSColor(linkColor)))
+        coordinator.linkHue = linkColor
+        return coordinator
+    }
+
+    /// **What the text view draws over a link: the session's ink, and AppKit's own rest (ED5).** An
+    /// `NSTextView` paints its `linkTextAttributes` over a link's run, and their default colour is
+    /// `NSColor.linkColor` — the system blue, whatever the run's own colour says. The underline and
+    /// the pointer stay AppKit's.
+    static func linkTextAttributes(_ base: [NSAttributedString.Key: Any]?,
+                                   color: NSColor) -> [NSAttributedString.Key: Any] {
+        var attributes = base ?? [:]
+        attributes[.foregroundColor] = color
+        return attributes
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -108,6 +126,16 @@ struct PreviewEditorView: NSViewRepresentable {
         if let view = coordinator.textView, view.isContinuousSpellCheckingEnabled != checksSpelling {
             view.isContinuousSpellCheckingEnabled = checksSpelling
         }
+        // Compared as the hue it was handed, not as a converted `NSColor`, which is a new object
+        // each time: a page redecorated on every update would be a whole page per keystroke.
+        if coordinator.linkHue != linkColor {
+            coordinator.linkHue = linkColor
+            coordinator.session.linkColor = NSColor(linkColor)
+        }
+        if let view = coordinator.textView,
+           (view.linkTextAttributes?[.foregroundColor] as? NSColor) != coordinator.session.linkColor {
+            view.linkTextAttributes = Self.linkTextAttributes(view.linkTextAttributes, color: coordinator.session.linkColor)
+        }
         coordinator.session.undoManager = undoManager
         coordinator.session.documentFolder = documentFolder
         coordinator.session.continuesLists = continuesLists
@@ -147,6 +175,8 @@ struct PreviewEditorView: NSViewRepresentable {
         var lastFindRequest = 0
         /// The handle this view registered with — the bar's, so a test can ask it what it targets.
         weak var handle: EditorTextViewHandle?
+        /// The hue ``PreviewEditSession/linkColor`` was last made from.
+        var linkHue: Color?
 
         /// **The workspace's follow and go-to requests, acted on a turn later** (review V6,
         /// 2026-10-09). Handed over in `updateNSView`, and each reports back into the workspace's

@@ -153,7 +153,7 @@ import Sync
     @Test func aPDFHasNoStatusLineAndATextFileKeepsOne() throws {
         let workspace = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
         #expect(!workspace.contains("EditorPDFStatusLine"), "the PDF's status line is mounted again")
-        #expect(workspace.contains("EditorStatusLine(facts: facts, caret: caret"), "the text status line went too")
+        #expect(workspace.contains("EditorStatusLine(facts: EditorStatusLine.shownFacts("), "the text status line went too")
         for file in ["EditorPDFCard.swift", "EditorPDFCanvas.swift", "EditorPDFCapsule.swift"] {
             #expect(!(try ChromeGlassWiringTests.source(file)).contains("struct EditorPDFStatusLine"))
         }

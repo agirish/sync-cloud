@@ -202,8 +202,19 @@ struct EditorPDFFillPalette: View {
         .background(tool.flyout.map { EditorHeadingMenuAnchor.Probe(anchor: anchors.anchor($0)) })
         .disabled(Self.refusal(tool, fill: fill) != nil)
         .accessibilityLabel(tool.title)
+        .accessibilityValue(Self.spokenValue(tool, color: fill.color, mark: shownMark))
         .accessibilityAddTraits(lit ? .isSelected : [])
         .help(Self.refusal(tool, fill: fill) ?? Self.hint(tool))
+    }
+
+    /// **What a tool's face shows that its name does not (PD6)**: Ink's swatch is the colour, and
+    /// Marks wears the mark — "Ink, Blue", "Marks, Check Mark" — where VoiceOver said only the name.
+    static func spokenValue(_ tool: Tool, color: EditorPDFFillColor, mark: EditorPDFFillMark) -> String {
+        switch tool {
+        case .ink: return color.title
+        case .marks: return mark.title
+        default: return ""
+        }
     }
 
     @ViewBuilder

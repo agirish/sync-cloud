@@ -72,4 +72,9 @@ enum EditorSaveStatus: Equatable {
         if case .stopped = self { return true }
         return false
     }
+
+    /// **What VoiceOver calls the dot — the header's and the rail's alike (ED10)**: a stop is "Not
+    /// saving", anything else lit is "Not saved yet". The rail said "Unsaved" for both, so a stopped
+    /// autosave read there as the two seconds of an ordinary keystroke.
+    var dotName: String { isWarning ? "Not saving" : "Not saved yet" }
 }

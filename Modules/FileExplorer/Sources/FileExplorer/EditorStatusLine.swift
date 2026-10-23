@@ -17,7 +17,10 @@ import Design
 /// that changes as you work and the only one you cannot get anywhere else.
 struct EditorStatusLine: View, Equatable {
 
-    let facts: EditorDocumentFacts
+    /// The buffer's counts, encoding and line endings — or `nil` while the ones counted are another
+    /// file's (ED2): the counts and the file's facts are left out until this file's arrive, and the
+    /// caret and the size, which are this file's already, stand alone. See ``shownFacts(_:countedFor:open:)``.
+    let facts: EditorDocumentFacts?
     let caret: EditorCaret
     /// The file's size on disk, already formatted, or `nil` when nothing has been read.
     ///
@@ -235,8 +238,8 @@ struct EditorStatusLine: View, Equatable {
             // of what you are doing in it, and they change only when a different file is opened.
             if rung != .caret {
                 if let fileSize { Text(fileSize) }
-                if let encoding = facts.encoding { Text(encoding) }
-                if let ending = facts.lineEnding { Text(ending.rawValue) }
+                if let encoding = facts?.encoding { Text(encoding) }
+                if let ending = facts?.lineEnding { Text(ending.rawValue) }
             }
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -252,9 +255,9 @@ struct EditorStatusLine: View, Equatable {
     ///
     /// "selected" ends the run rather than starting it, so the numbers line up where the document's
     /// stood and the word that changed is the last one read.
-    static func countCaptions(facts: EditorDocumentFacts, selection: EditorSelectionFacts?,
+    static func countCaptions(facts: EditorDocumentFacts?, selection: EditorSelectionFacts?,
                               rung: Rung, lines: Bool) -> [String] {
-        guard rung != .caret else { return [] }
+        guard rung != .caret, let facts else { return [] }
         guard let selection else {
             return rung == .full ? [facts.wordsCaption, facts.charactersCaption] : [facts.wordsCaption]
         }
@@ -300,14 +303,24 @@ struct EditorStatusLine: View, Equatable {
     /// One sentence for VoiceOver, because five separate labels in a row is five stops on the way
     /// to the text — and this strip is beside the thing a person came here to read. A selection is
     /// said whole, with its line count, whatever the rung on screen had room for.
-    static func accessibilityLabel(facts: EditorDocumentFacts, caret: EditorCaret,
+    static func accessibilityLabel(facts: EditorDocumentFacts?, caret: EditorCaret,
                                    fileSize: String? = nil, selection: EditorSelectionFacts? = nil) -> String {
         var parts = countCaptions(facts: facts, selection: selection, rung: .full, lines: true)
         parts.append(caretCaption(caret))
         if let fileSize { parts.append(fileSize) }
-        if let encoding = facts.encoding { parts.append(encoding) }
-        if let ending = facts.lineEnding { parts.append("\(ending.rawValue) line endings") }
+        if let encoding = facts?.encoding { parts.append(encoding) }
+        if let ending = facts?.lineEnding { parts.append("\(ending.rawValue) line endings") }
         return parts.joined(separator: ", ")
+    }
+
+    /// **The counts the line may show for the open file: the ones counted for it, else none (ED2).**
+    /// The count is taken 150 ms after the text settles, so a rail click left the last file's words,
+    /// encoding and line endings beside the new file's size until it landed. Keyed on the PATH and
+    /// not the text's version: a version gate would blank the counts on every keystroke, where the
+    /// ones on screen are this file's, a keystroke old — the debounce's ordinary bargain.
+    static func shownFacts(_ facts: EditorDocumentFacts, countedFor counted: String?,
+                           open: String?) -> EditorDocumentFacts? {
+        counted != nil && counted == open ? facts : nil
     }
 }
 

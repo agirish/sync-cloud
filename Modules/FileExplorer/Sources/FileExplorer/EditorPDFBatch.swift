@@ -58,7 +58,7 @@ public enum EditorPDFBatchKind: Equatable, Sendable {
 ///
 /// **A file that cannot run is skipped with its reason, not failed with the batch**: one locked to
 /// open (no tool can read it), one password-protected for Clean Metadata (the toolkit refuses), one
-/// Compress cannot make smaller. Cancel stops the file in hand — nothing is written for it — and
+/// whose owner forbids the changes Rotate makes in place, one Compress cannot make smaller. Cancel stops the file in hand — nothing is written for it — and
 /// skips the rest; the copies already written stay.
 @MainActor
 public final class EditorPDFBatch: ObservableObject, Identifiable {
@@ -67,6 +67,8 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         case alreadySmall
         case lockedToOpen
         case passwordProtected
+        /// Encrypted with its owner's restrictions, which forbid the changes Rotate makes in place.
+        case restrictedByOwner
         case noPages
         case inTheCloud
         case cancelled
@@ -77,6 +79,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
             case .alreadySmall: return "already small"
             case .lockedToOpen: return "locked with a password"
             case .passwordProtected: return "password-protected"
+            case .restrictedByOwner: return "its owner doesn’t allow changing its pages"
             case .noPages: return "no pages"
             case .inTheCloud: return "still in the cloud"
             case .cancelled: return "cancelled"
@@ -293,8 +296,11 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         if document.isLocked { return .skipped(.lockedToOpen) }
         if case .cleanMetadata = tool, document.isEncrypted { return .skipped(.passwordProtected) }
         let pageCount = document.pageCount
-        if pageCount == 0 { return .skipped(.noPages) }
         let edit = tool.tool(pageCount: pageCount)
+        if ownerForbids(edit, isEncrypted: document.isEncrypted, allowsAssembly: document.allowsDocumentAssembly) {
+            return .skipped(.restrictedByOwner)
+        }
+        if pageCount == 0 { return .skipped(.noPages) }
         if let refusal = EditorPDFToolEngine.refusal(edit, pageCount: pageCount) { return .failed(refusal) }
         do {
             return .output(try EditorPDFToolEngine.output(of: edit, input: input,
@@ -305,6 +311,18 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         } catch {
             // In Edit's words, as a single file's run says it — not the toolkit's PDF Utils ones.
             return .failed(EditorPDFToolEngine.reason(error, tool: edit))
+        }
+    }
+
+    /// **Whether the owner's restrictions forbid `edit` on this file** (PD3) — the toolkit's own test
+    /// for Rotate and Delete Pages, which change the document in place (`openEditableDocument`):
+    /// encrypted, and no page assembly. Skipped before the run rather than failed by it, whose
+    /// sentence names the file and so named it twice after the reasons line's own name; and the run
+    /// is not paid for. The tools that rebuild the document run on such a file.
+    nonisolated static func ownerForbids(_ edit: EditorPDFTool, isEncrypted: Bool, allowsAssembly: Bool) -> Bool {
+        switch edit {
+        case .rotate, .deletePages: return isEncrypted && !allowsAssembly
+        default: return false
         }
     }
 

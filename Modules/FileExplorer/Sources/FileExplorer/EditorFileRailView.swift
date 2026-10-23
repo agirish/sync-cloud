@@ -659,7 +659,7 @@ struct EditorFileRailView: View {
                     .frame(width: 5, height: 5)
                     .frame(width: Self.dotColumnWidth, alignment: .leading)
                     .accessibilityHidden(dot == nil)
-                    .accessibilityLabel("Unsaved")
+                    .accessibilityLabel(documentStatus?.dotName ?? "")
                 Image(systemName: Self.rowSymbol(entry.kind))
                     .scaledFont(.system(size: 11))
                 Text(entry.name)

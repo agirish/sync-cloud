@@ -1,4 +1,6 @@
 import AppKit
+import SwiftUI
+import Design
 import Events
 
 /// **One editable Preview's working state** (TE67 §3.4–3.7): the projection on screen, what the
@@ -98,10 +100,23 @@ final class PreviewEditSession {
     }
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
+    /// **The ink a link wears: the window's hue, as read-only Preview draws it (ED5)** — not
+    /// `NSColor.linkColor`, which flipped every link between the two each time Edit in Preview was
+    /// turned on or off. The view hands in its own; a new one redecorates the page.
+    var linkColor: NSColor {
+        didSet {
+            guard linkColor != oldValue else { return }
+            lastDecoration = nil
+            changeDisplay { replaced = Self.splice(overlaid(decoratedProjection()), into: display) }
+        }
+    }
+
     init(source: EditorSourceStorage, undoManager: UndoManager?,
-         style: MarkdownProjection.Style = MarkdownProjection.Style(), documentFolder: String? = nil) {
+         style: MarkdownProjection.Style = MarkdownProjection.Style(), documentFolder: String? = nil,
+         linkColor: NSColor = NSColor(LiquidGlassHue.stored().accentColor)) {
         self.source = source
         self.undoManager = undoManager
+        self.linkColor = linkColor
         var style = style
         if style.columnWidth == nil { style.columnWidth = Self.defaultColumn }
         self.style = style
@@ -983,7 +998,7 @@ final class PreviewEditSession {
         text.addAttribute(.foregroundColor, value: NSColor.textColor, range: whole)
         text.enumerateAttribute(.link, in: whole) { value, range, _ in
             guard value != nil else { return }
-            text.addAttribute(.foregroundColor, value: NSColor.linkColor, range: range)
+            text.addAttribute(.foregroundColor, value: linkColor, range: range)
             // A plain click places the caret here; say how to follow it (§1.2).
             text.addAttribute(.toolTip, value: Self.linkTip, range: range)
         }
