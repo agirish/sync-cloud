@@ -8790,3 +8790,22 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s createUndo=%s filesHeld=%s\n'
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same undo (`createUndo=1`) | RECORDED — not owed |
+
+---
+
+## Undoing a move that landed twice on one name puts each file home (FR23) — main only
+
+Moving `/A/f.txt` and `/B/f.txt` into `/D` with Replace left both undo records describing B's file,
+so ⌘Z put B's content at `/A` and left `/B` empty. `main` redirects the earlier record to where the
+replace kept its file, and hands the later one what `/D` held before the batch.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s moveSnap=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'movedIdentity: ItemIdentity.snapshot(')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   moveSnap=2
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The registration-time snapshot (`moveSnap=2`) | RECORDED — not owed |

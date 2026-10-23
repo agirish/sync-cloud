@@ -248,6 +248,38 @@ import Foundation
         #expect(manager.currentError == nil, "\(manager.currentError?.reason ?? "")")
     }
 
+    /// FR23. Moving `/A/f.txt` and `/B/f.txt` into `/D` with Replace lands two items on one name.
+    /// ⌘Z must put each file back where it came from — before the fix both undo records described
+    /// B's file at `/D/f.txt`, so B's content went to `/A` and `/B` was left empty.
+    @MainActor
+    @Test func undoingAMoveThatLandedTwiceOnOneNamePutsEachFileHome() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("fr23-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        for dir in ["A", "B", "D"] {
+            try FileManager.default.createDirectory(at: base.appendingPathComponent(dir), withIntermediateDirectories: true)
+        }
+        let a = base.appendingPathComponent("A/f.txt"), b = base.appendingPathComponent("B/f.txt")
+        try Data("from A".utf8).write(to: a)
+        try Data("from B".utf8).write(to: b)
+        let manager = FileSyncManager()
+        manager.undoManager = UndoManager()
+        manager.collisionResolver = { _ in .replace }
+        manager.permanentDeleteConfirmer = { _ in false }
+        let fm = TrashRefusingFileManager()
+        let nodes = [a, b].map { FileNode(id: $0.path, name: "f.txt", isDirectory: false, fileSize: 6) }
+
+        _ = await manager.moveItems(nodes: nodes, toPath: base.appendingPathComponent("D").path, fileManager: fm)
+        try #require(String(decoding: try Data(contentsOf: base.appendingPathComponent("D/f.txt")), as: UTF8.self) == "from B",
+                     "the premise: the second move replaced the first")
+
+        manager.undoManager?.undo()
+        await waitUntil("the undo drains") { manager.activeFileOperationsCount == 0 }
+
+        #expect((try? String(decoding: Data(contentsOf: a), as: UTF8.self)) == "from A")
+        #expect((try? String(decoding: Data(contentsOf: b), as: UTF8.self)) == "from B")
+        #expect(!FileManager.default.fileExists(atPath: base.appendingPathComponent("D/f.txt").path))
+    }
+
     @Test func testRecursivePathValidation() async throws {
         let parentDir = URL(fileURLWithPath: "/src/folder")
         let targetChildDir = URL(fileURLWithPath: "/src/folder/child")

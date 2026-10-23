@@ -314,6 +314,8 @@ extension FileSyncManager {
             // + lowercased), for the duplicate-destination restart below. Aggressive on purpose:
             // it only NOMINATES candidates — the volume-gated check at the hit decides.
             var copyWalkIndicesByFoldedDestination: [String: [Int]] = [:]
+            // The same index for MOVES, over `targetItems` itself — see `recordLanded`.
+            var moveIndicesByFoldedDestination: [String: [Int]] = [:]
             // Items skipped because the move's target WAS its source. Counted rather than
             // re-derived afterwards: the loop's target can be rewritten by the provider-name
             // check, so only the loop knows which comparison actually decided the skip.
@@ -330,7 +332,31 @@ extension FileSyncManager {
             /// Records one item that has landed at `targetURL`: the transfer, and for a copy the
             /// identity walk its undo will compare against.
             func recordLanded(from sourceURL: URL, to targetURL: URL, overwritten trashed: URL?) {
-                targetItems.append((from: sourceURL, to: targetURL, overwritten: trashed))
+                var overwritten = trashed
+                if isMove {
+                    // **A move that replaced an item THIS batch moved there** (FR23). Moving
+                    // `/A/f.txt` and `/B/f.txt` into `/D` with Replace leaves A's file where the
+                    // replace put it — `trashed` — and B's at `/D/f.txt`. Both records said
+                    // "it is at /D/f.txt", so ⌘Z sent B's content to `/A`, restored A's at `/D`,
+                    // and left `/B` empty. So the earlier record now names where its file really
+                    // is, and this one inherits what `/D` held before the batch, which is what its
+                    // own undo must put back. Same on-disk-name test as the copy branch below.
+                    let folded = targetURL.path.precomposedStringWithCanonicalMapping.lowercased()
+                    var stillThere: [Int] = []
+                    for i in moveIndicesByFoldedDestination[folded] ?? [] {
+                        let earlier = targetItems[i].to
+                        let sameOnDiskName = earlier.path.precomposedStringWithCanonicalMapping
+                            == targetURL.path.precomposedStringWithCanonicalMapping
+                            || !Self.volumeSupportsCaseSensitiveNamesForNewItem(at: targetURL)
+                        // Only a replace that kept the old item somewhere can be followed.
+                        guard sameOnDiskName, let trashed else { stillThere.append(i); continue }
+                        overwritten = targetItems[i].overwritten
+                        targetItems[i] = (from: targetItems[i].from, to: trashed, overwritten: nil)
+                    }
+                    // A redirected record no longer lives at this name, so it leaves the index.
+                    moveIndicesByFoldedDestination[folded] = stillThere + [targetItems.count]
+                }
+                targetItems.append((from: sourceURL, to: targetURL, overwritten: overwritten))
                 if !isMove {
                     // A batch can land one destination TWICE — two same-named sources
                     // through the replace prompt, under one spelling or two ("F.txt" then
