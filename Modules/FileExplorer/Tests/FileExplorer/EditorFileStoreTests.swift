@@ -23,6 +23,67 @@ import Foundation
         return url.path
     }
 
+    // MARK: - A version that arrives in the save's window is kept (FR48)
+
+    /// The caller checks the file, then the store encodes, stages and flushes before the swap. A
+    /// newer version installed in that window — here, before the call, against the stamp the
+    /// document still holds — used to become the swap's backup and be deleted. It is kept beside
+    /// the file, and the save says so.
+    @Test func aVersionThatArrivedBeforeTheSwapIsKept() throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let path = try write(Data("opened".utf8), named: "note.md", in: folder)
+        let opened = try #require(EditorFileStore.stamp(ofPath: path))
+        // Another Mac's version lands: a new file, so a new inode and a new size.
+        let other = folder.appendingPathComponent(".incoming")
+        try Data("written on the other Mac".utf8).write(to: other)
+        _ = try FileManager.default.replaceItemAt(URL(fileURLWithPath: path), withItemAt: other)
+
+        #expect {
+            try EditorFileStore.write("typed here", toPath: path, encoding: .utf8, expected: opened)
+        } throws: { error in
+            (error as? EditorFileStore.Failure)?.savedBut?.contains("note (other version).md") == true
+        }
+        #expect(try String(contentsOfFile: path, encoding: .utf8) == "typed here")
+        let kept = folder.appendingPathComponent("note (other version).md").path
+        #expect((try? String(contentsOfFile: kept, encoding: .utf8)) == "written on the other Mac")
+    }
+
+    /// Keep Mine: the user agreed to replace the version on disk, and the write says which one —
+    /// so it is replaced as asked, not kept aside as one that arrived unasked.
+    @Test func keepMineReplacesTheVersionItWasAskedAbout() throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let path = try write(Data("opened".utf8), named: "note.md", in: folder)
+        let other = folder.appendingPathComponent(".incoming")
+        try Data("written on the other Mac".utf8).write(to: other)
+        _ = try FileManager.default.replaceItemAt(URL(fileURLWithPath: path), withItemAt: other)
+        let consented = try #require(EditorFileStore.stamp(ofPath: path))
+
+        _ = try EditorFileStore.write("mine", toPath: path, encoding: .utf8, expected: consented)
+
+        let visible = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { !$0.hasPrefix(".") }
+        #expect(visible == ["note.md"])
+    }
+
+    /// The ordinary save: the backup is the version the buffer was written against, and goes.
+    @Test func anOrdinarySaveKeepsNothingBeside() throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let path = try write(Data("opened".utf8), named: "note.md", in: folder)
+        let opened = try #require(EditorFileStore.stamp(ofPath: path))
+
+        let first = try EditorFileStore.write("one", toPath: path, encoding: .utf8, expected: opened)
+        // A second write still carrying the OLD stamp — a ⌘S landing behind an autosave that has not
+        // committed yet. What it displaces is this store's own write, not somebody else's.
+        _ = try EditorFileStore.write("two", toPath: path, encoding: .utf8, expected: opened)
+        _ = try EditorFileStore.write("three", toPath: path, encoding: .utf8, expected: first)
+
+        let visible = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { !$0.hasPrefix(".") }
+        #expect(visible == ["note.md"])
+        #expect(try String(contentsOfFile: path, encoding: .utf8) == "three")
+    }
+
     // MARK: A failed save says why, not where (TE175)
 
     /// **A save the folder refuses names the reason, never the hidden staging file.** Foundation's

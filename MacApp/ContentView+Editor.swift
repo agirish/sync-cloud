@@ -1510,7 +1510,10 @@ extension ContentView {
                 editorAutosaveStop = .diverged(divergence)
                 return false
             }
-            return writeEditorDocument(explicit: explicit)
+            // The disk as it stood when they agreed — the version Keep Mine replaces on purpose, so
+            // the save does not keep it aside as one that arrived unasked (FR48).
+            return writeEditorDocument(explicit: explicit,
+                                       consentedTo: EditorFileStore.stamp(ofPath: path))
         case .reloadFromDisk:
             // **With the TE59 banner up, the reload is "Use Disk Version"** — the same answer, as one
             // step ⌘Z takes back, so the typing the question was about can still come back. Every
@@ -1572,13 +1575,13 @@ extension ContentView {
     /// **A successful write clears the stop**, whatever it was: the file on disk is now this
     /// buffer, so the reason autosave halted has gone with it.
     @discardableResult
-    private func writeEditorDocument(explicit: Bool) -> Bool {
+    private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool {
         // **A write that puts the file BACK** — Save Again after it was deleted — is a
         // new file in a folder the panes have walked, and is shown there as ⌘N's is. A rewrite of a
         // file the panes already list is not (see `rereadPanesAfterEditorWrite`).
         let recreates = editorDocument.path.map { !FileManager.default.fileExists(atPath: $0) } ?? false
         do {
-            editorDocument.markSaved(stamp: try EditorFileStore.write(editorDocument))
+            editorDocument.markSaved(stamp: try EditorFileStore.write(editorDocument, consentedTo: consentedTo))
             editorAutosaveStop = nil
             // The disk agrees with the document now, so a TE59 banner has nothing left to ask.
             editorDiskWatch.reconcile()

@@ -8829,3 +8829,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s mergeFlatten=%s unread=%s\n' 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same merge (`mergeFlatten=1`) | RECORDED — not owed |
+
+---
+
+## A save keeps a version that arrived while it was writing (FR48, FR49) — main only
+
+Edit's save deleted the swap's backup unexamined, so a newer version installed between the check and
+the swap was lost for good; New File checked the name and then wrote through the same replace. `main`
+keeps a displaced version that is neither the one written against nor its own last write, as
+`<name> (other version)`, and creates new files exclusively.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s backupDelete=%s newFile=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorFileStore.swift 2>/dev/null | grep -cF 'if let backup { try? fileManager.removeItem(at: backup) }')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorFileStore.swift 2>/dev/null | grep -cF 'try write("", toPath: path)')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         backupDelete=1 newFile=1
+# v4.x, v3.x, v2.x   backupDelete=0 newFile=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same save and New File (`backupDelete=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Edit file store (`backupDelete=0`) | CLOSED — does not apply |

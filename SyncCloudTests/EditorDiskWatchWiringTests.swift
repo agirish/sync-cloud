@@ -74,7 +74,10 @@ import FileExplorer
         let asks = try #require(apply.range(of: "EditorAlerts.keepMineAsks(for: divergence)"))
         let ask = try #require(apply.range(of: "!EditorAlerts.confirmKeepMine(name: editorDocument.name)"))
         let declined = try #require(apply.range(of: "editorAutosaveStop = .diverged(divergence) return false"))
-        let write = try #require(apply.range(of: "return writeEditorDocument(explicit: explicit)"))
+        // …with the disk stamp the user agreed to replace, or the version they chose to discard
+        // would be kept aside as an "(other version)" (FR48).
+        let write = try #require(apply.range(
+            of: "return writeEditorDocument(explicit: explicit, consentedTo: EditorFileStore.stamp(ofPath: path))"))
         #expect(keep.lowerBound < asks.lowerBound && asks.lowerBound < ask.lowerBound
                 && ask.lowerBound < declined.lowerBound && declined.lowerBound < write.lowerBound,
                 "Keep Mine… writes before it asks")
@@ -195,7 +198,7 @@ import FileExplorer
         let write = try #require(save.range(of: "return writeEditorDocument(explicit: true)"))
         #expect(divergence.lowerBound < skip.lowerBound && skip.lowerBound < write.lowerBound,
                 "the skip must follow the divergence question and precede the write")
-        let writer = try Self.body("private func writeEditorDocument(explicit: Bool) -> Bool")
+        let writer = try Self.body("private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool")
         #expect(!writer.contains("saveHasNothingToWrite"),
                 "Keep Mine and Save Again write through here and must write whatever the buffer is")
     }
@@ -203,12 +206,12 @@ import FileExplorer
     // MARK: Gap 1 — a write that puts a deleted file back is listed
 
     @Test func aWriteThatRecreatesTheFileShowsItInThePane() throws {
-        let write = try Self.body("private func writeEditorDocument(explicit: Bool) -> Bool")
+        let write = try Self.body("private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool")
         #expect(write.contains("let recreates = editorDocument.path.map { !FileManager.default.fileExists(atPath: $0) } ?? false"))
         #expect(write.contains("if recreates { showCreatedFileInPane(path) }"),
                 "Save Again after a delete leaves the panes without the file")
         let measured = try #require(write.range(of: "let recreates"))
-        let written = try #require(write.range(of: "EditorFileStore.write(editorDocument)"))
+        let written = try #require(write.range(of: "EditorFileStore.write(editorDocument, consentedTo: consentedTo)"))
         #expect(measured.lowerBound < written.lowerBound, "asked after the write, when the file always exists")
     }
 

@@ -167,9 +167,9 @@ import Sync
     /// through `noteEditorWrote`, which records it only under a compared folder (dropping the
     /// cached walks of one elsewhere at once) and pays at once while Compare is on screen.
     @Test func everySaveIsRecordedAsAnUnreadWrite() throws {
-        let save = try EditorNewFilePaneWiringTests.body(of: "private func writeEditorDocument(explicit: Bool) -> Bool {",
+        let save = try EditorNewFilePaneWiringTests.body(of: "private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool {",
                                                          in: "ContentView+Editor.swift")
-        let write = try #require(save.range(of: "try EditorFileStore.write(editorDocument)"))
+        let write = try #require(save.range(of: "try EditorFileStore.write(editorDocument, consentedTo: consentedTo)"))
         let note = try #require(save.range(of: "noteEditorWrote(path)"), "⌘S is not recorded")
         #expect(write.lowerBound < note.lowerBound, "recorded before the write succeeded")
         let background = try EditorNewFilePaneWiringTests.body(of: "private func writeEditorDocumentDidWrite() -> Bool {",

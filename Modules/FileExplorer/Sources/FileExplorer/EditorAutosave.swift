@@ -159,7 +159,8 @@ public enum EditorAutosave {
             do {
                 guard let stamp = try EditorFileStore.write(snapshot.text, toPath: snapshot.path,
                                                             encoding: snapshot.encoding,
-                                                            ticket: snapshot.ticket) else {
+                                                            ticket: snapshot.ticket,
+                                                            expected: snapshot.stamp) else {
                     return .overtaken
                 }
                 return .wrote(stamp)

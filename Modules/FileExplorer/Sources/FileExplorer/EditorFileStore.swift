@@ -1,4 +1,5 @@
 import Foundation
+import Events
 import Sync
 
 /// The editor's file layer — open, save, create — with no view attached.
@@ -339,11 +340,12 @@ public enum EditorFileStore {
 
     @discardableResult
     static func write(_ text: String, toPath path: String,
-                      encoding: BoundedTextRead.TextEncoding = .utf8) throws -> Stamp {
+                      encoding: BoundedTextRead.TextEncoding = .utf8,
+                      expected: Stamp? = nil) throws -> Stamp {
         // A write happening now, so it takes the newest ticket and cannot be refused — which is
         // what makes the force-unwrap total rather than optimistic.
         try writeOrder.perform(ticket: nil, to: resolved(path)) {
-            try writeUnordered(text, toPath: path, encoding: encoding)
+            try writeUnordered(text, toPath: path, encoding: encoding, expected: expected)
         }!
     }
 
@@ -484,14 +486,15 @@ public enum EditorFileStore {
     ///   written and nothing should be marked saved against it.
     static func write(_ text: String, toPath path: String,
                       encoding: BoundedTextRead.TextEncoding,
-                      ticket: UInt64) throws -> Stamp? {
+                      ticket: UInt64, expected: Stamp? = nil) throws -> Stamp? {
         try writeOrder.perform(ticket: ticket, to: resolved(path)) {
-            try writeUnordered(text, toPath: path, encoding: encoding)
+            try writeUnordered(text, toPath: path, encoding: encoding, expected: expected)
         }
     }
 
     private static func writeUnordered(_ text: String, toPath path: String,
-                                       encoding: BoundedTextRead.TextEncoding) throws -> Stamp {
+                                       encoding: BoundedTextRead.TextEncoding,
+                                       expected: Stamp? = nil) throws -> Stamp {
         // **Written back in the encoding it was read in.** The reader decodes six of them, and a
         // writer that only spoke UTF-8 would silently transcode a UTF-16 or BOM-carrying file the
         // first time somebody saved it: still openable, still correct here, and a different file to
@@ -499,12 +502,35 @@ public enum EditorFileStore {
         guard let bytes = encode(text, as: encoding) else {
             throw Failure(message: "This file’s text can’t be written back as \(encoding.rawValue).")
         }
-        return try writeUnordered(bytes: bytes, toPath: path)
+        return try writeUnordered(bytes: bytes, toPath: path, expected: expected)
     }
 
     /// The staging, the flush, the swap and the read-back — everything both doors share, with the
     /// bytes already decided.
-    private static func writeUnordered(bytes: Data, toPath path: String) throws -> Stamp {
+    /// The stamp each destination was left with by this store's own last write, read and written
+    /// only inside `writeOrder.perform`, whose lock serialises every write.
+    nonisolated(unsafe) private static var lastWritten: [String: Stamp] = [:]
+
+    /// Where a version found in the swap's backup is kept: beside the file, visibly named, never
+    /// over anything already there.
+    static func keptAsideURL(for destination: URL, fileManager: FileManager = .default) -> URL {
+        let folder = destination.deletingLastPathComponent()
+        let ext = destination.pathExtension
+        let stem = destination.deletingPathExtension().lastPathComponent
+        var n = 1
+        while true {
+            let name = stem + (n == 1 ? " (other version)" : " (other version \(n))") + (ext.isEmpty ? "" : ".\(ext)")
+            let url = folder.appendingPathComponent(name)
+            if !fileManager.fileExists(atPath: url.path) { return url }
+            n += 1
+        }
+    }
+
+    /// - Parameter expected: the stamp the bytes were written against — the document's, for a
+    ///   save. When the file the swap displaced is neither that nor this store's own last write,
+    ///   somebody else installed it in the window after the caller's check (FR48), and it is kept.
+    private static func writeUnordered(bytes: Data, toPath path: String,
+                                       expected: Stamp? = nil) throws -> Stamp {
         let fileManager = FileManager.default
         let destination = URL(fileURLWithPath: resolved(path))
 
@@ -535,9 +561,12 @@ public enum EditorFileStore {
         // no-op. Both are dot-prefixed and extensionless, so an orphan is invisible in the rail and
         // in Finder and syncs to iCloud looking like nothing at all. `try?` throughout because a
         // failure to clean up must not mask the error that caused it.
+        // Set when a version the swap displaced could not be moved aside (FR48): it is then the
+        // only copy, and stays as the hidden backup rather than being swept.
+        var keepBackupInPlace = false
         defer {
             if !installed { try? fileManager.removeItem(at: staged) }
-            try? fileManager.removeItem(at: backupPath)
+            if !keepBackupInPlace { try? fileManager.removeItem(at: backupPath) }
         }
 
         do {
@@ -560,8 +589,37 @@ public enum EditorFileStore {
         let backup = try fileManager.replaceItem(at: destination, withItemAt: staged,
                                                  backupItemName: backupName)
         installed = true
-        if let backup { try? fileManager.removeItem(at: backup) }
+        // **The backup is looked at before it is deleted** (FR48). The caller checked the file
+        // a stat ago, but the encode, the staged write and the flush all run before the swap — tens
+        // of milliseconds, more on iCloud — and a newer version installed in that window (a sync
+        // from another Mac, another app's save) became this backup and was deleted outright: no
+        // prompt, nothing in the Trash, and the buffer marked saved. A backup that is neither the
+        // version the caller wrote against nor this store's own last write is that version, and it
+        // is kept beside the file under a name of its own.
+        var keptAside: String?
+        if let backup {
+            let displaced = stamp(ofPath: backup.path)
+            if let expected, let displaced, displaced != expected,
+               displaced != lastWritten[destination.path] {
+                let kept = keptAsideURL(for: destination)
+                if (try? fileManager.moveItem(at: backup, to: kept)) != nil {
+                    keptAside = kept.lastPathComponent
+                } else {
+                    // Not deleted for failing to move: it stays as the hidden backup it already is.
+                    keptAside = backup.lastPathComponent
+                    keepBackupInPlace = true
+                }
+                Logger.shared.warning("[edit] \(destination.path) changed on disk while it was being saved; the other version was kept as \(keptAside ?? "")")
+            }
+            if keptAside == nil { try? fileManager.removeItem(at: backup) }
+        }
 
+        // The other version's whereabouts outrank the read-back's verdict: both are "saved, but",
+        // and only this one names a file the user has to go and look at.
+        if let keptAside {
+            if let stamp = stamp(ofPath: destination.path) { lastWritten[destination.path] = stamp }
+            throw Failure.saved(but: "a different version arrived while it was saving. That version was kept beside it as “\(keptAside)”.")
+        }
         guard let stamp = stamp(ofPath: destination.path) else {
             // The bytes are on disk — this is only the read-back of the new stamp failing, so it is
             // reported rather than treated as a lost save.
@@ -584,6 +642,7 @@ public enum EditorFileStore {
         guard stamp.size == bytes.count else {
             throw Failure.changedAgain
         }
+        lastWritten[destination.path] = stamp
         return stamp
     }
 
@@ -619,15 +678,19 @@ public enum EditorFileStore {
     ///
     /// Refuses a document with no encoding recorded — a read-only or unopened one — rather than
     /// defaulting to UTF-8, which is exactly the silent transcode this pairing exists to prevent.
+    ///
+    /// - Parameter consentedTo: the disk's stamp when the user agreed to replace what is there —
+    ///   Keep Mine. Without it the write is checked against the document's own stamp, and the
+    ///   version the user just chose to discard would be kept as an "(other version)" instead.
     @MainActor
     @discardableResult
-    public static func write(_ document: EditorDocument) throws -> Stamp {
+    public static func write(_ document: EditorDocument, consentedTo: Stamp? = nil) throws -> Stamp {
         guard let path = document.path, let encoding = document.encoding else {
             throw Failure(message: "There is nothing open to save.")
         }
         let text = document.text
         do {
-            return try write(text, toPath: path, encoding: encoding)
+            return try write(text, toPath: path, encoding: encoding, expected: consentedTo ?? document.stamp)
         } catch let failure as Failure where failure.savedBut != nil {
             // Landed, unchecked: remembered, so the disk can be compared with it later (TE147).
             document.noteUncheckedWrite(text)
@@ -717,7 +780,7 @@ public enum EditorFileStore {
     /// Creates an empty file and returns its path.
     ///
     /// Refuses rather than overwrites — the caller has already asked ``refusal(forName:in:)``, and
-    /// this is the check that closes the window between asking and creating.
+    /// the exclusive create is what closes the window between asking and creating.
     ///
     /// **No `FileManaging` parameter**, for the reason ``write(_:toPath:)`` has none: it took one,
     /// and the seam governed the existence check while the bytes went to `FileManager.default`
@@ -737,10 +800,14 @@ public enum EditorFileStore {
             throw Failure(message: refusal)
         }
         let path = (folder as NSString).appendingPathComponent(name)
-        guard !FileManager.default.fileExists(atPath: path) else {
+        // **Created exclusively** (FR49). An existence check and then a write left a window in
+        // which a same-named file arriving from a sync was replaced by an empty one and its backup
+        // deleted; `createNew` installs with `RENAME_EXCL`, so the kernel refuses instead.
+        do {
+            try createNew(Data(), atPath: path)
+        } catch is AlreadyExists {
             throw Failure(message: "“\(name)” already exists here.")
         }
-        try write("", toPath: path)
         return path
     }
 }

@@ -368,7 +368,8 @@ import EventsTestSupport
         rig.type("mine\n")
         try rig.saveElsewhere("theirs\n")
         #expect(rig.watch.reconcile() == .asked(.changed))
-        rig.document.markSaved(stamp: try EditorFileStore.write(rig.document))
+        rig.document.markSaved(stamp: try EditorFileStore.write(rig.document,
+                                                                consentedTo: EditorFileStore.stamp(ofPath: rig.path)))
         #expect(rig.watch.reconcile() == .settled)
         #expect(rig.watch.banner == nil)
         #expect(try rig.onDisk() == "one\ntwo\nthree\nmine\n")
@@ -648,7 +649,7 @@ import EventsTestSupport
 
         #expect(rig.watch.prepareSaveAgain() == .write)
         #expect(FileManager.default.fileExists(atPath: rig.folder.path))
-        rig.document.markSaved(stamp: try EditorFileStore.write(rig.document))     // the host's write
+        rig.document.markSaved(stamp: try EditorFileStore.write(rig.document))
         #expect(rig.watch.reconcile() == .settled)
         #expect(try rig.onDisk() == "one\ntwo\nthree\ntyped\n")
         #expect(await log.holds(.info, containing: "made the folder \(rig.folder.path) again"),
@@ -691,7 +692,8 @@ import EventsTestSupport
         rig.type("mine\n")
         try rig.saveElsewhere("someone else's\n")
         #expect(rig.watch.reconcile() == .asked(.changed))
-        rig.document.markSaved(stamp: try EditorFileStore.write(rig.document))
+        rig.document.markSaved(stamp: try EditorFileStore.write(rig.document,
+                                                                consentedTo: EditorFileStore.stamp(ofPath: rig.path)))
         #expect(rig.watch.reconcile() == .settled)
         #expect(await log.holds(.info, containing: "\(rig.path) agrees with the document again"),
                 "the banner went with nothing in the log")
