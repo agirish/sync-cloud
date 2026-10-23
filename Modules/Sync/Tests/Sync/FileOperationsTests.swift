@@ -177,6 +177,77 @@ import Foundation
         #expect(mockFM.virtualDisk["/dst/data.bin"] == nil)
     }
     
+    /// FR30. Pasting `/T/Photos/Photos` into `/T` targets `/T/Photos` — the source's own parent.
+    /// Answering Replace swapped the inner folder in and trashed the outer one with everything
+    /// else it held. The validation refuses that shape, on either case spelling, and nothing else.
+    @Test func aFolderCannotReplaceTheFolderItSitsIn() throws {
+        let inner = URL(fileURLWithPath: "/T/Photos/Photos")
+        #expect(throws: FileSyncManager.FileOperationError.destinationContainsSource) {
+            try FileSyncManager.validateFileOperation(source: inner, destination: URL(fileURLWithPath: "/T/Photos"),
+                                                      caseSensitiveVolume: true)
+        }
+        #expect(throws: FileSyncManager.FileOperationError.destinationContainsSource) {
+            try FileSyncManager.validateFileOperation(source: inner, destination: URL(fileURLWithPath: "/T/photos"),
+                                                      caseSensitiveVolume: false)
+        }
+        // A Merge moves only the children, so flattening into the parent stays allowed.
+        try FileSyncManager.validateFileOperation(source: inner, destination: URL(fileURLWithPath: "/T/Photos"),
+                                                  caseSensitiveVolume: true, merging: true)
+        // A sibling that merely starts the same way is not a parent.
+        try FileSyncManager.validateFileOperation(source: URL(fileURLWithPath: "/T/Photos2/Photos"),
+                                                  destination: URL(fileURLWithPath: "/T/Photos"),
+                                                  caseSensitiveVolume: true)
+    }
+
+    /// The same shape through the move a paste runs, with Replace answered, on a real disk: the
+    /// outer folder and everything else in it stay exactly where they were. (The mock disk stores
+    /// flat paths, so a moved folder leaves its children listed behind it — that version of this
+    /// test passed with the guard removed.) The Trash is refused, so even a regression leaves the
+    /// replaced folder beside the fixture rather than in the real Trash.
+    @MainActor
+    @Test func replacingTheSourcesOwnParentLeavesItAlone() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("fr30-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let inner = base.appendingPathComponent("Photos/Photos")
+        try FileManager.default.createDirectory(at: inner, withIntermediateDirectories: true)
+        try Data("other".utf8).write(to: base.appendingPathComponent("Photos/other.txt"))
+        try Data("inner".utf8).write(to: inner.appendingPathComponent("inner.txt"))
+        let manager = FileSyncManager()
+        manager.undoManager = UndoManager()
+        manager.collisionResolver = { _ in .replace }
+        manager.permanentDeleteConfirmer = { _ in false }
+        let node = FileNode(id: inner.path, name: "Photos", isDirectory: true, children: [])
+
+        _ = await manager.moveItems(nodes: [node], toPath: base.path, fileManager: TrashRefusingFileManager())
+
+        #expect(FileManager.default.fileExists(atPath: base.appendingPathComponent("Photos/other.txt").path),
+                "the outer folder's other files were replaced away")
+        #expect(FileManager.default.fileExists(atPath: inner.appendingPathComponent("inner.txt").path))
+    }
+
+    /// The Merge answer to the same paste is how a doubled `Photos/Photos` is flattened, and it
+    /// still works: the inner folder's files land in the outer one beside what was already there.
+    @MainActor
+    @Test func mergingAFolderIntoItsParentStillFlattensIt() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("fr30m-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let inner = base.appendingPathComponent("Photos/Photos")
+        try FileManager.default.createDirectory(at: inner, withIntermediateDirectories: true)
+        try Data("other".utf8).write(to: base.appendingPathComponent("Photos/other.txt"))
+        try Data("inner".utf8).write(to: inner.appendingPathComponent("inner.txt"))
+        let manager = FileSyncManager()
+        manager.undoManager = UndoManager()
+        manager.collisionResolver = { _ in .merge }
+        manager.permanentDeleteConfirmer = { _ in false }
+        let node = FileNode(id: inner.path, name: "Photos", isDirectory: true, children: [])
+
+        _ = await manager.moveItems(nodes: [node], toPath: base.path, fileManager: TrashRefusingFileManager())
+
+        #expect(FileManager.default.fileExists(atPath: base.appendingPathComponent("Photos/inner.txt").path))
+        #expect(FileManager.default.fileExists(atPath: base.appendingPathComponent("Photos/other.txt").path))
+        #expect(manager.currentError == nil, "\(manager.currentError?.reason ?? "")")
+    }
+
     @Test func testRecursivePathValidation() async throws {
         let parentDir = URL(fileURLWithPath: "/src/folder")
         let targetChildDir = URL(fileURLWithPath: "/src/folder/child")
@@ -876,5 +947,36 @@ import Foundation
             #expect(nsError.domain == NSCocoaErrorDomain)
             #expect(nsError.code == NSFileReadNoSuchFileError || nsError.code == NSFileNoSuchFileError)
         }
+    }
+}
+
+/// The real disk, with the Trash refused — what a volume without one answers.
+private struct TrashRefusingFileManager: FileManaging {
+    let inner = FileManager.default
+    func fileExists(atPath path: String) -> Bool { inner.fileExists(atPath: path) }
+    func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
+        inner.fileExists(atPath: path, isDirectory: isDirectory)
+    }
+    func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] { try inner.attributesOfItem(atPath: path) }
+    func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+        try inner.setAttributes(attributes, ofItemAtPath: path)
+    }
+    func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool,
+                         attributes: [FileAttributeKey: Any]?) throws {
+        try inner.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
+    }
+    func copyItem(at srcURL: URL, to dstURL: URL) throws { try inner.copyItem(at: srcURL, to: dstURL) }
+    func moveItem(at srcURL: URL, to dstURL: URL) throws { try inner.moveItem(at: srcURL, to: dstURL) }
+    func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+        throw CocoaError(.featureUnsupported)
+    }
+    func removeItem(at url: URL) throws { try inner.removeItem(at: url) }
+    func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
+        try inner.replaceItem(at: destinationURL, withItemAt: stagedURL, backupItemName: backupItemName)
+    }
+    func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
+                    options mask: FileManager.DirectoryEnumerationOptions,
+                    errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
+        inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: handler)
     }
 }

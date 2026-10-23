@@ -28,6 +28,9 @@ extension FileSyncManager {
         /// in time (`DatalessFolderReads`). Not a permission problem, and worded so it does not
         /// send anyone to look at the folder's permissions.
         case folderNotAnswered(folderName: String)
+        /// The destination is a folder the source sits inside — replacing it would throw away the
+        /// folder the item came from, and everything else in it.
+        case destinationContainsSource
 
         var errorDescription: String? {
             switch self {
@@ -47,20 +50,27 @@ extension FileSyncManager {
                 return "This file changed since the preview, so it is no longer the one that rule matched. Preview again to see what it would do now."
             case .folderNotAnswered(let folderName):
                 return "\"\(folderName)\" couldn’t be read: its contents aren’t on this Mac, and the app that syncs it didn’t answer. Open that app and try again."
+            case .destinationContainsSource:
+                return "An item can’t replace the folder it’s inside — that would put the rest of the folder in the Trash. Choose Keep Both instead, or Merge for two folders."
             }
         }
     }
     
-    nonisolated static func validateFileOperation(source: URL, destination: URL) throws {
+    /// - Parameter merging: true for a Merge, which moves the source's CHILDREN into the
+    ///   destination and so may target the folder the source sits in — flattening `Photos/Photos`
+    ///   is exactly that, and it is safe. Only a whole-item install over that folder is refused.
+    nonisolated static func validateFileOperation(source: URL, destination: URL, merging: Bool = false) throws {
         try validateFileOperation(
             source: source,
             destination: destination,
-            caseSensitiveVolume: volumeSupportsCaseSensitiveNames(for: source)
+            caseSensitiveVolume: volumeSupportsCaseSensitiveNames(for: source),
+            merging: merging
         )
     }
 
     /// Testable core; production resolves `caseSensitiveVolume` from the source volume.
-    nonisolated static func validateFileOperation(source: URL, destination: URL, caseSensitiveVolume: Bool) throws {
+    nonisolated static func validateFileOperation(source: URL, destination: URL, caseSensitiveVolume: Bool,
+                                                  merging: Bool = false) throws {
         // Resolve symlinks so an aliased destination path cannot smuggle a directory into itself.
         let src = symlinkResolvedPath(for: source)
         let dst = symlinkResolvedPath(for: destination)
@@ -115,6 +125,19 @@ extension FileSyncManager {
         }
         if isNested {
             throw FileOperationError.nestingViolation
+        }
+
+        // **The mirror question: does the destination HOLD the source?** Paste `/T/Photos/Photos`
+        // into `/T` and the target is `/T/Photos`, the source's own parent. A Replace then swapped
+        // the inner folder in and sent the outer one to the Trash with every other item it held,
+        // and ⌘Z could not move it back (FR30); Finder refuses the same drop. Keep Both picks a new
+        // name, and a Merge (`merging`) moves only the children — flattening is what it is for.
+        let dstWithSlash = dst.hasSuffix("/") ? dst : dst + "/"
+        let holdsSource = caseSensitiveVolume
+            ? nestingSrc.hasPrefix(dstWithSlash)
+            : nestingSrc.range(of: dstWithSlash, options: [.anchored, .caseInsensitive]) != nil
+        if holdsSource && !merging {
+            throw FileOperationError.destinationContainsSource
         }
     }
 

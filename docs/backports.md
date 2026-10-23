@@ -8731,3 +8731,23 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s walkWrite=%s walkCarry=%s ret
 |---|---|---|
 | `v5.x` | The same walk and retire, the same code (`walkCarry=0`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No walk profile, no retire (`walkWrite=0`) | CLOSED — does not apply |
+
+---
+
+## Replace can't put away the folder an item is inside (FR30) — main only
+
+Cutting `/T/Photos/Photos`, pasting it into `/T` and answering Replace trashed the outer folder with
+everything else in it, and ⌘Z could not move it back. `validateFileOperation` now refuses a
+destination that contains the source (`destinationContainsSource`), as Finder does.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s validate=%s holdsCheck=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'throw FileOperationError.nestingViolation')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'destinationContainsSource')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   validate=1 holdsCheck=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same validation, without the check (`holdsCheck=0`) | RECORDED — not owed |

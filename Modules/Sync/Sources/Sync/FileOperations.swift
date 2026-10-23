@@ -550,7 +550,7 @@ extension FileSyncManager {
                             do {
                                 // The nesting guard a Replace gets from `land`: merging a folder into
                                 // its own descendant would walk what it is writing.
-                                try Self.validateFileOperation(source: sourceURL, destination: targetURL)
+                                try Self.validateFileOperation(source: sourceURL, destination: targetURL, merging: true)
                                 let landedBefore = targetItems.count
                                 let failedBefore = taskErrors.count
                                 mergeSkipped = 0
