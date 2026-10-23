@@ -102,9 +102,15 @@ public enum EditorRail {
 
         /// The folders directly inside, by name, in Finder's order — what the folder line's menu
         /// offers to step down into (``EditorFolderTrail``). **Read off the listing's own word**,
-        /// `hasDirectoryPath`, so a survey run after every autosave pays no `stat` for it; plus the
-        /// folders a source root links in from outside (iCloud Drive's `Desktop` and `Documents`),
-        /// which list as links and which the pane shows as folders.
+        /// `hasDirectoryPath`, so a survey run after every autosave pays no `stat` for it; plus every
+        /// link that leads to a folder — iCloud Drive's own `Desktop` and `Documents` among them.
+        ///
+        /// **A link is a folder by the pane's rule** (TE205): the tree walk follows a link, lists it
+        /// as a folder when a folder is at the end, and drops it when nothing is — so the menu offers
+        /// what the pane draws. A link lists with `hasDirectoryPath` false, which is why one to a
+        /// folder used to be missing here unless it was one of iCloud Drive's two. The listing names
+        /// its links at no cost per entry (`DirectoryListing.symbolicLinkPaths`), and only a link
+        /// pays a `stat`, to follow it.
         public var folders: [String]
 
         public init(rows: [EditorRailEntry], otherFileCount: Int?, folders: [String] = []) {
@@ -158,20 +164,29 @@ public enum EditorRail {
                        fileManager: FileManaging = FileManager.default,
                        isCloudOnly: (String) -> Bool = {
                            MaterializationStatus.isCloudOnly(atPath: $0)
-                       },
-                       links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> Survey {
+                       }) -> Survey {
         // Unreadable, or no folder at all: "there are no other files in it" is a claim, and there
         // is nothing here to base one on. `nil` says that; `0` would assert it.
         guard !folder.isEmpty else { return Survey(rows: [], otherFileCount: nil) }
-        let listing = fileManager.listing(of: URL(fileURLWithPath: folder))
+        let listing = fileManager.listing(of: URL(fileURLWithPath: folder),
+                                          includingPropertiesForKeys: [.isSymbolicLinkKey])
         guard listing.outcome != .unreadable else { return Survey(rows: [], otherFileCount: nil) }
         let names = listing.urls.map(\.lastPathComponent)
-        let linked = PathBoundary.linkedFolders(atRoot: folder, in: links)
+        let symbolicLinks = listing.symbolicLinkPaths ?? []
         // The pane's own rule for hidden — a leading dot — so the menu offers what the pane lists.
+        // Asked first, so a hidden link is never followed for a menu that will not show it.
         let folders = listing.urls
-            .filter { $0.hasDirectoryPath || linked[$0.lastPathComponent] != nil }
+            .filter { showsHidden || !$0.lastPathComponent.hasPrefix(".") }
+            .filter { url in
+                if url.hasDirectoryPath { return true }
+                // The walk's rule for a link (`stat(at:)` in the pane's scan): followed, a folder
+                // when a folder is at the end; a dangling link, or one to a file, is not a folder.
+                guard symbolicLinks.contains(url.path) else { return false }
+                var isDirectory: ObjCBool = false
+                return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory)
+                    && isDirectory.boolValue
+            }
             .map(\.lastPathComponent)
-            .filter { showsHidden || !$0.hasPrefix(".") }
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         var rows: [EditorRailEntry] = []
         for name in names {

@@ -8516,3 +8516,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s strip=%s interruptedStop=%s\n
 |---|---|---|
 | `v5.x` | The dead Stop, the same code (`interruptedStop=1`) | RECORDED — owed |
 | `v4.x` / `v3.x` / `v2.x` | No document survey strip (`strip=0`) | CLOSED — does not apply |
+
+---
+
+## Edit's folder menu lists a folder that is a link (TE205) — main only
+
+The Files list's folder menu left out a link to a folder, which the file pane shows as a folder: the
+survey kept only `hasDirectoryPath` entries, and a link lists with it false. `main` follows each
+link the listing names (`DirectoryListing.symbolicLinkPaths`, read off the enumerator's prefetched
+answer, so a plain entry costs no `stat`) and lists it when a folder is at the end.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s folderMenu=%s linkPaths=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorRailFolderMenu.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/DirectoryListing.swift 2>/dev/null | grep -c 'symbolicLinkPaths')"; done
+# measured 2026-10-22, against origin, before this landed:
+# main               folderMenu=1 linkPaths=0
+# v5.x, v4.x, v3.x, v2.x   folderMenu=0 linkPaths=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No folder menu (`folderMenu=0`) | CLOSED — does not apply |

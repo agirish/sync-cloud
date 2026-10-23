@@ -384,6 +384,46 @@ import Testing
         #expect(direct.urls.map(\.path) == [real.appendingPathComponent("Health/Medical").path])
     }
 
+    /// **The links among the entries, by the caller's spelling, when asked — and `nil` when not.**
+    /// A link to a folder lists with `hasDirectoryPath` false, so this is how a caller tells one
+    /// without a `stat` per entry (Edit's folder menu, TE205). Dangling links and links to files are
+    /// links too: what one leads to is the caller's question. Through the retried walk as well — a
+    /// folder that is itself a link — where the entries are re-spelled under the link.
+    @Test func theLinksAmongTheEntriesAreNamedWhenAsked() throws {
+        let base = try makeCanonicalTempRoot(prefix: "DirListLinks")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let fm = FileManager.default
+        let real = base.appendingPathComponent("real")
+        try makeDir(real.appendingPathComponent("Folder"), files: 1)
+        try fm.createSymbolicLink(atPath: real.appendingPathComponent("ToFolder").path, withDestinationPath: "Folder")
+        try fm.createSymbolicLink(atPath: real.appendingPathComponent("ToFile").path, withDestinationPath: "Folder/f0.txt")
+        try fm.createSymbolicLink(atPath: real.appendingPathComponent("Gone").path, withDestinationPath: "nowhere")
+        let link = base.appendingPathComponent("link")
+        try fm.createSymbolicLink(at: link, withDestinationURL: real)
+
+        #expect(fm.listing(of: real).symbolicLinkPaths == nil, "named links nobody asked about")
+        for folder in [real, link] {
+            let listing = fm.listing(of: folder, includingPropertiesForKeys: [.isSymbolicLinkKey])
+            #expect(listing.outcome == .listed)
+            #expect(listing.symbolicLinkPaths == Set(["ToFolder", "ToFile", "Gone"].map {
+                folder.appendingPathComponent($0).path
+            }), "under \(folder.lastPathComponent): \(listing.symbolicLinkPaths ?? [])")
+        }
+        // Only what the caller keeps.
+        let kept = fm.listing(of: real, includingPropertiesForKeys: [.isSymbolicLinkKey],
+                              keeping: { $0.lastPathComponent != "Gone" })
+        #expect(kept.symbolicLinkPaths == Set(["ToFolder", "ToFile"].map { real.appendingPathComponent($0).path }))
+        // Unreadable: no answer, rather than "no links".
+        #expect(fm.listing(of: base.appendingPathComponent("missing"),
+                           includingPropertiesForKeys: [.isSymbolicLinkKey]).symbolicLinkPaths == nil)
+        // A mock disk has no links, and its paths are not this disk's to ask.
+        let mock = MockFileManager()
+        try mock.createDirectory(at: URL(fileURLWithPath: "/m"), withIntermediateDirectories: true)
+        mock.virtualDisk["/m/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        #expect(mock.listing(of: URL(fileURLWithPath: "/m"), includingPropertiesForKeys: [.isSymbolicLinkKey])
+            .symbolicLinkPaths == [])
+    }
+
     /// The recursive shape too, since that is the only one that can answer
     /// `.listedWithUnreadableDescendants` — and the one where re-spelling entries under the link
     /// is arithmetic rather than a `lastPathComponent`.

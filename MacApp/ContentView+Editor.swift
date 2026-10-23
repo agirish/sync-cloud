@@ -66,8 +66,8 @@ extension ContentView {
     /// The rail's rows and its empty-caption count, re-read when the folder changes and after the
     /// editor writes to it.
     ///
-    /// Off the main actor: this is a directory read plus one `lstat` per surviving row, and on an
-    /// iCloud folder either can block. A folder with no text files in it pays a second `lstat` per
+    /// Off the main actor: this is a directory read plus one `lstat` per surviving row and one
+    /// `stat` per link, and on an iCloud folder any of them can block. A folder with no text files in it pays a second `lstat` per
     /// entry — see ``EditorRail/survey(in:showsHidden:fileManager:isCloudOnly:)``, which is where
     /// that cost is confined and why it is only spent there. `id:` covers the folder *and* the
     /// hidden-files preference, so flipping ⇧⌘. re-lists rather than leaving a stale answer on
