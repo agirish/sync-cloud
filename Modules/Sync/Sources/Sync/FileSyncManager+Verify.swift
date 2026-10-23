@@ -238,7 +238,7 @@ extension FileSyncManager {
         let startOperationsEpoch = fileOperationsEpoch
 
         let progress = Progress(totalUnitCount: Int64(toVerify.count))
-        progress.localizedDescription = "Verifying \(toVerify.count) files"
+        progress.localizedDescription = "Verifying \(CountedNoun.phrase(toVerify.count, "file"))"
         progress.isCancellable = true
         activeProgress = progress
         verifyAllProgress = (0, toVerify.count)

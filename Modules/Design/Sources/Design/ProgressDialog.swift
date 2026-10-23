@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// A native-looking progress dialog for file operations.
-/// Shows a single title, progress bar, count (e.g. "3,336 of 7,363"), optional current item, and Cancel.
+/// Shows a single title, progress bar, count (e.g. "3,336 of 7,363"), optional current item, and
+/// Cancel, which ⌘. presses.
 public struct ProgressDialog: View {
     public var progress: Progress
 
@@ -60,6 +61,10 @@ public struct ProgressDialog: View {
                         progress.cancel()
                     }
                     .controlSize(.small)
+                    // ⌘. and deliberately not esc (see `AppChord.cancelOperation`).
+                    .keyboardShortcut(AppChord.cancelOperation.key, modifiers: AppChord.cancelOperation.modifiers)
+                    .shortcutKeycap(AppChord.cancelOperation.display)
+                    .help(ShortcutHint.tooltip("Cancel operation", AppChord.cancelOperation.display))
                 }
             }
             .padding(20)

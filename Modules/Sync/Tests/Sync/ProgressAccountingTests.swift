@@ -104,7 +104,7 @@ import Combine
             await manager.copyItems(nodes: [nodeA], fromLeft: true, leftRoot: "/srcA", rightRoot: "/dstA", fileManager: copyFM)
         }
         await waitUntil("copy progress becomes visible") {
-            manager.activeProgress?.localizedDescription == "Copying 1 Items"
+            manager.activeProgress?.localizedDescription == "Copying 1 Item"
         }
 
         // Queue a move behind it.
@@ -114,13 +114,13 @@ import Combine
         await waitUntil("move operation is enqueued") { manager.activeFileOperationsCount == 2 }
 
         // The queued move must not replace the running copy's progress.
-        #expect(manager.activeProgress?.localizedDescription == "Copying 1 Items")
+        #expect(manager.activeProgress?.localizedDescription == "Copying 1 Item")
 
         // Finish the copy; its completion must not blank out the move's progress once the move starts.
         copyFM.copyGate?.signal()
         _ = await opA.value
         await waitUntil("move progress becomes visible") {
-            manager.activeProgress?.localizedDescription == "Moving 1 Items"
+            manager.activeProgress?.localizedDescription == "Moving 1 Item"
         }
 
         moveFM.moveGate?.signal()

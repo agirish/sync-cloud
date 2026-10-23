@@ -825,7 +825,7 @@ import Events
                 && $0.contains("it changed since the undo put it back")
         }, "the redo refusal log line is missing or reworded; lines since the marker: \(lines)")
         #expect(lines.contains {
-            $0.contains("Redo (Move 1 Items): moved 0 of 1 item(s), 0 redo failure(s), 1 left in place")
+            $0.contains("Redo (Move 1 Item): moved 0 of 1 item(s), 0 redo failure(s), 1 left in place")
         }, "a redo refusal is not being tallied; lines since the marker: \(lines)")
     }
 

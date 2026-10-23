@@ -568,7 +568,7 @@ extension FileSyncManager {
             return (0, failures)
         }
         // One undo action reverts the whole run, so ⌘Z is honest.
-        registerMoveUndo(items: moves, actionName: "File \(moves.count) file\(moves.count == 1 ? "" : "s") by automation",
+        registerMoveUndo(items: moves, actionName: "File \(CountedNoun.phrase(moves.count, "file")) by automation",
                          fileManager: fm)
         recordSyncHistory(records)
 

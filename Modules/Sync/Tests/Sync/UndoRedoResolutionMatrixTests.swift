@@ -20,7 +20,7 @@ import Foundation
 /// the refused subset) flips the untouched sibling's assertions here even when the single-item
 /// pins stay green.
 ///
-/// Batches use ≥2 distinct items throughout: `UndoRedoLogLabelTests` pins the "Delete 1 Items"
+/// Batches use ≥2 distinct items throughout: `UndoRedoLogLabelTests` pins the "Delete 1 Item"
 /// labels against the shared Logger, and a parallel-suite one-item delete would trip its
 /// "no Redo logged yet" assertion.
 @Suite struct UndoRedoResolutionMatrixTests {

@@ -513,7 +513,7 @@ import Testing
         let fm = WalkThreadRecordingFileManager()
         let walk = manager.registerCopyUndo(
             items: [(source: base.appendingPathComponent("src"), destination: folder, overwritten: nil)],
-            actionName: "Copy 1 Items", fileManager: fm)
+            actionName: "Copy 1 Item", fileManager: fm)
         await walk.value
 
         let samples = fm.mainThreadSamples
@@ -545,7 +545,7 @@ import Testing
         _ = manager.registerCopyUndo(
             items: [(source: URL(fileURLWithPath: "/undowait-src/project"),
                      destination: URL(fileURLWithPath: "/undowait-dst/project"), overwritten: nil)],
-            actionName: "Copy 1 Items", fileManager: fm)
+            actionName: "Copy 1 Item", fileManager: fm)
         // The walk is now provably mid-flight: parked in its opening stat, identity unresolved.
         await awaitSignal(fm.entered, "the identity walk never reached its first stat — the gate cannot have held the race")
         // No await between registration and ⌘Z: this is the racing user, deterministically ahead
@@ -740,7 +740,7 @@ import Testing
         let walk = manager.registerCopyUndo(
             items: [(source: URL(fileURLWithPath: "\(root)-src/project"),
                      destination: URL(fileURLWithPath: "\(root)/project"), overwritten: nil)],
-            actionName: "Copy 1 Items", fileManager: fm)
+            actionName: "Copy 1 Item", fileManager: fm)
         await walk.value
 
         // `LogCapture`, not `Logger.shared.entries`: the buffer keeps the newest 1000 lines

@@ -442,7 +442,7 @@ extension FileSyncManager {
 
         // ONE grouped undo for the whole pass, exactly as the name normalizer registers one.
         let n = result.moves.count
-        registerMoveUndo(items: result.moves, actionName: "Rename \(n) File\(n == 1 ? "" : "s")",
+        registerMoveUndo(items: result.moves, actionName: "Rename \(CountedNoun.phrase(n, "File"))",
                          fileManager: fm)
 
         // Drop the folders that were fully or partly applied; their paths are stale either way, and

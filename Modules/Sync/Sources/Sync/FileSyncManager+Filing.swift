@@ -1749,7 +1749,7 @@ extension FileSyncManager {
             return
         }
         // One undo action reverts the whole batch, so ⌘Z is honest.
-        registerMoveUndo(items: moves, actionName: "File \(moves.count) Items", fileManager: fileManager)
+        registerMoveUndo(items: moves, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))", fileManager: fileManager)
         let n = moves.count
         Logger.shared.info("Filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) couldn't be filed" : "")")
         banner = failures > 0

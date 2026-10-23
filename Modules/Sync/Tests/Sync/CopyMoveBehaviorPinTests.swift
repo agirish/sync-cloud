@@ -105,7 +105,7 @@ import EventsTestSupport
         #expect(copied.map(\.id) == ["/src/pinSameCopyPane.txt"])
         #expect(manager.currentError == nil)
         #expect(manager.undoManager?.canUndo == true)
-        #expect(manager.undoManager?.undoActionName == "Copy 1 Items")
+        #expect(manager.undoManager?.undoActionName == "Copy 1 Item")
         #expect(await loggerContains(log, "Copied 1 item(s) between panes"))
     }
 
@@ -148,7 +148,7 @@ import EventsTestSupport
         #expect(copied.map(\.id) == ["/src/pinSameCopyPath.txt"])
         #expect(manager.currentError == nil)
         #expect(manager.undoManager?.canUndo == true)
-        #expect(manager.undoManager?.undoActionName == "Copy 1 Items")
+        #expect(manager.undoManager?.undoActionName == "Copy 1 Item")
         #expect(await loggerContains(log, "Copied 1 item(s) to /src"))
     }
 
@@ -226,7 +226,7 @@ import EventsTestSupport
         #expect(mockFM.virtualDisk["/dst/pmA.txt"] != nil)
         #expect(mockFM.virtualDisk["/src/pmA.txt"] == nil)
         #expect(mockFM.virtualDisk["/src/pmBB.txt"] != nil)
-        #expect(manager.undoManager?.undoActionName == "Move 1 Items")
+        #expect(manager.undoManager?.undoActionName == "Move 1 Item")
         #expect(await loggerContains(log, "Moved 1 of 2 item(s) between panes"))
 
         // The Move registrar really is wired: undo brings the file back to its source.
@@ -260,7 +260,7 @@ import EventsTestSupport
 
         #expect(copied.map(\.name) == ["ptA.txt"])
         #expect(mockFM.virtualDisk["/dst/ptA.txt"] != nil)
-        #expect(manager.undoManager?.undoActionName == "Copy 1 Items")
+        #expect(manager.undoManager?.undoActionName == "Copy 1 Item")
         #expect(await loggerContains(log, "Copied 1 of 2 item(s) to /dst"))
     }
 
@@ -288,7 +288,7 @@ import EventsTestSupport
         #expect(moved.map(\.name) == ["pdA.txt"])
         #expect(mockFM.virtualDisk["/dst/pdA.txt"] != nil)
         #expect(mockFM.virtualDisk["/src/pdBB.txt"] != nil)
-        #expect(manager.undoManager?.undoActionName == "Move 1 Items")
+        #expect(manager.undoManager?.undoActionName == "Move 1 Item")
         #expect(await loggerContains(log, "Moved 1 of 2 item(s) to /dst"))
     }
 

@@ -210,7 +210,7 @@ extension FileSyncManager {
         // deepest-first apply order — keeping nested renames fully reversible.
         let undoItems = result.moves.sorted { pathDepth($0.from.path) < pathDepth($1.from.path) }
         let n = result.moves.count
-        registerMoveUndo(items: undoItems, actionName: "Normalize \(n) Name\(n == 1 ? "" : "s")", fileManager: fm)
+        registerMoveUndo(items: undoItems, actionName: "Normalize \(CountedNoun.phrase(n, "Name"))", fileManager: fm)
 
         // Drop the fixed rows; anything that failed stays listed for a retry.
         let doneSet = Set(result.doneIDs)

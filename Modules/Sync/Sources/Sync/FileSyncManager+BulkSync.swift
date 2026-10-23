@@ -25,7 +25,7 @@ extension FileSyncManager {
         let toCopyIDs = Set(toCopy.map { $0.id })
 
         let progress = Progress(totalUnitCount: Int64(total))
-        progress.localizedDescription = "Copying \(total) files to match dates"
+        progress.localizedDescription = "Copying \(CountedNoun.phrase(total, "file")) to match dates"
         progress.isCancellable = true
         activeProgress = progress
 
@@ -327,7 +327,7 @@ extension FileSyncManager {
         bulkApplyToAllResolution = nil
 
         let progress = Progress(totalUnitCount: Int64(total))
-        progress.localizedDescription = "Syncing \(total) files"
+        progress.localizedDescription = "\(isMove ? "Moving" : "Syncing") \(CountedNoun.phrase(total, "file"))"
         progress.isCancellable = true
         activeProgress = progress
 

@@ -291,7 +291,7 @@ extension FileSyncManager {
 
         let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
         if let progress {
-            progress.localizedDescription = "\(isMove ? "Moving" : "Copying") \(total) Items"
+            progress.localizedDescription = "\(isMove ? "Moving" : "Copying") \(CountedNoun.phrase(Int(total), "Item"))"
             progress.isCancellable = true
         }
 
@@ -623,7 +623,7 @@ extension FileSyncManager {
         let transferred = result.transferred
         if !transferred.isEmpty {
             if isMove {
-                self.registerMoveUndo(items: transferred, actionName: "Move \(transferred.count) Items", fileManager: fm)
+                self.registerMoveUndo(items: transferred, actionName: "Move \(CountedNoun.phrase(transferred.count, "Item"))", fileManager: fm)
             } else {
                 // Each item's identity walk was started the moment ITS copy landed, inside the
                 // loop above; the registration here is synchronous and what is awaited is the
@@ -640,7 +640,7 @@ extension FileSyncManager {
                 let pending: [PendingCopyItemState] = zip(transferred, result.identityWalks).map {
                     (source: $0.0.from, destination: $0.0.to, overwritten: $0.0.overwritten, identity: $0.1)
                 }
-                await self.registerCopyUndo(pendingItems: pending, actionName: "Copy \(transferred.count) Items", fileManager: fm).value
+                await self.registerCopyUndo(pendingItems: pending, actionName: "Copy \(CountedNoun.phrase(transferred.count, "Item"))", fileManager: fm).value
             }
         }
 
@@ -1245,7 +1245,7 @@ extension FileSyncManager {
         let total = Int64(prunedPaths.count)
         let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
         if let progress {
-            progress.localizedDescription = "Deleting \(total) Items"
+            progress.localizedDescription = "Deleting \(CountedNoun.phrase(Int(total), "Item"))"
             progress.isCancellable = true
         }
 
@@ -1465,7 +1465,7 @@ extension FileSyncManager {
             if let restoreUndoHandback {
                 restoreUndoHandback(urls, backups)
             } else {
-                self.registerRestoreItems(urls: urls, trashedItems: backups, actionName: "Delete \(successfullyTrashed.count) Items", fileManager: fm)
+                self.registerRestoreItems(urls: urls, trashedItems: backups, actionName: "Delete \(CountedNoun.phrase(successfullyTrashed.count, "Item"))", fileManager: fm)
             }
         }
         
@@ -1571,7 +1571,7 @@ extension FileSyncManager {
             //
             // A MIXED batch (some trashed, some permanent) did register a partial group above,
             // named by its TRASHED count — which can collide with an earlier armed delete's
-            // name ("Delete 1 Items" after "Delete 1 Items"). That group now tops the stack,
+            // name ("Delete 1 Item" after "Delete 1 Item"). That group now tops the stack,
             // so any surviving pairing is stale and must die: the name gate cannot tell the
             // two groups apart. All-permanent registers nothing, so the previous pairing's
             // group is still the top and stays valid.

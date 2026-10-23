@@ -87,8 +87,12 @@ import AppKit
         #expect(registered.count > 20,
                 "only \(registered.count) chords found in the menu bar — the walk lost its way")
 
+        // ⌘. is the progress dialog's Cancel, not a menu item — see `AppChord.controlOnly`, whose
+        // key is proved through a real window by `ProgressDialogCancelKeyTests` instead.
+        let controlOnly = Set(AppChord.controlOnly.map { Self.chordKey($0) })
+        #expect(controlOnly.count == AppChord.controlOnly.count)
         let missing = AppChord.registry
-            .filter { !registered.contains(Self.chordKey($0)) }
+            .filter { !registered.contains(Self.chordKey($0)) && !controlOnly.contains(Self.chordKey($0)) }
             .map(\.display)
         #expect(missing.isEmpty, """
                 \(missing.count) declared chord(s) are on no menu item: \(missing.joined(separator: ", ")).

@@ -1974,7 +1974,7 @@ their own failure:
   `filing-abandon flush marker` **after** the call under test, never asserts it survived, and then
   searches the whole buffer with `entries.first { … }`.
 - `Modules/Sync/Tests/Sync/UndoRedoLogLabelTests.swift:40` —
-  `#expect(!(await loggerContains("User triggered Redo: Delete 1 Items")))`. Same shape, helper
+  `#expect(!(await loggerContains("User triggered Redo: Delete 1 Item")))`. Same shape, helper
   `loggerContains(_:)`. Its siblings in that same test are presence assertions, so a roll would fail
   *those* loudly while `:40` passed for free — the asymmetry inside one test.
 

@@ -9092,3 +9092,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s statusFacts=%s foldMenu=%s ba
 |---|---|---|
 | `v5.x` | The five text and Markdown defects, the same code; no PDF batch or Fill & Sign palette | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace | CLOSED — does not apply |
+
+---
+
+## Count titles inflect for one, a bulk move says Moving, and ⌘. cancels the progress dialog — main only
+
+Two defects from the v6.1 review (DS8, DS9). Undo names and progress titles said "1 Items" — Edit ▸
+Undo read "Undo Delete 1 Items" — printed the count ungrouped ("Deleting 7363 Items" over "3,336 of
+7,363"), and a bulk move was titled "Syncing N files". `main` builds them with `CountedNoun.phrase`
+and titles a bulk move "Moving". The progress dialog had no key: `main` binds ⌘.
+(`AppChord.cancelOperation`) to its Cancel, deliberately not Esc.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s itemsTitles=%s syncingForMove=%s dialogKey=%s dialog=%s\n' $l \
+  "$(git grep -h -E '\\\((total|transferred\.count|successfullyTrashed\.count|moves\.count)\) Items"' origin/$l -- $S | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:$S/FileSyncManager+BulkSync.swift 2>/dev/null | grep -cF "Syncing \\(total) files")" \
+  "$(git show origin/$l:Modules/Design/Sources/Design/ProgressDialog.swift 2>/dev/null | grep -c 'keyboardShortcut')" \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Design/Sources/Design/ProgressDialog.swift | wc -l | tr -d ' ')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   itemsTitles=6 syncingForMove=1 dialogKey=0 dialog=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | Both, the same code (`itemsTitles=6`, `dialogKey=0`) | RECORDED — not owed |

@@ -31,7 +31,7 @@ import Foundation
     @Test func testUndoableBannerClearedByCopyRegistration() {
         let manager = makeManager()
         manager.banner = .success("Deleted 3 items", undoable: true)
-        manager.registerCopyUndo(items: [], actionName: "Copy 1 Items")
+        manager.registerCopyUndo(items: [], actionName: "Copy 1 Item")
         #expect(manager.banner == nil)
     }
 

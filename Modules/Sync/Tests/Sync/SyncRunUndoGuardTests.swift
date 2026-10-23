@@ -122,20 +122,20 @@ import Events
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let marker = Marker()
-        registerRun(manager, name: "Copy 1 Items", marker: marker)
+        registerRun(manager, name: "Copy 1 Item", marker: marker)
         let copyRun = UUID()
         manager.recordSyncHistory([record(.copy, run: copyRun)])
 
         manager.recordSyncHistory([record(.delete, run: UUID())], pairedWithUndo: false)
 
         let preview = manager.lastSyncRunUndoPreview
-        #expect(preview?.actionName == "Copy 1 Items")
+        #expect(preview?.actionName == "Copy 1 Item")
         #expect(preview?.records.first?.runId == copyRun)    // still the copy's records
         #expect(preview?.records.first?.action == .copy)     // never the delete's
     }
 
     @Test func allPermanentDeleteDoesNotHijackThePreviousRunsPairing() async throws {
-        // End-to-end shape of the funnel above: copy a file (registers "Copy 1 Items"), then
+        // End-to-end shape of the funnel above: copy a file (registers "Copy 1 Item"), then
         // delete another file on a volume where trashing fails and the user confirms the
         // permanent fallback. The delete's records must not pair with the copy's undo group.
         // Unlike the gate tests, the real op sites register their undos through the manager's
@@ -153,7 +153,7 @@ import Events
         let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
         await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
         #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
-        #expect(manager.lastSyncRunUndoPreview?.actionName == "Copy 1 Items")
+        #expect(manager.lastSyncRunUndoPreview?.actionName == "Copy 1 Item")
 
         // Trash-less volume: trashing g.txt fails non-transiently; the user confirms.
         mockFM.trashErrorOnce = NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
@@ -163,15 +163,15 @@ import Events
 
         // The gate still points at the copy — preview and reversal agree.
         let preview = manager.lastSyncRunUndoPreview
-        #expect(preview?.actionName == "Copy 1 Items")
+        #expect(preview?.actionName == "Copy 1 Item")
         #expect(preview?.records.allSatisfy { $0.action == .copy } == true)
     }
 
     @Test func mixedDeleteInvalidatesAStalePairingUnderACollidingName() async throws {
-        // The delete undo's action name embeds the TRASHED count ("Delete 1 Items"), so two
+        // The delete undo's action name embeds the TRASHED count ("Delete 1 Item"), so two
         // consecutive deletes can push identically-named groups: run 1 deletes one item (all
         // trashed, pairing armed), run 2 deletes two items of which only one reaches the Trash
-        // (mixed → not armed, but a NEW group named "Delete 1 Items" now tops the stack). The
+        // (mixed → not armed, but a NEW group named "Delete 1 Item" now tops the stack). The
         // stale run-1 pairing would pass the name gate and preview run 1's paths while undo()
         // restored run 2's item. A mixed delete must invalidate the stale pairing outright.
         let manager = isolatedManager()
@@ -185,9 +185,9 @@ import Events
         manager.permanentDeleteConfirmer = { _ in true }
 
         _ = await manager.deleteItems(at: ["/src/a.txt"], fileManager: mockFM)
-        #expect(manager.lastSyncRunUndoPreview?.actionName == "Delete 1 Items")   // run 1 armed
+        #expect(manager.lastSyncRunUndoPreview?.actionName == "Delete 1 Item")   // run 1 armed
 
-        // Run 2: one of the two trashes, the other goes permanent → group also "Delete 1 Items".
+        // Run 2: one of the two trashes, the other goes permanent → group also "Delete 1 Item".
         mockFM.trashErrorOnce = NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
         _ = await manager.deleteItems(at: ["/src/b.txt", "/src/c.txt"], fileManager: mockFM)
 
