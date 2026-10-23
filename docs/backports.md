@@ -8677,3 +8677,30 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s coverOnly=%s keeperRoots=%s\n
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same pass, the same code (`coverOnly=1`) | RECORDED — not owed |
+
+---
+
+## Packages and links travel whole in Duplicates and Restructure (FR1, FR2) — main only
+
+Duplicates grouped, trashed and merged files inside `.key`, `.pages`, `.app` and `.photoslibrary`
+bundles, and a Restructure merge went one level down into two same-named packages, or through a
+link to another provider's folder, file by file. `main` reads a package off the walk's type
+identifier (`FileNode.isPackage`): Duplicates matches a package only whole and never folds away a
+copy holding one, and Restructure's disk view lists packages and links that resolve as items moved
+whole.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s finderPkg=%s fromDisk=%s linkProbe=%s\n' $l \
+  "$(git show origin/$l:$S/DuplicateFinder.swift 2>/dev/null | grep -cF 'isPackage')" \
+  "$(git show origin/$l:$S/RestructurePlanner.swift 2>/dev/null | grep -cF 'static func fromDisk')" \
+  "$(git show origin/$l:$S/RestructurePlanner.swift 2>/dev/null | grep -cF 'if isDirectory.boolValue { folders.append(name) } else { files.append(name) }')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         finderPkg=0 fromDisk=1 linkProbe=1
+# v4.x, v3.x, v2.x   finderPkg=0 fromDisk=0 linkProbe=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Both: the finder and the Restructure disk view (`fromDisk=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | The finder half; no Restructure (`fromDisk=0`) | RECORDED — not owed |

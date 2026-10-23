@@ -15,6 +15,13 @@ import Testing
                  children: children, modificationDate: modified)
     }
 
+    /// A package: a directory the walk reports with a package type identifier.
+    private func package(_ path: String, _ children: [FileNode],
+                         kind: String = "com.apple.iwork.keynote.key", modified: Date? = nil) -> FileNode {
+        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true,
+                 children: children, modificationDate: modified, kind: kind)
+    }
+
     // MARK: Identical files
 
     @Test func identicalFilesAcrossFoldersFormOneGroup() {
@@ -954,6 +961,74 @@ import Testing
         #expect(groups.contains { $0.keeper.path == "/root/X" })
         let removed = groups.flatMap(\.recommendedRemovalPaths)
         #expect(!removed.contains("/root/X/inner"), "removal list: \(removed.sorted())")
+    }
+
+    // MARK: Packages (FR1)
+
+    /// Two versions of a deck share their photo. The photo is part of each document, not a file
+    /// beside it — trashing one copy breaks a deck — so no group ever names anything inside one.
+    @Test func nothingInsideAPackageIsEverACandidate() {
+        let tree = [
+            dir("/root/Talks", [
+                package("/root/Talks/v1.key", [file("/root/Talks/v1.key/Index.zip", size: 9000),
+                                               dir("/root/Talks/v1.key/Data", [file("/root/Talks/v1.key/Data/photo.jpg")])]),
+                package("/root/Talks/v2.key", [file("/root/Talks/v2.key/Index.zip", size: 9100),
+                                               dir("/root/Talks/v2.key/Data", [file("/root/Talks/v2.key/Data/photo.jpg")])]),
+            ]),
+            dir("/root/Photos", [
+                package("/root/Photos/Lib.photoslibrary", [dir("/root/Photos/Lib.photoslibrary/originals",
+                    [file("/root/Photos/Lib.photoslibrary/originals/IMG_1.jpeg")])], kind: "com.apple.photos.library"),
+                file("/root/Photos/IMG_1.jpeg"),
+            ]),
+        ]
+        let hashes = [
+            "/root/Talks/v1.key/Index.zip": "I1", "/root/Talks/v2.key/Index.zip": "I2",
+            "/root/Talks/v1.key/Data/photo.jpg": "P", "/root/Talks/v2.key/Data/photo.jpg": "P",
+            "/root/Photos/Lib.photoslibrary/originals/IMG_1.jpeg": "O", "/root/Photos/IMG_1.jpeg": "O",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        let named = groups.flatMap(\.copies).map(\.path)
+        #expect(!named.contains { $0.contains(".key/") || $0.contains(".photoslibrary/") },
+                "a group named a piece of a document: \(named.sorted())")
+    }
+
+    /// The whole document is still fair game: two byte-identical decks are a duplicate pair, and
+    /// trashing one removes a complete document the other still holds.
+    @Test func twoIdenticalPackagesAreOneGroup() {
+        let tree = [
+            dir("/root/A", [package("/root/A/Deck.key", [file("/root/A/Deck.key/Index.zip")]), file("/root/A/a.txt")]),
+            dir("/root/B", [package("/root/B/Deck.key", [file("/root/B/Deck.key/Index.zip")]), file("/root/B/b.txt")]),
+        ]
+        let hashes = ["/root/A/Deck.key/Index.zip": "I", "/root/B/Deck.key/Index.zip": "I",
+                      "/root/A/a.txt": "X", "/root/B/b.txt": "Y"]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.count == 1)
+        #expect(groups.first?.copies.map(\.path).sorted() == ["/root/A/Deck.key", "/root/B/Deck.key"])
+    }
+
+    /// Same-named folders that only overlap are merged file by file — and a merge through a
+    /// package folds one document's insides into the other. Neither a package nor a folder
+    /// holding one is ever the copy folded away.
+    @Test func aFolderHoldingAPackageIsNeverFoldedAway() {
+        // Seven shared documents of nine, so the pair clears the 0.7 overlap threshold — without
+        // that, no group could form and this would pass with the guard removed.
+        let shared = ["a", "b", "c", "d", "e", "f", "g"]
+        func talks(_ base: String, extra: [String]) -> FileNode {
+            dir(base, [package(base + "/Deck.key", [file(base + "/Deck.key/Index.zip")])]
+                + (shared + extra).map { file(base + "/\($0).pdf") })
+        }
+        let tree = [talks("/root/Archive/Talks", extra: []),
+                    talks("/root/Work/Talks", extra: ["h"])]
+        var hashes = ["/root/Archive/Talks/Deck.key/Index.zip": "OLD",
+                      "/root/Work/Talks/Deck.key/Index.zip": "NEW",
+                      "/root/Work/Talks/h.pdf": "H"]
+        for name in shared {
+            hashes["/root/Archive/Talks/\(name).pdf"] = name.uppercased()
+            hashes["/root/Work/Talks/\(name).pdf"] = name.uppercased()
+        }
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(!groups.contains { if case .overlapping = $0.matchType { return true }; return false })
+        #expect(groups.allSatisfy { !$0.recommendedRemovalPaths.contains("/root/Archive/Talks") })
     }
 
     @Test func keeperAvoidsArchiveLocations() {

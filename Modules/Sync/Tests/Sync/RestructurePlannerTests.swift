@@ -914,16 +914,15 @@ private struct FakeTree {
         #expect(view.childFolders("F") == ["Visible"])
     }
 
-    /// **Links are resolved the way the original probe resolved them, and the two APIs disagree.**
+    /// **Links are probed one by one, because the two APIs disagree about them.**
     ///
     /// Measured on this machine: `URL.resourceValues` does not follow a symbolic link, so a link
     /// to a DIRECTORY reads `isDirectory == false` and a DANGLING link reads `false` rather than
-    /// throwing — while `fileExists(atPath:isDirectory:)`, which is what this view has always
-    /// asked, follows it and answers folder / folder / does-not-exist. Taking the resource value
-    /// at face value put a linked folder in the files half (a merge then emits `move-file` for a
-    /// directory) and planned a `move-file` for a link pointing at nothing. This is the assertion
-    /// that caught it.
-    @Test func theDiskViewResolvesSymlinksTheWayTheProbeDid() throws {
+    /// throwing — while `fileExists(atPath:)` follows it. So a dangling link must still be asked
+    /// about, or it would be planned as a `move-file` for nothing. A link that resolves is listed
+    /// with the files even when it points at a folder: as a folder, a merge went one level down
+    /// THROUGH it and moved the target's files (FR2), where a `move-file` renames the link alone.
+    @Test func theDiskViewListsEveryLinkThatResolvesAsAnItem() throws {
         let root = try Self.makeDiskTree(["F/real.pdf", "F/Sub/inner.pdf"])
         defer { try? FileManager.default.removeItem(at: root) }
         let fm = FileManager.default
@@ -934,11 +933,24 @@ private struct FakeTree {
         try fm.createSymbolicLink(at: root.appendingPathComponent("F/Linked Folder"),
                                   withDestinationURL: root.appendingPathComponent("F/Sub"))
         let view = RestructureTreeView.fromDisk(root: root)
-        #expect(view.files("F") == ["linked.pdf", "real.pdf"],
-                "a dangling link is dropped; a link to a file is a file")
-        #expect(view.fileCount("F") == 2)
-        #expect(view.childFolders("F") == ["Linked Folder", "Sub"],
-                "a link to a directory is a FOLDER, as the followed probe said")
+        #expect(view.files("F") == ["Linked Folder", "linked.pdf", "real.pdf"],
+                "a dangling link is dropped; a link that resolves is an item, whatever it points at")
+        #expect(view.fileCount("F") == 3)
+        #expect(view.childFolders("F") == ["Sub"],
+                "a link to a directory is never a folder to merge through")
+    }
+
+    /// A package is a document, not a folder: it is listed with the files so a merge moves it
+    /// whole. `.pages` is registered as a package on every Mac this runs on.
+    @Test func theDiskViewListsAPackageAsAnItem() throws {
+        let root = try Self.makeDiskTree(["F/Return.pages/Index.zip", "F/Sub/a.pdf"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let isPackage = try root.appendingPathComponent("F/Return.pages")
+            .resourceValues(forKeys: [.isPackageKey]).isPackage
+        try #require(isPackage == true, "the premise: .pages is a package here")
+        let view = RestructureTreeView.fromDisk(root: root)
+        #expect(view.childFolders("F") == ["Sub"])
+        #expect(view.files("F") == ["Return.pages"])
     }
 
     /// The names the enumeration reports are the names the old path-based listing reported —

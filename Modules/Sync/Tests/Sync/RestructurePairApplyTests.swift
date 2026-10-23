@@ -89,6 +89,65 @@ import Testing
         #expect(execution.skipped.contains { $0.contains("the plan never listed") })
     }
 
+    // MARK: - Packages and links travel whole (FR2)
+
+    /// Both folders hold `Return.pages`. Merging one level down moved one document's insides into
+    /// the other (`Index 2.zip`) and left a shell that no longer opened. A package is one item:
+    /// it moves whole, and the name already taken keeps both.
+    @Test func aMergeMovesAPackageWholeAndKeepsBoth() throws {
+        let root = try Self.makeTree(["Health/TODO/Dental/Return.pages/Index.zip",
+                                      "Health/TODO/Dental/Return.pages/Data/p.jpg",
+                                      "Health/Dental/Return.pages/Index.zip",
+                                      "Health/Dental/Return.pages/Data/q.jpg"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
+            source: "Health/TODO/Dental", destination: "Health/Dental",
+            kind: .mirroredInbox, in: Self.view(of: root),
+            profileId: "p", manifestId: "m", createdAt: "t").get())
+
+        let execution = Self.run(manifest, in: root)
+
+        let fm = FileManager.default
+        let kept = try fm.contentsOfDirectory(atPath: root.appendingPathComponent("Health/Dental/Return.pages").path)
+        #expect(Set(kept) == ["Index.zip", "Data"], "nothing was moved into the other document")
+        #expect(try fm.contentsOfDirectory(atPath: root.appendingPathComponent("Health/Dental/Return.pages/Data").path) == ["q.jpg"])
+        let arrived = try fm.contentsOfDirectory(atPath: root.appendingPathComponent("Health/Dental").path)
+            .first { $0 != "Return.pages" && $0.hasSuffix(".pages") }
+        let moved = try #require(arrived, "the source document arrived beside it under its own name")
+        #expect(Self.exists(root, "Health/Dental/\(moved)/Index.zip"))
+        #expect(Self.exists(root, "Health/Dental/\(moved)/Data/p.jpg"))
+        #expect(execution.collisions == 1)
+    }
+
+    /// `TODO/Dental/Shared` is a link to a folder in another provider. Merging through it moved
+    /// that provider's files into this tree. The link is one item: it moves, its target stays.
+    @Test func aMergeMovesALinkNotWhatItPointsAt() throws {
+        let root = try Self.makeTree(["Elsewhere/Shared/theirs.pdf",
+                                      "Health/TODO/Dental/invoice.pdf",
+                                      "Health/Dental/Shared/ours.pdf"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+        try fm.createSymbolicLink(at: root.appendingPathComponent("Health/TODO/Dental/Shared"),
+                                  withDestinationURL: root.appendingPathComponent("Elsewhere/Shared"))
+        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
+            source: "Health/TODO/Dental", destination: "Health/Dental",
+            kind: .mirroredInbox, in: Self.view(of: root),
+            profileId: "p", manifestId: "m", createdAt: "t").get())
+
+        _ = Self.run(manifest, in: root)
+
+        #expect(Self.exists(root, "Elsewhere/Shared/theirs.pdf"), "the link's target was not drained")
+        #expect(!Self.exists(root, "Health/Dental/Shared/theirs.pdf"))
+        #expect(Self.exists(root, "Health/Dental/invoice.pdf"))
+        let landed = try fm.contentsOfDirectory(atPath: root.appendingPathComponent("Health/Dental").path)
+            .filter { $0.hasPrefix("Shared") && $0 != "Shared" }
+        #expect(landed.count == 1, "the link itself travelled, under a name of its own")
+        if let name = landed.first {
+            let attrs = try fm.attributesOfItem(atPath: root.appendingPathComponent("Health/Dental/\(name)").path)
+            #expect(attrs[.type] as? FileAttributeType == .typeSymbolicLink)
+        }
+    }
+
     /// A relocation empties nothing. Reading the drained folder off the action's path made this
     /// the source's PARENT, so the landing's card offered `Work/` — which still held `Acme` —
     /// as a folder to move to the Trash.

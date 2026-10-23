@@ -548,6 +548,8 @@ public enum DuplicateFinder {
         /// Whether this node is, or holds, an entry the walk skipped as a tooling tree (`.git`,
         /// `node_modules`, …) — content that exists and that nothing here has looked at.
         var holdsUnseenContent: Bool = false
+        /// Whether this node is, or holds, a package (`.key`, `.pages`, `.photoslibrary`, …).
+        var holdsPackage: Bool = false
     }
 
     /// Groups duplicate/related items in the given tree.
@@ -650,13 +652,20 @@ public enum DuplicateFinder {
 
     /// Rolls up a node bottom-up, appending files/dirs to the collectors. Returns the node's info
     /// (or nil if it was skipped as an ignored name).
+    ///
+    /// **A package is one item** (FR1). Its contents are rolled up into its own size, content
+    /// hashes and signature — so two identical decks still match, and so does a folder of them —
+    /// but nothing INSIDE it is ever a candidate (`insidePackage`): two Keynote versions sharing
+    /// `Data/photo.jpg` were an identical-file group, and Apply recommended trashed one deck's
+    /// image. A Photos library's originals and an app's frameworks went the same way.
     private static func collect(
         _ node: FileNode,
         depth: Int,
         fileHashes: [String: String],
         options: DuplicateFinderOptions,
         files: inout [NodeInfo],
-        dirs: inout [NodeInfo]
+        dirs: inout [NodeInfo],
+        insidePackage: Bool = false
     ) -> NodeInfo? {
         // **Skipped is not the same as absent.** OS noise (`.DS_Store`, `Thumbs.db`, …) carries no
         // content anyone keeps, so it is dropped as if it were not there. Everything else this set
@@ -730,14 +739,16 @@ public enum DuplicateFinder {
                 signature: hash,
                 contentHashes: hash.map { [$0] } ?? []
             )
-            files.append(info)
+            if !insidePackage { files.append(info) }
             return info
         }
 
         // Directory: roll up children first.
         var childInfos: [NodeInfo] = []
+        let isPackage = node.isPackage
         for child in node.children ?? [] {
-            if let ci = collect(child, depth: depth + 1, fileHashes: fileHashes, options: options, files: &files, dirs: &dirs) {
+            if let ci = collect(child, depth: depth + 1, fileHashes: fileHashes, options: options,
+                                files: &files, dirs: &dirs, insidePackage: insidePackage || isPackage) {
                 childInfos.append(ci)
             }
         }
@@ -773,9 +784,10 @@ public enum DuplicateFinder {
             depth: depth,
             signature: signature,
             contentHashes: contentHashes,
-            holdsUnseenContent: childInfos.contains(where: \.holdsUnseenContent)
+            holdsUnseenContent: childInfos.contains(where: \.holdsUnseenContent),
+            holdsPackage: isPackage || childInfos.contains(where: \.holdsPackage)
         )
-        dirs.append(info)
+        if !insidePackage { dirs.append(info) }
         return info
     }
 
@@ -897,8 +909,11 @@ public enum DuplicateFinder {
             // **A copy holding content the walk skipped is never folded away.** Folding merges what
             // the walk saw into the keeper and trashes the rest of the copy — and the rest would
             // include a `.git` nobody compared with anything.
+            // Nor a package, or a folder holding one: the merge walks file by file and would fold
+            // one document's insides into another's — a bundle neither app wrote
+            // (`FileOperations.isMergeableFolder`).
             let folded = ordered.dropFirst().filter {
-                !$0.holdsUnseenContent
+                !$0.holdsUnseenContent && !$0.holdsPackage
                     && mutualFraction(of: $0, against: keeper) >= options.overlapThreshold
             }
             let kept = [keeper] + folded

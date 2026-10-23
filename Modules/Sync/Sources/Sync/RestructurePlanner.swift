@@ -102,14 +102,20 @@ public struct RestructureTreeView {
     /// in hand and the probe is gone.
     ///
     /// **A symbolic link still pays for its own probe, because the two APIs disagree about
-    /// links and the old answer is the one that has to survive.** Measured: `URL.resourceValues`
-    /// does NOT follow a link — a link to a directory reads `isDirectory == false`, and a
-    /// DANGLING link reads `false` rather than throwing — while `fileExists(atPath:isDirectory:)`
-    /// follows it, so the old listing put a link-to-directory among the **folders** and dropped a
-    /// dangling one entirely. Taking the resource value at face value would have quietly moved a
-    /// linked folder into the files half (a merge would then emit `move-file` for a directory)
-    /// and planned a `move-file` for a link pointing at nothing. So `.isSymbolicLinkKey` is asked
-    /// for too, and the handful of entries it flags go through the original probe verbatim.
+    /// links.** Measured: `URL.resourceValues` does NOT follow a link — a link to a directory
+    /// reads `isDirectory == false`, and a DANGLING link reads `false` rather than throwing —
+    /// while `fileExists(atPath:)` follows it. Taken at face value, the resource value would plan
+    /// a `move-file` for a link pointing at nothing. So `.isSymbolicLinkKey` is asked for too, and
+    /// the handful of entries it flags go through a probe of their own: a dangling link is still
+    /// dropped (so the apply-time veto still sees it as an unlisted name), and a link that
+    /// resolves is an ITEM, listed with the files whatever it points at.
+    ///
+    /// **Packages and links are moved whole, never merged through** (FR2). A merge goes one level
+    /// down into a same-named subfolder and moves its contents file by file; across two
+    /// `Return.pages` that moved one document's insides into the other, and across a link to a
+    /// Dropbox folder it moved Dropbox's files into this tree. Listed as items, both travel by
+    /// `move-file` — one rename of one entry, which carries a package's contents and leaves a
+    /// link's target where it is — and a name already taken keeps both, as every collision does.
     ///
     /// **`options: []` and a `.` prefix test, NOT `.skipsHiddenFiles`.** They are different rules:
     /// the option also drops items carrying the hidden *flag* with an ordinary name, which the
@@ -119,23 +125,27 @@ public struct RestructureTreeView {
         -> RestructureTreeView {
         RestructureTreeView(listing: { path in
             let url = root.appendingPathComponent(path)
+            let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey]
             guard let urls = try? fileManager.contentsOfDirectory(
-                at: url, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-                options: [])
+                at: url, includingPropertiesForKeys: keys, options: [])
             else { return nil }
             var folders: [String] = []
             var files: [String] = []
             for child in urls {
                 let name = child.lastPathComponent
                 guard !name.hasPrefix(".") else { continue }
-                let values = try? child.resourceValues(forKeys: [.isDirectoryKey,
-                                                                 .isSymbolicLinkKey])
+                let values = try? child.resourceValues(forKeys: Set(keys))
                 if let isDirectory = values?.isDirectory, values?.isSymbolicLink != true {
-                    if isDirectory { folders.append(name) } else { files.append(name) }
+                    if isDirectory && values?.isPackage != true { folders.append(name) } else { files.append(name) }
                     continue
                 }
-                // A link, or an entry the volume would not answer for: the original probe, whose
-                // answers are the ones every plan derived so far was built on.
+                // A link, or an entry the volume would not answer for. One that resolves is an
+                // item; one that does not is dropped, as the original probe dropped it.
+                guard fileManager.fileExists(atPath: child.path) else { continue }
+                if values?.isSymbolicLink == true {
+                    files.append(name)
+                    continue
+                }
                 var isDirectory: ObjCBool = false
                 guard fileManager.fileExists(atPath: child.path, isDirectory: &isDirectory)
                 else { continue }

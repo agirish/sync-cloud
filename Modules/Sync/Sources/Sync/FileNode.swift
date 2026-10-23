@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 /// An in-memory representation of a file or directory mapped from a local or cloud path.
 /// Includes metadata used for UI display, sorting, and differential scanning.
@@ -79,6 +80,23 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
         self.isUnexplored = isUnexplored
         self.isSymbolicLink = isSymbolicLink
         self.isCoveredElsewhere = isCoveredElsewhere
+    }
+
+    /// **True when this directory is a package** — a `.pages`, `.key`, `.app` or
+    /// `.photoslibrary` that is a folder on disk and ONE document to the person using it.
+    ///
+    /// Read off ``kind``, the type identifier the walk already records, rather than a field of its
+    /// own: a stored flag would read `nil` in every tree cached before it existed, and those trees
+    /// are exactly the ones a Duplicates run reuses. Measured on this Mac against `.isPackageKey`
+    /// for `.key`, `.pages`, `.numbers`, `.app`, `.photoslibrary`, `.rtfd`, `.xcodeproj`, `.band`,
+    /// `.bundle`, `.plugin`, `.framework` and the real Photos library: the two agreed on every one.
+    /// What neither sees is a plain folder carrying only Finder's bundle bit.
+    ///
+    /// Walks still go inside packages — Browse and Compare show their contents — so consumers that
+    /// GROUP or MOVE pieces of a tree are the ones that must ask (`DuplicateFinder`).
+    public var isPackage: Bool {
+        guard isDirectory, let kind, kind != "public.folder" else { return false }
+        return UTType(kind)?.conforms(to: .package) == true
     }
 }
 
