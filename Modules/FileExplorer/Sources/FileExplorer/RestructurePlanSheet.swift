@@ -3,7 +3,7 @@ import SwiftUI
 import Sync
 
 /// §5.4's plan surface: choose the target shape, edit the family mapping, watch the derived
-/// operations — and `Export plan…`, which is this milestone's stopping point (the Apply that
+/// operations — and `Export plan`, which is this milestone's stopping point (the Apply that
 /// lands a manifest is §5.5's).
 ///
 /// The sheet owns no derivation logic: every operation it shows comes from
@@ -881,8 +881,11 @@ struct RestructurePlanSheet: View {
                     // and the toggle's clause appears only when the toggle is on.
                     Text(Self.payloadDisclosure(includesFileNames: includeFileSamples,
                                                 acrossGroup: planTogether))
-                        .scaledFont(.system(size: 10))
-                        .foregroundStyle(.tertiary)
+                        // Consent copy — what leaves the machine and who pays — so it is set to
+                        // be read: 11pt secondary, not the 10pt tertiary it was, the faintest
+                        // text on screen at about 1.9:1 (DS3).
+                        .scaledFont(.system(size: 11))
+                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else if let onConfigureRefine {
                     Button(action: onConfigureRefine) {
@@ -1316,7 +1319,8 @@ struct RestructurePlanSheet: View {
             // … — nothing has been moved", so a user who ticked *Plan all 3 together* and took
             // the safe route got a file, and a draft behind §5.7's *Planned, not applied* card,
             // covering one family of three.
-            Button(group.isEmpty ? "Export plan…" : "Export \(group.count) plans…") {
+            // No ellipsis (LN13): it writes the file and keeps the plan at once, with no panel.
+            Button(group.isEmpty ? "Export plan" : "Export \(group.count) plans") {
                 if group.isEmpty { exportPlan(plan) } else { exportGroup(group) }
             }
                 .scaledFont(.system(size: 11, weight: .semibold))

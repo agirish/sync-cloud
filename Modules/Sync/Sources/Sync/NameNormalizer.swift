@@ -77,7 +77,7 @@ public enum NameNormalizer {
     /// The ``RiskyName`` for a single already-walked node, or nil when its name is cloud-safe.
     ///
     /// The public one-node door, for the places that ask about the file in front of you rather
-    /// than a whole tree: the pane row's context menu offers "Fix name…" only when this answers.
+    /// than a whole tree: the pane row's context menu offers "Fix name" only when this answers.
     /// Same rules, same fix, no scan.
     public static func risky(
         name: String, relativePath: String, absolutePath: String,

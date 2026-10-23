@@ -26,7 +26,7 @@ import Sync
     /// test stub, every pane that is not a real provider view — draws neither menu item.
     ///
     /// Reached through an EXISTENTIAL deliberately: a member declared only in a protocol extension
-    /// is dispatched statically, which is how "Fix name…" was unreachable from the moment it was
+    /// is dispatched statically, which is how "Fix name" was unreachable from the moment it was
     /// written. This is the call shape `FileTreeView` actually makes.
     @Test func aDelegateWithNoWorkspaceOffersNoDoorThroughTheExistential() {
         struct Stub: FileActionDelegate {
@@ -86,7 +86,7 @@ import Sync
     /// requirements rather than extension-only additions, and this is the test that keeps them
     /// that way: every caller reaches the delegate through `FileActionDelegate`, so a member
     /// declared only in the extension dispatches statically to the default and the conformer's
-    /// override is never reached. That shipped once here and made "Fix name…" unreachable from
+    /// override is never reached. That shipped once here and made "Fix name" unreachable from
     /// the day it was written — silently, because the menu simply never drew the item.
     @Test func theOrganizeDoorSurvivesTheExistential() {
         let concrete = delegate(syncManager: FileSyncManager(), settings: SettingsManager())

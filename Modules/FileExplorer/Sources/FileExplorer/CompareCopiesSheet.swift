@@ -1452,7 +1452,8 @@ struct FilePairCompareView<Verdict: View>: View {
             // end of this row — the same string the NAME fact states directly above it, on a
             // surface whose whole complaint was clutter. One statement per fact.
             HStack(spacing: 6) {
-                if isKeeper {
+                switch CompareKeeperControl.control(isKeeper: isKeeper, marker: marker) {
+                case .keeping:
                     // A state, drawn as a state: the kept side is not a control (clicking it does
                     // nothing), so it wears a filled chip rather than a disabled button.
                     Label("Keeping this", systemImage: "checkmark.circle.fill")
@@ -1461,16 +1462,18 @@ struct FilePairCompareView<Verdict: View>: View {
                         .padding(.horizontal, 9).padding(.vertical, 3)
                         .background { Capsule().fill(accent.opacity(0.13)) }
                         .accessibilityLabel(marker.accessibilityLabel ?? "Kept copy")
-                } else {
+                case .keepInstead:
                     Button { chooseKeeper(copy) } label: {
                         Label("Keep this instead", systemImage: "circle")
                             .scaledFont(.system(size: 11.5))
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(marker == .inert)
-                    .accessibilityLabel(marker.accessibilityLabel ?? "Copy")
+                    .accessibilityLabel(marker.accessibilityLabel ?? "Keep this copy")
                     .help(ShortcutHint.tooltip("Keep this copy instead", "←→"))
+                case .nothing:
+                    // An overlap group: it has a keeper, but no choice — see `CompareKeeperControl`.
+                    EmptyView()
                 }
                 Spacer(minLength: 6)
             }
@@ -1958,5 +1961,27 @@ public struct CompareCopiesOverlay: View {
             // leaves the pair up, which is where the user can see what it said and try again.
             if await syncManager.resolveDuplicateCopy(copy, keeper: keeper) { onClose() }
         }
+    }
+}
+
+/// What the Compare sheet's pane header offers on one side of a group that has a keeper.
+///
+/// **A keeper is not the same as a choice.** An overlap group has a keeper — the copy holding
+/// what the others lack — but cannot re-aim it, because which copy is "unique" is computed from
+/// content hashes the scan does not retain (`DuplicateKeeperMarker.style`). The other side used to
+/// draw "Keep this instead" disabled, which advertises a choice that does not exist, and VoiceOver
+/// heard only "Copy" (LN23). The rule the header's own doc states — a keeper picker only where
+/// there is a keeper to pick — now holds on that side too: it draws nothing.
+enum CompareKeeperControl: Equatable {
+    /// The kept side: a chip, never a control.
+    case keeping
+    /// The other side of a group whose keeper can be changed.
+    case keepInstead
+    /// The other side of a group whose keeper cannot be changed.
+    case nothing
+
+    static func control(isKeeper: Bool, marker: DuplicateKeeperMarker) -> CompareKeeperControl {
+        if isKeeper { return .keeping }
+        return marker == .selectable ? .keepInstead : .nothing
     }
 }

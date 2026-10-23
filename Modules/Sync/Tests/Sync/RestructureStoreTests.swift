@@ -457,7 +457,7 @@ import Foundation
         #expect(moved.manifest == manifest, "the reviewed plan's contents are not rewritten")
     }
 
-    /// `Export plan…` writes the manifest beside the profile, named for its date and family with
+    /// `Export plan` writes the manifest beside the profile, named for its date and family with
     /// the path separators flattened — reviewable in a text editor with nothing at risk — and it
     /// writes even when the store itself is refusing: the refusal protects `restructure.json`,
     /// and this is a new file.

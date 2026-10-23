@@ -353,7 +353,7 @@ import Foundation
     // MARK: - Pre-confirmed callers skip the prompt (one gesture never asks twice)
 
     /// `confirmed: true` skips the transferConfirmer entirely — for callers whose UI already
-    /// embodies the confirmation (review-card accepts, "Copy Remaining N…").
+    /// embodies the confirmation (review-card accepts, "Copy Remaining N").
     @MainActor
     @Test func testConfirmedSyncFileAndSyncAllSkipTheConfirmer() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()

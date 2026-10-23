@@ -109,7 +109,7 @@ struct ReorganisationDisplay: Equatable, Identifiable {
 /// **Reporting first, acting only through reviewed plans.** A finding says *these thirteen
 /// folders use four different internal shapes*. Two actions exist so far, both bounded: the
 /// backlog scaffold (create-only, one ⌘Z) and §5.4's `Plan…`, which derives a manifest from a
-/// family mapping and ends at `Export plan…` — a reviewable file and a saved draft, with nothing
+/// family mapping and ends at `Export plan` — a reviewable file and a saved draft, with nothing
 /// moved. The Apply that lands a manifest is §5.5's, behind its six invariants.
 ///
 /// The states are distinct on purpose, and none borrows another's words: **no profile** means the

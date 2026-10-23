@@ -2301,6 +2301,20 @@ public struct LensWorkspaceView: View {
     private static let receiptWeekday = ZoneRefreshedFormatter.template("EEEE")
     private static let receiptDate = ZoneRefreshedFormatter.localized(date: .medium, time: .none)
 
+    /// Storage's Overview headline: the whole tree's numbers, never the lists' lengths.
+    ///
+    /// It used to count the three ranked lists, which are each capped at the first 20 rows — so
+    /// nearly every tree read "20 large · 20 untouched", and "reclaimable" summed only the first 20
+    /// candidates. The report now carries the totals counted before the cap, and this reads them.
+    /// "Files" where it said "large": the largest-files list has no size threshold — it is the top
+    /// of every file — so the only true count behind it is how many files there are.
+    static func storageReceiptHeadline(_ report: StorageLensReport) -> String {
+        "\(FileSyncManager.formatBytes(report.totalBytes)) total · "
+            + "\(report.fileCount.formatted()) file\(report.fileCount == 1 ? "" : "s") · "
+            + "\(report.staleCount.formatted()) untouched · "
+            + "\(FileSyncManager.formatBytes(report.reclaimableBytes)) reclaimable"
+    }
+
     static func receiptDay(_ date: Date, now: Date = Date()) -> String {
         let calendar = Calendar.current
         // **Every comparison is against the injected `now`, including today and yesterday.**
@@ -4359,11 +4373,8 @@ public struct LensWorkspaceView: View {
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: "Where the space goes.",
-                    state: .receipt(
-                        headline: "\(FileSyncManager.formatBytes(report.totalBytes)) total · "
-                            + "\(report.largest.count) large · \(report.stale.count) untouched · "
-                            + "\(FileSyncManager.formatBytes(report.reclaimCandidates.reduce(0) { $0 + $1.bytes })) reclaimable",
-                        detail: "Analyzed \(when) · \(where_)"),
+                    state: .receipt(headline: Self.storageReceiptHeadline(report),
+                                    detail: "Analyzed \(when) · \(where_)"),
                     isScanning: syncManager.isBuildingStorageLens)
             case .toFile:
                 let scoped = syncManager.filingSuggestions.filter {
@@ -5621,7 +5632,12 @@ public struct LensWorkspaceView: View {
         guard !batch.isEmpty else { return }
         let newFolders = batch.filter { $0.best?.isNew == true }.count
         let folderNote = newFolders > 0 ? " Creates \(newFolders) new folder\(newFolders == 1 ? "" : "s")." : ""
-        let ok = NativeAlerts.confirmDestructive(
+        // **`confirmChange`, not `confirmDestructive`** (LN20). Filing moves files, and ⌘Z moves
+        // them back; nothing goes to the Trash. The destructive alert's caution icon and red
+        // default are the signal the duplicate dialogs below spend on a real Trash, and spending
+        // it here too is how it stops meaning anything. The confirm itself stays, because this
+        // can create folders — which "Rename N files" and "Fix all N" never do.
+        let ok = NativeAlerts.confirmChange(
             messageText: "File \(batch.count) file\(batch.count == 1 ? "" : "s") into their suggested homes?",
             informativeText: "Moves each file into its suggested folder.\(folderNote) Unsure files stay put. Every move can be undone with ⌘Z.",
             confirmTitle: "File"

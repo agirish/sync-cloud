@@ -8,7 +8,7 @@ import Foundation
 ///
 /// The bug class is recorded in the protocol's own doc: `riskyName(for:)` and `handleFixName(_:)`
 /// were introduced as protocol-EXTENSION members, so every call through the existential bound
-/// statically to the extension's nil default and "Fix name…" was unreachable from the moment it
+/// statically to the extension's nil default and "Fix name" was unreachable from the moment it
 /// was written — the app built, the conformer's methods were tested directly, and a menu item
 /// that is merely absent looks exactly like one that is correctly withheld.
 @Suite struct FileActionDelegateWiringTests {

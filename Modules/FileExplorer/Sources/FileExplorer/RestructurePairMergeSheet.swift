@@ -346,7 +346,8 @@ struct RestructurePairMergeSheet: View {
             // them VANISH rather than grey out, which reads as a sheet that changed its mind
             // about what it offers.
             let manifest = try? plan.get()
-            Button("Save for later…") { if let manifest { export(manifest) } }
+            // No ellipsis (LN13): it saves at once, with no panel.
+            Button("Save for later") { if let manifest { export(manifest) } }
                 .scaledFont(.system(size: 11))
                 .keyboardShortcut(.defaultAction)
                 .accentedProminent()

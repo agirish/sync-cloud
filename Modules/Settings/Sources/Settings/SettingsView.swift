@@ -3283,8 +3283,10 @@ private struct PersonRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if preventedCount > 0 {
+                // A sentence, so the readable ink rather than raw green (DS2), like the caveat
+                // line below it.
                 Text(preventedLine).scaledFont(.subheadline)
-                    .foregroundStyle(SemanticColor.success)
+                    .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.success))
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let caveat = caveatLine {

@@ -64,9 +64,9 @@ func automationConditionChipText(_ condition: AutomationCondition) -> String {
 
 /// The chip text with person ids replaced by names — "Daughter" rather than the `daughter` slug.
 ///
-/// A separate entry point rather than a parameter on the one above: only the two surfaces that
-/// have a roster in hand can resolve, and every other caller should keep getting a chip that needs
-/// nothing. Falls back to the plain text, so a rule pointing at a removed person still renders.
+/// A separate entry point rather than a parameter on the one above: only a surface with a roster
+/// in hand can resolve — the rule card, which the lens hands the household — and every other
+/// caller should keep getting a chip that needs nothing. Falls back to the plain text, so a rule pointing at a removed person still renders.
 func automationConditionChipText(_ condition: AutomationCondition, people: [Person]) -> String {
     guard case .personIs(let id) = condition, !id.isEmpty else {
         return automationConditionChipText(condition)
@@ -337,6 +337,7 @@ public struct AutomationsLens: View {
                         ForEach(rules) { rule in
                             AutomationRuleCard(
                                 rule: rule,
+                                people: syncManager.filingPeopleStore?.people ?? [],
                                 accent: accent,
                                 canPreview: rule.isRunnable && destinationRoot != nil,
                                 previewHelp: Self.previewHelp(
@@ -585,6 +586,7 @@ struct FilingWalkthroughCard: View {
     /// Abandon the walkthrough (approvals discarded — see `FilingWalkthrough.cancel`).
     let onCancel: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @FocusState private var focused: Bool
 
     /// Wraps a non-destructive inspection gesture (Preview / Reveal) so it FIRST bumps the host's
@@ -796,8 +798,10 @@ struct FilingWalkthroughCard: View {
                     .lineLimit(1).truncationMode(.middle)
             }
             if isCollision {
+                // A sentence, so it takes the readable ink rather than raw orange (DS2).
                 Text("A file with this name is already there — it’ll be kept as a copy.")
-                    .scaledFont(.system(size: 11)).foregroundStyle(SemanticColor.warning)
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.warning))
                     .multilineTextAlignment(.center)
             }
             // Inspection before deciding: Quick Look the file or see it in Finder — the same
@@ -868,6 +872,8 @@ struct AutomationToggleEchoGuard {
 /// and Preview-this-rule / Edit / Delete.
 private struct AutomationRuleCard: View {
     let rule: AutomationRule
+    /// The household, so a "Person is" chip names the person rather than the id the rule stores.
+    let people: [Person]
     let accent: Color
     let canPreview: Bool
     /// The Preview button's tooltip — names the real blocker when disabled (host computes it,
@@ -888,11 +894,12 @@ private struct AutomationRuleCard: View {
     /// `AutomationToggleEchoGuard`.
     @State private var echoGuard: AutomationToggleEchoGuard
 
-    init(rule: AutomationRule, accent: Color, canPreview: Bool, previewHelp: String,
+    init(rule: AutomationRule, people: [Person], accent: Color, canPreview: Bool, previewHelp: String,
          densityMetrics: ListDensityMetrics,
          onToggle: @escaping (Bool) -> Void, onPreview: @escaping () -> Void,
          onEdit: @escaping () -> Void, onDelete: @escaping () -> Void) {
         self.rule = rule
+        self.people = people
         self.accent = accent
         self.canPreview = canPreview
         self.previewHelp = previewHelp
@@ -971,8 +978,10 @@ private struct AutomationRuleCard: View {
                         .background(Capsule().fill(accent.opacity(0.14)))
                 }
                 ForEach(Array(completeConditions.enumerated()), id: \.offset) { _, condition in
+                    // The roster overload: a "Person is" chip reads "Daughter", not the
+                    // `daughter` id the rule stores (LN5).
                     ConditionChip(icon: automationConditionIcon(condition),
-                                  text: automationConditionChipText(condition))
+                                  text: automationConditionChipText(condition, people: people))
                 }
             }
         }

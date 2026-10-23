@@ -131,7 +131,7 @@ import Sync
     ///
     /// Declared in a protocol *extension* instead of the protocol *body*, these bind statically to
     /// their defaults and a conformer's implementation is never called. That is not a hypothetical:
-    /// it is how `riskyName(for:)` shipped, which made "Fix name…" unreachable in the row menu from
+    /// it is how `riskyName(for:)` shipped, which made "Fix name" unreachable in the row menu from
     /// the day it was added. The type annotation below is the entire point of the test — drop it,
     /// let Swift infer `StubDelegate`, and this passes against the broken arrangement.
     @Test func theDelegatesNameAnswersSurviveTheExistential() {
@@ -140,7 +140,7 @@ import Sync
         let node = FileNode(id: "/root/Q3: final.pdf", name: "Q3: final.pdf",
                             isDirectory: false, children: nil)
         #expect(delegate.riskyName(for: node)?.reason == "colon",
-                "riskyName(for:) bound to the extension default — “Fix name…” would never appear")
+                "riskyName(for:) bound to the extension default — “Fix name” would never appear")
         #expect(delegate.riskyNameReason(forName: "Q3: final.pdf", isDirectory: false) == "colon",
                 "riskyNameReason bound to the extension default — no row would ever badge")
         #expect(delegate.isKeptName("meant it "),

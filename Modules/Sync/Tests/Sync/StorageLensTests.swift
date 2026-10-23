@@ -166,6 +166,70 @@ import Testing
         #expect(report.reclaimCandidates.map(\.path) == ["/root/b.mov", "/root/c.mov", "/root/a.mov"])
     }
 
+    // MARK: Totals counted before the cap (LN6)
+
+    /// **The report says how many, not only which ones.** Each list is the first `topN` rows, so a
+    /// headline built from the lists read "20 untouched" on any real tree, and "reclaimable" summed
+    /// only the first 20 candidates. The fixture is built so every count differs from the cap and
+    /// from every other count — 31 files, 27 of them stale, 23 of those reclaimable — and the
+    /// reclaimable bytes include the candidates the cap drops.
+    @Test func totalsAreCountedBeforeTheListsAreCapped() {
+        var children: [FileNode] = []
+        // 23 large and long-idle: stale (500+ days) AND reclaimable (≥ 100 MB, past 180 days).
+        for i in 0..<23 {
+            children.append(file("/root/big\(i).mov", size: 100_000_000 + i, modified: daysAgo(500 + i)))
+        }
+        // 4 small and stale: stale only.
+        for i in 0..<4 {
+            children.append(file("/root/old\(i).txt", size: 100, modified: daysAgo(400 + i)))
+        }
+        // 4 recent: neither.
+        for i in 0..<4 {
+            children.append(file("/root/new\(i).txt", size: 100, modified: daysAgo(i)))
+        }
+        let report = StorageLensAnalyzer.analyze(tree: [dir("/root", children)], now: now,
+                                                 options: .init(topN: 20))
+
+        // The lists stay capped — this is not a change to what they show.
+        #expect(report.largest.count == 20)
+        #expect(report.stale.count == 20)
+        #expect(report.reclaimCandidates.count == 20)
+        // The totals are the whole tree's.
+        #expect(report.fileCount == 31)
+        #expect(report.staleCount == 27)
+        #expect(report.reclaimCount == 23)
+        let everyCandidate = (0..<23).reduce(0) { $0 + 100_000_000 + $1 }
+        #expect(report.reclaimableBytes == everyCandidate)
+        #expect(report.reclaimableBytes > report.reclaimCandidates.reduce(0) { $0 + $1.bytes },
+                "the reclaimable total is only the shown rows' sum — the cap is still in it")
+    }
+
+    /// A snapshot saved before the totals existed (every 6.0 report on disk) still decodes, and
+    /// reads the totals off its lists — exactly what those builds showed. A required key would
+    /// have thrown, and Storage would come up empty after the update.
+    @Test func aReportSavedBeforeTheTotalsStillDecodes() throws {
+        let entry = "{\"path\":\"/r/a\",\"name\":\"a\",\"bytes\":300}"
+        let json = "{\"treemap\":[],\"largest\":[\(entry)],\"stale\":[\(entry),\(entry)],"
+            + "\"reclaimCandidates\":[\(entry)],\"totalBytes\":900}"
+        let report = try JSONDecoder().decode(StorageLensReport.self, from: Data(json.utf8))
+        #expect(report.fileCount == 1)
+        #expect(report.staleCount == 2)
+        #expect(report.reclaimCount == 1)
+        #expect(report.reclaimableBytes == 300)
+    }
+
+    /// And a new report round-trips its totals rather than re-deriving them from the lists.
+    @Test func theTotalsRoundTrip() throws {
+        let original = StorageLensReport(treemap: [], largest: [], stale: [], reclaimCandidates: [],
+                                         totalBytes: 5, fileCount: 7, staleCount: 3,
+                                         reclaimCount: 2, reclaimableBytes: 4)
+        let decoded = try JSONDecoder().decode(StorageLensReport.self,
+                                               from: JSONEncoder().encode(original))
+        #expect(decoded == original)
+        #expect(decoded.fileCount == 7 && decoded.staleCount == 3)
+        #expect(decoded.reclaimCount == 2 && decoded.reclaimableBytes == 4)
+    }
+
     // MARK: Empty
 
     @Test func emptyTreeYieldsEmptyReport() {

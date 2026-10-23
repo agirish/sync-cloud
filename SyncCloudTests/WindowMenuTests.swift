@@ -202,7 +202,7 @@ import AppKit
     @Test func theVerbsFollowTheSections() throws {
         let organize = Self.titles(try Self.menu("Organize"))
         #expect(organize.suffix(7) == ["Organize This Folder…", "Find Duplicates of This",
-                                       "Fix Name…", "Always Allow This Name",
+                                       "Fix Name", "Always Allow This Name",
                                        "Plan This Folder’s Shape…", "Set Up Like Its Siblings",
                                        "Undo This Reorganisation…"],
                 "the Organize menu ends with \(organize.suffix(7))")
@@ -233,7 +233,7 @@ import AppKit
     /// The verbs left File when they gained a menu; File must not keep a stale copy.
     @Test func fileNoLongerCarriesTheVerbs() throws {
         let file = Self.titles(try Self.menu("File"))
-        for verb in ["Organize This Folder…", "Find Duplicates of This", "Fix Name…",
+        for verb in ["Organize This Folder…", "Find Duplicates of This", "Fix Name",
                      "Always Allow This Name"] {
             #expect(!file.contains(verb), "File still carries \(verb)")
         }

@@ -273,7 +273,7 @@ extension FileSyncManager {
     ///   - isMove: If true, moves each file; otherwise copies.
     ///   - subset: When non-nil, only differences in this array are considered (e.g. the currently filtered list). When nil, uses the full `differences` array.
     ///   - confirmed: Pass true when the calling UI already embodies the user's confirmation
-    ///     for this exact run (e.g. review mode's "Copy Remaining N…" button, which names the
+    ///     for this exact run (e.g. review mode's "Copy Remaining N" button, which names the
     ///     count) — the `transferConfirmer` prompt is skipped so one gesture never asks twice.
     public func syncAll(direction: FileDifference.SyncAction, isMove: Bool = false, subset: [FileDifference]? = nil, confirmed: Bool = false, postBanner: Bool = true) async {
         let source = subset ?? differences

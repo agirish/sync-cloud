@@ -9003,3 +9003,49 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s learnAgainPrimary=%s saveFail
 | `v5.x` | All eight, the same code (`nextLaunch=1`: the probe's phrase is the caption's; its alert says "next launch" too, and it has no tooltip saying so) | RECORDED — not owed |
 | `v4.x` / `v3.x` | The Settings and shell five (ST8, ST13, SH1, SH6/SH7); no guided Learn, Structure or Summary | RECORDED — not owed |
 | `v2.x` | ST8, ST13 and SH6/SH7; no "Settings → Organize" pointer (`organizeArrow=0`) and no guided setup | RECORDED — not owed |
+
+---
+
+## Organize's rules and Storage say what they hold, and Compare's pages and keeper read without colour — main only
+
+Ten defects from the v6.1 review (LN4, LN5, LN6, LN7, LN13, LN20, LN22, LN23, DS2, DS3).
+
+- **The rule editor** discarded edits silently on Esc; `main` asks when the rule differs from the
+  one it opened with. **Rule cards** showed a "Person is" chip as the stored id ("daughter"); they
+  name the person.
+- **Storage's Overview headline** counted its lists, which are capped at 20 rows ("20 large · 20
+  untouched", reclaimable summing 20 candidates); the analyzer now counts the whole tree before it
+  caps, and the headline reads those ("N files · N untouched"). "Not opened or changed" says
+  "Not changed", since only the modification date is checked.
+- **Buttons that act at once** dropped their "…": Copy/Move Remaining N, Export plan(s), Save for
+  later, Fix name (row menu) and Organize ▸ Fix Name. **File N** confirms with the plain alert
+  rather than the red Trash one.
+- **Compare's page strip** gives each state its own shape and draws from `SemanticColor`; an
+  overlap group draws nothing where it drew a disabled "Keep this instead".
+- **Warning and success sentences** at four sites take `ChromeInk.bodyText`, and the Restructure
+  billing disclosure is 11pt secondary rather than 10pt tertiary.
+
+```sh
+F=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s ruleEsc=%s personChip=%s storageLens=%s storageCap=%s opened=%s ellipses=%s fileAllRed=%s stripHue=%s keepGrey=%s\n' $l \
+  "$(git show origin/$l:$F/AutomationRuleEditor.swift 2>/dev/null | grep -c 'Button("Cancel", action: onCancel)')" \
+  "$(git show origin/$l:$F/AutomationsLens.swift 2>/dev/null | grep -c 'case .personIs(let id): return id.isEmpty')" \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/StorageLens.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:$F/LensWorkspaceView.swift 2>/dev/null | grep -c 'report.largest.count) large')" \
+  "$(git show origin/$l:$F/StorageLensView.swift 2>/dev/null | grep -c 'Not opened or changed in a long while')" \
+  "$(git grep -h -e 'Remaining \\(pendingCount)…' -e '"Export plan…"' -e 'plans…"' -e '"Save for later…"' -e '"Fix name…"' -e '"Fix Name…"' origin/$l -- $F MacApp/ShortcutCommands.swift | grep -v '^[[:space:]]*//' | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:$F/LensWorkspaceView.swift 2>/dev/null | grep -A1 'confirmDestructive(' | grep -c 'into their suggested homes')" \
+  "$(git show origin/$l:$F/VisualPairModes.swift 2>/dev/null | grep -c 'case .changed: return .orange')" \
+  "$(git show origin/$l:$F/CompareCopiesSheet.swift 2>/dev/null | grep -c 'disabled(marker == .inert)')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x  ruleEsc=1 personChip=1 storageLens=1 storageCap=1 opened=1 ellipses=5 fileAllRed=1 stripHue=1 keepGrey=1
+# v4.x        ruleEsc=1 personChip=1 storageLens=1 storageCap=0 opened=1 ellipses=3 fileAllRed=1 stripHue=0 keepGrey=0
+# v3.x        ruleEsc=1 personChip=0 storageLens=1 storageCap=0 opened=1 ellipses=2 fileAllRed=0 stripHue=0 keepGrey=0
+# v2.x        ruleEsc=1 personChip=0 storageLens=1 storageCap=0 opened=1 ellipses=1 fileAllRed=0 stripHue=0 keepGrey=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | All of it, the same code | RECORDED — not owed |
+| `v4.x` | The silent Esc, the id chip, "opened", three of the ellipses and the red File N; nothing counts the capped lists (`storageCap=0`), and no Compare sheet or page strip | RECORDED — not owed |
+| `v3.x` / `v2.x` | The silent Esc, "opened" and fewer ellipses (`ellipses=2`, `1`); no person condition, no red File N (`fileAllRed=0`) | RECORDED — not owed |

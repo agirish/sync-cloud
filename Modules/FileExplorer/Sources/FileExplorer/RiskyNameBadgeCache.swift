@@ -5,7 +5,7 @@ import Sync
 /// rules.
 ///
 /// **Why the badge needs a memo at all.** The row badge is rendered eagerly, on every visible row of
-/// every render pass. So is the "Fix name…" menu item, it turned out — SwiftUI builds a row's
+/// every render pass. So is the "Fix name" menu item, it turned out — SwiftUI builds a row's
 /// context menu with the row, not only when it opens — which is why the menu's verdict now asks
 /// this memo first too (`PaneActionDelegate.riskyName(for:)`). `NameNormalizer.risky` is pure string work, but it is not cheap string
 /// work: it rebuilds the name scalar-by-scalar and runs `precomposedStringWithCanonicalMapping` over

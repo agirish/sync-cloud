@@ -5,7 +5,7 @@ import SwiftUI
 /// listed: both panes, the Columns view, and the Differences table.
 ///
 /// **Why it exists.** Folding Rename into Organize made a cloud-hostile name cheap to *act on* — a
-/// finding in Organize's header when the scan turns one up, and "Fix name…" in any row's context
+/// finding in Organize's header when the scan turns one up, and "Fix name" in any row's context
 /// menu. It did not make one cheap to *notice*: a name the cloud will reject looked exactly like
 /// every other name until you either ran Organize or right-clicked the file for an unrelated reason.
 /// This is the other half — the discovery.

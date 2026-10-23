@@ -52,18 +52,66 @@ public struct StorageLensReport: Codable, Sendable, Equatable {
     /// Total bytes of every leaf file in the scanned tree.
     public let totalBytes: Int
 
+    // **The whole tree's numbers, counted before the lists are capped at `topN`.** The three lists
+    // above are each the first `topN` rows, so their `count` is the cap on nearly any real tree,
+    // and a headline built from them read "20 large · 20 untouched" everywhere, with a
+    // "reclaimable" figure summing only the first 20 candidates. These are what the lists were
+    // drawn from.
+
+    /// Every leaf file the analysis measured — the pool `largest` is the top of.
+    public let fileCount: Int
+    /// Every file past the stale threshold, not only the `stale` rows shown.
+    public let staleCount: Int
+    /// Every reclaim candidate, not only the `reclaimCandidates` rows shown.
+    public let reclaimCount: Int
+    /// The bytes of every reclaim candidate.
+    public let reclaimableBytes: Int
+
+    /// The four totals default to what the lists themselves add up to, which is exact for a report
+    /// whose lists were never capped — the shape every hand-built test report has.
     public init(
         treemap: [TreemapNode],
         largest: [StorageEntry],
         stale: [StorageEntry],
         reclaimCandidates: [StorageEntry],
-        totalBytes: Int
+        totalBytes: Int,
+        fileCount: Int? = nil,
+        staleCount: Int? = nil,
+        reclaimCount: Int? = nil,
+        reclaimableBytes: Int? = nil
     ) {
         self.treemap = treemap
         self.largest = largest
         self.stale = stale
         self.reclaimCandidates = reclaimCandidates
         self.totalBytes = totalBytes
+        self.fileCount = fileCount ?? largest.count
+        self.staleCount = staleCount ?? stale.count
+        self.reclaimCount = reclaimCount ?? reclaimCandidates.count
+        self.reclaimableBytes = reclaimableBytes ?? reclaimCandidates.reduce(0) { $0 + $1.bytes }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case treemap, largest, stale, reclaimCandidates, totalBytes
+        case fileCount, staleCount, reclaimCount, reclaimableBytes
+    }
+
+    /// Reads a report saved before the totals existed — every snapshot written by 6.0 and earlier —
+    /// by falling back to the lists, which is exactly what those builds showed. A required key
+    /// would have thrown, and a snapshot that fails to decode is a Storage page that comes up
+    /// empty after an update.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            treemap: c.decode([TreemapNode].self, forKey: .treemap),
+            largest: c.decode([StorageEntry].self, forKey: .largest),
+            stale: c.decode([StorageEntry].self, forKey: .stale),
+            reclaimCandidates: c.decode([StorageEntry].self, forKey: .reclaimCandidates),
+            totalBytes: c.decode(Int.self, forKey: .totalBytes),
+            fileCount: c.decodeIfPresent(Int.self, forKey: .fileCount),
+            staleCount: c.decodeIfPresent(Int.self, forKey: .staleCount),
+            reclaimCount: c.decodeIfPresent(Int.self, forKey: .reclaimCount),
+            reclaimableBytes: c.decodeIfPresent(Int.self, forKey: .reclaimableBytes))
     }
 }
 
@@ -130,36 +178,34 @@ public enum StorageLensAnalyzer {
         )
 
         // 4. Stale: untouched past the threshold, oldest first. Files with no mtime are excluded —
-        //    staleness can't be judged without a date.
+        //    staleness can't be judged without a date. Counted BEFORE the cap, so the report can
+        //    say how many there are as well as which ones come first.
         let staleCutoff = now.addingTimeInterval(-Double(options.staleThresholdDays) * 86_400)
-        let stale = Array(
-            leaves
-                .filter { entry in
-                    guard let m = entry.modified else { return false }
-                    return m < staleCutoff
-                }
-                .sorted(by: oldestThenPath)
-                .prefix(options.topN)
-        )
+        let allStale = leaves.filter { entry in
+            guard let m = entry.modified else { return false }
+            return m < staleCutoff
+        }
+        let stale = Array(allStale.sorted(by: oldestThenPath).prefix(options.topN))
 
         // 5. Reclaim candidates: BOTH large AND long-untouched — the rows worth making online-only.
+        //    Counted and summed before the cap, for the same reason.
         let reclaimCutoff = now.addingTimeInterval(-Double(options.reclaimStaleDays) * 86_400)
-        let reclaimCandidates = Array(
-            leaves
-                .filter { entry in
-                    guard let m = entry.modified else { return false }
-                    return entry.bytes >= options.minReclaimBytes && m < reclaimCutoff
-                }
-                .sorted(by: bytesDescThenPath)
-                .prefix(options.topN)
-        )
+        let allReclaim = leaves.filter { entry in
+            guard let m = entry.modified else { return false }
+            return entry.bytes >= options.minReclaimBytes && m < reclaimCutoff
+        }
+        let reclaimCandidates = Array(allReclaim.sorted(by: bytesDescThenPath).prefix(options.topN))
 
         return StorageLensReport(
             treemap: treemap,
             largest: largest,
             stale: stale,
             reclaimCandidates: reclaimCandidates,
-            totalBytes: totalBytes
+            totalBytes: totalBytes,
+            fileCount: leaves.count,
+            staleCount: allStale.count,
+            reclaimCount: allReclaim.count,
+            reclaimableBytes: allReclaim.reduce(0) { $0 + $1.bytes }
         )
     }
 

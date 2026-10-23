@@ -68,7 +68,7 @@ public final class RestructureStore: ObservableObject {
         public var manifest: RestructureManifest
         /// When the draft was saved, injected by the writer.
         public var savedAt: String
-        /// The file `Export plan…` wrote, relative to the profile folder — nil for a draft that
+        /// The file `Export plan` wrote, relative to the profile folder — nil for a draft that
         /// was saved without exporting.
         public var exportedTo: String?
         /// The sheet's full picker vocabulary when the draft was saved — the chosen scheme's

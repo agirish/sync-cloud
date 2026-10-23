@@ -1670,7 +1670,8 @@ struct FileContextMenu: View {
                 // (2026-09-27) — but nothing costlier belongs here.
                 if let risky = delegate.riskyName(for: singleNode) {
                     Button(action: { delegate.handleFixName(singleNode) }) {
-                        Label("Fix name…", systemImage: RiskyNameGlyph.lens)
+                        // No ellipsis (LN13): it renames at once, undoably — nothing more is asked.
+                        Label("Fix name", systemImage: RiskyNameGlyph.lens)
                     }
                     .help("\(risky.reason) Renames it to “\(risky.sanitizedName)”, undoably.")
                     // The badge's answer, and the ONLY way back from one. Keeping is durable, so
@@ -1691,7 +1692,7 @@ struct FileContextMenu: View {
                     }
                 }
 
-                // Beside "Fix name…" — the same door for the other lens. A standing item rather
+                // Beside "Fix name" — the same door for the other lens. A standing item rather
                 // than a finding: unlike a risky name, "does this file have copies?" cannot be
                 // answered without a scan, so the offer is to go and look.
                 //

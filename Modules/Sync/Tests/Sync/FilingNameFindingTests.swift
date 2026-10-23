@@ -180,7 +180,7 @@ import Events
         #expect(manager.riskyNames.map(\.currentName) == ["tail "])
     }
 
-    // MARK: The single-file door (the pane row's "Fix name…")
+    // MARK: The single-file door (the pane row's "Fix name")
 
     @Test func theOneNodeCheckAgreesWithTheWholeTreeScan() {
         // Two doors onto one rule. If they ever disagree, a name the batch flags would offer no

@@ -234,8 +234,8 @@ struct VisualPairModeView: View {
 
 // MARK: - The page strip
 
-/// One dot per page, coloured by what the diff found — and no dot at all until it has found
-/// something.
+/// One mark per page, shaped and coloured by what the diff found — and no mark at all until it
+/// has found something.
 ///
 /// **A page with no dot is a page nothing has claimed anything about.** The strip is read as a map
 /// of where the two documents differ, so a marker that appears before its comparison has run reads
@@ -314,7 +314,12 @@ struct PageStrip: View, Equatable {
                                         design: .monospaced))
                     .foregroundStyle(isCurrent ? accent : Color.secondary)
                 if let dot = state.dot {
-                    Circle().fill(color(for: dot)).frame(width: 5, height: 5)
+                    // Shape and colour both, from the meaning — see `PageDiffState.Dot.symbol`.
+                    Image(systemName: dot.symbol)
+                        .scaledFont(.system(size: 7, weight: .bold))
+                        .foregroundStyle(dot.tint)
+                        .frame(width: 8, height: 8)
+                        .accessibilityHidden(true)
                 }
             }
             .padding(.horizontal, 7)
@@ -328,17 +333,6 @@ struct PageStrip: View, Equatable {
         .help(help(for: state, pinned: pinned, index: index))
         .accessibilityLabel("Page \(index + 1)")
         .accessibilityValue(help(for: state, pinned: pinned, index: index))
-    }
-
-    /// The paint for a dot's meaning. Whether there IS a dot is `PageDiffState.dot`'s decision,
-    /// where a test can call it; this only colours what that returns.
-    private func color(for dot: PageDiffState.Dot) -> Color {
-        switch dot {
-        case .same: return .green
-        case .changed: return .orange
-        case .oneSided: return .blue
-        case .unrenderable: return .red.opacity(0.6)
-        }
     }
 
     /// Compared on everything it DRAWS, so `.equatable()` can hold a redraw off.
@@ -369,6 +363,21 @@ struct PageStrip: View, Equatable {
             return String(format: "About %.1f%% of the page differs", percent)
         case .oneSided: return "Only one side has this page"
         case .unrenderable: return "This page couldn't be rendered on one side"
+        }
+    }
+}
+
+extension PageDiffState.Dot {
+    /// The severity table rather than four literal hues (LN22), so a strip mark means what the
+    /// same colour means everywhere else in the app. The literal red was also drawn at 60%
+    /// opacity — fainter than the other three for the one meaning that says a page could not be
+    /// checked at all.
+    var tint: Color {
+        switch self {
+        case .same: return SemanticColor.success
+        case .changed: return SemanticColor.warning
+        case .oneSided: return SemanticColor.info
+        case .unrenderable: return SemanticColor.error
         }
     }
 }

@@ -77,7 +77,7 @@ import Sync
         #expect(d.isKeptName("other name ") == false)
     }
 
-    /// The badge and the menu answer the same rules, so a name that badges is a name "Fix name…"
+    /// The badge and the menu answer the same rules, so a name that badges is a name "Fix name"
     /// is offered for. They diverge on exactly one point — a KEPT name keeps its menu item (you may
     /// have changed your mind) while losing its badge — and that divergence is asserted rather than
     /// left to be discovered.

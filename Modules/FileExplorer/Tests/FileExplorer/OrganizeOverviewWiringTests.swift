@@ -398,12 +398,39 @@ import SwiftUI
         }
         // The standing facts, not a single count to act on.
         #expect(headline.contains("total"))
-        #expect(headline.contains("62 large"))
+        #expect(headline.contains("62 files"))
         #expect(headline.contains("318 untouched"))
         // Provenance: which tree, so a RESTORED report can never be read under the wrong root.
         #expect(detail.contains("Documents"),
                 "the receipt does not name the root it describes — a restored report would be read under whatever scope happens to be set")
         #expect(detail.hasPrefix("Analyzed"))
+    }
+
+    /// **The headline reads the tree's totals, not the lists' lengths (LN6).** The lists are capped
+    /// at 20 rows, so a headline counting them said "20 large · 20 untouched" on nearly every tree,
+    /// and "reclaimable" added up only the first 20 candidates. The fixture's lists are exactly
+    /// the cap while every total is something else, so a headline reading the lists cannot pass.
+    @Test func storagesHeadlineCountsTheTreeNotTheCappedLists() {
+        func entry(_ n: String, _ b: Int) -> StorageEntry {
+            StorageEntry(path: "/root/\(n)", name: n, bytes: b, modified: Date(timeIntervalSince1970: 0))
+        }
+        let capped = (0..<20).map { entry("f\($0)", 2_000_000) }
+        let m = FileSyncManager()
+        m.storageLensReport = StorageLensReport(
+            treemap: [], largest: capped, stale: capped, reclaimCandidates: capped,
+            totalBytes: 900_000_000_000,
+            fileCount: 640, staleCount: 318, reclaimCount: 77, reclaimableBytes: 154_000_000)
+        m.storageLensRoot = URL(fileURLWithPath: "/root")
+
+        guard case .receipt(let headline, _)? = storageState(m) else {
+            Issue.record("Storage's overview section is not a receipt")
+            return
+        }
+        #expect(headline.contains("640 files"), "\(headline)")
+        #expect(headline.contains("318 untouched"), "\(headline)")
+        #expect(headline.contains("\(FileSyncManager.formatBytes(154_000_000)) reclaimable"), "\(headline)")
+        #expect(!headline.contains("20 "), "the headline still counts the capped lists: \(headline)")
+        #expect(headline == LensWorkspaceView.storageReceiptHeadline(m.storageLensReport!))
     }
 
     /// Before an analysis it says it has not looked, rather than reporting an empty report.

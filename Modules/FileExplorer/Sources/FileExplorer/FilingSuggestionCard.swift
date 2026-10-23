@@ -6,6 +6,7 @@ import Design
 /// source, the suggested destination (with "new" tags on folders that would be created), the
 /// reason, a confidence chip, and the file/choose/leave actions.
 struct FilingSuggestionCard: View {
+    @Environment(\.colorScheme) private var colorScheme
     let suggestion: FilingSuggestion
     /// Row measurements per the appearance density setting (H7/D4), injected by the owner
     /// (LensWorkspaceView reads the @AppStorage once and passes the resolved metrics down). Comfortable
@@ -307,12 +308,14 @@ struct FilingSuggestionCard: View {
         let shown = folders[0].split(separator: "/").joined(separator: " › ")
         let more = folders.count - 1
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            // The sentence's ink, glyph and words alike, rather than raw orange (DS2) — the same
+            // pairing Settings' person row gives its caveat glyph and line.
             Image(systemName: "doc.on.doc")
                 .scaledFont(.system(size: 10, weight: .semibold))
-                .foregroundStyle(SemanticColor.warning)
+                .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.warning))
             Text("already filed in")
                 .scaledFont(.system(size: 11))
-                .foregroundStyle(SemanticColor.warning)
+                .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.warning))
                 .fixedSize()
             Text(shown)
                 .scaledFont(.system(size: 11, design: .monospaced))

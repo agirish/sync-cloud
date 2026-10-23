@@ -64,7 +64,7 @@ public protocol FileActionDelegate: Sendable {
     //
     // This is not hypothetical. `riskyName(for:)` and `handleFixName(_:)` were introduced as
     // extension members, so `if let risky = delegate.riskyName(for: singleNode)` in
-    // `FileContextMenu` bound to the `nil` default for every delegate in the app — "Fix name…" was
+    // `FileContextMenu` bound to the `nil` default for every delegate in the app — "Fix name" was
     // unreachable from the moment it was written, and nothing caught it: the app built, the tests
     // exercised `PaneActionDelegate`'s method directly (where dispatch IS static and correct), and
     // a menu item that is merely absent looks exactly like a menu item that is correctly withheld.
@@ -74,7 +74,7 @@ public protocol FileActionDelegate: Sendable {
     /// What is wrong with this node's name for the provider it lives on, or nil when nothing is.
     /// Asked while the menu is being built — i.e. on open — so it costs nothing per row.
     ///
-    /// The RAW verdict: it does not consult the kept-names store, because "Fix name…" stays a
+    /// The RAW verdict: it does not consult the kept-names store, because "Fix name" stays a
     /// sensible offer for a name you previously decided to live with and have now changed your mind
     /// about. The badge, which must stay silent on a kept name, goes through `riskyNameReason`.
     func riskyName(for node: FileNode) -> RiskyName?
@@ -292,7 +292,7 @@ extension FileActionDelegate {
     /// Same default, same reason. **Both members are protocol REQUIREMENTS above rather than
     /// extension-only additions**: every caller reaches this through an existential, so a member
     /// that exists only in the extension dispatches statically to the default and a conformer's
-    /// override is never reached. That bug shipped once here and made "Fix name…" unreachable
+    /// override is never reached. That bug shipped once here and made "Fix name" unreachable
     /// from the day it was written.
     public var canOrganizeFolder: Bool { false }
     public func handleOrganizeFolder(_ node: FileNode) {}
@@ -300,7 +300,7 @@ extension FileActionDelegate {
 
     /// Same default, same reason, and declared as requirements above for the same one — an
     /// extension-only member would dispatch statically through the existential and the conformer's
-    /// answer would never be reached, which is how "Fix name…" shipped unreachable.
+    /// answer would never be reached, which is how "Fix name" shipped unreachable.
     public var canCompareFilePair: Bool { false }
     public func handleCompareFilePair(_ first: FileNode, with second: FileNode,
                                       secondIsInOtherPane: Bool) {}

@@ -292,9 +292,26 @@ enum PageDiffState: Equatable {
         }
     }
 
-    /// The dot's four meanings. Named rather than coloured here, so the meaning and the paint stay
-    /// separable — `PageStrip` maps these to the palette.
-    enum Dot: Equatable { case same, changed, oneSided, unrenderable }
+    /// The dot's four meanings. Named here, each with its own shape; `PageStrip` adds the colour
+    /// (`tint`, beside the view), so the meaning and the paint stay separable.
+    enum Dot: Equatable, CaseIterable {
+        case same, changed, oneSided, unrenderable
+
+        /// **A shape of its own for each meaning (LN22).** The strip drew four 5pt circles told
+        /// apart by colour alone — green, orange, blue, red — with the words only on hover and to
+        /// VoiceOver, so a reader who cannot separate green from orange saw one mark four times.
+        /// The shapes say it without the colour: a tick for "no visible difference", the dot kept
+        /// for "changed" (the one worth stopping at), half a circle for "only one side has it",
+        /// and a cross for "couldn't be rendered".
+        var symbol: String {
+            switch self {
+            case .same: return "checkmark"
+            case .changed: return "circle.fill"
+            case .oneSided: return "circle.lefthalf.filled"
+            case .unrenderable: return "xmark"
+            }
+        }
+    }
 
     static func from(_ result: BitmapDiffResult?) -> PageDiffState {
         guard let result else { return .unrenderable }

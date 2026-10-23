@@ -2866,7 +2866,9 @@ struct OrganizeVerbCommands: View {
         // about a folder, these repair or bless a name — and unlike them they are available only
         // for a name the app would rewrite, so they are usually the greyed half of this menu.
         Divider()
-        Button("Fix Name…") { verbs?.fixName?() }
+        // No ellipsis: it renames at once, undoably, and asks nothing more — an ellipsis promises
+        // a question that never comes (LN13). The row menu's "Fix name" is the same act.
+        Button("Fix Name") { verbs?.fixName?() }
             .disabled(verbs?.fixName == nil)
         Button("Always Allow This Name") { verbs?.keepName?() }
             .disabled(verbs?.keepName == nil)

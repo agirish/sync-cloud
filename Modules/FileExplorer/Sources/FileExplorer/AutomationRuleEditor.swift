@@ -100,6 +100,8 @@ struct AutomationRuleEditor: View {
     private let ruleID: UUID
     private let wasEnabled: Bool
     private let isNew: Bool
+    /// The rule as the editor opened it — what Cancel compares against before it throws edits away.
+    private let original: AutomationRule
 
     @State private var name: String
     @State private var matchMode: AutomationRule.MatchMode
@@ -115,6 +117,7 @@ struct AutomationRuleEditor: View {
         self.onCancel = onCancel
         self.ruleID = rule.id
         self.wasEnabled = rule.enabled
+        self.original = rule
         self.isNew = rule.conditions.isEmpty && rule.name.isEmpty && rule.destinationTemplate.isEmpty
         _name = State(initialValue: rule.name)
         _matchMode = State(initialValue: rule.matchMode)
@@ -166,6 +169,54 @@ struct AutomationRuleEditor: View {
     /// it). `internal` so tests can pin the gate without a view.
     nonisolated static func canSave(isRunnable: Bool, conditions: [AutomationCondition]) -> Bool {
         isRunnable && !conditions.contains(where: isUnmatchableMentions)
+    }
+
+    /// Whether Cancel would throw away anything (LN4): the rule as it stands differs from the rule
+    /// the editor opened with.
+    ///
+    /// Esc lands on Cancel, and Cancel used to discard silently — a rule with several conditions,
+    /// or one learned from Remember and then adjusted, vanished on one keypress. Asking every time
+    /// would be its own defect: opening a rule to look at it and pressing Esc must just close.
+    ///
+    /// Compared field by field, in the form Save would write: conditions canonicalized and the
+    /// destination trimmed on both sides, so typing "invoice," where the rule said "invoice" is not
+    /// an edit. Not `==` on the whole rule, which also compares the fields a newer build wrote and
+    /// this editor never shows — those would make every such rule look edited. `internal` so tests
+    /// can pin it.
+    nonisolated static func hasUnsavedEdits(original: AutomationRule, edited: AutomationRule) -> Bool {
+        func destination(_ rule: AutomationRule) -> String {
+            rule.destinationTemplate.trimmingCharacters(in: .whitespaces)
+        }
+        return original.name != edited.name
+            || original.matchMode != edited.matchMode
+            || original.conditions.map(canonicalized) != edited.conditions.map(canonicalized)
+            || destination(original) != destination(edited)
+    }
+
+    /// Cancel's decision, with the question injected so a test can answer it: close when nothing
+    /// was edited or the user agrees to discard, otherwise stay. Returns whether it closed.
+    @discardableResult
+    static func cancel(original: AutomationRule, edited: AutomationRule,
+                       confirmDiscard: () -> Bool, close: () -> Void) -> Bool {
+        guard !hasUnsavedEdits(original: original, edited: edited) || confirmDiscard() else {
+            return false
+        }
+        close()
+        return true
+    }
+
+    /// The question Cancel asks over unsaved edits. Built on the editor's leave-question shape
+    /// (`EditorPDFTools.leaveAlert`): Discard first, marked destructive and off Return, then
+    /// Cancel, which keeps Esc — so a second Esc goes back to the rule rather than losing it.
+    static func discardAlert(ruleName: String, isNew: Bool) -> NSAlert {
+        let trimmed = ruleName.trimmingCharacters(in: .whitespaces)
+        let title = isNew
+            ? "Discard this new rule?"
+            : "Discard your changes to “\(trimmed.isEmpty ? "Untitled rule" : trimmed)”?"
+        let detail = isNew
+            ? "It hasn’t been saved, so nothing is kept."
+            : "The rule stays as it was before you opened it."
+        return EditorPDFTools.leaveAlert((title: title, detail: detail, go: "Discard"))
     }
 
     var body: some View {
@@ -308,8 +359,10 @@ struct AutomationRuleEditor: View {
                     .textFieldStyle(.roundedBorder).controlSize(.small)
                     .help("The file must mention every word — in its name or its text. Separate with commas.")
                 if Self.isUnmatchableMentions(condition.wrappedValue) {
+                    // A sentence, so it takes the readable ink rather than raw orange (DS2).
                     Text("These words are too generic to match on — add a distinctive word (a vendor, topic, or year).")
-                        .scaledFont(.system(size: 11)).foregroundStyle(SemanticColor.warning)
+                        .scaledFont(.system(size: 11))
+                        .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.warning))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -450,7 +503,14 @@ struct AutomationRuleEditor: View {
     private var footer: some View {
         HStack {
             Spacer()
-            Button("Cancel", action: onCancel)
+            Button("Cancel") {
+                Self.cancel(original: original, edited: assembled,
+                            confirmDiscard: {
+                                Self.discardAlert(ruleName: original.name, isNew: isNew)
+                                    .runModal() == .alertFirstButtonReturn
+                            },
+                            close: onCancel)
+            }
                 .keyboardShortcut(.cancelAction)
                 .shortcutKeycap("esc")
             Button("Save") { onSave(assembled) }

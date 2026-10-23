@@ -1350,7 +1350,9 @@ public struct DifferencesView: View {
                 // Share the copy/move action vocabulary (TransferGlyph) like the other bulk
                 // buttons; "Remaining" resolves each item in its own direction, so it's the
                 // non-directional copy/move glyph rather than a single-direction arrow.
-                Label("\(session.isMove ? "Move" : "Copy") Remaining \(pendingCount)…",
+                // No ellipsis: it acts at once, and the count it names IS the confirmation —
+                // see `copyRemaining` (LN13).
+                Label("\(session.isMove ? "Move" : "Copy") Remaining \(pendingCount)",
                       systemImage: session.isMove ? TransferGlyph.move : TransferGlyph.copy)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -1750,7 +1752,7 @@ public struct DifferencesView: View {
         reviewSelection = []
     }
 
-    /// "Copy Remaining N…": leaves review mode and resolves every still-pending item through
+    /// "Copy Remaining N": leaves review mode and resolves every still-pending item through
     /// the existing bulk path (or the single-item path, whose failure alert carries Retry).
     private func copyRemaining(_ session: ReviewSession) {
         let remaining = session.pending
@@ -1758,7 +1760,7 @@ public struct DifferencesView: View {
         Logger.shared.debug("Review: \(isMove ? "move" : "copy") remaining \(remaining.count) item(s)")
         reviewStore.session = nil
         reviewSelection = []
-        // confirmed: the "Copy Remaining N…" button names the exact count and lives inside
+        // confirmed: the "Copy Remaining N" button names the exact count and lives inside
         // review mode — it IS the confirmation. Prompting per syncAll call asked twice for a
         // mixed-direction remainder (with partial counts that never matched the button), and
         // declining the second prompt silently dropped items after the session was torn down.

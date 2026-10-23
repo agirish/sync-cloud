@@ -601,7 +601,7 @@ enum StorageSection: String, Hashable, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .largest: return "The biggest individual files"
-        case .stale: return "Not opened or changed in a long while — oldest first"
+        case .stale: return "Not changed in a long while — oldest first"
         case .reclaim: return "Large and long-idle — worth keeping online-only"
         }
     }
