@@ -71,7 +71,7 @@ import Events
         // two tests above cover what the shipping button does, rather than a parallel code path.
         let (store, url) = makeStore()
         defer { try? FileManager.default.removeItem(at: url) }
-        let view = SyncHistoryView(store: store, onUndoLastSyncRun: {}, confirmClearHistory: { false })
+        let view = SyncHistoryView(store: store, onUndoLastSyncRun: { nil }, confirmClearHistory: { false })
         _ = view.body
         #expect(store.records.count == 1)
     }

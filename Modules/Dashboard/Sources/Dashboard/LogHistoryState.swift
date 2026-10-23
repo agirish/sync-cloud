@@ -8,7 +8,7 @@ import Foundation
 /// lockstep by every path that touched any of them, with nothing but ordering to enforce it. Two
 /// combinations were representable and meaningless ("loading" while already loaded; a reveal count
 /// for history that was never loaded), and the one bug this area has shipped was a partial update:
-/// Clear Logs reset some of them and left `loadedHistory` populated, so deleted rows stayed on
+/// Clear Log reset some of them and left `loadedHistory` populated, so deleted rows stayed on
 /// screen and the reload button never came back.
 ///
 /// The load guard lives here too, in `beginLoading` — the view can no longer start a second read by
@@ -21,7 +21,7 @@ enum LogHistoryState {
     ///
     /// `token` identifies THIS load. A completion whose token no longer matches the current state
     /// discards its parse rather than applying it — which is what keeps a read that started before
-    /// Clear Logs from resurrecting the rows it deleted (and, by making `entries` non-nil again,
+    /// Clear Log from resurrecting the rows it deleted (and, by making `entries` non-nil again,
     /// hiding the reload button for the window's lifetime). It replaces a separate monotonic
     /// generation counter: identity belongs to the load, so it lives in the load's own case.
     case loading(token: UUID)
@@ -96,7 +96,7 @@ enum LogHistoryState {
     }
 
     /// Applies a completed read, but only if it is still the one being awaited.
-    /// - Returns: Whether the parse was applied. False means it was superseded (by Clear Logs, or
+    /// - Returns: Whether the parse was applied. False means it was superseded (by Clear Log, or
     ///   by a newer load) and must be dropped.
     @discardableResult
     mutating func finishLoading(_ entries: [LogEntry], token: UUID, pageSize: Int) -> Bool {
@@ -106,7 +106,7 @@ enum LogHistoryState {
     }
 
     /// Records that a completed read FAILED, under the same token guard `finishLoading` applies —
-    /// a failure from a read that Clear Logs (or a newer load) superseded must not knock the state
+    /// a failure from a read that Clear Log (or a newer load) superseded must not knock the state
     /// out of whatever replaced it.
     /// - Returns: Whether the failure was applied.
     @discardableResult

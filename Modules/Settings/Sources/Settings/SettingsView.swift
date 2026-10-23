@@ -3668,10 +3668,12 @@ struct AdvancedSettingsTab: View {
                         Button("Show in Finder") {
                             NSWorkspace.shared.activateFileViewerSelecting([Logger.shared.logFileURL])
                         }
-                        Button("Clear Log") {
-                            Logger.shared.clearLogs()
+                        // Asks first, like the Activity Log's trash button: one gesture, one name.
+                        Button("\(Logger.clearLogName)…") {
+                            guard Logger.shared.clearIfConfirmed() else { return }
                             Task { await refreshLogFileSize() }
                         }
+                        .help("Empty the Activity Log and the log file on disk")
                     }
                     .controlSize(.small)
                 }

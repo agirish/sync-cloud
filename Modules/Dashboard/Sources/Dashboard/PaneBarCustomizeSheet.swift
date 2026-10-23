@@ -104,7 +104,8 @@ struct PaneBarCustomizeSheet: View {
     // The floor is the *track*: a full bar is ten items, and at the first draft's 560pt they did not
     // fit — the row overflowed and what gave way was the provider capsule's label, so the sheet
     // shipped showing a bare cloud glyph where "iCloud" should have been. That is precisely the
-    // leading edge the whole arrangement is measured against.
+    // leading edge the whole arrangement is measured against. (The capsule is gone since: it named
+    // a provider the real bar no longer draws, and `leadingEdgeZone` holds that edge blank.)
     //
     // The ceiling is the *window*: `ContentView` set `minWidth: 600` when this was chosen, and the
     // fix for the first problem was a 700pt sheet — wider than the window it belongs to, at the
@@ -168,7 +169,7 @@ struct PaneBarCustomizeSheet: View {
         VStack(alignment: .leading, spacing: 5) {
             Text("Customize Pane Bar")
                 .scaledFont(.system(size: 15, weight: .semibold))
-            Text("Drop items anywhere from the provider name to the trailing edge, and drag them "
+            Text("Drop items anywhere from the leading edge to the trailing edge, and drag them "
                  + "off to remove them. Both panes share one arrangement.")
                 .scaledFont(.callout)
                 .foregroundStyle(.secondary)
@@ -211,7 +212,7 @@ struct PaneBarCustomizeSheet: View {
     /// Every part of the track you can aim at is its own drop target, and none of them overlap (the
     /// padding ring around the row is the one exception, and a drop there springs back):
     ///
-    /// - the provider ghost inserts at the head (it is the leading edge you aim past),
+    /// - the leading-edge zone inserts at the head,
     /// - each gap inserts at its own slot,
     /// - **each pill inserts before itself**, which is the whole point of the arrangement below,
     /// - the trailing slot takes the rest of the row and appends.
@@ -253,7 +254,7 @@ struct PaneBarCustomizeSheet: View {
     private var trackRow: some View {
         let items = arrangement.items
         return HStack(spacing: 0) {
-            providerGhost
+            leadingEdgeZone
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 slot(index)
                 trackItem(item, at: index)
@@ -277,33 +278,27 @@ struct PaneBarCustomizeSheet: View {
         targetedSlot = isTargeted ? index : (targetedSlot == index ? nil : targetedSlot)
     }
 
-    /// The provider capsule's stand-in: the pane's identity, which is why it is anchored at the
-    /// leading edge and is neither draggable nor removable.
+    /// A blank drop target at the head of the bar, so "first" is easy to aim at.
     ///
-    /// `fixedSize` and a layout priority because it is also the thing that lost when the row ran out
-    /// of width — the shipped sheet squeezed its label away entirely and left a bare cloud glyph.
-    private var providerGhost: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "cloud.fill")
-                .scaledFont(.system(size: 12))
-                .foregroundStyle(.tertiary)
-            Text("iCloud")
-                .scaledFont(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-        }
-        .fixedSize()
-        .layoutPriority(1)
-        .padding(.horizontal, 9)
-        .frame(height: Self.pillHeight)
-        .background(Capsule().fill(.quaternary.opacity(0.45)))
-        // Not draggable, not removable — but it *is* a drop target, because "past the provider name"
-        // is exactly how someone aims at the head of the bar.
-        .dropDestination(for: String.self) { payloads, _ in
-            drop(payloads, at: 0)
-        } isTargeted: { markTarget(0, $0) }
-        .help("The provider name stays at the leading edge — it is the pane's identity, not a control")
-        .accessibilityHidden(true)
+    /// It was a fake provider capsule — a cloud glyph and the word "iCloud", drawn for every pane
+    /// whatever its source — standing for a name the real bar retired in fd068fc49. The bar now
+    /// starts at the pane's leading edge, so this is that edge: nothing drawn, still aimable.
+    ///
+    /// Its own caret is deliberately absent. `slot(0)` sits right beside it and marks index 0 too,
+    /// so the caret appears there — where the item will land — rather than twice.
+    var leadingEdgeZone: some View {
+        Rectangle()
+            .fill(.clear)
+            .frame(width: Self.leadingEdgeWidth, height: Self.pillHeight + 6)
+            .contentShape(Rectangle())
+            .dropDestination(for: String.self) { payloads, _ in
+                drop(payloads, at: 0)
+            } isTargeted: { markTarget(0, $0) }
+            .accessibilityHidden(true)
     }
+
+    /// Wide enough to aim at, and narrow enough not to read as a gap in the bar.
+    static let leadingEdgeWidth: CGFloat = 18
 
     /// One item on the track. The pill is what it looks like on the bar; the menu is what makes it
     /// reachable without a drag.

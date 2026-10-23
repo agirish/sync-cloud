@@ -238,6 +238,70 @@ import Events
         #expect(manager.lastSyncRunUndoPreview == nil)       // canUndo is now false → no preview
     }
 
+    // MARK: the Sync History window's entry point
+
+    /// After a relaunch the undo stack is empty while Sync History still lists records. The
+    /// History window's click used to route through `undoLastSyncRun`, which answers in the MAIN
+    /// window's banner — so the click looked dead. The asking entry point hands the reason back
+    /// for the History window to show, sets no banner, and never asks to confirm a run it can't
+    /// reverse.
+    @Test func historyClickWithNothingToUndoReturnsTheReasonAndLeavesTheBannerAlone() {
+        let manager = isolatedManager()                      // a fresh stack: the relaunch case
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        var asked = 0
+
+        let refusal = manager.undoLastSyncRunAskingFirst(confirm: { _ in asked += 1; return true })
+
+        #expect(refusal == "There’s no recent sync run to undo — the undo history resets when SyncCloud restarts.")
+        #expect(asked == 0)
+        #expect(manager.banner == nil)
+    }
+
+    @Test func historyClickNamesTheActionOnTopAndReversesNothing() {
+        let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        let syncMarker = Marker()
+        registerRun(manager, name: "Sync run", marker: syncMarker)
+        manager.recordSyncHistory([record(run: UUID())])
+        let folderMarker = Marker()
+        registerRun(manager, name: "New Folder", marker: folderMarker)
+
+        let refusal = manager.undoLastSyncRunAskingFirst(confirm: { _ in true })
+
+        #expect(refusal == "The most recent action is “New Folder”, not a sync run — use Edit ▸ Undo (⌘Z) to reverse it.")
+        #expect(folderMarker.undone == false)
+        #expect(syncMarker.undone == false)
+        #expect(manager.banner == nil)
+    }
+
+    @Test func historyClickAsksAndReversesOnlyOnYes() {
+        let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        let marker = Marker()
+        registerRun(manager, name: "Sync run", marker: marker)
+        manager.recordSyncHistory([record(run: UUID())])
+        #expect(manager.lastSyncRunUndoRefusal == nil)       // it would act, so there is no reason
+
+        var askedAbout: String?
+        #expect(manager.undoLastSyncRunAskingFirst(confirm: { askedAbout = $0.actionName; return false }) == nil)
+        #expect(askedAbout == "Sync run")
+        #expect(marker.undone == false)                      // declined: nothing reversed
+
+        #expect(manager.undoLastSyncRunAskingFirst(confirm: { _ in true }) == nil)
+        #expect(marker.undone == true)
+        #expect(manager.lastSyncRunUndoPreview == nil)       // consumed
+    }
+
+    /// The banner path and the History path read one rule, so they cannot drift apart.
+    @Test func theBannerSaysWhatTheHistoryWindowWouldSay() {
+        let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        let reason = manager.lastSyncRunUndoRefusal
+        manager.undoLastSyncRun()
+        #expect(reason != nil)
+        #expect(manager.banner?.message == reason)
+    }
+
     // MARK: preview formatting (pure)
 
     @Test func actionSummaryCountsByActionOmittingZeroBuckets() {

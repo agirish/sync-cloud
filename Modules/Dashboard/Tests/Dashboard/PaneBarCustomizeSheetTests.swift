@@ -134,6 +134,48 @@ import Testing
         return host.menu(for: event)
     }
 
+    /// The head of the track is a blank drop zone, not a fake provider capsule.
+    ///
+    /// The sheet drew a cloud glyph and "iCloud" at the leading edge for every pane, standing for a
+    /// name the real bar retired in fd068fc49. What has to survive is the drop target — "first" has
+    /// to stay aimable — so the zone keeps a width, and paints nothing. The control is a fixed
+    /// space's pill, which is the faintest thing on the track: if the probe can see that, it can
+    /// see a capsule and a word.
+    @Test func theHeadOfTheTrackIsABlankDropZone() throws {
+        let sheet = PaneBarCustomizeSheet()
+        let zone = NSHostingView(rootView: AnyView(sheet.leadingEdgeZone))
+        #expect(zone.fittingSize.width >= 16,
+                "the leading drop zone is \(zone.fittingSize.width)pt wide — too thin to aim a drop at")
+
+        let blank = try #require(Self.inkedPixels(sheet.leadingEdgeZone))
+        let control = try #require(Self.inkedPixels(sheet.trackItem(.space, at: 0)))
+        #expect(control > 20, "the probe saw \(control) inked pixels on a space pill — it is blind")
+        #expect(blank == 0, "the leading drop zone painted \(blank) pixels; it should draw nothing")
+    }
+
+    /// Pixels that differ from the white ground, for a view rendered in a real (never shown) window.
+    private static func inkedPixels(_ view: some View) -> Int? {
+        let host = NSHostingView(rootView: AnyView(view.background(Color.white)
+                                                       .environment(\.colorScheme, .light)))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 80),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = host
+        host.frame = CGRect(origin: .zero, size: host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        var inked = 0
+        for x in 0..<rep.pixelsWide {
+            for y in 0..<rep.pixelsHigh {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                if c.redComponent < 0.97 || c.greenComponent < 0.97 || c.blueComponent < 0.97 { inked += 1 }
+            }
+        }
+        return inked
+    }
+
     @Test func theSpaceOnTheTrackCanBeAimedAt() {
         // The bug this is here for: a fixed space could be added to the bar and never taken off.
         // Its pill is a dashed outline around an empty fill, so the drag, the drop and the context

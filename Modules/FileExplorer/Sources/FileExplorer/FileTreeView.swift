@@ -1890,6 +1890,10 @@ struct FileRowView: View {
     /// via one `lstat` — off the scan, so a big tree pays nothing until a row actually appears —
     /// and memoized by `CloudOnlyBadgeCache`, so a row scrolling back in does not re-stat.
     @State private var isCloudOnly = false
+    /// Whether the name is drawn cut short, which is when — and only when — the row's tooltip
+    /// carries the full name (`rowHelp`). Reported by `reportsTruncation`, which writes it only when
+    /// it flips, so a resize that changes nothing re-renders nothing.
+    @State private var nameIsTruncated = false
     /// List-density setting (H7), injected by `FileTreeView` (which reads the @AppStorage once
     /// for the whole pane): comfortable renders exactly the pre-setting look; compact tightens
     /// the row and drops the secondary size/date detail.
@@ -2097,6 +2101,11 @@ struct FileRowView: View {
                 // that tells them apart is the part that went. Finder's default, for the same reason.
                 // A search hit is cut away from its match instead — see `nameTruncation`.
                 .truncationMode(Self.nameTruncation(match: searchContext.match, in: node.name))
+                // Measured on the drawn name, before its leading gap is added to the frame.
+                .reportsTruncation(of: PaneSearchName(name: node.name, match: searchContext.match,
+                                                      font: fonts.name)) { truncated in
+                    nameIsTruncated = truncated
+                }
                 .strikethrough(isIgnored, color: .secondary)
                 .foregroundStyle(isIgnored ? .secondary : .primary)
                 .padding(.leading, gap)
@@ -2159,10 +2168,11 @@ struct FileRowView: View {
         // question being asked. A row Edit cannot open recedes the same way, for the same reason:
         // it is still where it is, it is just not an answer here.
         .opacity(searchContext.isDimmed || editorRefusal != nil ? PaneSearchDim.opacity : 1)
-        // `?? ""` rather than a branch: an empty tooltip attaches nothing, and an `if let` around a
-        // modifier would give the row two structural identities and drop `isCloudOnly` every time
-        // the refusal flipped.
-        .help(editorRefusal ?? "")
+        // A string, possibly empty, rather than a branch: an empty tooltip attaches nothing, and an
+        // `if let` around a modifier would give the row two structural identities and drop
+        // `isCloudOnly` every time the refusal flipped.
+        .help(Self.rowHelp(name: node.name, nameIsTruncated: nameIsTruncated,
+                           editorRefusal: editorRefusal))
         .contentShape(Rectangle())
         // ONE keyed task for the badge, and it consults the memo first — so the syscall happens
         // once per path per republish rather than once per realization. `List` realizes and
@@ -2213,6 +2223,78 @@ extension FileRowView {
         let length = NameDisplay.visibleName(name).count
         guard length > 0 else { return .middle }
         return match.lowerBound + match.upperBound < length ? .tail : .head
+    }
+
+    /// The row's tooltip: the full name when the row cut it short, then Edit's refusal when there
+    /// is one, or "" (no tooltip) when there is neither.
+    ///
+    /// **Only a cut name earns the name.** Finder does the same, and here it matters more: the app
+    /// shows tooltips after 300 ms (`ToolTipDelay`), so a name tooltip on every row would pop up
+    /// over the list wherever the pointer rested. The name is shown as the row draws it
+    /// (`NameDisplay.visibleName`), so affix whitespace reads the same in both.
+    static func rowHelp(name: String, nameIsTruncated: Bool, editorRefusal: String?) -> String {
+        let fullName = nameIsTruncated ? NameDisplay.visibleName(name) : nil
+        return [fullName, editorRefusal].compactMap { $0 }.joined(separator: "\n")
+    }
+}
+
+extension View {
+    /// Reports whether this one-line label is drawn narrower than `ideal` — the same content at
+    /// its natural width — which is to say whether it has been truncated. SwiftUI has no such
+    /// query, so it is measured: the drawn width, and a hidden `fixedSize` copy's.
+    ///
+    /// Built for the cheapest place it could go, every row of every list: the copy is hidden (laid
+    /// out, never drawn), the widths go into a reference box rather than `@State`, and `onChange` is
+    /// called only when the answer flips — so a scroll or a resize that leaves it alone costs no
+    /// re-render. It is not a `ViewThatFits`: that would put two candidate rows into layout and
+    /// change how the row shares its width, where this changes nothing about the layout at all.
+    func reportsTruncation(of ideal: some View, _ onChange: @escaping (Bool) -> Void) -> some View {
+        modifier(TruncationProbe(ideal: ideal, onChange: onChange))
+    }
+}
+
+/// The measurement behind `reportsTruncation`.
+struct TruncationProbe<Ideal: View>: ViewModifier {
+    let ideal: Ideal
+    let onChange: (Bool) -> Void
+    /// Not observed, on purpose: a width moving must not re-render the row; only the answer may.
+    @State private var widths = Widths()
+
+    final class Widths {
+        var shown: CGFloat = 0
+        var ideal: CGFloat = 0
+        var reported = false
+    }
+
+    /// Cut, by more than layout's sub-point rounding. A truncation drops at least a glyph for an
+    /// ellipsis, so half a point cannot hide one. Nothing measured yet is not cut.
+    static func isTruncated(shown: CGFloat, ideal: CGFloat) -> Bool {
+        shown > 0 && ideal > shown + 0.5
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                widths.shown = width
+                report()
+            }
+            .background(alignment: .leading) {
+                ideal
+                    .lineLimit(1)
+                    .fixedSize()
+                    .hidden()
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                        widths.ideal = width
+                        report()
+                    }
+            }
+    }
+
+    private func report() {
+        let truncated = Self.isTruncated(shown: widths.shown, ideal: widths.ideal)
+        guard truncated != widths.reported else { return }
+        widths.reported = truncated
+        onChange(truncated)
     }
 }
 

@@ -194,12 +194,11 @@ import Events
     /// This is the net for that whole class. `availableHere` deliberately omits Collapse Pane so the
     /// "doesn't apply to this pane" treatment is in frame too.
     ///
-    /// **The trailing pill in "Your pane bar" is cut off in the reference, and that is real rather
-    /// than a rendering artefact.** Delete joining the default took the shipped arrangement to
-    /// eleven items, one more than the 600pt track seats — the track is a horizontal `ScrollView`
-    /// (built for arrangements up to `maxItems`, which is 16), so the last item is reachable by
-    /// scrolling rather than lost. It is the cost of a default bar this long, and it is recorded
-    /// here so the next person to see it knows it was looked at and accepted, not missed.
+    /// **The whole default arrangement fits the track again.** With the fake "iCloud" capsule at its
+    /// head, Delete joining the default pushed the trailing pill past the 600pt track's edge. The
+    /// capsule is now an 18pt blank drop zone (`leadingEdgeZone`), which hands back the room. The
+    /// track is still a horizontal `ScrollView` (built for arrangements up to `maxItems`, 16), so a
+    /// longer bar scrolls rather than losing items.
     @Test func paneBarCustomizeSheet() {
         let defaults = ScratchDefaults("DashboardSnapshotTests-customize")
         defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)

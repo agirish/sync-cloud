@@ -79,8 +79,8 @@ import Sync
                 "a refused row measures \(refusedRatio) of bright; a search-dimmed one \(controlRatio)")
     }
 
-    /// The reason is the row's tooltip, attached unconditionally as `?? ""` so the row keeps one
-    /// structural identity. A source scan, because a hosted SwiftUI tree exposes no tooltip under
+    /// The reason is the row's tooltip, attached unconditionally (an empty string is no tooltip)
+    /// so the row keeps one structural identity. A source scan, because a hosted SwiftUI tree exposes no tooltip under
     /// `swift test` (measured 2026-09-16: `NSView.toolTip` is nil throughout) — the same instrument
     /// `DuplicateRowPickerTests` uses for its row's help. Sliced to `FileRowView`'s body so a
     /// `.help` elsewhere in the file cannot stand in.
@@ -93,8 +93,10 @@ import Sync
         let body = source[start.upperBound...]
         let end = try #require(body.range(of: "\nstruct "), "no struct follows FileRowView")
         let rowSource = body[..<end.lowerBound]
-        #expect(rowSource.contains(".help(editorRefusal ?? \"\")"),
+        #expect(rowSource.contains(".help(Self.rowHelp(name: node.name, nameIsTruncated: nameIsTruncated,\n                           editorRefusal: editorRefusal))"),
                 "FileRowView no longer attaches the refusal as its tooltip")
+        // And the rule keeps the refusal on a row whose name is whole.
+        #expect(FileRowView.rowHelp(name: "a.zip", nameIsTruncated: false, editorRefusal: "Why.") == "Why.")
         // And the dim rides the same modifier as the search dim — one opacity, two reasons.
         #expect(rowSource.contains(".opacity(searchContext.isDimmed || editorRefusal != nil ? PaneSearchDim.opacity : 1)"),
                 "FileRowView's opacity no longer reads the refusal beside the search dim")

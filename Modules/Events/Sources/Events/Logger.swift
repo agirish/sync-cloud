@@ -524,13 +524,48 @@ public class Logger: ObservableObject {
     /// Settings) can drop it — the reset must not depend on WHICH button cleared.
     public static let didClearLogsNotification = Notification.Name("SyncCloudLoggerDidClearLogs")
 
-    public func clearLogs() {
+    /// **Internal, so no button can call it straight.** The two doors that clear the log — the
+    /// Activity Log's trash button and Settings ▸ Advanced — both emptied it on one click, file on
+    /// disk included. They go through `clearIfConfirmed` now, and only the tests reach this.
+    func clearLogs() {
         // Drop entries still sitting in the handoff queue too: without this, lines enqueued just
         // before the clear would flush into `entries` afterward and "resurrect" in the UI.
         _ = pendingEntries.drain()
         entries.removeAll()
         logWriter.clear()
         NotificationCenter.default.post(name: Self.didClearLogsNotification, object: nil)
+    }
+
+    /// The control's one name, for its title, its tooltip and its VoiceOver label alike. It was
+    /// "Clear Logs", "Clear the log" and "Clear Log" across the two doors.
+    public nonisolated static let clearLogName = "Clear Log"
+
+    /// The clear gesture as one step: ask, and only then clear. Both doors call this, so neither
+    /// can forget to ask; `confirm` is a seam so the decision is testable without a modal.
+    /// - Returns: Whether the log was cleared.
+    @discardableResult
+    public func clearIfConfirmed(_ confirm: @MainActor () -> Bool = Logger.defaultClearConfirmation) -> Bool {
+        guard confirm() else { return false }
+        clearLogs()
+        return true
+    }
+
+    /// The same shape as Sync History's Clear: Cancel is the default button, and the destructive
+    /// one takes no Return key. Clearing truncates the file on disk, which is the record of past
+    /// sessions, and nothing brings it back.
+    public static func defaultClearConfirmation() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Clear the activity log?"
+        alert.informativeText = "Removes every entry from the Activity Log and empties the log file on disk, including earlier sessions. Your files aren’t affected, and this can’t be undone."
+        alert.addButton(withTitle: clearLogName)
+        alert.addButton(withTitle: "Cancel")
+        if let clearButton = alert.buttons.first {
+            clearButton.hasDestructiveAction = true
+            clearButton.keyEquivalent = ""
+        }
+        alert.buttons.last?.keyEquivalent = "\r"
+        return alert.runModal() == .alertFirstButtonReturn
     }
     
     /// Synchronously drains the disk writer's background queue so every line enqueued before this

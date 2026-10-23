@@ -126,7 +126,7 @@ enum LogHistoryLoader {
     /// ``loadOlderThan(_:fileURL:)`` ordered behind the log writer's pending disk work.
     ///
     /// The ordering is the whole point of this function, which is why it exists instead of two
-    /// statements at the call site. Clear Logs truncates the file on the writer's own
+    /// statements at the call site. Clear Log truncates the file on the writer's own
     /// **background-qos** queue, so a history load that starts right after a clear can still read
     /// the pre-clear bytes — and it does so holding a perfectly valid token, because the token
     /// guard only defends loads that were already in flight AT the clear. The just-deleted rows
@@ -456,7 +456,7 @@ public struct LogViewer: View {
         // Taken here (main actor) but RUN inside the detached read below: the barrier blocks until
         // the writer's queue drains, which is exactly what must not happen on the main actor.
         let drainWriter = logger.diskWriteBarrier()
-        // Token guard: Clear Logs mid-flight resets the state, and a completion parsed from the
+        // Token guard: Clear Log mid-flight resets the state, and a completion parsed from the
         // PRE-clear file must not overwrite that reset — it would resurrect deleted rows AND (by
         // making the history non-nil again) hide the reload button for the window's lifetime.
         // `finishLoading` applies the parse only while this token is still the one being awaited.
@@ -528,12 +528,14 @@ public struct LogViewer: View {
                 .accessibilityLabel("Copy the shown entries")
 
                 // The history reset rides the Logger's own notification, NOT this button:
-                // Settings has its own Clear Logs door, and a reset wired to one button left
+                // Settings has its own Clear Log door, and a reset wired to one button left
                 // the other door resurrecting deleted history rows. The on-disk file was
                 // truncated, so parsed history must drop (and the reload button reappear —
                 // it only renders while the history is unloaded); the reset also invalidates any
                 // IN-FLIGHT load's token, so its pre-clear parse is discarded instead of applied.
-                Button(action: { logger.clearLogs() }) {
+                // Asks first, as Sync History's Clear does: this truncates the file on disk too,
+                // which is every earlier session's record.
+                Button(action: { logger.clearIfConfirmed() }) {
                     Image(systemName: "trash")
                 }
                 .onReceive(NotificationCenter.default.publisher(for: Logger.didClearLogsNotification)) { _ in
@@ -548,8 +550,9 @@ public struct LogViewer: View {
                 // history whenever the session list was empty (a quiet session under an
                 // "Errors only" threshold is exactly that), with Settings ▸ Advanced the only way out.
                 .disabled(logger.entries.isEmpty && !history.isLoaded)
-                .help("Clear Logs")
-                .accessibilityLabel("Clear the log")
+                // Ellipsis on the tooltip because it asks, like "Clear all history…".
+                .help("\(Logger.clearLogName)…")
+                .accessibilityLabel(Logger.clearLogName)
 
                 Button(action: { logger.openLogFile() }) {
                     Image(systemName: "doc.text")

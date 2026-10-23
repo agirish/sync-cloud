@@ -17,14 +17,21 @@ public struct SyncHistoryView: View {
 
     /// Reverses the most recent sync run. Injected so the (data-touching) NSAlert confirmation
     /// lives at the app boundary, keeping this view free of the manager and of Sync's types.
-    private let onUndoLastSyncRun: () -> Void
+    ///
+    /// Returns why it refused, or nil when it asked. A refusal is shown HERE, as an alert on this
+    /// window: after a relaunch the undo stack is empty while this list still has records, and the
+    /// reason used to go to the main window's banner, so the click here looked like it did nothing.
+    private let onUndoLastSyncRun: @MainActor () -> String?
+
+    /// The reason the last "Undo Last Run" click refused, while its alert is up.
+    @State private var undoRefusal: String?
 
     /// Confirms the history wipe. Injected for the same reason as `onUndoLastSyncRun` — and so
     /// both answers are drivable without a modal. The default is the standard destructive alert.
     private let confirmClearHistory: @MainActor () -> Bool
 
     public init(store: SyncHistoryStore = .shared,
-                onUndoLastSyncRun: @escaping () -> Void = {},
+                onUndoLastSyncRun: @escaping @MainActor () -> String? = { nil },
                 confirmClearHistory: @escaping @MainActor () -> Bool = SyncHistoryView.defaultClearConfirmation) {
         self.store = store
         self.onUndoLastSyncRun = onUndoLastSyncRun
@@ -127,7 +134,17 @@ public struct SyncHistoryView: View {
             list(filtered: filtered)
         }
         .frame(minWidth: 460, minHeight: 320)
+        .alert(Self.undoRefusalTitle,
+               isPresented: Binding(get: { undoRefusal != nil },
+                                    set: { if !$0 { undoRefusal = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(undoRefusal ?? "")
+        }
     }
+
+    /// The refusal alert's title. The message is the manager's reason, which names the cause.
+    static let undoRefusalTitle = "Can’t undo the last sync run"
 
     // MARK: Toolbar
 
@@ -157,7 +174,7 @@ public struct SyncHistoryView: View {
             .frame(width: 130)
 
             Button {
-                onUndoLastSyncRun()
+                undoRefusal = onUndoLastSyncRun()
             } label: {
                 Label("Undo Last Run", systemImage: "arrow.uturn.backward")
             }

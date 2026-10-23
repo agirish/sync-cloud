@@ -1010,15 +1010,12 @@ struct SyncCloudApp: App {
                 SyncHistoryView(
                     store: .shared,
                     onUndoLastSyncRun: {
-                        // Only prompt when the last recorded run is genuinely still on top of the
-                        // undo stack; otherwise let the manager surface the honest reason (a
-                        // non-sync action is on top, or the stack reset on relaunch).
-                        guard let preview = syncManager.lastSyncRunUndoPreview else {
-                            syncManager.undoLastSyncRun()
-                            return
-                        }
-                        guard SyncOperationAlerts.confirmUndoLastSyncRun(preview) else { return }
-                        syncManager.undoLastSyncRun()
+                        // Prompts only when the last recorded run is genuinely still on top of the
+                        // undo stack. Otherwise the honest reason (a non-sync action is on top, or
+                        // the stack reset on relaunch) comes back, and the History window shows it
+                        // itself — it used to land in the main window's banner, out of sight.
+                        syncManager.undoLastSyncRunAskingFirst(
+                            confirm: SyncOperationAlerts.confirmUndoLastSyncRun)
                     }
                 )
                 .environmentObject(Logger.shared)

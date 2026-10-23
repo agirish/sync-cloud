@@ -275,28 +275,59 @@ public class FileSyncManager: ObservableObject {
     /// silently reversing something the Sync History window never showed. The app wires an NSAlert
     /// confirmation (built from the same preview) in front of this.
     public func undoLastSyncRun() {
-        guard let undoManager else { return }
-        guard let preview = lastSyncRunUndoPreview else {
-            if undoManager.canUndo {
-                let top = undoManager.undoActionName
-                // A DEAD pairing (a manual ⌘Z/⇧⌘Z or a partial delete invalidated it) is not a
-                // name mismatch: the top may well be named "Sync run", and the old text — "the
-                // most recent action is “Sync run”, not a sync run" — contradicted itself.
-                // NEVER-ARMED is different again: on a fresh launch with no sync run, "the undo
-                // history changed since the last sync run" would invent a run — name the top
-                // action instead (the pre-existing text, which is honest there).
-                if lastRecordedRunUndoName == nil && hasArmedRunPairingThisSession {
-                    banner = .warning("The undo history changed since the last sync run — use Edit ▸ Undo (⌘Z) to step back.")
-                } else {
-                    banner = .warning(top.isEmpty
-                        ? "The most recent action isn't a sync run — use Edit ▸ Undo (⌘Z) to reverse it."
-                        : "The most recent action is “\(top)”, not a sync run — use Edit ▸ Undo (⌘Z) to reverse it.")
-                }
-            } else {
-                banner = .warning("There's no recent sync run to undo — the undo history resets when SyncCloud restarts.")
-            }
+        guard undoManager != nil else { return }
+        guard lastSyncRunUndoPreview != nil else {
+            if let reason = lastSyncRunUndoRefusal { banner = .warning(reason) }
             return
         }
+        reverseLastSyncRun()
+    }
+
+    /// Why "Undo Last Run" would refuse right now, in the words the user sees — or nil when it
+    /// would act (`lastSyncRunUndoPreview` is non-nil).
+    ///
+    /// One rule for both places the refusal is shown: the main window's banner
+    /// (`undoLastSyncRun`) and the Sync History window's own alert
+    /// (`undoLastSyncRunAskingFirst`). The History window used to call the banner path, so a click
+    /// there after a relaunch looked like it did nothing — the answer landed in another window.
+    public var lastSyncRunUndoRefusal: String? {
+        guard lastSyncRunUndoPreview == nil else { return nil }
+        guard let undoManager, undoManager.canUndo else {
+            return "There’s no recent sync run to undo — the undo history resets when SyncCloud restarts."
+        }
+        let top = undoManager.undoActionName
+        // A DEAD pairing (a manual ⌘Z/⇧⌘Z or a partial delete invalidated it) is not a
+        // name mismatch: the top may well be named "Sync run", and the old text — "the
+        // most recent action is “Sync run”, not a sync run" — contradicted itself.
+        // NEVER-ARMED is different again: on a fresh launch with no sync run, "the undo
+        // history changed since the last sync run" would invent a run — name the top
+        // action instead (the pre-existing text, which is honest there).
+        if lastRecordedRunUndoName == nil && hasArmedRunPairingThisSession {
+            return "The undo history changed since the last sync run — use Edit ▸ Undo (⌘Z) to step back."
+        }
+        return top.isEmpty
+            ? "The most recent action isn’t a sync run — use Edit ▸ Undo (⌘Z) to reverse it."
+            : "The most recent action is “\(top)”, not a sync run — use Edit ▸ Undo (⌘Z) to reverse it."
+    }
+
+    /// "Undo Last Run" as the Sync History window drives it: ask `confirm` with the preview, and
+    /// reverse the run only on yes. When there is nothing it may reverse, `confirm` is never asked
+    /// and the reason comes back for the caller to show **where the click happened** — no banner
+    /// is set, because the banner belongs to the main window, not the one the user is looking at.
+    /// - Returns: The refusal, or nil when it asked (whatever the answer was).
+    @discardableResult
+    public func undoLastSyncRunAskingFirst(confirm: (SyncRunUndoPreview) -> Bool) -> String? {
+        guard let preview = lastSyncRunUndoPreview else { return lastSyncRunUndoRefusal }
+        guard confirm(preview) else { return nil }
+        // Re-read, not `preview`: the confirm is a modal, and the stack is only trusted as of now.
+        guard lastSyncRunUndoPreview != nil else { return lastSyncRunUndoRefusal }
+        reverseLastSyncRun()
+        return nil
+    }
+
+    /// The reversal itself, behind the gate both entry points check first.
+    private func reverseLastSyncRun() {
+        guard let undoManager, let preview = lastSyncRunUndoPreview else { return }
         Logger.shared.info("Undoing last sync run: \(preview.actionName) — reversing \(preview.operationCount) operation(s)")
         undoManager.undo()
         // The run is consumed — clear the snapshot so a second press can't reverse it again (a redo

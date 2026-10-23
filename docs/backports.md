@@ -9117,3 +9117,41 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s itemsTitles=%s syncingForMove
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | Both, the same code (`itemsTitles=6`, `dialogKey=0`) | RECORDED — not owed |
+
+---
+
+## Browse answers Undo Last Run in its own window, asks before clearing the log, and tips only what needs it — main only
+
+Five Browse defects from the v6.1 review (BR2, BR3, BR4, BR6, BR13).
+
+- **Undo Last Run** in Sync History, with nothing it may reverse (after a relaunch, say), put its
+  reason in the main window's banner, so the click looked dead. `main` shows it as an alert in the
+  Sync History window (`undoLastSyncRunAskingFirst`, `lastSyncRunUndoRefusal`).
+- **Customize Pane Bar** drew a fake "iCloud" capsule at the head of the bar for every pane. `main`
+  keeps a blank drop zone there and says "from the leading edge".
+- **Clear Log** emptied the Activity Log and truncated the file on disk in one click, from the
+  Activity Log and from Settings ▸ Advanced, under three names. `main` asks first on both
+  (`Logger.clearIfConfirmed`) and calls it "Clear Log" everywhere.
+- **Crumb tooltips** promised "⌥-click to bring both panes here" in every one-pane workspace. `main`
+  passes no both-panes action there, and the tooltip names only the destination.
+- **Truncated names** had no tooltip. `main` shows the full name only when the row cut it.
+
+```sh
+D=Modules/Dashboard/Sources/Dashboard
+T=Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s historyAsks=%s fakeICloud=%s viewerClear=%s settingsClear=%s onePaneTip=%s rowView=%s nameTip=%s\n' $l \
+  "$(git show origin/$l:MacApp/SyncCloudApp.swift 2>/dev/null | grep -c 'undoLastSyncRunAskingFirst')" \
+  "$(git show origin/$l:$D/PaneBarCustomizeSheet.swift 2>/dev/null | grep -c 'Text("iCloud")')" \
+  "$(git show origin/$l:$D/LogViewer.swift 2>/dev/null | grep -c 'logger.clearLogs()')" \
+  "$(git show origin/$l:Modules/Settings/Sources/Settings/SettingsView.swift 2>/dev/null | grep -c 'Logger.shared.clearLogs()')" \
+  "$(git show origin/$l:$D/PaneBreadcrumb.swift 2>/dev/null | grep -c 'hasSecondPane: onNavigateBoth != nil')" \
+  "$(git show origin/$l:$T 2>/dev/null | grep -c 'struct FileRowView')" \
+  "$(git show origin/$l:$T 2>/dev/null | grep -c 'rowHelp(name:')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   historyAsks=0 fakeICloud=1 viewerClear=1 settingsClear=1 onePaneTip=0 rowView=1 nameTip=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | All five, the same code | RECORDED — not owed |
+| `v3.x` / `v2.x` | All five; their real bar still has the provider capsule (fd068fc49 is not on them), so the sheet's "iCloud" stands for something real, misnamed off iCloud | RECORDED — not owed |

@@ -122,7 +122,10 @@ struct PaneBreadcrumb: View {
     /// list matches what the pane shows.
     let showHidden: Bool
     let onNavigate: (String) -> Void
-    let onNavigateBoth: (String) -> Void
+    /// Nil when there is no second pane (every workspace but Compare). The crumbs then move this
+    /// pane only, ⌥ and the link preference included, and their tooltips say nothing about both
+    /// panes — they used to promise "⌥-click to bring both panes here" with one pane on screen.
+    let onNavigateBoth: ((String) -> Void)?
     /// **Falls back to the compact trail when the whole one does not fit** — `BreadcrumbTrail
     /// .compactItems`. Off for every pane but Edit's (asked 2026-10-17): Edit's pane is one column
     /// wide by default, where every crumb truncated to a letter and a half; the others keep the
@@ -366,24 +369,28 @@ struct PaneBreadcrumb: View {
             .foregroundStyle(tint.map { isCurrent ? $0 : $0.opacity(0.75) } ?? (isCurrent ? .primary : .secondary))
             .lineLimit(1)
             .truncationMode(.middle)
-            .help(crumbHelp(isCurrent: isCurrent, helpPath: helpPath))
+            .help(Self.crumbHelp(isCurrent: isCurrent, helpPath: helpPath,
+                                 linked: linkBothPanes, hasSecondPane: onNavigateBoth != nil))
     }
 
     /// Tooltip that stays honest whether panes are linked or not: when linked, a plain click
-    /// already drives both panes, so we drop the ⌥ instruction and say so.
-    private func crumbHelp(isCurrent: Bool, helpPath: String) -> String {
+    /// already drives both panes, so we drop the ⌥ instruction and say so. With no second pane
+    /// there is nothing to bring along, so it names the destination and stops — the link
+    /// preference is shared with Compare and stays set while you work in one pane.
+    static func crumbHelp(isCurrent: Bool, helpPath: String, linked: Bool, hasSecondPane: Bool) -> String {
         let destination = isCurrent ? helpPath : "Go to \(helpPath)"
-        return linkBothPanes
+        guard hasSecondPane else { return destination }
+        return linked
             ? "\(destination) — panes are linked, so both move here"
             : "\(destination) — ⌥-click to bring both panes here"
     }
 
-    /// Moves both panes to the crumb's path when linked or ⌥ is held; otherwise a plain click
-    /// moves only this pane. When neither applies, the current folder's crumb is a no-op (a
-    /// plain click on it would only pollute the back/forward history).
+    /// Moves both panes to the crumb's path when linked or ⌥ is held and there IS a second pane;
+    /// otherwise a plain click moves only this pane. When neither applies, the current folder's
+    /// crumb is a no-op (a plain click on it would only pollute the back/forward history).
     private func navigate(to relativePath: String, isCurrent: Bool) {
-        let both = linkBothPanes || NSEvent.modifierFlags.contains(.option)
-        if both {
+        let wantsBoth = linkBothPanes || NSEvent.modifierFlags.contains(.option)
+        if wantsBoth, let onNavigateBoth {
             onNavigateBoth(relativePath)
         } else if !isCurrent {
             onNavigate(relativePath)

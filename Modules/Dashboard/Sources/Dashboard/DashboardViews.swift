@@ -22,7 +22,10 @@ public struct PaneHeader: View {
     public let onBack: () -> Void
     public let onForward: () -> Void
     public let onNavigate: (String) -> Void
-    public let onNavigateBoth: (String) -> Void
+    /// Drives both panes to a path — ⌥-click, or any click while the panes are linked. **Nil when
+    /// the workspace has no second pane**, which is every workspace but Compare: the crumbs then
+    /// navigate this pane only, and their tooltips stop offering to bring a pane that isn't there.
+    public let onNavigateBoth: ((String) -> Void)?
     /// The enabled providers this pane can switch between — the provider name is now a dropdown
     /// (replacing the old Left/Right sidebar). Empty hides the dropdown affordance.
     public let providers: [CloudProvider]
@@ -171,7 +174,7 @@ public struct PaneHeader: View {
         onBack: @escaping () -> Void,
         onForward: @escaping () -> Void,
         onNavigate: @escaping (String) -> Void,
-        onNavigateBoth: @escaping (String) -> Void,
+        onNavigateBoth: ((String) -> Void)?,
         providers: [CloudProvider] = [],
         onSelectProvider: @escaping (String) -> Void = { _ in },
         onManageProviders: @escaping () -> Void = {},

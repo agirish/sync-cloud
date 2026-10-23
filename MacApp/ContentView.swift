@@ -4015,11 +4015,11 @@ struct ContentView: View {
                 // from was not laid out in.
                 onNavigate: { syncManager.navigatePane(isLeft: isLeft, toCombinedPath: $0,
                                                        drawsColumns: pane.viewMode == .columns) },
-                // The single-source rail has no visible sibling: ⌥-click (and the 🔗-linked crumb click)
-                // must behave as plain navigation there, never drive the hidden right pane.
+                // The single-source rail has no visible sibling: nil says so, and the crumbs then
+                // treat ⌥-click (and the 🔗-linked crumb click) as plain navigation — never driving
+                // the hidden right pane — and drop "both panes" from their tooltips.
                 onNavigateBoth: layoutMode == .singleSource
-                    ? { syncManager.navigatePane(isLeft: isLeft, toCombinedPath: $0,
-                                                 drawsColumns: pane.viewMode == .columns) }
+                    ? nil
                     : { navigateBothPanes(toCombinedPath: $0, from: isLeft) },
                 providers: settings.enabledProviders,
                 onSelectProvider: { id in
