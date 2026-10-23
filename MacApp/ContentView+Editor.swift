@@ -1212,7 +1212,7 @@ extension ContentView {
     /// moved on in the meantime is not moved back.
     func fetchExternalOpenFromCloud(_ path: String) {
         guard editorOpenPath == path, editorOpenIsRefused,
-              MaterializationStatus.isCloudOnly(atPath: path) else { return }
+              MaterializationStatus.isCloudOnly(atPath: MaterializationStatus.linkTarget(of: path)) else { return }
         let name = ExternalOpen.name(path)
         Logger.shared.info("[open] \(path) is still in the cloud — fetching it before Edit can read it")
         syncManager.banner = .warning("Downloading “\(name)” — it opens here when it arrives.")

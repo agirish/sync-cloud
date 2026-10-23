@@ -204,6 +204,20 @@ private struct SaveDelegate: FileActionDelegate {
         #expect(all.banner?.message == "Saved 2 files as PDF.")
     }
 
+    /// **A link to a file evicted to the cloud is skipped as not downloaded** (TE206), as the file
+    /// itself is — rendering it would read it, which downloads it.
+    @Test func aLinkToAnEvictedFileIsSkippedAsNotDownloaded() async throws {
+        let cloud = try write("SAVEASPDF-CLOUD\n", "Cloud.md")
+        let link = path("Link.md")
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: cloud)
+        let model = model()
+        // The file's own path, as the walk spells it — never the link's.
+        model.isCloudOnly = { $0 == cloud }
+        await run(model, [link])
+        #expect(files() == ["Cloud.md", "Link.md"])
+        #expect(model.banner?.message == "Couldn’t save “Link.md” as PDF: it isn’t downloaded.")
+    }
+
     /// **Stop ends the run after the file in hand**; what was saved stays, and the banner says how
     /// far it got.
     @Test func stopEndsTheRunBetweenFiles() async throws {

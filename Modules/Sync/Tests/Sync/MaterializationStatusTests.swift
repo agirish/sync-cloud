@@ -63,4 +63,77 @@ import Foundation
 
         #expect(MaterializationStatus.isCloudOnlyIfKnown(atPath: file.path) == false)
     }
+
+    // MARK: linkTarget — the file a door asks about (TE206)
+
+    /// The inode `lstat` reports for `path` — the link's own for a link, so "is this the file"
+    /// cannot be satisfied by a link to it, whichever way either is spelled.
+    private static func inode(_ path: String) -> UInt64? {
+        var info = stat()
+        return lstat(path, &info) == 0 ? UInt64(info.st_ino) : nil
+    }
+
+    /// **A link answers the file it points to** — directly, relatively, and through a chain — and
+    /// that file's `lstat` is the one that sees its flags, where the link's never can.
+    @Test func aLinkAnswersTheFileItPointsTo() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("LinkTarget-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("real/sub"),
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("real/sub/file.pdf").path
+        try Data("x".utf8).write(to: URL(fileURLWithPath: file))
+        let direct = dir.appendingPathComponent("direct.pdf").path
+        let relative = dir.appendingPathComponent("relative.pdf").path
+        let chain = dir.appendingPathComponent("chain.pdf").path
+        try FileManager.default.createSymbolicLink(atPath: direct, withDestinationPath: file)
+        try FileManager.default.createSymbolicLink(atPath: relative, withDestinationPath: "real/sub/file.pdf")
+        try FileManager.default.createSymbolicLink(atPath: chain, withDestinationPath: "relative.pdf")
+
+        let fileInode = try #require(Self.inode(file))
+        for link in [direct, relative, chain] {
+            #expect(Self.inode(link) != fileInode, "the fixture's link is the file itself")
+            #expect(Self.inode(MaterializationStatus.linkTarget(of: link)) == fileInode,
+                    "\((link as NSString).lastPathComponent) answered \(MaterializationStatus.linkTarget(of: link))")
+        }
+    }
+
+    /// **Every other path comes back exactly as spelled** — an ordinary file, one reached through
+    /// a folder link higher up (which `lstat` already follows), `realpath`'s spelling, and a
+    /// path with nothing there. A door's own comparisons and keys depend on that.
+    @Test func everyOtherPathComesBackAsSpelled() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("LinkTarget-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("real"),
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("real/file.md").path
+        try Data("x".utf8).write(to: URL(fileURLWithPath: file))
+        try FileManager.default.createSymbolicLink(atPath: dir.appendingPathComponent("folder").path,
+                                                   withDestinationPath: dir.appendingPathComponent("real").path)
+        let throughFolderLink = dir.appendingPathComponent("folder/file.md").path
+        // `realpath`'s spelling — `/private/var/…` where the temporary folder is `/var/…`.
+        let raw = try #require(realpath(file, nil))
+        defer { free(raw) }
+        let privateSpelling = String(cString: raw)
+        let gone = dir.appendingPathComponent("gone.md").path
+
+        #expect(FileManager.default.fileExists(atPath: throughFolderLink)
+                && FileManager.default.fileExists(atPath: privateSpelling), "the fixture's paths are not there")
+        for path in [file, throughFolderLink, privateSpelling, gone] {
+            #expect(MaterializationStatus.linkTarget(of: path) == path)
+        }
+    }
+
+    /// **A dangling link answers no file** — nothing a door can stat as present, so it goes on to
+    /// fail its read rather than to read anything.
+    @Test func aDanglingLinkAnswersNoFile() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("LinkTarget-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let link = dir.appendingPathComponent("dangling.md").path
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: "nowhere.md")
+        #expect(!FileManager.default.fileExists(atPath: MaterializationStatus.linkTarget(of: link)))
+    }
 }

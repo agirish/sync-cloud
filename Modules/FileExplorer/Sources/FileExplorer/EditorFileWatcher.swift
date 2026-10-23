@@ -73,9 +73,10 @@ final class EditorFileWatcher: @unchecked Sendable {
         var armed: [DispatchSourceFileSystemObject] = []
         var fileID = 0
         var descriptor: Int32 = -1
-        if !isCloudOnly(path), let fd = Self.arm(path, mask: [.write, .extend, .attrib, .delete, .rename,
-                                                               .link, .revoke],
-                                                 onEvent: onEvent, into: &armed) {
+        // The file a link points to (TE206): `arm` opens the path, which follows the link.
+        if !isCloudOnly(MaterializationStatus.linkTarget(of: path)),
+           let fd = Self.arm(path, mask: [.write, .extend, .attrib, .delete, .rename, .link, .revoke],
+                             onEvent: onEvent, into: &armed) {
             descriptor = fd
             var info = stat()
             if fstat(fd, &info) == 0 { fileID = Int(truncatingIfNeeded: info.st_ino) }

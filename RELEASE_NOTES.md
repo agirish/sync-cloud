@@ -256,7 +256,10 @@ Requires **macOS 26**, unchanged from the 5.x line.
   it back in the middle. The Outline scrolls to keep the heading you are in in sight, and the status
   line's Show Outline in File List opens it from any layout. An image dropped or pasted into a note
   says, on the status line, what was saved and where. A save the disk refuses gives the reason —
-  "No space left on device" — not the name of a hidden staging file.
+  "No space left on device" — not the name of a hidden staging file. A link to a file still in the
+  cloud is treated as that file: Edit and the preview say it isn't downloaded and offer Download,
+  and PDF Tools leaves it alone, where each downloaded it unasked. A link to a text file over Edit's
+  limit is refused as too large.
 - **Help, menus and keys catch up with Edit.** `⌘?` opens Help at the page for the workspace you
   are in, not at setup — and, with a PDF open, at a new page, **Read, fill and sign a PDF**, which
   holds what Edit's page said about PDFs. Holding ⌥ shows the keys on the format bar, Source,

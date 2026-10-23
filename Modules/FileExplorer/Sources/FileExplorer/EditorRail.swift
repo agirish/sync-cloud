@@ -207,13 +207,15 @@ public enum EditorRail {
             // "30 bytes", undimmed, and was then refused as too large the moment it was clicked.
             // `BoundedTextRead` reads through `contents(atPath:)`, which follows, so resolving here
             // is what makes the row describe the file the editor will actually open.
-            let target = (path as NSString).resolvingSymlinksInPath
+            // The cloud answer is the target's for the same reason (TE206): a link is always local,
+            // so asking about it drew a link to a cloud-only file undimmed and with no Download.
+            let target = MaterializationStatus.linkTarget(of: path)
             let attributes = try? fileManager.attributesOfItem(atPath: target)
             let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
             // Asked per row, and only for rows that survived the filters above — it is one `lstat`,
             // which is cheap enough per visible row but not cheap enough per directory entry.
             rows.append(EditorRailEntry(path: path, name: name, size: size,
-                                        isCloudOnly: isCloudOnly(path), kind: kind))
+                                        isCloudOnly: isCloudOnly(target), kind: kind))
         }
         // Localized standard order, so "note 2" sorts before "note 10" and the rail reads the way
         // Finder does rather than the way ASCII does.

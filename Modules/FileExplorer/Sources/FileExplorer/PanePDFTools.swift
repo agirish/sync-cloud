@@ -141,7 +141,7 @@ public final class PanePDFTools: ObservableObject {
         current = .single(tools)
         // Evicted since the menu was built: PDFKit opening the placeholder would download it,
         // which nobody asked for.
-        if isCloudOnly(path) {
+        if isCloudOnly(MaterializationStatus.linkTarget(of: path)) {
             tools.banner = EditorPDFToolBanner(
                 message: EditorPDFTools.cloudOnlyReason((path as NSString).lastPathComponent),
                 kind: .note, download: path)

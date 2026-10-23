@@ -97,7 +97,7 @@ public enum EditorImageImport {
             // **Refused, not fetched.** Copying a cloud-only file reads it, which downloads it —
             // on the main thread, for as long as the provider takes, and a provider that does not
             // answer hangs the window (`DatalessFolderReads`). The pane offers Download.
-            guard !isCloudOnly(path) else {
+            guard !isCloudOnly(MaterializationStatus.linkTarget(of: path)) else {
                 return .refused("“\(name)” is still in the cloud. Download it first, then add it again.")
             }
             // Asked here, so an unreadable photo is not reported as one that "couldn't be saved".

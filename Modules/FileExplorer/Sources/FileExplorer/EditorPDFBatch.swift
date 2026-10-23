@@ -209,7 +209,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
     private func runOne(_ tool: EditorPDFBatchTool, at index: Int, flag: CancelFlag) async -> Status {
         let path = files[index].path
         let input = URL(fileURLWithPath: EditorFileStore.resolved(path))
-        if isCloudOnly(path) { return .skipped(.inTheCloud) }
+        if isCloudOnly(MaterializationStatus.linkTarget(of: path)) { return .skipped(.inTheCloud) }
         // Moved or deleted since it was chosen: said as such, not as a file PDFKit couldn't read.
         if EditorFileStore.stamp(ofPath: path) == nil { return .failed(Self.goneReason) }
         if case .compress(.target(let bytes)) = tool, let size = EditorFileStore.stamp(ofPath: path)?.size,
@@ -321,7 +321,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
             if flag.isCancelled { return nil }
             // Not a file still in the cloud: reading its form opens it in PDFKit, which downloads
             // it — the very read ``runOne(_:at:flag:)`` skips it to avoid.
-            if isCloudOnly(file.path) { continue }
+            if isCloudOnly(MaterializationStatus.linkTarget(of: file.path)) { continue }
             let input = URL(fileURLWithPath: EditorFileStore.resolved(file.path))
             if let found = await EditorPDFToolEngine.fidelityWarning(for: edit, input: input) {
                 atRisk.append(file.name)

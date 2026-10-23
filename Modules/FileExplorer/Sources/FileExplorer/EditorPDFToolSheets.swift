@@ -453,7 +453,7 @@ struct EditorPDFMetadataSheet: View {
     /// evicted since it opened**: the toolkit opening the placeholder downloads it, in the lane every
     /// duplicate scan waits on, and nobody asked for that — the run refuses it the same way.
     static func read(path: String, isCloudOnly: (String) -> Bool) async -> Result<ReadFields, any Error> {
-        if isCloudOnly(path) {
+        if isCloudOnly(MaterializationStatus.linkTarget(of: path)) {
             return .failure(Refusal(EditorPDFTools.cloudOnlyReason((path as NSString).lastPathComponent)))
         }
         let url = URL(fileURLWithPath: EditorFileStore.resolved(path))

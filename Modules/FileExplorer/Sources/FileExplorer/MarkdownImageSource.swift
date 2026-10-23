@@ -45,10 +45,10 @@ enum MarkdownImageSource: Equatable, Sendable {
               !isDirectory.boolValue else {
             return .refused("Not found.")
         }
-        guard !isCloudOnly(path) else {
+        let target = MaterializationStatus.linkTarget(of: path)
+        guard !isCloudOnly(target) else {
             return .refused("Not downloaded — the preview won’t fetch it.")
         }
-        let target = (path as NSString).resolvingSymlinksInPath
         let size = (try? fileManager.attributesOfItem(atPath: target))?[.size] as? NSNumber
         if let bytes = size?.intValue, bytes > maxBytes {
             return .refused("Too large to draw (\(FileSyncManager.formatBytes(bytes))).")

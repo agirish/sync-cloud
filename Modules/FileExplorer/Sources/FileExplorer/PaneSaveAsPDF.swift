@@ -149,7 +149,7 @@ public final class PaneSaveAsPDF: ObservableObject {
         let name = (path as NSString).lastPathComponent
         // Evicted since the menu was built: reading the placeholder would download it, which nobody
         // asked for.
-        if isCloudOnly(path) { return "it isn’t downloaded" }
+        if isCloudOnly(MaterializationStatus.linkTarget(of: path)) { return "it isn’t downloaded" }
         let wanted = SaveAsPDFName.firstChoice(for: path)
         // Asked before the render, so a cancelled panel costs nothing.
         var chosen: String?

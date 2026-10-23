@@ -82,11 +82,37 @@ public enum MaterializationStatus {
         isCloudOnlyIfKnown(atPath: path, statFlags: statFlags) ?? false
     }
 
+    /// The file a door should ask about: `path` itself, or — when `path` is a symbolic link — the
+    /// file the link finally points to (TE206).
+    ///
+    /// **Every predicate above asks about the LINK when handed one**, because `lstat` does not
+    /// follow the last component of a path, and a link is always local and always tiny. So a link
+    /// to a cloud-only PDF read as downloaded, and the door then opened it — which made the
+    /// provider fetch the whole file, unasked. That is right for a row's badge, which describes the
+    /// row; it is wrong for any door that is about to read what the link points to. Those ask here
+    /// first.
+    ///
+    /// **Only a path that ends in a link is resolved.** A folder link higher up the path is already
+    /// followed by the `lstat` itself, and leaving every other path exactly as spelled keeps a
+    /// caller's own comparisons (`/var` against `/private/var`) as they were. A link that dangles
+    /// answers the link again (measured: Foundation stops at the last component it can resolve),
+    /// so the door goes on to fail its read — which is the truth about it.
+    ///
+    /// One `lstat` for an ordinary file; a link pays the resolution too.
+    public static func linkTarget(of path: String) -> String {
+        var info = stat()
+        guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFLNK else { return path }
+        return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+    }
+
     /// Asks the system to fetch a dataless file's content. Uses the iCloud download API — the one
     /// public, side-effect-free way to materialize on demand — which returns immediately and fetches
     /// in the background. For other File Provider providers there is no public consumer API, so this
     /// throws and the caller should fall back to revealing the item in Finder.
+    ///
+    /// A link is downloaded as the file it points to (``linkTarget(of:)``): that is the file every
+    /// door that offers Download said was not downloaded.
     public static func download(atPath path: String) throws {
-        try FileManager.default.startDownloadingUbiquitousItem(at: URL(fileURLWithPath: path))
+        try FileManager.default.startDownloadingUbiquitousItem(at: URL(fileURLWithPath: linkTarget(of: path)))
     }
 }

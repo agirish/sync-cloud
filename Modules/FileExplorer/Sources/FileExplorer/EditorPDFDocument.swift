@@ -113,7 +113,8 @@ public final class EditorPDFDocument: ObservableObject {
                 isCloudOnly: @escaping (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
                 defaults: UserDefaults = .standard) {
         self.settle = settle
-        self.isCloudOnly = isCloudOnly
+        // Asked of the file a link points to (TE206) — open, reload and the watch alike.
+        self.isCloudOnly = { isCloudOnly(MaterializationStatus.linkTarget(of: $0)) }
         let view = EditorPDFViewState(defaults: defaults)
         self.view = view
         find = EditorPDFFind(view: view)

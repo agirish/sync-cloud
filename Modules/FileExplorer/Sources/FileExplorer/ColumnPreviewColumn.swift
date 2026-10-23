@@ -182,14 +182,16 @@ struct ColumnPreviewProbe: Equatable, Sendable {
     /// and this runs on every file click.
     ///
     /// `MaterializationStatus.isCloudOnly` is an `lstat`, which is metadata-only: it does not fetch
-    /// the file. Nothing here opens the path.
+    /// the file. Nothing here opens the path. It is asked of the file a link points to (TE206): the
+    /// link itself is always local, and Quick Look on it fetched the file behind it.
     nonisolated static func read(path: String) async -> ColumnPreviewProbe {
         let url = URL(fileURLWithPath: path)
         let exists = FileManager.default.fileExists(atPath: path)
         let created = try? url.resourceValues(forKeys: [.creationDateKey]).creationDate
         return ColumnPreviewProbe(
             source: .classify(exists: exists,
-                              isCloudOnly: MaterializationStatus.isCloudOnly(atPath: path)),
+                              isCloudOnly: MaterializationStatus.isCloudOnly(
+                                atPath: MaterializationStatus.linkTarget(of: path))),
             created: created)
     }
 }

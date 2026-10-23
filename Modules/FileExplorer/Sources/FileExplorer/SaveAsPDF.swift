@@ -77,7 +77,7 @@ public enum SaveAsPDFOffer: Equatable, Sendable {
     @MainActor
     public static func forSelection(_ nodes: [FileNode]) -> SaveAsPDFOffer? {
         if nodes.count > 1 {
-            let paths = nodes.map(\.id)
+            let paths = nodes.map(\.linkTarget)
             return offer(for: nodes, isCloudOnly: { _ in
                 PanePDFSelectionCloud.anyCloudOnly(paths, isCloudOnly: FileContextMenu.isCloudOnly)
             })
@@ -90,7 +90,7 @@ public enum SaveAsPDFOffer: Equatable, Sendable {
     static func offer(for nodes: [FileNode], isCloudOnly: (String) -> Bool) -> SaveAsPDFOffer? {
         guard !nodes.isEmpty,
               nodes.allSatisfy({ !$0.isDirectory && SaveAsPDFKind.of(path: $0.id) != nil }),
-              !nodes.contains(where: { isCloudOnly($0.id) })
+              !nodes.contains(where: { isCloudOnly($0.linkTarget) })
         else { return nil }
         if nodes.count == 1, let node = nodes.first { return .single(path: node.id) }
         return .several(paths: nodes.map(\.id))

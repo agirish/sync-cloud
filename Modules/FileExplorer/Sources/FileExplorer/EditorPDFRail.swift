@@ -319,7 +319,8 @@ public final class EditorPDFThumbnails: ObservableObject {
         init(path: String, unlocked: PDFDocument? = nil,
              isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }) {
             self.path = path
-            self.isCloudOnly = isCloudOnly
+            // The file a link points to (TE206): opening the link opens that.
+            self.isCloudOnly = { isCloudOnly(MaterializationStatus.linkTarget(of: $0)) }
             self.document = unlocked
             self.opened = unlocked != nil
             self.reopens = unlocked == nil

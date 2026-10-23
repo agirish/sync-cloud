@@ -89,9 +89,16 @@ enum BoundedTextRead {
     /// `FileManager.default` — the size verdict and the read asked of two different filesystems,
     /// which is the exact hazard `FileSyncManager+Duplicates` documents at its own `fileManager:`
     /// call sites. One filesystem, named once.
+    ///
+    /// **A link is read as the file it points to — all three questions, not just the read**
+    /// (TE206). `contents(atPath:)` follows a link and `lstat` and `attributesOfItem` do not, so
+    /// the dataless check and the size cap used to ask about the link itself, which is always local
+    /// and always tiny: a link to a cloud-only file was opened, downloading it, and a link to a
+    /// 40 MB log got past the cap.
     static func read(path: String,
                      isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) })
         -> Outcome {
+        let path = MaterializationStatus.linkTarget(of: path)
         if isCloudOnly(path) { return .cloudOnly }
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else {
             return .unreadable

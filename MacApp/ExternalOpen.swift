@@ -306,7 +306,9 @@ enum ExternalOpen {
             let answer = AnswerOnce(continuation)
             DispatchQueue.global(qos: .userInitiated).async {
                 read(path)
-                answer.give(isCloudOnly(path) == false)
+                // The file a link points to (TE206): the one-byte read fetched that, and the link
+                // itself was never in the cloud, so asking about it always answered "landed".
+                answer.give(isCloudOnly(MaterializationStatus.linkTarget(of: path)) == false)
             }
             let seconds = Double(timeout.components.seconds)
                 + Double(timeout.components.attoseconds) / 1e18

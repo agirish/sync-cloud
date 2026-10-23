@@ -250,7 +250,8 @@ public final class EditorDiskWatch: ObservableObject {
                 isCloudOnly: @escaping (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }) {
         self.settle = settle
         self.noticeDuration = noticeDuration
-        self.isCloudOnly = isCloudOnly
+        // Asked of the file a link points to (TE206), at every one of the watch's checks.
+        self.isCloudOnly = { isCloudOnly(MaterializationStatus.linkTarget(of: $0)) }
     }
 
     /// Starts watching `document` — whatever it has open now, and every file it opens from here on.

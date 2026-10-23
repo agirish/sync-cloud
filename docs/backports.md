@@ -8538,3 +8538,34 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s folderMenu=%s linkPaths=%s\n'
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No folder menu (`folderMenu=0`) | CLOSED — does not apply |
+
+---
+
+## Every door asks about the file a link points to (TE206) — main only
+
+The cloud-only check and Edit's 4.2 MB cap asked about a symlink itself, which is always local and
+tiny. So opening or previewing a link to a cloud-only file downloaded it unasked, a link to a large
+text file got past the cap, and selecting a link to a cloud-only PDF downloaded it, on the main
+thread, to probe its protection for PDF Tools. `main` asks every door about the link's target
+(`MaterializationStatus.linkTarget(of:)`). The pane preview's probe is on every line; Edit's text
+reads, the Files tab, Markdown images and the Finder hand-off's fetch are on `main` and `v5.x`;
+Edit's PDF reader and the PDF tools are `main` only.
+
+```sh
+F=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s preview=%s textRead=%s fetch=%s pdfReader=%s linkTarget=%s\n' $l \
+  "$(git show origin/$l:$F/ColumnPreviewColumn.swift 2>/dev/null | grep -c 'isCloudOnly: MaterializationStatus.isCloudOnly(atPath: path)')" \
+  "$(git show origin/$l:$F/BoundedTextRead.swift 2>/dev/null | grep -c 'if isCloudOnly(path) { return .cloudOnly }')" \
+  "$(git show origin/$l:MacApp/ExternalOpen.swift 2>/dev/null | grep -c 'answer.give(isCloudOnly(path) == false)')" \
+  "$(git ls-tree -r --name-only origin/$l -- $F/EditorPDFDocument.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/MaterializationStatus.swift 2>/dev/null | grep -c 'func linkTarget')"; done
+# measured 2026-10-22, against origin, before this landed:
+# main  preview=1 textRead=1 fetch=1 pdfReader=1 linkTarget=0
+# v5.x  preview=1 textRead=1 fetch=1 pdfReader=0 linkTarget=0
+# v4.x, v3.x, v2.x   preview=1 textRead=0 fetch=0 pdfReader=0 linkTarget=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The preview, Edit's text, Files tab, Markdown image and hand-off doors (`preview=1`, `textRead=1`, `fetch=1`); no PDF reader | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | The pane preview's door alone (`preview=1`, `textRead=0`) | RECORDED — not owed |

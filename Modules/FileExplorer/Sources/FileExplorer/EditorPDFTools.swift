@@ -552,7 +552,7 @@ public final class EditorPDFTools: ObservableObject {
             return outcome
         }
 
-        if isCloudOnly(path) {
+        if isCloudOnly(MaterializationStatus.linkTarget(of: path)) {
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — not downloaded")
             return end(.failed(Self.cloudOnlyReason(name)), download: path)
         }

@@ -56,7 +56,7 @@ public enum PanePDFToolOffer: Equatable, Sendable {
     @MainActor
     public static func forSelection(_ nodes: [FileNode]) -> PanePDFToolOffer? {
         if nodes.count > 1 {
-            let paths = nodes.map(\.id)
+            let paths = nodes.map(\.linkTarget)
             return offer(for: nodes,
                          isCloudOnly: { _ in PanePDFSelectionCloud.anyCloudOnly(paths, isCloudOnly: FileContextMenu.isCloudOnly) },
                          encryption: { _ in .none })
@@ -66,16 +66,29 @@ public enum PanePDFToolOffer: Equatable, Sendable {
 
     /// The cheap rules first — path math and a flag the node holds — so a selection with a folder
     /// or a JPEG in it never pays a cloud lookup, and a cloud-only file never pays a probe.
+    ///
+    /// **A link is asked about as the file it points to** (TE206), so a link to a cloud-only PDF
+    /// is hidden as that PDF is — and never reaches the probe, which reads the file and so
+    /// downloaded it, on the main thread, the moment the row was selected.
     static func offer(for nodes: [FileNode], isCloudOnly: (String) -> Bool,
                       encryption: (FileNode) -> PDFEncryptionState) -> PanePDFToolOffer? {
         guard !nodes.isEmpty,
               nodes.allSatisfy({ !$0.isDirectory && EditableText.isPDF(path: $0.id) }),
-              !nodes.contains(where: { isCloudOnly($0.id) })
+              !nodes.contains(where: { isCloudOnly($0.linkTarget) })
         else { return nil }
         if nodes.count == 1, let node = nodes.first {
             return .single(path: node.id, encryption: encryption(node))
         }
         return .several(paths: nodes.map(\.id))
+    }
+}
+
+extension FileNode {
+    /// The path a door asks the cloud question of: the file a link points to, else the node's own
+    /// (``MaterializationStatus/linkTarget(of:)``). The walk says whether each node is a link, so
+    /// an ordinary row pays no `lstat` here; a node built without saying is asked.
+    var linkTarget: String {
+        isSymbolicLink == false ? id : MaterializationStatus.linkTarget(of: id)
     }
 }
 
