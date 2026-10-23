@@ -43,6 +43,42 @@ import Testing
         #expect(best.confidence == .high)
     }
 
+    // MARK: A package is a document, not a home (FR3)
+
+    /// `Budget 2025.numbers` and its `Data/` folder both carry "budget" — the package by name, the
+    /// folder through its ancestor. Neither may be offered as the PDF's home: a file filed into a
+    /// package vanishes from Finder. The plain `Budget` folder beside them still is.
+    @Test func aPackageIsNeverAHome() throws {
+        let numbers = FileNode(id: "/root/Finance/Budget 2025.numbers", name: "Budget 2025.numbers",
+                               isDirectory: true,
+                               children: [dir("/root/Finance/Budget 2025.numbers/Data", [])],
+                               kind: "com.apple.iwork.numbers.numbers")
+        let taxonomy = [dir("/root/Finance", [numbers, dir("/root/Finance/Budget", [])])]
+        let loose = [file("/root/Downloads/Budget 2025.pdf", modified: y2024)]
+
+        let suggestions = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
+        let paths = suggestions.flatMap(\.candidates).map(\.path)
+        #expect(!paths.contains { $0.contains(".numbers") }, "offered a document as a folder: \(paths)")
+        #expect(paths.contains("/root/Finance/Budget"), "the premise: a budget folder is still found")
+        #expect(!FilingEngine.relativeFolderPaths(of: taxonomy).contains { $0.contains(".numbers") },
+                "a classifier is never offered a package either")
+    }
+
+    /// The backstop every route ends at: a destination that is, or is inside, a package on disk.
+    @Test func enclosingPackageFindsTheDocumentAroundAPath() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("fr3-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let data = base.appendingPathComponent("Budget 2025.numbers/Data")
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: base.appendingPathComponent("Plain"), withIntermediateDirectories: true)
+
+        #expect(FileSyncManager.enclosingPackage(of: data.appendingPathComponent("New"))?.lastPathComponent
+                == "Budget 2025.numbers", "a folder still to be created inside a package")
+        #expect(FileSyncManager.enclosingPackage(of: base.appendingPathComponent("Budget 2025.numbers"))?
+                .lastPathComponent == "Budget 2025.numbers")
+        #expect(FileSyncManager.enclosingPackage(of: base.appendingPathComponent("Plain/Sub")) == nil)
+    }
+
     // MARK: A bare year must not stand up a batch-eligible taxonomy home
 
     @Test func bareYearMatchIsNotBatchEligible() throws {

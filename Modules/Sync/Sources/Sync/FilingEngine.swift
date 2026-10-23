@@ -447,7 +447,9 @@ public enum FilingEngine {
         _ node: FileNode, ancestorTokens: Set<String>,
         into profiles: inout [FolderProfile], paths: inout Set<String>, options: FilingOptions
     ) {
-        guard node.isDirectory, !options.ignoredNames.contains(node.name) else { return }
+        // A package (`Budget 2025.numbers`) is a document, so neither it nor anything inside it is
+        // a home (FR3). `performFiling` refuses one as a destination whatever route named it.
+        guard node.isDirectory, !node.isPackage, !options.ignoredNames.contains(node.name) else { return }
         paths.insert(node.id)
 
         let combinedNameTokens = ancestorTokens.union(nameTokens(node.name))
@@ -930,7 +932,9 @@ public enum FilingEngine {
     public static func relativeFolderPaths(of taxonomy: [FileNode], limit: Int = 250) -> [String] {
         var out: [String] = []
         func walk(_ node: FileNode, prefix: String) {
-            guard node.isDirectory else { return }
+            // Not a package, nor anything inside one: never offered to a classifier, and a model
+            // that names one anyway gets it treated as a file-like segment, not an existing folder.
+            guard node.isDirectory, !node.isPackage else { return }
             let rel = prefix.isEmpty ? node.name : prefix + "/" + node.name
             out.append(rel)
             for child in node.children ?? [] { walk(child, prefix: rel) }

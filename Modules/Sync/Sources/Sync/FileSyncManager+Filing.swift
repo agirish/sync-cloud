@@ -1762,6 +1762,19 @@ extension FileSyncManager {
         filingSuggestions.removeAll { $0.id == suggestion.id }
     }
 
+    /// The package `url` is, or sits inside, or nil — read off the disk, one `stat` per existing
+    /// ancestor. Folders the filing would still create are skipped: only what exists can be one.
+    nonisolated static func enclosingPackage(of url: URL) -> URL? {
+        var current = url.standardizedFileURL
+        while current.path != "/" && !current.path.isEmpty {
+            if let values = try? current.resourceValues(forKeys: [.isPackageKey]), values.isPackage == true {
+                return current
+            }
+            current = current.deletingLastPathComponent()
+        }
+        return nil
+    }
+
     /// The move + list-drop (no undo registration — the caller registers, so a batch is one undo).
     private func performFiling(_ suggestion: FilingSuggestion, to destination: FilingDestination) async -> FilingOutcome {
         let fm = fileManager
@@ -1803,6 +1816,14 @@ extension FileSyncManager {
                 guard fm.fileExists(atPath: anchor.path) else {
                     throw FileOperationError.destinationRootUnavailable
                 }
+                // **A package is a document, not a folder to file into** (FR3). The survey and the
+                // router list `Budget 2025.numbers` and its `Data/` like any folder, so a suggestion
+                // can name one; a file moved in disappears from Finder and can be dropped at the
+                // app's next save. Asked here, where every route — the engine, the router, a model's
+                // answer, a folder the user typed — ends.
+                if let document = Self.enclosingPackage(of: destFolder) {
+                    throw FileOperationError.destinationIsADocument(name: document.lastPathComponent)
+                }
                 try fm.createDirectory(at: destFolder, withIntermediateDirectories: true)
                 // **Gated on the card having offered a rename.** The scan's proposal is what the
                 // user saw and agreed to; without this the file is renamed whenever the destination
@@ -1829,9 +1850,11 @@ extension FileSyncManager {
                 // A vanished destination tree is a condition the user can act on ("plug the volume
                 // back in / rescan"), unlike a generic I/O failure — so it gets to say so instead
                 // of being flattened into "couldn't file this item".
-                let reason = (error as? FileOperationError) == .destinationRootUnavailable
-                    ? error.localizedDescription
-                    : nil
+                let reason: String?
+                switch error as? FileOperationError {
+                case .destinationRootUnavailable?, .destinationIsADocument?: reason = error.localizedDescription
+                default: reason = nil
+                }
                 return .failed(reason: reason)
             }
         }

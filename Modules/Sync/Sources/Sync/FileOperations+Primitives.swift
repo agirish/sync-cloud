@@ -31,6 +31,8 @@ extension FileSyncManager {
         /// The destination is a folder the source sits inside — replacing it would throw away the
         /// folder the item came from, and everything else in it.
         case destinationContainsSource
+        /// The destination is a package — a `.numbers`, `.pages` or `.app` — or inside one.
+        case destinationIsADocument(name: String)
 
         var errorDescription: String? {
             switch self {
@@ -50,6 +52,8 @@ extension FileSyncManager {
                 return "This file changed since the preview, so it is no longer the one that rule matched. Preview again to see what it would do now."
             case .folderNotAnswered(let folderName):
                 return "\"\(folderName)\" couldn’t be read: its contents aren’t on this Mac, and the app that syncs it didn’t answer. Open that app and try again."
+            case .destinationIsADocument(let name):
+                return "\"\(name)\" is a document, not a folder, so nothing can be filed inside it. Choose another folder."
             case .destinationContainsSource:
                 return "An item can’t replace the folder it’s inside — that would put the rest of the folder in the Trash. Choose Keep Both instead, or Merge for two folders."
             }

@@ -8751,3 +8751,22 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s validate=%s holdsCheck=%s\n' 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same validation, without the check (`holdsCheck=0`) | RECORDED — not owed |
+
+---
+
+## To File never files into a package (FR3) — main only
+
+The filing engine profiled `Budget 2025.numbers` and its `Data/` folder as homes, so a loose PDF
+could be batch-filed inside a document. `main` leaves packages out of the engine's candidates and the
+classifier's folder list, and `performFiling` refuses a destination inside one (`destinationIsADocument`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s profiles=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingEngine.swift 2>/dev/null | grep -cF 'guard node.isDirectory, !options.ignoredNames.contains(node.name) else { return }')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   profiles=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same profile walk (`profiles=1`) | RECORDED — not owed |
