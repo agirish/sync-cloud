@@ -2,314 +2,194 @@
 
 [![tests](https://github.com/agirish/sync-cloud/actions/workflows/tests.yml/badge.svg)](https://github.com/agirish/sync-cloud/actions/workflows/tests.yml)
 
-**A native macOS app (and `git`-style CLI) for comparing, reconciling, and organizing the folders you keep across cloud providers** — iCloud Drive, OneDrive, Dropbox, and Google Drive.
+**A native macOS app, with a `git`-style CLI, for comparing, organizing and editing the files you
+keep across iCloud Drive, OneDrive, Dropbox and Google Drive.**
 
-🌐 **[Explore the features & screenshots →](https://agirish.github.io/sync-cloud/)**
+🌐 **[Features and screenshots →](https://agirish.github.io/sync-cloud/)**
 
 <p align="center">
-  <img src="docs/assets/screenshots/hero-compare.png" alt="SyncCloud two-pane comparison" width="900">
+  <img src="docs/assets/screenshots/hero-compare.png" alt="SyncCloud comparing two folders side by side" width="900">
 </p>
 
-SyncCloud has four workspaces, and opens in **Browse** — the plain file browser: one provider's
-tree with the window to itself, nothing proposed, for the moves you make by hand. A **folder sidebar** runs down
-the left of all four, holding the folders you keep, every account you have signed into, and the
-folders you were last in. **Compare** puts two folders
-side by side and shows exactly what differs — what's missing on each side, what's newer, what
-only *looks* the same — and lets you copy, move, or reconcile items with one click. **Organize**
-points a single provider at a rail of six lenses — **To File**, **Duplicates**, **Renames**,
-**Restructure**, **Rules**, and **Storage** — that file loose documents into the right folders
-(optionally with on-device Apple Intelligence or Claude), find duplicates, fix cloud-hostile
-filenames, straighten a tree that disagrees with its own habits, and show where the space actually
-goes — reviewing and applying the change, with the way back written to disk first. Most act on what
-they find; Rules sets the standing instructions; **Storage** only reports, and never moves, deletes,
-or evicts a file.
-**Edit** is the one workspace that changes what is *inside* a file: it writes Markdown and plain
-text, with a format bar, tables and a Preview you can type in, and saves as you go. New in 6.0, in
-development on `main`: it opens PDFs too — to read, search, rework and fill in and sign — and writes
-every change to a new PDF beside the original, never the file you opened.
+SyncCloud has four workspaces:
 
-Deletes go to the Trash, overwrites are staged and swapped in atomically, and each run in the app is
-a single grouped **⌘Z** for as long as that session lasts. Permanent delete exists only as a
-clearly-warned fallback on volumes with no Trash; the CLI has no undo stack of its own.
+- **Browse** — one provider's files, with a Finder-style column view.
+- **Compare** — two folders side by side, showing exactly what differs, with one-click copy, move
+  and reconcile.
+- **Organize** — file loose documents, find duplicates, fix cloud-hostile names, straighten a
+  folder tree, and see where the space goes.
+- **Edit** — write Markdown and plain text; read, rework, fill in and sign PDFs.
+
+Deletes go to the Trash, overwrites are staged and swapped in atomically, and each run is a single
+⌘Z.
 
 ---
 
-## Highlights
+## Features
 
-### 📁 Browse — your folders, one click away
-- **A folder sidebar in every workspace** (**⌃⌘S**), in three sections: **Favorites**, the folders
-  and places you keep; **Locations**, every account you have signed into, any disks Favorites is
-  not already holding, and the Trash; and **Recents**, the folders you were last in (it appears once you have been somewhere the other
-  two don't already list). Favorites and Recents span every source, so a favorite in Dropbox is reachable without switching to Dropbox first.
-  New in 6.0: a click on the Recents heading's icon switches it to **Revisited**, the folders you
-  come back to on different days, or **Frequent**, the ones you spend most time in.
-- **Favorites you curate.** Starts as your home folder, Desktop, Documents and Downloads;
-  right-click any place in Locations to add it, any row in Favorites to remove it, or
-  any folder in a pane to keep it. **Restore Standard Places** brings the four back.
-- **Drag a row to reorder** Favorites, Recents, and the accounts in Locations. Locations shares its order with the pane header's
-  source dropdown, so the two can't disagree.
-- **Column browsing** the way Finder does it, with an inline preview beside the stack, columns you
-  size one at a time, per-pane **tabs**, and a **pane bar** you arrange yourself.
+### 📁 Browse
+- **Folder sidebar** (⌃⌘S) in every workspace: **Favorites** you curate, **Locations** for every
+  signed-in account and disk, and **Recents** — switchable to **Revisited** (folders you come back
+  to) or **Frequent** (where you spend the most time).
+- **Column view** with an inline preview, per-pane **tabs**, and a **pane bar** you arrange
+  yourself.
 
-### 🔍 Compare — two folders, side by side
-- **Two-pane comparison** between any two providers (or plain folders), with a per-pane provider
-  picker, breadcrumb navigation + back/forward history, and one-click **⇄ swap**.
-- **Difference detection** by presence, modification date, and size — with a **date tolerance** that
-  absorbs the timestamp rounding cloud providers do, so you don't drown in false differences.
-- **Colour- and shape-coded diffs** (readable without colour): missing-on-right →, missing-on-left ←,
-  changed ↻, and **name conflicts** ⚠ — items that differ only by an invisible trailing space,
-  trailing period, zero-width character, or Unicode form.
-- **Filter and search** the differences: All, Missing on either side, Changed (either side newer), and Name conflicts, with live counts,
-  plus a token search (`kind:pdf`, `>10mb`, `only:left`).
-- **Guided Review** steps through each difference one at a time — Copy / Move / Skip — with a running
-  tally and "Copy Remaining" to finish in bulk.
-- **Content verification** checksums same-size, date-only pairs (streaming SHA-256) to tell you
-  whether files *actually* differ, and offers to reconcile the ones that are byte-identical.
-- **Details inspector** with name, kind, size, dates, permissions, and Quick Look.
-- **Bulk or single** copy/move/delete/new-folder from the action bar, context menus, or the
-  keyboard (`⌘→ / ⌘←` to copy, add `⇧` to move).
+### 🔍 Compare
+- **Any two providers or folders**, with breadcrumbs, back/forward and one-click ⇄ swap.
+- **Diffs by presence, date and size**, with a date tolerance that absorbs cloud timestamp rounding.
+- **Coded by colour and shape**: missing → / ←, changed ↻, and **name conflicts** ⚠ — names that
+  differ only by a trailing space or period, a zero-width character, or Unicode form.
+- **Filter and search** (`kind:pdf`, `>10mb`, `only:left`), with live counts.
+- **Guided Review** steps through each difference — Copy, Move or Skip.
+- **Content verification** checksums same-size pairs to tell you whether they *actually* differ.
+- **Keyboard transfers**: ⌘→ / ⌘← copy, add ⇧ to move.
 
-### 🗂️ Organize — put one provider in order
-One rail, six lenses — four that act on what they find, **Rules**, which sets the standing
-instructions, and **Storage** (below), which only reports:
-- **To File** — scans the loose files in an inbox folder and **suggests which existing folder each
-  one belongs in**, filing it there safely (creating folders, never overwriting, always undoable).
-- **Duplicates** — finds byte-for-byte **identical** copies, **overlapping** folders, drifted
-  **versions** (`Report`, `Report (1)`, `Report-final`), and PDFs with the **same text** that a
-  byte hash misses (a provider re-stamps every download). Picks a smart
-  keeper (never the one buried in `archive/old/backup`), previews each copy with Quick Look
-  thumbnails, and reclaims space — always to the Trash, never trashing the last copy.
-- **Renames** — filenames that break on a given provider (OneDrive's forbidden characters and
-  reserved names, Dropbox's trailing spaces/periods, zero-width characters anywhere), files that
-  break their folder's `NN. Mon YYYY` date convention where the folder already keeps one, and
-  files renumbered or zero-padded to keep their folder in order. Each row names the problem in words and shows the name it
-  would become; **Fix all** applies the provider-hostile set in one undo, and the convention and
-  numbering passes are applied from their own controls.
-- **Restructure** — finds where the tree disagrees with its own habits and **straightens it**.
-  Eight kinds of drift: siblings shaped differently, a year with files and no folders yet, a year
-  hiding inside a name (`IRS Docs - 2023`), two names for one thing (`Form W-2` beside `Form W2`),
-  an inbox folder mirroring a real destination, files parked above a run of year folders, a leaf
-  beside the folder that owns its concept, and two branches holding the same documents under
-  parallel names. Most turn into a **plan you review operation by operation** before anything
-  moves: one mapping applied across the whole family, every operation derived rather than typed,
-  collisions kept rather than overwritten. **Apply writes the reversal to disk before the first
-  folder moves**, re-probes every claim at the moment it acts, checks the result from a second
-  code path, and leaves two undos — ⌘Z for the session, and one on disk that survives a quit.
-- **Rules** — deterministic, on-device rules ("when a file matches …, file it into
-  `Taxes/{year}` …") with a dry-run preview. SyncCloud can also *learn* a rule after you file
-  something by hand.
+### 🗂️ Organize
+One provider, six lenses:
+- **To File** — suggests which existing folder each loose file belongs in, and files it there.
+- **Duplicates** — identical copies, overlapping folders, drifted versions (`Report (1)`,
+  `Report-final`), and PDFs with the same text. Picks a sensible keeper and never trashes the last
+  copy.
+- **Renames** — names that break on a provider (OneDrive's forbidden characters, Dropbox's trailing
+  spaces), plus files that break their folder's own date or numbering convention.
+- **Restructure** — finds where a tree disagrees with its own habits (`Form W-2` beside `Form W2`,
+  `IRS Docs - 2023` beside `2023`) and turns it into a plan you review step by step. The undo is
+  written to disk before anything moves, so it survives a quit.
+- **Rules** — on-device rules ("when a file matches …, file it into `Taxes/{year}`") with a dry
+  run. SyncCloud can learn one from a file you filed by hand.
+- **Storage** — a treemap and ranked lists of the largest, oldest and most reclaimable files.
+  Read-only: it never moves, deletes or evicts anything.
 
-### 📊 Storage — see where the space goes
-Organize's sixth lens, and the only one that acts on nothing.
-A read-only **treemap** of where your space actually goes — one ramp running deep to pale in your
-accent hue, ordered by size, so the colour *is* the ranking — plus ranked lists of the largest
-files, long-untouched files, and reclaim candidates, each row carrying a magnitude bar and its
-share of the scan, and a capsule above the list to switch between them. Set a scope and it
-re-analyses that folder rather than filtering what it had — a treemap is a picture of a whole.
-Strictly read-only: it never moves, deletes, or evicts anything, which is also why it, like Rules,
-never wears a count badge.
+**Optional AI filing.** Suggestions come from a fast offline engine. You can add **Apple
+Intelligence** (on-device) or **Claude** (cloud, opt-in, API key in the Keychain). Claude is used
+only when you press **Refine with Claude**, with a cost estimate first and monthly and lifetime
+budget caps ($5 lifetime by default).
 
-### ✏️ Edit — write in a text file
-The one workspace that changes what is *inside* a file rather than moving files around. A collapsible
-file pane on the left to browse to any folder — one click on a text file opens it — and the open
-document beside it; fold the pane away and a file list shows the folder's text files and PDFs instead, or hide
-both with **Expand** (⌃⌘E). Markdown renders in **Source / Preview / Split**, at the app's own text size rather
-than a web view's, and Preview can be typed in too (experimental, Markdown only; the **Edit** pill in
-its corner turns that off). **⌘N** makes a new file — nothing on disk until you press ↩ — and **⌘S** writes
-it — but you rarely need to: the editor **autosaves** a couple of seconds after you stop typing, and
-whenever the document leaves the screen. A save is staged and swapped like
-every other write here, goes back in the encoding the file was read in, with LF line breaks: a Windows (CRLF) or old-Mac
-(CR) file is converted on its first edit, and one ⌘Z gives it back as it was opened. A change made
-to the file elsewhere is noticed as it happens: with nothing unsaved it reloads quietly, and with
-unsaved typing a banner asks which version to keep. A file that is not valid text opens read-only rather than risking its bytes.
-**⌘O** opens the text file or PDF selected in any pane here — so does **Open in Edit**, first in a file pane's right-click menu, by the file's name in the preview, in the Info inspector, and in the right-click menus of Compare's differences and Organize's duplicate copies. Above the document, **New Text File** makes a new file and **Close** puts the open one away; above a Markdown file's text, a **format bar** carries the Markup verbs as buttons in a capsule per group — Body, B I S, the lists, Code and Quote, then Link, Table and Divider — with a word beside each where there is room (right-click it for icons only). **Table** inserts a table or makes one from tab- or comma-separated lines, and with the caret in a table a Table capsule adds and deletes rows and columns and formats it so its pipes line up. In Markdown, Return carries a list on and Tab nests an item; a web address pasted onto words makes them a link; an image dropped or pasted is saved in the note's **Images** folder and linked; and the line under the text names the heading you are in, with every heading one click away, counts a selection, and goes to a line (⌃⌘L). **Readable Line Length** keeps wrapped text in a centred column, and SyncCloud appears in Finder's **Open With** for text files.
+### ✏️ Edit — text and Markdown
+- **Source, Preview or Split**, with a **format bar** for headings, emphasis, lists, code, links
+  and tables. Preview can be typed in too (experimental).
+- **Autosaves** a moment after you stop typing, in the file's own encoding; a change made
+  elsewhere reloads, or asks if you have unsaved edits.
+- **Markdown helpers**: lists continue on Return, pasted links wrap the selection, dropped images
+  are saved in the note's `Images` folder, and tables tidy so their pipes line up.
+- **Search inside files** — switch the file list's filter to **Contents** to find matching lines,
+  plus PDFs, Word and PowerPoint files that contain the word.
+- **Typewriter Scrolling**, **Readable Line Length**, a **Paper** background, Go to Line (⌃⌘L),
+  and **Expand** (⌃⌘E) to hide everything but the text.
+- Opens from any pane (⌘O), from **File ▸ Open Recent**, and from Finder's **Open With**.
 
-New in 6.0: **Typewriter Scrolling** keeps the line you are typing at mid-height; **Paper** — a switch beside Autosave, or **Text ▸ Paper Background** — puts Source's text on paper, white or dark; once you have opened a file in Edit, its empty page lists the last ten you opened — text files and PDFs — with a **New Note** button, and **File ▸ Open Recent** holds the same list. And the file list's filter **searches inside files** too. Switch it from **Names** to **Contents** and type a
-word: the text files in the folder and the folders inside it list their matching lines, and below them the PDFs, Word and
-PowerPoint files that Spotlight says contain the word. Open one and it opens at the match, with Find holding the word, so
-⌘G goes on to the next. Files not downloaded from iCloud are skipped and never downloaded.
+<p align="center">
+  <img src="docs/assets/screenshots/edit.png" alt="Editing a Markdown note in Split view" width="900">
+</p>
 
-### 📄 PDFs in Edit — new in 6.0
-- **A PDF opens in Edit** through the same doors as a text file — ⌘O, Open in Edit, the preview's
-  Edit button, a click in Edit's pane. The file list shows **Pages** (a grid or a list of thumbnails)
-  and, when the PDF has two or more bookmarks, an **Outline** of them; the page number and zoom float over the pages in a
-  capsule you can drag to any edge or corner; **Page Layout** offers single pages, two-page spreads and a
-  separate cover; and **Find** (⌘F) tints every match on the pages. A PDF that needs a password
-  asks for it, and SyncCloud uses it only to open the file.
-- **The file you opened is never modified.** The **Tools** menu rotates, extracts and deletes
-  pages, compresses, cleans metadata and adds or removes a password, and pages dragged into a new
-  order are saved with **Save Reordered Copy**. The whole-file tools are on any PDF's right-click
-  menu in Browse, Compare, Organize and Edit's own file pane too, for several PDFs at once. Every tool writes a new PDF beside the
-  original, named for what it did — `Statement (compressed).pdf` — and never replaces a file
-  already there.
-- **Fill & Sign** floats a palette over the page: text, today's date, ✓ ✗ • marks, and a
-  signature or initials you draw or type, kept on this Mac only and never synced. A PDF with form
-  fields of its own — a W-9, a visa form — fills those, in the form's own Tab order, and the copy
-  stays fillable. Nothing is written until **Save Filled Copy**, which writes
-  `Lease (signed).pdf` beside the original. **Replace** retypes a few words on a page, in their
-  size and colour and in their own font when your Mac has it, and writes `Invoice (corrected).pdf`;
-  the old words stay in the copy under a patch unless you make that page a picture.
-- **Save as PDF** on the right-click menu turns a Word, Excel or PowerPoint file, an RTF, a
-  Markdown note or a `.txt` into a PDF beside it. A slide that is a picture has its words
-  recognised, so the PDF can still be searched.
+### 📄 Edit — PDFs
+- **Read**: page thumbnails, the outline, single or two-page layouts, and Find (⌘F).
+- **Rework**: rotate, extract, delete and reorder pages; compress; strip metadata; add or remove a
+  password. Also on any PDF's right-click menu, for several at once.
+- **Fill & Sign**: text, dates, check marks, and a drawn or typed signature kept on this Mac. Real
+  form fields fill in their own Tab order and stay fillable. **Replace** retypes a few words in
+  their own size, colour and font; the old words stay underneath unless you make that page a
+  picture.
+- **Save as PDF** turns Word, Excel, PowerPoint, RTF, Markdown and plain-text files into PDFs.
+- **The original is never modified** — every change writes a new file beside it, such as
+  `Lease (signed).pdf`.
 
-### 🤖 AI-assisted filing (optional)
-Organize's suggestions start from a fast, fully-offline engine (your existing folder names + filename
-signals + on-device text extraction). You can layer AI on top:
-- **On-device** via Apple Intelligence (Foundation Models, macOS 26+) — nothing leaves your Mac.
-- **Cloud** via **Claude** (`claude-haiku-4-5`, `claude-sonnet-5`, or `claude-opus-5`) — off by
-  default, opt-in, with your API key stored in the **macOS Keychain** (never in plaintext).
+<p align="center">
+  <img src="docs/assets/screenshots/edit-pdf.png" alt="Filling in and signing a PDF in Edit" width="900">
+</p>
 
-Cloud use is opt-in per pass: scans are always free and on-device, and only **Refine with Claude**
-reaches the cloud. Every Refine records tokens and estimated cost, guarded by a **pre-flight cost
-confirmation** and hard **monthly / total budget caps** (a `$5` lifetime cap by default). Over budget,
-it silently falls back to the on-device engine.
+### 🧭 Guided setup
+A first-run guide reads the folder you point it at — names only, no file is opened — so it can ask
+about you and your household with your own folder names in front of you. Nothing is saved until you press
+Save. Reopen it from **Help ▸ Set Up SyncCloud…**.
 
-### 🧭 Setup that shows its reading
-A first run is a guided sheet of ten screens. It **reads the folder you point it at before asking
-about you** — names and counts only, no document is opened — so the questions after it (your name as
-documents print it, who else is in the household, which countries your papers come from) are asked
-with your own folder names in front of you. **Structure** then draws the tree with SyncCloud's
-reading of each folder beside it, and where To File would put the loose files at its top, **before
-anything is written**: the folder profile Organize's filing, renaming and restructure passes read is
-saved only when you press Save. **Help ▸ Set Up SyncCloud…** and Settings ▸ General ▸ **Run setup
-again…** reopen it.
+### 🛟 Safe by design
+Atomic, backed-up overwrites; Trash-backed deletes; grouped **Undo/Redo** and **Undo Last Run**;
+From/To confirmations; collision choices (replace, keep both, skip, or merge folders); and a guard
+that refuses an ambiguous path rather than guessing.
 
-### 🛟 Safety by construction
-Atomic backed-up overwrites, Trash-backed deletes, grouped reversible **Undo/Redo** (including
-"Undo Last Run" from history), From:/To: transfer confirmations, collision strategies
-(replace / keep-both / skip, and **merge** for a folder that already exists), an invalid-name pre-write guard, and a path-boundary layer that refuses
-and *reports* on ambiguity rather than guessing. No single action can quietly lose data.
-
-### 🎨 Native macOS design
-A macOS 26-inspired **Liquid Glass** interface (Clear / Frosted / Solid), System / Light / Dark
-themes, 11 accent hues (or none), and per-provider brand colours. **Settings ▸ Readability** puts text size
-(90–135%, on a slider with named detents) and row spacing together with five presets and a live
-preview of the rows they produce.
+### 🎨 Native macOS
+**Liquid Glass** (Clear, Frosted or Solid), light and dark themes, 11 accent hues, and
+**Settings ▸ Readability** for text size (90–135%) and row spacing.
 
 ---
 
 ## Screenshots
 
-| Two-pane comparison | Browsing one source | Writing in a text file |
-|---|---|---|
-| ![Compare](docs/assets/screenshots/hero-compare.png) | ![Browse](docs/assets/screenshots/browse.png) | ![Edit](docs/assets/screenshots/edit.png) |
+| Browsing one source | Guided Review | Filing loose files | Finding duplicates |
+|---|---|---|---|
+| ![Browse](docs/assets/screenshots/browse.png) | ![Guided Review](docs/assets/screenshots/compare-review.png) | ![To File](docs/assets/screenshots/tidy-organize.png) | ![Duplicates](docs/assets/screenshots/tidy-duplicates.png) |
 
-| Filing loose files | Finding duplicate copies | Storage treemap |
-|---|---|---|
-| ![To File](docs/assets/screenshots/tidy-organize.png) | ![Duplicates](docs/assets/screenshots/tidy-duplicates.png) | ![Storage](docs/assets/screenshots/tidy-storage.png) |
+| Cloud-hostile names | Storage treemap | Reading a PDF | Settings |
+|---|---|---|---|
+| ![Renames](docs/assets/screenshots/renames.png) | ![Storage](docs/assets/screenshots/tidy-storage.png) | ![PDF pages](docs/assets/screenshots/edit-pdf-pages.png) | ![Settings](docs/assets/screenshots/settings.png) |
 
-| Guided Review | Cloud-hostile names | Settings |
-|---|---|---|
-| ![Guided Review](docs/assets/screenshots/compare-review.png) | ![Renames](docs/assets/screenshots/renames.png) | ![Settings](docs/assets/screenshots/settings.png) |
-
-Every capture is of the app running against a synthetic folder tree, not anyone's real files.
-
-More on the **[feature site](https://agirish.github.io/sync-cloud/)**.
+Every screenshot is of the app running against a synthetic folder tree.
 
 ---
 
 ## Requirements
 
-- **macOS 26 or later** for the app — `project.yml` sets `deploymentTarget: "26.0"` and every
-  `Package.swift` declares `platforms: [.macOS("26.0")]`, so an earlier system cannot run it.
-- On-device AI filing additionally needs **Apple Intelligence** (it degrades gracefully without
-  it). Cloud AI filing needs an Anthropic API key.
-- **Xcode 26+** and **Swift 6.0+** to build — every `Package.swift` here declares
-  `swift-tools-version: 6.0`, which an older toolchain cannot even parse, and the app
-  target's deployment floor is macOS 26 (`dbdfe48a`), which needs the macOS 26 SDK.
-  Built and tested on Xcode 27.0 / Swift 6.4.
-- **[XcodeGen](https://github.com/yonaskolb/XcodeGen)** (`brew install xcodegen`) — the Xcode project
-  is generated from `project.yml` and is not checked in.
+- **macOS 26** or later.
+- Optional: **Apple Intelligence** for on-device AI filing; an **Anthropic API key** for Claude.
+- To build: **Xcode 26+** (Swift 6) and **[XcodeGen](https://github.com/yonaskolb/XcodeGen)**.
 
-## Building the app
+## Building
+
+The Xcode project is generated from `project.yml`:
 
 ```bash
-brew install xcodegen        # once
-xcodegen generate            # regenerate SyncCloud.xcodeproj from project.yml
-open SyncCloud.xcodeproj      # then Build & Run (⌘R) in Xcode
+brew install xcodegen
+xcodegen generate
+open SyncCloud.xcodeproj      # then Build & Run (⌘R)
 ```
 
-## CLI (`synccloud`)
+## Command line (`synccloud`)
 
-A `git`-style command line tool for scan/sync without opening the app. See
-[`SyncCloudCLI/README.md`](SyncCloudCLI/README.md) for full docs.
+Scan and sync without opening the app. Full docs: [`SyncCloudCLI/README.md`](SyncCloudCLI/README.md).
 
 ```bash
 cd SyncCloudCLI
-swift build
-
-# List discovered cloud providers
-swift run synccloud providers
-
-# Compare two folders (accepts a provider id/name or a path)
-swift run synccloud scan  -L iCloud/Documents -R OneDrive/Documents
-swift run synccloud scan  -L ~/A -R ~/B --json          # machine-readable
-
-# Sync (prompts unless --yes)
-swift run synccloud sync  -L ~/A -R ~/B --direction to-right --strategy keep-both --yes
-swift run synccloud sync  -L ~/A -R ~/B --verify        # checksum same-size, date-only pairs first
-
-# Report where a surveyed tree disagrees with its own habits (read-only)
-swift run synccloud restructure
-swift run synccloud restructure --json                  # full report, stable format
+swift run synccloud providers                                   # list cloud providers
+swift run synccloud scan -L iCloud/Documents -R OneDrive/Documents
+swift run synccloud scan -L ~/A -R ~/B --json                   # machine-readable
+swift run synccloud sync -L ~/A -R ~/B --direction to-right --strategy keep-both --yes
+swift run synccloud restructure                                 # read-only tree report
 ```
 
 Key flags: `--direction auto|to-right|to-left`, `--strategy replace|skip|keep-both`, `--verify`,
 `--fail-fast`, `--show-hidden`, `--ignore <path>`, `--json`, `--yes`. Exit codes: `0` success,
-`64` usage error, `1` partial sync failure.
+`1` partial sync failure, `64` usage error.
 
-## Setting up cloud AI filing (optional)
+## Setting up Claude (optional)
 
 1. Get an API key from the [Anthropic Console](https://console.anthropic.com/).
-2. In **Settings ▸ Intelligence**, enable *Use Claude (cloud)*, paste the key (stored in the
-   Keychain), pick a model, and hit **Test**.
-3. Set a monthly and/or total **budget cap**. SyncCloud shows an estimated cost before each Refine and
-   pauses cloud refinement at your cap.
+2. In **Settings ▸ Intelligence**, turn on *Use Claude (cloud)*, paste the key, pick a model
+   (Haiku 4.5, Sonnet 5 or Opus 5) and press **Test**.
+3. Set a monthly or lifetime **budget cap**.
 
-Without a key (and without Apple Intelligence), Organize still works — it just runs the deterministic
-offline engine.
+Without a key, Organize runs on its offline engine.
 
 ## Project structure
 
 ```
 SyncCloud/
-├── MacApp/                     # SwiftUI app (ContentView, toolbar, app entry, filing classifiers)
-├── Modules/                    # SPM packages:
-│   ├── Sync/                   #   diff engine, file ops, duplicates, filing/automations, storage lens
-│   ├── FileExplorer/           #   panes, differences, Organize lenses, review, Edit (text and PDF)
-│   ├── Dashboard/              #   folder sidebar, activity log, details, breadcrumbs, sync history
-│   ├── Settings/               #   settings UI + persistence
-│   ├── Design/                 #   Liquid Glass design system
-│   └── Events/                 #   logging, sync-history store
-├── SyncCloudCLI/               # SwiftPM CLI (synccloud)
-├── SyncCloudTests/             # app-target tests (hosted in SyncCloud.app)
-├── docs/                       # this feature site (GitHub Pages) + engineering notes
-└── project.yml                 # XcodeGen project definition
+├── MacApp/            # SwiftUI app target
+├── Modules/           # Swift packages
+│   ├── Sync/          #   diff engine, file operations, filing, duplicates, storage
+│   ├── FileExplorer/  #   panes, Compare, Organize lenses, Edit (text and PDF)
+│   ├── Dashboard/     #   folder sidebar, activity log, details, history
+│   ├── Settings/      #   settings UI and persistence
+│   ├── Design/        #   Liquid Glass design system
+│   └── Events/        #   logging and sync history
+├── SyncCloudCLI/      # the synccloud command-line tool
+├── SyncCloudTests/    # app-target tests
+├── docs/              # feature site (GitHub Pages) and engineering notes
+└── project.yml        # XcodeGen project definition
 ```
 
-## Continuous integration
-
-The seven SPM package test suites and the app-target tests run on every push to `main`, `v5.x`,
-`v4.x`, `v3.x` or `v2.x` and on every `v*` release tag, via a self-hosted GitHub Actions runner — see
-[`docs/ci.md`](docs/ci.md).
-
-## Performance notes
-
-Findings that outlive the change that produced them are written down rather than re-derived.
-[`docs/string-bridging.md`](docs/string-bridging.md) measures what `FileNode`'s lazily bridged
-`id` and `name` cost across the app, and why only one of the two is worth forcing to native
-storage. The benchmarks behind it are ordinary test targets gated behind an environment variable,
-so neither `swift test` nor CI ever runs them; each names its variable in its own doc comment.
-
-## Roadmap
-
-Planned enhancements (backing up the folders that exist in only one place, saved folder-pair
-presets, a menu-bar status item, and more) are
-tracked in [`ROADMAP.md`](ROADMAP.md). Deliberately
-deferred edge cases live in [`DEFERRED_ENHANCEMENTS.md`](DEFERRED_ENHANCEMENTS.md), and internal
-code that is correct but entangled enough to be worth restructuring against a major release is
-catalogued in [`REFACTOR.md`](REFACTOR.md).
+Tests run on every push via a self-hosted GitHub Actions runner ([`docs/ci.md`](docs/ci.md)).
+What's planned is in [`ROADMAP.md`](ROADMAP.md).
 
 ## License
 
