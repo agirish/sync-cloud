@@ -84,7 +84,9 @@ Requires **macOS 26**, unchanged from the 5.x line.
   "Statement (compressed).pdf", "(rotated)", "(pages removed)", "(metadata cleaned)", "(protected)",
   "(unlocked)", and for Extract the pages taken, "(pages 2–4)" — and never replaces a file already
   there. A banner says what was written, with **Open in Edit** and **Reveal in Browse**. A PDF
-  locked with a password offers only Remove Password.
+  locked with a password offers only Remove Password. A copy keeps the file's page labels, attached
+  files and the way it opens; most tools leave out its tags for screen readers, layers and colour
+  output intent, and their sheets say so when the file has any.
 - **Pick pages, and put them in a new order.** In the Pages tab, click, ⌘-click and ⇧-click select
   pages and `⌘A` selects them all; right-click a selection to rotate, delete or extract just those
   pages. Drag a page to a new place, and nothing is written until **Save Reordered Copy**; **Reset
@@ -258,8 +260,8 @@ Requires **macOS 26**, unchanged from the 5.x line.
   says, on the status line, what was saved and where. A save the disk refuses gives the reason —
   "No space left on device" — not the name of a hidden staging file. A link to a file still in the
   cloud is treated as that file: Edit and the preview say it isn't downloaded and offer Download,
-  and PDF Tools leaves it alone, where each downloaded it unasked. A link to a text file over Edit's
-  limit is refused as too large.
+  where both downloaded it unasked, and PDF Tools doesn't download it either. A link to a text file
+  over Edit's limit is refused as too large.
 - **Help, menus and keys catch up with Edit.** `⌘?` opens Help at the page for the workspace you
   are in, not at setup — and, with a PDF open, at a new page, **Read, fill and sign a PDF**, which
   holds what Edit's page said about PDFs. Holding ⌥ shows the keys on the format bar, Source,
@@ -307,6 +309,18 @@ Requires **macOS 26**, unchanged from the 5.x line.
   outside plain Recents, and the choice is remembered across launches. Both lists start empty and
   fill from visits made after the update. Recents lists the same folders as before, now each with
   its source's name, and the folders `⌘K` offers are unchanged.
+
+### Around the app
+
+- **Tooltips come sooner, and more controls have one.** A tooltip now shows after 0.3 seconds
+  rather than the Mac's 1.5, and controls that had none — a search field's ✕ and a banner's ✕ among
+  them — now say what they do.
+- **The document survey's Resume now and Start over do what they say.** Resume now, offered while
+  reading waits on a scan, a file copy, a Mac running hot or Low Power Mode, left the survey paused
+  until that cleared by itself; it now reads on past what was holding it, and anything new still
+  pauses it. Start over resumed instead of starting over; it now asks first, then reads every
+  document again. The line on every Organize lens no longer offers a Stop that did nothing for an
+  interrupted survey — it offers Resume, and says Resume now where the card does.
 
 ---
 
