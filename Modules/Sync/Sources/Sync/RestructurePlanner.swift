@@ -126,6 +126,10 @@ public struct RestructureTreeView {
         RestructureTreeView(listing: { path in
             let url = root.appendingPathComponent(path)
             let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey]
+            // A package asked about by its own path is a document, not a folder with a listing —
+            // or the pair route (a mirrored inbox's `TODO/Return.pages` → `Return.pages`) would
+            // merge one document's insides into another's after all.
+            if (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage == true { return nil }
             guard let urls = try? fileManager.contentsOfDirectory(
                 at: url, includingPropertiesForKeys: keys, options: [])
             else { return nil }

@@ -86,8 +86,8 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
     /// `.photoslibrary` that is a folder on disk and ONE document to the person using it.
     ///
     /// Read off ``kind``, the type identifier the walk already records, rather than a field of its
-    /// own: a stored flag would read `nil` in every tree cached before it existed, and those trees
-    /// are exactly the ones a Duplicates run reuses. Measured on this Mac against `.isPackageKey`
+    /// own: a stored flag would read `nil` in every tree encoded before it existed, and pane trees
+    /// are cached as JSON — so the answer is the same however the tree was obtained. Measured on this Mac against `.isPackageKey`
     /// for `.key`, `.pages`, `.numbers`, `.app`, `.photoslibrary`, `.rtfd`, `.xcodeproj`, `.band`,
     /// `.bundle`, `.plugin`, `.framework` and the real Photos library: the two agreed on every one.
     /// What neither sees is a plain folder carrying only Finder's bundle bit.

@@ -8935,3 +8935,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s setKeeper=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The keeper pick, without even the scan-time protection | RECORDED — not owed |
+
+---
+
+## Restructure's pair route never merges a package (FR2, again) — main only
+
+A mirrored inbox can name packages themselves — `TODO/Return.pages` beside `Return.pages` — and the
+pair route merged one document's insides into the other's. `main`'s disk view gives a package
+asked about by its own path no listing, so the pair is refused.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s pairMerge=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/RestructurePlanner.swift 2>/dev/null | grep -cF 'static func pairMergeManifest')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         pairMerge=1
+# v4.x, v3.x, v2.x   pairMerge=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same pair route (`pairMerge=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure (`pairMerge=0`) | CLOSED — does not apply |

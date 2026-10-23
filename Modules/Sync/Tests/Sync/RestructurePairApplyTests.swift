@@ -144,6 +144,22 @@ import Testing
         #expect(execution.collisions == 1)
     }
 
+    /// The pair route names the packages THEMSELVES — a mirrored inbox holding `TODO/Return.pages`
+    /// beside `Return.pages`. A document has no listing, so no merge of its insides is planned.
+    @Test func aPairMergeRefusesAPackageAsEitherEnd() throws {
+        let root = try Self.makeTree(["Taxes/TODO/Return.pages/Index.zip",
+                                      "Taxes/Return.pages/Index.zip"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let result = try RestructurePlanner.pairMergeManifest(
+            source: "Taxes/TODO/Return.pages", destination: "Taxes/Return.pages",
+            kind: .mirroredInbox, in: Self.view(of: root),
+            profileId: "p", manifestId: "m", createdAt: "t")
+        guard case .failure = result else {
+            Issue.record("a merge of one document into another was planned: \(result)")
+            return
+        }
+    }
+
     /// `TODO/Dental/Shared` is a link to a folder in another provider. Merging through it moved
     /// that provider's files into this tree. The link is one item: it moves, its target stays.
     @Test func aMergeMovesALinkNotWhatItPointsAt() throws {
