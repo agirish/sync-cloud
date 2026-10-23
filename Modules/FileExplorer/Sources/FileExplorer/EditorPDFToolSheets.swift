@@ -496,7 +496,9 @@ struct EditorPDFProtectSheet: View {
         let strength = PasswordStrengthEstimator.estimate(password)
         let matches = !password.isEmpty && password == confirmation
         EditorPDFToolSheetFrame(tools: tools, title: "Protect with Password", action: "Save Protected Copy",
-                                canRun: matches, failure: failure, run: go) {
+                                canRun: matches, failure: failure, run: go,
+                                dropsCatalogParts: EditorPDFTool.protect(restrictEditing: false, password: EditorPDFSecret(""))
+                                    .dropsCatalogParts(fileHasForm: false)) {
             VStack(alignment: .leading, spacing: 8) {
                 Picker("", selection: $restrictEditing) {
                     Text("Lock to open").tag(false)
@@ -515,6 +517,11 @@ struct EditorPDFProtectSheet: View {
                     .textFieldStyle(.roundedBorder)
                 SecureField("Confirm password", text: $confirmation)
                     .textFieldStyle(.roundedBorder)
+                if let note = EditorPDFTool.protectedCopyNote() {
+                    Text(note)
+                        .scaledFont(.system(size: 10)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 HStack(spacing: 6) {
                     EditorPDFStrengthMeter(strength: strength)
                     Text(!confirmation.isEmpty && !matches ? "The passwords don’t match." : strength.label)

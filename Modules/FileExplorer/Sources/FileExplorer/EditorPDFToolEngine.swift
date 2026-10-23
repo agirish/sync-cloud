@@ -225,12 +225,28 @@ public enum EditorPDFTool: Equatable, Sendable {
     /// every tool whose copy is rebuilt or whose page tree changes. Rotate, Protect and filling a
     /// form write the document in place and keep them, and so does Clean Metadata on a file with a
     /// form, which it cleans in place (the toolkit's `writeMetadataData`).
-    func dropsCatalogParts(fileHasForm: Bool) -> Bool {
+    ///
+    /// **Not on macOS 26** (FR53). There PDFKit drops the catalog on every write, in place or not.
+    /// The toolkit carries four parts back onto an unencrypted copy — page labels, viewer settings,
+    /// language, attachments — but never tags, layers or colour output intent, and nothing at all
+    /// onto an encrypted one. So below 27 Rotate, Protect, filling a form and cleaning a form's
+    /// metadata lose the three parts this note names, and the sheet has to say so.
+    func dropsCatalogParts(fileHasForm: Bool,
+                           osMajor: Int = ProcessInfo.processInfo.operatingSystemVersion.majorVersion) -> Bool {
         switch self {
         case .deletePages, .reorder, .extract, .compress, .removePassword, .fillAndSign, .arranged: return true
-        case .cleanMetadata: return !fileHasForm
-        case .rotate, .protect, .fillForm: return false
+        case .cleanMetadata: return !fileHasForm || osMajor < 27
+        case .rotate, .protect, .fillForm: return osMajor < 27
         }
+    }
+
+    /// What Protect's copy loses on macOS 26 beyond the three parts every note names: the toolkit
+    /// skips its carry for encrypted output, so the four parts it carries elsewhere go too. Nil
+    /// from 27. Said whatever the file holds rather than naming only what it has — a deliberate
+    /// simplification: the sentence is true of every file, and reading the catalog for it would
+    /// be one more pass over a file the sheet has not opened.
+    static func protectedCopyNote(osMajor: Int = ProcessInfo.processInfo.operatingSystemVersion.majorVersion) -> String? {
+        osMajor < 27 ? "On macOS 26 the protected copy won’t keep attached files, page labels, viewer settings or language." : nil
     }
 
     /// **Whether the copy's bytes are serialized from a FRESH document rather than the loaded one**

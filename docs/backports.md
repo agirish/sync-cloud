@@ -8852,3 +8852,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s backupDelete=%s newFile=%s\n'
 |---|---|---|
 | `v5.x` | The same save and New File (`backupDelete=1`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Edit file store (`backupDelete=0`) | CLOSED — does not apply |
+
+---
+
+## PDF copies say what macOS 26 drops (FR53) — main only
+
+On macOS 26 PDFKit drops the catalog on every write; the toolkit carries page labels, viewer
+settings, language and attachments back onto an unencrypted copy, but never tags, layers or output
+intent, and nothing onto an encrypted one. Yet Rotate, Protect, Fill Form and a form's Clean Metadata
+said they keep everything. `main` counts them as dropping the three named parts below macOS 27, and
+Protect's sheet adds that the other four go too.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s keepsClaim=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorPDFToolEngine.swift 2>/dev/null | grep -cF 'case .rotate, .protect, .fillForm: return false')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main               keepsClaim=1
+# v5.x, v4.x, v3.x, v2.x   keepsClaim=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No catalog-parts note (`keepsClaim=0`) | CLOSED — does not apply |

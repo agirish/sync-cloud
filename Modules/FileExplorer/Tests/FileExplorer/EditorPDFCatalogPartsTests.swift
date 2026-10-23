@@ -80,8 +80,8 @@ extension PDFFixtures {
                 == "The copy won’t keep this PDF’s tags for screen readers, layers or colour output intent.")
     }
 
-    /// Rotate, Protect and filling a form write in place and keep them; so does Clean Metadata on a
-    /// file with a form. Every other tool's copy, and any tool in a dragged order, loses them.
+    /// Rotate, Protect and filling a form write in place and keep them from macOS 27; so does Clean
+    /// Metadata on a file with a form. Every other tool's copy, and any tool in a dragged order, loses them.
     @Test func whichToolsSayIt() {
         let secret = EditorPDFSecret("pw")
         let losing: [EditorPDFTool] = [.deletePages([0]), .reorder([1, 0]), .extract([0]), .compress(.quality(0.5)),
@@ -92,9 +92,16 @@ extension PDFFixtures {
         }
         let keeping: [EditorPDFTool] = [.rotate(pages: [0], quarterTurns: 1), .protect(restrictEditing: false, password: secret),
                                         .fillForm(values: [:], items: [])]
-        for tool in keeping { #expect(!tool.dropsCatalogParts(fileHasForm: false), "\(tool.title)") }
+        for tool in keeping { #expect(!tool.dropsCatalogParts(fileHasForm: false, osMajor: 27), "\(tool.title)") }
+        // FR53: on macOS 26 PDFKit drops the catalog on an in-place write too, and the toolkit
+        // cannot carry it onto an encrypted copy — so these three say it there.
+        for tool in keeping { #expect(tool.dropsCatalogParts(fileHasForm: false, osMajor: 26), "\(tool.title)") }
+        #expect(EditorPDFTool.protectedCopyNote(osMajor: 26)?.contains("attached files, page labels") == true)
+        #expect(EditorPDFTool.cleanMetadata(.cleared).dropsCatalogParts(fileHasForm: true, osMajor: 26),
+                "cleaning a form's metadata writes in place, and on 26 that loses them too")
+        #expect(EditorPDFTool.protectedCopyNote(osMajor: 27) == nil)
         #expect(EditorPDFTool.cleanMetadata(.cleared).dropsCatalogParts(fileHasForm: false))
-        #expect(!EditorPDFTool.cleanMetadata(.cleared).dropsCatalogParts(fileHasForm: true))
+        #expect(!EditorPDFTool.cleanMetadata(.cleared).dropsCatalogParts(fileHasForm: true, osMajor: 27))
     }
 
     // MARK: Read with the file

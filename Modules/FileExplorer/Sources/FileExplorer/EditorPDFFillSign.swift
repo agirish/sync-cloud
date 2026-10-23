@@ -1400,6 +1400,11 @@ public final class EditorPDFFillSign: ObservableObject {
         if !offersPlacing { out.append(Self.noCommentingReason + ".") }
         if !allowsFormEntry, !form.fillable.isEmpty { out.append(Self.noFormEntryReason + ".") }
         if form.hasXFA { out.append(Self.xfaNote) }
+        // The in-place fill keeps the catalog — except on macOS 26 (FR53).
+        if EditorPDFTool.fillForm(values: [:], items: []).dropsCatalogParts(fileHasForm: true),
+           let note = tools?.droppedPartsNote {
+            out.append(note)
+        }
         return out
     }
 
