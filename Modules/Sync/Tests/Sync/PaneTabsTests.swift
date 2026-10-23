@@ -467,36 +467,16 @@ import Events
 
     /// Everything logged between two of this test's own markers, with `act` run between them.
     ///
-    /// **Never read `Logger.shared.entries` whole in this suite.** `entries` is a rolled 1000-line
-    /// window (`Modules/Events/Sources/Events/Logger.swift:376`) shared by every suite in the
-    /// package, which breaks a naive reading in both directions: a bare `contains` lets a foreign
-    /// line satisfy a presence assertion, and a bare `!contains` passes for free the moment the
-    /// window rolls past the line it was supposed to be looking at. The opening marker is
-    /// `#require`d, and that `#require` IS the eviction guard — if the buffer rolled past this
-    /// test's own first marker, the reading is vacuous and says so instead of passing.
-    ///
-    /// Sliced from the opening marker FIRST and searched inside that slice, so the two indices
-    /// cannot be found out of order: `messages[a...b]` on reversed bounds traps rather than
-    /// failing, which turns a rolled buffer into a dead test host.
+    /// **Read from the log FILE, through `logLines(tag:during:)`, never from `Logger.shared.entries`.**
+    /// `entries` is a rolled 1000-line window shared by every suite in the package, and a full
+    /// parallel run logs past this test's own marker while it works: the marker's `#require` then
+    /// failed on `main` at `7090870d2` with nothing wrong with the tab strip (flaky-tests
+    /// mechanism "A log assertion reading a window that has already rolled"). The file is
+    /// per-process and is never trimmed under a test, so the window between this test's markers is
+    /// whole. Levels are read by NAME off the canonical line, `[WARN]`.
     @MainActor
-    private func loggedWindow(_ act: () -> Void) async throws -> ArraySlice<LogEntry> {
-        let token = UUID().uuidString.prefix(8)
-        await Logger.shared.debug("pane-tabs window open \(token)").value
-        act()
-        await Logger.shared.debug("pane-tabs window close \(token)").value
-        let entries = Logger.shared.entries
-        // Both searches are done BEFORE the `#require`, and the optional is what gets required.
-        // `#require(entries.firstIndex(where:))` expands the whole receiver into the failure
-        // message: measured at 152KB of `LogEntry` dump for one rolled window. This guard fires
-        // exactly when a run is already in trouble, so its output has to stay readable.
-        let openedIndex = entries.firstIndex { $0.message.contains("open \(token)") }
-        let opened = try #require(openedIndex,
-                                  "the log window rolled past this test's own marker, so this reading is vacuous")
-        let tail = entries[opened...]
-        let closedIndex = tail.lastIndex { $0.message.contains("close \(token)") }
-        let closed = try #require(closedIndex,
-                                  "the closing marker never landed — this reading is vacuous")
-        return tail[...closed]
+    private func loggedWindow(_ act: () -> Void) async throws -> [String] {
+        try await logLines(tag: "pane-tabs \(UUID().uuidString)") { act() }
     }
 
     @Test func aRoundTripKeepsTheStripAndItsSelection() {
@@ -601,7 +581,7 @@ import Events
         #expect(loaded == nil,
                 "the caller must still be told to seed — this is a log line, not a new behaviour")
         #expect(logged.contains {
-            $0.level == .warning && $0.message.contains("left browse tab strip could not be read")
+            $0.contains("[WARN]") && $0.contains("left browse tab strip could not be read")
         }, "an unreadable strip is thrown away by the next save with nothing said")
     }
 
@@ -636,7 +616,7 @@ import Events
         #expect(neverWritten == nil)
         #expect(empty == nil)
         #expect(!logged.contains {
-            $0.message.contains("right browse tab strip could not be read")
+            $0.contains("right browse tab strip could not be read")
         }, "a pane that has never stored a strip is reported as corrupt on every launch")
     }
 
