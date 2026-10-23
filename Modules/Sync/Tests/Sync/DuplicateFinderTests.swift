@@ -817,7 +817,10 @@ import Testing
         #expect(groups.isEmpty)
     }
 
-    @Test func ignoredNamesAreSkipped() {
+    @Test func aSkippedToolingTreeLeavesItsFolderUnidentified() {
+        // Both node_modules hold the same lib.js — but the walk never looks inside one, so it
+        // cannot know that. A and B are NOT asserted identical; keep.txt is still found as the
+        // file duplicate it is, and nothing inside node_modules is ever surfaced.
         let tree = [
             dir("/root/A", [dir("/root/A/node_modules", [file("/root/A/node_modules/lib.js")]),
                             file("/root/A/keep.txt")]),
@@ -829,11 +832,67 @@ import Testing
             "/root/A/keep.txt": "KEEP", "/root/B/keep.txt": "KEEP",
         ]
         let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
-        // A and B are identical *ignoring* node_modules → one identical-folder group; the
-        // node_modules lib.js is never surfaced.
         #expect(groups.count == 1)
-        #expect(groups[0].isDirectory)
+        #expect(groups.first?.isDirectory == false)
+        #expect(groups.first?.copies.map(\.path).sorted() == ["/root/A/keep.txt", "/root/B/keep.txt"])
         #expect(groups.allSatisfy { !$0.copies.contains { $0.path.contains("node_modules") } })
+    }
+
+    /// FR11. A repository and a ZIP of its working tree hold the same files; only the repository
+    /// holds `.git`. The archive penalty makes the repository the copy a folder group would trash.
+    @Test func aRepositoryIsNeverOfferedAsACopyOfItsWorkingTree() {
+        let tree = [
+            dir("/root/Archive/proj", [
+                dir("/root/Archive/proj/.git", [file("/root/Archive/proj/.git/HEAD", size: 23)]),
+                file("/root/Archive/proj/a.txt"), file("/root/Archive/proj/b.txt"),
+            ]),
+            dir("/root/Work/proj", [file("/root/Work/proj/a.txt"), file("/root/Work/proj/b.txt")]),
+        ]
+        let hashes = [
+            "/root/Archive/proj/a.txt": "A", "/root/Work/proj/a.txt": "A",
+            "/root/Archive/proj/b.txt": "B", "/root/Work/proj/b.txt": "B",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(!groups.isEmpty)   // the files themselves are still duplicates
+        #expect(groups.allSatisfy { !$0.isDirectory })
+        #expect(groups.allSatisfy { !$0.recommendedRemovalPaths.contains("/root/Archive/proj") })
+    }
+
+    /// The same pair, but the repository is the one a same-name OVERLAP group would fold away:
+    /// the ZIP side has one extra file, so the two are not identical even before `.git`.
+    @Test func aRepositoryIsNeverFoldedAwayAsAnOverlappingCopy() {
+        let tree = [
+            dir("/root/Archive/proj", [
+                dir("/root/Archive/proj/.git", [file("/root/Archive/proj/.git/HEAD", size: 23)]),
+                file("/root/Archive/proj/a.txt"), file("/root/Archive/proj/b.txt"),
+                file("/root/Archive/proj/c.txt"),
+            ]),
+            dir("/root/Work/proj", [file("/root/Work/proj/a.txt"), file("/root/Work/proj/b.txt"),
+                                    file("/root/Work/proj/c.txt"), file("/root/Work/proj/d.txt")]),
+        ]
+        let hashes = [
+            "/root/Archive/proj/a.txt": "A", "/root/Work/proj/a.txt": "A",
+            "/root/Archive/proj/b.txt": "B", "/root/Work/proj/b.txt": "B",
+            "/root/Archive/proj/c.txt": "C", "/root/Work/proj/c.txt": "C",
+            "/root/Work/proj/d.txt": "D",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.allSatisfy { !$0.isDirectory })
+        #expect(groups.allSatisfy { !$0.recommendedRemovalPaths.contains("/root/Archive/proj") })
+    }
+
+    /// OS noise is still noise: a `.DS_Store` on one side only does not stop two folders being
+    /// the identical copies they are.
+    @Test func finderDroppingsDoNotBlockAnIdenticalFolder() {
+        let tree = [
+            dir("/root/A", [file("/root/A/.DS_Store", size: 6148), file("/root/A/keep.txt")]),
+            dir("/root/B", [file("/root/B/keep.txt")]),
+        ]
+        let hashes = ["/root/A/keep.txt": "KEEP", "/root/B/keep.txt": "KEEP",
+                      "/root/A/.DS_Store": "DS"]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.count == 1)
+        #expect(groups.first?.isDirectory == true)
     }
 
     @Test func keeperAvoidsArchiveLocations() {

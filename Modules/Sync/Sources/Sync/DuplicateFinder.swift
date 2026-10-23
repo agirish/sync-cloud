@@ -466,9 +466,10 @@ public struct DuplicateFinderOptions: Sendable {
     }
 
     /// NOTE: `ItemIdentity.deepIdentityIgnoredNames` deliberately does NOT reuse this set. This
-    /// one is a DISCOVERY filter — a false skip costs a missed duplicate — so it may skip whole
-    /// tooling trees (`.git`, `.build`, `node_modules`). The copy-undo's identity walk is a
-    /// DESTRUCTION guard — a false skip there lets ⌘Z trash the only copy of an edit made inside
+    /// one is a DISCOVERY filter, so it may skip whole tooling trees (`.git`, `.build`,
+    /// `node_modules`) — but a skipped tree still exists, so it leaves its folder's identity
+    /// UNKNOWN rather than absent (see `collect`); only that set's OS noise is dropped outright.
+    /// The copy-undo's identity walk is a DESTRUCTION guard — a false skip there lets ⌘Z trash the only copy of an edit made inside
     /// such a tree — so it digests them and skips OS noise only. A name added or removed here
     /// does not automatically apply there; argue it into each set on its own merits.
     public static let defaultIgnoredNames: Set<String> = [
@@ -544,6 +545,9 @@ public enum DuplicateFinder {
         let signature: String?
         /// Set of descendant file content hashes (folders); the file's own hash (files).
         let contentHashes: Set<String>
+        /// Whether this node is, or holds, an entry the walk skipped as a tooling tree (`.git`,
+        /// `node_modules`, …) — content that exists and that nothing here has looked at.
+        var holdsUnseenContent: Bool = false
     }
 
     /// Groups duplicate/related items in the given tree.
@@ -654,7 +658,22 @@ public enum DuplicateFinder {
         files: inout [NodeInfo],
         dirs: inout [NodeInfo]
     ) -> NodeInfo? {
-        if options.ignoredNames.contains(node.name) { return nil }
+        // **Skipped is not the same as absent.** OS noise (`.DS_Store`, `Thumbs.db`, …) carries no
+        // content anyone keeps, so it is dropped as if it were not there. Everything else this set
+        // skips — `.git`, `node_modules`, `.build` — is content: a repository's whole history sits
+        // in `.git`. Dropping it made a clone and a ZIP of its working tree "identical", and Apply
+        // recommended could trash the clone. So it is not walked (discovery never needed it), but
+        // it reaches the parent as an entry of UNKNOWN identity, the treatment a directory link
+        // gets below: the parent can no longer be asserted identical, and `holdsUnseenContent`
+        // keeps it from being folded away as an overlapping copy.
+        if options.ignoredNames.contains(node.name) {
+            if ItemIdentity.deepIdentityIgnoredNames.contains(node.name) { return nil }
+            return NodeInfo(
+                path: node.id, name: node.name, isDirectory: node.isDirectory,
+                size: 0, itemCount: 0, modificationDate: node.modificationDate,
+                depth: depth, signature: nil, contentHashes: [], holdsUnseenContent: true
+            )
+        }
         // A symlink must never be a duplicate CANDIDATE: the walk resolves its size/content to its
         // target, so a link and its in-tree target would hash identically and group as "copies,"
         // and trashing the real target would leave a dangling link as the "kept" copy. But it still
@@ -724,7 +743,11 @@ public enum DuplicateFinder {
         }
 
         let size = childInfos.reduce(0) { $0 + $1.size }
-        let itemCount = childInfos.reduce(0) { $0 + 1 + ($1.isDirectory ? $1.itemCount : 0) }
+        // A skipped tooling tree is not counted: the figure is what the walk saw, as it always was.
+        // (Any child still carrying an ignored name here is one — OS noise never comes back.)
+        let itemCount = childInfos.reduce(0) {
+            options.ignoredNames.contains($1.name) ? $0 : $0 + 1 + ($1.isDirectory ? $1.itemCount : 0)
+        }
         var contentHashes = Set<String>()
         for ci in childInfos { contentHashes.formUnion(ci.contentHashes) }
 
@@ -749,7 +772,8 @@ public enum DuplicateFinder {
             modificationDate: node.modificationDate,
             depth: depth,
             signature: signature,
-            contentHashes: contentHashes
+            contentHashes: contentHashes,
+            holdsUnseenContent: childInfos.contains(where: \.holdsUnseenContent)
         )
         dirs.append(info)
         return info
@@ -850,8 +874,12 @@ public enum DuplicateFinder {
             // Filtering first keeps the twin and drops the subsets, which is what a reader does by
             // eye — and it means a group's members are the folders that really are versions of
             // each other, rather than everything that shared their name.
+            // **A copy holding content the walk skipped is never folded away.** Folding merges what
+            // the walk saw into the keeper and trashes the rest of the copy — and the rest would
+            // include a `.git` nobody compared with anything.
             let folded = ordered.dropFirst().filter {
-                mutualFraction(of: $0, against: keeper) >= options.overlapThreshold
+                !$0.holdsUnseenContent
+                    && mutualFraction(of: $0, against: keeper) >= options.overlapThreshold
             }
             let kept = [keeper] + folded
             // One-sided, because what a fold-in frees is the folded copy's own redundant bytes.

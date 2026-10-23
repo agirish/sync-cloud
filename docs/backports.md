@@ -8632,3 +8632,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s undoReorg=%s neverSuggest=%s 
 |---|---|---|
 | `v5.x` | All three, the same code | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | Keep separate's one-way hide alone (`keepSeparate=1`); no Restructure | RECORDED — not owed |
+
+---
+
+## Duplicates no longer treats a skipped `.git` as absent (FR11) — main only
+
+The finder skips `.git`, `node_modules` and `.build` while walking, and left them out of a folder's
+identity too, so a repository and a ZIP of its working tree were "identical" and Apply recommended
+could trash the repository. `main` keeps skipping them but lets them reach the parent as an entry
+of unknown identity: such a folder is never asserted identical and never folded away as an
+overlapping copy. OS noise (`ItemIdentity.deepIdentityIgnoredNames`) is still dropped outright.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s skipAbsent=%s tooling=%s\n' $l \
+  "$(git show origin/$l:$S/DuplicateFinder.swift 2>/dev/null | grep -cF 'if options.ignoredNames.contains(node.name) { return nil }')" \
+  "$(git show origin/$l:$S/DuplicateFinder.swift 2>/dev/null | grep -cF '".git", ".build", "node_modules"')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   skipAbsent=1 tooling=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same skip, the same code (`skipAbsent=1`) | RECORDED — not owed |
