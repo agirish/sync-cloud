@@ -63,7 +63,7 @@ public struct DocumentSurveyStrip: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
-                verbs
+                verbButtons
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
@@ -87,31 +87,52 @@ public struct DocumentSurveyStrip: View {
         }
     }
 
-    @ViewBuilder
-    private var verbs: some View {
+    private var verbButtons: some View {
+        ForEach(verbs) { verb in
+            strip(verb.title, help: verb.help, action: verb.run)
+        }
+    }
+
+    /// The strip's verbs, as ``OverviewCardAction`` values — the card's own type, so a test can
+    /// hold the two side by side without mounting either. `rank` is unused: the strip draws them
+    /// in the order listed, all alike.
+    ///
+    /// **Only verbs the card offers in the same state**, under the card's tooltip — the strip may
+    /// leave one out, never add one.
+    var verbs: [OverviewCardAction] {
+        var actions: [OverviewCardAction] = []
         switch state {
         case .running(_, _, _, _, let pause):
             if pause == nil, let onPause {
-                strip("Pause", action: onPause)
+                actions.append(OverviewCardAction(title: "Pause", run: onPause))
             } else if let pause, pause.resumesOnItsOwn, let onResume {
                 // The card's word for the same click: it reads through a pause that would
                 // otherwise clear by itself, rather than undoing a Pause.
-                strip("Resume now", help: DocumentSurveyCard.resumeNowHelp, action: onResume)
+                actions.append(OverviewCardAction(title: "Resume now",
+                                                  help: DocumentSurveyCard.resumeNowHelp,
+                                                  run: onResume))
             } else if let onResume {
-                strip("Resume", action: onResume)
+                actions.append(OverviewCardAction(title: "Resume", run: onResume))
             }
             if let onStop {
-                strip("Stop", help: "Stop reading — what’s been read so far is kept", action: onStop)
+                actions.append(OverviewCardAction(title: "Stop",
+                                                  help: "Stop reading — what’s been read so far is kept",
+                                                  run: onStop))
             }
         case .interrupted:
             if let onResume {
-                strip("Resume", help: "Carry on reading — only the documents not yet read",
-                      action: onResume)
+                actions.append(OverviewCardAction(title: "Resume",
+                                                  help: "Carry on reading — only the documents not yet read",
+                                                  run: onResume))
             }
-            if let onStop { strip("Stop", action: onStop) }
+            // **No Stop: nothing is running.** It reached `stopDocumentSurvey()`, which stops the
+            // run in flight, and there is none — so it did nothing. Nor the card's *Start over*:
+            // it throws hours of reading away behind a question, which belongs on the overview,
+            // not on a line drawn across every lens.
         default:
-            EmptyView()
+            break
         }
+        return actions
     }
 
     @ViewBuilder

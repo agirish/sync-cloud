@@ -31,6 +31,42 @@ import Testing
         #expect(DocumentSurveyCardText.title(for: state).contains("140"))
         #expect(!DocumentSurveyCardText.detail(for: state).isEmpty)
     }
+
+    /// **And the card's verbs: never one the card does not offer in the same state**, under the
+    /// card's own tooltip. The interrupted strip had a Stop the card does not — and with nothing
+    /// running, `stopDocumentSurvey()` had no run to stop, so the button did nothing.
+    @MainActor @Test func everyVerbIsOneTheCardOffers() {
+        let states: [DocumentSurveyCardState] = [
+            .running(done: 4, total: 90, folder: "Finance", secondsRemaining: 60, pause: nil),
+            .running(done: 4, total: 90, folder: nil, secondsRemaining: nil,
+                     pause: .init(sentence: "Paused.", resumesOnItsOwn: false)),
+            .running(done: 4, total: 90, folder: nil, secondsRemaining: nil,
+                     pause: .init(sentence: "Paused — the Mac is running hot.", resumesOnItsOwn: true)),
+            .finishing(done: 90),
+            .interrupted(done: 12, total: 90),
+            .interrupted(done: 90, total: 90),
+        ]
+        for state in states {
+            let strip = DocumentSurveyStrip(state: state, accent: .blue,
+                                            onResume: {}, onPause: {}, onStop: {})
+            let card = DocumentSurveyCard(state: state, accent: .blue, onStart: {},
+                                          onStartOver: {}, onResume: {}, onPause: {}, onStop: {})
+            let cards = Set(card.verbs.map { "\($0.title) — \($0.help ?? "no tooltip")" })
+            for verb in strip.verbs.map({ "\($0.title) — \($0.help ?? "no tooltip")" }) {
+                #expect(cards.contains(verb), "\(state): the strip offers “\(verb)”, the card \(cards.sorted())")
+            }
+        }
+    }
+
+    /// **Interrupted, the strip offers Resume and nothing else.** Nothing is running, so there is
+    /// nothing to stop; and *Start over* throws hours of reading away behind a question, which
+    /// belongs on the card — the overview, where there is room to say what it costs — not on a
+    /// line drawn across every lens.
+    @MainActor @Test func theInterruptedStripOffersOnlyResume() {
+        let strip = DocumentSurveyStrip(state: .interrupted(done: 12, total: 90), accent: .blue,
+                                        onResume: {}, onPause: {}, onStop: {})
+        #expect(strip.verbs.map(\.title) == ["Resume"])
+    }
 }
 
 /// The strip is drawn where the workspace's header ends, on every lens.

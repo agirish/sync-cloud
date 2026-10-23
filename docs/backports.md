@@ -8493,3 +8493,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s survey=%s startOverRunsOnStar
 |---|---|---|
 | `v5.x` | Both dead buttons, the same code (`startOverRunsOnStart=1`, `override=0`) | RECORDED — owed |
 | `v4.x` / `v3.x` / `v2.x` | No document survey (`survey=0`) | CLOSED — does not apply |
+
+---
+
+## The interrupted survey strip offers no dead Stop — main only
+
+With a survey interrupted (progress on disk, nothing running), the reading strip on every Organize
+lens offered *Stop*, which stops the run in flight — there is none, so it did nothing. The card in
+the same state offers Resume and Start over. `main` drops it and holds the strip to the card's
+verbs (`everyVerbIsOneTheCardOffers`); *Start over* stays on the card.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s strip=%s interruptedStop=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DocumentSurveyStrip.swift 2>/dev/null | grep -c 'struct DocumentSurveyStrip')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DocumentSurveyStrip.swift 2>/dev/null | grep -A6 'case .interrupted:' | grep -c '"Stop"')"; done
+# measured 2026-10-22, against origin, before this landed:
+# main, v5.x         strip=1 interruptedStop=1
+# v4.x, v3.x, v2.x   strip=0 interruptedStop=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The dead Stop, the same code (`interruptedStop=1`) | RECORDED — owed |
+| `v4.x` / `v3.x` / `v2.x` | No document survey strip (`strip=0`) | CLOSED — does not apply |
