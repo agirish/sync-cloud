@@ -1031,6 +1031,26 @@ import Testing
         #expect(groups.allSatisfy { !$0.recommendedRemovalPaths.contains("/root/Archive/Talks") })
     }
 
+    /// FR12, at the finder: a same-named copy holding a folder the walk did not read is never
+    /// folded away — the merge would trash the unread folder as though it were empty.
+    @Test func aCopyWithAnUnreadFolderIsNeverFoldedAway() {
+        let shared = ["a", "b", "c", "d", "e", "f", "g"]
+        var locked = dir("/root/Archive/Talks/Locked", [])
+        locked.isUnexplored = true
+        let tree = [
+            dir("/root/Archive/Talks", [locked] + shared.map { file("/root/Archive/Talks/\($0).pdf") }),
+            dir("/root/Work/Talks", (shared + ["h"]).map { file("/root/Work/Talks/\($0).pdf") }),
+        ]
+        var hashes = ["/root/Work/Talks/h.pdf": "H"]
+        for name in shared {
+            hashes["/root/Archive/Talks/\(name).pdf"] = name.uppercased()
+            hashes["/root/Work/Talks/\(name).pdf"] = name.uppercased()
+        }
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.allSatisfy { !$0.recommendedRemovalPaths.contains("/root/Archive/Talks") })
+        #expect(!groups.contains { if case .overlapping = $0.matchType { return true }; return false })
+    }
+
     @Test func keeperAvoidsArchiveLocations() {
         // Distinct fillers keep the parents non-identical, so tax.pdf is a file-level duplicate.
         let tree = [

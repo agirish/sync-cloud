@@ -1746,6 +1746,18 @@ extension FileSyncManager {
                 allTrashed = false
                 continue
             }
+            // **A folder the walk could not read is not an empty one** (FR12). The merge folds what
+            // it saw into the keeper and then trashes the whole copy — unread subfolder included,
+            // and on a volume without a Trash, for good. Refused whole, like the link case above.
+            guard plan.unreadDirs.isEmpty else {
+                let dirs = plan.unreadDirs.prefix(3).map { "“\($0)”" }.joined(separator: ", ")
+                Logger.shared.warning("Duplicates merge: “\(redundant.name)” holds \(plan.unreadDirs.count) folder(s) that could not be read (\(plan.unreadDirs.joined(separator: ", "))) — refusing to merge and trash it")
+                // The copy's own folder unreadable comes back as one entry bearing its name.
+                let what = plan.unreadDirs == [redundant.name] ? "“\(redundant.name)”" : "\(dirs) in “\(redundant.name)”"
+                banner = .warning("Can't merge “\(group.name)”: \(what) couldn’t be read, so its contents can’t be checked. Open it, or make it available offline, then rescan.")
+                allTrashed = false
+                continue
+            }
             let logger = Logger.shared   // captured on the main actor; its methods are nonisolated
             let progressRef = ProgressRef(progress)   // NSProgress is thread-safe; the ref is the Sendable wrapper
 
@@ -2085,7 +2097,7 @@ extension FileSyncManager {
         from rURL: URL, into kURL: URL, caseSensitiveVolume: Bool = true, fileManager fm: FileManaging,
         cache: ContentHashCache? = .shared
     ) async -> (steps: [(src: URL, dst: URL)], sourceSnapshot: [String: MergeFileSnapshot],
-                blockedLinkedDirs: [String], vouchedKeeperPaths: [String]) {
+                blockedLinkedDirs: [String], vouchedKeeperPaths: [String], unreadDirs: [String]) {
         let kTree = await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil)
         // Keeper content hash keyed by RELATIVE path — so "already have it" means the keeper has
         // this exact content *at the same location*, not merely somewhere. "Same location" uses
@@ -2240,7 +2252,8 @@ extension FileSyncManager {
             }
             steps.append((src: URL(fileURLWithPath: item.id), dst: kURL.appendingPathComponent(item.rel)))
         }
-        return (steps, fileSnapshotsByRelativePath(rTree), blockedLinkedDirs.sorted(), vouchedKeeperPaths)
+        return (steps, fileSnapshotsByRelativePath(rTree), blockedLinkedDirs.sorted(), vouchedKeeperPaths,
+                unexploredRelativePaths(rTree))
     }
 
     /// What the drift check knows about one file in the merge source: byte size AND modification
@@ -2282,6 +2295,19 @@ extension FileSyncManager {
     nonisolated static func mergeSourceDrifted(planned: [String: MergeFileSnapshot],
                                                current: [String: MergeFileSnapshot]) -> Bool {
         current.contains { rel, snapshot in planned[rel] != snapshot }
+    }
+
+    /// The folders under a walked tree that were NOT read — a listing the volume refused, or a
+    /// cloud folder whose app missed the deadline. Each comes back with no children, which every
+    /// flatten below reads as "empty" — so a merge that trusted it would trash what it never saw.
+    nonisolated static func unexploredRelativePaths(_ nodes: [FileNode], prefix: String = "") -> [String] {
+        var out: [String] = []
+        for n in nodes where n.isDirectory && n.isSymbolicLink != true {
+            let rel = prefix.isEmpty ? n.name : prefix + "/" + n.name
+            if n.isUnexplored == true { out.append(rel); continue }
+            out.append(contentsOf: unexploredRelativePaths(n.children ?? [], prefix: rel))
+        }
+        return out
     }
 
     /// Flattens a walked tree into (relative path, absolute path) leaf pairs, accumulating the

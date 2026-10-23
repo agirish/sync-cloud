@@ -8809,3 +8809,23 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s moveSnap=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The registration-time snapshot (`moveSnap=2`) | RECORDED — not owed |
+
+---
+
+## A merge refuses a copy holding a folder it couldn't read (FR12) — main only
+
+An unread subfolder came back with no children, every flatten read it as empty, and the merge trashed
+the copy holding it. `main` refuses the merge (`planMerge`'s `unreadDirs`), and the finder never
+folds such a copy away.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s mergeFlatten=%s unread=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'flattenFilesWithRelativePaths(rTree)')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'unreadDirs')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   mergeFlatten=1 unread=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same merge (`mergeFlatten=1`) | RECORDED — not owed |

@@ -576,6 +576,38 @@ import Combine
         #expect(manager.banner?.severity == .warning)
     }
 
+    /// FR12. The copy being folded away holds a folder its walk could not read. Every flatten
+    /// read that folder as empty, so the merge copied the rest and trashed the copy — unread
+    /// folder included. Now nothing is copied or trashed, and the banner says why.
+    @MainActor
+    @Test func mergeRefusesACopyHoldingAFolderItCouldNotRead() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        for dir in ["/base", "/base/K", "/base/R", "/base/R/Locked"] {
+            mockFM.virtualDisk[dir] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: [])
+        }
+        for file in ["/base/K/shared", "/base/R/shared", "/base/R/Locked/only-copy"] {
+            mockFM.virtualDisk[file] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
+        }
+        mockFM.unlistableDirectories = ["/base/R/Locked"]
+
+        let k = DuplicateCopy(id: "/base/K", name: "K", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: "/base/R", name: "R", isDirectory: true, size: 10000, itemCount: 2,
+                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "K",
+                                   isDirectory: true, copies: [k, r], reclaimableBytes: 5000)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.mergeDuplicateGroup(group)
+
+        #expect(ok == false)
+        #expect(mockFM.trashedPaths.isEmpty, "trashed: \(mockFM.trashedPaths)")
+        #expect(mockFM.virtualDisk["/base/R/Locked/only-copy"] != nil)
+        #expect(manager.banner?.message.contains("couldn’t be read") == true,
+                "refused for another reason: \(manager.banner?.message ?? "no banner")")
+    }
+
     @MainActor
     @Test func resolveReportsPartialWhenOnlySomeCopiesLeftTheDisk() async throws {
         let mockFM = MockFileManager()

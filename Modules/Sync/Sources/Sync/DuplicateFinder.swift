@@ -784,7 +784,9 @@ public enum DuplicateFinder {
             depth: depth,
             signature: signature,
             contentHashes: contentHashes,
-            holdsUnseenContent: childInfos.contains(where: \.holdsUnseenContent),
+            // A folder the walk did not read holds content nothing here has looked at — the same
+            // standing as a skipped `.git`, so it is never folded away (FR12).
+            holdsUnseenContent: node.isUnexplored == true || childInfos.contains(where: \.holdsUnseenContent),
             holdsPackage: isPackage || childInfos.contains(where: \.holdsPackage)
         )
         if !insidePackage { dirs.append(info) }
