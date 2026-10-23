@@ -358,6 +358,57 @@ import EventsTestSupport
         #expect(promptFired == true)
     }
 
+    /// FR24. Undoing New Folder — alone, or as the last step of a Restructure ⌘Z — removes the
+    /// folder only when it is empty. A file still inside got there after the folder was made: the
+    /// user put it there, or the group's move-back refused it as changed and SAID it left it in
+    /// place, a sentence the trash right after it made false.
+    @MainActor
+    @Test func createFolderUndoLeavesAFolderThatHoldsAFile() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        // The mock makes no intermediate folders, so each level is made by hand.
+        for path in ["/dst", "/dst/Archive", "/dst/Archive/Taxes"] {
+            try mockFM.createDirectory(at: URL(fileURLWithPath: path), withIntermediateDirectories: true)
+        }
+        manager.registerCreateFolderUndo(url: URL(fileURLWithPath: "/dst/Archive"), fileManager: mockFM)
+        mockFM.virtualDisk["/dst/Archive/Taxes/edited.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        manager.undoManager?.undo()
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+
+        #expect(mockFM.virtualDisk["/dst/Archive/Taxes/edited.pdf"] != nil)
+        #expect(mockFM.virtualDisk["/dst/Archive"] != nil)
+        #expect(manager.banner?.message.contains("isn’t empty") == true)
+    }
+
+    /// A link is content too — one the user put in the folder, pointing anywhere or nowhere.
+    @Test func createFolderUndoLeavesAFolderHoldingOnlyALink() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("fr24l-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let folder = base.appendingPathComponent("New Folder")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: folder.appendingPathComponent("Shared"),
+                                                   withDestinationURL: base.appendingPathComponent("gone"))
+        #expect(FileSyncManager.filesHeld(in: folder, fileManager: FileManager.default) == 1)
+    }
+
+    /// The other direction: Finder's droppings and empty subfolders hold nothing, so the folder
+    /// the action made still goes.
+    @MainActor
+    @Test func createFolderUndoStillRemovesAFolderHoldingOnlyNoise() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        for path in ["/dst", "/dst/Archive", "/dst/Archive/Empty"] {
+            try mockFM.createDirectory(at: URL(fileURLWithPath: path), withIntermediateDirectories: true)
+        }
+        mockFM.virtualDisk["/dst/Archive/.DS_Store"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        manager.registerCreateFolderUndo(url: URL(fileURLWithPath: "/dst/Archive"), fileManager: mockFM)
+
+        manager.undoManager?.undo()
+        await waitUntil("the folder goes to the Trash") { mockFM.virtualDisk["/dst/Archive"] == nil }
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+    }
+
     /// The gap this pair closes: when the CONFIRMED permanent delete then fails, the folder is
     /// still on disk after the user has agreed to destroy it — and `try?` swallowed that outcome
     /// entirely. No banner, no log line, nothing: the undo simply appeared to have worked. The

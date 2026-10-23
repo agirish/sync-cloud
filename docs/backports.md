@@ -8770,3 +8770,23 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s profiles=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same profile walk (`profiles=1`) | RECORDED — not owed |
+
+---
+
+## Undoing New Folder leaves a folder that isn't empty (FR24) — main only
+
+The create-folder undo trashed its folder without looking inside, so Restructure's ⌘Z trashed an item
+it had just reported leaving in place, and a plain New Folder undo took whatever had been put in it
+since. `main` removes the folder only when it holds no files (OS noise aside) and says so otherwise.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s createUndo=%s filesHeld=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'func registerCreateFolderUndo')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'func filesHeld')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   createUndo=1 filesHeld=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same undo (`createUndo=1`) | RECORDED — not owed |

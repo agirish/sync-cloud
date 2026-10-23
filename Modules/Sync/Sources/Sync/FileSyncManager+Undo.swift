@@ -1547,6 +1547,27 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
     
+    /// How many items `url` holds at any depth that are not folders — files and links, OS noise
+    /// aside — counting no further than the first, which is all the caller asks. Nil when any of
+    /// it could not be read, so a partial listing is never mistaken for an empty folder.
+    ///
+    /// `attributesOfItem`, not `fileExists`: the latter follows a link, so a link to a folder read
+    /// as a folder and a dangling one as nothing, and a folder holding only a link the user put
+    /// there was removed as empty.
+    nonisolated static func filesHeld(in url: URL, fileManager fm: FileManaging) -> Int? {
+        var sawError = false
+        guard let walker = fm.enumerator(at: url, includingPropertiesForKeys: [.isDirectoryKey],
+                                         options: [], errorHandler: { _, _ in sawError = true; return false })
+        else { return nil }
+        for case let child as URL in walker {
+            if ItemIdentity.deepIdentityIgnoredNames.contains(child.lastPathComponent) { continue }
+            guard let type = (try? fm.attributesOfItem(atPath: child.path))?[.type] as? FileAttributeType
+            else { continue }
+            if type != .typeDirectory { return 1 }
+        }
+        return sawError ? nil : 0
+    }
+
     func registerCreateFolderUndo(url: URL, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         let confirmPermanentDelete = permanentDeleteConfirmer
@@ -1564,6 +1585,20 @@ extension FileSyncManager {
                 var isDirectory: ObjCBool = false
                 guard fm.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
                     logger.info("Undo (New Folder): no folder to remove at \(url.path)")
+                    return
+                }
+                // **Only an empty folder is this undo's to remove** (FR24). Everything an action
+                // moved INTO the folder was registered after it, so its undo has already run; what
+                // is still inside got there some other way — the user put it there, or a move-back
+                // refused it as changed. Restructure's ⌘Z trashed such a folder right after a
+                // banner said the refused item was left in place. OS noise and empty subfolders
+                // hold nothing; a folder that cannot be fully read is never treated as empty.
+                guard let held = FileSyncManager.filesHeld(in: url, fileManager: fm), held == 0 else {
+                    let name = url.lastPathComponent
+                    await MainActor.run {
+                        logger.warning("Undo (New Folder): left \(url.path) in place — it holds files the undo did not put there, or could not be fully read")
+                        target.banner = .warning("Undo left “\(name)” in place — it isn’t empty")
+                    }
                     return
                 }
                 do {
