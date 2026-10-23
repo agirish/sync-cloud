@@ -27,7 +27,7 @@ import Sync
         let titles = organize.items.map(\.title)
         let plan = try #require(titles.firstIndex(of: "Plan This Folder’s Shape…"))
         let setUp = try #require(titles.firstIndex(of: "Set Up Like Its Siblings"))
-        let undo = try #require(titles.firstIndex(of: "Undo This Reorganisation"))
+        let undo = try #require(titles.firstIndex(of: "Undo This Reorganisation…"))
         #expect(plan < undo)
         #expect(setUp < undo)
         #expect(plan < setUp, "plan then set up — the order the roadmap lists them in")
@@ -50,7 +50,7 @@ import Sync
         let edit = try #require(NSApp.mainMenu?.items.first { $0.title == "Edit" }?.submenu)
         let titles = edit.items.map(\.title)
         for title in ["Plan This Folder’s Shape…", "Set Up Like Its Siblings",
-                      "Undo This Reorganisation"] {
+                      "Undo This Reorganisation…"] {
             #expect(!titles.contains(title), "\(title) must not sit beside ⌘Z's Undo")
         }
     }

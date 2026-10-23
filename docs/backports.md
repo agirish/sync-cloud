@@ -8599,3 +8599,36 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s setupModel=%s rebuilds=%s ros
 | `v5.x` | Both, the same code (`rebuilds=3`, `rosterRemove=1`) | RECORDED — not owed |
 | `v4.x` | The one-click removal, in the older sheet (`oldSheetRemove=1`); no walk to land | RECORDED — not owed |
 | `v3.x` / `v2.x` | No guided People screen with a roster | CLOSED — does not apply |
+
+---
+
+## Organize asks before undoing a reorganisation, keeps a closed plan, and can show hidden findings again — main only
+
+Three Organize defects from the v6.1 review (LN1, LN2, LN3).
+
+- **Undo this reorganisation** ran a landing's stored inverse — which can move hundreds of files and
+  can't be redone — on one click of a text link or the Organize menu item, and a success said
+  nothing. `main` routes both through `ReorganisationUndo.run`, which asks (`confirmChange`, naming
+  what the landing did) and posts a banner on every outcome.
+- **Keep separate** (Duplicates) and **Never suggest this again** (Restructure) hid a group or a
+  finding for good, with no undo and nothing listing what was hidden. `main` registers one ⌘Z step
+  with an undoable banner for each, and both lenses show "N … hidden · Show Them Again".
+- **Closing the plan sheet** threw a hand-built mapping away: only Export saved the draft, against
+  ROADMAP §5.4's "when the sheet closes with a plan". `main` keeps a changed plan as a draft on close.
+
+```sh
+F=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s undoReorg=%s neverSuggest=%s planSheet=%s keepSeparate=%s\n' $l \
+  "$(git show origin/$l:$F/RestructureLens.swift 2>/dev/null | grep -c 'Button("Undo this reorganisation")')" \
+  "$(git show origin/$l:$F/RestructureLens.swift 2>/dev/null | grep -c 'Never suggest this again')" \
+  "$(git ls-tree -r --name-only origin/$l -- $F/RestructurePlanSheet.swift | wc -l | tr -d ' ')" \
+  "$(git grep -c 'func keepDuplicateGroupSeparate' origin/$l -- Modules | wc -l | tr -d ' ')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         undoReorg=1 neverSuggest=2 planSheet=1 keepSeparate=1
+# v4.x, v3.x, v2.x   undoReorg=0 neverSuggest=0 planSheet=0 keepSeparate=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | All three, the same code | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | Keep separate's one-way hide alone (`keepSeparate=1`); no Restructure | RECORDED — not owed |

@@ -463,11 +463,51 @@ extension FileSyncManager {
 
     /// Marks a group as intentionally separate: removes it now and remembers it so future scans
     /// don't re-flag the same cluster.
+    ///
+    /// **And it can be taken back.** One mis-click hid a group for good, across every rescan, with
+    /// no undo and nothing anywhere that listed what was hidden. It now registers one ⌘Z step and
+    /// says so in an undoable banner; ``forgetKeptSeparateGroups()`` is the way back for older ones.
     public func keepDuplicateGroupSeparate(_ group: DuplicateGroup) {
         var keys = ignoredDuplicateKeys
         keys.insert(group.ignoreKey)
         ignoredDuplicateKeys = keys
+        let index = duplicateGroups.firstIndex { $0.id == group.id }
         duplicateGroups.removeAll { $0.id == group.id }
+        Logger.shared.info("Duplicates: kept “\(group.name)” separate")
+        invalidateUndoableBanner()
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.restoreKeptSeparateGroup(group, at: index)
+        }
+        undoManager?.setActionName("Keep Separate")
+        banner = .success("Kept “\(group.name)” separate — it won’t be flagged again.",
+                          undoable: undoManager != nil)
+    }
+
+    /// ⌘Z for ``keepDuplicateGroupSeparate(_:)``: forgets the key and puts the card back where it
+    /// was, and registers the redo.
+    func restoreKeptSeparateGroup(_ group: DuplicateGroup, at index: Int?) {
+        var keys = ignoredDuplicateKeys
+        keys.remove(group.ignoreKey)
+        ignoredDuplicateKeys = keys
+        if !duplicateGroups.contains(where: { $0.id == group.id }) {
+            duplicateGroups.insert(group, at: min(index ?? duplicateGroups.count, duplicateGroups.count))
+        }
+        Logger.shared.info("Duplicates: “\(group.name)” is flagged again (undo)")
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.keepDuplicateGroupSeparate(group)
+        }
+        undoManager?.setActionName("Keep Separate")
+    }
+
+    /// Forgets every group kept separate, so the next scan flags them again — the lens's
+    /// "Show Them Again". Returns how many were forgotten.
+    @discardableResult
+    public func forgetKeptSeparateGroups() -> Int {
+        let count = ignoredDuplicateKeys.count
+        guard count > 0 else { return 0 }
+        ignoredDuplicateKeys = []
+        Logger.shared.info("Duplicates: forgot \(count) group(s) kept separate")
+        return count
     }
 
     /// Clears the current results (called when switching providers, so stale groups from one

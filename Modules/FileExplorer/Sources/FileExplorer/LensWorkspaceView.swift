@@ -3559,13 +3559,22 @@ public struct LensWorkspaceView: View {
                             let full = (root as NSString).appendingPathComponent(relative)
                             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
                         },
-                        // *Never suggest this again* — the store write, and nothing else: the
-                        // manager republishes the store's change, `visibleStructureFindings`
-                        // drops the row, and the badge follows because all three read one
-                        // accessor. nil before the store exists (no profile loaded), which
-                        // withholds the menu item rather than offering a write that goes nowhere.
-                        onSuppress: syncManager.restructureStore.map { store in
-                            { store.suppress(RestructureKey($0)) }
+                        // *Never suggest this again* — the store write, plus its ⌘Z and an
+                        // undoable banner: the manager republishes the store's change,
+                        // `visibleStructureFindings` drops the row, and the badge follows because
+                        // all three read one accessor. nil before the store exists (no profile
+                        // loaded), which withholds the menu item rather than offering a write that
+                        // goes nowhere. `hiddenCount` and Show Them Again are the way back for
+                        // findings hidden before this session.
+                        onSuppress: syncManager.restructureStore.map { _ in
+                            { syncManager.suppressStructureFinding($0) }
+                        },
+                        // The hidden findings the detector still produces — not every key ever
+                        // written, which counts findings whose folder is gone and so would promise
+                        // a Show Them Again that brings nothing back.
+                        hiddenCount: syncManager.hiddenStructureFindingCount,
+                        onShowHidden: syncManager.restructureStore.map { store in
+                            { store.unsuppressAll() }
                         },
                         // The scaffold: one guarded, ledgered, ⌘Z-able landing of create-dirs,
                         // then the same hand-off the button below offers on its own. A refusal
@@ -3644,13 +3653,8 @@ public struct LensWorkspaceView: View {
                 from: syncManager.restructureStore?.trend ?? []) ?? [],
                         onUndoReorganisation: { manifestId in
                             Task { @MainActor in
-                                let outcome = await syncManager.undoReorganisation(
-                                    manifestId: manifestId)
-                                if let refusal = outcome.refusal {
-                                    syncManager.banner = .warning(refusal)
-                                } else if let failure = outcome.surveyRefreshFailure {
-                                    syncManager.banner = .warning(failure)
-                                }
+                                await ReorganisationUndo.run(manifestId: manifestId,
+                                                             on: syncManager)
                             }
                         },
                         onRemoveEmptied: requestRemoval,
@@ -4011,6 +4015,12 @@ public struct LensWorkspaceView: View {
                         return .failed("The plan could not be written beside the profile: "
                             + error.localizedDescription)
                     }
+                },
+                // §5.4's store table: a draft is written "when the sheet closes with a plan" —
+                // not only by Export, which left a hand-built mapping to die on one Esc.
+                onKeepDraft: { manifest, vocabulary in
+                    store.saveDraft(.init(manifest: manifest, savedAt: manifest.createdAt,
+                                          vocabulary: vocabulary), for: key)
                 },
                 // §5.5: the landing, from the same sheet that derived the plan — the review
                 // above the button IS the review being applied.
@@ -4773,6 +4783,7 @@ public struct LensWorkspaceView: View {
                     duplicateTileRows(section, columns: columns, cardWidth: cardWidth,
                                       fullWidth: geo.size.width - chrome)
                 }
+                keptSeparateRow
             }
             .padding(densityMetrics.cardListPadding)
             // Animate the list settling when a resolved/merged group leaves the array (H4). Keyed on
@@ -5092,15 +5103,62 @@ public struct LensWorkspaceView: View {
     }
 
     private var cleanState: some View {
-        EmptyStateView(
+        let kept = syncManager.ignoredDuplicateKeys.count
+        return EmptyStateView(
             icon: "checkmark.seal.fill",
             tint: SemanticColor.success,
             title: "No duplicates found",
             message: Self.duplicatesCleanMessage(
                 scanRootName: syncManager.duplicateScanRoot.map { ($0 as NSString).lastPathComponent },
                 providerName: providerName),
+            // An all-clear can be the all-clear of everything having been kept separate, so it
+            // says so — and offers the way back, as the list's own foot does.
+            caption: kept > 0 ? Self.keptSeparateSentence(kept) : nil,
+            primary: kept > 0
+                ? .init("Show Them Again", systemImage: "eye",
+                        help: "Forget every group kept separate and scan again") { showKeptSeparateAgain() }
+                : nil,
             secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindDuplicates)
         )
+    }
+
+    /// The way back from Keep separate, at the foot of the list. Nothing listed what had been kept
+    /// separate before, so a mis-click hid a group for good, across every rescan.
+    @ViewBuilder
+    private var keptSeparateRow: some View {
+        let kept = syncManager.ignoredDuplicateKeys.count
+        if kept > 0 {
+            HStack(spacing: 8) {
+                Image(systemName: "eye.slash")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Text(Self.keptSeparateSentence(kept))
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Button("Show Them Again") { showKeptSeparateAgain() }
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(glassHue.accentColor)
+                    .chromeHover()
+                    .help("Forget every group kept separate and scan again")
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 6)
+        }
+    }
+
+    /// True wherever it is read: the keys are kept for every source at once, so a count of the
+    /// groups *this* scan would have shown is not something the lens can know.
+    static func keptSeparateSentence(_ count: Int) -> String {
+        count == 1 ? "You’ve kept 1 group separate — scans skip it."
+            : "You’ve kept \(count.formatted()) groups separate — scans skip them."
+    }
+
+    /// Kept-separate groups leave no trace a scan can restore from, so the way back is to forget
+    /// them and scan again.
+    private func showKeptSeparateAgain() {
+        syncManager.forgetKeptSeparateGroups()
+        onFindDuplicates()
     }
 
     // MARK: Filing content

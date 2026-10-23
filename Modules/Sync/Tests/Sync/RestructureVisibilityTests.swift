@@ -48,6 +48,39 @@ import Foundation
         #expect(manager.visibleStructureFindings.contains { $0.id == finding.id })
     }
 
+    /// **Never suggest this again could not be taken back.** It now registers one ⌘Z step with an
+    /// undoable banner, and Show Them Again brings back everything hidden.
+    @Test func neverSuggestCanBeUndoneAndShownAgain() throws {
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        manager.undoManager = undo
+        let finding = try #require(manager.visibleStructureFindings.first { $0.kind == .backlog })
+
+        // A key for a folder that no longer produces a finding is not counted as hidden.
+        manager.restructureStore?.suppress(RestructureKey(kind: .backlog, path: "Gone/Folder"))
+        #expect(manager.hiddenStructureFindingCount == 0)
+
+        undo.beginUndoGrouping()
+        manager.suppressStructureFinding(finding)
+        undo.endUndoGrouping()
+        #expect(!manager.visibleStructureFindings.contains { $0.id == finding.id })
+        #expect(manager.hiddenStructureFindingCount == 1)
+        #expect(manager.banner?.isUndoable == true, "the banner offered no Undo")
+
+        undo.undo()
+        #expect(manager.visibleStructureFindings.contains { $0.id == finding.id },
+                "undo left the finding hidden")
+
+        undo.redo()
+        #expect(!manager.visibleStructureFindings.contains { $0.id == finding.id })
+
+        manager.restructureStore?.unsuppressAll()
+        #expect(manager.visibleStructureFindings.contains { $0.id == finding.id })
+        #expect(manager.restructureStore?.suppressed.isEmpty == true)
+    }
+
     @Test func withNoStoreTheVisibleSetIsTheWholeReport() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }

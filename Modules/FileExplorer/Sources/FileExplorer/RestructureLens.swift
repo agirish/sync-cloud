@@ -159,6 +159,10 @@ struct RestructureLens: View {
     /// *Never suggest this again* — writes the finding's `kind × subject` into the store. nil
     /// hides the menu item rather than offering a promise nothing keeps.
     var onSuppress: ((StructureFinding) -> Void)?
+    /// How many findings *Never suggest this again* has hidden, and the way back for all of them.
+    /// Nothing listed what was hidden before, so a mis-click hid a finding for good.
+    var hiddenCount: Int = 0
+    var onShowHidden: (() -> Void)?
     /// The backlog scaffold (§5.2): creates the folders the family's vouched vocabulary expects,
     /// then hands the flat files to To File. Only rendered on a backlog card whose scaffold is
     /// non-empty — an all-drift family has nothing to copy and gets the hand-off alone.
@@ -272,7 +276,7 @@ struct RestructureLens: View {
             // that vanished on a clean tree would make the empties filter unreachable exactly
             // when it is the only thing left to do. The reorganisation cards render here for the
             // stronger reason their doc states: this is the state a successful apply lands in.
-            if deadWeight.isEmpty && reorganisations.isEmpty {
+            if deadWeight.isEmpty && reorganisations.isEmpty && !showsHiddenRow {
                 cleanState
             } else {
                 // Scrollable, because this is the state that ACCUMULATES: every successful apply
@@ -291,6 +295,7 @@ struct RestructureLens: View {
                             .padding(.horizontal, 12)
                             .padding(.bottom, 4)
                         }
+                        if showsHiddenRow { hiddenRow.padding(.horizontal, 12) }
                         // A floor, not a fill: inside a ScrollView "all the remaining space"
                         // does not exist, and without it the seal huddled against the cards.
                         cleanState.frame(minHeight: 240)
@@ -319,10 +324,38 @@ struct RestructureLens: View {
                             findingCard(finding, showsPath: true).opacity(0.72)
                         }
                     }
+                    if showsHiddenRow { hiddenRow }
                 }
                 .padding(12)
             }
         }
+    }
+
+    private var showsHiddenRow: Bool { hiddenCount > 0 && onShowHidden != nil }
+
+    /// The way back from *Never suggest this again*.
+    private var hiddenRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "eye.slash")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text(Self.hiddenSentence(hiddenCount))
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Button("Show Them Again") { onShowHidden?() }
+                .scaledFont(.system(size: 11, weight: .semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(accent)
+                .chromeHover()
+                .help("Bring back every finding hidden with “Never suggest this again”")
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+    }
+
+    static func hiddenSentence(_ count: Int) -> String {
+        count == 1 ? "1 finding is hidden with “Never suggest this again”."
+            : "\(count.formatted()) findings are hidden with “Never suggest this again”."
     }
 
     // MARK: §5.7's Applied and Undone cards
@@ -367,15 +400,15 @@ struct RestructureLens: View {
             if record.undoneAt == nil {
                 HStack(spacing: 14) {
                     if record.canUndo, let onUndoReorganisation {
-                        Button("Undo this reorganisation") {
+                        Button("Undo this reorganisation…") {
                             onUndoReorganisation(record.manifestId)
                         }
                         .scaledFont(.system(size: 11, weight: .semibold))
                         .buttonStyle(.plain)
                         .foregroundStyle(accent)
                         .chromeHover()
-                        .help("Runs the inverse stored in the ledger and re-points the survey "
-                              + "back — it survives a quit, and it is not ⌘Z.")
+                        .help("Asks first, then runs the inverse stored in the ledger and "
+                              + "re-points the survey back — it survives a quit, and it is not ⌘Z.")
                     }
                     if record.hasEmptiedFolders, let onRemoveEmptied {
                         Button("Remove emptied folders…") { onRemoveEmptied(record.manifestId) }

@@ -43,6 +43,13 @@ struct RestructurePlanSheet: View {
     /// Writes the file and the draft; the vocabulary rides along so the draft can reopen with
     /// the same choices on its pickers.
     let onExport: (RestructureManifest, _ vocabulary: [String]) -> ExportResult
+    /// Keeps the plan as it stands when the sheet closes without landing or exporting — §5.4's
+    /// store table writes a draft "when the sheet closes with a plan". nil when the host keeps none.
+    ///
+    /// **Esc used to throw the mapping away.** The draft was saved only by Export, so a family
+    /// mapped by hand — and any Claude proposals accepted into it — was gone on one Esc, and the
+    /// next open started again from the seed.
+    var onKeepDraft: ((RestructureManifest, _ vocabulary: [String]) -> Void)?
     /// §5.5's landing: runs the eight-step apply and returns its outcome sentence — the summary
     /// on success (prefixed so the sheet can tell), or the refusal. nil while Apply is not
     /// offered, which hides the button rather than promising a landing that cannot run.
@@ -171,6 +178,10 @@ struct RestructurePlanSheet: View {
     /// Narrows the mapping's VIEW, never its rows — see `mappingSection`.
     @State private var filterText = ""
     @State private var outcome: Outcome?
+    /// The rows and picker choices as the sheet opened — what "the user changed nothing" means, so
+    /// a sheet opened and closed untouched mints no draft (and no *Planned, not applied* card).
+    @State private var seededRows: [RestructureMapping.Row] = []
+    @State private var seededVocabulary: [String] = []
     @State private var createdAt = ""
     @State private var manifestId = ""
 
@@ -270,6 +281,21 @@ struct RestructurePlanSheet: View {
         let stamp = Self.stamp(Date())
         createdAt = stamp
         manifestId = "plan-\(finding.kind.rawValue)-\(stamp)"
+        seededRows = rows
+        seededVocabulary = vocabulary
+    }
+
+    /// Whether closing now should keep the plan as a draft: something was changed since the sheet
+    /// opened, the change derives a plan, and neither a landing nor an export already kept it.
+    static func keepsDraftOnClose(
+        plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>,
+        rows: [RestructureMapping.Row], vocabulary: [String],
+        seededRows: [RestructureMapping.Row], seededVocabulary: [String],
+        landedOrExported: Bool) -> RestructureManifest? {
+        guard !landedOrExported, rows != seededRows || vocabulary != seededVocabulary else {
+            return nil
+        }
+        return try? plan.get()
     }
 
     /// §5.4 step 2's sibling pointer and proposal O17's group table — **after the first frame,
@@ -1269,7 +1295,14 @@ struct RestructurePlanSheet: View {
             // refine is in flight: a "Cancel" clicked mid-apply reads as *abort*, but the
             // eight-step landing keeps running, and a refusal (or the paid proposals) would
             // land in a torn-down view with no banner to catch it.
-            Button(isApplied ? "Done" : "Cancel") { onClose() }
+            Button(isApplied ? "Done" : "Cancel") {
+                if let manifest = Self.keepsDraftOnClose(
+                    plan: plan, rows: rows, vocabulary: vocabulary, seededRows: seededRows,
+                    seededVocabulary: seededVocabulary, landedOrExported: landedOrExported) {
+                    onKeepDraft?(manifest, vocabulary)
+                }
+                onClose()
+            }
                 .scaledFont(.system(size: 11))
                 .keyboardShortcut(.cancelAction)
                 .disabled(applying || refining)
@@ -1380,6 +1413,15 @@ extension RestructurePlanSheet {
     private var isApplied: Bool {
         if case .applied = outcome { return true }
         return false
+    }
+
+    /// An export is cleared by the next edit (see the `onChange`s above), so a standing one means
+    /// the draft on disk already is this plan, with its file name — which a re-save would drop.
+    private var landedOrExported: Bool {
+        switch outcome {
+        case .applied, .exported: return true
+        case .failed, nil: return !alreadyLanded.isEmpty
+        }
     }
 
     private func applyTitle(_ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)

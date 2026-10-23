@@ -414,3 +414,49 @@ enum RestructureDiskProbeMemo {
     static let scaffolded = Entry<Set<String>>()
     static let standingEmpties = MapEntry<Bool>()
 }
+
+// MARK: - Never suggest this again
+
+@MainActor
+extension FileSyncManager {
+
+    /// *Never suggest this again*, with a way back.
+    ///
+    /// **It used to be one store write and nothing else** — no question, no ⌘Z, no banner, and no
+    /// screen that listed what had been hidden, so a mis-click hid a finding for good. It now
+    /// registers one ⌘Z step and says so in an undoable banner; the lens's Show Them Again
+    /// (`RestructureStore.unsuppressAll`) is the way back for older ones.
+    public func suppressStructureFinding(_ finding: StructureFinding) {
+        guard let store = restructureStore else { return }
+        let key = RestructureKey(finding)
+        guard !store.isSuppressed(key) else { return }
+        store.suppress(key)
+        invalidateUndoableBanner()
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.unsuppressStructureFinding(finding, in: store)
+        }
+        undoManager?.setActionName("Never Suggest Again")
+        banner = .success("Hidden — Restructure won’t suggest this again.",
+                          undoable: undoManager != nil)
+    }
+
+    /// ⌘Z for ``suppressStructureFinding(_:)``. Against the store it was hidden in: a landing swaps
+    /// the store for the new profile's, and the old key means nothing to the new one.
+    func unsuppressStructureFinding(_ finding: StructureFinding, in store: RestructureStore) {
+        store.unsuppress(RestructureKey(finding))
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.suppressStructureFinding(finding)
+        }
+        undoManager?.setActionName("Never Suggest Again")
+    }
+}
+
+@MainActor
+extension FileSyncManager {
+    /// How many of today's findings *Never suggest this again* is hiding — what the lens's
+    /// Show Them Again would bring back.
+    public var hiddenStructureFindingCount: Int {
+        guard let store = restructureStore, !store.suppressed.isEmpty else { return 0 }
+        return structureFindings.filter { store.isSuppressed(RestructureKey($0)) }.count
+    }
+}

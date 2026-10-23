@@ -342,4 +342,46 @@ import Testing
         let rep = try #require(RestructureRender.raster(sheet, width: 620, height: 620))
         #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
+
+    // MARK: Closing keeps the plan (§5.4's store table)
+
+    private static let keptPlan = RestructureManifest(
+        profileId: "p", manifestId: "m", createdAt: "t", family: "Tax", kind: .shape,
+        actions: [.init(action: .renameDir, src: "Tax/2013/Federal", dst: "Tax/2013/Forms",
+                        filesCarried: 3)])
+
+    /// **Esc threw a hand-built mapping away**, because only Export saved the draft. A changed
+    /// mapping that derives a plan is kept when the sheet closes.
+    @Test func closingAChangedMappingKeepsItsPlan() {
+        let seeded = [RestructureMapping.Row(source: "Federal")]
+        let edited = [RestructureMapping.Row(source: "Federal", target: "Forms")]
+        let kept = RestructurePlanSheet.keepsDraftOnClose(
+            plan: .success(Self.keptPlan), rows: edited, vocabulary: ["Forms"],
+            seededRows: seeded, seededVocabulary: [], landedOrExported: false)
+        #expect(kept == Self.keptPlan)
+
+        // A vocabulary choice alone is part of the draft too.
+        #expect(RestructurePlanSheet.keepsDraftOnClose(
+            plan: .success(Self.keptPlan), rows: seeded, vocabulary: ["Forms"],
+            seededRows: seeded, seededVocabulary: [], landedOrExported: false) != nil)
+    }
+
+    /// And the three closes that must keep nothing: opened and closed untouched (no *Planned, not
+    /// applied* card for a plan nobody made), already landed or exported (a re-save would drop the
+    /// export's file name), and a mapping that derives no plan.
+    @Test func closingKeepsNothingElse() {
+        let seeded = [RestructureMapping.Row(source: "Federal")]
+        let edited = [RestructureMapping.Row(source: "Federal", target: "Forms")]
+        #expect(RestructurePlanSheet.keepsDraftOnClose(
+            plan: .success(Self.keptPlan), rows: seeded, vocabulary: [],
+            seededRows: seeded, seededVocabulary: [], landedOrExported: false) == nil,
+            "an untouched sheet minted a draft")
+        #expect(RestructurePlanSheet.keepsDraftOnClose(
+            plan: .success(Self.keptPlan), rows: edited, vocabulary: [],
+            seededRows: seeded, seededVocabulary: [], landedOrExported: true) == nil,
+            "an exported plan was saved over, losing its file name")
+        #expect(RestructurePlanSheet.keepsDraftOnClose(
+            plan: .failure(.nothingMapped), rows: edited, vocabulary: [],
+            seededRows: seeded, seededVocabulary: [], landedOrExported: false) == nil)
+    }
 }

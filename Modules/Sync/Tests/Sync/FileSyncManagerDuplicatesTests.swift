@@ -652,6 +652,65 @@ import Combine
         #expect(manager.duplicateGroups.isEmpty)
     }
 
+    /// **Keep separate could not be taken back.** It now registers one ⌘Z step and says so in an
+    /// undoable banner — undo puts the card back and forgets the key, redo hides it again.
+    @MainActor
+    @Test func keepSeparateCanBeUndoneAndRedone() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
+        try write(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
+
+        let manager = FileSyncManager()
+        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
+        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        manager.undoManager = undo
+
+        await manager.findDuplicates(root: root)
+        let group = try #require(manager.duplicateGroups.first)
+
+        undo.beginUndoGrouping()
+        manager.keepDuplicateGroupSeparate(group)
+        undo.endUndoGrouping()
+        #expect(manager.duplicateGroups.isEmpty)
+        #expect(manager.banner?.isUndoable == true, "the banner offered no Undo")
+        #expect(undo.undoActionName == "Keep Separate")
+
+        undo.undo()
+        #expect(manager.duplicateGroups.map(\.id) == [group.id], "undo did not put the card back")
+        #expect(manager.ignoredDuplicateKeys.isEmpty, "undo left the group hidden from future scans")
+
+        undo.redo()
+        #expect(manager.duplicateGroups.isEmpty)
+        #expect(manager.ignoredDuplicateKeys == [group.ignoreKey])
+    }
+
+    /// Show Them Again: groups kept in an earlier session come back with the next scan.
+    @MainActor
+    @Test func forgettingKeptSeparateGroupsFlagsThemAgain() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
+        try write(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
+
+        let manager = FileSyncManager()
+        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
+        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+
+        await manager.findDuplicates(root: root)
+        manager.keepDuplicateGroupSeparate(try #require(manager.duplicateGroups.first))
+        await manager.findDuplicates(root: root)
+        #expect(manager.duplicateGroups.isEmpty, "premise: the group stays hidden across a rescan")
+
+        #expect(manager.forgetKeptSeparateGroups() == 1)
+        await manager.findDuplicates(root: root)
+        #expect(manager.duplicateGroups.count == 1)
+    }
+
     // MARK: Cancellable scan
 
     @MainActor

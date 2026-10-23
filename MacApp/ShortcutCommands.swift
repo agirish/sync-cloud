@@ -1949,13 +1949,9 @@ extension ContentView {
         let manifestId = record.manifest.manifestId
         let manager = syncManager
         return {
+            // The card's own path — the same question, and the same banner on every outcome.
             Task { @MainActor in
-                let outcome = await manager.undoReorganisation(manifestId: manifestId)
-                if let refusal = outcome.refusal {
-                    manager.banner = .warning(refusal)
-                } else if let failure = outcome.surveyRefreshFailure {
-                    manager.banner = .warning(failure)
-                }
+                await ReorganisationUndo.run(manifestId: manifestId, on: manager)
             }
         }
     }
@@ -2885,7 +2881,7 @@ struct OrganizeVerbCommands: View {
         Divider()
         // Worded as its own sentence and kept out of Edit, so it can never sit beside ⌘Z's Undo
         // and be mistaken for it (ROADMAP v5 §11). Selection-free: the newest ledger landing.
-        Button("Undo This Reorganisation") { verbs?.undoReorganisation?() }
+        Button("Undo This Reorganisation…") { verbs?.undoReorganisation?() }
             .disabled(verbs?.undoReorganisation == nil)
     }
 }

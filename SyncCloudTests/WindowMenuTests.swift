@@ -204,7 +204,7 @@ import AppKit
         #expect(organize.suffix(7) == ["Organize This Folder…", "Find Duplicates of This",
                                        "Fix Name…", "Always Allow This Name",
                                        "Plan This Folder’s Shape…", "Set Up Like Its Siblings",
-                                       "Undo This Reorganisation"],
+                                       "Undo This Reorganisation…"],
                 "the Organize menu ends with \(organize.suffix(7))")
     }
 
@@ -212,7 +212,7 @@ import AppKit
     /// where that mistake would live, so Edit is asserted clean of it.
     @Test func editNeverCarriesTheReorganisationUndo() throws {
         let edit = Self.titles(try Self.menu("Edit"))
-        #expect(!edit.contains("Undo This Reorganisation"),
+        #expect(!edit.contains("Undo This Reorganisation…"),
                 "the ledger undo sat down beside ⌘Z — exactly the confusion §11 forbids")
     }
 
