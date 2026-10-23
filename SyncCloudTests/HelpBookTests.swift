@@ -348,7 +348,9 @@ import Testing
         for stale in ["a rail lists", "The rail shows", "**＋** makes a new file", "**×** puts the open one away"] {
             #expect(!section.contains(stale), "README's Edit section still says “\(stale)”")
         }
-        #expect(section.contains("when the PDF has two or more bookmarks"))
+        // The README's rewrite (ac436d5eb) dropped the old sentence; its PDF line names the outline.
+        #expect(section.contains("page thumbnails, the outline"),
+                "README's Edit section no longer says a PDF shows its outline")
 
         let rows = ShortcutsReference.groups.flatMap(\.items).filter { $0.keys.contains("⌘ O") }
         #expect(rows.map(\.action) == ["New or selected file, in Edit"])
