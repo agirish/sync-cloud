@@ -8915,3 +8915,23 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s logClaim=%s\n' $l \
 |---|---|---|
 | `v5.x` | The same landing (`logClaim=1`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure (`logClaim=0`) | CLOSED — does not apply |
+
+---
+
+## The last check before removal refuses a copy holding another group's keeper (FR10, again) — main only
+
+The scan protects a folder holding another group's keeper, but only against the keepers it chose.
+Picking a different keeper by hand let another group's removal hold it, and one Apply recommended
+could again remove every copy. `main`'s removal gate refuses any copy that is, or holds, a listed
+group's current keeper.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s setKeeper=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'public func setKeeper')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   setKeeper=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The keeper pick, without even the scan-time protection | RECORDED — not owed |

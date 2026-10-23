@@ -839,6 +839,9 @@ extension FileSyncManager {
         var askedByKey: [String: Set<String>] = [:]
         for p in paths { askedByKey[Self.canonicalRemovalPath(p), default: []].insert(p) }
         var attributed = Set<String>()
+        // Every listed group's keeper as it stands NOW — after any keeper the user picked by hand,
+        // which the scan's own protection (decided once, at scan time) cannot see.
+        let liveKeepers = Set((duplicateGroups + groups).map { Self.canonicalRemovalPath($0.keeper.path) })
         for group in groups {
             let groupKeys = Set(group.recommendedRemovalPaths.map(Self.canonicalRemovalPath))
             let groupPaths = Set(groupKeys.flatMap { askedByKey[$0] ?? [] })
@@ -855,6 +858,18 @@ extension FileSyncManager {
             } else if let drifted = await driftedFolderInGroup(group) {
                 kind = (drifted.isDirectory && drifted.contentSnapshot == nil) ? .missingBaseline : .drifted
                 culprit = drifted
+            } else if let holder = group.redundantCopies.first(where: { copy in
+                let key = Self.canonicalRemovalPath(copy.path)
+                return groupKeys.contains(key)
+                    && liveKeepers.contains { $0 == key || $0.isInsideDirectory(anyOf: [key]) }
+            }) {
+                // **A copy that holds — or is — another group's keeper is never removed** (FR10).
+                // The scan protects such folders, but only against the keepers it chose; pick a
+                // different keeper in one group and another group's removal can hold it, and one
+                // Apply recommended sent every copy to the Trash. A rescan recomputes the protection.
+                Logger.shared.warning("Duplicates: refused to remove “\(holder.name)” (\(holder.path)) — it holds the copy another group keeps; rescan to recompute which copies are safe to remove")
+                kind = .drifted
+                culprit = holder
             }
             guard let kind, let culprit else { continue }
             refusedPaths.formUnion(groupPaths)

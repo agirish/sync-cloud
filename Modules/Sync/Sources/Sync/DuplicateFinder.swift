@@ -819,6 +819,16 @@ public enum DuplicateFinder {
             }
 
         var groups: [DuplicateGroup] = []
+        // Every folder that holds a keeper chosen so far — so "does this member hold one?" is one
+        // lookup, not a walk over every keeper per member.
+        var keeperAncestors = Set<String>()
+        func recordAncestors(of path: String) {
+            var current = (path as NSString).deletingLastPathComponent
+            while !current.isEmpty, current != "/", keeperAncestors.insert(current).inserted {
+                current = (current as NSString).deletingLastPathComponent
+            }
+        }
+        keeperRoots.forEach(recordAncestors)
         for var members in candidates {
             members = members.filter { !isCovered($0.path, by: coveredRoots) }
             guard members.count >= 2 else { continue }
@@ -831,7 +841,7 @@ public enum DuplicateFinder {
             // still be this group's keeper, and is marked protected so a keeper re-pick cannot put
             // it on the removal list; with nothing removable left there is no group.
             let protectedPaths = Set(members.filter { m in
-                isCovered(m.path, by: keeperRoots) || keeperRoots.contains { $0.isInsideDirectory(anyOf: [m.path]) }
+                isCovered(m.path, by: keeperRoots) || keeperAncestors.contains(m.path)
             }.map(\.path))
             let ordered: [NodeInfo]
             if protectedPaths.isEmpty {
@@ -863,6 +873,7 @@ public enum DuplicateFinder {
             // folder pairs from the passes below, which is a wider change than this invariant
             // needs. The file passes consult it to keep their hands off the kept folder.
             keeperRoots.insert(keeper.path)
+            recordAncestors(of: keeper.path)
         }
         return groups
     }
