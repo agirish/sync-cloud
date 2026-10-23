@@ -129,8 +129,7 @@ word: the text files in the folder and the folders inside it list their matching
 PowerPoint files that Spotlight says contain the word. Open one and it opens at the match, with Find holding the word, so
 ⌘G goes on to the next. Files not downloaded from iCloud are skipped and never downloaded.
 
-### 📄 PDFs in Edit — new in 6.0, in development
-Not in the v5.5 release; this is what `main` does today, and it may change before 6.0 is cut.
+### 📄 PDFs in Edit — new in 6.0
 - **A PDF opens in Edit** through the same doors as a text file — ⌘O, Open in Edit, the preview's
   Edit button, a click in Edit's pane. The file list shows **Pages** (a grid or a list of thumbnails)
   and, when the PDF has two or more bookmarks, an **Outline** of them; the page number and zoom float over the pages in a

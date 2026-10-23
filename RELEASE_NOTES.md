@@ -5,10 +5,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v6.0 — DRAFT, not released
-
-> What is on `main` since v5.5. It may still change before v6.0 is cut, and nothing here is
-> installable from a release yet.
+## v6.0
 
 **Edit opens PDFs, and changes them as new copies.** A PDF opens in Edit through the same doors a
 text file uses. Its pages and bookmarks are in the side column, its page number and zoom float over
