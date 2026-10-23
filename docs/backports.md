@@ -8467,3 +8467,29 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s delay=%s helpClear=%s bannerC
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | 1.5 s tooltip delay; the Help clear ✕ and banner ✕ with no tooltip. The other surfaces differ per line and were not checked one by one | RECORDED — not owed |
+
+---
+
+## The survey card's Resume now and Start over do what they say — main only
+
+On the document survey's card, *Resume now* during an automatic pause (another scan, a file copy,
+heat, Low Power Mode) cleared only the person's own Pause, so the survey stayed paused until the
+cause cleared by itself; *Start over* on the interrupted card ran the start path, which adopts the
+saved progress, so it resumed. `main` reads through every cause in force at the click until it
+clears (`DocumentSurveyOverride`), and asks before *Start over*, then discards the progress
+(`runDocumentSurvey(plan:startingOver:)`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s survey=%s startOverRunsOnStart=%s override=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/DocumentSurveyRun.swift 2>/dev/null | grep -c 'actor DocumentSurveyRun')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DocumentSurveyCard.swift 2>/dev/null | grep -c 'title: "Start over", run: onStart')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/DocumentSurveyYield.swift 2>/dev/null | grep -c 'struct DocumentSurveyOverride')"; done
+# measured 2026-10-22, against origin, before this landed:
+# main, v5.x         survey=1 startOverRunsOnStart=1 override=0
+# v4.x, v3.x, v2.x   survey=0 startOverRunsOnStart=0 override=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Both dead buttons, the same code (`startOverRunsOnStart=1`, `override=0`) | RECORDED — owed |
+| `v4.x` / `v3.x` / `v2.x` | No document survey (`survey=0`) | CLOSED — does not apply |

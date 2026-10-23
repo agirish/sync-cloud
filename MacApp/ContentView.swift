@@ -5212,6 +5212,7 @@ struct ContentView: View {
                 onBuildStorage: buildStorageLensAction,
                 documentSurveyCard: documentSurveyCardState,
                 onStartDocumentSurvey: startDocumentSurveyAction,
+                onStartDocumentSurveyOver: startDocumentSurveyOverAction,
                 onResumeDocumentSurvey: resumeDocumentSurveyAction,
                 onPauseDocumentSurvey: pauseDocumentSurveyAction,
                 onStopDocumentSurvey: stopDocumentSurveyAction,

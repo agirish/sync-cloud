@@ -492,6 +492,7 @@ public struct LensWorkspaceView: View {
     /// host that cannot run a survey — the CLI-driven and preview hosts pass nothing — must get a
     /// card that states the position rather than a button that does nothing.
     private let onStartDocumentSurvey: (() -> Void)?
+    private let onStartDocumentSurveyOver: (() -> Void)?
     private let onResumeDocumentSurvey: (() -> Void)?
     private let onPauseDocumentSurvey: (() -> Void)?
     private let onStopDocumentSurvey: (() -> Void)?
@@ -573,6 +574,7 @@ public struct LensWorkspaceView: View {
         onBuildStorage: @escaping () -> Void = {},
         documentSurveyCard: DocumentSurveyCardState? = nil,
         onStartDocumentSurvey: (() -> Void)? = nil,
+        onStartDocumentSurveyOver: (() -> Void)? = nil,
         onResumeDocumentSurvey: (() -> Void)? = nil,
         onPauseDocumentSurvey: (() -> Void)? = nil,
         onStopDocumentSurvey: (() -> Void)? = nil,
@@ -632,6 +634,7 @@ public struct LensWorkspaceView: View {
         self.onBuildStorage = onBuildStorage
         self.documentSurveyCard = documentSurveyCard
         self.onStartDocumentSurvey = onStartDocumentSurvey
+        self.onStartDocumentSurveyOver = onStartDocumentSurveyOver
         self.onResumeDocumentSurvey = onResumeDocumentSurvey
         self.onPauseDocumentSurvey = onPauseDocumentSurvey
         self.onStopDocumentSurvey = onStopDocumentSurvey
@@ -4139,6 +4142,7 @@ public struct LensWorkspaceView: View {
             isBuildingStorage: syncManager.isBuildingStorageLens,
             documentSurvey: documentSurveyCard,
             onStartDocumentSurvey: onStartDocumentSurvey,
+            onStartDocumentSurveyOver: onStartDocumentSurveyOver,
             onResumeDocumentSurvey: onResumeDocumentSurvey,
             onPauseDocumentSurvey: onPauseDocumentSurvey,
             onStopDocumentSurvey: onStopDocumentSurvey,

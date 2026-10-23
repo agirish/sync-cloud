@@ -104,18 +104,73 @@ public enum DocumentSurveyYield {
     /// The user's own Pause is not in this list: it outranks all of them and is held inside the
     /// run, because a card explaining away a button they just pressed is the app talking over them.
     public static func pause(for conditions: DocumentSurveyConditions) -> DocumentSurveyPause? {
-        if conditions.isVerifying { return .yielding(to: "a verification") }
+        reasons(for: conditions).first?.pause
+    }
+
+    /// What a pause is *for*, apart from how the card words it — the thing *Resume now* sets aside.
+    ///
+    /// **Its own value because the sentence moves while the cause does not.** "Paused while a file
+    /// operation runs" becomes "… 2 file operations …" when a second copy starts; a waiver keyed
+    /// on the sentence would see a new reason there and pause again under the person who had just
+    /// said to carry on.
+    public enum Cause: Hashable, Sendable {
+        case verification
+        case fileOperations
+        /// A scan, by its rail name.
+        case scan(String)
+        case displayAsleep
+        /// Either band: serious and critical are one cause, so a waiver holds as the Mac warms.
+        case heat
+        case lowPower
+    }
+
+    /// **Every** reason in force, in ``pause(for:)``'s order — that function is this list's head.
+    ///
+    /// The card shows one sentence, but *Resume now* has to know them all: waiving only the head
+    /// would leave the next reason down standing behind it, and a cause that arrives while a
+    /// higher one is waived would be hidden by it rather than pausing the run.
+    public static func reasons(for conditions: DocumentSurveyConditions)
+    -> [(cause: Cause, pause: DocumentSurveyPause)] {
+        var out: [(cause: Cause, pause: DocumentSurveyPause)] = []
+        if conditions.isVerifying { out.append((.verification, .yielding(to: "a verification"))) }
         if conditions.activeFileOperations > 0 {
             let n = conditions.activeFileOperations
-            return .yielding(to: n == 1 ? "a file operation" : "\(n) file operations")
+            out.append((.fileOperations, .yielding(to: n == 1 ? "a file operation" : "\(n) file operations")))
         }
-        // First rather than joined: two scans do not run at once in practice — they share the PDF
+        // The card names the first: two scans do not run at once in practice — they share the PDF
         // lane and each guards its own re-entrancy — and "paused while Duplicates and Storage run"
-        // would be a sentence describing a state the app cannot reach.
-        if let scan = conditions.runningScans.first { return .yielding(to: scan) }
-        if conditions.displayAsleep { return .displayAsleep }
-        if conditions.heat != .nominal { return .thermal }
-        if conditions.lowPowerMode { return .lowPower }
-        return nil
+        // would be a sentence describing a state the app cannot reach. Each is still its own cause.
+        for scan in conditions.runningScans { out.append((.scan(scan), .yielding(to: scan))) }
+        if conditions.displayAsleep { out.append((.displayAsleep, .displayAsleep)) }
+        if conditions.heat != .nominal { out.append((.heat, .thermal)) }
+        if conditions.lowPowerMode { out.append((.lowPower, .lowPower)) }
+        return out
+    }
+}
+
+/// *Resume now*: the causes the person has told the survey to read through.
+///
+/// **A pause that clears on its own still had to be waited out**, because Resume only cleared the
+/// user's own Pause and the next poll asked the machine again — so the button beside "Resumes on
+/// its own" did nothing at all. This is what it does instead: every cause in force at the click is
+/// set aside **until it clears**, and a cause that was not in force then pauses the run as before.
+/// A waived cause that clears and comes back is a new one — Duplicates run again tomorrow is not
+/// the run somebody said to read through today.
+public struct DocumentSurveyOverride: Sendable, Equatable {
+    public private(set) var waived: Set<DocumentSurveyYield.Cause> = []
+
+    public init() {}
+
+    /// Sets aside every cause in force now. A no-op when none is.
+    public mutating func waive(_ conditions: DocumentSurveyConditions) {
+        waived.formUnion(DocumentSurveyYield.reasons(for: conditions).map(\.cause))
+    }
+
+    /// The pause to honour now: the first reason in force that was not waived. A waived cause no
+    /// longer in force is forgotten here, which is what makes its return pause again.
+    public mutating func pause(for conditions: DocumentSurveyConditions) -> DocumentSurveyPause? {
+        let inForce = DocumentSurveyYield.reasons(for: conditions)
+        waived.formIntersection(inForce.map(\.cause))
+        return inForce.first { !waived.contains($0.cause) }?.pause
     }
 }

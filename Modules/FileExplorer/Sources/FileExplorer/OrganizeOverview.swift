@@ -540,6 +540,8 @@ struct OrganizeOverview: View {
     /// so offering three hours beside it would be offering the worse of two answers.
     var documentSurvey: DocumentSurveyCardState?
     var onStartDocumentSurvey: (() -> Void)?
+    /// The interrupted card's *Start over* — discards the progress on disk, then starts.
+    var onStartDocumentSurveyOver: (() -> Void)?
     var onResumeDocumentSurvey: (() -> Void)?
     var onPauseDocumentSurvey: (() -> Void)?
     var onStopDocumentSurvey: (() -> Void)?
@@ -679,6 +681,7 @@ struct OrganizeOverview: View {
                 if let documentSurvey {
                     DocumentSurveyCard(state: documentSurvey, accent: accent,
                                        onStart: onStartDocumentSurvey,
+                                       onStartOver: onStartDocumentSurveyOver,
                                        onResume: onResumeDocumentSurvey,
                                        onPause: onPauseDocumentSurvey,
                                        onStop: onStopDocumentSurvey,

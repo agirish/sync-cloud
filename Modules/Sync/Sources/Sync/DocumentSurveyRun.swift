@@ -242,9 +242,14 @@ public actor DocumentSurveyRun {
         userPaused = true
     }
 
+    /// Undoes ``pause()``. **Only that**: a reason the machine supplied is the environment's to
+    /// clear, or *Resume now*'s to waive (``DocumentSurveyOverride``).
     public func resume() {
         userPaused = false
     }
+
+    /// Whether the person's own Pause is holding the run — the pause a plain Resume undoes.
+    public var isPausedByUser: Bool { userPaused }
 
     /// Ends the run at the next document boundary, keeping the checkpoint.
     ///

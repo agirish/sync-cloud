@@ -694,6 +694,11 @@ public class FileSyncManager: ObservableObject {
     /// state — `documentSurveyProgress` is what a view watches.
     var documentSurveyRun: DocumentSurveyRun?
 
+    /// The causes *Resume now* told the running survey to read through — see
+    /// ``DocumentSurveyOverride``. Here rather than in the run because the conditions it is
+    /// decided from are this actor's; cleared at the start of every run.
+    var documentSurveyOverride = DocumentSurveyOverride()
+
     /// What the Mac is doing that a background survey should stand aside for — display asleep,
     /// thermal state, Low Power Mode.
     ///

@@ -268,4 +268,57 @@ import Testing
             #expect(!DocumentSurveyCardText.detail(for: state).isEmpty)
         }
     }
+
+    // MARK: - The verbs do what they say
+
+    /// **Start over asks, and a yes starts over — never the start that resumes.** It ran
+    /// `onStart`, which adopts the progress on disk, so it carried on exactly as Resume did. It now
+    /// runs `onStartOver`, and only after the question; a no runs nothing.
+    @MainActor @Test func startOverAsksThenRunsTheVerbThatDiscards() throws {
+        final class Calls { var log: [String] = [] }
+        for answer in [true, false] {
+            let calls = Calls()
+            var asked: (Int, Int)?
+            var card = DocumentSurveyCard(state: .interrupted(done: 4_687, total: 11_019),
+                                          accent: .blue,
+                                          onStart: { calls.log.append("start") },
+                                          onStartOver: { calls.log.append("start over") },
+                                          onResume: { calls.log.append("resume") })
+            card.confirmStartOver = { asked = ($0, $1); return answer }
+            let verb = try #require(card.verbs.first { $0.title == "Start over" })
+
+            verb.run()
+
+            #expect(asked.map { [$0.0, $0.1] } == [4_687, 11_019], "Start over did not ask first")
+            #expect(calls.log == (answer ? ["start over"] : []),
+                    "answered \(answer ? "Start Over" : "Cancel"), it ran \(calls.log)")
+        }
+    }
+
+    /// Its question: what the click costs, in counts, with the answer that throws the reading
+    /// away off Return and Cancel on Esc — the leave questions' shape (decision BS).
+    @MainActor @Test func theStartOverQuestionSaysWhatItCostsAndKeepsReturnOffIt() {
+        let alert = DocumentSurveyCard.startOverAlert(done: 4_687, total: 11_019)
+        #expect(alert.informativeText.contains("4,687 documents"))
+        #expect(alert.informativeText.contains("11,019"))
+        #expect(alert.buttons.map(\.title) == ["Start Over", "Cancel"])
+        #expect(alert.buttons[0].keyEquivalent.isEmpty, "Return starts over")
+        #expect(alert.buttons[0].hasDestructiveAction)
+        #expect(alert.buttons[1].keyEquivalent == "\u{1b}", "Esc doesn’t cancel")
+    }
+
+    /// Both verbs say what they do, now that they do it.
+    @MainActor @Test func resumeNowAndStartOverHaveTooltips() throws {
+        let paused = DocumentSurveyCard(
+            state: .running(done: 10, total: 100, folder: nil, secondsRemaining: nil,
+                            pause: .init(sentence: "Paused — the Mac is running hot.",
+                                         resumesOnItsOwn: true)),
+            accent: .blue, onResume: {}, onStop: {})
+        let resumeNow = try #require(paused.verbs.first { $0.title == "Resume now" })
+        #expect(resumeNow.help?.isEmpty == false)
+        let interrupted = DocumentSurveyCard(state: .interrupted(done: 1, total: 2), accent: .blue,
+                                             onStartOver: {}, onResume: {})
+        let startOver = try #require(interrupted.verbs.first { $0.title == "Start over" })
+        #expect(startOver.help?.isEmpty == false)
+    }
 }

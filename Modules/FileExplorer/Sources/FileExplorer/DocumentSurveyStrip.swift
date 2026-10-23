@@ -93,6 +93,10 @@ public struct DocumentSurveyStrip: View {
         case .running(_, _, _, _, let pause):
             if pause == nil, let onPause {
                 strip("Pause", action: onPause)
+            } else if let pause, pause.resumesOnItsOwn, let onResume {
+                // The card's word for the same click: it reads through a pause that would
+                // otherwise clear by itself, rather than undoing a Pause.
+                strip("Resume now", help: DocumentSurveyCard.resumeNowHelp, action: onResume)
             } else if let onResume {
                 strip("Resume", action: onResume)
             }

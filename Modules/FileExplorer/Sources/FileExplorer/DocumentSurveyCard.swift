@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Design
 
@@ -219,6 +220,9 @@ struct DocumentSurveyCard: View {
     /// states the position rather than a button that does nothing, the same rule
     /// `onBuildStorage` and `onUpdateFolderMemory` follow.
     var onStart: (() -> Void)?
+    /// The interrupted card's *Start over*: discards the progress on disk, then starts. **Not
+    /// `onStart`**, which adopts that progress — so *Start over* used to resume. nil hides the verb.
+    var onStartOver: (() -> Void)?
     var onResume: (() -> Void)?
     var onPause: (() -> Void)?
     var onStop: (() -> Void)?
@@ -228,6 +232,31 @@ struct DocumentSurveyCard: View {
     /// Runs the incremental re-survey — the existing *Refresh what’s learned* pass. nil hides the
     /// verb, the same rule the other four follow.
     var onUpdate: (() -> Void)?
+    /// Asks before *Start over* throws the reading away — the alert in the app, a canned answer in
+    /// a test. Its arguments are the card's `done` and `total`.
+    var confirmStartOver: @MainActor (_ done: Int, _ total: Int) -> Bool = { done, total in
+        DocumentSurveyCard.startOverAlert(done: done, total: total).runModal() == .alertFirstButtonReturn
+    }
+
+    /// **Asked, because the click costs hours.** What was read is forgotten and reading begins at
+    /// the first document, beside a Resume that would have kept it.
+    ///
+    /// The leave questions' shape (decision BS): the answer that throws work away first, marked
+    /// destructive and off Return, then Cancel, which keeps the Esc AppKit gives a button of that
+    /// name — so no keypress starts over.
+    static func startOverAlert(done: Int, total: Int) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Start over and read every document again?"
+        let read = done == 1 ? "1 document" : "\(done.formatted()) documents"
+        alert.informativeText = "The \(read) read so far will be read again, from the first of "
+            + "\(total.formatted()). Resume carries on from where it stopped instead."
+        alert.addButton(withTitle: "Start Over")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].keyEquivalent = ""
+        alert.buttons[0].hasDestructiveAction = true
+        return alert
+    }
 
     var body: some View {
         OverviewCard(
@@ -283,6 +312,9 @@ struct DocumentSurveyCard: View {
         .designAnimation(.easeOut(duration: 0.2), value: fraction)
     }
 
+    /// *Resume now*'s tooltip, shared with the strip so the two say the same thing.
+    static let resumeNowHelp = "Read now instead of waiting — it still pauses for anything new"
+
     /// The card's verbs, as ``OverviewCardAction`` values rather than buttons.
     ///
     /// **The ranks are what changed, and they are the whole point of stating them as data.** This
@@ -321,20 +353,26 @@ struct DocumentSurveyCard: View {
             } else if pause == nil, let onPause {
                 actions.append(OverviewCardAction(title: "Pause", rank: .primary, run: onPause))
             } else if pause != nil, let onResume {
-                actions.append(OverviewCardAction(title: "Resume now", run: onResume))
+                actions.append(OverviewCardAction(title: "Resume now", help: Self.resumeNowHelp,
+                                                  run: onResume))
             }
             return actions
-        case .interrupted:
+        case .interrupted(let done, let total):
             var actions: [OverviewCardAction] = []
             if let onResume {
                 actions.append(OverviewCardAction(title: "Resume", rank: .primary,
                                                   help: "Carry on reading — only the documents not yet read",
                                                   run: onResume))
             }
-            if let onStart {
+            if let onStartOver {
                 // "Start over" rather than "Start": the distinction matters here, where a
-                // partly-finished survey is on disk and the alternative throws it away.
-                actions.append(OverviewCardAction(title: "Start over", run: onStart))
+                // partly-finished survey is on disk and the alternative throws it away — so it
+                // asks first, and only a yes reaches the verb that discards it.
+                let confirm = confirmStartOver
+                actions.append(OverviewCardAction(
+                    title: "Start over",
+                    help: "Forget what’s been read and read every document again, from the first",
+                    run: { if confirm(done, total) { onStartOver() } }))
             }
             return actions
         case .finished, .finishing:

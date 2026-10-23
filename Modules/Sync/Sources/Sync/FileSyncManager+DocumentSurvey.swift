@@ -102,6 +102,9 @@ extension FileSyncManager {
         /// what failed was the write. The checkpoint is kept, so trying again costs the write and
         /// not the three hours.
         case couldNotWrite
+        /// *Start over* could not remove the unfinished progress. **Nothing starts**, because a run
+        /// started beside it would adopt it — which is resuming, the thing not asked for.
+        case couldNotDiscardProgress
 
         public var sentence: String {
             switch self {
@@ -135,6 +138,9 @@ extension FileSyncManager {
             case .couldNotWrite:
                 return "Every document was read, but what was learned could not be saved. "
                     + "Nothing was lost — carrying on tries the write again without re-reading."
+            case .couldNotDiscardProgress:
+                return "The unfinished progress could not be cleared, so nothing was started over. "
+                    + "Move survey-progress.json aside to start again."
             }
         }
     }
@@ -338,13 +344,36 @@ extension FileSyncManager {
     /// exactly the moment the user is most likely to be watching it. All three are already pure of
     /// `FileManager`, `Date()` and defaults — deliberately so — which is what lets them run
     /// detached. Only the publication comes back.
+    ///
+    /// ## Starting over
+    ///
+    /// `startingOver` is the interrupted card's *Start over*: the progress on disk is discarded
+    /// **before** the run is built, so there is nothing for it to adopt and it reads every
+    /// document from the first. Without it the run adopts the checkpoint, which is *Resume* — and
+    /// that is what *Start over* did. If the progress cannot be removed nothing starts, since
+    /// starting would only resume it.
     @discardableResult
-    public func runDocumentSurvey(plan: DocumentSurveyPlan,
+    public func runDocumentSurvey(plan: DocumentSurveyPlan, startingOver: Bool = false,
                                   now: Date = Date()) async -> Result<DocumentSurveyReport, DocumentSurveyRefusal> {
         let root = plan.root
         guard !filingSurveyLifecycle.isRunning else { return .failure(.alreadyRunning) }
         guard let directory = filingProfilesDirectory else { return .failure(.noProfileDirectory) }
         guard let extractor = filingSnippetExtractor else { return .failure(.noExtractor) }
+
+        if startingOver {
+            let dropped = DocumentSurveyCheckpointStore.read(id: plan.profileId, in: directory)
+                .checkpoint?.progress
+            do {
+                try DocumentSurveyCheckpointStore.discard(id: plan.profileId, in: directory)
+            } catch {
+                Logger.shared.warning("Document survey: not started over — the unfinished progress "
+                                      + "could not be removed: \(error.localizedDescription)")
+                return .failure(.couldNotDiscardProgress)
+            }
+            Logger.shared.info("Document survey: starting over — "
+                               + (dropped.map { "discarded progress at \($0.done) of \($0.total)" }
+                                  ?? "there was no progress on disk"))
+        }
 
         // **Logged at every edge, because this runs for hours with nobody watching.**
         // `~/sync-cloud.log` is how this app is debugged, and a pass that wrote one line at the end
@@ -359,6 +388,8 @@ extension FileSyncManager {
         // summary over a run that had just been interrupted — the same staleness the root check
         // fixed, arriving through time rather than through scope.
         documentSurveyReport = nil
+        // A waiver is for the run it was given in; a new one starts honouring every pause.
+        documentSurveyOverride = DocumentSurveyOverride()
         let epoch = beginScan(\.filingSurveyLifecycle, status: "Reading your documents…")
         defer { endScan(\.filingSurveyLifecycle) }
 
@@ -474,8 +505,7 @@ extension FileSyncManager {
             readDocument: extractor,
             isAvailable: { FilingSurvey.isAvailable($0) },
             shouldPause: { [weak self] in
-                guard let conditions = await self?.documentSurveyConditions() else { return nil }
-                return DocumentSurveyYield.pause(for: conditions)
+                await self?.documentSurveyPause()
             },
             whilePaused: {
                 // Polled rather than pushed: a survey that resumes within a second of the condition
@@ -494,9 +524,31 @@ extension FileSyncManager {
         await documentSurveyRun?.pause()
     }
 
-    /// Resumes a survey the user paused.
+    /// Why the running survey should not read now, with *Resume now*'s waiver applied.
+    private func documentSurveyPause() -> DocumentSurveyPause? {
+        documentSurveyOverride.pause(for: documentSurveyConditions())
+    }
+
+    /// Resume, and *Resume now* — one verb, two pauses.
+    ///
+    /// **Paused by the person, it undoes their Pause and nothing more.** A reason the machine
+    /// supplied behind it was never on the card, so it is not waived on their behalf: the card
+    /// says what it is, with its own *Resume now*.
+    ///
+    /// **Paused for the machine, it reads through every cause in force now, until that cause
+    /// clears** (``DocumentSurveyOverride``). It used to clear only the person's own Pause, which
+    /// was not set, so the next poll asked the machine again and the button did nothing.
     public func resumeDocumentSurvey() async {
-        await documentSurveyRun?.resume()
+        guard let run = documentSurveyRun else { return }
+        if await run.isPausedByUser {
+            await run.resume()
+            return
+        }
+        let conditions = documentSurveyConditions()
+        guard let shown = DocumentSurveyYield.pause(for: conditions) else { return }
+        documentSurveyOverride.waive(conditions)
+        Logger.shared.info("Document survey: Resume now — reading through “\(shown.sentence)” "
+                           + "until it clears; anything new still pauses it.")
     }
 
     /// Stops the running survey at the next document boundary, keeping its progress.

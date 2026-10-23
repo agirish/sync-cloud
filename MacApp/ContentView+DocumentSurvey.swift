@@ -133,6 +133,17 @@ extension ContentView {
     }
 
     func startDocumentSurveyAction() {
+        startDocumentSurvey(startingOver: false)
+    }
+
+    /// The interrupted card's *Start over*, once the card has asked: the progress on disk is
+    /// discarded and every document is read again. Through the same walk as a first start, so the
+    /// plan, the count and the refusals are one path.
+    func startDocumentSurveyOverAction() {
+        startDocumentSurvey(startingOver: true)
+    }
+
+    private func startDocumentSurvey(startingOver: Bool) {
         // Asked even when the profile names no folder: the plan's refusal says why on the banner.
         guard let asked = documentSurveyAskedFrom ?? documentSurveyRoot else { return }
         Task { @MainActor in
@@ -149,7 +160,7 @@ extension ContentView {
                         "Nothing to read — no document here is in a format this app can open.")
                     return
                 }
-                switch await syncManager.runDocumentSurvey(plan: plan) {
+                switch await syncManager.runDocumentSurvey(plan: plan, startingOver: startingOver) {
                 case .failure(let refusal): syncManager.banner = .warning(refusal.sentence)
                 case .success(let report):
                     syncManager.banner = report.isComplete ? .success(report.summary)
@@ -159,10 +170,11 @@ extension ContentView {
         }
     }
 
-    /// Carries on an interrupted survey, or resumes one the user paused.
+    /// Carries on an interrupted survey, resumes one the user paused, or — *Resume now* — reads
+    /// through a pause the machine asked for.
     ///
-    /// The two are one verb on purpose: from the card's side "Resume" means the same thing either
-    /// way, and which machinery answers it is not the reader's problem.
+    /// One verb on purpose: from the card's side "Resume" means the same thing every way, and
+    /// which machinery answers it is not the reader's problem.
     func resumeDocumentSurveyAction() {
         if syncManager.documentSurveyProgress != nil {
             Task { await syncManager.resumeDocumentSurvey() }

@@ -82,4 +82,17 @@ import Testing
             #expect(source.contains(verb), "the strip is missing \(verb)")
         }
     }
+
+    /// **The card's Start over reaches the verb that discards**, through the workspace to the
+    /// overview — the card's own test cannot see this wiring, and `onStart` in its place resumes.
+    @Test func theCardsStartOverIsWiredToTheVerbThatDiscards() throws {
+        let workspace = try Self.lensWorkspaceSource()
+        #expect(workspace.contains("onStartDocumentSurveyOver: onStartDocumentSurveyOver"))
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/OrganizeOverview.swift")
+        let overview = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                    "cannot read OrganizeOverview.swift — this scan would be vacuous")
+        #expect(overview.contains("onStartOver: onStartDocumentSurveyOver"))
+    }
 }
