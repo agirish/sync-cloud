@@ -2767,6 +2767,20 @@ struct KeptNamesList: View {
 /// the Sources tab gives its providers. The rest of the page is split into sections with titles,
 /// so each thing on it is one thing.
 ///
+/// The question asked before a person leaves the roster — here and on setup's People screen.
+///
+/// **One wording for one act.** Setup's chip ✕ removed a person from the same `people.json` with no
+/// question at all, taking the full names and aliases curated here with them.
+public enum PersonRemoval {
+    public static func title(_ name: String) -> String { "Remove \(name)?" }
+
+    /// Says what removal does and — more usefully — what it does not. Nobody should have to guess
+    /// whether this touches their files.
+    public static let message = "Their folders and files are left exactly as they are. Organize will stop "
+        + "recognising documents that name them, so it will no longer keep those documents "
+        + "out of other people's folders."
+}
+
 /// `@ObservedObject` on the store, unlike the value this used to take: the roster is now written
 /// from this view, and a list that did not observe its own edits would need a relaunch to show them.
 struct PeopleList: View {
@@ -2907,7 +2921,7 @@ struct PeopleList: View {
                          },
                          onCancel: { editing = nil })
         }
-        .alert("Remove \(confirmingRemoval?.displayName ?? "")?",
+        .alert(PersonRemoval.title(confirmingRemoval?.displayName ?? ""),
                isPresented: Binding(get: { confirmingRemoval != nil },
                                     set: { if !$0 { confirmingRemoval = nil } })) {
             Button("Remove", role: .destructive) {
@@ -2916,11 +2930,7 @@ struct PeopleList: View {
             }
             Button("Cancel", role: .cancel) { confirmingRemoval = nil }
         } message: {
-            // Says what removal does and — more usefully — what it does not. Nobody should have to
-            // guess whether this touches their files.
-            Text("Their folders and files are left exactly as they are. Organize will stop "
-                 + "recognising documents that name them, so it will no longer keep those documents "
-                 + "out of other people's folders.")
+            Text(PersonRemoval.message)
         }
     }
 

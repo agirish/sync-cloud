@@ -209,6 +209,67 @@ import Testing
         #expect(model.walkRoot != nil, "the first screen never got a folder to offer")
     }
 
+    /// A reading that lands while Structure is already on screen draws the tree it read.
+    ///
+    /// **Continue never waits**, so on a large tree Structure can open while the reading still
+    /// runs. Arriving there was the only thing that rebuilt the preview, so the button turned into
+    /// "Save and start reading" over "Nothing has been learned yet."
+    @Test func aReadingThatLandsOnStructureDrawsItsTree() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-land-\(UUID().uuidString)")
+        let documents = root.appendingPathComponent("Documents")
+        for folder in ["Finance/US", "Family/Mother"] {
+            try FileManager.default.createDirectory(at: documents.appendingPathComponent(folder),
+                                                    withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
+
+        let model = await self.model(syncManager: engine)
+        model.walkRoot = documents
+        model.screen = .structure
+        model.startWalk()
+        for _ in 0..<500 where !model.walkState.isDone && model.walkFailureReason == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(model.walkState.isDone, "premise: the reading landed (\(model.walkFailureReason ?? "still running"))")
+        #expect(model.preview != nil, "Structure kept drawing “Nothing has been learned yet.”")
+        #expect(model.canWriteProfile)
+    }
+
+    // MARK: - People
+
+    /// The ✕ on a person who was already on the roster asks first; one added in this run does not.
+    ///
+    /// **On a re-run the chips are the real `people.json`.** One click on the 10pt ✕ deleted a
+    /// person along with the full names and aliases curated for them in Settings, where the same
+    /// removal asks first.
+    @Test func removingARosterPersonAsksFirst() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-remove-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = PeopleStore(directory: dir, profileId: "remove", profile: nil)
+        store.add(displayName: "Maya")
+        let model = SetupModel(settings: await settings(), peopleStore: store, syncManager: nil,
+                               hasFilingProfile: true, defaults: ScratchDefaults("setup-model-d"),
+                               walk: nil)
+        #expect(model.rosterNames == ["Maya"], "premise: the roster is what the chips show")
+
+        model.requestRemovePerson(named: "Maya")
+        #expect(model.personAwaitingRemoval == "Maya", "nothing asked")
+        #expect(store.people.map(\.displayName) == ["Maya"], "removed before the answer")
+
+        model.personAwaitingRemoval = nil
+        model.newPersonField = "Ravi"
+        model.commitTypedPerson()
+        model.requestRemovePerson(named: "Ravi")
+        #expect(model.personAwaitingRemoval == nil, "a name added a moment ago asked first")
+        #expect(store.people.map(\.displayName) == ["Maya"])
+    }
+
     // MARK: - Saving
 
     /// Two presses write one profile.

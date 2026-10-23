@@ -448,6 +448,10 @@ final class SetupModel: ObservableObject {
                 self.confirmedCountries = Set(walk.places.filter(JurisdictionCandidates.isConfident)
                     .map(\.value))
                 self.seedNameSuggestion()
+                // **Here as well as on arrival at Structure**, because Continue never waits: a
+                // reading that lands while Structure is on screen otherwise left its button saying
+                // "Save and start reading" over "Nothing has been learned yet." `adopt` does the same.
+                self.rebuildPreview()
             case .failure(let failure):
                 self.walkState = .failed(failure.description)
                 Logger.shared.warning("Setup walk failed: \(failure.description)")
@@ -600,10 +604,31 @@ final class SetupModel: ObservableObject {
         }) else { return }
         if let store = roster {
             store.add(displayName: name)
+            namesAddedThisRun.insert(name)
             objectWillChange.send()
         } else {
             draft.others.append(SetupDraft.DraftPerson(displayName: name))
             saveDraft()
+        }
+    }
+
+    /// The person a chip's ✕ is asking about, while the question is up.
+    @Published var personAwaitingRemoval: String?
+
+    /// Roster names this run added, which a ✕ may take back without asking.
+    private var namesAddedThisRun: Set<String> = []
+
+    /// What a chip's ✕ does.
+    ///
+    /// **A roster person is asked about first, as Settings asks.** On a re-run the chips are the
+    /// real `people.json`, and one click on a 10pt ✕ deleted a person along with the full names
+    /// and aliases curated for them in Settings, with no undo. A name added in this run, or one
+    /// still only in the draft, carries nothing yet and goes at once.
+    func requestRemovePerson(named name: String) {
+        if roster != nil, !namesAddedThisRun.contains(name) {
+            personAwaitingRemoval = name
+        } else {
+            removePerson(named: name)
         }
     }
 

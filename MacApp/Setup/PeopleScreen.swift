@@ -35,7 +35,7 @@ struct PeopleScreen: View {
                 }
                 FlowChips(items: model.rosterNames,
                           subtitle: { model.relationship(of: $0).map { "· \($0)" } },
-                          onRemove: { model.removePerson(named: $0) })
+                          onRemove: { model.requestRemovePerson(named: $0) })
                 HStack(spacing: 6) {
                     TextField("Add someone…", text: $model.newPersonField)
                         .textFieldStyle(.roundedBorder)
@@ -72,6 +72,18 @@ struct PeopleScreen: View {
             }
 
             Spacer(minLength: 0)
+        }
+        // Settings' question, word for word: it is the same person leaving the same roster.
+        .alert(PersonRemoval.title(model.personAwaitingRemoval ?? ""),
+               isPresented: Binding(get: { model.personAwaitingRemoval != nil },
+                                    set: { if !$0 { model.personAwaitingRemoval = nil } })) {
+            Button("Remove", role: .destructive) {
+                if let name = model.personAwaitingRemoval { model.removePerson(named: name) }
+                model.personAwaitingRemoval = nil
+            }
+            Button("Cancel", role: .cancel) { model.personAwaitingRemoval = nil }
+        } message: {
+            Text(PersonRemoval.message)
         }
     }
 

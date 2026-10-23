@@ -8569,3 +8569,33 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s preview=%s textRead=%s fetch=
 |---|---|---|
 | `v5.x` | The preview, Edit's text, Files tab, Markdown image and hand-off doors (`preview=1`, `textRead=1`, `fetch=1`); no PDF reader | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | The pane preview's door alone (`preview=1`, `textRead=0`) | RECORDED — not owed |
+
+---
+
+## Setup draws a reading that lands on Structure, and asks before removing a person — main only
+
+Two Setup defects from the v6.1 review (ST2, ST5). Continue never waits for the reading, and only
+arriving at Structure rebuilt its preview, so a reading that landed while Structure was on screen
+left "Save and start reading" over "Nothing has been learned yet." `main` rebuilds the preview when
+the reading lands. And on a re-run the People screen's ✕ deleted a roster person from
+`people.json` — with the full names and aliases curated in Settings — in one click, where Settings
+asks first; `main` asks Settings' own question (`PersonRemoval`), except for a name added in the
+same run.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s setupModel=%s rebuilds=%s rosterRemove=%s oldSheetRemove=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- MacApp/Setup/SetupModel.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:MacApp/Setup/SetupModel.swift 2>/dev/null | grep -c 'rebuildPreview()')" \
+  "$(git show origin/$l:MacApp/Setup/SetupModel.swift 2>/dev/null | grep -c 'store.remove(id: person.id)')" \
+  "$(git show origin/$l:MacApp/SetupSheet.swift 2>/dev/null | grep -c 'store.remove(id: person.id)')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x   setupModel=1 rebuilds=3 rosterRemove=1 oldSheetRemove=0
+# v4.x         setupModel=0 rebuilds=0 rosterRemove=0 oldSheetRemove=1
+# v3.x, v2.x   setupModel=0 rebuilds=0 rosterRemove=0 oldSheetRemove=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Both, the same code (`rebuilds=3`, `rosterRemove=1`) | RECORDED — not owed |
+| `v4.x` | The one-click removal, in the older sheet (`oldSheetRemove=1`); no walk to land | RECORDED — not owed |
+| `v3.x` / `v2.x` | No guided People screen with a roster | CLOSED — does not apply |
