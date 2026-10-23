@@ -13,7 +13,8 @@ extension FileSyncManager {
             isMove: false,
             destinationDescription: "between panes",
             destinationRoot: fromLeft ? rightRoot : leftRoot,
-            targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot),
+            targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot,
+                                          leftOpenAt: paneOpenAt(true), rightOpenAt: paneOpenAt(false)),
             direction: fromLeft ? "→ Right" : "← Left",
             fileManager: fm
         )
@@ -28,7 +29,8 @@ extension FileSyncManager {
             isMove: true,
             destinationDescription: "between panes",
             destinationRoot: fromLeft ? rightRoot : leftRoot,
-            targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot),
+            targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot,
+                                          leftOpenAt: paneOpenAt(true), rightOpenAt: paneOpenAt(false)),
             direction: fromLeft ? "→ Right" : "← Left",
             fileManager: fm
         )
@@ -164,22 +166,29 @@ extension FileSyncManager {
     /// settings mid-session) and prefix aliasing ("/data/foo" must not claim "/data/foobar/x").
     /// The old fallback kept the node's near-absolute path and grafted it under the destination
     /// root, which is how pane swaps produced misdirected `<newRoot>/Users/…/<oldRoot>/…` copies.
-    private nonisolated static func paneTargetURL(fromLeft: Bool, leftRoot: String, rightRoot: String) -> @Sendable (FileNode) throws -> URL {
+    ///
+    /// **Through `PathBoundary`, the way linked navigation goes** (FR37, FR38). The path is taken
+    /// relative to the source root link-aware — rows under iCloud's `Documents` carry the real
+    /// `~/Documents/…` path, which a bare prefix test called "outside the pane" for every item —
+    /// then moved from the source's landing folder to the destination's (`reanchor`), and joined
+    /// link-aware. Re-rooting by account root alone put Dropbox `Documents/Tax.pdf` at the Google
+    /// Drive account root, outside `My Drive`, while the pane on screen showed `My Drive/Documents`.
+    nonisolated static func paneTargetURL(fromLeft: Bool, leftRoot: String, rightRoot: String,
+                                          leftOpenAt: String = "", rightOpenAt: String = "",
+                                          links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
+        -> @Sendable (FileNode) throws -> URL {
         let fromRoot = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
+        let fromOpenAt = fromLeft ? leftOpenAt : rightOpenAt
+        let toOpenAt = fromLeft ? rightOpenAt : leftOpenAt
         return { node in
             guard !fromRoot.isEmpty else { throw FileOperationError.sourceRootUnavailable }
             guard !toRoot.isEmpty else { throw FileOperationError.destinationRootUnavailable }
-            let fromRootWithSlash = fromRoot.hasSuffix("/") ? fromRoot : fromRoot + "/"
-            let relativePath: String
-            if node.id == fromRoot {
-                relativePath = ""
-            } else if node.id.hasPrefix(fromRootWithSlash) {
-                relativePath = String(node.id.dropFirst(fromRootWithSlash.count))
-            } else {
+            guard let relativePath = PathBoundary.relativize(node.id, under: fromRoot, links: links) else {
                 throw FileOperationError.itemOutsideSourceRoot(itemName: node.name)
             }
-            return URL(fileURLWithPath: (toRoot as NSString).appendingPathComponent(relativePath))
+            let anchored = PathBoundary.reanchor(relativePath, from: fromOpenAt, to: toOpenAt)
+            return URL(fileURLWithPath: PathBoundary.join(root: toRoot, relative: anchored, links: links))
         }
     }
 

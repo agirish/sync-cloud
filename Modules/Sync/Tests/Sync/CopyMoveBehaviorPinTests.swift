@@ -33,6 +33,58 @@ import EventsTestSupport
         return manager
     }
 
+    // MARK: - Where a pane transfer lands (FR37, FR38)
+
+    /// Dropbox opens at `Documents`, Google Drive at `My Drive/Documents`. Re-rooting by account
+    /// root put Dropbox `Documents/Tax.pdf` at the Google Drive account root, outside My Drive;
+    /// it lands in the folder the other pane shows, both ways.
+    @Test func aPaneTransferLandsUnderTheOtherPanesLandingFolder() throws {
+        let target = FileSyncManager.paneTargetURL(fromLeft: true, leftRoot: "/r/Dropbox", rightRoot: "/r/GoogleDrive-x",
+                                                   leftOpenAt: "Documents", rightOpenAt: "My Drive/Documents", links: [:])
+        let tax = FileNode(id: "/r/Dropbox/Documents/Taxes/Tax.pdf", name: "Tax.pdf", isDirectory: false)
+        #expect(try target(tax).path == "/r/GoogleDrive-x/My Drive/Documents/Taxes/Tax.pdf")
+
+        let back = FileSyncManager.paneTargetURL(fromLeft: false, leftRoot: "/r/Dropbox", rightRoot: "/r/GoogleDrive-x",
+                                                 leftOpenAt: "Documents", rightOpenAt: "My Drive/Documents", links: [:])
+        let deck = FileNode(id: "/r/GoogleDrive-x/My Drive/Documents/Deck.key", name: "Deck.key", isDirectory: true)
+        #expect(try back(deck).path == "/r/Dropbox/Documents/Deck.key")
+        // Two panes rooted alike are unaffected.
+        let same = FileSyncManager.paneTargetURL(fromLeft: true, leftRoot: "/src", rightRoot: "/dst", links: [:])
+        #expect(try same(FileNode(id: "/src/a/b.txt", name: "b.txt", isDirectory: false)).path == "/dst/a/b.txt")
+    }
+
+    /// Rows under iCloud's `Documents` link carry the folder's real path. A bare prefix test said
+    /// every one was outside the pane; the link table takes it back through the link's name.
+    @Test func aRowUnderICloudsDocumentsLinkTransfers() throws {
+        let links: PathBoundary.LinkedFolders = ["/r/CloudDocs": ["Documents": "/r/home/Documents"]]
+        let target = FileSyncManager.paneTargetURL(fromLeft: true, leftRoot: "/r/CloudDocs", rightRoot: "/r/OneDrive",
+                                                   leftOpenAt: "Documents", rightOpenAt: "Documents", links: links)
+        let row = FileNode(id: "/r/home/Documents/Family/x.pdf", name: "x.pdf", isDirectory: false)
+        #expect(try target(row).path == "/r/OneDrive/Documents/Family/x.pdf")
+        // Something genuinely elsewhere is still refused.
+        #expect(throws: FileSyncManager.FileOperationError.itemOutsideSourceRoot(itemName: "y.pdf")) {
+            try target(FileNode(id: "/r/elsewhere/y.pdf", name: "y.pdf", isDirectory: false))
+        }
+    }
+
+    /// The call site: `copyItems(fromLeft:)` asks the panes where they land.
+    @MainActor
+    @Test func copyBetweenPanesUsesThePanesLandingFolders() async throws {
+        let manager = makeManager()
+        manager.paneOpenAt = { $0 ? "Documents" : "My Drive/Documents" }
+        let mockFM = MockFileManager()
+        for dir in ["/r", "/r/Dropbox", "/r/Dropbox/Documents", "/r/GD", "/r/GD/My Drive", "/r/GD/My Drive/Documents"] {
+            try mockFM.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
+        }
+        mockFM.virtualDisk["/r/Dropbox/Documents/Tax.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let node = FileNode(id: "/r/Dropbox/Documents/Tax.pdf", name: "Tax.pdf", isDirectory: false)
+
+        _ = await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/r/Dropbox", rightRoot: "/r/GD", fileManager: mockFM)
+
+        #expect(mockFM.virtualDisk["/r/GD/My Drive/Documents/Tax.pdf"] != nil)
+        #expect(mockFM.virtualDisk["/r/GD/Documents/Tax.pdf"] == nil, "landed at the account root, outside My Drive")
+    }
+
     // MARK: - Same-URL handling (source == derived target)
 
     /// Copying onto itself (both panes rooted at the same directory) keeps both: the copy lands

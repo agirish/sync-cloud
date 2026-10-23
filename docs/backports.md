@@ -8874,3 +8874,23 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s keepsClaim=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No catalog-parts note (`keepsClaim=0`) | CLOSED — does not apply |
+
+---
+
+## Copy/Move to the other pane lands where that pane opens (FR37, FR38) — main only
+
+The pane transfer re-rooted a path by account root with a bare prefix test, so Dropbox `Documents/…`
+landed at the Google Drive account root outside `My Drive`, and every row under iCloud's linked
+`Documents` was refused as outside the pane. `main` relativizes link-aware, re-anchors between the
+panes' landing folders, and joins link-aware, as linked navigation already does.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s prefixMath=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations.swift 2>/dev/null | grep -cF 'relativePath = String(node.id.dropFirst(fromRootWithSlash.count))')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   prefixMath=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same prefix math (`prefixMath=1`) | RECORDED — not owed |
