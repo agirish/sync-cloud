@@ -1324,7 +1324,7 @@ extension FileSyncManager {
     /// directory is what Undo re-points to, and it keeps its own set.
     nonisolated static func carryProfileArtifacts(from oldId: String, to newId: String,
                                                   in directory: URL, fm: FileManaging) {
-        for name in ["people.json", "person-tags.json", "restructure.json"] {
+        for name in FilingProfileStore.curatedArtifactNames {
             let source = directory.appendingPathComponent("\(oldId)/\(name)")
             let target = directory.appendingPathComponent("\(newId)/\(name)")
             guard fm.fileExists(atPath: source.path),

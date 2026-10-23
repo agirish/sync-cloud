@@ -554,6 +554,11 @@ extension FilingProfileStore {
         return url
     }
 
+    /// The files in a profile's folder that the USER made, as opposed to what a walk derives:
+    /// the household roster, the person verdicts, and everything Restructure remembers. They must
+    /// travel with the active profile, and a folder holding the only copy of one is never retired.
+    public static let curatedArtifactNames = ["people.json", "person-tags.json", "restructure.json"]
+
     /// **Retires derived profiles nothing can reach any more** — the directory and its index row.
     ///
     /// Every re-derivation writes a NEW profile directory and appends a row; `replacing:` above
@@ -626,6 +631,19 @@ extension FilingProfileStore {
             // actor, in the middle of a landing. `ProvenanceProbe` reads the same string and
             // decides by the same rule.
             guard provenance(id: id, in: directory) == .derived else { continue }
+            // **Never the only copy of what the user made.** A profile's folder holds more than the
+            // derivation: the roster, the person verdicts and Restructure's ledger. A re-point that
+            // did not carry them (FR4: a Setup re-walk did not) left the active folder without
+            // them, and this removal — permanent, not the Trash — then took the only copy.
+            let stranded = curatedArtifactNames.filter { name in
+                fileManager.fileExists(atPath: url.appendingPathComponent(name).path)
+                    && !fileManager.fileExists(atPath: directory.appendingPathComponent("\(active)/\(name)").path)
+            }
+            guard stranded.isEmpty else {
+                Logger.shared.warning("Filing profiles: kept \(id) — it holds "
+                    + stranded.joined(separator: ", ") + " and the active profile \(active) does not")
+                continue
+            }
             do {
                 try fileManager.removeItem(at: url)
                 retired.append(id)

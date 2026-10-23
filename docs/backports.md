@@ -8704,3 +8704,30 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s finderPkg=%s fromDisk=%s link
 |---|---|---|
 | `v5.x` | Both: the finder and the Restructure disk view (`fromDisk=1`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | The finder half; no Restructure (`fromDisk=0`) | RECORDED — not owed |
+
+---
+
+## A Setup re-walk keeps the roster, verdicts and ledger (FR4) — main only
+
+Re-running Setup's Learn and Save wrote a new walk profile and pointed the app at it, but nothing
+copied `people.json`, `person-tags.json` or `restructure.json` across, so the roster read back as
+the folder-name seed, the verdicts and the last landing's Undo vanished, and the next survey refresh
+removed the old folder for good. `main` carries them on every walk that re-points (and the Undo when
+the walk covered the same root), and `retireSupersededProfiles` keeps any folder holding a curated
+file the active one lacks.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s walkWrite=%s walkCarry=%s retire=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+FolderWalk.swift 2>/dev/null | grep -cF 'func writeWalkProfile')" \
+  "$(git show origin/$l:$S/FileSyncManager+FolderWalk.swift 2>/dev/null | grep -cF 'carryProfileArtifacts')" \
+  "$(git show origin/$l:$S/FilingProfileStore.swift 2>/dev/null | grep -cF 'func retireSupersededProfiles')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         walkWrite=1 walkCarry=0 retire=1
+# v4.x, v3.x, v2.x   walkWrite=0 walkCarry=0 retire=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same walk and retire, the same code (`walkCarry=0`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No walk profile, no retire (`walkWrite=0`) | CLOSED — does not apply |

@@ -242,4 +242,99 @@ import Testing
         #expect(FilingProfileStore.profile(id: first.profileId, in: profiles) != nil,
                 "the superseded profile was deleted — it is the only record of what was in use")
     }
+
+    // MARK: - What the user made follows the profile (FR4)
+
+    /// Writes the three files a user makes into a profile's folder, with recognisable bytes, and
+    /// a finished landing whose Undo the newest walk must keep offering.
+    @MainActor
+    private static func curate(_ id: String, in profiles: URL) throws {
+        let folder = profiles.appendingPathComponent(id)
+        try Data(#"{"people":[{"id":"mum"}]}"#.utf8).write(to: folder.appendingPathComponent("people.json"))
+        try Data(#"{"verdicts":["mum"]}"#.utf8).write(to: folder.appendingPathComponent("person-tags.json"))
+        let manifest = RestructureManifest(profileId: id, manifestId: "landing-1",
+                                           createdAt: "2026-10-23T10:00:00", family: "Tax",
+                                           kind: .shape, actions: [])
+        let store = RestructureStore(directory: profiles, profileId: id)
+        try #require(store.recordApplied(.init(manifest: manifest, inverse: manifest,
+                                                at: "2026-10-23T10:00:00", created: 0, skipped: 0,
+                                                appliedUnderProfileId: "before-\(id)",
+                                                producedProfileId: id, summary: "1 moved")))
+    }
+
+    /// Re-running Setup's Learn and Save writes a new walk profile and makes it active. The
+    /// roster, the verdicts and the ledger used to stay behind in the old folder, so the app read
+    /// an empty roster, the verdicts and the Undo vanished, and a later refresh deleted them.
+    @Test @MainActor func aSecondWalkCarriesWhatTheUserMade() async throws {
+        let root = try Self.scratch(), profiles = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
+        try Self.tree(in: root)
+        let manager = manager(profiles: profiles)
+        let first = try #require(try? (await manager.deriveFolderProfile(
+            root: root, now: Date(timeIntervalSince1970: 1_754_000_000))).get())
+        try Self.curate(first.profileId, in: profiles)
+
+        let second = try #require(try? (await manager.deriveFolderProfile(
+            root: root, now: Date(timeIntervalSince1970: 1_754_000_600))).get())
+
+        try #require(second.becameActive)
+        for name in FilingProfileStore.curatedArtifactNames {
+            let old = try Data(contentsOf: profiles.appendingPathComponent("\(first.profileId)/\(name)"))
+            let new = try? Data(contentsOf: profiles.appendingPathComponent("\(second.profileId)/\(name)"))
+            #expect(new != nil, "\(name) stayed behind in \(first.profileId)")
+            if name != "restructure.json" { #expect(new == old, "\(name) arrived changed") }
+        }
+        let ledger = RestructureStore(directory: profiles, profileId: second.profileId)
+        #expect(ledger.undoableReorganisation(currentProfileId: second.profileId)?.manifest.manifestId
+                == "landing-1", "the same folder walked again keeps the last landing's Undo")
+    }
+
+    /// A walk of a DIFFERENT folder still brings the roster and the verdicts, but not the Undo:
+    /// the ledger's inverse is relative to the root, and Undo would replay it under the new one.
+    @Test @MainActor func aWalkOfAnotherFolderDoesNotOfferTheOldUndo() async throws {
+        let root = try Self.scratch(), other = try Self.scratch(), profiles = try Self.scratch()
+        defer {
+            for url in [root, other, profiles] { try? FileManager.default.removeItem(at: url) }
+        }
+        try Self.tree(in: root)
+        try Self.tree(in: other)
+        let manager = manager(profiles: profiles)
+        let first = try #require(try? (await manager.deriveFolderProfile(
+            root: root, now: Date(timeIntervalSince1970: 1_754_000_000))).get())
+        try Self.curate(first.profileId, in: profiles)
+
+        let second = try #require(try? (await manager.deriveFolderProfile(
+            root: other, now: Date(timeIntervalSince1970: 1_754_000_600))).get())
+
+        #expect(FileManager.default.fileExists(
+            atPath: profiles.appendingPathComponent("\(second.profileId)/people.json").path))
+        let ledger = RestructureStore(directory: profiles, profileId: second.profileId)
+        #expect(ledger.undoableReorganisation(currentProfileId: second.profileId) == nil)
+    }
+
+    /// The backstop: whatever re-pointed the index, retiring never takes the only copy of a
+    /// curated file. With the copy gone from the active folder the old one is kept; once the
+    /// active folder holds its own, the old one goes as it always did.
+    @Test @MainActor func retiringNeverTakesTheOnlyCopyOfTheRoster() async throws {
+        let root = try Self.scratch(), profiles = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
+        try Self.tree(in: root)
+        let manager = manager(profiles: profiles)
+        let first = try #require(try? (await manager.deriveFolderProfile(
+            root: root, now: Date(timeIntervalSince1970: 1_754_000_000))).get())
+        try Data("roster".utf8).write(to: profiles.appendingPathComponent("\(first.profileId)/people.json"))
+        let second = try #require(try? (await manager.deriveFolderProfile(
+            root: root, now: Date(timeIntervalSince1970: 1_754_000_600))).get())
+        // The state a carry that did not happen leaves behind.
+        let carried = profiles.appendingPathComponent("\(second.profileId)/people.json")
+        try? FileManager.default.removeItem(at: carried)
+
+        let kept = try FilingProfileStore.retireSupersededProfiles(protecting: [], in: profiles)
+        #expect(kept.isEmpty)
+        #expect(FilingProfileStore.profile(id: first.profileId, in: profiles) != nil)
+
+        try Data("roster".utf8).write(to: carried)
+        let retired = try FilingProfileStore.retireSupersededProfiles(protecting: [], in: profiles)
+        #expect(retired == [first.profileId])
+    }
 }

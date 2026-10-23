@@ -179,6 +179,8 @@ extension FileSyncManager {
             return .failure(.nothingToLearn(root.path))
         }
 
+        // Read BEFORE the write re-points the index — the profile this walk may be replacing.
+        let previousId = FilingProfileStore.activeProfileId(in: directory)
         do {
             _ = try FilingProfileStore.writeProfile(profile, in: directory, now: now)
         } catch {
@@ -187,6 +189,10 @@ extension FileSyncManager {
         }
 
         let becameActive = FilingProfileStore.activeProfileId(in: directory) == profileId
+        if becameActive, let previousId, previousId != profileId {
+            Self.carryCuratedState(from: previousId, to: profileId, root: profile.recordedFolderPath,
+                                   in: directory)
+        }
         let report = FolderWalkReport(foldersProfiled: profile.folders.count,
                                       profileId: profileId,
                                       root: recordedRoot,
@@ -205,6 +211,26 @@ extension FileSyncManager {
                                   + "and the new one is not in use")
         }
         return .success(report)
+    }
+
+    /// **What the user made follows the active profile to its new folder** (FR4).
+    ///
+    /// The household roster, the person verdicts and Restructure's ledger live in
+    /// `profiles/<id>/`, and a walk writes a brand-new id. Only the Restructure re-derive used to
+    /// copy them, so re-running Setup's Learn and Save moved the app onto an empty folder: the
+    /// roster read back as the folder-name seed, the verdicts and the last landing's Undo were
+    /// gone, and the next survey refresh retired the old folder with everything in it. Copied,
+    /// never moved — the old folder is what an Undo re-points to, as for a re-derive.
+    ///
+    /// The last landing's Undo follows only when the walk covered the SAME folder: its inverse is
+    /// written in paths relative to the root, and Undo replays it against whatever root is current.
+    static func carryCuratedState(from previousId: String, to newId: String,
+                                  root newRoot: String?, in directory: URL) {
+        carryProfileArtifacts(from: previousId, to: newId, in: directory, fm: FileManager.default)
+        let previousRoot = FilingProfileStore.profile(id: previousId, in: directory)?.recordedFolderPath
+        guard let newRoot, previousRoot == newRoot else { return }
+        RestructureStore(directory: directory, profileId: newId)
+            .repointProduced(from: previousId, to: newId)
     }
 
     /// What the profile would say about a walked tree, without writing anything.
