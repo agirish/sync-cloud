@@ -19,6 +19,10 @@ struct SetupScreenCard<Content: View, Why: View>: View {
     var onBack: (() -> Void)?
     var skipTitle: String?
     var onSkip: (() -> Void)?
+    /// A second way forward beside the primary — Learn again, over a reading already in hand.
+    var secondaryTitle: String? = nil
+    var onSecondary: (() -> Void)? = nil
+    var isSecondaryDisabled = false
     var primaryTitle: String
     var onPrimary: () -> Void
     /// Set when the screen's primary action cannot be taken yet — Learn with no folder chosen, or
@@ -112,12 +116,15 @@ struct SetupScreenCard<Content: View, Why: View>: View {
 
     private var footer: some View {
         SetupFooter(onBack: onBack, skipTitle: skipTitle, onSkip: onSkip,
+                    secondaryTitle: secondaryTitle, onSecondary: onSecondary,
+                    isSecondaryDisabled: isSecondaryDisabled,
                     primaryTitle: primaryTitle, onPrimary: onPrimary,
                     isPrimaryDisabled: isPrimaryDisabled)
     }
 }
 
-/// The bar under every screen: Back, the lock line, and at most two buttons.
+/// The bar under every screen: Back, the lock line, and at most three buttons — Skip, a
+/// secondary, and the primary.
 ///
 /// **Its own view so a fit test can measure it.** `SetupSheetMetrics.contentHeight` subtracts
 /// `footerHeight` from the card, so a real footer taller than that constant makes every height the
@@ -126,6 +133,9 @@ struct SetupFooter: View {
     var onBack: (() -> Void)?
     var skipTitle: String?
     var onSkip: (() -> Void)?
+    var secondaryTitle: String? = nil
+    var onSecondary: (() -> Void)? = nil
+    var isSecondaryDisabled = false
     var primaryTitle: String
     var onPrimary: () -> Void
     var isPrimaryDisabled = false
@@ -143,6 +153,10 @@ struct SetupFooter: View {
             Spacer(minLength: 8)
             if let skipTitle, let onSkip {
                 Button(skipTitle, action: onSkip)
+            }
+            if let secondaryTitle, let onSecondary {
+                Button(secondaryTitle, action: onSecondary)
+                    .disabled(isSecondaryDisabled)
             }
             Button(primaryTitle, action: onPrimary)
                 .keyboardShortcut(.defaultAction)

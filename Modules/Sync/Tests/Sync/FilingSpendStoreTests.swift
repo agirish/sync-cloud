@@ -102,4 +102,38 @@ import Testing
         #expect(FilingSpendStore.last(defaults: defaults) == nil)
         #expect(FilingSpendStore.totals(defaults: defaults) == FilingSpendTotals())
     }
+
+    /// **Clear asks first, and a No keeps every figure.** What it resets is what both caps count
+    /// against — the total cap is the $5 backstop — and both Clear buttons wiped on one click.
+    @Test func declinedClearKeepsTheSpend() {
+        let (defaults, name) = suite()
+        defer { wipeDefaultsSuite(name) }
+        FilingSpendStore.record(entry(cost: 0.5, tokens: 10), defaults: defaults)
+        var asked = 0
+
+        let cleared = FilingSpendStore.clearIfConfirmed(defaults: defaults) { asked += 1; return false }
+
+        #expect(!cleared)
+        #expect(asked == 1, "Clear did not ask")
+        #expect(FilingSpendStore.totals(defaults: defaults).scans == 1, "a declined Clear reset the totals")
+        #expect(FilingSpendStore.entries(defaults: defaults).count == 1)
+    }
+
+    /// And a Yes clears — asked while the figures are still there to be lost.
+    @Test func confirmedClearClearsAfterAsking() {
+        let (defaults, name) = suite()
+        defer { wipeDefaultsSuite(name) }
+        FilingSpendStore.record(entry(cost: 0.5, tokens: 10), defaults: defaults)
+        var scansWhenAsked = -1
+
+        let cleared = FilingSpendStore.clearIfConfirmed(defaults: defaults) {
+            scansWhenAsked = FilingSpendStore.totals(defaults: defaults).scans
+            return true
+        }
+
+        #expect(cleared)
+        #expect(scansWhenAsked == 1, "the totals were gone before the question was asked")
+        #expect(FilingSpendStore.totals(defaults: defaults) == FilingSpendTotals())
+        #expect(FilingSpendStore.entries(defaults: defaults).isEmpty)
+    }
 }

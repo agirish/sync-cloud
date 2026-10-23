@@ -8956,3 +8956,50 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s pairMerge=%s\n' $l \
 |---|---|---|
 | `v5.x` | The same pair route (`pairMerge=1`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure (`pairMerge=0`) | CLOSED — does not apply |
+
+---
+
+## Setup keeps a reading and a failed Save in view, two clears and Remove ask, and five names are fixed — main only
+
+Eight Setup, Settings and app-shell defects from the v6.1 review (ST1, ST3, ST6, ST8, ST9, ST13,
+SH1, SH6/SH7).
+
+- **Setup.** Over a finished reading Learn's primary was "Learn again", so Back to Learn had no way
+  on that kept the reading; `main` makes it Continue, with Learn again beside it (ST1). A failed
+  Save moved on and was recorded as a failed reading — tree discarded, "Couldn't read that folder"
+  on screens already left; `main` stays on Structure and says the write failed there (ST3).
+  Summary's Learn closed setup onto Settings ▸ Organize, which cannot learn; `main` goes back to the
+  Learn screen (ST6).
+- **Settings.** Spend Clear (Intelligence) and the Organize lens's Clear History reset both caps'
+  counts, and Remove deleted the Keychain key, each on one click; `main` asks first, Cancel as the
+  default (ST8). "Reset setup…" said setup opens on the next launch and that no file is touched; it
+  opens at once and deletes the setup draft (ST9). The Sources switches had no VoiceOver name (ST13).
+- **Shell.** The spend-cap alert and the missing-key message pointed at "Settings → Organize"; the
+  caps and the key are under Intelligence (SH1). The seam's swap button and the Info inspector's ✕
+  had no accessibility name (SH6, SH7).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s learnAgainPrimary=%s saveFailsWalk=%s summaryToTab=%s spendClearFiles=%s keyRemove=%s nextLaunch=%s organizeArrow=%s inspectorClose=%s swap=%s sourcesSwitch=%s\n' $l \
+  "$(git show origin/$l:MacApp/SetupSheet.swift 2>/dev/null | grep -c '"Learn again" : "Learn"')" \
+  "$(git show origin/$l:MacApp/Setup/SetupModel.swift 2>/dev/null | grep -c '^ *walkState = .failed(failure.description)')" \
+  "$(git show origin/$l:MacApp/Setup/SummaryScreen.swift 2>/dev/null | grep -c 'learnedSummary, tab: .filing')" \
+  "$(git grep -l 'FilingSpendStore.clear()' origin/$l -- Modules MacApp 2>/dev/null | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Settings/Sources/Settings/CloudKeyRow.swift 2>/dev/null | grep -c 'Button("Remove", action: removeKey)')" \
+  "$(git show origin/$l:Modules/Settings/Sources/Settings/SettingsView.swift 2>/dev/null | grep -c 'opens again on the next launch')" \
+  "$(git grep -l 'Settings → Organize' origin/$l -- MacApp 2>/dev/null | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'CloseButton {')" \
+  "$(git grep -l 'Button(action: onSwap)' origin/$l -- MacApp 2>/dev/null | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Settings/Sources/Settings/SettingsView.swift 2>/dev/null | grep -c 'Toggle("", isOn: enabledBinding)')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main   learnAgainPrimary=1 saveFailsWalk=1 summaryToTab=1 spendClearFiles=2 keyRemove=1 nextLaunch=2 organizeArrow=2 inspectorClose=1 swap=1 sourcesSwitch=1
+# v5.x   learnAgainPrimary=1 saveFailsWalk=1 summaryToTab=1 spendClearFiles=2 keyRemove=1 nextLaunch=1 organizeArrow=2 inspectorClose=1 swap=1 sourcesSwitch=1
+# v4.x   learnAgainPrimary=0 saveFailsWalk=0 summaryToTab=0 spendClearFiles=2 keyRemove=1 nextLaunch=0 organizeArrow=2 inspectorClose=1 swap=1 sourcesSwitch=1
+# v3.x   learnAgainPrimary=0 saveFailsWalk=0 summaryToTab=0 spendClearFiles=2 keyRemove=1 nextLaunch=0 organizeArrow=2 inspectorClose=1 swap=1 sourcesSwitch=1
+# v2.x   learnAgainPrimary=0 saveFailsWalk=0 summaryToTab=0 spendClearFiles=2 keyRemove=1 nextLaunch=0 organizeArrow=0 inspectorClose=1 swap=1 sourcesSwitch=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | All eight, the same code (`nextLaunch=1`: the probe's phrase is the caption's; its alert says "next launch" too, and it has no tooltip saying so) | RECORDED — not owed |
+| `v4.x` / `v3.x` | The Settings and shell five (ST8, ST13, SH1, SH6/SH7); no guided Learn, Structure or Summary | RECORDED — not owed |
+| `v2.x` | ST8, ST13 and SH6/SH7; no "Settings → Organize" pointer (`organizeArrow=0`) and no guided setup | RECORDED — not owed |

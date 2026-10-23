@@ -45,9 +45,15 @@ struct FilingSpendHistoryView: View {
             Divider()
 
             HStack {
+                // Asks first, like Settings' Clear: this resets what both caps count against.
                 Button("Clear History", role: .destructive) {
-                    FilingSpendStore.clear()
-                    reload()
+                    let prompt = FilingSpendStore.clearPrompt
+                    let cleared = FilingSpendStore.clearIfConfirmed {
+                        NativeAlerts.confirmIrreversible(messageText: prompt.messageText,
+                                                         informativeText: prompt.informativeText,
+                                                         confirmTitle: prompt.confirmTitle)
+                    }
+                    if cleared { reload() }
                 }
                 .disabled(totals.scans == 0)
                 Spacer()

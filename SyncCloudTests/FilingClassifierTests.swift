@@ -204,7 +204,7 @@ import Sync
         // The message has to carry all three: what was expected, what actually ran, and the fix.
         #expect(message.contains("Cloud (Claude) Filing is enabled"))
         #expect(message.contains("on-device"))
-        #expect(message.contains("Settings → Organize"))
+        #expect(message.contains("Settings ▸ Intelligence"))
     }
 
     // MARK: Prompt budget

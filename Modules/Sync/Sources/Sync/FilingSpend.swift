@@ -255,6 +255,30 @@ public enum FilingSpendStore {
         lock.unlock()
         NotificationCenter.default.post(name: didChange, object: defaults)
     }
+
+    /// The clear gesture as one step: ask, and only then clear.
+    ///
+    /// **Both Clear buttons wiped on one click.** What they reset is what the caps count against —
+    /// the total cap is the $5 safety backstop — so a stray click re-armed it from zero with
+    /// nothing to say so. Taking the confirmer here means neither button can clear without asking
+    /// by simply forgetting to; the alert itself is the app's (`clearPrompt` is its words).
+    /// - Returns: Whether the spend was cleared.
+    @discardableResult
+    public static func clearIfConfirmed(defaults: UserDefaults = .standard,
+                                        confirm: () -> Bool) -> Bool {
+        guard confirm() else { return false }
+        clear(defaults: defaults)
+        return true
+    }
+
+    /// What the confirmation says, shared by Settings ▸ Intelligence and the Organize lens's
+    /// history sheet so the two Clear buttons ask the same question.
+    public static let clearPrompt = (
+        messageText: "Clear the recorded Claude spend?",
+        informativeText: "This deletes the spend history and totals, so both the monthly and the "
+            + "total cap count from zero again. What Anthropic has billed is unchanged, and this "
+            + "can’t be undone.",
+        confirmTitle: "Clear Spend")
 }
 
 /// Compact formatting for Filing spend figures, shared by the Organize workspace and Settings.

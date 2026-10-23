@@ -7,7 +7,8 @@ import Sync
 ///
 /// **Each row is changeable from here**, because a summary you cannot act on is a receipt. Change
 /// finishes setup first and then opens the Settings tab that owns the answer — in that order, so
-/// the sheet is not sitting over the tab it just opened.
+/// the sheet is not sitting over the tab it just opened. The folder row is the exception: no tab
+/// learns a folder, so its Learn takes the sheet back to the Learn screen instead.
 struct SummaryScreen: View {
     @ObservedObject var model: SetupModel
     @ObservedObject var settings: SettingsManager
@@ -38,8 +39,13 @@ struct SummaryScreen: View {
             VStack(spacing: 0) {
                 row("cloud", "Locations: \(locationsSummary)", tab: .providers, verb: "Change")
                 Divider()
-                row("folder", learnedSummary, tab: .filing,
-                    verb: model.walkState.isDone ? "Learn again" : "Learn")
+                // **Back to Learn, not out to Settings.** This closed setup on Settings ▸
+                // Organize, which has no control that learns a folder — and the Countries row
+                // below relies on this button to change them.
+                row("folder", learnedSummary,
+                    verb: model.walkState.isDone ? "Learn again" : "Learn",
+                    help: "Go back to the Learn screen and read a folder",
+                    action: { model.returnToLearn() })
                 Divider()
                 row("person", "You: \(youSummary)", tab: .people, verb: "Change")
                 Divider()
@@ -107,6 +113,13 @@ struct SummaryScreen: View {
 
     private func row(_ symbol: String, _ text: String,
                      tab: SettingsView.SettingsTab?, verb: String?) -> some View {
+        row(symbol, text, verb: tab == nil ? nil : verb,
+            help: tab.map { "Finish setup and open Settings ▸ \($0.displayName)" },
+            action: tab.map { tab in { onChange(tab) } })
+    }
+
+    private func row(_ symbol: String, _ text: String,
+                     verb: String?, help: String?, action: (() -> Void)?) -> some View {
         HStack(spacing: 10) {
             Image(systemName: symbol)
                 .scaledFont(.caption)
@@ -116,11 +129,11 @@ struct SummaryScreen: View {
                 .scaledFont(.callout)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
-            if let verb, let tab {
-                Button(verb) { onChange(tab) }
+            if let verb, let action {
+                Button(verb, action: action)
                     .buttonStyle(.link)
                     .controlSize(.small)
-                    .help("Finish setup and open Settings ▸ \(tab.displayName)")
+                    .help(help ?? verb)
             }
         }
         .padding(.horizontal, 12)

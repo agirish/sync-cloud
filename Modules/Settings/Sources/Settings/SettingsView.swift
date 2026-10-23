@@ -1452,6 +1452,9 @@ struct ProviderSettingsSection: View {
                 Toggle("", isOn: enabledBinding)
                     .toggleStyle(.switch)
                     .labelsHidden()
+                    // The title is empty so the row's own name sits beside it; without this
+                    // VoiceOver reads "switch, on" once per account, with nothing to tell them apart.
+                    .accessibilityLabel(provider.displayName)
                     .disabled(isEnabled && !settings.canDisable(provider.id))
                     .help(
                         isEnabled && !settings.canDisable(provider.id)
@@ -2527,9 +2530,14 @@ struct IntelligenceSettingsTab: View {
                 HStack {
                     Button("View history…") { showSpendHistory = true }
                         .disabled(spendTotals.scans == 0)
-                    Button("Clear", role: .destructive) { FilingSpendStore.clear(); refreshSpend() }
-                        .disabled(spendTotals.scans == 0)
-                        .help("Deletes the recorded spend history and totals, so both caps count from zero again. What Anthropic has billed is unchanged.")
+                    // Asks first: this resets what both caps count against, the $5 backstop included.
+                    Button("Clear", role: .destructive) {
+                        if FilingSpendStore.clearIfConfirmed(confirm: Self.confirmClearSpend) {
+                            refreshSpend()
+                        }
+                    }
+                    .disabled(spendTotals.scans == 0)
+                    .help("Deletes the recorded spend history and totals, so both caps count from zero again. What Anthropic has billed is unchanged. Asks first.")
                 }
                 .controlSize(.small)
             }
@@ -2573,6 +2581,14 @@ struct IntelligenceSettingsTab: View {
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
             FilingSpendHistorySheet()
         }
+    }
+
+    /// The question both spend Clear buttons ask — see `FilingSpendStore.clearIfConfirmed`.
+    static func confirmClearSpend() -> Bool {
+        let prompt = FilingSpendStore.clearPrompt
+        return NativeAlerts.confirmIrreversible(messageText: prompt.messageText,
+                                                informativeText: prompt.informativeText,
+                                                confirmTitle: prompt.confirmTitle)
     }
 
     private func refreshSpend() {
@@ -3743,12 +3759,12 @@ struct AdvancedSettingsTab: View {
 
             if let onResetSetup {
                 SettingsSection(
-                    caption: "Forgets that setup has run, so it opens again on the next launch. On a Mac with no folder profile yet this also discards the name and household answers setup was holding for one; everything already saved stays."
+                    caption: "Forgets that setup has run and opens it now, from the beginning. On a Mac with no folder profile yet this also discards the name and household answers setup was holding for one; everything already saved stays."
                 ) {
                     Button("Reset setup…", role: .destructive) {
                         confirmResetSetup(onResetSetup)
                     }
-                    .help("Forgets that setup has run, so it opens again on the next launch. Asks first; no file is touched.")
+                    .help("Forgets that setup has run and opens it now, from the beginning. Asks first.")
                 }
             }
 
@@ -3798,7 +3814,7 @@ struct AdvancedSettingsTab: View {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Run setup again from the beginning?"
-        alert.informativeText = "SyncCloud forgets that setup has run and opens it again on the next launch. On a Mac that has not learned a folder tree yet, the name and household answers setup was holding are discarded with it. Nothing already saved is affected, and no file is touched."
+        alert.informativeText = "SyncCloud forgets that setup has run and opens it now, from the beginning. On a Mac that hasn’t learned a folder tree yet, the name and household answers setup was holding are discarded with it. Nothing already saved is affected."
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
         if let resetButton = alert.buttons.first {

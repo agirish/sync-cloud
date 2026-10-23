@@ -711,8 +711,43 @@ import Testing
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("MacApp/SetupSheet.swift")
         let hostSource = try #require(try? String(contentsOf: host, encoding: .utf8))
-        #expect(hostSource.contains("model.walkState.isDone ? \"Learn again\" : \"Learn\""),
+        #expect(hostSource.contains("primary: model.learnPrimaryTitle"),
                 "Learn's primary button no longer reads the walk state")
+    }
+
+    /// **The setup buttons call the model's rules**, which `SetupModelTests` pins one by one.
+    ///
+    /// `SetupSheet` cannot be built in a test, so a rule extracted for testability is one revert
+    /// away from being unused: the tests would stay green over a button that went back to doing
+    /// its own thing. This is the other half — each button is wired to the rule that was tested.
+    @Test func theSetupButtonsCallTheRulesTheModelTests() throws {
+        let setup = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp")
+        func source(_ path: String) throws -> String {
+            let text = try #require(try? String(contentsOf: setup.appendingPathComponent(path), encoding: .utf8),
+                                    "cannot read \(path) — the checks below would be vacuous")
+            try #require(text.count > 1_000, "\(path) is implausibly short")
+            return text
+        }
+        let sheet = try source("SetupSheet.swift")
+        // Learn: Continue over a reading keeps it; Learn again is the secondary.
+        #expect(sheet.contains("primaryAction: { model.pressLearnPrimary() }"),
+                "Learn's primary no longer goes through `pressLearnPrimary` — Continue may re-read")
+        #expect(sheet.contains("secondary: model.learnAgainTitle.map"),
+                "Learn again is no longer offered as the secondary button")
+        #expect(sheet.contains("model.pressLearnAgain()"))
+        // Structure: a failed write stays put.
+        #expect(sheet.contains("Task { await model.saveAndContinue() }"),
+                "Structure's Save no longer goes through `saveAndContinue` — a failed write may move on")
+        #expect(!sheet.contains("await model.save()"),
+                "Structure calls `save()` directly again, and will move on whatever it answers")
+        // And the failure is drawn where the press stays.
+        #expect(try source("Setup/StructureScreen.swift").contains("if let failure = model.saveFailure"),
+                "Structure no longer draws a failed Save")
+        // Summary: Learn goes back to the Learn screen, not out to a Settings tab.
+        #expect(try source("Setup/SummaryScreen.swift").contains("action: { model.returnToLearn() }"),
+                "Summary's Learn no longer goes back to the Learn screen")
     }
 
     /// Summary no longer talks about the folder walk as work that has not shipped.

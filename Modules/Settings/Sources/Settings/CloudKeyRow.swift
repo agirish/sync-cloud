@@ -65,6 +65,10 @@ struct CloudKeyRow: View {
     /// `onAppear` would otherwise overwrite any state a caller passed in.
     private let probeStoredKey: () -> Bool
 
+    /// Asks before Remove deletes the key. Injectable for the same reason as `probeStoredKey`: the
+    /// default is a modal alert, which a render or a test must not raise.
+    private let confirmRemoveKey: @MainActor () -> Bool
+
     /// Starting state. The app uses the defaults — the row seeds itself from the Keychain on
     /// appear — and callers that need a particular state (previews, layout checks) pass one in
     /// along with a matching probe.
@@ -72,13 +76,44 @@ struct CloudKeyRow: View {
         hasStoredKey: Bool = false,
         revealedKey: String? = nil,
         isReplacingKey: Bool = false,
-        probeStoredKey: @escaping () -> Bool = { AnthropicKeychain.isConfigured }
+        probeStoredKey: @escaping () -> Bool = { AnthropicKeychain.isConfigured },
+        confirmRemoveKey: @escaping @MainActor () -> Bool = CloudKeyRow.defaultRemoveConfirmation
     ) {
         _apiKeyField = State(initialValue: "")
         _hasStoredKey = State(initialValue: hasStoredKey)
         _revealedKey = State(initialValue: revealedKey)
         _isReplacingKey = State(initialValue: isReplacingKey)
         self.probeStoredKey = probeStoredKey
+        self.confirmRemoveKey = confirmRemoveKey
+    }
+
+    /// Remove as one step: ask, and only then delete. Static and confirmer-taking so the decision
+    /// is reachable without mounting the row — a button's closure is not — and so the button
+    /// cannot delete without asking by forgetting to.
+    ///
+    /// **Remove deleted the Keychain item on one click.** It sits beside Replace… and Test, and
+    /// what it deletes cannot be read back from anywhere in SyncCloud.
+    /// - Returns: Whether the key was removed.
+    @discardableResult
+    static func removeIfConfirmed(confirm: () -> Bool, remove: () -> Void) -> Bool {
+        guard confirm() else { return false }
+        remove()
+        return true
+    }
+
+    /// What Remove asks.
+    static let removePrompt = (
+        messageText: "Remove the API key?",
+        informativeText: "This deletes your Anthropic API key from the Keychain. Refine can’t use "
+            + "Claude until you add a key again, and this can’t be undone. The Anthropic Console "
+            + "can issue a new key.",
+        confirmTitle: "Remove Key")
+
+    /// The standard alert: Cancel is the default, and the destructive button takes no Return key.
+    @MainActor static func defaultRemoveConfirmation() -> Bool {
+        NativeAlerts.confirmIrreversible(messageText: removePrompt.messageText,
+                                         informativeText: removePrompt.informativeText,
+                                         confirmTitle: removePrompt.confirmTitle)
     }
 
     private var state: CloudKeyRowState {
@@ -184,8 +219,10 @@ struct CloudKeyRow: View {
         }
         .help("Enter a new key. The one stored now is replaced when you save.")
         if state.offersRemove {
-            Button("Remove", action: removeKey)
-                .help("Delete the key from your Keychain.")
+            Button("Remove") {
+                Self.removeIfConfirmed(confirm: confirmRemoveKey, remove: removeKey)
+            }
+            .help("Delete the key from your Keychain. Asks first.")
         }
         if state.showsSecret { Spacer(minLength: 0) }
     }

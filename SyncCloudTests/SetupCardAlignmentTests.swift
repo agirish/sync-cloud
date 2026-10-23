@@ -228,14 +228,20 @@ import Testing
     ///
     /// **The lock line is an overlay, so it reserves no width** — which is what keeps it centred on
     /// the card rather than sliding with the buttons, and is also the one way it could come to sit
-    /// under one of them. This renders the widest footer there is and requires clear air on both
-    /// sides of the centre.
-    @Test func theFooterPiecesDoNotCollide() throws {
+    /// under one of them. This renders the two widest footers there are — Structure's long primary,
+    /// and Learn's three buttons over a finished reading — and requires clear air on both sides of
+    /// the centre.
+    @Test(arguments: [false, true])
+    func theFooterPiecesDoNotCollide(threeButtons: Bool) throws {
         for scale in [1.0, 1.35] as [CGFloat] {
             let width = SetupSheetMetrics.cardWidth * scale
             let height = SetupSheetMetrics.footerHeight * scale
-            let footer = SetupFooter(onBack: {}, skipTitle: "Skip", onSkip: {},
-                                     primaryTitle: "Save and start reading", onPrimary: {})
+            let footer = (threeButtons
+                ? SetupFooter(onBack: {}, skipTitle: "Skip", onSkip: {},
+                              secondaryTitle: "Learn again", onSecondary: {},
+                              primaryTitle: "Continue", onPrimary: {})
+                : SetupFooter(onBack: {}, skipTitle: "Skip", onSkip: {},
+                              primaryTitle: "Save and start reading", onPrimary: {}))
                 .environment(\.appFontScale, scale)
                 .frame(width: width, height: height)
             let host = NSHostingView(rootView: footer)

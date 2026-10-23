@@ -291,9 +291,9 @@ import Testing
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
                                      syncManager: engine)
 
-        async let first: Void = model.save()
-        async let second: Void = model.save()
-        _ = await (first, second)
+        async let first = model.save()
+        async let second = model.save()
+        let wrote = await [first, second]
 
         let written = try FileManager.default.contentsOfDirectory(atPath: profiles.path)
             .filter { $0.hasPrefix("walk-") }
@@ -301,8 +301,111 @@ import Testing
         #expect(model.walkState.isDone,
                 "the second press was let through and its refusal was recorded as a failed walk, over a profile that had just been written")
         #expect(model.walkFailureReason == nil)
+        #expect(model.saveFailure == nil, "the refused second press was reported as a failed write")
+        #expect(wrote.filter { $0 }.count == 1,
+                "\(wrote) — the refused press answered that it wrote, and Save would move the sheet on twice")
         #expect(!model.isSaving, "the flag was not cleared, so the button would stay dead")
         #expect(model.writtenReport != nil)
+    }
+
+    /// **A failed write stays on Structure, keeps the reading, and says it was the write.**
+    ///
+    /// It used to move on regardless and record the failure as a failed walk: the tree was thrown
+    /// away, Summary said nothing had been learned, and the reason sat on People and Countries —
+    /// screens already behind — headed "Couldn't read that folder".
+    @Test func aFailedSaveStaysOnStructureAndKeepsTheReading() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-savefail-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        // A regular file where the profiles folder's parent should be: nothing can be written.
+        let blocker = root.appendingPathComponent("blocker")
+        try Data("not a folder".utf8).write(to: blocker)
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = blocker.appendingPathComponent("profiles")
+
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
+                                     syncManager: engine)
+        model.screen = .structure
+        await model.saveAndContinue()
+
+        #expect(model.screen == .structure, "a failed write moved the sheet on to \(model.screen)")
+        #expect(model.walkState.isDone, "the reading was thrown away over a failed write")
+        #expect(model.walkFailureReason == nil,
+                "a failed write was recorded as a failed reading — People would say “Couldn't read that folder”")
+        let failure = try #require(model.saveFailure, "nothing on Structure says the write failed")
+        #expect(failure.contains("could not be written"), "the reason is not the write's: \(failure)")
+        #expect(model.writtenReport == nil)
+
+        // And the same press, once the write can succeed, moves on and clears the line.
+        try FileManager.default.removeItem(at: blocker)
+        try FileManager.default.createDirectory(at: engine.filingProfilesDirectory!,
+                                                withIntermediateDirectories: true)
+        await model.saveAndContinue()
+        #expect(model.writtenReport != nil, "premise: the second press wrote")
+        #expect(model.screen == .workspaces)
+        #expect(model.saveFailure == nil)
+    }
+
+    // MARK: - Back to Learn
+
+    /// **Over a finished reading, Learn's primary is Continue, and it keeps the reading.**
+    ///
+    /// The primary was "Learn again", so going Back to Learn left only a re-read — which resets the
+    /// Countries ticks to the rule's picks — or Skip, which throws the reading away.
+    @Test func continueOverAFinishedReadingKeepsIt() async throws {
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
+        let fresh = await self.model(syncManager: engine)
+        #expect(fresh.learnPrimaryTitle == "Learn")
+        #expect(fresh.learnAgainTitle == nil, "Learn again is offered with nothing to read again")
+
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US/2024", "Legal/US/2024"]),
+                                     syncManager: engine)
+        // A tick the rule would not have made: a re-read would reset it.
+        model.confirmedCountries = ["US", "IN"]
+        model.screen = .learn
+        #expect(model.learnPrimaryTitle == "Continue")
+        #expect(model.learnAgainTitle == "Learn again")
+
+        model.pressLearnPrimary()
+        #expect(model.screen == .you)
+        #expect(model.walkState.isDone, "Continue started a new reading (\(model.walkState))")
+        #expect(model.confirmedCountries == ["US", "IN"], "the hand-set ticks were reset")
+    }
+
+    /// And Learn again still reads the folder afresh, and moves on without waiting.
+    @Test func learnAgainReadsAfreshAndMovesOn() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-again-\(UUID().uuidString)")
+        let documents = root.appendingPathComponent("Documents")
+        try FileManager.default.createDirectory(at: documents.appendingPathComponent("Finance/US"),
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
+
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US"]), syncManager: engine)
+        model.walkRoot = documents
+        model.screen = .learn
+        model.pressLearnAgain()
+        #expect(model.walkState == .running, "Learn again did not start a reading")
+        #expect(model.screen == .you, "Learn again waited for the reading")
+        // Let it land inside the fixture before the folder is removed.
+        for _ in 0..<500 where model.walkState.isRunning {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!model.walkState.isRunning, "the reading never finished")
+    }
+
+    /// **Summary's Learn goes back to Learn, with the sheet still open.** It used to close setup
+    /// on a Settings tab that has no control to learn a folder with.
+    @Test func summarysLearnReturnsToTheLearnScreen() async {
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US"]))
+        model.screen = .summary
+        model.returnToLearn()
+        #expect(model.screen == .learn)
+        #expect(model.walkState.isDone, "the reading was dropped on the way back")
     }
 
     /// Saves a walk into a fresh profiles folder — holding a hand-built profile first, when asked

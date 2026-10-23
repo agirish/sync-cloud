@@ -733,6 +733,9 @@ struct SeamPaneControls: View {
             // because it is the one consequence of ⇄ that is invisible until you look up and find
             // the other pane's tabs where yours were.
             .help("Swap the left and right panes, tabs and all")
+            // Named like its sibling below: `.help` is the accessibility HELP on macOS, so without
+            // this VoiceOver read the glyph's bare symbol.
+            .accessibilityLabel("Swap panes")
 
             // Stays NEUTRAL while everything around it goes to the hue: this hairline has to read
             // against the frosted wash above it *and* against the solid `accentFillColor` below it

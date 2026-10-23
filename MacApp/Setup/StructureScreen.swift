@@ -79,14 +79,31 @@ struct StructureScreen: View {
                         .frame(height: Self.treeHeight * cardScale, alignment: .top)
                 }
 
-                Text(lens == .folders
-                     ? "Grey words are how each folder's name was read. Nothing inside the files has "
-                       + "been read — the switch below starts that."
-                     : "These placements come from names alone, before any document is read. Nothing "
-                       + "moves until you approve it in Organize.")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                // **A failed Save is said here, in place of the line about grey words**, because
+                // this is the screen the press stays on — and next to the button that will try
+                // again. Said as a write that failed: the folder was read, and the tree is still
+                // above.
+                if let failure = model.saveFailure {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label(Self.saveFailedHeading, systemImage: "exclamationmark.triangle")
+                            .scaledFont(.caption.weight(.medium))
+                        Text(failure)
+                            .scaledFont(.caption2)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .combine)
+                } else {
+                    Text(lens == .folders
+                         ? "Grey words are how each folder's name was read. Nothing inside the files has "
+                           + "been read — the switch below starts that."
+                         : "These placements come from names alone, before any document is read. Nothing "
+                           + "moves until you approve it in Organize.")
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 SetupMoreOptions(subtitle: "what each grey word means") {
                     VStack(alignment: .leading, spacing: 4) {
@@ -138,6 +155,9 @@ struct StructureScreen: View {
     /// — it had never been charged for the top bar — and this screen was the one that overflowed
     /// once it was. The box scrolls, so what the number costs is how many rows are in view.
     static let treeHeight: CGFloat = 208
+
+    /// The heading over a failed Save's own reason. The button below it tries again.
+    static let saveFailedHeading = "Couldn’t save your folder profile, so nothing was written."
 
     /// One column per count, so the five of them share a rhythm. Wide enough for the longest label
     /// the screen has — "loose at the top" — measured rather than guessed; a narrower column makes

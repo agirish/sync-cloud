@@ -66,6 +66,37 @@ public struct NativeAlerts {
         return alert
     }
 
+    /// A confirm/cancel alert for a deletion that **cannot be undone** — a record or a secret with
+    /// no Trash to come back from, such as the spend totals the budget caps count against, or the
+    /// API key in the Keychain.
+    ///
+    /// Not `confirmDestructive`, whose destructive confirm answers Return: there the item goes to
+    /// the Trash and can come back. Here **Cancel is the default**, and the destructive button
+    /// takes no Return key — the convention Sync History's "Clear History" and Settings' "Reset
+    /// All Settings…" already follow.
+    /// - Returns: True if the user chose the confirm button.
+    public static func confirmIrreversible(messageText: String, informativeText: String,
+                                           confirmTitle: String) -> Bool {
+        irreversibleAlert(messageText: messageText, informativeText: informativeText,
+                          confirmTitle: confirmTitle).runModal() == .alertFirstButtonReturn
+    }
+
+    /// The alert `confirmIrreversible` presents, built but **not run** — internal so a test can
+    /// pin its default button without entering a modal session it cannot dismiss.
+    static func irreversibleAlert(messageText: String, informativeText: String,
+                                  confirmTitle: String) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = messageText
+        alert.informativeText = informativeText
+        let confirm = alert.addButton(withTitle: confirmTitle)
+        confirm.hasDestructiveAction = true
+        confirm.keyEquivalent = ""
+        let cancel = alert.addButton(withTitle: "Cancel")
+        cancel.keyEquivalent = "\r"
+        return alert
+    }
+
     /// Shared confirm/cancel warning alert behind `confirmDelete` (following
     /// the `promptForName` pattern below): the caller supplies only the strings that differ.
     /// - Returns: True if the user chose the confirm button.

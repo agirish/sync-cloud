@@ -104,6 +104,8 @@ final class SetupModel: ObservableObject {
     /// the first of them immediately superseded and left on disk for `retireSupersededProfiles`
     /// to find later.
     @Published private(set) var isSaving = false
+    /// Why the last Save wrote nothing, while Structure is still on screen to say it.
+    @Published private(set) var saveFailure: String?
 
     /// Whether Learn has a folder to read. The button is disabled without one — the alternative is
     /// a press that silently does nothing and a sheet that then cannot reach Structure.
@@ -276,6 +278,44 @@ final class SetupModel: ObservableObject {
         go(to: previous)
     }
 
+    // MARK: - Learn's buttons
+
+    /// Learn's primary button: Learn, or — once a reading is in hand — Continue.
+    ///
+    /// **A finished reading needs a way forward that keeps it.** The primary used to read "Learn
+    /// again" once the walk was done, so Back to Learn left two ways on: read the folder again,
+    /// which resets the Countries ticks to the rule's picks, or Skip, which throws the reading away
+    /// and drops Countries and Structure. Continue is the third, and the one a person who only went
+    /// back to look wants.
+    var learnPrimaryTitle: String { walkState.isDone ? "Continue" : "Learn" }
+
+    /// The secondary button beside Learn's primary: "Learn again" once there is a reading to
+    /// replace, and nothing before it.
+    var learnAgainTitle: String? { walkState.isDone ? "Learn again" : nil }
+
+    /// Learn's primary press. Reads the folder unless a reading is already in hand, and moves on
+    /// either way — **Continue never waits** (see ``startWalk()``).
+    func pressLearnPrimary() {
+        if !walkState.isDone { startWalk() }
+        _ = advance()
+    }
+
+    /// "Learn again": reads the folder afresh and moves on, as the first Learn did.
+    func pressLearnAgain() {
+        startWalk()
+        _ = advance()
+    }
+
+    /// Summary's Learn and Learn again: back to the Learn screen, with the sheet still open.
+    ///
+    /// **It used to close setup on Settings ▸ Organize**, a tab with no control that learns a
+    /// folder — and the Countries row, which has no Change link of its own, says this button is
+    /// how to change them.
+    func returnToLearn() {
+        commitCurrentScreen()
+        go(to: .learn)
+    }
+
     /// Skip, on the four screens that offer it. Commits nothing.
     func skip() -> Bool {
         if screen == .learn {
@@ -291,6 +331,8 @@ final class SetupModel: ObservableObject {
     }
 
     private func go(to next: SetupFlow.Screen) {
+        // A failed Save is news about the last press on Structure, and only Structure shows it.
+        saveFailure = nil
         withAnimation(.easeInOut(duration: 0.15)) { screen = next }
         // Structure reads a profile that has to exist by the time it is drawn.
         if next == .structure { rebuildPreview() }
@@ -727,11 +769,27 @@ final class SetupModel: ObservableObject {
     /// Save that returned at its first guard.
     var canWriteProfile: Bool { walkState.walk != nil && syncManager != nil }
 
+    /// Structure's Save: writes, and moves on only once the profile is on disk.
+    ///
+    /// **A failed write stays on Structure and says so there.** It used to move on regardless:
+    /// the failure was recorded as a failed *walk*, which threw the tree away, so Summary said no
+    /// folder had been learned and the only words about it sat on People and Countries — screens
+    /// already left behind — under the heading "Couldn't read that folder", for a folder that had
+    /// been read perfectly well.
+    func saveAndContinue() async {
+        guard await save() else { return }
+        _ = advance()
+    }
+
     /// Writes the profile, attaches it, lands the draft, and starts the reading if it was asked
     /// for — in that order, which is the order today's walk already depends on.
-    func save() async {
-        guard !isSaving, let walk = walkState.walk, let manager = syncManager else { return }
+    /// - Returns: Whether this press wrote a profile. False for a press refused because one is
+    ///   already writing, which must not move the sheet on as well.
+    @discardableResult
+    func save() async -> Bool {
+        guard !isSaving, let walk = walkState.walk, let manager = syncManager else { return false }
         isSaving = true
+        saveFailure = nil
         defer { isSaving = false }
         let result = await manager.writeWalkProfile(tree: walk.tree, root: walk.root,
                                                     jurisdictionValues: confirmedCountries,
@@ -750,9 +808,13 @@ final class SetupModel: ObservableObject {
             // beside a hand-built one the walk's is saved unused — the summary says so — so reading
             // would spend hours on a folder this setup never pointed at.
             if readDocuments, report.becameActive { onStartSurvey(walk.root) }
+            return true
         case .failure(let failure):
-            walkState = .failed(failure.description)
+            // The reading stays: it was the write that failed, and the tree is what a second
+            // press needs.
+            saveFailure = failure.description
             Logger.shared.warning("Setup could not write its profile: \(failure.description)")
+            return false
         }
     }
 

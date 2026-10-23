@@ -4303,6 +4303,8 @@ struct ContentView: View {
                     withAnimation(.easeInOut(duration: 0.15)) { showInspector = false }
                 }
                 .help("Hide the inspector")
+                // CloseButton deliberately names itself nowhere; every caller says what it closes.
+                .accessibilityLabel("Hide the inspector")
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
             Divider()

@@ -343,11 +343,17 @@ struct SetupSheet: View {
             }
 
         case .learn:
-            frame(primary: model.walkState.isDone ? "Learn again" : "Learn",
-                  primaryAction: { model.startWalk(); _ = model.advance() },
+            // **Once the reading is done the primary keeps it.** Continue moves on with the tree
+            // and the ticks as they stand; reading the folder again is the secondary button.
+            frame(primary: model.learnPrimaryTitle,
+                  primaryAction: { model.pressLearnPrimary() },
                   // Nothing to read means nothing to press: a Learn that silently did nothing
-                  // left the sheet unable to reach Structure with no line saying why.
-                  primaryDisabled: !model.canLearn,
+                  // left the sheet unable to reach Structure with no line saying why. Continue
+                  // over a finished reading reads nothing, so it is never held back by this.
+                  primaryDisabled: !model.walkState.isDone && !model.canLearn,
+                  secondary: model.learnAgainTitle.map { title in
+                      (title, { model.pressLearnAgain() }, !model.canLearn)
+                  },
                   skip: ("Skip", { _ = model.skip() }),
                   why: { LearnWhy(hue: glassHue, folderName: model.walkRootName) }) {
                 LearnScreen(model: model, settings: settings, hue: glassHue)
@@ -380,11 +386,10 @@ struct SetupSheet: View {
             frame(primary: model.canWriteProfile
                     ? (model.readDocuments ? "Save and start reading" : "Save")
                     : "Continue",
+                  // Moves on only once the profile is written: a failed write stays here and
+                  // says what failed (`saveAndContinue`).
                   primaryAction: model.canWriteProfile ? {
-                      Task {
-                          await model.save()
-                          _ = model.advance()
-                      }
+                      Task { await model.saveAndContinue() }
                   } : nil,
                   primaryDisabled: model.isSaving) {
                 StructureScreen(model: model, hue: glassHue)
@@ -450,6 +455,7 @@ struct SetupSheet: View {
         primary: String,
         primaryAction: (() -> Void)? = nil,
         primaryDisabled: Bool = false,
+        secondary: (String, () -> Void, Bool)? = nil,
         skip: (String, () -> Void)? = nil,
         @ViewBuilder why: @escaping () -> Why,
         @ViewBuilder content: @escaping () -> Content
@@ -463,6 +469,9 @@ struct SetupSheet: View {
             onBack: model.canGoBack ? { model.retreat() } : nil,
             skipTitle: skip?.0,
             onSkip: skip.map { pair in { pair.1() } },
+            secondaryTitle: secondary?.0,
+            onSecondary: secondary.map { triple in { triple.1() } },
+            isSecondaryDisabled: secondary?.2 ?? false,
             primaryTitle: primary,
             onPrimary: primaryAction ?? { if !model.advance() { finish() } },
             isPrimaryDisabled: primaryDisabled,

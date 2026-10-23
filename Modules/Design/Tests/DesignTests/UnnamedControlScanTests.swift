@@ -56,7 +56,12 @@ import Testing
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 guard trimmed.hasPrefix("Button") || trimmed.hasPrefix("Menu") else { continue }
                 let block = chain(in: lines, from: i)
-                guard block.contains("Image(systemName:") else { continue }
+                // A glyph is an SF Symbol, or one of the app's own glyph views — `SwapPanesGlyph`
+                // and its kind draw a symbol and no text, and the swap half of the pane seam went
+                // unnamed behind exactly that indirection.
+                guard block.contains("Image(systemName:")
+                        || block.range(of: #"\b[A-Z][A-Za-z]*Glyph\("#, options: .regularExpression) != nil
+                else { continue }
                 // Any text in the label names the control already — that is what `Label(_:systemImage:)` is.
                 guard !block.contains("Text(") && !block.contains("Label(") else { continue }
                 guard !block.contains("accessibilityLabel") else { continue }
@@ -108,6 +113,28 @@ import Testing
                 "a comment cut the chain — every control explained above its label would be a phantom hit")
     }
 
+    /// **A switch with an empty title must be named some other way.** `Toggle("")` with its label
+    /// hidden is announced as "switch, on" — and in a list of them, once per row with nothing to
+    /// tell the rows apart. Settings ▸ Sources had one per account; setup's copy of the same
+    /// switch was named.
+    @Test func noUntitledSwitchIsUnnamed() throws {
+        var untitled = 0
+        var unnamed: [String] = []
+        for file in try Self.appSwiftSources() {
+            let lines = try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n")
+            for (i, line) in lines.enumerated()
+            where line.trimmingCharacters(in: .whitespaces).hasPrefix("Toggle(\"\",") {
+                untitled += 1
+                if !Self.chain(in: lines, from: i).contains("accessibilityLabel") {
+                    unnamed.append("\(file.lastPathComponent):\(i + 1)")
+                }
+            }
+        }
+        #expect(untitled >= 3, "found \(untitled) untitled switches, expected at least 3 — the scan has stopped matching")
+        #expect(unnamed.isEmpty,
+                "\(unnamed.count) untitled switch(es) announce no name — add `.accessibilityLabel` naming what they switch:\n\(unnamed.joined(separator: "\n"))")
+    }
+
     // MARK: - What the scan cannot see
 
     /// **The scan above only recognises a literal `Button` or `Menu`.** A glyph control built as its
@@ -153,27 +180,28 @@ import Testing
         // `CloseButton` is named by its callers, every one of them. A new call site that forgets is
         // a control announced as "button" — the exact defect, arriving through the one door the
         // scan above cannot watch.
-        let closeButtonSites = [
-            "MacApp/HelpBook.swift",
-            "MacApp/OperationBannerView.swift",
-            "Modules/Settings/Sources/Settings/SettingsView.swift",
-            "Modules/FileExplorer/Sources/FileExplorer/DestinationPicker.swift",
-        ]
+        //
+        // **Every source, every spelling.** This was a list of four files matching
+        // `CloseButton(action:` — and the Info inspector's close button, written with a trailing
+        // closure in a file not on the list, went unnamed past it. A list of where a component is
+        // used is stale the day someone uses it somewhere else.
         var seen = 0
-        for path in closeButtonSites {
-            let lines = try String(contentsOf: repo.appendingPathComponent(path), encoding: .utf8)
-                .components(separatedBy: "\n")
-            // Both spellings: `CloseButton(action:)` and, for the banner's — which wears no bar
-            // glass — `CloseButton(chromeGlass: false, action:)`.
-            for (i, line) in lines.enumerated()
-            where line.contains("CloseButton(action:") || line.contains("CloseButton(chromeGlass:") {
+        for file in try Self.appSwiftSources() {
+            let lines = try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n")
+            for (i, line) in lines.enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.hasPrefix("//"), !trimmed.hasPrefix("*"),
+                      !line.contains("struct CloseButton"),
+                      line.contains("CloseButton(") || line.contains("CloseButton {") else { continue }
                 seen += 1
-                let chain = lines[i..<min(lines.count, i + 8)].joined(separator: "\n")
+                let chain = Self.chain(in: lines, from: i)
                 #expect(chain.contains("accessibilityLabel"),
-                        "\(path.split(separator: "/").last ?? ""):\(i + 1) uses CloseButton without naming it — the component deliberately does not name itself")
+                        "\(file.lastPathComponent):\(i + 1) uses CloseButton without naming it — the component deliberately does not name itself")
             }
         }
-        #expect(seen == 4, "expected 4 CloseButton call sites, found \(seen) — the list is stale")
+        // Six today: Help, the banner, Settings, the destination picker, setup's ✕ and the Info
+        // inspector. At least that many, so a scan that stopped matching cannot pass on none.
+        #expect(seen >= 6, "found \(seen) CloseButton call sites, expected at least 6 — the scan has stopped matching")
 
         // And the component still declines to name itself, which is what makes the check above the
         // one that matters. If this flips, the call-site names are sitting on top of a generic one.
