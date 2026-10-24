@@ -1033,7 +1033,7 @@ struct FolderJumpMenu: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Jump to a pinned, recent, or nearby folder")
+        .help("Jump to a favorite, recent, or nearby folder")
         .accessibilityLabel("Jump to another folder")
         .task(id: "\(rootPath)|\(relativePath)|\(showHidden)") {
             let root = rootPath, rel = relativePath, hidden = showHidden

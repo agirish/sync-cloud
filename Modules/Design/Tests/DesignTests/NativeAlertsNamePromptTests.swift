@@ -41,7 +41,7 @@ import Testing
     /// matter here. Design can't import Sync, and doesn't need to — it takes the rule as a closure.
     private let validate: (String) -> String? = { name in
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "A name is required." }
-        if name.contains("/") { return "Names can't contain \"/\"." }
+        if name.contains("/") { return "Names can’t contain “/”." }
         return nil
     }
 

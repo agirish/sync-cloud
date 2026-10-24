@@ -157,6 +157,26 @@ import Testing
         #expect(blank == 0, "the leading drop zone painted \(blank) pixels; it should draw nothing")
     }
 
+    /// **The head's zone scrolls with the row.** Laid over the `ScrollView` it stayed pinned at the
+    /// visible left edge, so with a long bar scrolled a drop there landed at index 0, off-screen,
+    /// rather than on the pill under the pointer. A drop cannot be driven from a test, so this reads
+    /// `track`: the zone must be laid inside the scroll view's content closure, and nowhere after.
+    @Test func theHeadZoneIsScrolledContent() throws {
+        let code = try Self.source().split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        let start = try #require(code.range(of: "private var track: some View {"))
+        let end = try #require(code.range(of: "private var trackRow: some View {", range: start.upperBound..<code.endIndex))
+        let track = code[start.upperBound..<end.lowerBound]
+        let open = try #require(track.range(of: "ScrollView(.horizontal"), "track no longer scrolls — re-read this test")
+        // The content closure ends at the first brace back at the ScrollView's own indent.
+        let close = try #require(track.range(of: "\n        }", range: open.upperBound..<track.endIndex))
+        #expect(track[open.upperBound..<close.lowerBound].contains("leadingEdgeZone"),
+                "the head's drop zone is not inside the scrolled content — it stays at the visible edge")
+        #expect(!track[close.upperBound...].contains("leadingEdgeZone"),
+                "the head's drop zone is laid over the scroll view, pinned at the visible edge")
+    }
+
     /// Pixels that differ from the white ground, for a view rendered in a real (never shown) window.
     private static func inkedPixels(_ view: some View) -> Int? {
         let host = NSHostingView(rootView: AnyView(view.background(Color.white)

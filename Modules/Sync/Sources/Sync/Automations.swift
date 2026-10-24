@@ -162,7 +162,7 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
             // The id, not a display name: this type has no roster to look one up in, and a
             // summary that guessed would go stale the moment a person was renamed. The editor and
             // the rule list substitute the name they know — see `summary(resolvingPeople:)`.
-            return "is \(id.isEmpty ? "…" : id)'s document"
+            return "is \(id.isEmpty ? "…" : id)’s document"
         case .unrecognized(let name, _):
             return "\(name) (from a newer version)"
         }
@@ -174,9 +174,9 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
     public func summary(resolvingPeople registry: PersonRegistry?) -> String {
         guard case .personIs(let id) = self, let registry else { return summary }
         guard let person = registry.people.first(where: { $0.id == id }) else {
-            return "is \(id)'s document (not on your People list)"
+            return "is \(id)’s document (not on your People list)"
         }
-        return "is \(person.displayName)'s document"
+        return "is \(person.displayName)’s document"
     }
 
     /// Whether the condition is fully specified (a blank glob / term / zero threshold is a

@@ -258,7 +258,7 @@ public class FileSyncManager: ObservableObject {
     /// undo/redo outside `reverseLastSyncRun` (which clears the pairing itself) invalidates it.
     ///
     /// Also called (internal, from `deleteItems`) when an op registers an undo group WITHOUT
-    /// arming the pairing — a mixed delete pushes a "Delete <trashedCount> Items" group whose
+    /// arming the pairing — a mixed delete pushes a "Move <trashedCount> Items to Trash" group whose
     /// name can collide with an earlier armed delete's, and the stale pairing would pass the
     /// name gate over the wrong group.
     func invalidateRunUndoPairing() {
@@ -322,19 +322,27 @@ public class FileSyncManager: ObservableObject {
     /// - Returns: The refusal, or nil when it asked (whatever the answer was).
     @discardableResult
     public func undoLastSyncRunAskingFirst(confirm: (SyncRunUndoPreview) -> Bool) -> String? {
-        guard let preview = lastSyncRunUndoPreview else { return lastSyncRunUndoRefusal }
+        guard let preview = lastSyncRunUndoPreview else { return loggedRunUndoRefusal() }
         guard confirm(preview) else { return nil }
         // Re-read, not `preview`: the confirm is a modal, and the stack is only trusted as of now.
-        guard let current = lastSyncRunUndoPreview else { return lastSyncRunUndoRefusal }
+        guard let current = lastSyncRunUndoPreview else { return loggedRunUndoRefusal() }
         // …and it must still be the run the alert listed: a second "Sync run" finishing behind the
         // modal re-arms the pairing under the same name (FR26), and Undo would reverse a run the alert
         // never listed.
         guard current.runToken == preview.runToken else {
             Logger.shared.warning("Undo Last Run refused: the run on top of the undo stack is not the one the confirmation listed (\(preview.operationCount) operation(s) shown, \(current.operationCount) on top)")
-            return "Another sync run finished while you were deciding, so nothing was undone. Choose Undo Last Run again to see what it would reverse."
+            return "Another sync run finished while you were deciding, so nothing was undone. Choose Undo Last Run… again to see what it would reverse."
         }
         reverseLastSyncRun()
         return nil
+    }
+
+    /// `lastSyncRunUndoRefusal`, logged. The refusal is shown in Sync History's own alert, which
+    /// leaves no trace; the banner it replaced logged itself, so the log keeps the line.
+    private func loggedRunUndoRefusal() -> String? {
+        let refusal = lastSyncRunUndoRefusal
+        if let refusal { Logger.shared.info("Undo Last Run refused: \(refusal)") }
+        return refusal
     }
 
     /// The reversal itself, behind the gate `undoLastSyncRunAskingFirst` checks first.
@@ -1933,9 +1941,11 @@ public class FileSyncManager: ObservableObject {
     /// A tree row's "Can’t be read" placeholder asks on `.onAppear`, and scrolling brings it into
     /// view over and over: without this each appearance started the same doomed listing and drew
     /// a spinner for its length, so the row flickered between the spinner and the caption. The
-    /// outcome is remembered until this side's tree is walked afresh (`adoptRawTree`), which is
-    /// when a retry can find something different — ⌘R, or navigating back in. Cleared by
-    /// `swapPanes` for the reason the in-flight set is.
+    /// outcome is remembered until this side's tree is walked afresh (`adoptRawTree`) — ⌘R, or
+    /// navigating back in. **It holds back only that passive ask**: an explicit open always
+    /// retries, because "unreadable" can be a slow dataless folder the deadline deferred, and
+    /// opening it again is the retry (`loadColumnChildren`'s `passive`). Cleared by `swapPanes`
+    /// for the reason the in-flight set is.
     internal var columnGraftsUnreadable: Set<ColumnGraftKey> = []
 
     /// **Bumped when the panes change sides**, and nothing else.

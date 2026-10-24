@@ -5,27 +5,36 @@ import Foundation
 public struct NativeAlerts {
     
     /// The ⌘⌫ / row-menu confirmation. It says "Move to Trash" because that is what happens — the
-    /// same verb as the pane bar's rung and every other trash confirmation, as Finder names it.
+    /// same verb as the row menu and every other trash confirmation, as Finder names it. (The pane
+    /// bar's button keeps the short "Delete", as Finder's toolbar does.)
     ///
     /// **No promise of ⌘Z.** It once said "You can put it back with ⌘Z, or from the Trash", which
     /// is false on a volume with no Trash (a second alert follows, for a permanent delete) and in
-    /// Edit's file list, where ⌘Z may undo typing instead.
+    /// Edit's file list, where ⌘Z may undo typing instead. The body says what the title cannot —
+    /// that the Trash gives it back — rather than repeating the title ("It goes to the Trash."). A
+    /// volume with no Trash asks again, in its own alert, before anything is deleted outright.
     /// - Parameters:
     ///   - itemNames: The list of file or folder names selected for deletion.
     /// - Returns: True if the user confirmed the deletion.
     public static func confirmDelete(for itemNames: [String]) -> Bool {
-        guard !itemNames.isEmpty else { return false }
+        guard let alert = deleteAlert(for: itemNames) else { return false }
+        return alert.runModal() == .alertFirstButtonReturn
+    }
 
+    /// The alert `confirmDelete` presents, built but **not run** — internal so a test can pin its
+    /// words and buttons without entering a modal session it cannot dismiss. `nil` for no items.
+    static func deleteAlert(for itemNames: [String]) -> NSAlert? {
+        guard !itemNames.isEmpty else { return nil }
         if itemNames.count == 1, let first = itemNames.first {
-            return confirmAction(
+            return destructiveAlert(
                 messageText: "Move “\(first)” to the Trash?",
-                informativeText: "It goes to the Trash.",
+                informativeText: "You can put it back from the Trash.",
                 confirmTitle: "Move to Trash"
             )
         }
-        return confirmAction(
+        return destructiveAlert(
             messageText: "Move \(itemNames.count.formatted()) items to the Trash?",
-            informativeText: "They go to the Trash.",
+            informativeText: "You can put them back from the Trash.",
             confirmTitle: "Move to Trash"
         )
     }
@@ -106,6 +115,13 @@ public struct NativeAlerts {
     /// the `promptForName` pattern below): the caller supplies only the strings that differ.
     /// - Returns: True if the user chose the confirm button.
     private static func confirmAction(messageText: String, informativeText: String, confirmTitle: String) -> Bool {
+        destructiveAlert(messageText: messageText, informativeText: informativeText,
+                         confirmTitle: confirmTitle).runModal() == .alertFirstButtonReturn
+    }
+
+    /// The alert `confirmAction` presents, built but not run.
+    private static func destructiveAlert(messageText: String, informativeText: String,
+                                         confirmTitle: String) -> NSAlert {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = messageText
@@ -119,8 +135,7 @@ public struct NativeAlerts {
             confirmButton.hasDestructiveAction = true
             confirmButton.keyEquivalent = "\r"
         }
-
-        return alert.runModal() == .alertFirstButtonReturn
+        return alert
     }
     
     /// Presents a native macOS prompt requesting a new name for an existing file/folder.

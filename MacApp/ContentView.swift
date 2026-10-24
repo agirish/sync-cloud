@@ -4913,7 +4913,7 @@ struct ContentView: View {
             // have — the walk stopped before reaching it. This is what fills it in, one directory
             // listing at a time. Without this wiring the budget would trade a hang for a pane that
             // silently cannot navigate a large tree.
-            onNeedChildren: { syncManager.loadColumnChildren(atPath: $0, isLeft: pane.isLeft) },
+            onNeedChildren: { syncManager.loadColumnChildren(atPath: $0, isLeft: pane.isLeft, passive: $1) },
             // So a column can say "reading this" rather than "can't be read" while it waits.
             graftsInFlight: syncManager.columnGraftsInFlightPaths(isLeft: pane.isLeft),
             // The background menus' Sort By ticks the order the panes are in.

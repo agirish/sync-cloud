@@ -25,13 +25,19 @@ import Sync
     /// binding open, and see what was asked for.
     @MainActor
     private func requestsWhenExpanding(_ rows: [FileNode], path: String, open: Bool) -> [String] {
-        var asked: [String] = []
+        requestsWhenExpandingWithPassive(rows, path: path, open: open).map(\.path)
+    }
+
+    @MainActor
+    private func requestsWhenExpandingWithPassive(_ rows: [FileNode], path: String,
+                                                  open: Bool) -> [(path: String, passive: Bool)] {
+        var asked: [(path: String, passive: Bool)] = []
         var expanded: Set<String> = open ? [] : [path]
         let tree = PaneTree(side: .left, version: 1, nodes: rows)
         let view = PaneOutlineRows(
             rows: tree.rows,
             expanded: Binding(get: { expanded }, set: { expanded = $0 }),
-            onNeedChildren: { asked.append($0) },
+            onNeedChildren: { asked.append(($0, $1)) },
             row: { _ in EmptyView() })
         let target = try? #require(tree.rows.first { $0.node.id == path })
         guard let target else { return asked }
@@ -44,6 +50,29 @@ import Sync
         let rows = [node("/r/unread", unexplored: true, children: [])]
         #expect(requestsWhenExpanding(rows, path: "/r/unread", open: true) == ["/r/unread"],
                 "expanding a folder the walk never read asked for nothing — it opens onto an empty body forever")
+    }
+
+    /// **Opening is an explicit ask, never a passive one** — so the manager retries a folder it
+    /// found unreadable before (a slow cloud folder may have downloaded since), where a scroll
+    /// past would not.
+    @MainActor
+    @Test func openingAsksExplicitly() {
+        let rows = [node("/r/unread", unexplored: true, children: [])]
+        let asked = requestsWhenExpandingWithPassive(rows, path: "/r/unread", open: true)
+        #expect(asked.map(\.passive) == [false],
+                "opening a row asked passively — a folder found unreadable once could never be retried")
+    }
+
+    /// **The placeholder's `onAppear` is the passive ask**, and the only one: it fires on every
+    /// scroll past, which is what the manager's unreadable memory is for. Read from the body,
+    /// since `onAppear` cannot be fired from a test.
+    @Test func thePlaceholderAsksPassively() throws {
+        let outline = try OrganizeScopeCallSiteTests.source("PaneOutlineRows.swift")
+        let body = try OrganizeScopeCallSiteTests.body(of: "var body: some View {", in: outline)
+        #expect(body.contains("onNeedChildren(paneRow.node.id, true)"),
+                "the placeholder's appear-time ask is not marked passive — every scroll past re-lists an unreadable folder")
+        #expect(!outline.contains("onNeedChildren(id, true)"),
+                "opening a row asks passively")
     }
 
     /// **A walked folder must not be asked about.** Every ordinary directory in a normal source is

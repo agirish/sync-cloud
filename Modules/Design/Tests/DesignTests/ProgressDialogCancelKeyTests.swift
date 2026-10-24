@@ -18,7 +18,11 @@ import Testing
 @Suite(.serialized) struct ProgressDialogCancelKeyTests {
 
     private func host(_ progress: Progress) async throws -> NSWindow {
-        let hostView = NSHostingView(rootView: ProgressDialog(progress: progress))
+        try await host(AnyView(ProgressDialog(progress: progress)))
+    }
+
+    private func host(_ root: AnyView) async throws -> NSWindow {
+        let hostView = NSHostingView(rootView: root)
         hostView.frame = CGRect(x: 0, y: 0, width: 400, height: 220)
         let window = NSWindow(contentRect: hostView.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -57,6 +61,57 @@ import Testing
         let commandPeriod = try key(window, keyCode: 47, characters: ".", modifiers: .command)
         #expect(window.performKeyEquivalent(with: commandPeriod), "⌘. was not claimed by the dialog")
         #expect(progress.isCancelled, "⌘. did not cancel the operation")
+    }
+
+    /// A click counter a SwiftUI button can write from inside a hosted view.
+    private final class Presses { var count = 0 }
+
+    /// **⌘. over a window with an Esc button reaches the dialog, and only the dialog.** AppKit
+    /// treats ⌘. as Esc (`cancelOperation:`), so a `.cancelAction` button under the overlay —
+    /// Settings' close, a sheet's Cancel — is the other claimant. Pressing it there would close
+    /// whatever lies under the copy and leave the copy running. Both stacking orders, since which
+    /// view the key pass meets first is the whole question.
+    ///
+    /// Measured 2026-10-24: with the dialog's own chord removed, neither the key-equivalent pass
+    /// nor the window's keyDown carried ⌘. to the hosted `.cancelAction` button, so the second
+    /// half has never been seen red here — it holds the line should AppKit or SwiftUI start
+    /// mapping ⌘. onto Esc buttons. The first half goes red with the chord removed.
+    @Test(arguments: [true, false])
+    func commandPeriodCancelsTheDialogNotAnEscButtonUnderIt(dialogOnTop: Bool) async throws {
+        let progress = cancellable()
+        let presses = Presses()
+        let escButton = Button("Close") { presses.count += 1 }.keyboardShortcut(.cancelAction)
+        let dialog = ProgressDialog(progress: progress)
+        let root = dialogOnTop
+            ? AnyView(ZStack { escButton; dialog })
+            : AnyView(ZStack { dialog; escButton })
+        let window = try await host(root)
+        defer { window.close() }
+
+        // The control: Esc alone does reach the button, so the fixture can see a press.
+        let escape = try key(window, keyCode: 53, characters: "\u{1b}", modifiers: [])
+        _ = window.performKeyEquivalent(with: escape)
+        try #require(presses.count == 1, "Esc did not press the .cancelAction button — this fixture sees nothing")
+        try #require(!progress.isCancelled, "Esc cancelled the operation")
+
+        // As NSApplication delivers it: the key-equivalent pass, then — only if nothing claimed
+        // it — the window's keyDown, where AppKit turns ⌘. into `cancelOperation:`.
+        let commandPeriod = try key(window, keyCode: 47, characters: ".", modifiers: .command)
+        if !window.performKeyEquivalent(with: commandPeriod) { window.sendEvent(commandPeriod) }
+        #expect(progress.isCancelled, "⌘. did not cancel the operation with an Esc button under the dialog")
+        #expect(presses.count == 1, "⌘. also pressed the Esc button under the dialog")
+    }
+
+    /// **The count is grouped for the reader's locale**, like the title above it. The locale is
+    /// pinned so the separator is a fact of the test; a cached formatter with no locale ignored
+    /// it. Clamped to the total, as the bar is.
+    @Test func theCountIsGroupedForTheLocale() {
+        #expect(ProgressDialog.formattedCount(completed: 3336, total: 7363, locale: Locale(identifier: "en_US"))
+                == "3,336 of 7,363")
+        #expect(ProgressDialog.formattedCount(completed: 3336, total: 7363, locale: Locale(identifier: "de_DE"))
+                == "3.336 of 7.363")
+        #expect(ProgressDialog.formattedCount(completed: 7400, total: 7363, locale: Locale(identifier: "en_US"))
+                == "7,363 of 7,363")
     }
 
     /// **The Cancel button's key comes from `AppChord.cancelOperation`, whole.** The key pass above

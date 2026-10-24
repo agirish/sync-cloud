@@ -1743,7 +1743,7 @@ struct ProviderSettingsSection: View {
         .chromeHover()
         // "Folders", not "location": what this discloses is the source's root AND the folder panes
         // open at, which were one field called Location until the two came apart.
-        .help(isExpanded ? "Hide \(provider.displayName)'s folders" : "Show \(provider.displayName)'s folders")
+        .help(isExpanded ? "Hide \(provider.displayName)’s folders" : "Show \(provider.displayName)’s folders")
         .accessibilityLabel(isExpanded ? "Collapse \(provider.displayName)" : "Expand \(provider.displayName)")
     }
 
@@ -1816,7 +1816,7 @@ struct ProviderSettingsSection: View {
             // place would show a Location this source does not have.
             refusedDuplicateOwner = settings.availableProviders
                 .first { $0.id == existingId }
-                .map { "\($0.displayName)'s folder" } ?? "another source’s folder"
+                .map { "\($0.displayName)’s folder" } ?? "another source’s folder"
             pathDraft.adopt(provider.rootPath)
         case .refusedOutsideRoot, .refusedUnknownSource:
             // Neither reaches this field: `setPath`'s folder-source branch refuses only duplicates,

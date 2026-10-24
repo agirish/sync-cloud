@@ -176,7 +176,8 @@ public struct SyncHistoryView: View {
             Button {
                 undoRefusal = onUndoLastSyncRun()
             } label: {
-                Label("Undo Last Run", systemImage: "arrow.uturn.backward")
+                // "…": it asks first, showing what it would reverse, whenever it can act.
+                Label("Undo Last Run…", systemImage: "arrow.uturn.backward")
             }
             // Glass in Frosted and Clear, like Export and Clear beside it (`ChromeGlass`): one header,
             // one kind of button.

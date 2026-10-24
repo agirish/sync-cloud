@@ -175,7 +175,7 @@ public enum OpenAtRefusal {
             // Unreachable from this picker — a landing folder is not a source and cannot collide
             // with one — but named rather than defaulted, so adding a case to the enum keeps
             // failing here until someone decides what these rows should say about it.
-            return "That folder couldn’t be used as \(provider)'s opening folder."
+            return "That folder couldn’t be used as \(provider)’s opening folder."
         }
     }
 }

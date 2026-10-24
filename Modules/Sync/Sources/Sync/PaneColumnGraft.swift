@@ -104,14 +104,21 @@ extension FileSyncManager {
     /// unbounded walk back, one level down: opening `~/Library` would walk 93,500 directories to
     /// answer a question about its immediate children. One level per column open is Finder's cost,
     /// and each further column pays its own.
-    public func loadColumnChildren(atPath path: String, isLeft: Bool) {
+    ///
+    /// - Parameter passive: whether this ask is a tree placeholder's `onAppear` — the one that fires
+    ///   on every scroll past. Only a passive ask honours `columnGraftsUnreadable`. An explicit
+    ///   open (a click on the disclosure, a column opening) always retries: an unreadable answer
+    ///   can be a slow dataless cloud folder the deadline deferred (`DatalessFolderReads`), and
+    ///   opening it again is how a person asks for it once it has downloaded.
+    public func loadColumnChildren(atPath path: String, isLeft: Bool, passive: Bool = false) {
         guard !path.isEmpty else { return }
         // A column re-renders for many reasons; without this a slow listing collects a request per
         // render, each walking the same directory.
         let key = ColumnGraftKey(isLeft: isLeft, path: path)
         guard !columnGraftsInFlight.contains(key) else { return }
-        // Already tried and unreadable: the answer stands until this side is walked afresh.
-        guard !columnGraftsUnreadable.contains(key) else { return }
+        // Already tried and unreadable: a scroll past does not ask again until this side is walked
+        // afresh. An explicit open does.
+        guard !(passive && columnGraftsUnreadable.contains(key)) else { return }
         // Asked of the tree with the folder it was walked at: a column's `path` is composed from
         // that folder, and the names down from it are what find the node (`TreeShape.position`).
         guard Self.isUnexplored(atPath: path, under: paneTreeFolder(isLeft: isLeft) ?? "",
@@ -124,6 +131,11 @@ extension FileSyncManager {
         // order, and a sort change while it runs re-sorts the live trees before it lands — a
         // graft in the old order would then be the one out-of-order column on screen.
         let builtWith = sortOption
+        // And the raw-tree generation, for the unreadable memory alone: a fresh walk (⌘R) while
+        // this ran has already cleared that memory, and an answer about the old tree must not
+        // re-fill it. Not a guard on the graft — a sibling graft bumps it too (see
+        // `paneOrientationGeneration`).
+        let generation = rawTreeGeneration
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -150,7 +162,8 @@ extension FileSyncManager {
             // the column say "Can't be read" rather than "Empty". `adoptRawTree` unwraps the same
             // shape for the same reason.
             if Self.isUnreadableRootWalk(children, at: path) {
-                self.columnGraftsUnreadable.insert(key)
+                if self.rawTreeGeneration == generation { self.columnGraftsUnreadable.insert(key) }
+                Logger.shared.debug("[graft] \(isLeft ? "left" : "right") could not be read at “\(path)”")
                 return
             }
 

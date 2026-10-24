@@ -83,7 +83,7 @@ import Design
         childrenIndex: PaneChildrenIndex? = nil,
         browsePath: PaneBrowsePath = PaneBrowsePath(),
         onColumnNavigate: ((PaneBrowsePath) -> Void)? = { _ in },
-        onNeedChildren: ((String) -> Void)? = { _ in },
+        onNeedChildren: ((String, Bool) -> Void)? = { _, _ in },
         graftsInFlight: Set<String> = [],
         onBackgroundDeselect: ((Int?) -> Void)? = { _ in },
         onQuickLook: ((URL) -> Void)? = { _ in },
@@ -338,7 +338,7 @@ import Design
         #expect(pane() != pane(onBarEdgeFlip: noFlip))
         #expect(pane() != pane(onColumnNavigate: noNavigate))
         #expect(pane() != pane(onBackgroundDeselect: noDeselect))
-        let noChildren: ((String) -> Void)? = nil
+        let noChildren: ((String, Bool) -> Void)? = nil
         #expect(pane() != pane(onNeedChildren: noChildren))
     }
 

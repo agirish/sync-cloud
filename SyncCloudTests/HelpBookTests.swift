@@ -324,20 +324,22 @@ import Testing
         }
     }
 
-    /// **The lines about Edit that had fallen behind it** (TE172), each against what it described:
-    /// Edit autosaves, so it does not save "when you ask it to"; a file that is not Markdown, or no
-    /// file, has a Files tab alone (`EditorRailTab.shown`); README's "rail" is the file list, its
-    /// header buttons read New Text File and Close, and its PDF line offers the outline only when a
-    /// PDF has two or more bookmarks (`EditorRailTab.minimumPDFBookmarks`); and ⌘O opens a selected
-    /// PDF as well as a text file. Mutation: put any old line back and its check fails.
     /// **Help names controls by the labels they wear now** (X1, X2): Restructure's re-read is
     /// “Update the survey” (never a Rescan, never “…now”), File's trash item is Move Selection to
-    /// Trash…, and a folder you keep is in Favorites, not "pinned". Each positive half is checked
-    /// against the control's own source, so a rename on either side fails here.
+    /// Trash…, and a folder you keep is in Favorites, not "pinned" — the word is a tab's alone. Each
+    /// positive half is checked against the control's own source, so a rename on either side fails
+    /// here.
     @Test func helpNamesControlsByTheirCurrentLabels() throws {
         let book = HelpBook.allTopics.flatMap(Self.copy(of:)).joined(separator: " ")
-        for stale in ["a Rescan beside it", "Update the survey now", "then Delete, then", "pinned folder"] {
+        for stale in ["a Rescan beside it", "Update the survey now", "then Delete, then"] {
             #expect(!book.contains(stale), "Help still says “\(stale)”")
+        }
+        // "Pinned" is a tab's word now; a folder is a favorite. Any other "pinned" is the old name.
+        let lines = HelpBook.allTopics.flatMap(Self.copy(of:))
+        let pinned = lines.filter { $0.localizedCaseInsensitiveContains("pinned") }
+        #expect(!pinned.isEmpty, "Help no longer mentions a pinned tab — this scan would be vacuous")
+        for line in pinned where !line.contains("a pinned tab") {
+            Issue.record("Help says “pinned” about something other than a tab: \(line)")
         }
         #expect(book.contains("“Update the survey”"))
         #expect(book.contains("then Move Selection to Trash…, then Close Document"))
@@ -347,6 +349,12 @@ import Testing
         #expect(commands.contains("Button(\"Move Selection to Trash…\")"), "File's trash item was renamed")
     }
 
+    /// **The lines about Edit that had fallen behind it** (TE172), each against what it described:
+    /// Edit autosaves, so it does not save "when you ask it to"; a file that is not Markdown, or no
+    /// file, has a Files tab alone (`EditorRailTab.shown`); README's "rail" is the file list, its
+    /// header buttons read New Text File and Close, and its PDF line offers the outline only when a
+    /// PDF has two or more bookmarks (`EditorRailTab.minimumPDFBookmarks`); and ⌘O opens a selected
+    /// PDF as well as a text file. Mutation: put any old line back and its check fails.
     @Test func editsLinesSayWhatEditDoes() throws {
         let book = HelpBook.allTopics.flatMap(Self.copy(of:)).joined(separator: " ")
         for stale in ["it saves when you ask it to", "The file list has two tabs: Files and Outline"] {

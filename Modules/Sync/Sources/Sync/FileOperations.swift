@@ -1334,7 +1334,9 @@ extension FileSyncManager {
         let total = Int64(prunedPaths.count)
         let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
         if let progress {
-            progress.localizedDescription = "Deleting \(CountedNoun.phrase(Int(total), "Item"))"
+            // What happens: a no-Trash volume asks first, in its own alert, before anything is
+            // deleted outright.
+            progress.localizedDescription = "Moving \(CountedNoun.phrase(Int(total), "Item")) to the Trash"
             progress.isCancellable = true
         }
 
@@ -1586,7 +1588,7 @@ extension FileSyncManager {
             // A batch can both remove some items and keep others the user declined to destroy.
             // Reporting only the removals would leave them believing the kept ones went too.
             let kept = result.declined == 0 ? "" :
-                " — kept \(result.declined) that can’t be moved to the Trash"
+                " — kept \(result.declined.formatted()) that can’t be moved to the Trash"
             self.banner = .success(deleted + kept, undoable: successfullyTrashed.count == items.count)
         }
         // **One line at THIS level for anything the gate kept.** The two shipped gates log per
@@ -1661,7 +1663,7 @@ extension FileSyncManager {
             //
             // A MIXED batch (some trashed, some permanent) did register a partial group above,
             // named by its TRASHED count — which can collide with an earlier armed delete's
-            // name ("Delete 1 Item" after "Delete 1 Item"). That group now tops the stack,
+            // name ("Move to Trash" after "Move to Trash"). That group now tops the stack,
             // so any surviving pairing is stale and must die: the name gate cannot tell the
             // two groups apart. All-permanent registers nothing, so the previous pairing's
             // group is still the top and stays valid.

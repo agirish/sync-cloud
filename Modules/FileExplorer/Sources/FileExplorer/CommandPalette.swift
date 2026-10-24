@@ -758,7 +758,7 @@ public enum PaletteRouter {
         return PaletteRow(
             id: "person.\(person.id)",
             group: .people,
-            title: "Everything that is \(person.displayName)'s",
+            title: "Everything that is \(person.displayName)’s",
             detail: person.relationship.map { "\($0.capitalized) · gathers across the whole source" }
                 ?? "Gathers across the whole source",
             symbol: "person.crop.circle",

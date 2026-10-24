@@ -42,7 +42,7 @@ public struct ProgressDialog: View {
                     .progressViewStyle(.linear)
 
                 // Single count line, e.g. "3,336 of 7,363"
-                Text(formattedCount(completed: completed, total: total))
+                Text(Self.formattedCount(completed: completed, total: total))
                     .scaledFont(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -80,19 +80,18 @@ public struct ProgressDialog: View {
         }
     }
 
-    private static let countFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter
-    }()
-
-    private func formattedCount(completed: Int64, total: Int64) -> String {
+    /// "3,336 of 7,363", grouped the way the reader's locale writes numbers — read each time, as
+    /// the title's `CountedNoun` is. A cached `NumberFormatter` with no locale set kept the region
+    /// it was first used in, so a region change left the counter grouped one way under a title
+    /// grouped another.
+    /// - Parameter locale: the reader's unless a test pins one.
+    nonisolated static func formattedCount(completed: Int64, total: Int64,
+                                           locale: Locale = .autoupdatingCurrent) -> String {
         // Clamp the shown count to the total for the same reason the bar is clamped: `completed`
         // can briefly drift past `total` during cancel, which would otherwise read like
         // "7,400 of 7,363".
         let shown = total > 0 ? min(completed, total) : completed
-        let c = Self.countFormatter.string(from: NSNumber(value: shown)) ?? "\(shown)"
-        let t = Self.countFormatter.string(from: NSNumber(value: total)) ?? "\(total)"
-        return "\(c) of \(t)"
+        let style = IntegerFormatStyle<Int64>.number.locale(locale)
+        return "\(shown.formatted(style)) of \(total.formatted(style))"
     }
 }

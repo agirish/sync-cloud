@@ -67,7 +67,7 @@ import Foundation
     /// correct in Browse, which has one pane, and fail only in Compare's right-hand pane.
     @Test func theRequestCarriesTheRequestingPanesSide() throws {
         let code = try Self.appSource()
-        #expect(code.contains("loadColumnChildren(atPath: $0, isLeft: pane.isLeft)"),
-                "the graft request does not carry the requesting pane's own side")
+        #expect(code.contains("loadColumnChildren(atPath: $0, isLeft: pane.isLeft, passive: $1)"),
+                "the graft request does not carry the requesting pane's own side, or drops whether it is a scroll past")
     }
 }

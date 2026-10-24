@@ -31,22 +31,53 @@ import Testing
     /// stopping at a comment cut chains in half. The first version of this scan reported 43 sites;
     /// with both fixed, 26 — and every one of the 17 differences was a control that was already
     /// named.
+    ///
+    /// **A comment extends the chain but is not part of it.** The text returned is code only, so a
+    /// comment that merely mentions `accessibilityLabel` — "no accessibilityLabel needed here" —
+    /// cannot satisfy the check for one. Whole-line comments are dropped and a trailing `//` is cut
+    /// where it stands outside a string literal.
     private static func chain(in lines: [String], from start: Int) -> String {
         let base = lines[start].prefix { $0 == " " }.count
+        var code = [codeOnly(lines[start])]
         var end = start + 1
         while end < lines.count {
             let raw = lines[end]
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty { end += 1; continue }
-            if trimmed.hasPrefix("//") || trimmed.hasPrefix("*") { end += 1; continue }
+            if trimmed.hasPrefix("//") || trimmed.hasPrefix("*") || trimmed.hasPrefix("/*") {
+                end += 1; continue
+            }
             let ind = raw.prefix { $0 == " " }.count
             let continues = trimmed.hasPrefix(".") || trimmed.hasPrefix("}")
                 || trimmed.hasPrefix(")") || trimmed.hasPrefix("]")
             if ind <= base && !continues { break }
+            code.append(codeOnly(raw))
             end += 1
         }
-        return lines[start..<end].joined(separator: "\n")
+        return code.joined(separator: "\n")
     }
+
+    /// `line` without a trailing `//` comment. A `//` inside a string literal (a URL) is kept: the
+    /// cut is taken at the first `//` with an even number of quotes before it.
+    private static func codeOnly(_ line: String) -> String {
+        var quotes = 0
+        var previous: Character? = nil
+        var index = line.startIndex
+        while index < line.endIndex {
+            let character = line[index]
+            if character == "\"" && previous != "\\" { quotes += 1 }
+            if character == "/", previous == "/", quotes % 2 == 0 {
+                return String(line[..<line.index(before: index)])
+            }
+            previous = character
+            index = line.index(after: index)
+        }
+        return line
+    }
+
+    /// Glyph-only components that deliberately name themselves nowhere, so each call site can say
+    /// what it closes (`CloseButton`'s doc). Their call sites are checked instead.
+    private static let namedByCallers = ["Modules/Design/Sources/Design/CloseButton.swift"]
 
     private static func unnamedControls(in files: [URL]) throws -> [Unnamed] {
         var found: [Unnamed] = []
@@ -67,6 +98,10 @@ import Testing
                 guard !block.contains("accessibilityLabel") else { continue }
                 // A control hidden from accessibility is not an unnamed one; it is not there at all.
                 guard !block.contains("accessibilityHidden(true)") else { continue }
+                // Named by every caller instead, which `theGlyphOnlyComponentsAreNamedSomewhere`
+                // checks site by site. Listed here by path: its body's comment saying so used to
+                // satisfy this scan, by mentioning `accessibilityLabel`.
+                guard !Self.namedByCallers.contains(where: { file.path.hasSuffix($0) }) else { continue }
                 found.append(Unnamed(file: file.lastPathComponent, line: i + 1))
             }
         }
@@ -111,6 +146,26 @@ import Testing
         let block = Self.chain(in: named, from: 0)
         #expect(block.contains("accessibilityLabel"),
                 "a comment cut the chain — every control explained above its label would be a phantom hit")
+    }
+
+    /// **A comment that mentions the label is not the label.** The chain keeps comment lines going,
+    /// and once returned them too, so a control explained by "// accessibilityLabel comes later"
+    /// — and never named — passed.
+    @Test func aCommentOnlyLabelDoesNotName() {
+        let planted = """
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                }
+                // Gets its .accessibilityLabel("Delete") from the row.
+                .buttonStyle(.bordered) // accessibilityLabel set by the caller
+                .help("Delete this thing")
+        """.components(separatedBy: "\n")
+        let block = Self.chain(in: planted, from: 0)
+        #expect(block.contains(".help("), "the comment stopped the chain — the walker must still pass it")
+        #expect(!block.contains("accessibilityLabel"),
+                "a comment's mention of accessibilityLabel counted as the control's name")
+        // A `//` inside a string survives the cut.
+        #expect(Self.codeOnly(#".help("See https://example.com") // note"#) == #".help("See https://example.com") "#)
     }
 
     /// **A switch with an empty title must be named some other way.** `Toggle("")` with its label

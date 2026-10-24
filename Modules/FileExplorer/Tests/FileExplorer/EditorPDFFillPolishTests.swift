@@ -541,6 +541,8 @@ import Sync
         let all = try AppCopyScan.menuTitleViolations(exemptions: [])
         #expect(all.contains { $0.fileName == "EditorPDFFillSignMenuItems.swift" },
                 "the scan no longer reaches the Fill & Sign menu, so its exemption proves nothing")
+        #expect(all.contains { $0.fileName == "EditorPDFFillPalette.swift" },
+                "the scan no longer reads the palette's …MenuItem(title:) sizes, so its exemption proves nothing")
         #expect(AppCopyScan.isTitleCase("Find Duplicates of This") && AppCopyScan.isTitleCase("Copy \\(count) Items to…"))
         #expect(!AppCopyScan.isTitleCase("Find duplicates of this") && !AppCopyScan.isTitleCase("Paste here"))
     }
@@ -564,9 +566,22 @@ import Sync
                 var body: some View { Label("Fix name", systemImage: "x") }
             }
             let item = NSMenuItem(title: "Show all files", action: nil, keyEquivalent: "")
+            let field = EditorClosureMenuItem(title: "Type a value…") {}
+            struct ToolsMenu: View {
+                var body: some View {
+                    Button { go() } label: { Text("Open the file") }
+                    Picker("Size", selection: $size) { Text("Extra large").tag(1) }
+                    Text("A caption is not an item")
+                }
+            }
+            struct CommandPalettePanel: View {
+                var body: some View { Button("Search for files") {} }
+            }
             """
         let found = AppCopyScan.menuTitleViolations(in: code, path: "X.swift").map(\.text)
-        #expect(found == [#""Paste here""#, #""Include in comparison""#, #""Fix name""#, #""Show all files""#],
+        #expect(found == [#""Paste here""#, #""Include in comparison""#, #""Fix name""#,
+                          #""Open the file""#, #""Extra large""#,
+                          #""Show all files""#, #""Type a value…""#],
                 "\(found)")
     }
 }

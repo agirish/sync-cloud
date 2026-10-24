@@ -33,7 +33,11 @@ struct PaneOutlineRows<Row: View>: View {
     /// which draws a disclosure triangle that opens onto nothing and stays that way for as long as
     /// the pane is on that root. Same fix as the column's, at the moment the user asks: expanding
     /// IS the request.
-    let onNeedChildren: (String) -> Void
+    ///
+    /// The second argument is `passive`: `true` only for the placeholder's `onAppear`, which fires
+    /// on every scroll past, so the manager may hold back a folder it already found unreadable.
+    /// Opening a row passes `false` — a person asking again is a retry (`loadColumnChildren`).
+    let onNeedChildren: (String, Bool) -> Void
     /// The pane's walk is running — during the shallow first paint every folder is unexplored, so
     /// an opened empty folder says nothing rather than "Can’t be read". See ``placeholder(for:isLoading:graftsInFlight:)``.
     let isLoading: Bool
@@ -43,7 +47,7 @@ struct PaneOutlineRows<Row: View>: View {
     let row: (PaneRow) -> Row
 
     init(rows: [PaneRow], expanded: Binding<Set<String>>,
-         onNeedChildren: @escaping (String) -> Void = { _ in },
+         onNeedChildren: @escaping (String, Bool) -> Void = { _, _ in },
          isLoading: Bool = false, graftsInFlight: Set<String> = [],
          @ViewBuilder row: @escaping (PaneRow) -> Row) {
         self.rows = rows
@@ -69,7 +73,7 @@ struct PaneOutlineRows<Row: View>: View {
                                 if PaneColumnsView.asksForChildren(
                                     isLoading: isLoading,
                                     isUnexplored: paneRow.node.isUnexplored == true) {
-                                    onNeedChildren(paneRow.node.id)
+                                    onNeedChildren(paneRow.node.id, true) // passive: a scroll past
                                 }
                             }
                     } else {
@@ -142,7 +146,7 @@ struct PaneOutlineRows<Row: View>: View {
             set: { isOpen in
                 if isOpen {
                     expanded.insert(id)
-                    if isUnexplored { onNeedChildren(id) }
+                    if isUnexplored { onNeedChildren(id, false) }
                 } else {
                     expanded.remove(id)
                 }

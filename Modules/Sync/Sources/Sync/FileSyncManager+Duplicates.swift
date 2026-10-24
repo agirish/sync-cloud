@@ -1948,7 +1948,7 @@ extension FileSyncManager {
         // out of the loop made this call unconditional, so a fold that completed BEFORE the user
         // pressed Cancel was trashed AFTER it — measured on a Trash-less volume, the Cancel was
         // answered by a modal permanent-delete alert the user never asked for, plus a second
-        // "Deleting N Items" dialog carrying its own, different Cancel (`deleteItems` publishes its
+        // "Moving N Items to the Trash" dialog carrying its own, different Cancel (`deleteItems` publishes its
         // own `Progress`). Before the restructure each fold was trashed inside the loop, so a
         // Cancel stopped further trashing; this restores that meaning under the new shape.
         //

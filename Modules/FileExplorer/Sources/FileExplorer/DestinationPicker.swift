@@ -279,7 +279,7 @@ public struct DestinationPicker: View {
         .alert("New Folder", isPresented: $isCreatingFolder) {
             TextField("Name", text: $newFolderName)
             Button("Cancel", role: .cancel) { newFolderName = "" }
-            Button("Create & \(verb.lowercased()) here") { createFolderAndCommit() }
+            Button("Create & \(verb) Here") { createFolderAndCommit() }
                 .disabled(FileSyncManager.validateItemName(newFolderName) != nil)
         } message: {
             Text("It will be created inside “\(displayName(of: highlighted))”.")

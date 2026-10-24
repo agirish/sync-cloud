@@ -30,7 +30,7 @@ import Testing
     /// The Undo Last Run button keeps what the click answers, rather than discarding it.
     @Test func theButtonKeepsTheRefusal() throws {
         let code = try Self.code()
-        let label = try #require(code.range(of: "Label(\"Undo Last Run\""),
+        let label = try #require(code.range(of: "Label(\"Undo Last Run…\""),
                                  "no Undo Last Run button — this test names something that no longer exists")
         let button = try #require(code[..<label.lowerBound].range(of: "Button {", options: .backwards))
         let action = code[button.upperBound..<label.lowerBound]

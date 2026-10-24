@@ -522,7 +522,7 @@ import Testing
                      "the locked folder was read after all — the fixture is not unreadable here")
 
         // Asked again, as a placeholder scrolling back into view asks: no listing, no spinner.
-        manager.loadColumnChildren(atPath: locked.path, isLeft: true)
+        manager.loadColumnChildren(atPath: locked.path, isLeft: true, passive: true)
         #expect(manager.columnGraftsInFlightPaths(isLeft: true).isEmpty,
                 "an unreadable folder was listed again — its placeholder flickers a spinner on every scroll")
 
@@ -535,11 +535,82 @@ import Testing
 
         // A fresh walk of the side is when to try again.
         manager.adoptRawTree(shallow, isLeft: true, focusPath: root.path)
-        manager.loadColumnChildren(atPath: locked.path, isLeft: true)
+        manager.loadColumnChildren(atPath: locked.path, isLeft: true, passive: true)
         #expect(manager.columnGraftsInFlightPaths(isLeft: true).contains(locked.path),
                 "a fresh walk did not let the unreadable folder be asked for again")
         await waitUntil("the retried listing comes back") {
             manager.columnGraftsInFlightPaths(isLeft: true).isEmpty
         }
+    }
+
+    /// The locked-folder fixture both tests below share: a root holding one unreadable folder,
+    /// adopted shallow so the folder is unexplored.
+    @MainActor
+    private func unreadableFixture(_ prefix: String) async throws
+    -> (manager: FileSyncManager, root: URL, locked: URL, shallow: [FileNode]) {
+        let root = try makeCanonicalTempRoot(prefix: prefix)
+        let locked = root.appendingPathComponent("locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        let manager = FileSyncManager()
+        let shallow = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
+        manager.adoptRawTree(shallow, isLeft: true, focusPath: root.path)
+        try #require(FileSyncManager.isUnexplored(atPath: locked.path, under: root.path, in: manager.rawLeftTree),
+                     "the fixture arrived already walked — this measures nothing")
+        return (manager, root, locked, shallow)
+    }
+
+    private func unlock(_ root: URL, _ locked: URL) {
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    /// **An explicit open retries a folder found unreadable.** "Unreadable" is also what a slow
+    /// dataless cloud folder looks like when the deadline defers it (`DatalessFolderReads`: the
+    /// deadline defers a slow folder, it never drops it) — opening it again is how a person asks
+    /// once it has downloaded. Only the placeholder's scroll-past ask is held back.
+    @MainActor
+    @Test func anExplicitOpenRetriesAFolderFoundUnreadable() async throws {
+        let (manager, root, locked, _) = try await unreadableFixture("graftretry")
+        defer { unlock(root, locked) }
+
+        manager.loadColumnChildren(atPath: locked.path, isLeft: true, passive: true)
+        await waitUntil("the unreadable listing comes back") {
+            manager.columnGraftsInFlightPaths(isLeft: true).isEmpty
+        }
+        try #require(manager.columnGraftsUnreadable.contains(.init(isLeft: true, path: locked.path)),
+                     "the unreadable answer was not remembered — the retry below proves nothing")
+
+        manager.loadColumnChildren(atPath: locked.path, isLeft: true)
+        #expect(manager.columnGraftsInFlightPaths(isLeft: true) == [locked.path],
+                "opening a folder found unreadable did not ask again — a slow cloud folder stays “Can’t be read” until ⌘R")
+        await waitUntil("the retried listing comes back") {
+            manager.columnGraftsInFlightPaths(isLeft: true).isEmpty
+        }
+    }
+
+    /// **An answer about a tree that was walked afresh is not remembered.** ⌘R while the listing
+    /// runs clears the memory; the stale answer landing after it must not re-fill it, or the
+    /// fresh tree's placeholder would never ask.
+    @MainActor
+    @Test func anUnreadableAnswerFromBeforeAFreshWalkIsNotRemembered() async throws {
+        let (manager, root, locked, shallow) = try await unreadableFixture("graftstale")
+        defer { unlock(root, locked) }
+
+        manager.loadColumnChildren(atPath: locked.path, isLeft: true)
+        // Synchronous with the call above: the listing has not run, so it lands after this walk.
+        manager.adoptRawTree(shallow, isLeft: true, focusPath: root.path)
+        await waitUntil("the listing started before the walk comes back") {
+            manager.columnGraftsInFlightPaths(isLeft: true).isEmpty
+        }
+        #expect(!manager.columnGraftsUnreadable.contains(.init(isLeft: true, path: locked.path)),
+                "an answer about the tree ⌘R replaced was remembered against the fresh one")
+        // The control: the same answer with no walk in between IS remembered, so the guard is
+        // what kept it out above, not a listing that never reported.
+        manager.loadColumnChildren(atPath: locked.path, isLeft: true)
+        await waitUntil("the second listing comes back") {
+            manager.columnGraftsInFlightPaths(isLeft: true).isEmpty
+        }
+        #expect(manager.columnGraftsUnreadable.contains(.init(isLeft: true, path: locked.path)))
     }
 }

@@ -1065,7 +1065,7 @@ public struct PaneHeader: View {
                     .buttonStyle(.plain)
                     .chromeHover()
                     .help("Gather everything filed under \(person.displayName), and everything named for them")
-                    .accessibilityLabel("Show everything that is \(person.displayName)'s")
+                    .accessibilityLabel("Show everything that is \(person.displayName)’s")
                 }
             }
         )

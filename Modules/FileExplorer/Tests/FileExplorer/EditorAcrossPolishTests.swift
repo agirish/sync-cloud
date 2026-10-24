@@ -130,9 +130,13 @@ import Testing
                      "not reading Help's sentences")
         try #require(literals.contains { $0.path.hasPrefix("Modules/Settings/") }, "not reading Settings")
         for (name, rule) in [("apostrophe", AppCopyScan.straightApostrophe), ("quote", AppCopyScan.straightQuote)] {
-            let found = try AppCopyScan.violations(of: rule, exemptions: AppCopyScan.punctuationExemptions)
+            let found = try AppCopyScan.violations(of: rule, sentencesOnly: name != "apostrophe", exemptions: AppCopyScan.punctuationExemptions)
             #expect(found.isEmpty, "straight \(name)s:\n\(found.map { "\($0.path):\($0.line): \($0.text)" }.joined(separator: "\n"))")
         }
+        // A bare " inside a multi-line literal needs no escape, so the quote rule cannot see it.
+        let bare = try AppCopyScan.violations(where: AppCopyScan.hasBareQuoteInMultiline,
+                                              exemptions: AppCopyScan.punctuationExemptions)
+        #expect(bare.isEmpty, "straight quotes in multi-line strings:\n\(bare.map { "\($0.path):\($0.line)" }.joined(separator: "\n"))")
     }
 
     /// **US spelling, app-wide** (ST16): colour, reorganisation, judgement and grey had reached
@@ -141,17 +145,50 @@ import Testing
     @Test func everySentenceInTheAppIsSpelledTheUSWay() throws {
         let found = try AppCopyScan.violations(of: AppCopyScan.britishSpelling, sentencesOnly: false, exemptions: AppCopyScan.spellingExemptions)
         #expect(found.isEmpty, "\(found.map { "\($0.path):\($0.line): \($0.text)" }.joined(separator: "\n"))")
+        // Inflections are words too; "towards" is US English as well as British.
+        for word in ["behaviours", "centres", "organises", "organisations", "realise", "realised"] {
+            #expect(AppCopyScan.matches(AppCopyScan.britishSpelling, "the \(word) here"), "\(word) is not caught")
+        }
+        #expect(!AppCopyScan.matches(AppCopyScan.britishSpelling, "scroll towards the end"))
     }
 
     /// **The exemptions still exempt something** — one that no longer matches would hide the next
     /// string written where it points.
     @Test func everyCopyExemptionIsStillNeeded() throws {
-        let staleApostrophe = try AppCopyScan.staleExemptions(AppCopyScan.punctuationExemptions, rule: AppCopyScan.straightApostrophe)
+        let staleApostrophe = try AppCopyScan.staleExemptions(AppCopyScan.punctuationExemptions, rule: AppCopyScan.straightApostrophe,
+                                                              sentencesOnly: false)
         let staleQuote = try AppCopyScan.staleExemptions(AppCopyScan.punctuationExemptions, rule: AppCopyScan.straightQuote)
-        let stale = staleApostrophe.filter { a in staleQuote.contains { $0.file == a.file && $0.contains == a.contains } }
+        let staleBare = try AppCopyScan.staleExemptions(AppCopyScan.punctuationExemptions,
+                                                        where: AppCopyScan.hasBareQuoteInMultiline)
+        let stale = staleApostrophe.filter { a in
+            staleQuote.contains { $0.file == a.file && $0.contains == a.contains }
+                && staleBare.contains { $0.file == a.file && $0.contains == a.contains }
+        }
         #expect(stale.isEmpty, "\(stale.map { "\($0.file): \($0.contains)" })")
         let staleSpelling = try AppCopyScan.staleExemptions(AppCopyScan.spellingExemptions, rule: AppCopyScan.britishSpelling, sentencesOnly: false)
         #expect(staleSpelling.isEmpty, "\(staleSpelling.map { "\($0.file): \($0.contains)" })")
+    }
+
+    /// **An exemption covers the strings it names, not their neighbours.** CloudFilingProtocol and
+    /// MappingRefine were exempt whole, for their prompts — and so were the model picker's labels,
+    /// "Chosen by Claude" and the plan sheet's reversal notes beside them, which people read. And
+    /// an exemption names a path, not a file name: `FilingClassifier.swift` is two files.
+    @Test func exemptionsCoverOnlyWhatTheyName() throws {
+        let literals = try AppCopyScan.literals()
+        for (path, fragment) in [("Modules/Sync/Sources/Sync/CloudFilingProtocol.swift", "cheapest (default)"),
+                                 ("Modules/Sync/Sources/Sync/CloudFilingProtocol.swift", "Chosen by Claude"),
+                                 ("Modules/Sync/Sources/Sync/MappingRefine.swift", "reverses your")] {
+            let shown = try #require(literals.first { $0.path == path && $0.text.contains(fragment) },
+                                     "“\(fragment)” is gone from \(path) — re-read this test")
+            let cover = AppCopyScan.punctuationExemptions.first { $0.covers(shown) }
+            #expect(cover == nil, "\(path)'s exemption also hides “\(fragment)”, which people read")
+        }
+        let classifierPrompt = try #require(AppCopyScan.punctuationExemptions.first {
+            $0.contains == "You organize a user's files" && $0.file.hasPrefix("MacApp/")
+        })
+        let namesake = AppCopyScan.Literal(path: "Modules/Sync/Sources/Sync/FilingClassifier.swift", line: 1,
+                                           text: "\"You organize a user's files\"")
+        #expect(!classifierPrompt.covers(namesake), "an exemption for one FilingClassifier.swift covers the other")
     }
 
     /// The scanner reads what a person reads: comments go, a URL in a string stays, an
@@ -165,12 +202,25 @@ import Testing
             Logger.shared.info("couldn't log "
                 + "this isn't seen")
             let c = "after the log, it's seen"
+            let d = "\\(name)'s folder"
+            .confirmationDialog("Can't undo this", isPresented: $p) {}
             """
         let found = AppCopyScan.literals(in: code, path: "X.swift")
             .filter { AppCopyScan.matches(AppCopyScan.straightApostrophe, $0.text) }
-        #expect(found.map(\.line) == [2, 3, 6], "\(found.map { "\($0.line): \($0.text)" })")
+        // Line 8: "log(" inside `confirmationDialog(` is not a log call, so its title is read.
+        #expect(found.map(\.line) == [2, 3, 6, 7, 8], "\(found.map { "\($0.line): \($0.text)" })")
         #expect(found.first?.text == "\"Can't open https://x.org\"")
         #expect(found.dropFirst().first?.text == #""\(n == 1 ? "" : "s") files aren't here""#)
+    }
+
+    /// The multi-line rule: a bare `"` in the body is flagged; the delimiters, an escaped `\"`
+    /// (the quote rule's) and an interpolation's own strings are not.
+    @Test func aBareQuoteInAMultilineStringIsFlagged() {
+        let q = "\"\"\""
+        #expect(AppCopyScan.hasBareQuoteInMultiline(q + "\nPress \"Done\" when ready\n" + q))
+        #expect(!AppCopyScan.hasBareQuoteInMultiline(q + "\nPress \u{201C}Done\u{201D}\n" + q))
+        #expect(!AppCopyScan.hasBareQuoteInMultiline(q + "\n\\(n == 1 ? \"\" : \"s\") left\n" + q))
+        #expect(!AppCopyScan.hasBareQuoteInMultiline("\"a single-line string\""))
     }
 
     // MARK: TE132 — one tooltip pattern

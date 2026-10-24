@@ -131,7 +131,8 @@ public struct FileTreeView: View, Equatable {
     /// **Walks a directory the pane's budgeted walk did not read.** Passed straight through to
     /// `PaneColumnsView`, which is the only thing that can see when a column needs it — see
     /// `FileSyncManager.loadColumnChildren`, which this ends up calling.
-    public let onNeedChildren: ((String) -> Void)?
+    /// Its second argument is `passive` — see `PaneOutlineRows.onNeedChildren`.
+    public let onNeedChildren: ((String, Bool) -> Void)?
     /// Directories whose deferred listing is running — passed straight to `PaneColumnsView`, which
     /// needs it to tell "being read" from "could not be read". See its `graftsInFlight`.
     public let graftsInFlight: Set<String>
@@ -353,7 +354,7 @@ public struct FileTreeView: View, Equatable {
     /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
     var badgeMemoRoot: String { currentPath }
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, rowReveal: PaneRowReveal? = nil, onRowRevealed: ((PaneRowReveal) -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String) -> Void)? = nil, graftsInFlight: Set<String> = [], sortOption: SortOption = .name, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, rowReveal: PaneRowReveal? = nil, onRowRevealed: ((PaneRowReveal) -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String, Bool) -> Void)? = nil, graftsInFlight: Set<String> = [], sortOption: SortOption = .name, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -954,7 +955,7 @@ public struct FileTreeView: View, Equatable {
                 isLoading: isLoading,
                 placement: placement, onBarEdgeFlip: onBarEdgeFlip,
                 onQuickLook: { presentQuickLook($0) },
-                onNeedChildren: onNeedChildren ?? { _ in },
+                onNeedChildren: onNeedChildren ?? { _, _ in },
                 graftsInFlight: graftsInFlight,
                 sortOption: sortOption,
                 onBackgroundDeselect: onBackgroundDeselect ?? { _ in },
@@ -1141,7 +1142,7 @@ public struct FileTreeView: View, Equatable {
             // the view graph — which is exactly what `PaneTree` alone failed to prevent. That was
             // true of `OutlineGroup` and is equally true of the `ForEach` inside `PaneOutlineRows`.
             PaneOutlineRows(rows: tree.rows, expanded: expandedBinding,
-                            onNeedChildren: onNeedChildren ?? { _ in },
+                            onNeedChildren: onNeedChildren ?? { _, _ in },
                             isLoading: isLoading, graftsInFlight: graftsInFlight) { row in
                 treeRow(for: row)
             }

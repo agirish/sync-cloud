@@ -59,7 +59,10 @@ struct PaneColumnsView: View {
     /// Defaulted to a no-op so the many test call sites that predate it keep compiling. That
     /// default can also silently swallow a real wiring mistake, so `PaneColumnsGraftWiringTests`
     /// pins that the app's own chain actually connects it.
-    var onNeedChildren: (String) -> Void = { _ in }
+    ///
+    /// The second argument is `passive`, always `false` here: a column on screen is one somebody
+    /// opened, so it asks even for a folder found unreadable before (`loadColumnChildren`).
+    var onNeedChildren: (String, Bool) -> Void = { _, _ in }
     /// Directories whose deferred listing is running right now — `FileSyncManager`'s in-flight set.
     ///
     /// Without it a column cannot tell "being read" from "could not be read": both are empty
@@ -993,7 +996,7 @@ struct PaneColumnsView: View {
         guard Self.asksForChildren(isLoading: isLoading,
                                    isUnexplored: childrenIndex.isUnexplored(atPath: directory))
         else { return }
-        onNeedChildren(directory)
+        onNeedChildren(directory, false)
     }
 
     /// One column: the rows of `directory`, or a placeholder when it has none.

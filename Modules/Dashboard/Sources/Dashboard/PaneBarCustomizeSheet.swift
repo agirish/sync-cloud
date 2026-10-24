@@ -213,7 +213,7 @@ struct PaneBarCustomizeSheet: View {
     /// padding ring around the row is the one exception, and a drop there springs back — except on
     /// its leading side):
     ///
-    /// - the leading-edge zone, laid over the ring's leading side, inserts at the head,
+    /// - the leading-edge zone, laid over the row's scrolled leading padding, inserts at the head,
     /// - each gap between two pills inserts at its own slot,
     /// - **each pill inserts before itself**, which is the whole point of the arrangement below,
     /// - the trailing slot takes the rest of the row and appends.
@@ -234,8 +234,15 @@ struct PaneBarCustomizeSheet: View {
         // thing telling you the row continues. Hidden, a clipped pill reads as a broken sheet.
         ScrollView(.horizontal, showsIndicators: true) {
             trackRow.frame(minWidth: Self.trackRowWidth, alignment: .leading)
+                // The leading padding is scrolled content, and the head's zone lies over it, so the
+                // zone scrolls with the row. Laid over the ScrollView instead, it stayed pinned at
+                // the visible left edge, and with the row scrolled a drop there landed at index 0,
+                // off-screen, rather than on the pill under the pointer. Over the padding, not in
+                // the row: the head stays aimable without pushing the first pill in from the edge.
+                .padding(.horizontal, Self.trackPadding)
+                .overlay(alignment: .leading) { leadingEdgeZone }
         }
-        .padding(Self.trackPadding)
+        .padding(.vertical, Self.trackPadding)
         .frame(minHeight: 50)
         .background(
             RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
@@ -248,9 +255,6 @@ struct PaneBarCustomizeSheet: View {
                               : AnyShapeStyle(glassHue.accentColor.opacity(0.7)),
                               lineWidth: targetedSlot == nil ? 0.5 : 1.5)
         )
-        // Over the padding, not in the row: the head stays aimable without pushing the first pill
-        // in from the edge. Last, so the border drawn above cannot sit over it.
-        .overlay(alignment: .leading) { leadingEdgeZone }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pane bar arrangement")
     }
@@ -288,8 +292,9 @@ struct PaneBarCustomizeSheet: View {
     /// whatever its source — standing for a name the real bar retired in fd068fc49. The bar now
     /// starts at the pane's leading edge, so this is that edge: nothing drawn, still aimable.
     ///
-    /// **It takes no width from the row.** It is laid over the track's leading padding, so the
-    /// first pill sits as close to the edge as the default set's does below. In the row it was 18pt,
+    /// **It takes no width from the row.** It is laid over the row's leading padding — inside the
+    /// scroll view, so it scrolls away with the head (`track`) — and so the first pill sits as close
+    /// to the edge as the default set's does below. In the row it was 18pt,
     /// plus a 6pt slot after it, and pushed the first pill 33pt in. The head is not thinner to aim
     /// at for it: the first pill also inserts before itself, so this zone and that pill together
     /// land at index 0. Index 0's caret is drawn here, against the first pill, since there is no

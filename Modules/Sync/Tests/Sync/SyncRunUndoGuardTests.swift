@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Events
+import EventsTestSupport
 @testable import Sync
 
 /// Coverage for the X2 "Undo Last Run" scoping fix: the reversal must fire ONLY when the last
@@ -246,6 +247,23 @@ import Events
         #expect(folderMarker.undone == false)
         #expect(syncMarker.undone == false)
         #expect(manager.banner == nil)
+    }
+
+    /// **A refusal is logged.** It shows in Sync History's own alert, which leaves nothing behind;
+    /// the banner it replaced logged itself through its didSet. The action's name carries a UUID so
+    /// no sibling case's refusal can satisfy the capture.
+    @Test func historyClickRefusalIsLogged() async {
+        let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        let name = "Rename \(UUID().uuidString)"
+        registerRun(manager, name: name, marker: Marker())
+        let log = LogCapture()
+
+        let refusal = manager.undoLastSyncRunAskingFirst(confirm: { _ in true })
+
+        #expect(refusal != nil)
+        #expect(await log.holds(.info, containing: "Undo Last Run refused: The most recent action is “\(name)”"),
+                "a refused Undo Last Run left no line in the log")
     }
 
     @Test func historyClickWithAnUnnamedActionOnTopSendsTheUserToTheMainWindow() {

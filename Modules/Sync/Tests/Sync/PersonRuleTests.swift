@@ -173,9 +173,9 @@ import Testing
 
     @Test func theSummaryUsesTheNameNotTheSlug() {
         let condition = AutomationCondition.personIs("daughter")
-        #expect(condition.summary(resolvingPeople: Self.household) == "is Daughter's document")
+        #expect(condition.summary(resolvingPeople: Self.household) == "is Daughter’s document")
         // A rule pointing at a removed person says so rather than rendering blank.
         #expect(AutomationCondition.personIs("ravi").summary(resolvingPeople: Self.household)
-                == "is ravi's document (not on your People list)")
+                == "is ravi’s document (not on your People list)")
     }
 }
