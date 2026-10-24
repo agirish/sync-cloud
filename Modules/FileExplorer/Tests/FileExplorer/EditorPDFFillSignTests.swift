@@ -825,7 +825,8 @@ extension PDFFixtures {
     }
 
     /// **A refused file: the toggle greyed and the reason under it**, short enough for a menu — the
-    /// alert's title for an owner's restriction, the tools' line for a file locked to open.
+    /// alert's title for an owner's restriction, the locked reason's first sentence for a file locked
+    /// to open, as the right-click Replace Text… row says it (F-E7).
     @Test func aRefusedFileGreysTheToggleAndSaysWhy() async throws {
         let file = path("Statement.pdf")
         PDFFixtures.writeRestricted(file)
@@ -836,7 +837,13 @@ extension PDFFixtures {
         let locked = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
         locked.attach(path: file, boxes: pdf.fill.boxes, encryption: .lockedToOpen, allowsFilling: true)
         #expect(menuLines(locked, pdf.tools)
-                == ["(Fill & Sign)", "(\(EditorPDFTools.lockedReason))", "Fill & Sign Tool ▸", "(Save Filled Copy)"])
+                == ["(Fill & Sign)", "(Remove the password first)", "Fill & Sign Tool ▸", "(Save Filled Copy)"])
+        // One rule: every refusal Fill & Sign can give is said the same in both menus.
+        for refusal in [EditorPDFTools.lockedReason, EditorPDFFillSign.restrictedReason,
+                        EditorPDFFillSign.nothingToFillReason] {
+            #expect(EditorPDFFillSign.replaceMenuLine(refusal) == EditorPDFFillSign.menuLine(refusal), "\(refusal)")
+        }
+        #expect(EditorPDFFillSign.replaceMenuLine(EditorPDFFillSign.formReplaceReason) == EditorPDFFillSign.formReplaceMenuReason)
     }
 
     // MARK: The overlay

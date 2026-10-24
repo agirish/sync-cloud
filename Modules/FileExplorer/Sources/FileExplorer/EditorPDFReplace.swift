@@ -91,7 +91,8 @@ public struct EditorPDFReplacePick: Equatable, Sendable {
 }
 
 /// **Why Replace says no** (TE87), each in words the reader is told — the tool's tooltip, the
-/// right-click item's line, the note card after a click.
+/// right-click item's tooltip, the note card after a click. The right-click item's own line is
+/// ``menuReason``.
 public enum EditorPDFReplaceRefusal: Error, Equatable, Sendable, CaseIterable {
     case noText
     case severalLines

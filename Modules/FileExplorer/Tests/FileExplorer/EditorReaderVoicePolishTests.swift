@@ -99,10 +99,54 @@ import FileExplorerTestSupport
         #expect(gate.skipsDebounce(open: "/n/A.md", countedFor: nil), "back to a file counted for nothing")
         #expect(!gate.skipsDebounce(open: nil, countedFor: nil))
         let code: String? = try Self.code("EditorWorkspaceView.swift")
-        #expect(code?.contains("if !factsGate.skipsDebounce(open: document.path, countedFor: factsPath) { try? await Task.sleep(for: .milliseconds(150)) }") == true,
+        #expect(code?.contains("guard await factsGate.settle(open: document.path, countedFor: factsPath, debounce: .milliseconds(150)) else { return }") == true,
                 "the count's debounce is not asked of the gate")
-        #expect(code?.contains("if !caretGate.skipsDebounce(open: document.path, countedFor: caretPath) { try? await Task.sleep(for: .milliseconds(120)) }") == true,
+        #expect(code?.contains("guard await caretGate.settle(open: document.path, countedFor: caretPath, debounce: .milliseconds(120)) else { return }") == true,
                 "the caret's debounce is not asked of the gate")
+    }
+
+    /// **A task cancelled before it ran keeps the file's skip for the one that replaced it** (F-E1).
+    /// A file's arrival writes the caret it was left at, which restarts the caret's task before it
+    /// has run; asking the gate first used the skip up, and the file's first Line/Col waited out the
+    /// debounce after all. Driven through a restart: the first task is cancelled before it starts.
+    @Test func aRestartedTaskLeavesTheFirstSkipToItsReplacement() async {
+        let gate = EditorFirstCountGate()
+        let restarted = Task { @MainActor in
+            await gate.settle(open: "/n/A.md", countedFor: nil, debounce: .seconds(30))
+        }
+        restarted.cancel()
+        #expect(await restarted.value == false, "a cancelled task went on to count")
+        let clock = ContinuousClock()
+        let started = clock.now
+        #expect(await gate.settle(open: "/n/A.md", countedFor: nil, debounce: .seconds(30)),
+                "the replacement was not let through")
+        #expect(clock.now - started < .seconds(10),
+                "the restarted task used up the skip, and its replacement waited out the debounce")
+        #expect(!gate.skipsDebounce(open: "/n/A.md", countedFor: nil), "the replacement did not take the skip")
+    }
+
+    /// **The caret names a heading only beside the file it was derived for** (F-E1) — the rail's
+    /// outline and the status line's "in …" read the last file's line against this file's headings.
+    @Test func theCaretNamesAHeadingOnlyBesideItsOwnFile() throws {
+        let caret = EditorCaret(line: 30, column: 1)
+        #expect(EditorStatusLine.shownCaretLine(caret, derivedFor: "/n/Old.md", open: "/n/New.md") == nil,
+                "the last file's caret named a heading in the new file")
+        #expect(EditorStatusLine.shownCaretLine(caret, derivedFor: nil, open: nil) == nil)
+        #expect(EditorStatusLine.shownCaretLine(caret, derivedFor: "/n/New.md", open: "/n/New.md") == 30)
+        let outline = [MarkdownOutlineEntry(line: 1, level: 1, depth: 0, title: "Intro"),
+                       MarkdownOutlineEntry(line: 20, level: 2, depth: 1, title: "Method")]
+        func heading(_ line: Int?) -> String? {
+            EditorStatusHeadings.make(outline: outline, caretLine: line, isMarkdown: true, offersRailOutline: true,
+                                      accent: .blue, onSelect: { _ in }, onShowRailOutline: {})?.title
+        }
+        #expect(heading(nil) == "Headings", "a caret not yet derived named a heading")
+        #expect(heading(30) == "in Method")
+        let code = try Self.code("EditorWorkspaceView.swift")
+        #expect(code.contains("EditorStatusHeadings.make(outline: outline, caretLine: shownCaretLine,"),
+                "the status line's heading reads a caret without asking whose it is")
+        #expect(code.contains("currentOutlineIndex: shownCaretLine.flatMap { MarkdownOutline.currentEntry(forLine: $0, in: outline) },"),
+                "the rail's outline reads a caret without asking whose it is")
+        #expect(code.contains("EditorStatusLine.shownCaretLine(caret, derivedFor: caretPath, open: document.path)"))
     }
 
     /// **Go to Line says this file's line count, or none** (EP7) — never the last file's.
@@ -136,6 +180,19 @@ import FileExplorerTestSupport
         #expect(noCaret.isSubset(of: counting) && noCaret.count < counting.count, "the last file's caret is drawn")
         // Not read aloud either: the caret and the counts said only once they are this file's.
         #expect(EditorStatusLine.accessibilityLabel(facts: nil, caret: nil, fileSize: "4 KB") == "4 KB")
+    }
+
+    /// **A caret held undrawn is not a button** (F-E8): no hover wash, tooltip or press over blank
+    /// room, no ⌥ keycap, and VoiceOver's line neither says it nor offers its press. Read off the
+    /// code — a SwiftUI button's hit testing cannot be asked offscreen.
+    @Test func anUndrawnCaretIsNotAButton() throws {
+        let code = try Self.code("EditorStatusLine.swift")
+        #expect(code.contains(".shortcutKeycap(AppChord.goToLine.display, compact: true, shown: caretIsCurrent)"),
+                "an undrawn caret shows its keycap")
+        #expect(code.contains(".help(EditorStatusGoToLine.help) .allowsHitTesting(caretIsCurrent) .accessibilityHidden(!caretIsCurrent)"),
+                "an undrawn caret is still a live, hoverable button")
+        #expect(code.contains(".accessibilityHint(goToLine == nil || !caretIsCurrent ? \"\" : \"Goes to a line\")"),
+                "VoiceOver offers Go to Line on a line with no caret drawn")
     }
 
     /// The columns of `line` that carry ink, drawn at 1× in a window — saved beside the test's run
@@ -387,6 +444,16 @@ import FileExplorerTestSupport
                           "“B.pdf” — locked with a password",
                           "“C.pdf” — its owner doesn’t allow changing its pages", step], "\(lines)")
         #expect(EditorPDFBatch.reasons([("B.pdf", .skipped(.lockedToOpen))]) == "“B.pdf” — locked with a password")
+        // Clean Metadata's encrypted skip is an owner's restriction too, with the same way past it,
+        // still said once (F-E5).
+        let metadata = try #require(EditorPDFBatch.reasons([("D.pdf", .skipped(.passwordProtected)),
+                                                            ("A.pdf", .skipped(.restrictedByOwner))]))
+            .components(separatedBy: "\n")
+        #expect(metadata == ["“D.pdf” — its owner doesn’t allow changing it",
+                             "“A.pdf” — its owner doesn’t allow changing its pages", step], "\(metadata)")
+        #expect(EditorPDFBatch.reasons([("D.pdf", .skipped(.passwordProtected))])
+                == "“D.pdf” — its owner doesn’t allow changing it\n" + step,
+                "Clean Metadata's skip gave no way forward")
     }
 
     /// **Decided in the lane, before the toolkit runs** — and only for the tools that change the

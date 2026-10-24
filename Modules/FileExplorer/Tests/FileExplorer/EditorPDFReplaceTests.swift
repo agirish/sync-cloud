@@ -341,6 +341,8 @@ enum ReplaceFixtures {
         let row = try #require(ReaderPDFView.replaceItems(fill: form.fill, selection: all, document: form.document))
         #expect(row.map(\.title) == [ReaderPDFView.replaceTitle, EditorPDFFillSign.formReplaceMenuReason])
         #expect(row.allSatisfy { $0.action == nil })
+        // The short line's whole sentence is its tooltip, and the greyed item's (F-E4).
+        #expect(row.map(\.toolTip) == [EditorPDFFillSign.formReplaceReason, EditorPDFFillSign.formReplaceReason])
         #expect(EditorPDFFillSign.formReplaceMenuReason.count < 40 && !EditorPDFFillSign.formReplaceMenuReason.contains(". "))
         // A file locked to open, and one whose owner restricted editing: short too, not the
         // refusal's two sentences.
@@ -353,6 +355,7 @@ enum ReplaceFixtures {
             try #require(refused.replaceRefusal != nil, "\(encryption) did not refuse Replace")
             let row = try #require(ReaderPDFView.replaceItems(fill: refused, selection: words, document: flat.document))
             #expect(row.map(\.title) == [ReaderPDFView.replaceTitle, line], "\(encryption)")
+            #expect(row.allSatisfy { $0.toolTip == refused.replaceRefusal }, "\(encryption): \(row.map(\.toolTip))")
         }
         form.fill.toggle()
         let (page, box) = try page(invoice("Any.pdf"))
@@ -1077,5 +1080,8 @@ enum ReplaceFixtures {
         let greyed = try #require(ReaderPDFView.replaceItems(fill: pdf.fill, selection: across, document: pdf.document))
         #expect(greyed.map(\.title) == [ReaderPDFView.replaceTitle, "Pick words on one line"])
         #expect(greyed.allSatisfy { $0.action == nil }, "a refused Replace Text… is live")
+        #expect(greyed.allSatisfy { $0.toolTip == EditorPDFReplaceRefusal.severalLines.reason },
+                "a short refusal row has no tooltip with its whole sentence: \(greyed.map(\.toolTip))")
+        #expect(items.first?.toolTip == nil, "a live Replace Text… carries a refusal's tooltip")
     }
 }

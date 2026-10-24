@@ -200,7 +200,7 @@ struct EditorStatusLine: View, Equatable {
             .accessibilityElement(children: .combine)
             .accessibilityLabel(Self.accessibilityLabel(facts: facts, caret: caretIsCurrent ? caret : nil,
                                                         fileSize: fileSize, selection: selection))
-            .accessibilityHint(goToLine == nil ? "" : "Goes to a line")
+            .accessibilityHint(goToLine == nil || !caretIsCurrent ? "" : "Goes to a line")
     }
 
     private func rung(_ rung: Rung, _ headings: EditorStatusHeadings, fit: HeadingFit,
@@ -295,13 +295,18 @@ struct EditorStatusLine: View, Equatable {
             }
             .buttonStyle(.hoverAffordance(.segment, tint: goToLine.accent))
             // ⌥ shows Go to Line's ⌃⌘L (TE194), compact to the line's small type.
-            .shortcutKeycap(AppChord.goToLine.display, compact: true)
+            .shortcutKeycap(AppChord.goToLine.display, compact: true, shown: caretIsCurrent)
             // Where the field's arrow points — the field itself hangs on the whole line (`body`).
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.lineSpace)) }) {
                 caretBounds = $0
             }
             .padding(.horizontal, -4)
             .help(EditorStatusGoToLine.help)
+            // **Undrawn is not there** (F-E8): a caret held undrawn for a file just opened kept its
+            // hover wash, its tooltip and its press over blank room. VoiceOver's combined line leaves
+            // it out too, rather than taking its press as the line's own.
+            .allowsHitTesting(caretIsCurrent)
+            .accessibilityHidden(!caretIsCurrent)
         } else {
             Text(Self.caretCaption(caret))
                 .opacity(caretIsCurrent ? 1 : 0)
@@ -338,6 +343,14 @@ struct EditorStatusLine: View, Equatable {
         counted != nil && counted == open ? facts : nil
     }
 
+    /// **The caret's line for the open file: the one derived for it, else none** (F-E1) — the same
+    /// rule as ``shownFacts(_:countedFor:open:)``, for what names a heading by the caret. The rail's
+    /// outline and the line's "in …" read the last file's line against this file's headings until
+    /// this file's caret landed.
+    static func shownCaretLine(_ caret: EditorCaret, derivedFor derived: String?, open: String?) -> Int? {
+        derived != nil && derived == open ? caret.line : nil
+    }
+
     /// **Whether a change of path keeps the counts and the caret: when the text is the one they were
     /// taken from** (EP5). A rename, or a move made elsewhere, changes the path over the same buffer
     /// (`EditorDocument.retarget`), and hiding this file's own counts until a recount landed shut and
@@ -368,6 +381,16 @@ final class EditorFirstCountGate {
         guard let open, open != countedFor, open != startedFor else { return false }
         startedFor = open
         return true
+    }
+
+    /// **The debounce, asked of the gate only by a task still running** — `false` when the task was
+    /// cancelled, before or during the wait. A file's arrival writes the caret it was left at, which
+    /// restarts the caret's task before that task has run: asked first, the restarted task used up
+    /// the file's skip, and the one that replaced it waited out the debounce after all (F-E1).
+    func settle(open: String?, countedFor: String?, debounce: Duration) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        if !skipsDebounce(open: open, countedFor: countedFor) { try? await Task.sleep(for: debounce) }
+        return !Task.isCancelled
     }
 }
 
@@ -445,14 +468,15 @@ struct EditorStatusHeadings: Equatable {
     }
 
     /// The item for this document, or `nil` when there is nothing to name — a plain-text file, or a
-    /// Markdown one with no headings yet.
-    static func make(outline: [MarkdownOutlineEntry], caretLine: Int, isMarkdown: Bool,
+    /// Markdown one with no headings yet. A `nil` caret line is one not yet derived for this file,
+    /// and names no heading (F-E1).
+    static func make(outline: [MarkdownOutlineEntry], caretLine: Int?, isMarkdown: Bool,
                      offersRailOutline: Bool, accent: Color,
                      onSelect: @escaping (MarkdownOutlineEntry) -> Void,
                      onShowRailOutline: @escaping () -> Void) -> EditorStatusHeadings? {
         guard isMarkdown, !outline.isEmpty else { return nil }
         return EditorStatusHeadings(outline: outline,
-                                    current: MarkdownOutline.currentEntry(forLine: caretLine, in: outline),
+                                    current: caretLine.flatMap { MarkdownOutline.currentEntry(forLine: $0, in: outline) },
                                     offersRailOutline: offersRailOutline, accent: accent,
                                     onSelect: onSelect, onShowRailOutline: onShowRailOutline)
     }

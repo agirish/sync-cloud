@@ -106,7 +106,7 @@ import Testing
         let wiring: [(file: String, code: String)] = [
             ("EditorFormatBar.swift", ".shortcutKeycap(Self.keycap(verb), compact: true, shown: Self.caretIsInText(revealing: isRevealing)) .disabled(!offered)"),
             ("EditorMode.swift", ".shortcutKeycap(candidate.chord.display, compact: true)"),
-            ("EditorStatusLine.swift", ".shortcutKeycap(AppChord.goToLine.display, compact: true)"),
+            ("EditorStatusLine.swift", ".shortcutKeycap(AppChord.goToLine.display, compact: true, shown: caretIsCurrent)"),
             ("EditorPDFCapsule.swift", ".shortcutKeycap(Self.pageStepKeycap(forward: forward), compact: true, shown: state.hasFocus) .disabled(!state.canTurnPage(forward: forward))"),
             ("EditorPDFCapsule.swift", ".shortcutKeycap(Self.zoomStepKeycap(in: zoomingIn), compact: true, shown: state.hasFocus) .disabled(!state.canZoom(in: zoomingIn))"),
             ("EditorPDFCapsule.swift", ".focused($pageFieldFocused) .shortcutKeycap(AppChord.goToLine.display, compact: true)"),

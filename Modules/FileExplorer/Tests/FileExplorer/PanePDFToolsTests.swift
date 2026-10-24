@@ -650,7 +650,8 @@ private struct PDFToolDelegate: FileActionDelegate {
                 == "Saved 2 compressed copies · 2 have no editing restrictions")
     }
 
-    /// Clean Metadata skips a password-protected file — the toolkit refuses one — and says so.
+    /// Clean Metadata skips a password-protected file — the toolkit refuses one — and says so, as an
+    /// owner's restriction with the way past it: one that opens without a password has one (F-E5).
     @Test func cleanMetadataSkipsAProtectedFile() async {
         let plain = path("Plain.pdf"), restricted = path("Restricted.pdf")
         PDFFixtures.write(plain, pages: 1)
@@ -659,7 +660,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         await batch.run(.cleanMetadata)
         #expect(batch.files[1].status == .skipped(.passwordProtected))
         #expect(batch.banner?.message == "Saved 1 cleaned copy · 1 skipped")
-        #expect(batch.banner?.detail == "“Restricted.pdf” — password-protected")
+        #expect(batch.banner?.detail == "“Restricted.pdf” — its owner doesn’t allow changing it\n"
+                + EditorPDFToolEngine.liftRestrictionsStep, "\(String(describing: batch.banner?.detail))")
     }
 
     /// **One form question for the batch, naming only the files with a form** — and turned down,

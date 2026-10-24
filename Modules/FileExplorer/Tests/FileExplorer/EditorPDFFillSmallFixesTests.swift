@@ -161,14 +161,20 @@ import Sync
         #expect(first("(signed).pdf") == "(signed) (signed).pdf")
         #expect(first("Invoice (reordered, rotated).pdf", "reordered, rotated") == "Invoice (reordered, rotated).pdf")
         #expect(first("Lease (pages removed) 3.pdf", "pages removed") == "Lease (pages removed).pdf")
-        // Delete's word by count is one word: either spelling is replaced, not told again (Y6).
+        // Delete's word by count is one word: either spelling is replaced, not told again (Y6) —
+        // and a word taken off says "pages", since the copy has lost more than this run's (F-E3).
         let one = EditorPDFTool.deletePages([0]).suffix, two = EditorPDFTool.deletePages([0, 1]).suffix
         #expect((one, two) == ("page removed", "pages removed"))
-        #expect(first("Lease (pages removed).pdf", one) == "Lease (page removed).pdf")
+        #expect(first("Lease.pdf", one) == "Lease (page removed).pdf", "one page off a file with no word")
+        #expect(first("Lease (pages removed).pdf", one) == "Lease (pages removed).pdf",
+                "one more page off a copy that had lost several said one")
+        #expect(first("Lease (page removed).pdf", one) == "Lease (pages removed).pdf",
+                "a second page off a copy that had lost one said one")
         #expect(first("Lease (page removed).pdf", two) == "Lease (pages removed).pdf")
-        #expect(first("Lease (pages removed) 2.pdf", one) == "Lease (page removed).pdf")
-        #expect(first("Four (reordered, pages removed).pdf", "reordered, page removed") == "Four (reordered, page removed).pdf")
+        #expect(first("Lease (pages removed) 2.pdf", one) == "Lease (pages removed).pdf")
+        #expect(first("Four (reordered, pages removed).pdf", "reordered, page removed") == "Four (reordered, pages removed).pdf")
         #expect(first("Four (reordered, page removed).pdf", "reordered, pages removed") == "Four (reordered, pages removed).pdf")
+        #expect(first("Four (rotated).pdf", "reordered, page removed") == "Four (rotated) (reordered, page removed).pdf")
         // Only Delete's word has two spellings, and only as a whole word.
         #expect(first("Lease (pages removed).pdf", "rotated") == "Lease (pages removed) (rotated).pdf")
         #expect(first("Lease (unpages removed).pdf", one) == "Lease (unpages removed) (page removed).pdf")

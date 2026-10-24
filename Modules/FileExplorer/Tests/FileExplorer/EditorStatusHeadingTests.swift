@@ -461,6 +461,30 @@ import Design
         #expect(!parse.contains("Task.isCancelled"), "a finished parse is thrown away when a keystroke overtook it")
     }
 
+    /// **The status line's counts and its caret land by the parse's rule** (F-E6): a large file just
+    /// opened counts at once, and typing on through that count threw it away — and every count after
+    /// it — so the line showed none until the typing stopped. Each has tickets of its own: a count's
+    /// ticket compared with the caret's shown one would drop one or the other at random.
+    @Test func theCountsAndTheCaretLandAFinishedDerivation() throws {
+        let workspace = try EditorFormatBarTests.source("EditorWorkspaceView.swift")
+        let count = try EditorFormatBarTests.slice(workspace, from: "EditorDocumentFacts.of(source, encoding: encoding)",
+                                                   to: "factsPath = path")
+        #expect(count.contains("EditorParseLanding.lands(ticket: ticket, takenOn: path, current: document.path,"),
+                "the count lands without the rule")
+        #expect(count.contains("shown: countTickets.shown)") && count.contains("countTickets.shown = ticket"))
+        #expect(!count.contains("Task.isCancelled"), "a finished count is thrown away when a keystroke overtook it")
+        let caret = try EditorFormatBarTests.slice(workspace, from: "EditorCaret.at(utf16Offset: offset, in: source)",
+                                                   to: "caretPath = path")
+        #expect(caret.contains("EditorParseLanding.lands(ticket: ticket, takenOn: path, current: document.path,"),
+                "the caret lands without the rule")
+        #expect(caret.contains("shown: caretTickets.shown)") && caret.contains("caretTickets.shown = ticket"))
+        #expect(!caret.contains("Task.isCancelled"), "a finished caret is thrown away when a keystroke overtook it")
+        // Each ticket is drawn just before its own detached pass.
+        let squashed = EditorAcrossPolishTests.squashed(workspace)
+        #expect(squashed.contains("countTickets.started &+= 1 let ticket = countTickets.started"))
+        #expect(squashed.contains("caretTickets.started &+= 1 let ticket = caretTickets.started"))
+    }
+
     // MARK: - The menu, built when it opens
 
     /// **The line carries the label, and no view per heading** (CHR-7). The item was a SwiftUI

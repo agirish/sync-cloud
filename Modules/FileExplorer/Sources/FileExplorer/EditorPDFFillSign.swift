@@ -932,11 +932,20 @@ public final class EditorPDFFillSign: ObservableObject {
     /// Discard cleared what the copy was taking. The button and File ▸ Fill & Sign grey with it.
     public var mayToggle: Bool { !(isOn && tools?.running != nil) }
 
-    /// **The refusal as a menu line** — the alert's own title for an owner's restriction, whose
-    /// reason is two sentences; the tools' short reason for a file locked to open, which File ▸ PDF
-    /// Tools already shows as a line.
-    var menuReason: String? {
-        refusal.map { $0 == Self.restrictedReason || $0 == Self.nothingToFillReason ? Self.restrictedTitle : $0 }
+    /// **The refusal as a menu line** — see ``menuLine(_:)``.
+    var menuReason: String? { refusal.map(Self.menuLine) }
+
+    /// **Fill & Sign's refusal as one short clause, the one rule for every menu that says it**
+    /// (F-E7): File ▸ Fill & Sign's line and the right-click Replace Text… row
+    /// (``replaceMenuLine(_:)``). The alert's own title for an owner's restriction, whose reason is
+    /// two sentences, and the locked reason's first sentence alone — the two rules said a locked
+    /// file two ways.
+    static func menuLine(_ refusal: String) -> String {
+        switch refusal {
+        case restrictedReason, nothingToFillReason: return restrictedTitle
+        case EditorPDFTools.lockedReason: return lockedMenuReason
+        default: return refusal
+        }
     }
 
     /// **Esc: stops typing, then lets go of the selection, then of the tool — and with nothing left
@@ -1267,15 +1276,10 @@ public final class EditorPDFFillSign: ObservableObject {
     /// whether Replace is off.
     var replaceMenuReason: String? { replaceRefusal.map(Self.replaceMenuLine) }
 
-    /// Each of ``replaceRefusal``'s sentences as one short clause: the form's, the locked file's —
-    /// whose two sentences ran as a wide row too — and the alert's title for an owner's restriction.
+    /// Each of ``replaceRefusal``'s sentences as one short clause: the form's own line, and else
+    /// Fill & Sign's refusal as every menu says it (``menuLine(_:)``).
     static func replaceMenuLine(_ reason: String) -> String {
-        switch reason {
-        case formReplaceReason: return formReplaceMenuReason
-        case EditorPDFTools.lockedReason: return lockedMenuReason
-        case restrictedReason, nothingToFillReason: return restrictedTitle
-        default: return reason
-        }
+        reason == formReplaceReason ? formReplaceMenuReason : menuLine(reason)
     }
 
     static let formReplaceMenuReason = "Off for a PDF with a fillable form"

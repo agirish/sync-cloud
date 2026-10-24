@@ -134,21 +134,26 @@ final class ReaderPDFView: PDFView {
         } else {
             outcome = .failure(.noText)
         }
-        let reason: String?
+        let reason: (line: String, sentence: String)?
         switch (fill.replaceRefusal, outcome) {
         // Short, the file's refusal and the page's alike: this is a menu row, which does not wrap
         // (PD14).
-        case (_?, _): reason = fill.replaceMenuReason
-        case (nil, .failure(let refusal)): reason = refusal.menuReason
+        case (let refusal?, _): reason = (fill.replaceMenuReason ?? refusal, refusal)
+        case (nil, .failure(let refusal)): reason = (refusal.menuReason, refusal.reason)
         case (nil, .success): reason = nil
         }
         guard let reason else {
             guard case .success(let pick) = outcome else { return nil }
             return [EditorClosureMenuItem(title: replaceTitle) { fill.replace(pick) }]
         }
-        // No action: the menu greys them both.
+        // No action: the menu greys them both. **Each keeps the whole sentence as its tooltip**
+        // (F-E4): the short line drops the way out — "Remove the password first" without the copy it
+        // writes, a form field's line without Form Fields.
         return [NSMenuItem(title: replaceTitle, action: nil, keyEquivalent: ""),
-                NSMenuItem(title: reason, action: nil, keyEquivalent: "")]
+                NSMenuItem(title: reason.line, action: nil, keyEquivalent: "")].map {
+            $0.toolTip = reason.sentence
+            return $0
+        }
     }
 
     /// **While Fill & Sign is up, the keyboard goes to its overlay** whenever it would come here —

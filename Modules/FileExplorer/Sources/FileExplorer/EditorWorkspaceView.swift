@@ -335,6 +335,9 @@ public struct EditorWorkspaceView: View {
     /// Which parse is on screen — see ``EditorParseLanding``. Held, not observed: counting a parse
     /// must not re-render the view.
     @State private var parseTickets = EditorParseTickets()
+    /// The same for the counts, and for the caret (F-E6).
+    @State private var countTickets = EditorParseTickets()
+    @State private var caretTickets = EditorParseTickets()
     /// Where the text view has been asked to put the caret, and where the preview has been asked to
     /// scroll. **Two requests, because they are asked for by different things**: an outline click
     /// moves both, and a scroll in split moves only the preview.
@@ -657,8 +660,9 @@ public struct EditorWorkspaceView: View {
                                filterIsExpanded: $railFilterIsExpanded,
                                outline: outline,
                                markdownIsOpen: Self.markdownIsOpen(document),
-                               currentOutlineIndex: MarkdownOutline.currentEntry(forLine: caret.line,
-                                                                                in: outline),
+                               currentOutlineIndex: shownCaretLine.flatMap {
+                                   MarkdownOutline.currentEntry(forLine: $0, in: outline)
+                               },
                                outlineAnchors: $railOutlineAnchors,
                                pdf: pdf,
                                onSelectHeading: goToHeading,
@@ -830,11 +834,17 @@ public struct EditorWorkspaceView: View {
                                                   column: target.column ?? 1)
     }
 
+    /// The caret's line when it was derived for the open file, else `nil` — what the rail's outline
+    /// and the status line's heading name the caret's section by (F-E1).
+    private var shownCaretLine: Int? {
+        EditorStatusLine.shownCaretLine(caret, derivedFor: caretPath, open: document.path)
+    }
+
     /// The status line's heading item (TE57): the rail's own outline and scroll request, reachable
     /// with the rail away — and a way to the rail's Outline tab from wherever it is not showing
     /// (TE180).
     private var statusHeadings: EditorStatusHeadings? {
-        EditorStatusHeadings.make(outline: outline, caretLine: caret.line, isMarkdown: document.isMarkdown,
+        EditorStatusHeadings.make(outline: outline, caretLine: shownCaretLine, isMarkdown: document.isMarkdown,
                                   offersRailOutline: EditorStatusHeadings.offersRailOutline(showsRail: showsRail,
                                                                                             railTab: railTab),
                                   accent: accent,
@@ -1750,14 +1760,14 @@ public struct EditorWorkspaceView: View {
                 // **Not for a file's first count**, whose counts are not on screen at all (ED2):
                 // nobody is typing, and the debounce would only hold them back. Only the first —
                 // see ``EditorFirstCountGate`` (EP6).
-                if !factsGate.skipsDebounce(open: document.path, countedFor: factsPath) {
-                    try? await Task.sleep(for: .milliseconds(150))
-                }
-                guard !Task.isCancelled else { return }
+                guard await factsGate.settle(open: document.path, countedFor: factsPath,
+                                             debounce: .milliseconds(150)) else { return }
                 let source = document.text
                 let path = document.path
                 let version = document.textVersion
                 let encoding = document.encodingName
+                countTickets.started &+= 1
+                let ticket = countTickets.started
                 // **The line table is built in the same detached pass**, because it is the same
                 // walk of the same buffer and the alternative is doing it on the main actor once
                 // per scroll tick. See ``EditorLineIndex`` for what accepts a stale one.
@@ -1765,7 +1775,13 @@ public struct EditorWorkspaceView: View {
                     (facts: EditorDocumentFacts.of(source, encoding: encoding),
                      lines: EditorLineIndex(text: source))
                 }.value
-                guard !Task.isCancelled else { return }
+                // **Landed even when a keystroke cancelled this task while it counted** (F-E6), by the
+                // parse's rule: a large file just opened takes its first count undebounced, and typing
+                // on through it threw that count away and every one after, so the line showed no counts
+                // until the typing stopped. A finished count of this file is a keystroke old at worst.
+                guard EditorParseLanding.lands(ticket: ticket, takenOn: path, current: document.path,
+                                               shown: countTickets.shown) else { return }
+                countTickets.shown = ticket
                 facts = derived.facts
                 lineIndex = derived.lines
                 factsVersion = version
@@ -1775,18 +1791,22 @@ public struct EditorWorkspaceView: View {
             // changing moves it too, which is why the version is in here as well as the offset.
             .task(id: EditorCaretKey(version: document.textVersion, path: document.path,
                                      offset: caretOffset)) {
-                // A file's first caret starts at once, as its first count does (EP4, EP6).
-                if !caretGate.skipsDebounce(open: document.path, countedFor: caretPath) {
-                    try? await Task.sleep(for: .milliseconds(120))
-                }
-                guard !Task.isCancelled else { return }
+                // A file's first caret starts at once, as its first count does (EP4, EP6) — asked
+                // only by a task still running, since the arrival's own caret write restarts this one.
+                guard await caretGate.settle(open: document.path, countedFor: caretPath,
+                                             debounce: .milliseconds(120)) else { return }
                 let source = document.text
                 let path = document.path
                 let offset = caretOffset
+                caretTickets.started &+= 1
+                let ticket = caretTickets.started
                 let position = await Task.detached(priority: .userInitiated) {
                     EditorCaret.at(utf16Offset: offset, in: source)
                 }.value
-                guard !Task.isCancelled else { return }
+                // Landed by the same rule, for the same reason (F-E6): a keystroke old at worst.
+                guard EditorParseLanding.lands(ticket: ticket, takenOn: path, current: document.path,
+                                               shown: caretTickets.shown) else { return }
+                caretTickets.shown = ticket
                 caret = position
                 caretPath = path
             }
@@ -2658,7 +2678,8 @@ struct EditorDocumentHeader<Content: View>: View {
     }
 }
 
-/// The parses a workspace has started, and the one whose blocks are on screen (CHR-4).
+/// The parses a workspace has started, and the one whose blocks are on screen (CHR-4) — or its
+/// counts, or its caret (F-E6).
 final class EditorParseTickets {
     var started = 0
     var shown = 0
@@ -2667,7 +2688,8 @@ final class EditorParseTickets {
 /// **Whether a finished parse goes on screen** (CHR-4): it was taken of the file still open, and it
 /// was started after the one on screen. A keystroke during the parse is no reason to drop it — the
 /// text it parsed is newer than what is drawn — but a parse finishing after a later one must not
-/// put older blocks back, and one of another file must not land on this one.
+/// put older blocks back, and one of another file must not land on this one. The status line's counts
+/// and its caret land by the same rule (F-E6).
 enum EditorParseLanding {
     static func lands(ticket: Int, takenOn path: String?, current: String?, shown: Int) -> Bool {
         path == current && ticket > shown

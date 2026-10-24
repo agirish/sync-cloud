@@ -415,18 +415,24 @@ enum EditorPDFCopyName {
     /// **A name that already says it is not told again** (TE190): signing "Lease (signed).pdf", or
     /// "Lease (signed) 2.pdf", wants "Lease (signed).pdf", and the keep-both rule then takes the
     /// next free number — rather than "Lease (signed) (signed).pdf".
+    ///
+    /// **A Delete word taken off says "pages", whatever this run removed** (F-E3): deleting one page
+    /// from "Lease (pages removed).pdf" has removed at least two from the file the name started as,
+    /// and "Lease (page removed).pdf" said one.
     static func firstChoice(for original: String, suffix: String) -> String {
         let folder = (original as NSString).deletingLastPathComponent
-        var base = withoutSuffix(((original as NSString).lastPathComponent as NSString).deletingPathExtension, suffix)
-        let tail = " (\(suffix)).pdf"
+        let named = ((original as NSString).lastPathComponent as NSString).deletingPathExtension
+        var base = withoutSuffix(named, suffix)
+        let said = base == named ? suffix : plural(suffix)
+        let tail = " (\(said)).pdf"
         while !base.isEmpty, nameLength(base + tail) > longestName { base.removeLast() }
         return (folder as NSString).appendingPathComponent(base + tail)
     }
 
     /// `base` without a closing " (<suffix>)" or " (<suffix>) N" — the word, and the keep-both
     /// rule's number after it. Either spelling of Delete's word counts as the word: deleting one page
-    /// from "Lease (pages removed).pdf" wants "Lease (page removed).pdf", not "… (pages removed)
-    /// (page removed).pdf".
+    /// from "Lease (pages removed).pdf" wants "Lease (pages removed).pdf" again, not "… (pages
+    /// removed) (page removed).pdf".
     static func withoutSuffix(_ base: String, _ suffix: String) -> String {
         var rest = Substring(base)
         if let space = rest.lastIndex(of: " "), case let number = rest[rest.index(after: space)...],
@@ -448,6 +454,14 @@ enum EditorPDFCopyName {
             return [suffix, String(suffix.dropLast(said.count)) + other]
         }
         return [suffix]
+    }
+
+    /// `suffix` with Delete's word for one page made the word for several — alone or after the
+    /// reorder's — and any other suffix as it is.
+    static func plural(_ suffix: String) -> String {
+        let one = EditorPDFTool.pageRemoved
+        guard suffix == one || suffix.hasSuffix(", " + one) else { return suffix }
+        return String(suffix.dropLast(one.count)) + EditorPDFTool.pagesRemoved
     }
 }
 

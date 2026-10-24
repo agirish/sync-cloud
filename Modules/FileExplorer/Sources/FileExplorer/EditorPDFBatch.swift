@@ -66,6 +66,9 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
     public enum Skip: Equatable, Sendable {
         case alreadySmall
         case lockedToOpen
+        /// Encrypted for Clean Metadata, which the toolkit refuses on any encrypted file
+        /// (`metadataEncrypted`). One that opens without a password has an owner's restrictions, so
+        /// it is said as theirs, with the way past them (F-E5).
         case passwordProtected
         /// Encrypted with its owner's restrictions, which forbid the changes Rotate makes in place.
         case restrictedByOwner
@@ -78,7 +81,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
             switch self {
             case .alreadySmall: return "already small"
             case .lockedToOpen: return "locked with a password"
-            case .passwordProtected: return "password-protected"
+            case .passwordProtected: return "its owner doesn’t allow changing it"
             case .restrictedByOwner: return "its owner doesn’t allow changing its pages"
             case .noPages: return "no pages"
             case .inTheCloud: return "still in the cloud"
@@ -441,7 +444,8 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
     ///
     /// **A file skipped for its owner's restrictions ends the reasons with the way past them** —
     /// Remove Password writes a copy without them, the step the single file's refusal names
-    /// (``EditorPDFToolEngine/liftRestrictionsStep``). Once, however many such files there are.
+    /// (``EditorPDFToolEngine/liftRestrictionsStep``). Once, however many such files there are, and
+    /// for Clean Metadata's encrypted skip too: a file that reaches it opened without a password.
     static func reasons(_ files: [(name: String, status: Status)]) -> String? {
         let lines = files.compactMap { file -> String? in
             switch file.status {
@@ -454,7 +458,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         guard !lines.isEmpty else { return nil }
         let shown = lines.prefix(reasonsShown)
         let more = lines.count - shown.count
-        let restricted = files.contains { $0.status == .skipped(.restrictedByOwner) }
+        let restricted = files.contains { $0.status == .skipped(.restrictedByOwner) || $0.status == .skipped(.passwordProtected) }
         return (shown + (more > 0 ? ["and \(more) more"] : [])
                 + (restricted ? [EditorPDFToolEngine.liftRestrictionsStep] : [])).joined(separator: "\n")
     }
