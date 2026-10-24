@@ -9773,3 +9773,23 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s ledgerUndo=%s\n' $l \
 |---|---|---|
 | `v5.x` | The same ledger Undo (`ledgerUndo=1`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure (`ledgerUndo=0`) | CLOSED — does not apply |
+
+---
+
+## A sync's Replace takes the source's permissions and creation date (FR32) — main only
+
+`replaceItemAt`'s default merge kept the old destination's permissions and creation date, so a
+script made executable at the source stayed non-executable after every sync. `main` installs a
+Replace with `.usingNewMetadataOnly` through `FileManaging.installReplacement`; Edit's in-place save
+keeps the original's metadata through the plain `replaceItem`, as before.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s mergedMeta=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileManaging.swift 2>/dev/null | grep -cF 'options: [.withoutDeletingBackupItem]')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads 0 here):
+# main, v5.x, v4.x, v3.x, v2.x   mergedMeta=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same merged-metadata Replace (`mergedMeta=1`) | RECORDED — not owed |

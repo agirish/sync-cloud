@@ -276,6 +276,28 @@ import Foundation
         #expect(left == ["a.md"], "the folder holds \(left) after two saves")
     }
 
+    /// **A save keeps the file's own permissions and creation date** (FR32's other half). The
+    /// staged file is new — 0644, born now — and the swap takes the ORIGINAL's metadata, so a
+    /// script the user made executable stays executable through ⌘S. A sync's Replace takes the
+    /// incoming item's instead (`FileManaging.installReplacement`); this pins that the editor was
+    /// not moved onto it.
+    @Test func aSaveKeepsTheFilesOwnPermissionsAndCreationDate() throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let path = try write(Data("#!/bin/sh\necho old\n".utf8), named: "run.sh", in: folder)
+        let born = Date(timeIntervalSince1970: 1_000_000_000)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755, .creationDate: born], ofItemAtPath: path)
+
+        try EditorFileStore.write("#!/bin/sh\necho new\n", toPath: path)
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        #expect(try String(contentsOfFile: path, encoding: .utf8) == "#!/bin/sh\necho new\n")
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o755,
+                "the save dropped the script's executable bit")
+        let creation = try #require(attributes[.creationDate] as? Date)
+        #expect(abs(creation.timeIntervalSince(born)) < 1, "the save gave the file a new creation date")
+    }
+
     @Test func writingToAPathThatDoesNotExistCreatesIt() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }

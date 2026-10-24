@@ -362,8 +362,9 @@ extension FileSyncManager {
             // sibling backup. The destination is never momentarily absent, so a crash or forced
             // quit mid-replace cannot strand the old file in Trash with nothing at the destination.
             // A throw here leaves the destination untouched (the primitive is atomic); the staged
-            // temp is cleaned up by `defer`.
-            let backupURL = try fileManager.replaceItem(
+            // temp is cleaned up by `defer`. `installReplacement`, not `replaceItem`: the result is
+            // the source's copy with the source's permissions and dates (FR32), not the old file's.
+            let backupURL = try fileManager.installReplacement(
                 at: destinationURL,
                 withItemAt: tempURL,
                 backupItemName: ".rollback_\(UUID().uuidString)"
@@ -485,7 +486,7 @@ extension FileSyncManager {
 
         let backupURL: URL?
         do {
-            backupURL = try fileManager.replaceItem(
+            backupURL = try fileManager.installReplacement(
                 at: destinationURL,
                 withItemAt: tempURL,
                 backupItemName: ".rollback_\(UUID().uuidString)"
@@ -584,7 +585,7 @@ extension FileSyncManager {
         from backupURL: URL,
         fileManager: FileManaging
     ) {
-        guard let staleBackup = try? fileManager.replaceItem(
+        guard let staleBackup = try? fileManager.installReplacement(
             at: destinationURL,
             withItemAt: backupURL,
             backupItemName: ".rollback_\(UUID().uuidString)"

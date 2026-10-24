@@ -495,4 +495,42 @@ import Foundation
         let dstDate = try #require(try fm.attributesOfItem(atPath: dstFile.path)[.modificationDate] as? Date)
         #expect(abs(dstDate.timeIntervalSince(srcDate)) < 1)
     }
+
+    /// **A Replace lands the source's permissions and creation date, not the old file's** (FR32).
+    /// `replaceItemAt`'s default merge kept the destination's: a 0755 script replacing a 0600 one
+    /// stayed 0600, with the old 2001 creation date, after every sync. Copy and move both.
+    @Test(arguments: [false, true])
+    func realDiskReplaceTakesTheSourcesPermissionsAndCreationDate(isMove: Bool) throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("AtomicReplace-meta-\(UUID().uuidString)")
+        let src = base.appendingPathComponent("src")
+        let dst = base.appendingPathComponent("dst")
+        try fm.createDirectory(at: src, withIntermediateDirectories: true)
+        try fm.createDirectory(at: dst, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+        let trash = ScratchTrash(in: base)
+
+        let srcFile = src.appendingPathComponent("run.sh")
+        let dstFile = dst.appendingPathComponent("run.sh")
+        try "NEW".data(using: .utf8)!.write(to: srcFile)
+        try "OLD".data(using: .utf8)!.write(to: dstFile)
+        let srcBorn = Date(timeIntervalSince1970: 1_600_000_000)
+        try fm.setAttributes([.posixPermissions: 0o755, .creationDate: srcBorn], ofItemAtPath: srcFile.path)
+        try fm.setAttributes([.posixPermissions: 0o600, .creationDate: Date(timeIntervalSince1970: 1_000_000_000)],
+                             ofItemAtPath: dstFile.path)
+
+        let backup = isMove
+            ? try FileSyncManager.safeMoveItem(at: srcFile, to: dstFile, fileManager: trash)
+            : try FileSyncManager.safeCopyItem(at: srcFile, to: dstFile, fileManager: trash)
+
+        let attributes = try fm.attributesOfItem(atPath: dstFile.path)
+        #expect(try String(contentsOf: dstFile, encoding: .utf8) == "NEW")
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o755,
+                "the replaced file kept the old file's permissions")
+        let creation = try #require(attributes[.creationDate] as? Date)
+        #expect(abs(creation.timeIntervalSince(srcBorn)) < 1, "the replaced file kept the old file's creation date")
+        // The old file is still recoverable, with its own content.
+        let kept = try #require(backup)
+        #expect(try String(contentsOf: kept, encoding: .utf8) == "OLD")
+    }
 }
