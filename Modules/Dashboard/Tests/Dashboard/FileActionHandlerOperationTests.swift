@@ -157,7 +157,7 @@ import Settings
         #expect(FileManager.default.fileExists(atPath: copied.path))
         #expect(FileManager.default.fileExists(atPath: file.path)) // copy, not move
         await waitUntil("the completion banner to publish") { manager.banner != nil }
-        #expect(manager.banner?.message.hasPrefix("Copied \"copy-me.txt\"") == true)
+        #expect(manager.banner?.message.hasPrefix("Copied “copy-me.txt”") == true)
         #expect(manager.banner?.severity == .success)
         #expect(manager.banner?.isUndoable == true)
     }
@@ -281,7 +281,7 @@ import Settings
         #expect(manager.clipboardNodes.isEmpty)
         #expect(manager.clipboardIsCut == false)
         await waitUntil("the completion banner to publish") { manager.banner != nil }
-        #expect(manager.banner?.message.hasPrefix("Moved \"cut.txt\"") == true)
+        #expect(manager.banner?.message.hasPrefix("Moved “cut.txt”") == true)
     }
 
     // MARK: - Pane-to-pane move
@@ -318,7 +318,7 @@ import Settings
         #expect(!FileManager.default.fileExists(atPath: file.path))
         let expectedTarget = fromLeft ? "RightSide" : "LeftSide"
         await waitUntil("the completion banner to publish") { manager.banner != nil }
-        #expect(manager.banner?.message == "Moved \"move-me.txt\" to \(expectedTarget)")
+        #expect(manager.banner?.message == "Moved “move-me.txt” to \(expectedTarget)")
         #expect(manager.banner?.isUndoable == true)
     }
 
@@ -363,7 +363,7 @@ import Settings
         #expect(FileManager.default.fileExists(atPath: landed.path))
         #expect(FileManager.default.fileExists(atPath: file.path)) // copy keeps the source
         await waitUntil("the completion banner to publish") { manager.banner != nil }
-        #expect(manager.banner?.message == "Copied \"copy-me.txt\" to RightSide")
+        #expect(manager.banner?.message == "Copied “copy-me.txt” to RightSide")
         #expect(manager.banner?.isUndoable == true)
     }
 

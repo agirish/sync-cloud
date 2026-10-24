@@ -205,7 +205,7 @@ import Sync
     /// All four keys are named. A hint that silently lost one would still read grammatically.
     @Test func everyReviewKeyIsNamed() {
         let hint = ReviewCardModel.keyHintSpeech(primaryVerb: "Copy")
-        for key in ["Return", "Delete", "Space", "Escape"] {
+        for key in ["Return", "Delete", "Right Arrow", "Space", "Escape"] {
             #expect(hint.contains(key), "\(key) is missing from: \(hint)")
         }
     }

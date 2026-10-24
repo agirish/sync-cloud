@@ -322,6 +322,29 @@ import Sync
         #expect(recorder.decisions.count == 4, "fresh presses stopped arriving: \(recorder.decisions)")
     }
 
+    /// **⌫ skips too (LN21)** — Compare's one-at-a-time review skips on ⌫, so someone who learned
+    /// that one presses it here. Plain only, once per press, like →: ⌘⌫ and ⌥⌫ are text-editing
+    /// chords, and a held ⌫ must not run through the queue.
+    @Test func deleteSkipsLikeTheArrow() async {
+        let recorder = Recorder()
+        let (window, _) = host(card(into: recorder))
+        guard await waitForCardFocus(in: window) else { return }
+
+        sendDelete(window)
+        #expect(recorder.decisions == [false], "a plain ⌫ did not skip: \(recorder.decisions)")
+        for _ in 0..<3 { sendDelete(window, isARepeat: true) }
+        sendDelete(window, modifiers: .command)
+        sendDelete(window, modifiers: .option)
+        #expect(recorder.decisions == [false],
+                "a held or modified ⌫ decided a file: \(recorder.decisions)")
+        #expect(recorder.cancels == 0)
+    }
+
+    private func sendDelete(_ window: NSWindow, modifiers: NSEvent.ModifierFlags = [],
+                            isARepeat: Bool = false) {
+        send(window, keyCode: 51, characters: "\u{08}", modifiers: modifiers, isARepeat: isARepeat)
+    }
+
     /// …and for esc: a held esc must cancel ONCE. Cancel tears the walkthrough down, so in the app
     /// a second delivery lands on nothing — but the handler's contract should not depend on that,
     /// and the two decision handlers are `.down`-only for the same reason.
@@ -587,7 +610,7 @@ import Sync
     /// because it conjugated, and nothing on screen showed it.
     @Test func everyWalkthroughKeyIsNamed() {
         let hint = FilingWalkthroughCard.keyHintSpeech
-        for key in ["Return", "Right Arrow", "Escape"] {
+        for key in ["Return", "Right Arrow", "Delete", "Escape"] {
             #expect(hint.contains(key), "\(key) is missing from: \(hint)")
         }
         #expect(hint.contains("Return to file"), "got: \(hint)")

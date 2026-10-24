@@ -49,4 +49,29 @@ import Sync
             #expect(path.currentDirectory(treeRoot: root) == folder, "round trip failed for \(folder)")
         }
     }
+
+    // MARK: - Recents that share a name (BR20)
+
+    /// **Two recents named Legal each say where they sit**; a recent with a name of its own says
+    /// nothing more, and one directly under the provider names the provider.
+    @Test func recentsThatShareANameCarryTheirParent() {
+        let recents = ["/p/Clients/Acme/Legal", "/p/Archive/Legal", "/p/Medical", "/p/Legal"]
+        func detail(_ path: String) -> String? {
+            DestinationPicker.recentDetail(for: path, among: recents, under: "/p", rootName: "iCloud")
+        }
+        #expect(detail("/p/Clients/Acme/Legal") == "Clients/Acme")
+        #expect(detail("/p/Archive/Legal") == "Archive")
+        #expect(detail("/p/Legal") == "iCloud")
+        #expect(detail("/p/Medical") == nil, "a name no other recent shares stays one line")
+    }
+
+    /// The rail draws the rule's answer under every recent, and its full path as the tooltip.
+    @Test func theRailDrawsTheParentAndTheFullPath() throws {
+        let picker = try OrganizeScopeCallSiteTests.source("DestinationPicker.swift")
+        let rail = try OrganizeScopeCallSiteTests.body(of: "private var shortcutsRail: some View {", in: picker)
+        #expect(rail.contains("detail: Self.recentDetail(for: path, among: recents, under: root,"),
+                "the rail's recents no longer carry their parent")
+        #expect(picker.contains(".help((path as NSString).abbreviatingWithTildeInPath)"),
+                "the rail's rows lost their full-path tooltip")
+    }
 }

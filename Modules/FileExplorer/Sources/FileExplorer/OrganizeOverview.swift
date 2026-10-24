@@ -1061,7 +1061,7 @@ struct OrganizeOverview: View {
     /// withdrawn. Nothing caught it, because the two render tests that watch a scanning row are
     /// satisfied by *any* large change to the row and by the pass cards' own withdrawal.
     ///
-    /// And Storage's receipt did the opposite: it kept a live `Re-analyze` while re-analysing, as a
+    /// And Storage's receipt did the opposite: it kept a live `Rescan` while rescanning, as a
     /// disabled button, where every other card on the page swaps to a spinner. Both are the same
     /// rule stated once here rather than three times at the call sites.
     func actions(for section: OrganizeOverviewSection) -> [OverviewCardAction] {
@@ -1163,8 +1163,11 @@ struct OrganizeOverview: View {
         // work is in flight, and a greyed button beside a spinner says it twice. This is the same
         // swap the pass cards make.
         if section.lens == .storage, let onBuildStorage, !section.isScanning {
-            actions.append(OverviewCardAction(title: "Re-analyze",
+            // "Rescan", the word the Storage lens's own control carries (see its freshness
+            // pill's tooltip), and the word the pass cards use for the same act.
+            actions.append(OverviewCardAction(title: "Rescan",
                                               help: "Walks the tree again and rebuilds the report.",
+                                              accessibilityLabel: "Rescan \(section.lens.title)",
                                               run: onBuildStorage))
         }
         return actions

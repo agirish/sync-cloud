@@ -236,6 +236,26 @@ import Sync
         #expect(recorder.exits == 0)
     }
 
+    /// **→ skips too (LN21)** — Organize's Rules walkthrough skips on →, so someone who learned
+    /// that one presses it here. Plain only (an arrow always carries `.function` and `.numericPad`,
+    /// which are not chords), once per press; ⌥→ and ⌘→ are not skips — ⌘→ copies elsewhere.
+    @Test func rightArrowSkipsLikeDelete() async throws {
+        let recorder = Recorder()
+        let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
+        let (window, _) = host(subject)
+        guard await waitForCardFocus(in: window) else { return }
+
+        let arrow: NSEvent.ModifierFlags = [.function, .numericPad]
+        send(window, keyCode: 124, characters: "\u{F703}", modifiers: arrow)
+        #expect(recorder.skips == 1, "a plain → did not skip (skips: \(recorder.skips))")
+        for _ in 0..<3 { send(window, keyCode: 124, characters: "\u{F703}", modifiers: arrow, isARepeat: true) }
+        send(window, keyCode: 124, characters: "\u{F703}", modifiers: arrow.union(.option))
+        send(window, keyCode: 124, characters: "\u{F703}", modifiers: arrow.union(.command))
+        #expect(recorder.skips == 1, "a held or modified → skipped an item (skips: \(recorder.skips))")
+        #expect(recorder.primaries == 0)
+        #expect(recorder.exits == 0)
+    }
+
     /// **Caps Lock is not a chord.** `.capsLock` rides on EVERY event while the lock is engaged,
     /// so a guard written as `press.modifiers.isEmpty` takes ⌫-skip away entirely from anyone who
     /// left it on — silently, with the hint row still advertising the key. Measured on this
@@ -420,9 +440,9 @@ import Sync
         let expected = "guard press.isPlainKeystroke, focused else { return .ignored }"
         let handlers = [
             ("ReviewCardView.swift", ".onKeyPress(keys: [.return, .keypadEnter], phases: .down)", "⏎ — the primary copy/move"),
-            ("ReviewCardView.swift", ".onKeyPress(keys: [.delete], phases: .down)", "⌫ — an unrevisitable skip"),
+            ("ReviewCardView.swift", ".onKeyPress(keys: [.delete, .rightArrow], phases: .down)", "⌫ and → — an unrevisitable skip"),
             ("AutomationsLens.swift", ".onKeyPress(keys: [.return, .keypadEnter], phases: .down)", "⏎ — files a real file"),
-            ("AutomationsLens.swift", ".onKeyPress(keys: [.rightArrow], phases: .down)", "→ — an unrevisitable skip"),
+            ("AutomationsLens.swift", ".onKeyPress(keys: [.rightArrow, .delete], phases: .down)", "→ and ⌫ — an unrevisitable skip"),
         ]
         for (file, marker, what) in handlers {
             #expect(try guardLine(file, after: marker) == expected, """

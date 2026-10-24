@@ -101,7 +101,7 @@ import Settings
         #expect(handler.providerDisplayName(forPath: root) == "iCloud")
         #expect(handler.providerDisplayName(forPath: "\(root)/sub/file.txt") == "iCloud")
         // A sibling that merely shares the root as a string prefix must NOT match (the "/" boundary guard).
-        #expect(handler.providerDisplayName(forPath: "\(root)Extra") == "other pane")
+        #expect(handler.providerDisplayName(forPath: "\(root)Extra") == "the other pane")
     }
 
     @MainActor

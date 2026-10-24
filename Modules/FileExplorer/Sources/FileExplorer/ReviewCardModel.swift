@@ -239,6 +239,6 @@ extension ReviewCardModel {
     /// second spelling on the model would be a second thing to keep in step with the first. An
     /// infinitive needs neither.
     static func keyHintSpeech(primaryVerb: String) -> String {
-        "Return to \(primaryVerb.lowercased()), Delete to skip, Space to preview, Escape to end the review"
+        "Return to \(primaryVerb.lowercased()), Delete or Right Arrow to skip, Space to preview, Escape to end the review"
     }
 }

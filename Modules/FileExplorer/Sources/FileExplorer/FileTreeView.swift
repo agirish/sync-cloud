@@ -135,6 +135,9 @@ public struct FileTreeView: View, Equatable {
     /// Directories whose deferred listing is running — passed straight to `PaneColumnsView`, which
     /// needs it to tell "being read" from "could not be read". See its `graftsInFlight`.
     public let graftsInFlight: Set<String>
+    /// The order the panes are sorted in, for the background menus' Sort By to tick (BR7). Read
+    /// here; written through `delegate.handleSort`, like the pane bar's picker writes the same key.
+    public let sortOption: SortOption
     /// A plain click on the pane's empty space, carrying the depth of the column it landed in
     /// (`nil` in Tree mode, and past the last column, where nothing is truncated).
     ///
@@ -350,7 +353,7 @@ public struct FileTreeView: View, Equatable {
     /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
     var badgeMemoRoot: String { currentPath }
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, rowReveal: PaneRowReveal? = nil, onRowRevealed: ((PaneRowReveal) -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String) -> Void)? = nil, graftsInFlight: Set<String> = [], onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, rowReveal: PaneRowReveal? = nil, onRowRevealed: ((PaneRowReveal) -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String) -> Void)? = nil, graftsInFlight: Set<String> = [], sortOption: SortOption = .name, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -390,6 +393,7 @@ public struct FileTreeView: View, Equatable {
         self.onColumnNavigate = onColumnNavigate
         self.onNeedChildren = onNeedChildren
         self.graftsInFlight = graftsInFlight
+        self.sortOption = sortOption
         self.onBackgroundDeselect = onBackgroundDeselect
         self.onQuickLook = onQuickLook
         self.downloadChannel = downloadChannel
@@ -435,6 +439,8 @@ public struct FileTreeView: View, Equatable {
             // Without this a graft landing or finishing cannot redraw the pane, and the spinner
             // it drives would be stuck in whichever state the last unrelated update left it.
             && lhs.graftsInFlight == rhs.graftsInFlight
+            // The background menus tick the current order; a stale value ticks the wrong one.
+            && lhs.sortOption == rhs.sortOption
             && lhs.viewMode == rhs.viewMode
             // The VALUE, not the binding's identity. `Binding` is not `Equatable` and two bindings onto
             // the same `@AppStorage` are fresh structs every render, so comparing anything else here
@@ -950,6 +956,7 @@ public struct FileTreeView: View, Equatable {
                 onQuickLook: { presentQuickLook($0) },
                 onNeedChildren: onNeedChildren ?? { _ in },
                 graftsInFlight: graftsInFlight,
+                sortOption: sortOption,
                 onBackgroundDeselect: onBackgroundDeselect ?? { _ in },
                 awaitingDownloads: downloads.requests,
                 fonts: rowFonts,
@@ -1134,7 +1141,8 @@ public struct FileTreeView: View, Equatable {
             // the view graph — which is exactly what `PaneTree` alone failed to prevent. That was
             // true of `OutlineGroup` and is equally true of the `ForEach` inside `PaneOutlineRows`.
             PaneOutlineRows(rows: tree.rows, expanded: expandedBinding,
-                            onNeedChildren: onNeedChildren ?? { _ in }) { row in
+                            onNeedChildren: onNeedChildren ?? { _ in },
+                            isLoading: isLoading, graftsInFlight: graftsInFlight) { row in
                 treeRow(for: row)
             }
         }
@@ -1303,13 +1311,7 @@ public struct FileTreeView: View, Equatable {
         Divider()
         SharedFileMenuItems.getInfo(for: currentPath, delegate: delegate)
         Divider()
-        Menu("Sort By") {
-            Button("Name") { delegate.handleSort(.name) }
-            Button("Kind") { delegate.handleSort(.kind) }
-            Button("Date Modified") { delegate.handleSort(.dateModified) }
-            Button("Size") { delegate.handleSort(.size) }
-            Button("Tags") { delegate.handleSort(.tags) }
-        }
+        SharedFileMenuItems.sortBy(sortOption) { delegate.handleSort($0) }
         // The pane's view options where Finder keeps its own — the empty-area menu of the very list
         // the preview takes its room from. The columns menu carries the identical item; both write
         // the binding the header's pill and ⇧⌘P write, so the three cannot disagree.
@@ -1331,6 +1333,37 @@ public struct FileTreeView: View, Equatable {
 /// items (Reveal, Quick Look, Rename, …) stay in FileContextMenu. The two menus target
 /// different paths, so each item takes its target explicitly.
 enum SharedFileMenuItems {
+    /// **Sort By, with the current order ticked (BR7)** — the pane bar's own picker, in a submenu.
+    /// The tree's background menu had five plain buttons with no tick, and the columns' had no Sort
+    /// By at all; both draw this one now, so the three places that sort cannot disagree.
+    @MainActor
+    static func sortBy(_ current: SortOption,
+                       onSort: @escaping @MainActor (SortOption) -> Void) -> some View {
+        Menu("Sort By") {
+            Picker("Sort By", selection: Binding(get: { current }, set: { onSort($0) })) {
+                ForEach(SortOption.allCases, id: \.self) { option in
+                    Text(option.rawValue).tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        }
+    }
+
+    /// **Copy Path** — the absolute path as plain text, the way the tab strip, the Info sidebar and
+    /// the Differences rows copy it.
+    static func copyPath(_ path: String) -> some View {
+        Button(action: { copyPath(path, to: .general) }) {
+            Label("Copy Path", systemImage: "doc.on.clipboard")
+        }
+    }
+
+    /// The write itself, on a pasteboard the caller names — a test hands it a private one.
+    static func copyPath(_ path: String, to pasteboard: NSPasteboard) {
+        pasteboard.clearContents()
+        pasteboard.setString(path, forType: .string)
+    }
+
     static func refresh(delegate: FileActionDelegate) -> some View {
         Button(action: { delegate.handleRefresh() }) {
             Label("Refresh", systemImage: "arrow.clockwise")
@@ -1485,7 +1518,7 @@ struct FileContextMenu: View {
                     delegate.handleCompareFilePair(node, with: counterpart,
                                                    secondIsInOtherPane: true)
                 } label: {
-                    Label("Compare with '\(counterpart.name)' from \(otherPaneName)",
+                    Label("Compare with “\(counterpart.name)” from \(otherPaneName)",
                           systemImage: "rectangle.split.2x1")
                 }
             }
@@ -1613,6 +1646,9 @@ struct FileContextMenu: View {
                 Button(action: { onQuickLook(URL(fileURLWithPath: singleNode.id)) }) {
                     Label("Quick Look", systemImage: "doc.viewfinder")
                 }
+                // On tabs, the Info sidebar and the Differences rows already; the row was the one
+                // place a path could not be copied from (BR15).
+                SharedFileMenuItems.copyPath(singleNode.id)
                 // Materialize a cloud-only placeholder. Works cleanly for iCloud (the one public,
                 // non-blocking download API); for other File Provider providers it fails and we log
                 // a pointer to Finder rather than pretend. Reveal in Finder (above) is the reliable
@@ -1810,12 +1846,13 @@ struct FileContextMenu: View {
             // shortcut for this verb belongs on the window's own command set, keyed off the live
             // selection — not here.
             if isSingleSource {
-                Button(action: { delegate.handleChooseDestination(selectedNodes, isMove: true) }) {
-                    Label(count > 1 ? "Move \(count) items to…" : "Move to…", systemImage: TransferGlyph.move(toRight: true))
-                }
-
+                // Copy before Move, as in the two-pane items below and File ▸ Copy to… / Move to….
                 Button(action: { delegate.handleChooseDestination(selectedNodes, isMove: false) }) {
                     Label(count > 1 ? "Copy \(count) items to…" : "Copy to…", systemImage: TransferGlyph.copy)
+                }
+
+                Button(action: { delegate.handleChooseDestination(selectedNodes, isMove: true) }) {
+                    Label(count > 1 ? "Move \(count) items to…" : "Move to…", systemImage: TransferGlyph.move(toRight: true))
                 }
 
                 Divider()
@@ -1857,7 +1894,7 @@ struct FileContextMenu: View {
                     if otherSelectedNodes.count > 1 {
                         Label("Copy \(otherSelectedNodes.count) items from \(otherPaneName)", systemImage: "arrow.right.to.line.compact")
                     } else if let first = otherSelectedNodes.first {
-                        Label("Copy '\(first.name)' from \(otherPaneName)", systemImage: "arrow.right.to.line.compact")
+                        Label("Copy “\(first.name)” from \(otherPaneName)", systemImage: "arrow.right.to.line.compact")
                     }
                 }
             }
@@ -1867,7 +1904,7 @@ struct FileContextMenu: View {
             Divider()
             
             Button(role: .destructive, action: { delegate.handleDelete(selectedNodes) }) {
-                Label(count > 1 ? "Delete \(count) items" : "Delete", systemImage: "trash")
+                Label(count > 1 ? "Move \(count) Items to Trash" : "Move to Trash", systemImage: "trash")
             }
         }
     }

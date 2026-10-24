@@ -9202,3 +9202,53 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fixedWindow=%s scaledWindow=%
 |---|---|---|
 | `v5.x` / `v4.x` | All four, the same code | RECORDED — not owed |
 | `v3.x` / `v2.x` | All four; the shortcuts window is the older fixed 480×420 one, which scrolls above Default for the same reason | RECORDED — not owed |
+
+---
+
+## Browse's tree, menus, Info card and Move/Copy recents; Organize's walkthrough keys and dates — main only
+
+Eight layout and behaviour defects from the v6.1 review (BR7, BR14, BR15, BR17, BR20, LN18, LN19,
+LN21). The copy fixes in the same sweep carry no row.
+
+- **Tree view** expanded an empty folder and an unreadable one onto nothing alike. `main` shows one
+  dimmed child row with the columns' words, "Empty" or "Can’t be read"
+  (`PaneOutlineRows.placeholder`).
+- **Sort By**: the tree's background menu had five buttons with no tick, and the columns' had none.
+  `main` draws one shared picker with a tick in both (`SharedFileMenuItems.sortBy`).
+- **Copy Path** was not on the file row's menu. `main` adds it under Quick Look.
+- **Info sidebar** labels sat in a fixed 80pt column, so "Where it lives:" (85.3pt at 13pt) wrapped
+  at the default size. `main` lays the rows in a `Grid` sized to the widest label, at the app's
+  text size (`DetailsMetadataGrid`).
+- **Move/Copy recents** showed only the folder name. `main` gives every row its full path as a
+  tooltip and a parent line where names repeat (`DestinationPicker.recentDetail`).
+- **Restructure's member column** cut the list off at two lines with no tooltip. `main` adds one.
+- **Restructure's Applied/Undone stamps** used a fixed "HH:mm" and "d MMM yyyy". `main` follows the
+  reader's clock and region.
+- **One-at-a-time walkthroughs** skipped on → (Rules) and ⌫ (Compare's review). `main` takes both
+  in both.
+
+```sh
+F=Modules/FileExplorer/Sources/FileExplorer
+D=Modules/Dashboard/Sources/Dashboard
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s treeEmpty=%s sortTick=%s rowCopyPath=%s info80=%s recentParent=%s memberTip=%s rulesDelete=%s reviewArrow=%s fixedClock=%s\n' $l \
+  "$(git show origin/$l:$F/PaneOutlineRows.swift 2>/dev/null | grep -c 'static func placeholder(for row: PaneRow')" \
+  "$(git show origin/$l:$F/FileTreeView.swift 2>/dev/null | grep -c 'static func sortBy')" \
+  "$(git show origin/$l:$F/FileTreeView.swift 2>/dev/null | grep -c 'SharedFileMenuItems.copyPath(singleNode.id)')" \
+  "$(git show origin/$l:$D/DetailsSidebar.swift 2>/dev/null | grep -c 'frame(width: 80, alignment: .trailing)')" \
+  "$(git show origin/$l:$F/DestinationPicker.swift 2>/dev/null | grep -c 'static func recentDetail')" \
+  "$(git show origin/$l:$F/RestructureLens.swift 2>/dev/null | grep -c '\.help(members)')" \
+  "$(git show origin/$l:$F/AutomationsLens.swift 2>/dev/null | grep -c 'keys: \[.rightArrow, .delete\]')" \
+  "$(git show origin/$l:$F/ReviewCardView.swift 2>/dev/null | grep -c 'keys: \[.delete, .rightArrow\]')" \
+  "$(git show origin/$l:$F/RestructureLens.swift 2>/dev/null | grep -c 'fixed("HH:mm")')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         treeEmpty=0 sortTick=0 rowCopyPath=0 info80=1 recentParent=0 memberTip=0 rulesDelete=0 reviewArrow=0 fixedClock=1
+# v4.x, v3.x, v2.x   treeEmpty=0 sortTick=0 rowCopyPath=0 info80=1 recentParent=0 memberTip=0 rulesDelete=0 reviewArrow=0 fixedClock=0
+# and on this branch: treeEmpty=1 sortTick=1 rowCopyPath=1 info80=0 recentParent=1 memberTip=2 rulesDelete=1 reviewArrow=1 fixedClock=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | All eight, the same code | RECORDED — not owed |
+| `v4.x` | All but the stamps: its Restructure has no Applied/Undone ledger (`fixedClock=0`) | RECORDED — not owed |
+| `v3.x` | The Browse five and the walkthrough keys; no Restructure lens | RECORDED — not owed |
+| `v2.x` | As `v3.x`; its tree is an `OutlineGroup` (no `PaneOutlineRows.swift`), with the same empty expansion | RECORDED — not owed |

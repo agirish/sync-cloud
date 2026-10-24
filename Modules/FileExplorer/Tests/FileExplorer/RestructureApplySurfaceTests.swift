@@ -35,7 +35,8 @@ import Testing
             manifestId: "m1", family: "Finance/US/Income Tax",
             at: "2026-08-28T12:00:00", summary: "8 renames · 12 moved",
             undoneAt: nil, undoSummary: nil, canUndo: true, hasEmptiedFolders: true)
-        let appliedLine = RestructureLens.reorganisationLine(applied, now: now)
+        let britain = Locale(identifier: "en_GB")
+        let appliedLine = RestructureLens.reorganisationLine(applied, now: now, locale: britain)
         #expect(appliedLine == "Applied on 28 Aug 2026 at 12:00 — 8 renames · 12 moved.")
         #expect(!appliedLine.contains("Undone"))
 
@@ -44,7 +45,7 @@ import Testing
             at: "2026-08-28T12:00:00", summary: "8 renames · 12 moved",
             undoneAt: "2026-08-28T13:00:00", undoSummary: "8 renames · 11 moved · 1 skipped",
             canUndo: false, hasEmptiedFolders: false)
-        let undoneLine = RestructureLens.reorganisationLine(undone, now: now)
+        let undoneLine = RestructureLens.reorganisationLine(undone, now: now, locale: britain)
         #expect(undoneLine.contains("Undone on 28 Aug 2026 at 13:00"))
         #expect(undoneLine.contains("1 skipped"),
                 "an undo never pretends the tree was untouched")
@@ -61,13 +62,31 @@ import Testing
         parser.timeZone = .current
         parser.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
         let now = parser.date(from: "2026-08-28T15:00:00")!
-        #expect(RestructureLens.landingPhrase("2026-08-28T09:14:00", now: now)
+        let britain = Locale(identifier: "en_GB")
+        #expect(RestructureLens.landingPhrase("2026-08-28T09:14:00", now: now, locale: britain)
                 == "today at 09:14")
-        #expect(RestructureLens.landingPhrase("2026-08-27T18:40:00", now: now)
+        #expect(RestructureLens.landingPhrase("2026-08-27T18:40:00", now: now, locale: britain)
                 == "yesterday at 18:40")
-        #expect(RestructureLens.landingPhrase("2026-08-12T08:00:00", now: now)
+        #expect(RestructureLens.landingPhrase("2026-08-12T08:00:00", now: now, locale: britain)
                 == "on 12 Aug 2026 at 08:00")
         #expect(RestructureLens.landingPhrase("not-a-stamp", now: now) == "not-a-stamp")
+    }
+
+    /// **The clock and date follow the reader's region (LN19).** They were fixed "HH:mm" and
+    /// "d MMM yyyy", so a 12-hour Mac read "Applied today at 14:04". The same stamps read in a
+    /// 12-hour, month-first region must come out that way; a fixed format cannot. (U+202F is the
+    /// narrow no-break space macOS puts before AM/PM.)
+    @Test func theLandingPhraseFollowsTheReadersClockAndRegion() {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = .current
+        parser.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        let now = parser.date(from: "2026-08-28T15:00:00")!
+        let us = Locale(identifier: "en_US")
+        #expect(RestructureLens.landingPhrase("2026-08-28T14:04:00", now: now, locale: us)
+                == "today at 2:04\u{202F}PM")
+        #expect(RestructureLens.landingPhrase("2026-08-12T08:00:00", now: now, locale: us)
+                == "on Aug 12, 2026 at 8:00\u{202F}AM")
     }
 
     // MARK: Render smoke

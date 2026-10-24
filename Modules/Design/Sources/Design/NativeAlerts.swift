@@ -4,7 +4,8 @@ import Foundation
 @MainActor
 public struct NativeAlerts {
     
-    /// Presents a native macOS Finder-style delete confirmation prompt.
+    /// The ⌘⌫ / row-menu confirmation. It says "Move to Trash" because that is what happens — the
+    /// same verb as the pane bar's rung and every other trash confirmation, as Finder names it.
     /// - Parameters:
     ///   - itemNames: The list of file or folder names selected for deletion.
     /// - Returns: True if the user confirmed the deletion.
@@ -13,15 +14,15 @@ public struct NativeAlerts {
 
         if itemNames.count == 1, let first = itemNames.first {
             return confirmAction(
-                messageText: "Are you sure you want to delete \"\(first)\"?",
-                informativeText: "This item will be moved to the Trash.",
-                confirmTitle: "Delete"
+                messageText: "Move “\(first)” to the Trash?",
+                informativeText: "You can put it back with ⌘Z, or from the Trash.",
+                confirmTitle: "Move to Trash"
             )
         }
         return confirmAction(
-            messageText: "Are you sure you want to delete \(itemNames.count) items?",
-            informativeText: "These items will be moved to the Trash.",
-            confirmTitle: "Delete"
+            messageText: "Move \(itemNames.count) items to the Trash?",
+            informativeText: "You can put them back with ⌘Z, or from the Trash.",
+            confirmTitle: "Move to Trash"
         )
     }
 

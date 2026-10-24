@@ -561,6 +561,20 @@ import SwiftUI
         Self.expectTheRowDrawingArmsStillDraw(model)
     }
 
+    /// **The Overview's Duplicates examples count folders as folders (LN9).** They said
+    /// "\(n) copies" for every group, while the card they open keeps "copies" for files. One rule,
+    /// read by both: the rule's values, and the Overview reading it.
+    @Test func theOverviewCountsAFolderGroupInFolders() throws {
+        #expect(DuplicateGroupCard.memberCount(2, isDirectory: true) == "2 folders")
+        #expect(DuplicateGroupCard.memberCount(1, isDirectory: true) == "1 folder")
+        #expect(DuplicateGroupCard.memberCount(2, isDirectory: false) == "2 copies")
+        #expect(DuplicateGroupCard.memberCount(1, isDirectory: false) == "1 copy")
+        let model = try Self.overviewModelCode()
+        #expect(model.contains("DuplicateGroupCard.memberCount($0.copies.count, isDirectory: $0.isDirectory)"),
+                "the Overview's Duplicates examples no longer read the card's member-count rule")
+        #expect(!model.contains("copies.count) copies"), "the Overview says copies for folders again")
+    }
+
     private static func overviewModelCode() throws -> String {
         try OrganizeScopeCallSiteTests.body(
             of: "var overviewModel: OverviewModel {",

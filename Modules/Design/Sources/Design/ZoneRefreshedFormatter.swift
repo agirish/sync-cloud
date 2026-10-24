@@ -88,10 +88,20 @@ public final class ZoneRefreshedFormatter: @unchecked Sendable {
     /// The `zone` parameter exists for snapshot references, which otherwise bake in the recording
     /// machine's zone and go red on a frozen fixture when that machine moves. That has happened and
     /// cost a day; see `DashboardSnapshotTests.pinnedZone`.
-    public func string(from date: Date, in zone: TimeZone = .current) -> String {
+    ///
+    /// `locale` renders one string in another region and puts the formatter back, under the lock —
+    /// for tests that pin a 12-hour against a 24-hour reading of a ``localized(date:time:)``
+    /// formatter without depending on the region of the Mac they run on. A style-built formatter
+    /// re-derives its pattern from the new locale; a ``fixed(_:)`` one keeps its pattern, which is
+    /// what makes such a test fail against a fixed format.
+    public func string(from date: Date, in zone: TimeZone = .current, locale: Locale? = nil) -> String {
         lock.lock()
         defer { lock.unlock() }
         refresh(to: zone)
+        guard let locale, locale != formatter.locale else { return formatter.string(from: date) }
+        let kept = formatter.locale
+        formatter.locale = locale
+        defer { formatter.locale = kept }
         return formatter.string(from: date)
     }
 

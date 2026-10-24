@@ -4916,6 +4916,8 @@ struct ContentView: View {
             onNeedChildren: { syncManager.loadColumnChildren(atPath: $0, isLeft: pane.isLeft) },
             // So a column can say "reading this" rather than "can't be read" while it waits.
             graftsInFlight: syncManager.columnGraftsInFlightPaths(isLeft: pane.isLeft),
+            // The background menus' Sort By ticks the order the panes are in.
+            sortOption: syncManager.sortOption,
             onBackgroundDeselect: { handleBackgroundDeselect(depth: $0, isLeft: pane.isLeft) },
             // The row menu's preview goes through the HOST's panel, not the pane's own: there is
             // one Quick Look panel and only the host can keep it pointed at the current file.

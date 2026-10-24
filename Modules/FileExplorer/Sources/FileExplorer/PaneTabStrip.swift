@@ -643,7 +643,7 @@ public struct PaneTabStrip: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 6)
             .frame(height: PaneTabStripLadder.tabHeight)
-            .help("\(count) more \(count == 1 ? "tab" : "tabs") — the name above opens them")
+            .help("\(count) more \(count == 1 ? "tab" : "tabs") — click the name beside this to see them")
     }
 
     private func overflowMenu(hidden: [Item]) -> some View {

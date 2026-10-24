@@ -1,5 +1,6 @@
 import SwiftUI
 import Sync
+import Design
 
 /// The pane's outline, as recursive `DisclosureGroup`s over an expansion set the pane owns.
 ///
@@ -33,14 +34,23 @@ struct PaneOutlineRows<Row: View>: View {
     /// the pane is on that root. Same fix as the column's, at the moment the user asks: expanding
     /// IS the request.
     let onNeedChildren: (String) -> Void
+    /// The pane's walk is running — during the shallow first paint every folder is unexplored, so
+    /// an opened empty folder says nothing rather than "Can’t be read". See ``placeholder(for:isLoading:graftsInFlight:)``.
+    let isLoading: Bool
+    /// Folders whose deferred listing is running right now: an opened one shows a spinner rather
+    /// than "Can’t be read".
+    let graftsInFlight: Set<String>
     let row: (PaneRow) -> Row
 
     init(rows: [PaneRow], expanded: Binding<Set<String>>,
          onNeedChildren: @escaping (String) -> Void = { _ in },
+         isLoading: Bool = false, graftsInFlight: Set<String> = [],
          @ViewBuilder row: @escaping (PaneRow) -> Row) {
         self.rows = rows
         self._expanded = expanded
         self.onNeedChildren = onNeedChildren
+        self.isLoading = isLoading
+        self.graftsInFlight = graftsInFlight
         self.row = row
     }
 
@@ -49,8 +59,24 @@ struct PaneOutlineRows<Row: View>: View {
             if let children = paneRow.children {
                 DisclosureGroup(isExpanded: isExpanded(paneRow.node.id,
                                                        isUnexplored: paneRow.node.isUnexplored == true)) {
-                    PaneOutlineRows(rows: children, expanded: $expanded,
-                                    onNeedChildren: onNeedChildren, row: row)
+                    if let caption = Self.placeholder(for: paneRow, isLoading: isLoading,
+                                                      graftsInFlight: graftsInFlight) {
+                        Self.placeholderRow(caption)
+                            // A folder opened from a restored expansion was never asked for — the
+                            // binding's setter asks only on a click. The column asks on appear for
+                            // the same reason, under the same rule.
+                            .onAppear {
+                                if PaneColumnsView.asksForChildren(
+                                    isLoading: isLoading,
+                                    isUnexplored: paneRow.node.isUnexplored == true) {
+                                    onNeedChildren(paneRow.node.id)
+                                }
+                            }
+                    } else {
+                        PaneOutlineRows(rows: children, expanded: $expanded,
+                                        onNeedChildren: onNeedChildren, isLoading: isLoading,
+                                        graftsInFlight: graftsInFlight, row: row)
+                    }
                 } label: {
                     row(paneRow)
                 }
@@ -73,6 +99,36 @@ struct PaneOutlineRows<Row: View>: View {
     /// mounting a `DisclosureGroup` and testing SwiftUI rather than this rule.
     func expansionBindingForTesting(_ row: PaneRow) -> Binding<Bool> {
         isExpanded(row.node.id, isUnexplored: row.node.isUnexplored == true)
+    }
+
+    /// **What an opened folder with nothing under it says (BR14).** The tree expanded onto nothing
+    /// for an empty folder and an unreadable one alike, where Columns says "Empty" or
+    /// "Can’t be read". This is the column's own rule (`PaneColumnsView.emptyCaption`), asked as
+    /// a column one level in — so the two presentations cannot word one state two ways. `nil` for
+    /// a folder with children, for a file, and while the pane's walk runs.
+    static func placeholder(for row: PaneRow, isLoading: Bool,
+                            graftsInFlight: Set<String>) -> PaneColumnsView.Caption? {
+        guard let children = row.children, children.isEmpty else { return nil }
+        return PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1,
+                                            isUnexplored: row.node.isUnexplored == true,
+                                            isLoading: isLoading,
+                                            isBeingRead: graftsInFlight.contains(row.node.id))
+    }
+
+    /// The one dimmed child row that says it — the column's caption, in the column's type and ink.
+    /// Untagged, so the `List` never selects it.
+    @ViewBuilder
+    static func placeholderRow(_ caption: PaneColumnsView.Caption) -> some View {
+        Group {
+            if let text = caption.text {
+                Text(text)
+                    .scaledFont(.caption)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     /// - Parameter isUnexplored: whether this row's children were never walked. Opening such a row

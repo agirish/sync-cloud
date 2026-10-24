@@ -67,6 +67,8 @@ struct PaneColumnsView: View {
     /// about the second which is false about the first, and the first is the common case — every
     /// budgeted-out folder passes through it on the way to being filled.
     var graftsInFlight: Set<String> = []
+    /// The panes' sort order, ticked in the background menu's Sort By (BR7).
+    var sortOption: SortOption = .name
     /// A plain click on empty space, carrying the depth of the column it landed in — `nil` when it
     /// landed past the last column, where there is nothing to truncate to. Routed to the host for
     /// the same reason `onNavigate` is: clearing the selection is a two-pane decision (the pane
@@ -1081,6 +1083,8 @@ struct PaneColumnsView: View {
         }
         Divider()
         SharedFileMenuItems.getInfo(for: directory, delegate: delegate)
+        Divider()
+        SharedFileMenuItems.sortBy(sortOption) { delegate.handleSort($0) }
         // The pane's view options live where Finder keeps its own — the empty-area menu of the
         // very columns they restack. Deliberately NOT in `FileContextMenu`: that menu is built
         // per row, so anything in it exists once per visible file.

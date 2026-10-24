@@ -457,8 +457,8 @@ public struct DetailsSidebar: View {
 
                             Divider()
 
-                            metadataRow(label: "Items:", value: summary.kindDescription)
-                            metadataRow(label: "Size:", value: summary.sizeDescription)
+                            DetailsMetadataGrid(lines: [.fact("Items:", summary.kindDescription),
+                                                        .fact("Size:", summary.sizeDescription)])
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.trailing, 20)
@@ -499,30 +499,28 @@ public struct DetailsSidebar: View {
 
                             Divider()
 
-                            metadataRow(label: "Kind:", value: data.kind)
                             // Keyed on the stat this card came from, not on the live key: a folder
                             // total belongs to the item it was walked for, so a stale card reads
                             // "Calculating…" rather than crediting the previous folder's size to
                             // the one now selected.
-                            metadataRow(label: "Size:", value: displaySize(for: data, key: shown?.key ?? sizeKey))
-                            metadataRow(label: "Where:", value: data.path)
-
+                            //
                             // The supporting facts, then the verdict — in that order, and directly
                             // under the path they are drawn from. "Where it lives" names a
                             // provider because the path above is inside that provider's folder,
                             // and says the content is here because the row above says so. Put the
                             // verdict first and it reads as an oracle; put the facts first and the
                             // row explains itself.
-                            whereItLivesRows(for: data, key: shown?.key ?? sizeKey)
-
-                            Divider()
-
-                            metadataRow(label: "Created:", value: data.creationDate)
-                            metadataRow(label: "Modified:", value: data.modificationDate)
-
-                            Divider()
-
-                            metadataRow(label: "Permissions:", value: data.permissions)
+                            DetailsMetadataGrid(lines: [
+                                .fact("Kind:", data.kind),
+                                .fact("Size:", displaySize(for: data, key: shown?.key ?? sizeKey)),
+                                .fact("Where:", data.path),
+                            ] + whereItLivesLines(for: data, key: shown?.key ?? sizeKey) + [
+                                .divider,
+                                .fact("Created:", data.creationDate),
+                                .fact("Modified:", data.modificationDate),
+                                .divider,
+                                .fact("Permissions:", data.permissions),
+                            ])
 
                             // Withheld while the card is a beat behind the selection — see the
                             // stale-while-revalidate note in `body`. Reveal / Copy Path / Quick
@@ -542,7 +540,7 @@ public struct DetailsSidebar: View {
                         EmptyStateView(
                             icon: "info.circle",
                             title: "No item selected",
-                            message: "Select a file or folder in either pane to see its details here.",
+                            message: "Select a file or folder to see its details here.",
                             layout: .compact
                         )
                         .frame(minHeight: 120)
@@ -802,8 +800,8 @@ public struct DetailsSidebar: View {
     }
 
     /// Inline actions for the metadata card so the Details tab isn't a read-only dead end.
-    /// Mirrors the file-row context menu — Open in Edit / Reveal / Copy Path / Quick Look, in that
-    /// order, the one the row menu leads with. Bordered + small to match the app's other inline
+    /// Open in Edit / Reveal / Copy Path / Quick Look — verbs the file-row context menu also
+    /// carries, in this card's own order. Bordered + small to match the app's other inline
     /// action rows. Shown for both single-item and focused-folder renders — wherever `data` is
     /// non-nil — and the editor verb additionally only for a text file the host can open.
     private func metadataActions(for data: FileMetadata) -> some View {
@@ -890,35 +888,63 @@ public struct DetailsSidebar: View {
     /// unknown coverage, or a dataless file outside every discovered provider root. A row that
     /// said "Unknown" would be worse than no row: it invites the reading that SyncCloud looked and
     /// found nothing, when it did not look.
-    @ViewBuilder
-    private func whereItLivesRows(for data: FileMetadata, key: DirectorySizeTaskID) -> some View {
+    private func whereItLivesLines(for data: FileMetadata, key: DirectorySizeTaskID) -> [DetailsMetadataLine] {
         // Keyed on the stat this card came from, exactly like Size: a location answer belongs to
         // the item it was measured for, so a card that is a beat behind the selection says
         // "Checking…" rather than crediting the previous file's answer to the current one.
         let settled = loadedLocation.flatMap { $0.key == key ? $0 : nil }
+        var lines: [DetailsMetadataLine] = []
         if let text = Self.onThisMacText(isDirectory: data.isDirectory,
                                          isCloudOnly: settled?.isCloudOnly,
                                          hasAnswer: settled != nil) {
-            metadataRow(label: "On this Mac:", value: text)
+            lines.append(.fact("On this Mac:", text))
         }
         if let text = Self.whereItLivesText(path: data.path, isDirectory: data.isDirectory,
                                             coverage: cloudCoverage,
                                             isCloudOnly: settled?.isCloudOnly, hasAnswer: settled != nil) {
-            metadataRow(label: "Where it lives:", value: text)
+            lines.append(.fact("Where it lives:", text))
         }
+        return lines
     }
+}
 
-    private func metadataRow(label: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(label)
-                .foregroundStyle(.secondary)
-                .frame(width: 80, alignment: .trailing)
-            
-            // Allow text to wrap across multiple lines
-            Text(value)
-                .textSelection(.enabled) 
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+/// One line of the Info card's metadata table: a labelled fact, or a rule between two groups.
+enum DetailsMetadataLine: Equatable {
+    case fact(String, String)
+    case divider
+}
+
+/// **The Info card's label/value table, as a `Grid` whose label column takes its widest label
+/// (BR17).** The labels sat in a fixed 80pt column, and "Where it lives:" measures 85.3pt at the
+/// default 13pt — so it wrapped onto two lines at the default size, and every label grew past
+/// the column as the text size went up. A grid sizes the column to what it holds, at every size.
+///
+/// The labels never wrap (`fixedSize`); the values take the rest and wrap, as the path always
+/// has. Both follow the app's text size, like the card's title above them.
+struct DetailsMetadataGrid: View {
+    let lines: [DetailsMetadataLine]
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 12) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                switch line {
+                case .divider:
+                    Divider()
+                case let .fact(label, value):
+                    GridRow(alignment: .top) {
+                        Text(label)
+                            .scaledFont(.body)
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                            .gridColumnAlignment(.trailing)
+                        Text(value)
+                            .scaledFont(.body)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
         }
     }
 }

@@ -188,7 +188,7 @@ import Design
             RestructureLens.surveyNoteText(
                 folderCount: 3_013,
                 surveyedAt: calendar.date(byAdding: .day, value: -daysAgo, to: now)!,
-                now: now)
+                now: now, locale: Locale(identifier: "en_GB"))
         }
         #expect(note(daysAgo: 0).contains("Surveyed today."))
         #expect(note(daysAgo: 1).contains("Surveyed yesterday."))
@@ -204,7 +204,7 @@ import Design
         // A stamp from the future is a wrong clock somewhere; the date is still the fact, and
         // "in -3 days" is the sentence this guards against.
         let future = RestructureLens.surveyedPhrase(
-            calendar.date(byAdding: .day, value: 3, to: now)!, now: now)
+            calendar.date(byAdding: .day, value: 3, to: now)!, now: now, locale: Locale(identifier: "en_GB"))
         #expect(future == "on 31 Aug 2026")
     }
 

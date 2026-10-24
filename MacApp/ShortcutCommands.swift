@@ -2489,7 +2489,7 @@ struct DeleteSelectionCommand: View {
 
     var body: some View {
         // Ellipsis: the action confirms before touching anything (`NativeAlerts.confirmDelete`).
-        Button("Delete Selection…") {
+        Button("Move Selection to Trash…") {
             // ⌘⌫ is also NSText's delete-to-beginning-of-line — see `TextEditingChord`.
             TextEditingChord.route(
                 editorAction: { $0.deleteToBeginningOfLine(nil) },

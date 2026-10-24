@@ -411,7 +411,7 @@ import Foundation
         let folders = rows.filter { $0.group == .folders }
         #expect(folders.map(\.route) == [.folder(path: "\(Self.root)/Legal"),
                                          .folder(path: "\(Self.root)/Medical")])
-        #expect(folders.first?.detail?.hasPrefix("Pinned ") == true)
+        #expect(folders.first?.detail?.hasPrefix("Favorite ") == true)
         #expect(folders.dropFirst().first?.detail?.hasPrefix("Recent ") == true)
     }
 

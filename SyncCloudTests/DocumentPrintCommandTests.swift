@@ -52,7 +52,7 @@ import Foundation
     }
 
     /// **Both titles end in an ellipsis**, because both open a dialog before anything happens —
-    /// the convention `New Text File…` and `Delete Selection…` already follow here.
+    /// the convention `New Text File…` and `Move Selection to Trash…` already follow here.
     @Test func bothTitlesPromiseTheDialogTheyOpen() throws {
         let titles = try fileMenu().items.map(\.title)
         #expect(titles.contains("Print…") && !titles.contains("Print"))

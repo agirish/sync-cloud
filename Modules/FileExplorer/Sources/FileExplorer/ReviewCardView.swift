@@ -177,7 +177,9 @@ struct ReviewCardView: View {
         //
         // `focused` for the same reason as ⏎ above: a skip is unrevisitable, so a ⌫ aimed at a
         // focused descendant must not spend the row.
-        .onKeyPress(keys: [.delete], phases: .down) { press in
+        // → skips as well as ⌫: Organize's Rules walkthrough skips on →, and someone who has
+        // learned either walkthrough should not be retrained by the other (LN21).
+        .onKeyPress(keys: [.delete, .rightArrow], phases: .down) { press in
             guard press.isPlainKeystroke, focused else { return .ignored }
             if !isActing { onSkip(item) }
             return .handled

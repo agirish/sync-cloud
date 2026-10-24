@@ -224,6 +224,7 @@ import Testing
         let stamp = "2026-08-28T09:14:00"
         RestructureLens.stampParser.stageZoneForTesting(elsewhere)
         let now = try #require(RestructureLens.stampParser.date(from: "2026-08-28T12:00:00"))
-        #expect(RestructureLens.landingPhrase(stamp, now: now) == "today at 09:14")
+        #expect(RestructureLens.landingPhrase(stamp, now: now, locale: Locale(identifier: "en_GB"))
+                == "today at 09:14")
     }
 }

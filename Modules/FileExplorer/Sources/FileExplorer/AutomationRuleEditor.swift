@@ -240,7 +240,7 @@ struct AutomationRuleEditor: View {
     private var header: some View {
         HStack {
             Image(systemName: "gearshape.2").foregroundStyle(accent)
-            Text(isNew ? "New automation" : "Edit automation")
+            Text(isNew ? "New rule" : "Edit rule")
                 .scaledFont(.system(size: 14, weight: .semibold))
             Spacer()
         }

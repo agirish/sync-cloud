@@ -1121,10 +1121,11 @@ public enum PaletteRouter {
     static func emptyQueryRows(index: PaletteIndex) -> [PaletteRow] {
         var rows: [PaletteRow] = []
         if let root = index.providerRoot, !root.isEmpty {
-            // Pinned above recent: a pin is a standing choice and a recent is an accident of where
-            // you happened to walk, so the standing one leads. Each says WHICH it is, because
-            // labelling a folder pinned months ago as "Recent" is the wrong claim about it.
-            let listed = index.pinnedFolders.prefix(4).map { ($0, "Pinned", "star.fill") }
+            // Favorites above recent: a favorite is a standing choice and a recent is an accident
+            // of where you happened to walk, so the standing one leads. Each says WHICH it is,
+            // because labelling a folder favorited months ago as "Recent" is the wrong claim about
+            // it. "Favorite", not "Pinned": "pin" belongs to tabs (decided 2026-08-24).
+            let listed = index.pinnedFolders.prefix(4).map { ($0, "Favorite", "star.fill") }
                 + index.recentFolders.prefix(4).map { ($0, "Recent", "clock.arrow.circlepath") }
             for (offset, entry) in listed.enumerated()
             where !entry.0.isEmpty && entry.0 != "." {

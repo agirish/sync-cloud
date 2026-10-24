@@ -139,7 +139,7 @@ public struct PaneActionBar: View {
             Spacer(minLength: 6)
 
             actionBarButton("Delete", systemImage: "trash", accent: accent, role: .destructive,
-                            help: ShortcutHint.tooltip("Delete the selected items", AppChord.deleteSelection.display),
+                            help: ShortcutHint.tooltip("Move the selected items to the Trash", AppChord.deleteSelection.display),
                             keycap: AppChord.deleteSelection.display, action: onDelete)
 
             // ✕ dismisses the selection (the file lists offer no deselect gesture; Escape does the

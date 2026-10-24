@@ -151,7 +151,7 @@ struct StorageLensView: View {
                 FileTypeGlyph.view(name: "sample.zip", isDirectory: false, pointSize: 13)
                     .frame(width: 16)
                 Text("backup-2019.zip").scaledFont(.caption).lineLimit(1)
-                Text("untouched 6 years").scaledFont(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                Text("6 years ago").scaledFont(.caption).foregroundStyle(.tertiary).lineLimit(1)
                 Spacer(minLength: 6)
                 Text("2.8 GB").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
             }

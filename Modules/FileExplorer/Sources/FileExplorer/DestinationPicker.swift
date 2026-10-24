@@ -276,7 +276,7 @@ public struct DestinationPicker: View {
         .task(id: columnDirectories) { await loadVisibleColumns() }
         .task(id: query) { await runSearch() }
         .task(id: highlighted) { await refreshCollisions() }
-        .alert("New folder in “\(displayName(of: highlighted))”", isPresented: $isCreatingFolder) {
+        .alert("New Folder", isPresented: $isCreatingFolder) {
             TextField("Name", text: $newFolderName)
             Button("Cancel", role: .cancel) { newFolderName = "" }
             Button("Create & \(verb.lowercased()) here") { createFolderAndCommit() }
@@ -339,7 +339,9 @@ public struct DestinationPicker: View {
             if !recents.isEmpty {
                 railSectionLabel("Recent")
                 ForEach(recents, id: \.self) { path in
-                    railRow(name: (path as NSString).lastPathComponent, path: path, symbol: "clock.arrow.circlepath")
+                    railRow(name: (path as NSString).lastPathComponent, path: path, symbol: "clock.arrow.circlepath",
+                            detail: Self.recentDetail(for: path, among: recents, under: root,
+                                                      rootName: request.providerName))
                 }
             }
 
@@ -369,7 +371,8 @@ public struct DestinationPicker: View {
 
     /// One rail row. Selected rows take the hue's `accentFillColor` with `onAccentLabelColor` on
     /// top — the accent-fill model, not a wash of the accent over itself, which paints nothing.
-    private func railRow(name: String, path: String, symbol: String) -> some View {
+    private func railRow(name: String, path: String, symbol: String,
+                         detail: String? = nil) -> some View {
         let isSelected = PaneBrowsePath.normalized(path) == highlighted && !isSearching
         return Button {
             query = ""
@@ -378,7 +381,15 @@ public struct DestinationPicker: View {
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: symbol).scaledFont(.system(size: 11))
-                Text(name).lineLimit(1).truncationMode(.middle)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(name).lineLimit(1).truncationMode(.middle)
+                    if let detail {
+                        Text(detail)
+                            .scaledFont(.system(size: 10))
+                            .opacity(0.7)
+                            .lineLimit(1).truncationMode(.head)
+                    }
+                }
                 Spacer(minLength: 0)
             }
             .scaledFont(.system(size: 12))
@@ -400,7 +411,23 @@ public struct DestinationPicker: View {
         .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accent,
                                         filledTint: glassHue.onAccentLabelColor,
                                         shape: DestinationRowShape.kind)
+        // The full path on every row: the name, and even the parent line, can be one of two.
+        .help((path as NSString).abbreviatingWithTildeInPath)
         .padding(.horizontal, 10)
+    }
+
+    /// **A recent's parent, when its name alone cannot tell it apart (BR20).** Two recents named
+    /// Legal read identically in the rail; each now carries where it sits, relative to the
+    /// provider — the provider's name for one directly under it. `nil` for a name no other recent
+    /// shares, so the ordinary row stays one line. Every row also gets its full path as a tooltip.
+    nonisolated static func recentDetail(for path: String, among recents: [String], under root: String,
+                             rootName: String) -> String? {
+        let name = (path as NSString).lastPathComponent
+        let sharing = recents.filter { ($0 as NSString).lastPathComponent == name }
+        guard sharing.count > 1 else { return nil }
+        let parent = (PaneBrowsePath.normalized(path) as NSString).deletingLastPathComponent
+        let relative = browsePath(for: parent, under: root).relativePath
+        return relative.isEmpty ? rootName : relative
     }
 
     private var searchField: some View {

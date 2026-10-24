@@ -355,7 +355,7 @@ public class FileActionHandler {
     }
     
     private func providerDisplayName(forProviderId id: String) -> String {
-        settings.availableProviders.first(where: { $0.id == id })?.displayName ?? "other pane"
+        settings.availableProviders.first(where: { $0.id == id })?.displayName ?? "the other pane"
     }
     
     // Internal (not private) so the provider root-matching (incl. the "/" prefix boundary) is testable.
@@ -367,7 +367,7 @@ public class FileActionHandler {
                 return p.displayName
             }
         }
-        return "other pane"
+        return "the other pane"
     }
     
     /// Success banner after a transfer; no banner when nothing was actually transferred.
@@ -377,7 +377,7 @@ public class FileActionHandler {
         // copyItems/moveItems register one grouped undo for the whole batch, so a single Undo (⌘Z)
         // reverses it — the banner may offer the button.
         syncManager.banner = .success(nodes.count == 1
-            ? "\(verb) \"\(nodes[0].name)\" to \(destinationName)"
+            ? "\(verb) “\(nodes[0].name)” to \(destinationName)"
             : "\(verb) \(nodes.count) items to \(destinationName)", undoable: true)
     }
     

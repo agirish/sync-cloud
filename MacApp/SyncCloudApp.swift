@@ -750,7 +750,7 @@ struct SyncCloudApp: App {
             // **In the roadmap's own order** (§1, Fig. 9): the items the menu opened with, then
             // the two tab items together, then the rest. Close Tab sits beside New Tab rather
             // than in AppKit's `.saveItem` group, which renders after this one and would have put
-            // it below Delete Selection — a long way from the item it is the opposite of.
+            // it below Move Selection to Trash — a long way from the item it is the opposite of.
             CommandGroup(replacing: .newItem) {
                 NewTextFileCommand()        // ⌘N
                 // The files Edit opened last (TE58), under the item that makes a new one — where

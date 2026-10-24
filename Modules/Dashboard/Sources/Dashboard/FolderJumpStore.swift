@@ -1060,7 +1060,7 @@ struct FolderJumpMenu: View {
             Text("No other folders")
         }
         if !pinned.isEmpty {
-            Section("Pinned") {
+            Section("Favorites") {
                 ForEach(pinned) { jumpButton($0, pinned: true) }
             }
         }
@@ -1080,8 +1080,12 @@ struct FolderJumpMenu: View {
         Button {
             store.togglePin(root: rootPath, relativePath: relativePath, name: currentName)
         } label: {
-            Label(isCurrentPinned ? "Unpin “\(currentName)”" : "Pin “\(currentName)”",
-                  systemImage: isCurrentPinned ? "pin.slash" : "pin")
+            // "Favorites" and a star, as on the sidebar and the row menu — "pin" belongs to tabs
+            // (decided 2026-08-24, recorded at `FolderSidebarRow.Group`). The folder is named
+            // because every other item in this menu is somewhere else.
+            Label(isCurrentPinned ? "Remove “\(currentName)” from Favorites"
+                                  : "Add “\(currentName)” to Favorites",
+                  systemImage: isCurrentPinned ? "star.slash" : "star")
         }
         .disabled(relativePath.isEmpty) // the root is always reachable; pinning it adds nothing
     }

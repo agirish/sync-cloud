@@ -79,7 +79,7 @@ import SwiftUI
             }
         }
         // The one this was found on, pinned by value so a reword cannot quietly re-promise it.
-        #expect(RestructureLens.kindVerb(.duplicatedTaxonomy) == "Reports the pair — no plan in 5.0")
+        #expect(RestructureLens.kindVerb(.duplicatedTaxonomy) == "Reports the pair — no plan yet")
         // The positive control: the rule above is capable of objecting. A kind that DOES act
         // still names its operation, so the loop is skipping on the plan surface rather than
         // finding nothing to test.
@@ -238,5 +238,22 @@ import SwiftUI
                       .init(vocabulary: ["b"], members: ["3", "4"])],
             drift: ["5"], shapeless: ["6"])
         #expect(RestructureLens.subtitle(for: finding) == "6 folders, 2 internal shapes")
+    }
+}
+
+/// **Restructure's member column shows the whole list on hover (LN18).** The members sharing a
+/// shape are the finding itself, and the 150pt, two-line column cut them off past about four
+/// names with no tooltip. Both rows that draw a member list carry it whole in `.help`.
+@Suite struct RestructureMemberColumnTests {
+    @Test func bothMemberRowsCarryTheWholeListAsATooltip() throws {
+        let lens = try OrganizeScopeCallSiteTests.source("RestructureLens.swift")
+        let scheme = try OrganizeScopeCallSiteTests.body(
+            of: "private func schemeRow(_ scheme: StructureFinding.Scheme) -> some View {", in: lens)
+        #expect(scheme.contains("let members = scheme.members.joined(separator: \", \")"))
+        #expect(scheme.contains("Text(members)") && scheme.contains(".help(members)"),
+                "the shape row's member list has no tooltip")
+        let extra = try OrganizeScopeCallSiteTests.body(
+            of: "private func extraRow(members: String, note: String) -> some View {", in: lens)
+        #expect(extra.contains(".help(members)"), "the drift row's member list has no tooltip")
     }
 }

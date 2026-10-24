@@ -701,7 +701,9 @@ struct FilingWalkthroughCard: View {
             onDecision(true)
             return .handled
         }
-        .onKeyPress(keys: [.rightArrow], phases: .down) { press in
+        // ⌫ skips as well as →: Compare's one-at-a-time review skips on ⌫, and someone who has
+        // learned either walkthrough should not be retrained by the other (LN21).
+        .onKeyPress(keys: [.rightArrow, .delete], phases: .down) { press in
             guard press.isPlainKeystroke, focused else { return .ignored }
             onDecision(false)
             return .handled
@@ -779,7 +781,7 @@ struct FilingWalkthroughCard: View {
 
     /// What the walkthrough card tells VoiceOver its keys do. Infinitives, like the donor's.
     static let keyHintSpeech =
-        "Return to file, Right Arrow to skip, Escape to cancel the walkthrough"
+        "Return to file, Right Arrow or Delete to skip, Escape to cancel the walkthrough"
 
     private var fileCard: some View {
         let isCollision: Bool = { if case .needsAttention = row.verdict { return true } else { return false } }()

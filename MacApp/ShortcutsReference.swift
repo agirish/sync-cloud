@@ -245,7 +245,7 @@ enum ShortcutsReference {
         ]),
         Group(title: "Guided review", items: [
             Item(keys: "↩", action: "Copy the current item"),
-            Item(keys: "⌫", action: "Skip the current item"),
+            Item(keys: "⌫ / →", action: "Skip the current item"),
             Item(keys: "Space", action: "Quick Look the current item"),
             Item(keys: "Esc", action: "End the review"),
         ]),

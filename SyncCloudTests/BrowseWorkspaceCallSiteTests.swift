@@ -338,6 +338,17 @@ import FileExplorer
         // catch it — see that suite.)
     }
 
+    // MARK: Sort By ticks the panes' order
+
+    /// **The pane is told the order it is sorted in (BR7).** Its background menus tick it; the
+    /// parameter defaults to Name, so a host that stopped passing it would tick Name for every
+    /// order, silently.
+    @Test func testThePaneIsToldTheSortOrder() throws {
+        let content = try Self.source("ContentView.swift")
+        #expect(content.contains("sortOption: syncManager.sortOption,"),
+                "the pane's background menus are not told the current sort order")
+    }
+
     // MARK: Delete acts on its own pane
 
     /// The pane bar's Delete is fed from THIS pane's selection, never the active pane's.

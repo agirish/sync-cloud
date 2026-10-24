@@ -74,3 +74,59 @@ import Sync
                 "collapsing a row started a directory listing")
     }
 }
+
+/// **An opened empty or unreadable folder says which in the tree (BR14).** Columns said "Empty"
+/// or "Can’t be read"; the tree expanded onto nothing for both. The placeholder is the column's
+/// own rule asked one level in, so each state below is pinned by its literal words.
+@MainActor
+@Suite struct OutlineEmptyPlaceholderTests {
+
+    private func row(_ unexplored: Bool, children: [FileNode]?) throws -> PaneRow {
+        let folder = FileNode(id: "/r/f", name: "f", isDirectory: children != nil,
+                              children: children, isUnexplored: unexplored ? true : nil)
+        return try #require(PaneTree(side: .left, version: 1, nodes: [folder]).rows.first)
+    }
+
+    private func caption(_ row: PaneRow, loading: Bool = false,
+                         inFlight: Set<String> = []) -> PaneColumnsView.Caption? {
+        PaneOutlineRows<EmptyView>.placeholder(for: row, isLoading: loading, graftsInFlight: inFlight)
+    }
+
+    @Test func anEmptyWalkedFolderSaysEmpty() throws {
+        #expect(caption(try row(false, children: []))?.text == "Empty")
+    }
+
+    @Test func anUnreadFolderSaysItCannotBeRead() throws {
+        #expect(caption(try row(true, children: []))?.text == "Can’t be read")
+    }
+
+    /// Being read is not unreadable: a spinner, no words.
+    @Test func aFolderBeingReadShowsASpinner() throws {
+        #expect(caption(try row(true, children: []), inFlight: ["/r/f"]) == .loading)
+    }
+
+    /// While the pane's own walk runs every folder is unexplored; nothing is claimed.
+    @Test func nothingIsSaidWhileThePaneIsLoading() throws {
+        #expect(caption(try row(true, children: []), loading: true) == nil)
+    }
+
+    /// The control: a folder with children, and a file, get no placeholder.
+    @Test func aFolderWithChildrenOrAFileGetsNone() throws {
+        let child = FileNode(id: "/r/f/a", name: "a", isDirectory: false)
+        #expect(caption(try row(false, children: [child])) == nil)
+        #expect(caption(try row(false, children: nil)) == nil)
+    }
+
+    /// **The outline draws it, and the pane hands it what it needs.** The rule above is one revert
+    /// away from unused: the outline body must draw the placeholder row from it, and the pane must
+    /// pass its own walk and in-flight state rather than the defaults.
+    @Test func theOutlineDrawsItAndThePanePassesItsState() throws {
+        let outline = try OrganizeScopeCallSiteTests.source("PaneOutlineRows.swift")
+        let body = try OrganizeScopeCallSiteTests.body(of: "var body: some View {", in: outline)
+        #expect(body.contains("Self.placeholder(for: paneRow, isLoading: isLoading,"))
+        #expect(body.contains("Self.placeholderRow(caption)"))
+        let pane = try OrganizeScopeCallSiteTests.source("FileTreeView.swift")
+        #expect(pane.contains("isLoading: isLoading, graftsInFlight: graftsInFlight) { row in"),
+                "the tree's outline is not told the pane's walk and in-flight state")
+    }
+}

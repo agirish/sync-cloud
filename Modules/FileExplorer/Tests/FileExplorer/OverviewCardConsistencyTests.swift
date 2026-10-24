@@ -181,7 +181,7 @@ import Design
         let running = Self.section(.storage, receipt, scanning: true)
         let page = Self.overview([idle])
 
-        #expect(page.actions(for: idle).map(\.title) == ["Open Storage", "Re-analyze"])
+        #expect(page.actions(for: idle).map(\.title) == ["Open Storage", "Rescan"])
         #expect(page.actions(for: running).map(\.title) == ["Open Storage"])
     }
 

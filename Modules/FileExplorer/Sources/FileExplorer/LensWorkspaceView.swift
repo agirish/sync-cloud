@@ -1537,7 +1537,7 @@ public struct LensWorkspaceView: View {
                 // would have to mean one of six different things, and the one it picked would be
                 // the one nobody meant. Each section's own button is one click away.
                 // Storage joins them: its lens has no apply-all because it has no verb that
-                // touches a file at all — the one action it owns is Re-analyze, on row 2.
+                // touches a file at all — the one action it owns is Rescan, on row 2.
                 case .none, .duplicates, .restructure, .rules, .storage:
                     EmptyView()
                 }
@@ -2170,7 +2170,7 @@ public struct LensWorkspaceView: View {
     /// the definition of "this list" now matches what the header claims above it.
     ///
     /// Storage is scoped like the rest since the fold; what is untouched is its row-2 tenancy —
-    /// the total/counts pills, Re-analyze and the search toggle sit in the same 81pt rung they
+    /// the total/counts pills, Rescan and the search toggle sit in the same 81pt rung they
     /// always did.
     @ViewBuilder
     private func lensTrailing(rows: FilteredRows, counts: RailCounts) -> some View {
@@ -3345,7 +3345,7 @@ public struct LensWorkspaceView: View {
     private var hasStorageReport: Bool { syncManager.storageLensReport != nil }
 
     private var reanalyzeStorageButton: some View {
-        // `reaim` is the plain action here, and it stays plain after the fold: Re-analyze rebuilds
+        // `reaim` is the plain action here, and it stays plain after the fold: Rescan rebuilds
         // Storage's report at the aim it already has. It does not MOVE the scope — accepting the
         // moved offer re-analyses the folder now focused, which is what the words say, rather than
         // re-aiming the other five lenses at it as Organize's shared rescan would.
@@ -4037,7 +4037,7 @@ public struct LensWorkspaceView: View {
                                               vocabulary: vocabulary), for: key)
                         return .saved(filename: name)
                     } catch {
-                        return .failed("The plan could not be written beside the profile: "
+                        return .failed("The plan could not be written beside the folder survey: "
                             + error.localizedDescription)
                     }
                 },
@@ -4065,8 +4065,9 @@ public struct LensWorkspaceView: View {
                         summary += " — " + failure
                     }
                     if !outcome.verifierMismatches.isEmpty {
-                        summary += " — the verifier found \(outcome.verifierMismatches.count) "
-                            + "mismatch(es); the log has each one"
+                        let n = outcome.verifierMismatches.count
+                        summary += " — the verifier found \(n) mismatch\(n == 1 ? "" : "es"); "
+                            + "the log has each one"
                     }
                     return .applied(summary: summary)
                 },
@@ -4111,7 +4112,7 @@ public struct LensWorkspaceView: View {
                                           exportedTo: name, vocabulary: []), for: key)
                     return .saved(filename: name)
                 } catch {
-                    return .failed("The plan could not be written beside the profile: "
+                    return .failed("The plan could not be written beside the folder survey: "
                         + error.localizedDescription)
                 }
             },
@@ -4125,8 +4126,9 @@ public struct LensWorkspaceView: View {
                     summary += " — " + failure
                 }
                 if !outcome.verifierMismatches.isEmpty {
-                    summary += " — the verifier found \(outcome.verifierMismatches.count) "
-                        + "mismatch(es); the log has each one"
+                    let n = outcome.verifierMismatches.count
+                    summary += " — the verifier found \(n) mismatch\(n == 1 ? "" : "es"); "
+                        + "the log has each one"
                 }
                 return .applied(summary: summary)
             },
@@ -4428,7 +4430,7 @@ public struct LensWorkspaceView: View {
                     // Findings first, for the reason written on To File above.
                     state: n > 0 ? .findings(count: n, headline: "\(n) group\(n == 1 ? "" : "s")",
                                     examples: scoped.prefix(OrganizeOverview.exampleLimit).map {
-                                        "\($0.name) — \($0.copies.count) copies"
+                                        "\($0.name) — \(DuplicateGroupCard.memberCount($0.copies.count, isDirectory: $0.isDirectory))"
                                     })
                         : !syncManager.hasFoundDuplicates || !duplicatesCover ? .notScanned
                         : .clean,
@@ -5053,24 +5055,33 @@ public struct LensWorkspaceView: View {
             triggerSymbol: "wand.and.stars",
             triggerHelp: "Hash “\(scanTargetName)” and group identical content. Free, on this Mac — the slow part is reading every file once.",
             samplesTitle: "What a finding looks like",
-            samplesAccessibility: "Example of the duplicate-group format: a match-type badge, "
-                + "the common name, how many copies, and what removing the extras reclaims. "
+            samplesAccessibility: "Example of the duplicate-group format: the common name, "
+                + "how many copies and how they match, and what removing the extras reclaims. "
                 + "These are samples, not files on your disk.",
             onStart: onFindDuplicates
         ) {
+            // **The real card's header at sample scale** (LN8): name, then the card's own
+            // subtitle, then the verb and figure — the green pill only on an identical group, as the card
+            // draws it. These led with match badges ("Identical", "Same text", "Needs review")
+            // after the cards had dropped theirs; the section headings carry the kind now.
             LensSetupSampleRow {
-                Pill(.mini, tint: SemanticColor.success, text: "Identical")
                 Text("Wedding Gifts.pdf").scaledFont(.caption).lineLimit(1)
-                Text("2 copies").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
                 Spacer(minLength: 6)
-                Text("reclaim 71 KB").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
+                Text("2 copies · byte-for-byte").scaledFont(.caption.monospaced())
+                    .foregroundStyle(.tertiary).lineLimit(1)
+                Text("reclaim").scaledFont(.caption).foregroundStyle(.secondary)
+                Text("71 KB").scaledFont(.caption.monospaced().weight(.semibold))
+                    .foregroundStyle(SemanticColor.success)
+                    .pillSurface(.mini, tint: SemanticColor.success)
             }
             LensSetupSampleRow {
-                Pill(.mini, tint: SemanticColor.caution, text: "Same text")
                 Text("Passport - All Pages.pdf").scaledFont(.caption).lineLimit(1)
-                Text("2 copies").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
                 Spacer(minLength: 6)
-                Text("reclaim 26 MB").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
+                Text("2 copies · bytes differ").scaledFont(.caption.monospaced())
+                    .foregroundStyle(.tertiary).lineLimit(1)
+                Text("reclaim").scaledFont(.caption).foregroundStyle(.secondary)
+                Text("26 MB").scaledFont(.caption.monospaced().weight(.semibold))
+                    .foregroundStyle(SemanticColor.success)
             }
             LensSetupSampleRow {
                 // **A finding the scan can actually produce.** This sample used to be a
@@ -5078,12 +5089,13 @@ public struct LensWorkspaceView: View {
                 // teaching the shape of a kind that was removed. An overlap is the nearest real
                 // one: it needs a person, and its figure is approximate and shared rather than
                 // reclaimed, which is exactly what the section header and the card both say.
-                Pill(.mini, tint: SemanticColor.warning, text: "Needs review")
                 Text("Petition").scaledFont(.caption).lineLimit(1)
-                Text("2 folders · 92% shared").scaledFont(.caption.monospaced())
-                    .foregroundStyle(.secondary)
                 Spacer(minLength: 6)
-                Text("~1.1 MB shared").scaledFont(.caption.monospaced()).foregroundStyle(.tertiary)
+                Text("2 folders · 92% shared").scaledFont(.caption.monospaced())
+                    .foregroundStyle(.tertiary).lineLimit(1)
+                Text("shared").scaledFont(.caption).foregroundStyle(.secondary)
+                Text("~1.1 MB").scaledFont(.caption.monospaced().weight(.semibold))
+                    .foregroundStyle(.secondary)
             }
         }
     }

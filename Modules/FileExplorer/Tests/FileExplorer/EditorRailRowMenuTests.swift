@@ -39,7 +39,7 @@ import FileExplorerTestSupport
     /// A row that is NOT the open document — the case the header's menu could never reach.
     static let rowPath = "/Users/me/Notes/ideas.md"
 
-    static let six = ["Reveal in Browse", "Get Info", "Reveal in Finder", "Quick Look", "Rename", "Delete"]
+    static let six = ["Reveal in Browse", "Get Info", "Reveal in Finder", "Quick Look", "Rename", "Move to Trash"]
 
     /// **Six acts in three groups for a file on disk**: the four ways out, then Browse's Rename and
     /// Delete in their own group at the bottom (TE117, decided AY), with Browse's words and glyphs,
@@ -107,7 +107,7 @@ import FileExplorerTestSupport
     }
 
     /// The menu as an `NSMenu` draws it: separators as untitled items.
-    static let sixDrawn = ["Reveal in Browse", "Get Info", "Reveal in Finder", "Quick Look", "", "Rename", "Delete"]
+    static let sixDrawn = ["Reveal in Browse", "Get Info", "Reveal in Finder", "Quick Look", "", "Rename", "Move to Trash"]
 
     /// **The workspace hands the rail the host's acts, as they are — READ off a hosted workspace.**
     /// The host builds the row actions (the app's Reveal in Browse is its own door, so its log can
@@ -182,7 +182,7 @@ import FileExplorerTestSupport
         #expect(pane.contains(#"Label("Reveal in Finder", systemImage: RevealGlyph.inFinder)"#))
         #expect(pane.contains(#"Label("Quick Look", systemImage: "doc.viewfinder")"#))
         #expect(pane.contains(#"Label("Rename", systemImage: "pencil")"#))
-        #expect(pane.contains(#"Label(count > 1 ? "Delete \(count) items" : "Delete", systemImage: "trash")"#))
+        #expect(pane.contains(#"Label(count > 1 ? "Move \(count) Items to Trash" : "Move to Trash", systemImage: "trash")"#))
         // Both headers draw this menu, through their own Reveal in Browse door.
         let workspace = try Self.source("EditorWorkspaceView.swift")
         #expect(workspace.contains("EditorRailRowMenu(path: path, isCloudOnly: Self.isNotDownloaded(document.refusal),")

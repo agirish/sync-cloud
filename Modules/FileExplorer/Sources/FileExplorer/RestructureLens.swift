@@ -454,13 +454,14 @@ struct RestructureLens: View {
     /// The card's sentence — Applied and Undone are different claims and neither borrows the
     /// other's words (§5.7). The Undone line carries the undo run's own counts, because an undo
     /// never pretends the tree was untouched.
-    static func reorganisationLine(_ record: ReorganisationDisplay, now: Date = Date()) -> String {
+    static func reorganisationLine(_ record: ReorganisationDisplay, now: Date = Date(),
+                                   locale: Locale? = nil) -> String {
         if let undoneAt = record.undoneAt {
             let tail = record.undoSummary.map { " — \($0)" } ?? ""
-            return "Undone \(landingPhrase(undoneAt, now: now))\(tail). "
+            return "Undone \(landingPhrase(undoneAt, now: now, locale: locale))\(tail). "
                 + "Anything skipped as drift is named in the log."
         }
-        return "Applied \(landingPhrase(record.at, now: now)) — \(record.summary)."
+        return "Applied \(landingPhrase(record.at, now: now, locale: locale)) — \(record.summary)."
     }
 
     /// The ledger stamp in words — "today at 12:04", "yesterday at 09:14", "on 12 Aug 2026 at
@@ -468,11 +469,14 @@ struct RestructureLens: View {
     /// user sentence in the app rendering it verbatim, a literal `T` included, one line under a
     /// footnote that says "Surveyed yesterday". An unparseable stamp renders as itself — a wrong
     /// spelling of the truth beats a pretty invention.
-    static func landingPhrase(_ stamp: String, now: Date = Date()) -> String {
+    ///
+    /// The time and date follow the reader's region and clock — "today at 2:04 PM" on a 12-hour
+    /// Mac, "on 12 Aug 2026" in Britain. `locale` exists for tests only.
+    static func landingPhrase(_ stamp: String, now: Date = Date(), locale: Locale? = nil) -> String {
         guard let date = Self.stampParser.date(from: stamp) else {
             return stamp
         }
-        let time = Self.stampClock.string(from: date)
+        let time = Self.stampClock.string(from: date, locale: locale)
         let calendar = Calendar.current
         let days = calendar.dateComponents([.day],
                                            from: calendar.startOfDay(for: date),
@@ -480,7 +484,7 @@ struct RestructureLens: View {
         switch days {
         case 0: return "today at \(time)"
         case 1: return "yesterday at \(time)"
-        default: return "on \(Self.absolute(date)) at \(time)"
+        default: return "on \(Self.absolute(date, locale: locale)) at \(time)"
         }
     }
 
@@ -924,7 +928,7 @@ struct RestructureLens: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         if let onRefreshSurvey {
-                            Button("Update the survey now") { onRefreshSurvey(finding.subject) }
+                            Button("Update the survey") { onRefreshSurvey(finding.subject) }
                                 .scaledFont(.system(size: 11, weight: .semibold))
                                 .buttonStyle(.plain)
                                 .foregroundStyle(accent)
@@ -1105,12 +1109,12 @@ struct RestructureLens: View {
         case .deadWeight: return "Reports — no plan"
         case .looseAboveSeries: return "Hands the files to To File"
         case .looseBesideContainer: return "Moves the folder into its container"
-        // **Reports, in 5.0.** `glyphTakesAccent` already withholds the accent from this kind
+        // **Reports, for now.** `glyphTakesAccent` already withholds the accent from this kind
         // precisely so the glyph does not promise a plan the card has no button for — and then
         // this tooltip, hung on that same glyph, promised the merge in words. The visual half of
         // the fix landed without the half a reader actually reads. It stays honest here until
         // §5.9 is measured and a plan surface exists to describe.
-        case .duplicatedTaxonomy: return "Reports the pair — no plan in 5.0"
+        case .duplicatedTaxonomy: return "Reports the pair — no plan yet"
         case .ask: return "Asks — the answer is remembered, nothing moves"
         }
     }
@@ -1380,6 +1384,8 @@ struct RestructureLens: View {
                 .scaledFont(.system(size: 11, weight: .medium))
                 .frame(width: 150, alignment: .leading)
                 .lineLimit(2)
+                // The whole list, which two lines at 150pt cut off past about four names (LN18).
+                .help(members)
             Text(note)
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(.secondary)
@@ -1411,11 +1417,15 @@ struct RestructureLens: View {
     }
 
     private func schemeRow(_ scheme: StructureFinding.Scheme) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(scheme.members.joined(separator: ", "))
+        let members = scheme.members.joined(separator: ", ")
+        return HStack(alignment: .top, spacing: 8) {
+            Text(members)
                 .scaledFont(.system(size: 11, weight: .medium))
                 .frame(width: 150, alignment: .leading)
                 .lineLimit(2)
+                // **The members ARE the finding**, and two lines at 150pt hold about four names;
+                // the rest were cut with no way to read them (LN18). The whole list on hover.
+                .help(members)
             // The vocabulary these siblings AGREE on — the intersection. A union would advertise
             // one member's stray extra as part of the convention.
             Text(scheme.vocabulary.isEmpty
@@ -1607,7 +1617,7 @@ struct RestructureLens: View {
                 // The remedy beside the warning: a caution with nothing to do about it is a
                 // caution people learn to scroll past.
                 if stale, let onUpdateSurvey {
-                    Button(isRefreshing ? "Rescanning…" : "Rescan") { onUpdateSurvey() }
+                    Button(isRefreshing ? "Updating the survey…" : "Update the survey") { onUpdateSurvey() }
                         .scaledFont(.system(size: 11, weight: .semibold))
                         .buttonStyle(.plain)
                         // Not the accent while it is running: an accented control reads as
@@ -1639,14 +1649,14 @@ struct RestructureLens: View {
         + "findings are absent, not clean."
 
     static func surveyNoteText(folderCount: Int?, surveyedAt: Date? = nil,
-                               now: Date = Date()) -> String {
+                               now: Date = Date(), locale: Locale? = nil) -> String {
         let tail = "Read from the folder survey, not from your disk. Update it if the tree has changed since."
         var head: [String] = []
         if let folderCount {
             head.append("Covers \(folderCount.formatted()) folder\(folderCount == 1 ? "" : "s").")
         }
         if let surveyedAt {
-            head.append("Surveyed \(Self.surveyedPhrase(surveyedAt, now: now)).")
+            head.append("Surveyed \(Self.surveyedPhrase(surveyedAt, now: now, locale: locale)).")
         }
         return (head + [tail]).joined(separator: " ")
     }
@@ -1681,7 +1691,7 @@ struct RestructureLens: View {
     ///
     /// The caution tint is ``surveyIsStale``'s, and it lands on the glyph beside this sentence
     /// rather than on the sentence — see ``staleSurveyDays`` for where the number came from.
-    static func surveyedPhrase(_ surveyedAt: Date, now: Date) -> String {
+    static func surveyedPhrase(_ surveyedAt: Date, now: Date, locale: Locale? = nil) -> String {
         let calendar = Calendar.current
         let days = calendar.dateComponents(
             [.day],
@@ -1690,16 +1700,16 @@ struct RestructureLens: View {
         switch days {
         case ..<0:
             // A stamp from the future is a wrong clock somewhere; the date is still the fact.
-            return "on \(Self.absolute(surveyedAt))"
+            return "on \(Self.absolute(surveyedAt, locale: locale))"
         case 0: return "today"
         case 1: return "yesterday"
         case 2...13: return "\(days) days ago"
-        default: return "on \(Self.absolute(surveyedAt))"
+        default: return "on \(Self.absolute(surveyedAt, locale: locale))"
         }
     }
 
-    private static func absolute(_ date: Date) -> String {
-        Self.stampDate.string(from: date)
+    private static func absolute(_ date: Date, locale: Locale? = nil) -> String {
+        Self.stampDate.string(from: date, locale: locale)
     }
 
     /// The POSIX formatters these cards read stamps with, built once each.
@@ -1718,9 +1728,13 @@ struct RestructureLens: View {
     /// Internal, not private, so `theStampFormattersFollowTheSystemZone` can drive the refresh
     /// directly — the alternative is mutating `NSTimeZone.default`, which is process-wide and
     /// would race every other suite in the same run.
+    ///
+    /// **The parser is fixed; the two a person reads are not.** The stamp is machine text and must
+    /// parse the same everywhere, but the clock and date were fixed too — "Applied today at 14:04"
+    /// on a 12-hour Mac — so they follow the reader's region like every other date in Browse.
     static let stampParser = ZoneRefreshedFormatter.fixed("yyyy-MM-dd'T'HH:mm:ss")
-    static let stampClock = ZoneRefreshedFormatter.fixed("HH:mm")
-    static let stampDate = ZoneRefreshedFormatter.fixed("d MMM yyyy")
+    static let stampClock = ZoneRefreshedFormatter.localized(date: .none, time: .short)
+    static let stampDate = ZoneRefreshedFormatter.localized(date: .medium, time: .none)
 
     private var samplesAccessibility: String {
         "Example of the structure-finding format: a family of sibling folders, how many of them "

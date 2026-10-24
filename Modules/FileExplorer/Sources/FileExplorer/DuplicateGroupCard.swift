@@ -225,14 +225,19 @@ struct DuplicateGroupCard: View {
             .frame(width: 17, height: 17)
     }
 
+    /// **"copies" is a file's word.** A folder group's members are folders, and the one kind
+    /// that already said so read better for it — so all of them do. Shared with the Overview's
+    /// Duplicates examples, which said "copies" for folders too (LN9).
+    nonisolated static func memberCount(_ n: Int, isDirectory: Bool) -> String {
+        isDirectory ? "\(n) folder\(n == 1 ? "" : "s")" : "\(n) cop\(n == 1 ? "y" : "ies")"
+    }
+
     private var subtitle: String {
         let n = group.copies.count
-        // **"copies" is a file's word.** A folder group's members are folders, and the one kind
-        // that already said so read better for it — so all of them do.
-        let unit = group.isDirectory ? "folder\(n == 1 ? "" : "s")" : "cop\(n == 1 ? "y" : "ies")"
+        let members = Self.memberCount(n, isDirectory: group.isDirectory)
         switch group.matchType {
         case .identical:
-            return group.isDirectory ? "\(n) \(unit) · identical trees" : "\(n) \(unit) · byte-for-byte"
+            return group.isDirectory ? "\(members) · identical trees" : "\(members) · byte-for-byte"
         case .sameText:
             // Short enough to survive the header row: "same text, different bytes" measured
             // truncated to "same text, diffe…" at 640pt, so only half of it fits.
@@ -243,9 +248,9 @@ struct DuplicateGroupCard: View {
             // exception kind, so that was untrue while the badge existed, and the badge is gone
             // now besides. What genuinely carries "reads the same" is the section's own definition
             // line, `DuplicateSections.definition(.sameText)`, directly above these cards.
-            return "\(n) \(unit) · bytes differ"
+            return "\(members) · bytes differ"
         case .overlapping(let f):
-            return "\(n) \(unit) · \(Int((f * 100).rounded()))% shared"
+            return "\(members) · \(Int((f * 100).rounded()))% shared"
         case .versions:
             return "\(n) versions"
         }

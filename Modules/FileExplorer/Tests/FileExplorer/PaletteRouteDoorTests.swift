@@ -81,7 +81,7 @@ import Design
     }
 
     /// **Both same-leaf folders are RECENTS**, deliberately. With one pinned and one recent the two
-    /// rows differ by the word "Pinned" against "Recent" — a label, not the path — and the render
+    /// rows differ by the word "Favorite" against "Recent" — a label, not the path — and the render
     /// check below would pass even if the path truncated away entirely, which is the collapse it
     /// exists to catch. Same group, same leaf: only `Clients/` against `Archive/` tells them apart.
     /// **The paths share a long head and a leaf, and differ only in the middle** — which is

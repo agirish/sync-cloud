@@ -445,7 +445,7 @@ struct FilingSuggestionCard: View {
                 }
                     .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
                     .chromeHover()
-                Button(action: onChooseFolder) { Label("Choose folder…", systemImage: "folder") }
+                Button(action: onChooseFolder) { Label("Choose a folder…", systemImage: "folder") }
                     .controlSize(.small)
             } else {
                 Button(action: onChooseFolder) { Label("Choose a folder…", systemImage: "folder") }
@@ -453,7 +453,7 @@ struct FilingSuggestionCard: View {
                     .chromeHover()
             }
             if best != nil, let onTryAnother {
-                Button(action: onTryAnother) { Label("Try another", systemImage: "arrow.triangle.2.circlepath") }
+                Button(action: onTryAnother) { Label("Try another folder", systemImage: "arrow.triangle.2.circlepath") }
                     .controlSize(.small)
                     .disabled(isTryAnotherBusy)
                     .help("Reject this folder and suggest a different one — remembered for next time")
@@ -475,7 +475,7 @@ struct FilingSuggestionCard: View {
             Button(action: onReveal) { Label("Reveal", systemImage: RevealGlyph.inFinder) }
                 .controlSize(.small)
             Button(action: onNotHere) {
-                Label("Not here", systemImage: "xmark")
+                Label("Set aside", systemImage: "xmark")
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .contentShape(Rectangle())
             }
