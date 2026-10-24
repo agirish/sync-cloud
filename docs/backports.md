@@ -9617,3 +9617,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s trashRight=%s uniqueRefused=%
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same unchecked trash (`trashRight=1`) | RECORDED — not owed |
+
+---
+
+## A folder holding only the user's dot-files is not removed as empty (FR18) — main only
+
+The removal step's "still empty" skipped every file whose name began with ".", so a folder holding
+only `.env`, `.gitignore` or an office lock file went to the Trash, and Undo recreated it empty.
+`main` ignores only OS noise (`ItemIdentity.deepIdentityIgnoredNames`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s dotSkip=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'if !isDir && !url.lastPathComponent.hasPrefix(".") { files += 1 }')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         dotSkip=1
+# v4.x, v3.x, v2.x   dotSkip=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same removal step (`dotSkip=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure (`dotSkip=0`) | CLOSED — does not apply |

@@ -734,6 +734,41 @@ import Testing
         #expect(repo.removedEmpty == 0, "a repository is not an empty folder")
     }
 
+    /// A folder holding only dot-files the USER keeps is not empty (FR18): `.env`, `.gitignore`
+    /// and an office suite's `.~lock…#` are files, and the removal's inverse is a bare
+    /// `create-dir` that cannot bring them back. Only OS noise is ignorable — `.DS_Store` and
+    /// kin, including a `.Trashes` directory with whatever the OS wrote into it.
+    @Test func aFolderHoldingOnlyUserDotFilesIsNotRemovedAsEmpty() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "RestructureApplyDotFiles")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let trash = ScratchTrash(in: base)
+        let root = base.appendingPathComponent("Documents")
+        try Self.write(root.appendingPathComponent("F/Config/.env"), "TOKEN=x")
+        try Self.write(root.appendingPathComponent("F/Config/.DS_Store"), "junk")
+        try Self.write(root.appendingPathComponent("F/Noise/.DS_Store"), "junk")
+        try Self.write(root.appendingPathComponent("F/Noise/Sub/.localized"), "")
+        try Self.write(root.appendingPathComponent("F/Noise/.Trashes/501/old.pdf"), "os")
+
+        #expect(FileSyncManager.visibleFileCount(
+            atPath: root.appendingPathComponent("F/Config").path, fm: FileManager.default) == 1)
+        let kept = FileSyncManager.executeRestructureActions(
+            [.init(action: .removeEmptyDir, src: "F/Config")], root: root.path, fm: trash)
+        #expect(kept.removedEmpty == 0, "a folder holding .env is not empty")
+        #expect(kept.skipped.contains { $0.contains("F/Config/ still holds 1 file") })
+        #expect(trash.names.isEmpty, "nothing reached the Trash")
+        #expect(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("F/Config/.env").path))
+
+        // The control: OS noise alone still reads empty and still goes, so the refusal above is
+        // about `.env`, not about dot-files in general being newly counted.
+        #expect(FileSyncManager.visibleFileCount(
+            atPath: root.appendingPathComponent("F/Noise").path, fm: FileManager.default) == 0)
+        let removed = FileSyncManager.executeRestructureActions(
+            [.init(action: .removeEmptyDir, src: "F/Noise")], root: root.path, fm: trash)
+        #expect(removed.removedEmpty == 1)
+        #expect(trash.names == ["Noise"])
+    }
+
     /// A vetoed folder is skipped WHOLE, in both directions: the invariant-2 sentence says
     /// "left untouched", and the per-parent veto key alone made it a lie — a one-level-down
     /// merge drained `S/Sub` right after the sentence promised `S/` was untouched, and a later

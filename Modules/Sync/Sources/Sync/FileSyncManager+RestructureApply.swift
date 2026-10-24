@@ -949,8 +949,8 @@ extension FileSyncManager {
         var createdURLs: [URL] = []
     }
 
-    /// How many visible FILES sit anywhere beneath `path` — empty directories and dotfiles do
-    /// not count as contents. This is the removal step's definition of "still empty": a drained
+    /// How many FILES sit anywhere beneath `path` — empty directories and OS noise do not count
+    /// as contents. This is the removal step's definition of "still empty": a drained
     /// folder whose only remainders are the (equally drained) folders inside it can go to the
     /// Trash whole, which is what lets ``RestructureLedger/emptiedFolders(of:)`` stay
     /// shallowest-only without stranding the nested drained folders it deliberately drops —
@@ -964,9 +964,17 @@ extension FileSyncManager {
                                                     fm: FileManaging) -> Int? {
         // NOT `.skipsHiddenFiles`: that prunes hidden DIRECTORIES wholesale, and a drained
         // folder holding `Old/.git/…` would have read "still empty" over a full repository.
-        // The walk descends everywhere; only files whose own name is dotted are ignorable —
-        // the same junk class (.DS_Store) the shallow probe always ignored — because a hidden
-        // directory's contents are content, however its container is named.
+        // The walk descends everywhere, because a hidden directory's contents are content,
+        // however its container is named.
+        //
+        // **Only OS noise is ignorable — not every dotted name (FR18).** This skipped any file
+        // whose name began with ".", which is `.DS_Store` and also `.env`, `.gitignore` and the
+        // `.~lock.Return.ods#` an office suite leaves beside an open document. A folder holding
+        // only those read "still empty", the removal step trashed it, and its inverse is a bare
+        // `create-dir` — so Undo brought the folder back without the file. The names skipped now
+        // are `ItemIdentity.deepIdentityIgnoredNames`, the set the OS writes on its own schedule
+        // and that the move-undo's "is it empty?" (`filesHeld`) already uses; one of those as a
+        // directory (`.Trashes`) is skipped with everything inside it.
         var sawError = false
         guard let walker = fm.enumerator(at: URL(fileURLWithPath: path),
                                          includingPropertiesForKeys: [.isDirectoryKey],
@@ -976,7 +984,11 @@ extension FileSyncManager {
         var files = 0
         for case let url as URL in walker {
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            if !isDir && !url.lastPathComponent.hasPrefix(".") { files += 1 }
+            if ItemIdentity.deepIdentityIgnoredNames.contains(url.lastPathComponent) {
+                if isDir { walker.skipDescendants() }
+                continue
+            }
+            if !isDir { files += 1 }
         }
         return sawError ? nil : files
     }
