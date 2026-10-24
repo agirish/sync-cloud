@@ -625,7 +625,7 @@ struct FilingWalkthroughCard: View {
                 .accentedProminent()
                 .chromeHover()
                 .controlSize(.large)
-                .shortcutKeycap("⏎")
+                .shortcutKeycap("↩")
             }
             Button("Cancel") { onCancel() }
                 .shortcutKeycap("esc")

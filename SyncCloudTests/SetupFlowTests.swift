@@ -366,6 +366,20 @@ import Testing
         }
     }
 
+    /// And neither does Help's page about it, which said the reading "takes seconds" after Learn
+    /// had stopped saying so — the guard above never read the book. "A few hours" is left out on
+    /// purpose: the page says the optional document reading runs "over a few hours", which is the
+    /// reading offer's own claim, the one the welcome test above also sets aside.
+    @Test func helpsSetupPageEstimatesNoDurationEither() throws {
+        let topic = try #require(HelpBook.sections.flatMap(\.topics).first { $0.id == "setup" })
+        let copy = ([topic.article.intro] + topic.article.blocks.map(\.searchableText))
+            .joined(separator: " ").lowercased()
+        for duration in ["minute", "seconds", " h ", "quick"] {
+            #expect(!copy.contains(duration),
+                    "Help's Setup page estimates a duration again: \(duration)")
+        }
+    }
+
     /// Four panels, one per shipping workspace.
     ///
     /// **Edit is the one that was missing**, and its absence is exactly the defect this test now

@@ -117,10 +117,19 @@ struct CountriesScreen: View {
         "\(count) other short name\(count == 1 ? "" : "s")"
     }
 
+    /// Claims a result only once there is one: "ticked the ones it is confident about" over a
+    /// spinner, or after a reading that failed, promised ticks that were not there.
     private var blurb: String {
-        model.countryCandidates.isEmpty && model.walkState.isDone
-            ? "No short folder names looked like countries. Add any by their code."
-            : "SyncCloud ticked the ones it is confident about. Correct it below."
+        switch model.walkState {
+        case .done where model.countryCandidates.isEmpty:
+            return "No short folder names looked like countries. Add any by their code."
+        case .done:
+            return "SyncCloud ticked the ones it is confident about. Correct it below."
+        case .running:
+            return "SyncCloud is looking for country codes in your folder names."
+        case .idle, .skipped, .failed:
+            return "Add any countries your folders use, by their code."
+        }
     }
 
     private func chip(_ value: String, detail: String, help: String) -> some View {

@@ -515,7 +515,7 @@ struct AutomationRuleEditor: View {
                 .shortcutKeycap("esc")
             Button("Save") { onSave(assembled) }
                 .keyboardShortcut(.defaultAction)
-                .shortcutKeycap("⏎")
+                .shortcutKeycap("↩")
                 .buttonStyle(.borderedProminent)
                 .accentedProminent()
                 .chromeHover()

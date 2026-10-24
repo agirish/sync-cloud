@@ -41,14 +41,14 @@ enum EditorDivergenceColumns {
     /// and another machine are indistinguishable from here, and "changed on another machine" is the
     /// guess a reader would act on. The age comes from ``ScanFreshness/relative(_:)`` rather than a
     /// second ladder of buckets — it is the app's one relative-age vocabulary, already tested, and
-    /// its floor ("0s ago") is right here too: the interesting case for this overlay is a file that
+    /// its floor ("just now") is right here too: the interesting case for this overlay is a file that
     /// changed seconds ago.
     static func disk(modified: Date?, now: Date) -> String {
         guard let modified else { return diskLabel }
         // **A future modification date is not guarded against here, because it does not need to
         // be.** A clock skew between machines is ordinary in exactly the shared folders this
         // overlay is about, so a file can carry an mtime ahead of now — and `relative`'s first
-        // bucket is `..<30`, which a negative interval falls into: it answers "0s ago". A
+        // bucket is `..<30`, which a negative interval falls into: it answers "just now". A
         // `max(0, …)` here was written first and then measured, and it changed nothing for any
         // input; a redundant clamp is a rule no test can hold, so it went and this comment stayed.
         return "\(diskLabel) · written \(ScanFreshness.relative(now.timeIntervalSince(modified)))"

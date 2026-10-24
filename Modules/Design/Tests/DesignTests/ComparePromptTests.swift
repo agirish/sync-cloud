@@ -15,7 +15,7 @@ import Testing
 
     @Test func testItReportsTheCountAndTheAge() {
         #expect(text(count: 412, ageSeconds: 3 * 86_400)
-                == "Last scanned 3 days ago — 412 differences. Scan again to see what has changed since.")
+                == "Last scanned 3d ago — 412 differences. Scan again to see what has changed since.")
     }
 
     /// Both plural seams. "1 differences" and "0 differences" are the two ways this sentence reads

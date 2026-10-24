@@ -14,10 +14,6 @@ struct LearnScreen: View {
     @ObservedObject var settings: SettingsManager
     let hue: LiquidGlassHue
 
-    private var providerName: String {
-        model.primaryProvider.map { LocationsScreen.name($0) } ?? "this Mac"
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: SetupRhythm.blockSpacing) {
             SetupHeading(title: "Which folder should SyncCloud learn from?",
@@ -31,7 +27,7 @@ struct LearnScreen: View {
                     Text(model.walkRoot == nil ? "No folder chosen yet" : model.walkRootName)
                         .scaledFont(.callout.weight(.medium))
                     if model.walkRoot != nil {
-                        Text("in \(providerName)")
+                        Text(model.walkRootLocationLine)
                             .scaledFont(.caption2)
                             .foregroundStyle(.secondary)
                         Text(model.walkRootDisplay)

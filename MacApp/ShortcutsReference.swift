@@ -1,3 +1,4 @@
+import AppKit
 import Design
 import SwiftUI
 
@@ -155,7 +156,7 @@ enum ShortcutsReference {
             Item(keys: "⌃⌘ S / ⌃⌘ T", action: "Show or hide sidebar / file list"),
             Item(keys: "⇧⌘ .", action: "Show or hide hidden files"),
             Item(keys: "⇧⌘ P", action: "Show or hide the file preview"),
-            Item(keys: "⌘ ⌫", action: "Delete the selected items, after confirming"),
+            Item(keys: "⌘ ⌫", action: "Move the selected items to the Trash"),
             Item(keys: "Space", action: "Quick Look the selected item"),
             Item(keys: "⌘-click / ⇧-click", action: "Select multiple items"),
             // Directly under the gesture that creates its precondition: two files ⌘-clicked in one
@@ -174,14 +175,14 @@ enum ShortcutsReference {
             // a SECOND LINE on this one: the action column
             // here holds about 35 characters, and every longer wording tried ("…— or open the
             // selected one", "…/ open the selected file") wrapped and measured 749pt, which
-            // `theReferenceFitsItsWindowWithoutScrolling` refuses. "New or selected" maps onto the
+            // `theReferenceFitsItsWindowAtEveryTextSize` refuses. "New or selected" maps onto the
             // keys in order, and "in Edit" stays because ⌘O fires from a Browse or Compare pane,
             // not from inside Edit where this group otherwise lives. "file", not "text file": ⌘O
             // opens a selected PDF too.
             Item(keys: "⌘ N / ⌘ O", action: "New or selected file, in Edit"),
             // **⌘P shares ⌘S's row, and that was measured rather than chosen for tidiness.** On a
             // row of its own the reference stood 770pt against a 740pt window, which
-            // `theReferenceFitsItsWindowWithoutScrolling` refuses — the same wall the editor's ⌘F
+            // `theReferenceFitsItsWindowAtEveryTextSize` refuses — the same wall the editor's ⌘F
             // row hit. The pairing also says the true thing: these are the two verbs that take the
             // open document somewhere. "What Preview shows" is the half a reader could otherwise
             // only learn by printing. File ▸ Export as PDF… is deliberately absent: it has no
@@ -205,12 +206,12 @@ enum ShortcutsReference {
             Item(keys: "⇧⌘ X / ⇧⌘ K / ⇧⌘ L", action: "Strikethrough / inline code / link"),
             // The find bar's own verbs. **No ⌘F row here, and it was tried.** The chord's two
             // destinations are named on its one row in Panes; a second row for the editor's half
-            // pushed the reference past its window, which `theReferenceFitsItsWindowWithoutScrolling`
+            // pushed the reference past its window, which `theReferenceFitsItsWindowAtEveryTextSize`
             // caught. A fact that fits on an existing row belongs on it.
             // **⌃⌘L joins the find pair** (TE61) for ⌃⌘E's reason above: a row of its own does not
             // fit this window, and going to a line is the third way to a place in the text. "Use the
             // selection for find" lost three words to it: kept, the action wrapped and the reference
-            // measured 749pt, which `theReferenceFitsItsWindowWithoutScrolling` refused.
+            // measured 749pt, which `theReferenceFitsItsWindowAtEveryTextSize` refused.
             // **⇧⌘G joins it** with the PDF reader's find, which steps both ways — and the text
             // find bar too, which never had a way back.
             Item(keys: "⌘ G / ⇧⌘ G / ⌘ E / ⌃⌘ L", action: "Find next / previous / use selection / go to line"),
@@ -243,8 +244,8 @@ enum ShortcutsReference {
             Item(keys: "Space", action: "Quick Look the selected difference"),
         ]),
         Group(title: "Guided review", items: [
-            Item(keys: "Return", action: "Copy the current item"),
-            Item(keys: "Delete", action: "Skip the current item"),
+            Item(keys: "↩", action: "Copy the current item"),
+            Item(keys: "⌫", action: "Skip the current item"),
             Item(keys: "Space", action: "Quick Look the current item"),
             Item(keys: "Esc", action: "End the review"),
         ]),
@@ -277,9 +278,9 @@ struct ShortcutsReferenceView: View {
     /// to show the whole reference. The single 480pt column fit the sixteen rows it opened
     /// with; the twelve menu-bar chords took it to twenty-nine, which is 865pt of column —
     /// taller than a MacBook Air's screen — so the content went to two columns instead.
-    /// `theReferenceFitsItsWindowWithoutScrolling` measures the laid-out content against this
-    /// number, so a future row can move it but never silently overflow it; the ScrollView stays
-    /// for the larger Settings ▸ Text sizes, which is all it is for.
+    /// `theReferenceFitsItsWindowAtEveryTextSize` measures the laid-out content against this
+    /// number, so a future row can move it but never silently overflow it. The ScrollView is for
+    /// a screen shorter than the window, which the larger text sizes can reach.
     ///
     /// **560 → 600 when ⌘K was added.** The palette's row went into General, which is in the taller
     /// left column, and the content measured 593pt — the test caught it, which is exactly what it
@@ -319,10 +320,10 @@ struct ShortcutsReferenceView: View {
     /// re-broke the two columns around it. So 740 still fit, with 12pt to spare.
     ///
     /// **Raised anyway, and 12pt is the reason.** Every other raise here left 33–37pt, and this
-    /// window neither scrolls nor resizes — 12pt is inside one line of ordinary text reflow, so
+    /// window cannot be resized by hand — 12pt is inside one line of ordinary text reflow, so
     /// "it fits today" and "it fits after a system font metric moves" are different claims. 760
     /// leaves **32pt**, squarely in the band the last four raises settled into, and stays under the
-    /// 60pt ceiling `theReferenceFitsItsWindowWithoutScrolling` puts on empty space. Measured, not
+    /// 60pt ceiling `theReferenceFitsItsWindowAtEveryTextSize` puts on empty space. Measured, not
     /// guessed: the number came from rendering `ShortcutsReferenceContent` at this width.
     ///
     /// **The Edit group cost nothing, and that is worth recording rather than assuming.** ⌘N and
@@ -367,7 +368,7 @@ struct ShortcutsReferenceView: View {
     /// 13" display makes the practical limit.
     ///
     /// **It now measures 734pt, leaving 6pt** — measured 2026-09-25 on the v5.4 line by printing
-    /// the height `theReferenceFitsItsWindowWithoutScrolling` reads (TE35 had measured the same 734
+    /// the height `theReferenceFitsItsWindowAtEveryTextSize` reads (TE35 had measured the same 734
     /// with and without the row it dropped). That is under the 12pt the v4.4 note above judged too
     /// tight, and the window was deliberately not raised for it: Edit's later doors — the ＋ and ×
     /// above the document, File ▸ Close Document, Open in Edit in Compare's differences and
@@ -377,13 +378,62 @@ struct ShortcutsReferenceView: View {
     /// **740 → 760 when ⇧⌘G arrived** with the PDF reader's find (2026-10-17). Not a row: it joined
     /// the find row, whose keys then wrapped to a second line beside a one-line action, and the
     /// content measured **749pt**. 760 leaves 11pt, still 40pt below the 800pt a 13" display allows.
+    ///
+    /// **This is the size at the default text size; ``windowSize(scale:)`` is the one drawn.** It
+    /// was this constant at every size, so above Default the rows outgrew it and the window
+    /// scrolled, and the longest key strings wrapped in a keys column that stayed 165pt while its
+    /// type grew. `theReferenceFitsItsWindowAtEveryTextSize` holds every selectable stop to the
+    /// same fit and the same 60pt ceiling on empty space this number was held to.
     static let windowSize = CGSize(width: 1240, height: 760)
 
+    /// The keys column at the default text size.
+    static let keysColumnWidth: CGFloat = 165
+
+    /// How much the reference's type grows at `scale` — the callout rows', which are most of it,
+    /// through the app's own ramp (`FontSize.scaledPointSize`), not a flat multiply: above Default
+    /// the ramp damps, and a window grown by the raw percentage would leave a band of nothing
+    /// under the last row.
+    static func growth(scale: CGFloat) -> CGFloat {
+        FontSize.scaledPointSize(12, scale: scale) / 12
+    }
+
+    /// The window at `scale`. **The width grows with the type and the height far less**, and both
+    /// halves were measured rather than reasoned: a window widened with its type wraps fewer
+    /// action lines, so the rows grow much less than the type does. Grown in both directions by
+    /// the type’s own factor, the window left 64–153pt of nothing under the last row from 110% up
+    /// (rows measured 734–819pt against 798–972pt windows), and still overflowed at 90%. Growing
+    /// the height by `heightPerGrowth` per unit keeps every stop inside the 60pt ceiling.
+    static func windowSize(scale: CGFloat) -> CGSize {
+        let k = growth(scale: scale)
+        return CGSize(width: (windowSize.width * k).rounded(),
+                      height: (windowSize.height + heightPerGrowth * (k - 1)).rounded())
+    }
+
+    /// Points of window height per unit of type growth — fitted to the rows measured at every
+    /// stop, 688pt at 90% to 819pt at 135% (2026-10-23), not to the 760 a flat multiply would use.
+    static let heightPerGrowth: CGFloat = 240
+
+    static func keysColumnWidth(scale: CGFloat) -> CGFloat {
+        (keysColumnWidth * growth(scale: scale)).rounded()
+    }
+
+    /// `size`, held inside a screen of `visible` points with room for the title bar. At Largest the
+    /// window is about 1590pt wide, more than a 13" display's 1470: a frame wider than the screen
+    /// would be cut off at its right edge, where a narrower one only wraps and scrolls.
+    static func fitted(_ size: CGSize, to visible: CGSize?) -> CGSize {
+        guard let visible else { return size }
+        return CGSize(width: min(size.width, visible.width - 40),
+                      height: min(size.height, visible.height - 40))
+    }
+
+    @Environment(\.appFontScale) private var fontScale
+
     var body: some View {
+        let size = Self.fitted(Self.windowSize(scale: fontScale), to: NSScreen.main?.visibleFrame.size)
         ScrollView {
             ShortcutsReferenceContent()
         }
-        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
+        .frame(width: size.width, height: size.height)
         .navigationTitle("Keyboard Shortcuts")
     }
 }
@@ -396,13 +446,15 @@ struct ShortcutsReferenceView: View {
 /// **Split where the ROWS balance, not at the middle of the list.** It was the midpoint, and a
 /// fifth group broke it: three groups landed left and two right, giving a 29-row column against a
 /// 15-row one and a content height of 918pt against a 640pt window — the exact failure
-/// `theReferenceFitsItsWindowWithoutScrolling` exists to catch, on a window the user cannot
+/// `theReferenceFitsItsWindowAtEveryTextSize` exists to catch, on a window the user cannot
 /// enlarge. Balancing by row count keeps the reading order (General, Panes, Tabs, …) and puts the
 /// break wherever the two columns come out closest, so a sixth group cannot reintroduce it.
 ///
 /// **Three columns since v5.3**, dealt by `balancedColumns` — the same balancing, generalised,
 /// after the Edit group grew past what two columns could hold in a window a 13" display can show.
 struct ShortcutsReferenceContent: View {
+    @Environment(\.appFontScale) private var fontScale
+
     var body: some View {
         let columns = ShortcutsReference.balancedColumns(ShortcutsReference.groups,
                                                          count: ShortcutsReference.columnCount)
@@ -425,7 +477,8 @@ struct ShortcutsReferenceContent: View {
                         HStack(alignment: .firstTextBaseline) {
                             Text(item.keys)
                                 .scaledFont(.system(.callout, design: .monospaced).weight(.medium))
-                                .frame(width: 165, alignment: .leading)
+                                .frame(width: ShortcutsReferenceView.keysColumnWidth(scale: fontScale),
+                                       alignment: .leading)
                             Text(item.action)
                                 .scaledFont(.callout)
                                 .foregroundStyle(.secondary)

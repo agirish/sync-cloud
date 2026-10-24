@@ -1242,7 +1242,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         /// file-operation warning outranks the document's, which is right — but "outranks" was
         /// implemented as "replaces", so with a copy running and a buffer dirty the alert named
         /// only the copy and its "Quit Anyway" button terminated with no second question. The
-        /// ranking that justified it says the *"Wait" answer keeps the app up, which is also the
+        /// ranking that justified it says the *"Don’t Quit" (once "Wait") answer keeps the app up, which is also the
         /// answer that saves the buffer* — true of one of the two buttons. The other one dropped
         /// the typing, and the alert never mentioned it existed.
         case warn(activeOperations: Int, hasUnsavedDocument: Bool)
@@ -1353,7 +1353,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // **A PDF's pending page order or running tool is asked about first** — every route out of
         // the document in the window asks the same question (`settleEditorDocument`); ⌘Q is the
-        // one that lives here. It only asks, so a later "Wait" below keeps the order where it was.
+        // one that lives here. It only asks, so a later "Don’t Quit" below keeps the order where it was.
         // A filled copy saved from the question quits once it has landed (decision AX). The
         // question says Quit, not Leave (TE158).
         if let tools = Self.sharedPDFTools, !tools.mayLeave(quitting: true, thenRetry: { NSApp.terminate(nil) }) {
@@ -1469,7 +1469,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
                 + Self.fileOperationsDocumentSentence(name: name, isDirty: isDirty, isOnlyCopy: isOnlyCopy,
                                                       cause: unsaved ? cause : nil)
                 + " Are you sure you want to quit?"
-            alert.addButton(withTitle: "Wait")
+            // "Don’t Quit", not "Wait": nothing quits once the copies finish, so the button
+            // cancels the quit and should say so.
+            alert.addButton(withTitle: "Don’t Quit")
             alert.addButton(withTitle: "Quit Anyway")
             alert.alertStyle = .warning
             // The destructive answer gives up Return, as it does everywhere else in the app — and
@@ -1485,7 +1487,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
                 SyncHistoryStore.shared.flushToDisk()
                 return .terminateNow
             } else {
-                Logger.shared.info("User chose Wait with \(count) active file operation(s) in progress")
+                Logger.shared.info("User chose Don’t Quit with \(count) active file operation(s) in progress")
                 return .terminateCancel
             }
 

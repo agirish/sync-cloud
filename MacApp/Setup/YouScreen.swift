@@ -49,8 +49,10 @@ struct YouScreen: View {
             }
 
             SetupMoreOptions(subtitle: "Nicknames, like Dad") {
-                Text("A nickname is another form of your name: add it above and Organize matches "
-                     + "it like any other.")
+                // Settings' person editor keeps nicknames in a field of their own; both fields
+                // feed the same matcher, so the copy points there rather than contradicting it.
+                Text("Add a nickname above and Organize matches it like any other form. In "
+                     + "Settings ▸ People, nicknames go under Also called.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

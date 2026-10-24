@@ -33,7 +33,7 @@ struct AppearanceScreen: View {
                          blurb: "Optional — you can change all of it later in Settings.")
 
             VStack(alignment: .leading, spacing: SetupRhythm.groupSpacing) {
-                Text("Text size & spacing").scaledFont(.callout.weight(.semibold))
+                Text("Size & spacing").scaledFont(.callout.weight(.semibold))
                 // The app's own control, in its specimen form: miniature rows whose bars thicken
                 // with the text size and thin out with the spacing. Never given a fixed width —
                 // `TextSizeSetupIntegrationTests` is what holds that.
@@ -41,7 +41,7 @@ struct AppearanceScreen: View {
             }
 
             VStack(alignment: .leading, spacing: SetupRhythm.groupSpacing) {
-                Text("Light or dark").scaledFont(.callout.weight(.semibold))
+                Text("Theme").scaledFont(.callout.weight(.semibold))
                 Picker("", selection: appearanceMode) {
                     ForEach(AppearanceMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
@@ -59,7 +59,7 @@ struct AppearanceScreen: View {
             }
 
             VStack(alignment: .leading, spacing: SetupRhythm.groupSpacing) {
-                Text("Accent").scaledFont(.callout.weight(.semibold))
+                Text("Accent color").scaledFont(.callout.weight(.semibold))
                 HStack(spacing: 8) {
                     ForEach(SetupSheet.offeredHues, id: \.self) { offered in
                         swatch(offered)
@@ -131,7 +131,7 @@ struct AppearanceWhy: View {
     var body: some View {
         SetupWhyPanel(title: "Why this is last",
                       footnoteLead: "If you skip:",
-                      footnote: "system appearance, blue accent, default size.",
+                      footnote: "these stay as they are.",
                       hue: hue) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Nothing here changes what SyncCloud does, so it comes last.")

@@ -97,7 +97,16 @@ public struct ProviderLogo: View {
     /// iCloud's and OneDrive's are 1.5:1; Drive's and Dropbox's are near 1.1:1.
     public static let columnAspect: CGFloat = 1.5
 
+    /// **Hidden from VoiceOver, here and once.** The mark is decoration beside a name that says the
+    /// same thing — every caller draws the source's name next to it — and an asset image read
+    /// aloud is its catalog name ("onedrive", "google drive logo"), or nothing useful at all.
+    /// Hiding it at each call site left some sites hiding it and others not.
     public var body: some View {
+        mark.accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var mark: some View {
         if hasBundledAsset {
             #if canImport(AppKit)
             if isInAppKitLabel, let presized = presizedAsset {

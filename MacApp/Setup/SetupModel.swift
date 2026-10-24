@@ -482,6 +482,23 @@ final class SetupModel: ObservableObject {
         return root.path.hasPrefix(home) ? "~" + root.path.dropFirst(home.count) : root.path
     }
 
+    /// Where the folder is — "in Google Drive", "on this Mac" — the line Learn's card draws under
+    /// the folder name.
+    ///
+    /// **Measured from the folder, not from the primary location.** It was the primary's name
+    /// whatever was picked, so Change… to a folder outside every location still read
+    /// "in iCloud Drive". The primary is asked first, so a folder two locations both hold is
+    /// named as the one just confirmed; a folder no enabled location holds is on this Mac.
+    var walkRootLocationLine: String {
+        guard let root = walkRoot?.path else { return "on this Mac" }
+        let candidates = (primaryProvider.map { [$0] } ?? []) + settings.enabledProviders
+        let holder = candidates.first { provider in
+            let base = (settings.rootPath(for: provider.id) as NSString).expandingTildeInPath
+            return PathBoundary.contains(root, under: base)
+        }
+        return holder.map { "in " + LocationsScreen.name($0) } ?? "on this Mac"
+    }
+
     /// The name of the folder itself — what the screens call it in a sentence.
     var walkRootName: String {
         walkRoot.map { $0.lastPathComponent } ?? "your folder"

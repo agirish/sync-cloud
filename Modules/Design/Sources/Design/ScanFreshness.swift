@@ -30,6 +30,9 @@ public enum ScanFreshness {
         /// label ("576 Differences") is already the subject and repeating "Scanned" would make
         /// the capsule a sentence fragment about two different things.
         public let age: String
+        /// The age in words — "29 minutes ago" — for VoiceOver, which can read the compact "29m"
+        /// as metres. Same buckets as `age`, so the eye and the ear never disagree.
+        public let spokenAge: String
         public let isStale: Bool
 
         /// What VoiceOver is told in the age run's place — and the ONE place staleness is put
@@ -44,14 +47,15 @@ public enum ScanFreshness {
         /// Derived here rather than composed at the call site so the fresh and stale phrasings
         /// cannot drift — they differ by one clause, which is the easiest kind of pair to let rot.
         public var spoken: String {
-            isStale ? "scanned \(age), may be out of date" : "scanned \(age)"
+            isStale ? "scanned \(spokenAge), may be out of date" : "scanned \(spokenAge)"
         }
     }
 
     public static func describe(scanDate: Date, now: Date, staleAfter: TimeInterval = staleAfter) -> Result {
         let elapsed = max(0, now.timeIntervalSince(scanDate))
         let age = relative(elapsed)
-        return Result(text: "Scanned \(age)", age: age, isStale: elapsed >= staleAfter)
+        return Result(text: "Scanned \(age)", age: age, spokenAge: spokenRelative(elapsed),
+                      isStale: elapsed >= staleAfter)
     }
 
     /// Coarse, glanceable buckets — half a minute, minutes, hours, days. Deliberately not
@@ -64,20 +68,35 @@ public enum ScanFreshness {
     /// a day, and a "1m → 2m" jump at 89→90s when only 1.5 minutes had passed.
     ///
     /// The old ladder BROKE that invariant at its very first step: "just now" spanned 0–44s and
-    /// "1m ago" began at 45s, claiming a minute that had not elapsed. The 0s/30s steps below
-    /// replace it, so 1m now starts at a genuine 60s. Everything from 120s up is unchanged —
-    /// `s / 60` already covered 1m–59m and `s / 3600` already covered 1h–23h, so the explicit
-    /// `..<120` and `..<7200` cases were redundant restatements and are gone.
+    /// "1m ago" began at 45s, claiming a minute that had not elapsed. Now "just now" covers only
+    /// 0–29s — it claims no amount of time, so it cannot contradict the floor rule — then "30s
+    /// ago", so 1m starts at a genuine 60s. It was "0s ago" for a while, which read as a clock
+    /// rather than an answer.
+    ///
+    /// **Days are compact too**: "1d ago", after "23h ago". The ladder used to switch to words at
+    /// the last step, so one readout ran "23h ago" then "1 day ago".
     public static func relative(_ seconds: TimeInterval) -> String {
         let s = Int(seconds)
         switch s {
-        case ..<30: return "0s ago"
+        case ..<30: return "just now"
         case ..<60: return "30s ago"
         case ..<3600: return "\(s / 60)m ago"           // 1m…59m; never "60m"
         case ..<86_400: return "\(s / 3600)h ago"       // 1h…23h; never "24h"
-        default:
-            let days = s / 86_400
-            return days <= 1 ? "1 day ago" : "\(days) days ago"
+        default: return "\(s / 86_400)d ago"
+        }
+    }
+
+    /// `relative`'s buckets in words, for VoiceOver: "just now", "30 seconds ago",
+    /// "1 minute ago", "29 minutes ago", "2 hours ago", "3 days ago".
+    public static func spokenRelative(_ seconds: TimeInterval) -> String {
+        let s = Int(seconds)
+        func ago(_ n: Int, _ unit: String) -> String { "\(n) \(unit)\(n == 1 ? "" : "s") ago" }
+        switch s {
+        case ..<30: return "just now"
+        case ..<60: return ago(30, "second")
+        case ..<3600: return ago(s / 60, "minute")
+        case ..<86_400: return ago(s / 3600, "hour")
+        default: return ago(s / 86_400, "day")
         }
     }
 }

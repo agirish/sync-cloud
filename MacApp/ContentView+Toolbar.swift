@@ -443,7 +443,9 @@ extension ContentView {
             .disabled(pendingDestination != nil)
 
             Button(action: { openWindow(id: "activity-log") }) {
-                Label("Logs", systemImage: "list.bullet.rectangle")
+                // The window's own name, which is also what VoiceOver reads — "Logs" was a third
+                // name for it. The tooltip's lower-case "log" is the tooltip convention.
+                Label("Activity Log", systemImage: "list.bullet.rectangle")
                     .shortcutKeycap(AppChord.activityLog.display)
             }
             .help(ShortcutHint.tooltip("Activity log", AppChord.activityLog.display))
@@ -462,9 +464,12 @@ extension ContentView {
                     .shortcutKeycap(AppChord.infoInspector.display)
             }
             .help(ShortcutHint.tooltip(
-                showInspector ? "Hide the Info inspector" : "Show details for the selected item",
+                showInspector ? "Hide the Info inspector" : "Show the Info inspector",
                 AppChord.infoInspector.display))
-            .accessibilityLabel(showInspector ? "Hide inspector" : "Show inspector")
+            // Named as it is drawn, so VoiceOver and Voice Control both say "Info"; whether it is
+            // open is the selected trait, as the accent tint is for the eye.
+            .accessibilityLabel("Info")
+            .accessibilityAddTraits(showInspector ? .isSelected : [])
             // **The two halves of one control agree.** ⌘I is silenced during a destination pick
             // (`ShortcutValuePublisher.suspended`), while this button — which the picker's scrim
             // deliberately blocks the mouse from reaching everywhere else — stayed live in the

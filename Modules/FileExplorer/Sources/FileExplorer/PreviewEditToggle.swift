@@ -89,7 +89,7 @@ struct PreviewEditToggle: View {
         .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
         .popover(isPresented: $showsIntro, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(Self.introTitle).font(.headline)
+                Text(Self.introTitle).scaledFont(.headline)
                 Text(Self.introBody).fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Spacer()

@@ -84,13 +84,18 @@ public struct EmptyStateView: View {
 
     public var body: some View {
         VStack(spacing: isCompact ? 8 : 12) {
+            // The icon is the state's mood, which the title already names in words — VoiceOver
+            // reading "checkmark seal fill" ahead of "Everything is in sync" adds nothing.
             Image(systemName: icon)
                 .scaledFont(.system(size: isCompact ? 28 : 40))
                 .foregroundStyle(tint)
                 .symbolRenderingMode(.hierarchical)
+                .accessibilityHidden(true)
+            // The title heads the panel, so the rotor's Headings list can find it.
             Text(title)
                 .scaledFont(.system(size: isCompact ? 13 : 15, weight: .semibold))
                 .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
             if let message {
                 Text(message)
                     .scaledFont(.callout)

@@ -326,6 +326,33 @@ import Testing
         #expect(model.learnAgainTitle == nil)
     }
 
+    /// Learn's card names the location the chosen folder is in, measured from the folder.
+    ///
+    /// **It named the primary location whatever was picked**, so Change… to a folder outside every
+    /// location read "in Google Drive" under its name. The outside folder is asked first, so the
+    /// old answer — the primary's name — cannot pass it.
+    @Test func learnsCardNamesTheLocationTheFolderIsIn() async {
+        let model = await self.model()
+        let drive = model.settings.enabledProviders.first {
+            $0.rootPath.hasPrefix("/private/tmp/setup-model/GoogleDrive")
+        }
+        guard let drive else {
+            Issue.record("premise: the fixture's Drive account is enabled")
+            return
+        }
+        model.primarySourceId = drive.id
+
+        model.changeWalkRoot(to: URL(fileURLWithPath: "/private/tmp/setup-model-elsewhere/Scans"))
+        #expect(model.walkRootLocationLine == "on this Mac")
+
+        model.changeWalkRoot(to: URL(fileURLWithPath: drive.rootPath + "/Documents/Taxes"))
+        #expect(model.walkRootLocationLine == "in Google Drive")
+
+        // A sibling that only shares the root's string prefix is not inside it.
+        model.changeWalkRoot(to: URL(fileURLWithPath: drive.rootPath + "-old/Taxes"))
+        #expect(model.walkRootLocationLine == "on this Mac")
+    }
+
     // MARK: - People
 
     /// The ✕ on a person who was already on the roster asks first; one added in this run does not.

@@ -235,6 +235,9 @@ public enum ShortcutKeycapSpeech {
         ("←", "Left Arrow"),
         ("↑", "Up Arrow"),
         ("↓", "Down Arrow"),
+        // ↩ is the Return key everywhere it is drawn, as macOS menus draw it; ⏎ stays named for
+        // any badge that still spells it the other way.
+        ("↩", "Return"),
         ("⏎", "Return"),
         ("␣", "Space"),
         ("⌫", "Delete"),

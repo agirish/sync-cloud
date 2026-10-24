@@ -9163,3 +9163,42 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s historyAsks=%s fakeICloud=%s 
 |---|---|---|
 | `v5.x` / `v4.x` | All five, the same code | RECORDED — not owed |
 | `v3.x` / `v2.x` | All five; their real bar still has the provider capsule (fd068fc49 is not on them), so the sheet's "iCloud" stands for something real, misnamed off iCloud | RECORDED — not owed |
+
+---
+
+## The shortcuts window grows with the text, scan ages say "just now" and speak in words, and decoration is silent — main only
+
+Four design-system defects from the v6.1 review (SH12, DS6, DS7, DS15).
+
+- **Keyboard Shortcuts** was a fixed 1240×760 with a 165pt keys column, so above Default the
+  rows outgrew it and it scrolled, and longer chords wrapped. `main` sizes the window and the
+  column from the text size (`ShortcutsReferenceView.windowSize(scale:)`), and the fit test runs
+  at every stop. `v3.x` / `v2.x` have a fixed 480×420 one-column window instead, with the same
+  defect in a different shape.
+- **Scan ages** read "0s ago" for the first 30 seconds, then "23h ago" followed by "1 day ago".
+  `main` says "just now", then stays compact through "1d ago".
+- **VoiceOver** was handed the compact age ("scanned 29m ago"), which it can read as metres.
+  `main` speaks it in words (`ScanFreshness.spokenRelative`).
+- **Provider marks and empty-state icons** were read aloud at some sites, and empty-state titles
+  were not headings. `main` hides the mark once, inside `ProviderLogo`, hides the empty state's
+  icon, and gives its title the header trait.
+
+```sh
+D=Modules/Design/Sources/Design
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fixedWindow=%s scaledWindow=%s logoHidden=%s emptyHeader=%s zeroSecs=%s dayWords=%s spokenWords=%s\n' $l \
+  "$(git show origin/$l:MacApp/ShortcutsReference.swift 2>/dev/null | grep -c '\.frame(width: Self.windowSize.width')" \
+  "$(git show origin/$l:MacApp/ShortcutsReference.swift 2>/dev/null | grep -c 'static func windowSize(scale:')" \
+  "$(git show origin/$l:$D/ProviderLogo.swift 2>/dev/null | grep -c 'accessibilityHidden(true)')" \
+  "$(git show origin/$l:$D/EmptyStateView.swift 2>/dev/null | grep -c 'isHeader')" \
+  "$(git show origin/$l:$D/ScanFreshness.swift 2>/dev/null | grep -c '"0s ago"')" \
+  "$(git show origin/$l:$D/ScanFreshness.swift 2>/dev/null | grep -c '1 day ago')" \
+  "$(git show origin/$l:$D/ScanFreshness.swift 2>/dev/null | grep -c 'spokenRelative')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x   fixedWindow=1 scaledWindow=0 logoHidden=0 emptyHeader=0 zeroSecs=1 dayWords=1 spokenWords=0
+# v3.x, v2.x         fixedWindow=0 scaledWindow=0 logoHidden=0 emptyHeader=0 zeroSecs=1 dayWords=1 spokenWords=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | All four, the same code | RECORDED — not owed |
+| `v3.x` / `v2.x` | All four; the shortcuts window is the older fixed 480×420 one, which scrolls above Default for the same reason | RECORDED — not owed |

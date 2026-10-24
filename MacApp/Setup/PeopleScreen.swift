@@ -5,7 +5,7 @@ import Sync
 
 /// Screen 4: who else the folders name.
 ///
-/// **Nothing is ticked when you arrive.** The proposer over-proposes on purpose — `Taxes` sits
+/// **Nobody is added when you arrive.** The proposer over-proposes on purpose — `Taxes` sits
 /// under `Family` too, and only the user knows which of these names are people — so every chip
 /// carries the folder that vouches for it and adding one is a click.
 struct PeopleScreen: View {
@@ -29,7 +29,7 @@ struct PeopleScreen: View {
                 if model.rosterNames.isEmpty {
                     Text(model.visiblePeopleCandidates.isEmpty
                          ? "Nobody yet. Add anyone whose documents you keep."
-                         : "Nobody yet — tick a name below, or add one.")
+                         : "Nobody yet — add a name below, or type one.")
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -52,7 +52,7 @@ struct PeopleScreen: View {
             if !model.visiblePeopleCandidates.isEmpty {
                 SetupMoreOptions(
                     title: Self.suggestionsTitle(model.visiblePeopleCandidates.count),
-                    subtitle: "tick any that are people",
+                    subtitle: "add any that are people",
                     startsOpen: model.rosterNames.isEmpty
                 ) {
                     WrapLayout(spacing: 6) {
@@ -93,17 +93,16 @@ struct PeopleScreen: View {
     }
 
     private var blurb: String {
+        // "Found some names" only once it has: the line used to sit above "Reading names…".
         switch model.walkState {
         case .done where !model.visiblePeopleCandidates.isEmpty:
             return "Anyone whose documents you keep. SyncCloud found some names to offer."
         case .done:
             return "No folder names looked like people. Add anyone by hand."
-        case .skipped:
+        case .running:
+            return "Anyone whose documents you keep. SyncCloud is looking for names to offer."
+        case .idle, .skipped, .failed:
             return "Add anyone whose documents you keep."
-        case .failed:
-            return "Add anyone whose documents you keep."
-        default:
-            return "Anyone whose documents you keep. SyncCloud found some names to offer."
         }
     }
 
@@ -177,7 +176,9 @@ struct SetupWalkStatus: View {
                     .scaledFont(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("Try another folder…") { model.screen = .learn }
+                // Opens the picker and reads what is chosen, as Change… does — the ellipsis
+                // promised a dialog, and this only switched back to Learn.
+                Button("Try another folder…") { model.chooseWalkRoot(thenLearn: true) }
                     .controlSize(.small)
             }
             .padding(10)
@@ -202,8 +203,8 @@ struct PeopleWhy: View {
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Nothing is ticked when you arrive: a folder under Family may not be a person, "
-                     + "and only you know which names are. Ticking one adds it to the list above.")
+                Text("Nobody is added when you arrive: a folder under Family may not be a person, "
+                     + "and only you know which names are. Clicking one adds it to the list above.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

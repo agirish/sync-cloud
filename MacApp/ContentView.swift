@@ -4302,9 +4302,9 @@ struct ContentView: View {
                 CloseButton {
                     withAnimation(.easeInOut(duration: 0.15)) { showInspector = false }
                 }
-                .help("Hide the inspector")
+                .help("Hide the Info inspector")
                 // CloseButton deliberately names itself nowhere; every caller says what it closes.
-                .accessibilityLabel("Hide the inspector")
+                .accessibilityLabel("Hide the Info inspector")
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
             Divider()
@@ -5273,7 +5273,7 @@ struct ContentView: View {
                             icon: "checkmark.seal.fill",
                             tint: .green,
                             title: "Everything is in sync",
-                            message: "No differences found between focused directories.",
+                            message: "No differences found between the two panes’ folders.",
                             secondary: .init("Scan again", systemImage: "arrow.clockwise",
                                              help: "Scan both panes’ folders again and compare them") { forceRefreshAction() }
                         )

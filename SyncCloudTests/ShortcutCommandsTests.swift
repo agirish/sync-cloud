@@ -1,4 +1,5 @@
 import AppKit
+import Design
 import Events
 import FileExplorer
 import SwiftUI
@@ -651,26 +652,77 @@ import Foundation
         #expect(few.map(\.count) == [1, 1])
     }
 
-    @Test(.machinePinned(.layoutMetrics)) func theReferenceFitsItsWindowWithoutScrolling() {
+    /// The reference's laid-out height at `percent`, at the width the window gives it there.
+    private static func referenceHeight(percent: Int) -> (height: CGFloat, window: CGSize) {
+        let size = FontSize(percent: percent)
+        let window = ShortcutsReferenceView.windowSize(scale: size.scale)
         let host = NSHostingView(rootView:
-            ShortcutsReferenceContent().frame(width: ShortcutsReferenceView.windowSize.width))
-        let height = host.fittingSize.height
-        #expect(height > 400, "the reference measured implausibly small — the fixture is broken")
-        #expect(height <= ShortcutsReferenceView.windowSize.height,
-                "the reference needs \(height)pt but the window shows \(ShortcutsReferenceView.windowSize.height)pt — raise windowSize or trim rows")
+            ShortcutsReferenceContent().frame(width: window.width).appFontSize(size))
+        return (host.fittingSize.height, window)
+    }
 
-        // **And it must not be needlessly tall — the drift this test could not see until 2026-08-20.**
-        //
-        // Every previous failure here was the content outgrowing the window, so the fix was always
-        // "raise `windowSize`" and the number only ever went up. Then Browse's sidebar row was
-        // removed (the column is held for v4.3) and 780 was suddenly showing 707pt of rows over
-        // 73pt of nothing, with every check above green: a panel that is a third empty is a panel
-        // that looks like it lost its last group. One row measures ~36pt here, so a 60pt ceiling
-        // fails the moment a row leaves without the window following it, and leaves ~27pt of slack
-        // over today's 33pt margin for ordinary text reflow.
-        let slack = ShortcutsReferenceView.windowSize.height - height
-        #expect(slack <= 60,
-                "the window shows \(slack)pt of empty space below the last row (\(height)pt of rows in \(ShortcutsReferenceView.windowSize.height)pt) — lower windowSize to the rows it actually has")
+    /// **At every text size, not only the default** — the window was a fixed 1240×760, so above
+    /// Default the rows outgrew it and it scrolled. Each selectable stop is held to the fit and to
+    /// the 60pt ceiling on empty space below.
+    @Test(.machinePinned(.layoutMetrics)) func theReferenceFitsItsWindowAtEveryTextSize() {
+        #expect(ShortcutsReferenceView.windowSize(scale: 1) == ShortcutsReferenceView.windowSize,
+                "the default text size no longer gets the measured default window")
+        var measured: [String] = []
+        for percent in FontSize.selectablePercents {
+            let (height, window) = Self.referenceHeight(percent: percent)
+            measured.append("\(percent)%: \(Int(height.rounded()))pt of rows in \(Int(window.height))pt")
+            #expect(height > 400, "\(percent)%: the reference measured implausibly small — the fixture is broken")
+            #expect(height <= window.height,
+                    "\(percent)%: the reference needs \(height)pt but the window shows \(window.height)pt — raise windowSize or trim rows")
+
+            // **And it must not be needlessly tall — the drift this test could not see until 2026-08-20.**
+            //
+            // Every earlier failure here was the content outgrowing the window, so the fix was always
+            // "raise `windowSize`" and the number only ever went up. Then Browse's sidebar row was
+            // removed and 780 was suddenly showing 707pt of rows over 73pt of nothing, with every
+            // check above green: a panel that is a third empty looks like it lost its last group. One
+            // row measures ~36pt, so a 60pt ceiling fails the moment a row leaves without the window
+            // following it.
+            let slack = window.height - height
+            #expect(slack <= 60,
+                    "\(percent)%: the window shows \(slack)pt of empty space below the last row (\(height)pt of rows in \(window.height)pt) — lower windowSize to the rows it actually has")
+        }
+        print("Keyboard Shortcuts fit — " + measured.joined(separator: "; "))
+    }
+
+    /// On a screen smaller than the window, the window shrinks to it rather than running off its
+    /// edge; on a large one it is left alone.
+    @Test func theWindowIsHeldInsideASmallScreen() {
+        let largest = ShortcutsReferenceView.windowSize(scale: FontSize.extraLarge.scale)
+        #expect(largest.width > 1470, "premise: Largest is wider than a 13-inch display")
+        let small = ShortcutsReferenceView.fitted(largest, to: CGSize(width: 1470, height: 900))
+        #expect(small == CGSize(width: 1430, height: min(largest.height, 860)))
+        let big = ShortcutsReferenceView.fitted(largest, to: CGSize(width: 3000, height: 2000))
+        #expect(big == largest)
+        #expect(ShortcutsReferenceView.fitted(largest, to: nil) == largest)
+    }
+
+    /// **A key string that fits its column at Default fits it at every size.** The column was a
+    /// fixed 165pt while its type grew, so at Largest the longer chords broke onto a second line
+    /// beside a one-line action. Strings that already wrap at Default (the find row) are left out:
+    /// that wrap is the layout the window was measured with, not a defect of the size.
+    @Test(.machinePinned(.layoutMetrics)) func aKeyStringThatFitsAtDefaultFitsAtEverySize() {
+        func oneLine(_ keys: String, _ size: FontSize) -> CGFloat {
+            NSHostingView(rootView: Text(keys)
+                .scaledFont(.system(.callout, design: .monospaced).weight(.medium))
+                .fixedSize()
+                .appFontSize(size)).fittingSize.width
+        }
+        let keys = ShortcutsReference.groups.flatMap(\.items).map(\.keys)
+        let fitting = keys.filter { oneLine($0, .medium) <= ShortcutsReferenceView.keysColumnWidth }
+        #expect(fitting.count > 20, "premise: most key strings fit the column at Default")
+        for percent in FontSize.selectablePercents {
+            let size = FontSize(percent: percent)
+            let column = ShortcutsReferenceView.keysColumnWidth(scale: size.scale)
+            for key in fitting where oneLine(key, size) > column {
+                Issue.record("\(percent)%: “\(key)” needs \(oneLine(key, size))pt in a \(column)pt keys column")
+            }
+        }
     }
 }
 

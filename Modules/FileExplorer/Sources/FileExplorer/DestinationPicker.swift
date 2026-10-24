@@ -580,7 +580,7 @@ public struct DestinationPicker: View {
                                             tint: AccentFill.deepened(accent),
                                             onTint: glassHue.onAccentLabelColor))
                     .keyboardShortcut(.defaultAction)
-                    .shortcutKeycap("⏎")
+                    .shortcutKeycap("↩")
                     .disabled(!canCommit)
             }
         }

@@ -293,7 +293,7 @@ public struct DifferencesPairCompareOverlay: View {
                 .buttonStyle(.borderedProminent)
                 .accentedProminent(hue)
                 .controlSize(.regular)
-                .shortcutKeycap("⏎")
+                .shortcutKeycap("↩")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

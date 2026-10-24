@@ -161,8 +161,8 @@ struct SetupFooter: View {
             Button(primaryTitle, action: onPrimary)
                 .keyboardShortcut(.defaultAction)
                 .accentedProminent()
-                .shortcutKeycap("return")
-                .help(ShortcutHint.tooltip(primaryTitle, "return"))
+                .shortcutKeycap("↩")
+                .help(ShortcutHint.tooltip(primaryTitle, "↩"))
                 .disabled(isPrimaryDisabled)
         }
         // **Centred on the card, not between the buttons.** Two `Spacer`s put it at the midpoint of

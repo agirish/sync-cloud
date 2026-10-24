@@ -75,7 +75,7 @@ struct PersonEditor: View {
                 .shortcutKeycap("esc")
             Button(isNew ? "Add" : "Save") { onSave(assembled) }
                 .keyboardShortcut(.defaultAction)
-                .shortcutKeycap("⏎")
+                .shortcutKeycap("↩")
                 .buttonStyle(.borderedProminent)
                 .accentedProminent()
                 .chromeHover()

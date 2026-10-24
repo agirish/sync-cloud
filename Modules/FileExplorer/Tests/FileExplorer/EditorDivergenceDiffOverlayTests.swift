@@ -59,7 +59,7 @@ import FileExplorerTestSupport
     /// worse than no age at all.
     ///
     /// The property comes from `ScanFreshness.relative`, whose first bucket is `..<30` and swallows
-    /// a negative interval into "0s ago" — stated here rather than clamped at the call site,
+    /// a negative interval into "just now" — stated here rather than clamped at the call site,
     /// because a `max(0, …)` there was measured to change nothing for any input and a redundant
     /// guard is a rule no test can hold. This is the assertion that the inherited behaviour is the
     /// one this caption actually gets.
@@ -67,7 +67,7 @@ import FileExplorerTestSupport
         let now = Date(timeIntervalSince1970: 1_000_000)
         let caption = EditorDivergenceColumns.disk(modified: now.addingTimeInterval(600), now: now)
         #expect(!caption.contains("-"), "got \(caption)")
-        #expect(caption == "On disk · written 0s ago")
+        #expect(caption == "On disk · written just now")
     }
 
     /// The two labels are what the pipeline's refusals name the sides, so a refused side reads as a

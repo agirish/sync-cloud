@@ -109,7 +109,7 @@ import Testing
     /// A long shortcut must not be the exception. `⇧⌘→` is the widest string any adopter passes.
     @Test func aWideKeycapStillCostsTheControlNothing() {
         let view = Button("Review 12") {}.buttonStyle(.actionBar(.outline, tint: Self.tint, onTint: .white))
-        let narrow = hosted(view.shortcutKeycap("⏎"), revealed: true).fittingSize
+        let narrow = hosted(view.shortcutKeycap("↩"), revealed: true).fittingSize
         let wide = hosted(view.shortcutKeycap("⇧⌘→"), revealed: true).fittingSize
         #expect(narrow == wide, "the keycap's own width reached the control: \(narrow) vs \(wide)")
     }
@@ -414,5 +414,9 @@ import Testing
         #expect(ShortcutKeycapSpeech.spoken("⌘]") == "Command Right Bracket")
         #expect(ShortcutKeycapSpeech.spoken("⌘⌫") == "Command Delete")
         #expect(ShortcutKeycapSpeech.spoken("⌥⌘F") == "Option Command F")
+        // ↩ is how every Return keycap is drawn; the table only knew ⏎, so a ↩ badge was
+        // announced as the raw glyph.
+        #expect(ShortcutKeycapSpeech.spoken("↩") == "Return")
+        #expect(ShortcutKeycapSpeech.spoken("⇧↩") == "Shift Return")
     }
 }

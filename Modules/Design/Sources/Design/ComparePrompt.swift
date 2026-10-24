@@ -17,7 +17,7 @@ public enum ComparePrompt {
     public static let neverScanned =
         "Nothing scanned yet. Scan the two focused folders to see what differs."
 
-    /// `"Last scanned 3 days ago — 412 differences. Scan again to see what has changed since."`
+    /// `"Last scanned 3d ago — 412 differences. Scan again to see what has changed since."`
     ///
     /// Past tense throughout, and the button beside it says Scan: nothing here may read as a
     /// statement about the folders *now*. The count is what the last scan found, and the sentence
