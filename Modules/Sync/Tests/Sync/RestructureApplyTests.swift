@@ -769,6 +769,40 @@ import Testing
         #expect(trash.names == ["Noise"])
     }
 
+    /// A rename skipped because its destination appeared takes the merges planned INTO that
+    /// destination with it (FR19). The skip sentence promises the folder was not "merged
+    /// unreviewed"; the merges, which only consulted the unlisted-file veto, landed in it anyway.
+    @Test func aRenameRefusedAsDriftRefusesTheMergesHeadedIntoIt() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "RestructureApplyRefusedRename")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let trash = ScratchTrash(in: base)
+        let root = base.appendingPathComponent("Documents")
+        try Self.write(root.appendingPathComponent("Tax/Form W2/a.pdf"), "a")
+        try Self.write(root.appendingPathComponent("Tax/Form-W2/b.pdf"), "b")
+        let actions: [RestructureManifest.Action] = [
+            .init(action: .renameDir, src: "Tax/Form W2", dst: "Tax/Form W-2"),
+            .init(action: .moveFile, src: "Tax/Form-W2/b.pdf", dst: "Tax/Form W-2/b.pdf"),
+            .init(action: .createDir, dst: "Tax/Form W-2/2024"),
+        ]
+        // The drift: a `Form W-2/` synced in between plan and apply.
+        try Self.write(root.appendingPathComponent("Tax/Form W-2/theirs.pdf"), "theirs")
+
+        let execution = FileSyncManager.executeRestructureActions(actions, root: root.path,
+                                                                  fm: trash)
+        #expect(execution.renamed == 0)
+        #expect(execution.filesMoved == 0, "a merge landed in the folder the rename refused")
+        #expect(execution.created == 0)
+        #expect(execution.performed.isEmpty)
+        #expect(execution.skipped.contains { $0.contains("the rename of Tax/Form W2/ was skipped") })
+        #expect(execution.skipped.contains {
+            $0.hasPrefix("Tax/Form-W2/b.pdf was planned against Tax/Form W-2/")
+        })
+        #expect(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("Tax/Form-W2/b.pdf").path))
+        #expect(Self.treeList(root.appendingPathComponent("Tax/Form W-2")) == "/theirs.pdf",
+                "the foreign folder must be left exactly as it arrived")
+    }
+
     /// A vetoed folder is skipped WHOLE, in both directions: the invariant-2 sentence says
     /// "left untouched", and the per-parent veto key alone made it a lie — a one-level-down
     /// merge drained `S/Sub` right after the sentence promised `S/` was untouched, and a later

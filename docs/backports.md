@@ -9638,3 +9638,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s dotSkip=%s\n' $l \
 |---|---|---|
 | `v5.x` | The same removal step (`dotSkip=1`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure (`dotSkip=0`) | CLOSED — does not apply |
+
+---
+
+## A rename refused as drift refuses the merges planned into it (FR19) — main only
+
+When a rename's destination appeared before the landing, the rename was skipped "rather than merged
+unreviewed" and the merges planned into that destination landed there anyway. `main` skips every
+later action that moves into, out of, or creates beneath the refused destination, with a sentence.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s renameSkip=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'was skipped rather than merged unreviewed')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         renameSkip=1
+# v4.x, v3.x, v2.x   renameSkip=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same rename skip (`renameSkip=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure (`renameSkip=0`) | CLOSED — does not apply |

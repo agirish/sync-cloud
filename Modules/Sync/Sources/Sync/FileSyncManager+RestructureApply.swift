@@ -1091,6 +1091,23 @@ extension FileSyncManager {
         func vetoedAncestor(of path: String) -> String? {
             vetoedSources.first { path == $0 || path.hasPrefix($0 + "/") }
         }
+        // **A rename refused as drift refuses the merges that were headed into it too (FR19).**
+        // `Form W2 → Form W-2`, then `Form-W2/*` merged into `Form W-2/`: if a `Form W-2/` syncs
+        // in first, the rename is skipped "rather than merged unreviewed" — and the merges, which
+        // only ever checked `vetoedSources`, landed in that very folder anyway, unreviewed, under
+        // a sentence saying the opposite. The plan's later actions name the destination as the
+        // folder the rename WOULD have produced; the one standing there is somebody else's, so
+        // nothing moves into it, out of it, or is created beneath it. Kept apart from
+        // `vetoedSources` because that set's sentence ("holds items the plan never listed") is
+        // about a different refusal.
+        var refusedRenameDestinations: Set<String> = []
+        func refusedRename(covering path: String) -> String? {
+            refusedRenameDestinations.first { path == $0 || path.hasPrefix($0 + "/") }
+        }
+        func refusedRenameSentence(_ item: String, _ covering: String) -> String {
+            "\(item) was planned against \(covering)/ as the rename would have made it, and that "
+                + "rename was refused — left where it stands"
+        }
 
         for action in actions {
             let performedBefore = out.performed.count
@@ -1112,6 +1129,10 @@ extension FileSyncManager {
 
             case .createDir:
                 guard let dst = action.dst else { continue }
+                if let covering = refusedRename(covering: dst) {
+                    out.skipped.append(refusedRenameSentence("\(dst)/", covering))
+                    continue
+                }
                 let path = absolute(dst)
                 if fm.fileExists(atPath: path) {
                     out.skipped.append("\(dst)/ already exists — left as it stands")
@@ -1129,6 +1150,10 @@ extension FileSyncManager {
 
             case .renameDir:
                 guard let src = action.src, let dst = action.dst else { continue }
+                if let covering = refusedRename(covering: src) ?? refusedRename(covering: dst) {
+                    out.skipped.append(refusedRenameSentence("\(src)/", covering))
+                    continue
+                }
                 let srcPath = absolute(src), dstPath = absolute(dst)
                 guard fm.fileExists(atPath: srcPath) else {
                     out.skipped.append("\(src)/ is no longer there — its rename was skipped")
@@ -1145,6 +1170,7 @@ extension FileSyncManager {
                         for: URL(fileURLWithPath: srcPath)) {
                     out.skipped.append("\(dst)/ appeared since the plan — the rename of "
                         + "\(src)/ was skipped rather than merged unreviewed")
+                    refusedRenameDestinations.insert(dst)
                     continue
                 }
                 do {
@@ -1162,6 +1188,11 @@ extension FileSyncManager {
             case .moveFile:
                 guard let src = action.src, let dst = action.dst else { continue }
                 let parent = (src as NSString).deletingLastPathComponent
+                if let covering = refusedRename(covering: parent)
+                    ?? refusedRename(covering: (dst as NSString).deletingLastPathComponent) {
+                    out.skipped.append(refusedRenameSentence(src, covering))
+                    continue
+                }
                 if let covering = vetoedAncestor(of: parent) {
                     out.skipped.append("\(src) sits under \(covering)/ — left untouched with it")
                     continue
@@ -1219,6 +1250,11 @@ extension FileSyncManager {
             case .moveDir:
                 guard let src = action.src, let dst = action.dst else { continue }
                 let parent = (src as NSString).deletingLastPathComponent
+                if let covering = refusedRename(covering: src)
+                    ?? refusedRename(covering: (dst as NSString).deletingLastPathComponent) {
+                    out.skipped.append(refusedRenameSentence("\(src)/", covering))
+                    continue
+                }
                 // A folder already vetoed is left alone WHOLE — nothing drains out from under
                 // it, and this holds for a relocation too: the plan has decided it cannot
                 // safely touch that folder, and carrying one of its children away anyway would
