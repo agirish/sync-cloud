@@ -783,6 +783,72 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.syncManager.banner?.isUndoable == true)
     }
 
+    /// **"Trash right copy" refuses a right copy holding what the left lacks (FR13).** An
+    /// overlapping group's card offers Compare copies too, and the button checked only that the
+    /// pair was unchanged since the scan — so a right folder "1 unique here" went to the Trash with
+    /// its unique file inside, under a dialog that said only "The left copy is kept." Real folders,
+    /// real baselines: the refusal comes BEFORE the confirmation, names the file, points to Merge,
+    /// and leaves both copies, the review and the tab exactly as they were.
+    @Test func aRightCopyHoldingWhatTheLeftLacksIsRefusedBeforeAsking() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-unique-\(UUID().uuidString)")
+        // A stand-in Trash, so a regression that DID trash never reaches the real one.
+        let trash = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-unique-trash-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: trash)
+        }
+        let keep = root.appendingPathComponent("Docs")
+        let copy = root.appendingPathComponent("Backup/Docs")
+        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
+        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+        try Data("only here".utf8).write(to: copy.appendingPathComponent("only-here.txt"))
+
+        let harness = Harness(fileManager: ScratchTrash(folder: trash))
+        harness.lensProviderRoot = root.path
+        let ignored = DuplicateFinderOptions.defaultIgnoredNames
+        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+        harness.workspace = .compare
+        harness.trashConfirmAnswer = true
+
+        harness.coordinator.trashRightCopy(review)
+        await Task.yield()
+
+        #expect(harness.trashConfirmedFor.isEmpty, "the user was asked to confirm a trash that loses a file")
+        let message = harness.syncManager.banner?.message ?? ""
+        #expect(message.contains("holds 1 item the left one doesn't"), "banner: \(message)")
+        #expect(message.contains("only-here.txt"), "banner: \(message)")
+        #expect(message.contains("Merge into keeper"), "banner: \(message)")
+        #expect(FileManager.default.fileExists(atPath: copy.appendingPathComponent("only-here.txt").path))
+        #expect(harness.duplicateReview == review)
+        #expect(harness.workspace == .compare)
+        #expect(harness.appliedPlans.isEmpty)
+    }
+
+    /// The scan's own count is enough on its own: after the user re-aims a keeper the baselines
+    /// can agree on every path while `uniqueItemCount` still says the copy holds content the
+    /// keeper lacks — so a count of 12 refuses even over matching baselines. And the control:
+    /// matching baselines with a count of 0 are not refused, so the rule is not refusing every
+    /// folder review (the success path above is the end-to-end proof of that).
+    @Test func theScansUniqueCountRefusesOnItsOwn() {
+        let entries: [String: FolderContentSnapshot.Entry] = ["a.txt": .file(size: 1, modificationDate: nil)]
+        let same = FolderContentSnapshot(entries: entries, ignoredNames: [])
+        let harness = Harness()
+        var review = harness.installReview(keepSnapshot: same, deleteSnapshot: same)
+        #expect(DuplicateReviewCoordinator.uniqueItemsRefusal(review) == nil)
+        review.deleteUniqueItemCount = 12
+        let refusal = DuplicateReviewCoordinator.uniqueItemsRefusal(review)
+        #expect(refusal?.banner.contains("holds 12 items the left one doesn't") == true)
+        #expect(refusal?.log.contains(review.deletePath) == true)
+    }
+
     /// **The permanent-delete branch, driven for real** — which only became possible when
     /// `trashRightCopy` started passing `fileManager:` to `deleteItems`.
     ///

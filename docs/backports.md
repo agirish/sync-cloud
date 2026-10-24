@@ -9593,3 +9593,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s counterMarker=%s counterOnlyR
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same counter marker (`counterMarker=1`) | RECORDED — not owed |
+
+---
+
+## "Trash right copy" refuses a copy holding what the left lacks (FR13) — main only
+
+Compare copies is offered for every group, overlapping ones included, and its "Trash right copy"
+checked only that the pair was unchanged since the scan, so an overlapping right folder "12 unique
+here" went to the Trash with those twelve inside, under a dialog that said only "The left copy is
+kept." `main` refuses before asking when the scan's `uniqueItemCount` or the two baselines say the
+right copy holds items the left lacks, names them, and points to Merge into keeper
+(`uniqueItemsRefusal`).
+
+```sh
+F=MacApp/DuplicateReviewCoordinator.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s trashRight=%s uniqueRefused=%s\n' $l \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'func trashRightCopy(_ review: DuplicateCompareContext)')" \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'static func uniqueItemsRefusal')"; done
+# measured 2026-10-23, against origin, before this landed (the working tree reads uniqueRefused=1):
+# main, v5.x, v4.x, v3.x, v2.x   trashRight=1 uniqueRefused=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same unchecked trash (`trashRight=1`) | RECORDED — not owed |

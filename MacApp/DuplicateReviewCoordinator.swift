@@ -150,7 +150,8 @@ struct DuplicateReviewCoordinator {
             deleteScannedDate: delete.modificationDate,
             keepContentSnapshot: keep.contentSnapshot,
             deleteContentSnapshot: delete.contentSnapshot,
-            keeperRelativePath: keepRel, redundantRelativePath: deleteRel, restore: restore)
+            keeperRelativePath: keepRel, redundantRelativePath: deleteRel, restore: restore,
+            deleteUniqueItemCount: delete.uniqueItemCount)
 
         Logger.shared.info("Comparing duplicate copies — keep \(keepPath) · delete candidate \(deletePath)")
         selectedWorkspace = .compare
@@ -503,6 +504,52 @@ struct DuplicateReviewCoordinator {
         return .matches
     }
 
+    /// What the right copy holds that the left one lacks, by the scan's own baselines: each file
+    /// or link (relative to the right copy) that the left copy has nowhere at that path, or has as
+    /// a different kind or a different size. Directories are not counted — what is inside one
+    /// is, and an empty folder is nothing to lose. Empty when either copy carries no baseline; the
+    /// drift gate refuses that case on its own.
+    nonisolated static func itemsOnlyInRightCopy(_ review: DuplicateCompareContext) -> [String] {
+        guard let right = review.deleteContentSnapshot, let left = review.keepContentSnapshot else {
+            return []
+        }
+        return right.entries.compactMap { path, entry -> String? in
+            switch (entry, left.entries[path]) {
+            case (.directory, _): return nil
+            case (.file(let size, _), .file(let other, _)?) where size == other: return nil
+            case (.symlink(let size, _), .symlink(let other, _)?) where size == other: return nil
+            default: return path
+            }
+        }.sorted()
+    }
+
+    /// **"Trash right copy" never trashes something only the right copy has (FR13).** The card
+    /// offers Compare copies for every group, overlapping ones included, and this button checked
+    /// only that the pair was unchanged since the scan. On an overlapping group whose right copy
+    /// is "12 unique here" it sent the whole folder — those twelve with it — to the Trash, under
+    /// a dialog that said only "The left copy is kept." Merge exists for exactly this: it copies
+    /// what the keeper lacks into it first. So the plain trash refuses and points there.
+    ///
+    /// Two sources, either one enough. The scan's `uniqueItemCount` compares content, but against
+    /// the group's keeper as the scan chose it, and goes stale when the user re-aims the keeper;
+    /// the baselines' path-and-size difference is computed against the left copy actually on
+    /// screen. Refusing on either is the conservative reading — a merge of a copy that turns out
+    /// to hold nothing new trashes it the same way.
+    nonisolated static func uniqueItemsRefusal(_ review: DuplicateCompareContext)
+        -> (banner: String, log: String)? {
+        let onlyRight = itemsOnlyInRightCopy(review)
+        let count = max(review.deleteUniqueItemCount, onlyRight.count)
+        guard count > 0 else { return nil }
+        let items = count == 1 ? "1 item" : "\(count) items"
+        let examples = onlyRight.prefix(2).map { "“\(($0 as NSString).lastPathComponent)”" }
+        let named = examples.isEmpty ? "" : " (\(examples.joined(separator: ", "))\(onlyRight.count > 2 ? ", …" : ""))"
+        return (
+            banner: "The right copy holds \(items) the left one doesn't\(named), so trashing it would lose them. Use Merge into keeper on the Duplicates card instead — it copies them across first.",
+            log: "Refused to trash \(review.deletePath): it holds \(items) the left copy \(review.keepPath) lacks"
+                + (onlyRight.isEmpty ? "" : " — \(onlyRight.prefix(5).joined(separator: ", "))\(onlyRight.count > 5 ? ", …" : "")")
+                + "; Merge into keeper keeps them")
+    }
+
     /// Posts the banner AND the log line for a refusing verdict — both sides, both wordings.
     /// The delete side always logged its refusals; the keep side used to set a banner and write
     /// NOTHING, so a refusal he could see on screen was absent from the log he audits. The two
@@ -540,6 +587,13 @@ struct DuplicateReviewCoordinator {
     /// disappears when only the keeper is left, without re-walking the whole tree — and restores the
     /// Compare setup. A declined or failed trash keeps the review (and its banner) up for a retry.
     func trashRightCopy(_ review: DuplicateCompareContext) {
+        // Before the confirmation: asking "Move to Trash?" and then refusing is worse than not
+        // asking — and the answer here does not depend on anything the user could say.
+        if let refusal = Self.uniqueItemsRefusal(review) {
+            syncManager.banner = .warning(refusal.banner)
+            Logger.shared.warning(refusal.log)
+            return
+        }
         guard confirmTrashRightCopy(review) else {
             Logger.shared.info("User declined trashing the right duplicate copy \(review.deletePath)")
             return
@@ -678,6 +732,10 @@ struct DuplicateCompareContext: Equatable, Sendable {
     /// Where Compare was before this review pinned both panes to the duplicate's provider — restored
     /// on exit so opening two copies never permanently repoints the user's right pane.
     let restore: SavedCompareState
+    /// The scan's count of items in the right copy that the group's keeper lacks
+    /// (`DuplicateCopy.uniqueItemCount`) — "12 unique here" on an overlapping group's card. Read by
+    /// `uniqueItemsRefusal` (FR13). Defaulted: 0 is what every non-overlapping copy carries.
+    var deleteUniqueItemCount: Int = 0
 }
 
 /// A Compare pane setup — both providers and both focused folders. Captured before a duplicate
