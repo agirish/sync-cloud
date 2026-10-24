@@ -51,6 +51,9 @@ import Foundation
 /// synchronous and WAIT for the answer (`readBlocking`): at most the deadline, only the first time,
 /// and on their own thread — the main actor's, for a move's undo registration. One that can suspend
 /// asks first with `waitForContents(of:)`, which holds no thread, and its listing then never waits.
+/// One that lists with an API of its own — Restructure's plan view and its landing's emptiness
+/// walk — asks first with `waitForContentsBlocking(of:)`, and reads an unanswered folder as
+/// unreadable (FR21).
 extension FileSyncManager {
 
     public final class DatalessFolderReads: @unchecked Sendable {

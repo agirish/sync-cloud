@@ -213,6 +213,21 @@ public extension FileManaging {
         return await datalessFolderReads.read(url.path, { [self] in listingForARead(of: url).outcome }) != nil
     }
 
+    /// ``waitForContents(of:)`` for a caller that cannot suspend and lists with an API of its own —
+    /// Restructure's plan view (`contentsOfDirectory`, for its prefetched keys) and the landing's
+    /// "is it still empty?" walk (a recursive enumerator, for its `skipDescendants`). Neither is a
+    /// `listing(of:)`, so neither was asked through the reads, and a cloud-only folder whose app has
+    /// stopped hung the plan sheet on the main actor or wedged a landing on the file queue (FR21).
+    ///
+    /// Waits as `listing(of:)` waits — at most the deadline, only the first time a folder goes
+    /// unanswered, on the caller's own thread — and answers as `waitForContents` does: true when the
+    /// folder can now be listed without asking, false when it did not answer. A caller reads false
+    /// as UNREADABLE, never as empty. A folder that is not dataless costs one `stat`.
+    func waitForContentsBlocking(of url: URL) -> Bool {
+        guard isDataless(at: url) else { return true }
+        return datalessFolderReads.readBlocking(url.path, { [self] in listingForARead(of: url).outcome }) != nil
+    }
+
     /// The listing a `DatalessFolderReads` read runs: shallow, keeping nothing the read does not
     /// need, and never asking through the reads itself — it IS the read.
     internal func listingForARead(of url: URL) -> DirectoryListing {

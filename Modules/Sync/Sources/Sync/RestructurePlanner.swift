@@ -121,7 +121,19 @@ public struct RestructureTreeView {
     /// the option also drops items carrying the hidden *flag* with an ordinary name, which the
     /// survey walks and this view has always listed. Matching the survey is the point — see the
     /// type's own note — so the filter stays a dotted-name test, spelled exactly as before.
+    ///
+    /// **A folder whose contents are not on this Mac is asked for first, for a bounded time (FR21).**
+    /// This view is read on the main actor while the plan sheet derives, and a cloud-only folder
+    /// whose app has stopped never answers `contentsOfDirectory` — the sheet hung. It is asked
+    /// through `DatalessFolderReads` (`waitForContentsBlocking`), and one that does not answer lists
+    /// as nil: unknown, which the planner refuses on, never empty. `contentsFrom` is who is asked —
+    /// the same disk, except in a test that stands a dataless folder in front of a real one.
     public static func fromDisk(root: URL, fileManager: FileManager = .default)
+        -> RestructureTreeView {
+        fromDisk(root: root, fileManager: fileManager, contentsFrom: fileManager)
+    }
+
+    static func fromDisk(root: URL, fileManager: FileManager, contentsFrom: any FileManaging)
         -> RestructureTreeView {
         RestructureTreeView(listing: { path in
             let url = root.appendingPathComponent(path)
@@ -130,6 +142,7 @@ public struct RestructureTreeView {
             // or the pair route (a mirrored inbox's `TODO/Return.pages` → `Return.pages`) would
             // merge one document's insides into another's after all.
             if (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage == true { return nil }
+            guard contentsFrom.waitForContentsBlocking(of: url) else { return nil }
             guard let urls = try? fileManager.contentsOfDirectory(
                 at: url, includingPropertiesForKeys: keys, options: [])
             else { return nil }
@@ -569,6 +582,18 @@ public enum RestructurePlanner {
                .contains(where: { $0.lowercased() == targetName.lowercased() }) == true {
             return .failure(.targetTakenByFile(target: targetName, member: destinationParent))
         }
+        // **No listing is not "nothing there" (FR21).** A folder that stands but cannot be listed —
+        // cloud-only, its app not answering — lists as nil just as an absent one does. Absence is
+        // read off the parent instead: refused unless the parent lists and holds no folder of
+        // that name, as an unreadable source is refused above.
+        if view.childFolders(destination) == nil {
+            guard let standing = view.childFolders(destinationParent) else {
+                return .failure(.unknownFiles(source: destinationParent))
+            }
+            if standing.contains(where: { $0.lowercased() == targetName.lowercased() }) {
+                return .failure(.unknownFiles(source: destination))
+            }
+        }
         if view.childFolders(destination) == nil {
             // Nothing stands at the destination: the whole folder travels, files included.
             let newParent = (destination as NSString).deletingLastPathComponent
@@ -583,7 +608,12 @@ public enum RestructurePlanner {
                 // and the removal step offers that parent as a folder this landing emptied.
                 movesWholeFolder: true))
         } else {
-            var landed = LandedContents(of: destination, in: view)
+            // The source's own refusal first, as `emitMerge` would give it; then the target is
+            // read, never assumed empty (FR21).
+            guard view.files(source) != nil else { return .failure(.unknownFiles(source: source)) }
+            guard var landed = LandedContents.reading(destination, in: view) else {
+                return .failure(.unknownFiles(source: destination))
+            }
             var residue = LandedContents(of: nil, in: view)
             if let refusal = emitMerge(of: source, sourceName: sourceName,
                                        into: destination, targetName: targetName,
@@ -1012,14 +1042,29 @@ public enum RestructurePlanner {
             // had just filled, and every one of them skipped at apply as "appeared since the
             // plan" — the reviewed plan could not land as reviewed.
             let chosenPath = chosen.map { (memberPath as NSString).appendingPathComponent($0) }
-            var landed: LandedContents
-            if group.destExists {
-                landed = residues[targetPath] ?? LandedContents(of: targetPath, in: view)
-            } else {
-                landed = LandedContents(of: chosenPath, in: view)
-            }
+            //
+            // **Read, never assumed empty (FR21)** — and only once a source is about to land in
+            // it, so a lone rename asks nothing of a view that cannot list. A target or chosen
+            // rename that does not list refuses the plan, as an unreadable merge source does; the
+            // source's own refusal comes first, as `emitMerge` gives it.
+            var landedSoFar: LandedContents?
             for source in group.sources where source != chosen {
                 let sourcePath = (memberPath as NSString).appendingPathComponent(source)
+                guard view.files(sourcePath) != nil else { return .unknownFiles(source: sourcePath) }
+                var landed: LandedContents
+                if let landedSoFar {
+                    landed = landedSoFar
+                } else if group.destExists {
+                    guard let standing = residues[targetPath] ?? LandedContents.reading(targetPath, in: view)
+                    else { return .unknownFiles(source: targetPath) }
+                    landed = standing
+                } else if let chosenPath {
+                    guard let payload = LandedContents.reading(chosenPath, in: view)
+                    else { return .unknownFiles(source: chosenPath) }
+                    landed = payload
+                } else {
+                    landed = LandedContents(of: nil, in: view)
+                }
                 var residue = LandedContents(of: nil, in: view)
                 if let refusal = emitMerge(of: sourcePath, sourceName: source,
                                            into: targetPath, targetName: group.target,
@@ -1027,6 +1072,7 @@ public enum RestructurePlanner {
                                            actions: &actions) {
                     return refusal
                 }
+                landedSoFar = landed
                 residues[sourcePath] = residue
             }
             return nil
@@ -1117,6 +1163,13 @@ public enum RestructurePlanner {
                 })
             merged = [:]
         }
+
+        /// What `path` holds, or nil when the view cannot list it — a folder that is there but did
+        /// not answer (FR21), which a merge must not read as empty.
+        static func reading(_ path: String, in view: RestructureTreeView) -> LandedContents? {
+            guard view.files(path) != nil, view.childFolders(path) != nil else { return nil }
+            return LandedContents(of: path, in: view)
+        }
     }
 
     /// `LandedContents` one level down — a separate flat type because the merge stops there
@@ -1168,9 +1221,17 @@ public enum RestructurePlanner {
                 // One level down by the same rules (§5.4's collision policy for subfolders),
                 // against the occupant's contents wherever they stand at plan time, plus
                 // whatever earlier sources already merged into it.
-                var sub = landed.merged[occupant] ?? LandedSubfolder(
-                    files: Set(view.files(origin) ?? []),
-                    subfolders: Set(view.childFolders(origin) ?? []))
+                // The occupant read, never assumed empty (FR21), as the source below is.
+                var sub: LandedSubfolder
+                if let merged = landed.merged[occupant] {
+                    sub = merged
+                } else {
+                    guard let originFiles = view.files(origin),
+                          let originFolders = view.childFolders(origin) else {
+                        return .unknownFiles(source: origin)
+                    }
+                    sub = LandedSubfolder(files: Set(originFiles), subfolders: Set(originFolders))
+                }
                 guard let subFiles = view.files(subSource) else {
                     return .unknownFiles(source: subSource)
                 }

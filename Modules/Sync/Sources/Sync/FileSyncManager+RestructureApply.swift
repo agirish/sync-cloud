@@ -484,7 +484,7 @@ extension FileSyncManager {
                 try? fm.removeItem(at: profilesDirectory.appendingPathComponent("\(newId)/\(name)"))
             }
             let folder = profilesDirectory.appendingPathComponent(newId)
-            if FileSyncManager.directoryNames(at: folder.path, fm: fm).isEmpty {
+            if FileSyncManager.directoryNames(at: folder.path, fm: fm)?.isEmpty == true {
                 try? fm.removeItem(at: folder)
             }
             if let ledgerId {
@@ -1083,6 +1083,15 @@ extension FileSyncManager {
         // are `ItemIdentity.deepIdentityIgnoredNames`, the set the OS writes on its own schedule
         // and that the move-undo's "is it empty?" (`filesHeld`) already uses; one of those as a
         // directory (`.Trashes`) is skipped with everything inside it.
+        //
+        // **A folder whose contents are not on this Mac is asked for first, bounded (FR21).** This
+        // runs inside the file queue, and the plain enumerator below would sit forever in a
+        // cloud-only folder whose app has stopped — wedging the landing and everything queued
+        // behind it. The root and every folder the walk meets are asked through
+        // `DatalessFolderReads` before the walk reads them (the enumerator descends on the call
+        // AFTER the one that yielded a folder, so an answered folder is on disk by then); one that
+        // does not answer makes the count nil — unknown, so the folder is kept, never trashed.
+        guard fm.waitForContentsBlocking(of: URL(fileURLWithPath: path)) else { return nil }
         var sawError = false
         guard let walker = fm.enumerator(at: URL(fileURLWithPath: path),
                                          includingPropertiesForKeys: [.isDirectoryKey],
@@ -1096,22 +1105,27 @@ extension FileSyncManager {
                 if isDir { walker.skipDescendants() }
                 continue
             }
+            // `hasDirectoryPath` too: it is the enumerator's own word, and a test disk's folders
+            // answer no resource values. The count below is unchanged.
+            if isDir || url.hasDirectoryPath, !fm.waitForContentsBlocking(of: url) { return nil }
             if !isDir { files += 1 }
         }
         return sawError ? nil : files
     }
 
-    /// One directory level's entry names, through the protocol's own enumerator — the listing
-    /// the unlisted-file rule re-runs at the moment of the action.
-    /// (`FileManaging` has no `contentsOfDirectory`; adding one strands every test double.)
-    nonisolated static func directoryNames(at path: String, fm: FileManaging) -> [String] {
-        guard let walker = fm.enumerator(at: URL(fileURLWithPath: path),
-                                         includingPropertiesForKeys: nil,
-                                         options: [.skipsSubdirectoryDescendants],
-                                         errorHandler: nil) else { return [] }
-        var names: [String] = []
-        for case let url as URL in walker { names.append(url.lastPathComponent) }
-        return names
+    /// One directory level's entry names — the listing the unlisted-file rule re-runs at the
+    /// moment of the action. nil when the folder could not be listed.
+    ///
+    /// **Through `listing(of:)`, not a plain enumerator (FR21).** This runs inside the file queue,
+    /// and an enumerator over a cloud-only folder whose app has stopped never returns, wedging the
+    /// landing and every operation queued behind it; `listing(of:)` asks such a folder through
+    /// `DatalessFolderReads`, bounded. And it tells "could not be read" from "empty", which the
+    /// enumerator with no error handler did not: both came back `[]`, so the unlisted-file veto
+    /// found nothing unlisted in a folder it never saw.
+    nonisolated static func directoryNames(at path: String, fm: FileManaging) -> [String]? {
+        let listed = fm.listing(of: URL(fileURLWithPath: path))
+        guard listed.isComplete else { return nil }
+        return listed.urls.map(\.lastPathComponent)
     }
 
     /// Runs the actions in order against the real tree, re-probing every `src` and `dst`
@@ -1182,7 +1196,16 @@ extension FileSyncManager {
             if vetoedSources.contains(parent) { return true }
             guard !checkedSources.contains(parent) else { return false }
             checkedSources.insert(parent)
-            let listed = FileSyncManager.directoryNames(at: absolute(parent), fm: fm)
+            // A folder that exists but could not be listed — its cloud app did not answer, or it
+            // is locked — is skipped whole: the rule cannot vouch that it holds nothing unlisted
+            // (FR21). One that is gone is left to the per-action probes, which say so.
+            guard let listed = FileSyncManager.directoryNames(at: absolute(parent), fm: fm) else {
+                guard fm.fileExists(atPath: absolute(parent)) else { return false }
+                vetoedSources.insert(parent)
+                out.skipped.append("\(parent)/ could not be read — left untouched; a folder "
+                    + "whose contents the plan cannot see is never moved out of")
+                return true
+            }
             let unlisted = listed.filter { !$0.hasPrefix(".") }
                 .filter { !(plannedOut[parent] ?? []).contains($0) }
             guard !unlisted.isEmpty else { return false }

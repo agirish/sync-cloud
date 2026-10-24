@@ -10060,3 +10060,29 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s merge=%s folded=%s\n' $l \
 |---|---|---|
 | `v5.x` | The same exact-case occupancy (`folded=0`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure merge (`merge=0`) | CLOSED — does not apply |
+
+---
+
+## Restructure's listings ask a cloud-only folder for a bounded time (FR21) — main only
+
+The plan view listed with `contentsOfDirectory` on the main actor, and a landing's emptiness walk
+and unlisted-file veto with plain enumerators inside the file queue — none through
+`DatalessFolderReads`, so a cloud-only folder whose app had stopped hung the plan sheet or wedged a
+landing. The veto also read an unreadable folder as empty. `main` asks first
+(`waitForContentsBlocking`, or `listing(of:)` for the veto) and treats an unanswered folder as
+unreadable: the plan refuses, whether the folder is a merge's source or its destination, the folder
+is kept, the veto skips it.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s planner=%s blocking=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/RestructurePlanner.swift 2>/dev/null | grep -cF 'struct RestructureTreeView')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/DirectoryListing.swift 2>/dev/null | grep -cF 'func waitForContentsBlocking')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads blocking=1):
+# main, v5.x         planner=1 blocking=0
+# v4.x, v3.x, v2.x   planner=0 blocking=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same unbounded Restructure listings (`blocking=0`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure (`planner=0`) | CLOSED — does not apply |
